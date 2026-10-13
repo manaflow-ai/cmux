@@ -1013,17 +1013,6 @@
         {
           "keys" : [
             {
-              "key" : "\t",
-              "modifiers" : [
-                "ctrl"
-              ]
-            }
-          ],
-          "when" : null
-        },
-        {
-          "keys" : [
-            {
               "key" : "]",
               "modifiers" : [
                 "shift",
@@ -1100,18 +1089,6 @@
 
       ],
       "default_aliases" : [
-        {
-          "keys" : [
-            {
-              "key" : "\t",
-              "modifiers" : [
-                "ctrl",
-                "shift"
-              ]
-            }
-          ],
-          "when" : null
-        },
         {
           "keys" : [
             {
@@ -7498,10 +7475,25 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+                "ctrl"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "\t",
+        "modifiers" : [
+          "ctrl"
+        ]
+      },
       "id" : "nextSurface",
       "mcp" : "focusMove",
       "palette" : "offered",
@@ -7525,10 +7517,27 @@
 
       ],
       "default_aliases" : [
-
+        {
+          "keys" : [
+            {
+              "key" : "\t",
+              "modifiers" : [
+                "ctrl",
+                "shift"
+              ]
+            }
+          ],
+          "when" : null
+        }
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "\t",
+        "modifiers" : [
+          "ctrl",
+          "shift"
+        ]
+      },
       "id" : "prevSurface",
       "mcp" : "focusMove",
       "palette" : "offered",
@@ -23974,6 +23983,33 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action agent-history-show",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentHistory.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Agent History",
+      "title_key" : "action.history.showAgentHistory",
+      "title_table" : "HistoryActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "browser show-history",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -24465,6 +24501,60 @@
       "palette_suggested" : null,
       "title" : "Copy Bookmark Link",
       "title_key" : "action.bookmark.copyLink",
+      "title_table" : "BookmarkActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "bookmark set-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "bookmark"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "bookmark.setIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Bookmark Folder Icon…",
+      "title_key" : "action.bookmark.setIcon",
+      "title_table" : "BookmarkActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "bookmark clear-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "bookmark"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "bookmark.clearIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Bookmark Folder Icon",
+      "title_key" : "action.bookmark.clearIcon",
       "title_table" : "BookmarkActions"
     },
     {
@@ -27274,40 +27364,50 @@
           }
         },
         {
-          "enabled_when" : "can_perform",
-          "id" : "bookmark.newFolder",
-          "kind" : "action",
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "bookmark.newFolder",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "bookmark.addAllTabs",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "new",
+          "kind" : "folder",
           "order" : 6,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
-        },
-        {
-          "enabled_when" : "can_perform",
-          "id" : "bookmark.addAllTabs",
-          "kind" : "action",
-          "order" : 7,
-          "visible_when" : {
-            "debug_only" : false,
-            "feature" : null,
-            "requires" : [
-
-            ]
-          }
+          "title" : "New",
+          "title_key" : "menu.folder.new",
+          "title_table" : "Localizable"
         },
         {
           "kind" : "separator",
-          "order" : 8
+          "order" : 7
         },
         {
           "enabled_when" : "can_perform",
           "id" : "bookmark.edit",
           "kind" : "action",
-          "order" : 9,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -27315,6 +27415,44 @@
 
             ]
           }
+        },
+        {
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "bookmark.setIcon",
+              "kind" : "action",
+              "label" : "Set Icon…",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "bookmark.clearIcon",
+              "kind" : "action",
+              "label" : "Remove Icon",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "appearance",
+          "kind" : "folder",
+          "order" : 9,
+          "title" : "Appearance",
+          "title_key" : "menu.folder.appearance",
+          "title_table" : "Localizable"
         },
         {
           "kind" : "separator",

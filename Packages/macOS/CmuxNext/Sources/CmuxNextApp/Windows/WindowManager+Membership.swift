@@ -214,20 +214,22 @@ extension WindowManager {
         if incognito { registry.apply { $0.markIncognito(id); return WindowRegistry.Changes() } }
         if behind { behindWindows.insert(id) }
         protectIfUnknown(workspaces, window: id)
-        transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame) }
+        transition(select: [id: workspaces]) { $0.openWindow(id: id, workspaceIDs: workspaces, frame: frame, behind: behind) }
         guard let controller = controller(for: id) else { return nil }
         if let frame { controller.window?.setFrame(frame, display: true) }
         return controller
     }
 
-    /// The user closed window `id`: its workspaces move to the most recent
-    /// other window of its kind; the last window stays registered, closed,
-    /// with its workspaces (restorable by a Dock click).
+    /// The user closed window `id`: it stays registered, closed, with its
+    /// workspaces, as one closed group (Cmd-Shift-T, History, a Dock click).
+    /// A daemon without window records records no group: a non-last window's
+    /// workspaces then move to the most recent other window, as before.
     /// An incognito window closes for good: its workspaces close too.
     func userClosed(_ id: String) {
         let snapshots = services.sidebarSnapshots
         Task { await snapshots.forget(window: id) }
-        let changes = transition { $0.close(id) }
+        let keepsGroup = services.daemon.supports(DaemonCapabilities.shared.windowRecords)
+        let changes = transition { $0.close(id, keepsGroup: keepsGroup) }
         discard(changes.discarded)
     }
 
@@ -243,6 +245,12 @@ extension WindowManager {
         guard let reopened, let controller = controller(for: reopened) else { return false }
         bringToFront(controller)
         return true
+    }
+
+    /// Closed window `id`'s group was deleted (`WindowRegistry.releaseClosed`).
+    func releaseClosedWindow(id: String) {
+        transition { $0.releaseClosed(id) }
+        if registry.value.window(id)?.isOpen == true, let controller = controller(for: id) { bringToFront(controller) }
     }
 
     /// Reopens closed window `id` (Reopen Closed of its `window` group).
@@ -338,7 +346,8 @@ extension WindowManager {
         let dead = Set(members.filter(isDead))
         let fallback = launchWindowID ?? UUID().uuidString.lowercased()
         transition(select: preferred) { registry in
-            registry.reconcile(live: live, dead: dead, placements: placements, held: held, fallbackWindow: fallback)
+            registry.reconcile(live: live, dead: dead, placements: placements, held: held, behind: behindWindows,
+                               fallbackWindow: fallback)
         }
         // A workspace that changed profile leaves no trace in membership.
         if registry.value == before, preferred.isEmpty { repairSelections(previous: [:]) }

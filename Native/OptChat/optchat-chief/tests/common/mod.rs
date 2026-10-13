@@ -9,10 +9,10 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
 use cmux_chief::acp::AcpmuxEvent;
-use cmux_conversation::{Change, Message, Op, Part, Summary};
+use cmux_conversation::{Change, DerivedImage, Message, Op, Part, Summary};
 use optchat_chief::acpmux::{AgentEvent, AgentPort, SessionSpec, TurnSignal};
 use optchat_chief::brain::{Brain, Engine, Input, PARENT, Settings};
-use optchat_chief::daemon::{ConversationPort, DaemonEvent, OpError, participants};
+use optchat_chief::daemon::{ConversationPort, DaemonEvent, OpError, PreviewPort, participants};
 use optchat_chief::state::StateFile;
 use optchat_host::{
     CompactModel, CompactRequest, Config, Followup, ModelError, OptChat, Reply, SystemClock,
@@ -136,6 +136,10 @@ pub struct Owner {
     pub reads: Vec<String>,
     /// Every `cloud-mux-ack` the brain sent: (conversation, seq).
     pub acks: Vec<(String, u64)>,
+    /// Every attachment upload: (conversation, record, name, width, height).
+    pub uploads: Vec<(String, DerivedImage, String, u32, u32)>,
+    /// The owner lacks `link-preview-v1` (an older daemon).
+    pub no_link_previews: bool,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -203,6 +207,47 @@ impl Owner {
 #[derive(Clone)]
 pub struct FakeDaemon(pub Arc<Mutex<Owner>>);
 
+/// The link preview thread's port onto the same fake owner.
+pub struct FakeUploader(pub Arc<Mutex<Owner>>);
+
+impl PreviewPort for FakeUploader {
+    fn snapshot(
+        &mut self,
+        conversation: &str,
+        tail: u32,
+    ) -> Result<(Summary, Vec<Message>), OpError> {
+        FakeDaemon(self.0.clone()).snapshot(conversation, tail)
+    }
+
+    fn upload_image(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<DerivedImage, OpError> {
+        use sha2::Digest;
+        let image = DerivedImage {
+            hash: sha2::Sha256::digest(bytes)
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+            mime_type: mime_type.to_owned(),
+            byte_count: bytes.len() as u64,
+        };
+        self.0.lock().unwrap().uploads.push((
+            conversation.to_owned(),
+            image.clone(),
+            name.to_owned(),
+            width,
+            height,
+        ));
+        Ok(image)
+    }
+}
+
 impl ConversationPort for FakeDaemon {
     fn attachment(
         &mut self,
@@ -220,6 +265,15 @@ impl ConversationPort for FakeDaemon {
             .get(&(hash.to_owned(), variant.to_owned()))
             .cloned()
             .ok_or_else(|| OpError::Rejected("unknown_attachment".into()))
+    }
+
+    fn supports(&self, capability: &str) -> bool {
+        capability == optchat_chief::daemon::LINK_PREVIEW_CAPABILITY
+            && !self.0.lock().unwrap().no_link_previews
+    }
+
+    fn preview_port(&self) -> Option<Box<dyn PreviewPort>> {
+        Some(Box::new(FakeUploader(self.0.clone())))
     }
 
     fn snapshot(

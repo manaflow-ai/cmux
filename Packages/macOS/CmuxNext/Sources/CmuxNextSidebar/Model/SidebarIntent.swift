@@ -59,8 +59,6 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case switchProfile(ProfileKey)
     /// Create a profile (the bar's "+").
     case newProfile
-    /// Show agent history: every chat on this device (the bar's History dot, cx-zlnl).
-    case openHistory
     /// Move a profile to an insertion index (dot drag).
     case reorderProfile(ProfileKey, index: Int)
     /// Run an item of a pinned section (a built-in's action, a pinned
@@ -73,6 +71,9 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case setAutomaticUpdates(Bool)
     /// A link in the update card's popover (a pull request, the release notes).
     case openUpdateLink(URL)
+    /// The update card's "See all changes": the What's New page for the
+    /// staged update (cx-7rone).
+    case openUpdateChanges
     /// A notice card button (`SidebarModel.noticeCard`): the card's id and
     /// the action's id (a tip's Try It, an update's Update).
     case noticeAction(card: String, action: String)

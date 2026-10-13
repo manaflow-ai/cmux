@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58. */
+/* cmux-tui mux protocol 12, IR 374ade89328236fb2b081d417dec69578ac6c1efb7e4c3dd7bdb14bcdd60fa06. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58" as const;
+export const SDK_IR_SHA256 = "374ade89328236fb2b081d417dec69578ac6c1efb7e4c3dd7bdb14bcdd60fa06" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2471,7 +2471,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "profiles-v1",
-    "fields": {},
+    "fields": {
+      "remote_localhost": {
+        "since": 12,
+        "capability": "personal-remote-localhost-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -2521,6 +2526,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "screen-metadata-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "set-session-icon": {
+    "authority": "control",
+    "since": 12,
+    "capability": "session-icon-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -4125,7 +4140,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "icon": {
         "capability": "bookmark-icon-v1",
-        "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>.",
+        "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}.",
         "nullable": false,
         "presence": "optional",
         "since": 12,
@@ -5098,7 +5113,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "type": {
-        "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties.",
+        "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties.",
         "nullable": false,
         "presence": "required",
         "type": {
@@ -22205,6 +22220,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint64"
           }
         },
+        "remote_localhost": {
+          "capability": "personal-remote-localhost-v1",
+          "constraints": [
+            "The workspace's own remote-localhost choice; null follows the app's browser.remoteLocalhost setting."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "session_id": {
           "nullable": false,
           "presence": "required",
@@ -22416,6 +22445,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "set-session-icon": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "icon": {
+          "description": "An icon value sets the session's (machine's) icon; null clears it.",
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },

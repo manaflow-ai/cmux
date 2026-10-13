@@ -116,8 +116,6 @@ final class AppServices {
         service.start()
         return service
     }()
-    /// The kinds of tabs opened on purpose, by folder, for `tabs.newTabKind: auto`.
-    var newTabKinds = NewTabKindMemory()
     /// Each pane's own Show Tab Bar choice (`PaneTabBar`).
     let paneTabBars = PaneTabBarChoices()
     /// Pane controller mounts and releases in any window (`PaneMounts`).
@@ -207,6 +205,7 @@ final class AppServices {
     /// - Parameter launchReveal: The launch load-in the windows' sidebars
     ///   hold for; the app-wide one by default.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = .shared) {
+        DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.launchReveal = launchReveal
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared

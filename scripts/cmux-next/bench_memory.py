@@ -24,7 +24,7 @@ Usage:
   bench_memory.py --app BUNDLE [--socket PATH --app-pid PID]
       [--workspaces 1,10,30] [--mix terminal+chat,terminal+browser,terminal]
       [--settle 30] [--churn-minutes 0] [--sample-minutes 5]
-      [--url URL] [--top 15] [--out FILE.json]
+      [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
 
 Prints a table per measurement (top processes by footprint, totals per
 kind) and writes every sample to --out.
@@ -35,12 +35,15 @@ import argparse
 import ctypes
 import json
 import os
+import re
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 _libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
@@ -116,6 +119,7 @@ def owned(app_pid: int, bundle: str):
     found = {}
     for pid, _ppid, cmd in process_table():
         if in_bundle(cmd, bundle) is not None:
+            _run_pids.add(pid)
             found[pid] = (kind_of(cmd, bundle), cmd)
         elif _responsible is not None and "com.apple.WebKit." in cmd and _responsible(pid) == app_pid:
             found[pid] = (kind_of(cmd, bundle), cmd)
@@ -162,11 +166,11 @@ class App:
     """The app's control socket, through the app's own bundled CLI."""
 
     def __init__(self, bundle: str, socket_path: str):
-        self.cli = os.path.join(bundle, "Contents/Resources/bin/cmux")
+        self.cli_path = os.path.join(bundle, "Contents/Resources/bin/cmux")
         self.socket = socket_path
 
     def run(self, action: str, target: str | None = None, **args):
-        argv = [self.cli, "--app-socket", self.socket, "--json", "action", "run", action]
+        argv = [self.cli_path, "--app-socket", self.socket, "--json", "action", "run", action]
         if target:
             argv += ["--target", target]
         for name, value in args.items():
@@ -180,32 +184,133 @@ class App:
         except ValueError:
             return {"error": (out.stdout + out.stderr).strip()[:300]}
 
+    def action(self, action: str, **args) -> dict:
+        """`action.run` over the socket itself: the CLI reads `--session`
+        as its own option, so an action argument of that name never reaches
+        the app through it."""
+        params = {"action": action, "args": args, "wait": True, "origin": "script",
+                  "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
+        reply = b""
+        try:
+            with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
+                stream.settimeout(120)
+                stream.connect(self.socket)
+                stream.sendall((json.dumps({"id": 1, "method": "action.run", "params": params}) + "\n").encode())
+                while not reply.endswith(b"\n"):
+                    chunk = stream.recv(65536)
+                    if not chunk:
+                        break
+                    reply += chunk
+        except OSError as error:  # includes a timeout: this workspace is skipped, the run goes on
+            return {"error": f"{action}: {error}"}
+        try:
+            answer = json.loads(reply or b"{}")
+        except ValueError:
+            return {"error": reply.decode(errors="replace")[:300]}
+        return {"error": json.dumps(answer["error"])[:300]} if answer.get("error") else answer.get("result") or {}
+
+    def identify(self) -> dict:
+        try:
+            out = subprocess.run([self.cli_path, "--app-socket", self.socket, "--json", "app", "identify"],
+                                 capture_output=True, text=True, timeout=10)
+            return json.loads(out.stdout or "{}")
+        except (subprocess.TimeoutExpired, ValueError):
+            return {}
+
     def ping(self) -> bool:
-        out = subprocess.run([self.cli, "--app-socket", self.socket, "app", "ping"],
+        out = subprocess.run([self.cli_path, "--app-socket", self.socket, "app", "ping"],
                              capture_output=True, text=True, timeout=30)
         return out.returncode == 0
 
 
-def open_workspace(app: App, recipe: str, url: str, index: int):
+FAKE_AGENT_ID = "bench-memory-fake"
+
+
+class FakeChats:
+    """Chats on an ACP test agent whose turns end (--fake-agent).
+
+    A prompt sent through the app's CLI waits in a new chat's composer for a
+    Send, so such a chat never gets a session. Each chat here is instead an
+    acpmux session made on the app's own acpmux, with its first turn already
+    answered, opened as a workspace (`agent.openSessionWorkspace`): an idle
+    chat, as one is after its reply. Its sessions stay in that acpmux's
+    store (the app's tag under ~/.acpmux)."""
+
+    def __init__(self, app: App, bundle: str, script: str):
+        self.app = app
+        added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
+                        args=os.path.abspath(script), protocol="acp", replace="true")
+        if added.get("error") or added.get("code"):
+            raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
+        self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
+
+    @staticmethod
+    def acpmux_socket(bundle: str) -> str:
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            for pid, _, cmd in process_table():
+                if in_bundle(cmd, bundle) is not None and "/bin/acpmux daemon run" in cmd:
+                    listed = subprocess.run(["lsof", "-a", "-p", str(pid), "-U", "-Fn"],
+                                            capture_output=True, text=True, timeout=30).stdout
+                    # `<home>/acpmux.sock`, or `/tmp/acpmux-<uid>/<hash>.sock` when that path is too long.
+                    paths = [line[1:] for line in listed.splitlines()
+                             if line.startswith("n/") and line.endswith(".sock") and "acpmux" in line]
+                    if paths:
+                        return paths[0]
+            time.sleep(1)  # test script: waiting for the app's acpmux to listen
+        raise SystemExit("bench-memory: the app's acpmux opened no socket within 90 s")
+
+    def open(self, index: int) -> str | None:
+        """A new workspace on a new answered chat; returns the workspace id."""
+        made = subprocess.run([self.app.cli_path, "acp", "new", "--json", "-d", "-m", FAKE_AGENT_ID,
+                               f"memory bench chat {index}"],
+                              capture_output=True, text=True, timeout=120, env=self.env)
+        try:
+            session = json.loads(made.stdout)["sessionId"]
+        except (ValueError, KeyError):
+            print(f"   acp new: {(made.stdout + made.stderr).strip()[:300]}", file=sys.stderr)
+            return None
+        response = self.app.action("agent.openSessionWorkspace", session=session)
+        created = [item for item in response.get("created", []) if str(item).startswith("ws_")]
+        if not created:
+            print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
+            return None
+        return created[0]
+
+
+def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats | None = None):
     """One workspace of `recipe` (kinds joined by +); returns its id or None."""
-    made = app.run("workspace.newAtBottom")
-    created = [item for item in made.get("created", []) if str(item).startswith("ws_")]
-    if not created:
-        print(f"   workspace.newAtBottom: {made.get('error') or made.get('message') or made}", file=sys.stderr)
-        return None
-    workspace = created[0]
-    # Browser and chat tabs open in the focused pane (they take a tab or pane
-    # target, not a workspace), so show the new workspace first, as a user
-    # who opened it would; that also loads its pages and renderers.
-    app.run("workspace.selectLast")
-    for kind in recipe.split("+"):
+    kinds = recipe.split("+")
+    if chats and "chat" in kinds:
+        # The workspace opens on its chat (with a terminal first, as every such workspace).
+        kinds.remove("chat")
+        workspace = chats.open(index)
+        if workspace is None:
+            return None
+        app.action("goToWorkspace", workspace=workspace)
+    else:
+        made = app.run("workspace.newAtBottom")
+        created = [item for item in made.get("created", []) if str(item).startswith("ws_")]
+        if not created:
+            print(f"   workspace.newAtBottom: {made.get('error') or made.get('message') or made}", file=sys.stderr)
+            return None
+        workspace = created[0]
+        # Browser and chat tabs open in the focused pane (they take a tab or pane
+        # target, not a workspace), so show the new workspace first, as a user
+        # who opened it would; that also loads its pages and renderers.
+        app.run("workspace.selectLast")
+    for kind in kinds:
+        if kind == "none":
+            # The workspace alone (its first page): `--mix none` churns workspaces only.
+            continue
         if kind == "terminal":
             response = app.run("newSurface")
         elif kind == "browser":
             response = app.run("openBrowser.chromium", url=url)
         elif kind == "chat":
-            # A prompt opens an agent chat tab. Fleet minis carry no agent
-            # credentials, so the turn fails and the chat page stays.
+            # A prompt opens an agent chat tab. It waits in the composer for a
+            # Send (fleet minis carry no agent credentials either): --fake-agent
+            # makes chats that answered.
             response = app.run("newTab.submit", text=f"memory bench chat {index}")
         else:
             raise SystemExit(f"bench-memory: unknown kind {kind!r} in --mix")
@@ -221,8 +326,22 @@ def close_workspace(app: App, workspace: str):
     return response
 
 
+# Every process of the bundle this run saw: the terminal hosts its daemons
+# start run outside the bundle and name their daemon (`--owner ...@<pid>`).
+_run_pids: set[int] = set()
+
+
 def bundle_pids(bundle: str) -> set[int]:
-    return {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None}
+    """The bundle's processes, with the terminal hosts this run's daemons started."""
+    table = process_table()
+    pids = {pid for pid, _, cmd in table if in_bundle(cmd, bundle) is not None}
+    _run_pids.update(pids)
+    hosts = set()
+    for pid, _, cmd in table:
+        owner = re.search(r"--owner \S+@(\d+)", cmd) if "__terminal-host" in cmd else None
+        if owner and int(owner.group(1)) in _run_pids:
+            hosts.add(pid)
+    return pids | hosts
 
 
 def is_binary(cmd: str, binary: str) -> bool:
@@ -244,11 +363,27 @@ def end_processes(pids: set[int]):
             return
 
 
-def listening_sockets(pid: int) -> list[str]:
-    """Unix socket paths process `pid` has open (its control socket among them)."""
-    out = subprocess.run(["lsof", "-a", "-p", str(pid), "-U", "-Fn"], capture_output=True, text=True).stdout
-    paths = [line[1:] for line in out.splitlines() if line.startswith("n/")]
-    return [path for path in paths if path.endswith(".sock") and os.path.basename(path).startswith("cmux")]
+def control_socket(bundle: str, pid: int, dirs: list[str]) -> str | None:
+    """The control socket whose app answers `identify` with `pid`: another
+    cmux on this Mac may bind one meanwhile. (lsof shows the app's bind
+    path, not the name it is reached by.)"""
+    for directory in dirs:
+        for name in os.listdir(directory):
+            path = os.path.join(directory, name)
+            if name.startswith("cmux") and name.endswith(".sock") and App(bundle, path).identify().get("pid") == pid:
+                return path
+    return None
+
+
+def end_bundle(bundle: str):
+    """Ends every process of the bundle, the app first: a live app (it can
+    ignore SIGTERM) respawns daemons ended before it. No process of this
+    bundle ran before the launch (`launch`), so every one is this run's."""
+    binary_dir = os.path.join(bundle, "Contents/MacOS")
+    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/")}
+    bundle_pids(bundle)  # notes the daemons before they go, for their terminal hosts
+    end_processes(apps)
+    end_processes(bundle_pids(bundle))
 
 
 def wait_gone(pid: int, seconds: float) -> bool:
@@ -262,7 +397,14 @@ def wait_gone(pid: int, seconds: float) -> bool:
     return False
 
 
-def launch(bundle: str):
+def merged(base: dict, extra: dict) -> dict:
+    out = dict(base)
+    for key, value in extra.items():
+        out[key] = merged(out[key], value) if isinstance(value, dict) and isinstance(out.get(key), dict) else value
+    return out
+
+
+def launch(bundle: str, config: dict):
     """Starts the app with a scratch HOME, TMPDIR and config; returns (pid, socket, scratch).
 
     Through LaunchServices (`open`), as a user's launch: the app is then the
@@ -286,7 +428,7 @@ def launch(bundle: str):
     # Sparkle would otherwise download a newer nightly into the bundle under
     # test mid-run (and its installer counts as the bundle's process).
     with open(env["CMUX_NEXT_CONFIG_FILE"], "w") as handle:
-        json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
+        json.dump(merged({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, config), handle)
     argv = ["open", "-n", "-g"] + [arg for name, value in env.items() for arg in ("--env", f"{name}={value}")]
     subprocess.run(argv + ["-a", bundle], check=True, timeout=60)
     try:
@@ -295,16 +437,19 @@ def launch(bundle: str):
             pid = next((p for p, _, cmd in process_table() if is_binary(cmd, binary)), None)
             # Only a socket the launched app itself holds: another cmux on
             # this Mac may bind one meanwhile.
-            for path in listening_sockets(pid) if pid else []:
-                app = App(bundle, path)
-                if app.ping():
-                    return pid, app.socket, scratch
+            path = control_socket(bundle, pid, ["/tmp", env["TMPDIR"]]) if pid else None
+            if path:
+                return pid, path, scratch
             time.sleep(1)  # test script: waiting for the launched app's socket
         raise SystemExit("bench-memory: the launched app opened no socket within 90 s")
     except BaseException:
-        end_processes(bundle_pids(bundle))
+        end_bundle(bundle)
         shutil.rmtree(scratch, ignore_errors=True)
         raise
+
+
+def interrupted(_signum, _frame):
+    raise KeyboardInterrupt
 
 
 def main():
@@ -319,8 +464,15 @@ def main():
     parser.add_argument("--sample-minutes", type=float, default=5)
     parser.add_argument("--url", default="https://example.com")
     parser.add_argument("--top", type=int, default=15)
+    parser.add_argument("--config", default="{}",
+                        help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
+    parser.add_argument("--fake-agent", metavar="SCRIPT",
+                        help="an ACP agent script (cmux-tui/crates/acpmux/tests/fake_agent.py) the chats use: "
+                             "its turns end, as a chat's do after its reply")
     parser.add_argument("--out")
     args = parser.parse_args()
+    # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
+    signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
         raise SystemExit("bench-memory: macOS only (run it on a fleet or capture mini)")
 
@@ -331,9 +483,10 @@ def main():
             raise SystemExit("bench-memory: --socket needs --app-pid")
         socket_path, app_pid = args.socket, args.app_pid
     else:
-        launched, socket_path, scratch = launch(bundle)
+        launched, socket_path, scratch = launch(bundle, json.loads(args.config))
         app_pid = launched
     app = App(bundle, socket_path)
+    chats = None
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [],
@@ -348,11 +501,13 @@ def main():
         return result
 
     try:
+        if args.fake_agent:
+            chats = FakeChats(app, bundle, args.fake_agent)
         settle_and_sample("idle-launch")
         for count in counts:
             # The launch workspace counts as the first one.
             while len(opened) + 1 < count:
-                workspace = open_workspace(app, recipes[len(opened) % len(recipes)], args.url, len(opened))
+                workspace = open_workspace(app, recipes[len(opened) % len(recipes)], args.url, len(opened), chats)
                 if workspace is None:
                     break
                 opened.append(workspace)
@@ -362,7 +517,7 @@ def main():
             next_sample = time.monotonic() + args.sample_minutes * 60
             cycles = 0
             while time.monotonic() < end:
-                workspace = open_workspace(app, recipes[cycles % len(recipes)], args.url, 1000 + cycles)
+                workspace = open_workspace(app, recipes[cycles % len(recipes)], args.url, 1000 + cycles, chats)
                 time.sleep(2)  # test script: let the new tabs load before closing them
                 if workspace:
                     close_workspace(app, workspace)
@@ -390,12 +545,8 @@ def main():
             app.run("quit")
             # A quit the app holds (a confirmation) and SIGTERM can both leave
             # it running, and a live app respawns its daemons: end it first.
-            if not wait_gone(launched, 20):
-                end_processes({launched})
-            # Its daemons (cmux-tui, acpmux, terminal hosts) detach and outlive
-            # it. No process of this bundle ran before the launch (`launch`),
-            # so every one now is this run's.
-            end_processes(bundle_pids(bundle))
+            wait_gone(launched, 20)
+            end_bundle(bundle)
         if args.out:
             with open(args.out, "w") as handle:
                 json.dump(report, handle, indent=2)

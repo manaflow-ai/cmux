@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58. */
+/* cmux-tui mux protocol 12, IR 374ade89328236fb2b081d417dec69578ac6c1efb7e4c3dd7bdb14bcdd60fa06. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -71,7 +71,7 @@ export type Bookmark = {
   "browser_profile_id": string;
   "created_ms": bigint;
   "favicon_key"?: string;
-  /** Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>. */
+  /** Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}. */
   "icon"?: string;
   /** `bm_` and 32 lowercase hex digits. */
   "id": string;
@@ -255,7 +255,7 @@ export type ConversationPart = {
   "status"?: string;
   /** type text. */
   "text"?: string;
-  /** Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties. */
+  /** Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties. */
   "type": string;
   [key: string]: unknown;
 };

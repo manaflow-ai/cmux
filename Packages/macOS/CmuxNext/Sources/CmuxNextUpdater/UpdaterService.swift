@@ -52,6 +52,9 @@ public final class UpdaterService {
     /// Opens the changelog page for the releases after `from` up to `to`
     /// (set by the App).
     @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
+    /// Opens a web release notes page in a browser tab (set by the App;
+    /// "See all changes" when the staged build has no signed notes).
+    @ObservationIgnored public var openReleaseNotesURL: ((URL) -> Bool)?
     /// Runs an allow-listed action id (set by the App; an announcement's Try It).
     @ObservationIgnored public var runAllowListedAction: ((String) -> Void)?
     /// The announcement cards to show (filtered), newest feed order.
@@ -88,18 +91,25 @@ public final class UpdaterService {
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).
     public internal(set) var automaticUpdates = true
-    /// Writes `updates.downloadAutomatically` (set by the App).
-    @ObservationIgnored public var writeAutomaticUpdates: ((Bool) -> Void)?
+    /// Writes a setting the updater's cards change (set by the App).
+    @ObservationIgnored public var writeSetting: ((UpdaterSetting, Bool) -> Void)?
     /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
     /// `sidebar.cards.tips` off) and what the tips remember on this Mac.
     public internal(set) var tip: Tip?
     @ObservationIgnored var tipState = TipState()
-    /// `sidebar.cards.tips` (set by the App).
-    public var tipsEnabled = true { didSet { if oldValue != tipsEnabled { refreshTip() } } }
+    /// `sidebar.cards.tips` (set by the App once settings load; nil before,
+    /// and no tip shows until then); turning it on again ends a timed mute.
+    public var tipsEnabled: Bool? {
+        didSet {
+            guard oldValue != tipsEnabled else { return }
+            if oldValue == false, tipsEnabled == true { tipsTurnedOn() }
+            refreshTip()
+        }
+    }
     /// Runs a tip's action as the user's own (set by the App: the registry).
     @ObservationIgnored public var runTipAction: ((String) -> Void)?
-    /// Re-picks the tip when the app becomes active (set by the App).
-    @ObservationIgnored public var activationObservation: Task<Void, Never>?
+    /// Re-picks the tip when the app becomes active (``refreshTipOnActivation()``).
+    @ObservationIgnored var activationObservation: Task<Void, Never>?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
@@ -115,6 +125,10 @@ public final class UpdaterService {
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
+    #if DEBUG
+    /// The card kind last written to the update harness's timeline.
+    @ObservationIgnored var markedCardKind: String?
+    #endif
 
     /// Asks the App to show the update sheet (set by the App): a failure's
     /// details only.
@@ -284,9 +298,12 @@ public final class UpdaterService {
         return task
     }
 
-    /// Installs and relaunches: the downloaded update at once, the one
-    /// downloading as soon as it is ready, else the newest after a fresh
-    /// check (the shared driver's attempt flow, so never a stale version).
+    /// Installs and relaunches the downloaded update at once, or the one
+    /// being checked for or downloaded as soon as it is staged. With
+    /// nothing found yet, it runs a fresh check (the shared driver's attempt
+    /// flow, so never a stale version) whose progress and result show on the
+    /// notice card; a found update downloads and waits as the staged update
+    /// card (Restart to Update).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
         #if DEBUG
@@ -301,7 +318,10 @@ public final class UpdaterService {
             send(.installRequested)
         case .hidden, .installing, .note:
             // Nothing found yet: an explicit install runs Sparkle's attempt
-            // flow (a fresh check that installs the newest at once).
+            // flow (a fresh check that installs the newest at once). The
+            // user asked, so its progress and result show on the notice
+            // card (up to date, downloading, the failure), as for a check.
+            send(.checkRequested)
             controller.attemptUpdate()
         }
     }

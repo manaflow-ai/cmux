@@ -25,7 +25,9 @@ nonisolated public struct ReleaseNotesStore: Sendable {
     @concurrent
     public func notes(for build: String) async -> ReleaseNotes? {
         guard Self.isSafeName(build), let data = await verified("\(build).json"),
-              let notes = try? JSONDecoder().decode(ReleaseNotes.self, from: data), notes.build == build else { return nil }
+              var notes = try? JSONDecoder().decode(ReleaseNotes.self, from: data), notes.build == build else { return nil }
+        // Older notes carry only commit subjects: readers (the changelog page) get titles with PRs.
+        notes.items = notes.changeItems
         return notes
     }
 

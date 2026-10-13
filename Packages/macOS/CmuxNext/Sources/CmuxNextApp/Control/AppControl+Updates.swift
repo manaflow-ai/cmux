@@ -4,6 +4,8 @@ import CmuxNextUpdater
 import Foundation
 #if DEBUG
 import AppKit
+import CmuxNextBridge
+import CmuxNextSidebar
 import WebKit
 #endif
 
@@ -96,7 +98,11 @@ extension AppControl {
             // sidebar. "show-popover" (default) opens the staged-update highlights
             // popover (the React surface); "state" reads which update pages the
             // sidebar holds and the web views under it; "dismiss-updated" runs
-            // the Updated card's x (cx-asynu).
+            // the Updated card's x (cx-asynu). "sidebar-width" {width} sets the
+            // active window's sidebar width (narrow-sidebar shots; answers the
+            // previous width, to restore it); "open-changes"
+            // runs the staged card's "See all changes" (its intent) and
+            // "open-whats-new" the Updated card's "See What's New" (cx-7rone).
             .mainActor("debug.update_surfaces") { [weak services = appServices] call in
                 guard let services, let sidebar = services.windows.active?.sidebar.container.sidebarView else {
                     throw ControlError.invalidParams("debug.update_surfaces: no active window")
@@ -107,10 +113,31 @@ extension AppControl {
                 case "state":
                     var state = sidebar.debugUpdateSurfaceState().mapValues { JSONValue.string($0) }
                     state["sidebarWebViews"] = .number(Double(Self.webViewCount(in: sidebar)))
+                    // What the window shows (cx-cmge7 proofs): its top page, else the internal
+                    // page of the focused pane's selected tab ("" for none).
+                    let window = services.windows.active
+                    state["topPage"] = .string(window?.shownTopPage?.rawValue ?? "")
+                    state["holdsVisiblePageTab"] = .bool(window?.holdsVisiblePageTab ?? false)
+                    let pane = window?.content.flatMap { $0.focusedPane ?? $0.panes.values.first }
+                    let selected = pane?.stripModel.selectedID?.rawValue
+                    state["selectedPage"] = .string(selected.flatMap { services.pages.page(ofTab: $0)?.rawValue
+                        ?? pane?.tab(StripTabID($0))?.page } ?? "")
                     return .value(.object(state))
                 case "dismiss-updated":
                     services.updater.whatsNew.dismissUpdated()
                     return .value(.null)
+                case "sidebar-width":
+                    guard let width = call.params["width"]?.doubleValue, width > 0 else {
+                        throw ControlError.invalidParams("debug.update_surfaces: sidebar-width needs width")
+                    }
+                    let previous = Double(sidebar.bounds.width)
+                    services.windows.active?.sidebar.restore(width: width, hidden: false)
+                    return .value(.object(["previous": .number(previous), "width": .number(width)]))
+                case "open-changes":
+                    SidebarCardFeed.handle(.openUpdateChanges, services: services)
+                    return .value(.null)
+                case "open-whats-new":
+                    return .value(.bool(services.updater.openWhatsNewForLastUpdate()))
                 case let action:
                     throw ControlError.invalidParams("debug.update_surfaces: unknown action \(action)")
                 }

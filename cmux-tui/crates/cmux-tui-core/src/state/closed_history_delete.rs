@@ -132,6 +132,8 @@ struct Deleted {
     deleted: Vec<String>,
     updated: Vec<String>,
     changes: Vec<Value>,
+    /// Workspace keys of the deleted workspace members (their agent-home folders go).
+    keys: Vec<String>,
 }
 
 /// The groups an `all` request deletes: those closed at or after `since_ms`
@@ -180,6 +182,16 @@ fn delete_one(
     let record = closed_record(transaction, closed_id)?
         .ok_or_else(|| state_not_found("closed", closed_id))?;
     let all = record["members"].as_array().cloned().unwrap_or_default();
+    let removed = match members {
+        None => all.clone(),
+        Some(chosen) => all
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| chosen.contains(index))
+            .map(|(_, member)| member.clone())
+            .collect(),
+    };
+    out.keys.extend(super::agent_home_moves::member_keys(&removed));
     let keep = match members {
         None => Vec::new(),
         Some(chosen) => {
@@ -216,6 +228,7 @@ fn delete_one(
 fn delete_in(
     transaction: &Transaction<'_>,
     request: &DeleteRequest,
+    keys: &std::sync::Mutex<Vec<String>>,
 ) -> anyhow::Result<StateChanges> {
     let mut out = Deleted::default();
     match &request.closed {
@@ -228,6 +241,7 @@ fn delete_in(
             }
         }
     }
+    *keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = out.keys;
     Ok(StateChanges::new(
         serde_json::json!({"deleted": out.deleted, "updated": out.updated}),
         out.changes,
@@ -255,13 +269,26 @@ impl Mux {
         {
             return Ok(replay.into());
         }
-        self.commit_state(
+        let keys = std::sync::Mutex::new(Vec::new());
+        let commit = self.commit_state(
             mutation,
             OPERATION,
             &fingerprint,
             expected_revision,
             StateEffects::EVENTS_ONLY,
-            |transaction, _| delete_in(transaction, request),
-        )
+            |transaction, _| delete_in(transaction, request, &keys),
+        )?;
+        // The deleted workspaces' agent-home folders go to the app's Trash
+        // (never one a live workspace uses).
+        let keys = keys.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !keys.is_empty() {
+            let live = |key: &str| {
+                self.with_state(|state| {
+                    state.workspaces.iter().any(|workspace| workspace.key == key)
+                })
+            };
+            super::agent_home_moves::retire(&keys, &live);
+        }
+        Ok(commit)
     }
 }

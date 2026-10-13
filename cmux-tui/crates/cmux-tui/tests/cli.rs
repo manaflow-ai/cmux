@@ -98,6 +98,12 @@ impl HeadlessServer {
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            // A login shell (`--shell` runs `$SHELL -lc`) must not see an SSH
+            // session: a Blacksmith Testbox's /etc/profile.d/blacksmith.sh then
+            // cds into GITHUB_WORKSPACE and overrides the terminal's folder.
+            .env_remove("SSH_CONNECTION")
+            .env_remove("SSH_CLIENT")
+            .env_remove("SSH_TTY")
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -3676,6 +3682,8 @@ mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/git_branches.rs"]
+mod git_branches;
 #[path = "cli/git_write.rs"]
 mod git_write;
 #[path = "cli/icon_assets.rs"]

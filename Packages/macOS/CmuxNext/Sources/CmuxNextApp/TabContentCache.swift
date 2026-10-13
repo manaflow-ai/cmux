@@ -33,6 +33,8 @@ final class TabContentCache {
     /// Hibernated tabs, observed by the tab strips.
     let dormantTabs = DormantTabs()
     let previews = PreviewImageCache()
+    /// Releases terminals whose daemon tree dropped their tab (a closed workspace).
+    let goneTabs = GoneTabWatch()
     /// Browser pages' hover card thumbnails, captured when a page leaves the
     /// screen (R131), at most `TabPreviewFitting.cachedPixelSize` each. Kept
     /// apart from `previews`, whose full-size page images hibernation shows.
@@ -136,7 +138,10 @@ final class TabContentCache {
         if let entry = terminals[tab.id], entry.validity == validity { return entry }
         let attachTarget = TerminalAttachment.Target(surface: tab.surface, terminalResourceID: tab.terminalResourceID,
                                                      generation: daemon.store.generation)
-        if let entry = confirmedProvisional(tab, validity: validity, target: attachTarget, store: daemon.store) { return entry }
+        if let entry = confirmedProvisional(tab, validity: validity, target: attachTarget, store: daemon.store) {
+            goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
+            return entry
+        }
         if let stale = terminals.removeValue(forKey: tab.id) {
             // Daemon restarted or the tab's surface changed: the pane
             // presenting the old view lets it go before it closes.
@@ -156,6 +161,7 @@ final class TabContentCache {
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
                                   store: daemon.store, surface: tab.surface, gate: gate)
         terminals[tab.id] = entry
+        goneTabs.track(tab.id, in: daemon.store) { [weak self] in self?.release($0) }
         session.isRenderingSuspended = !render
         contentDidMount(tab.id)
         return entry
@@ -377,6 +383,7 @@ final class TabContentCache {
         agentMarks.forget(key)
         pageRequests.services?.remoteViewPages.forget(key)
         terminals.removeValue(forKey: key)?.close()
+        goneTabs.forget(key)
         browsers.removeValue(forKey: key)?.close()
         browserTabs.untrack(key)
         previews.remove(key)

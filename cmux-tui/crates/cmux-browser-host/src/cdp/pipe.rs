@@ -29,6 +29,10 @@ pub struct HeadlessOptions {
     /// background-throttling switches); false lets Chromium throttle them,
     /// which saves idle CPU.
     pub full_rate_background: bool,
+    /// The isolated host's egress listener (crate::egress_scope), which
+    /// `extra_args` route the browser through: a session's policy listener
+    /// (crate::policy_proxy) passes its connections on through it.
+    pub egress_listener: Option<std::net::SocketAddr>,
 }
 
 impl HeadlessOptions {
@@ -39,6 +43,7 @@ impl HeadlessOptions {
             extra_args: Vec::new(),
             headless: true,
             full_rate_background: true,
+            egress_listener: None,
         }
     }
 }

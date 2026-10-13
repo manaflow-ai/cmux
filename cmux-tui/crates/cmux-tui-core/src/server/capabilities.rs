@@ -3,6 +3,10 @@
 
 use super::*;
 
+/// A personal workspace's own remote-localhost choice: `remote_localhost`
+/// on `set-personal-workspace` and the personal workspace rows.
+pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhost-v1";
+
 /// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
 /// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,
@@ -42,7 +46,28 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if daemon_build::installed() {
         capabilities.push(DAEMON_BUILD_CAPABILITY);
     }
+    #[cfg(debug_assertions)]
     capabilities
+        .retain(|capability| !test_hidden_capabilities().iter().any(|hidden| hidden == capability));
+    capabilities
+}
+
+/// Test seam, debug builds only: `CMUX_TEST_DAEMON_HIDE_CAPABILITIES` (a
+/// comma list, read once) names capabilities `identify` leaves out, so a
+/// journey can stand this daemon in for an older build that lacks them
+/// (cmux link's machine gate, cx-rppd.13). Release builds advertise all.
+#[cfg(debug_assertions)]
+fn test_hidden_capabilities() -> &'static [String] {
+    static HIDDEN: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    HIDDEN.get_or_init(|| {
+        std::env::var("CMUX_TEST_DAEMON_HIDE_CAPABILITIES")
+            .unwrap_or_default()
+            .split(',')
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(str::to_owned)
+            .collect()
+    })
 }
 
 pub(super) fn advertised_capabilities(
@@ -116,8 +141,10 @@ pub(super) fn advertised_capabilities(
         LOOPBACK_FORWARD_CAPABILITY,
         SESSION_IDENTITY_CAPABILITY,
         PROFILES_CAPABILITY,
+        personal::SESSION_ICON_CAPABILITY,
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
+        PERSONAL_REMOTE_LOCALHOST_CAPABILITY,
         BOOKMARKS_CAPABILITY,
         BOOKMARK_ICON_CAPABILITY,
         crate::mux::settings::SETTINGS_CAPABILITY,
@@ -130,6 +157,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
+        conversations::LINK_PREVIEW_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
@@ -171,6 +199,7 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::FILES_SEARCH_CAPABILITY,
         crate::history_ops::CAPABILITY,
         crate::git_ops::FILES_LIST_CAPABILITY,
+        crate::git_ops::BRANCHES_CAPABILITY,
         crate::git_ops::COMMIT_CAPABILITY,
         crate::git_ops::PUSH_CAPABILITY,
         crate::git_ops::WORKTREE_CAPABILITY,

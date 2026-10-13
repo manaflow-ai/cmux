@@ -172,6 +172,8 @@ public struct DaemonCapabilities: Sendable {
     public let browserProfiles = "browser-profiles-v1"
     /// Bookmarks per browser profile in personal state (plans/cmux-next/bookmarks.md).
     public let bookmarks = "bookmarks-v1"
+    /// A bookmark folder's `icon` on `list-bookmarks` and `update-bookmark` (null clears).
+    public let bookmarkIcon = "bookmark-icon-v1"
     /// The daemon history module (react-pages.md H3): page visits, the merged read model,
     /// removal with restore ids, and `history-changed`.
     public let history = "history-v1"
@@ -243,6 +245,9 @@ public struct DaemonCapabilities: Sendable {
     /// `attachment` parts and their bytes on the local conversation owner:
     /// `conversation-attachment-upload` and `conversation-attachment-read`.
     public let localAttachments = "local-attachments-v1"
+    /// `link_preview` parts on the local conversation owner (a sender sends
+    /// plain text to a daemon without it).
+    public let linkPreview = "link-preview-v1"
     /// `chief-inspect`: the Chief memory inspector's read-only API on the
     /// brain's daemon (advertised when the daemon knows the brain's tools socket).
     public let chiefInspect = "chief-inspect-v1"
@@ -316,7 +321,7 @@ public struct DaemonCapabilities: Sendable {
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
                                             terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
-                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, history, workspacePin, notificationMarkUnread,
+                                            terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, tabSplitRespawn, frontendBrowserHistory,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
@@ -324,7 +329,7 @@ public struct DaemonCapabilities: Sendable {
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
-                                            originClaim, sessionJournal, terminalResources, keybindings, iconAssets] }
+                                            originClaim, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

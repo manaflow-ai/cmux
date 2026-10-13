@@ -7026,7 +7026,7 @@
      },
      "presence": "required",
      "nullable": false,
-     "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties."
+     "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties."
     },
     "text": {
      "type": {
@@ -8229,7 +8229,7 @@
      "nullable": false,
      "since": 12,
      "capability": "bookmark-icon-v1",
-     "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>."
+     "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}."
     }
    },
    "additional_properties": true
@@ -19471,6 +19471,42 @@
     "See spec/commands.md for the result object."
    ]
   },
+  "set-session-icon": {
+   "authority": "control",
+   "since": 12,
+   "capability": "session-icon-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "session_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "An icon value sets the session's (machine's) icon; null clears it."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "See spec/commands.md for the result object."
+   ]
+  },
   "import-session-organization": {
    "authority": "control",
    "since": 12,
@@ -19821,6 +19857,20 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "remote_localhost": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "personal-remote-localhost-v1",
+      "constraints": [
+       "The workspace's own remote-localhost choice; null follows the app's browser.remoteLocalhost setting."
+      ]
      }
     },
     "additional_properties": false

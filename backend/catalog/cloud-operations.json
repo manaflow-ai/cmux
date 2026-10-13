@@ -3010,6 +3010,36 @@
         }
       }
     },
+    "HomeLinkPreviewImage": {
+      "kind": "object",
+      "fields": {
+        "hash": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HomeSha256"
+          }
+        },
+        "mime_type": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "image/jpeg",
+              "image/webp"
+            ]
+          }
+        },
+        "byte_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        }
+      },
+      "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+    },
     "HomeMessage": {
       "kind": "object",
       "fields": {
@@ -3262,6 +3292,63 @@
               "type": {
                 "kind": "ref",
                 "name": "HomeAttachmentPreview"
+              }
+            }
+          }
+        },
+        {
+          "kind": "object",
+          "fields": {
+            "type": {
+              "required": true,
+              "type": {
+                "kind": "enum",
+                "values": [
+                  "link_preview"
+                ]
+              }
+            },
+            "url": {
+              "required": true,
+              "type": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 2048
+              }
+            },
+            "title": {
+              "required": false,
+              "type": {
+                "kind": "nullable",
+                "inner": {
+                  "kind": "primitive",
+                  "name": "string",
+                  "min_length": 1,
+                  "max_length": 600
+                }
+              }
+            },
+            "site": {
+              "required": false,
+              "type": {
+                "kind": "nullable",
+                "inner": {
+                  "kind": "primitive",
+                  "name": "string",
+                  "min_length": 1,
+                  "max_length": 506
+                }
+              }
+            },
+            "image": {
+              "required": false,
+              "type": {
+                "kind": "nullable",
+                "inner": {
+                  "kind": "ref",
+                  "name": "HomeLinkPreviewImage"
+                }
               }
             }
           }
@@ -4992,6 +5079,83 @@
           }
         }
       ]
+    },
+    "TeamAiLimitMember": {
+      "kind": "object",
+      "fields": {
+        "user": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "UserId"
+          }
+        },
+        "display_name": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "role": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "limit_usd": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        },
+        "source": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "personal",
+              "team",
+              "default"
+            ]
+          }
+        },
+        "spent_usd": {
+          "required": true,
+          "type": {
+            "kind": "union",
+            "variants": [
+              {
+                "kind": "primitive",
+                "name": "float64"
+              },
+              {
+                "kind": "enum",
+                "values": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          }
+        }
+      }
     },
     "TeamAuditEntry": {
       "kind": "object",
@@ -6801,41 +6965,47 @@
         "cap_usd": {
           "required": true,
           "type": {
-            "kind": "union",
-            "variants": [
-              {
-                "kind": "primitive",
-                "name": "float64"
-              },
-              {
-                "kind": "enum",
-                "values": [
-                  "Infinity",
-                  "-Infinity",
-                  "NaN"
-                ]
-              }
-            ]
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
           }
         },
         "ceiling_usd": {
           "required": true,
           "type": {
-            "kind": "union",
-            "variants": [
-              {
-                "kind": "primitive",
-                "name": "float64"
-              },
-              {
-                "kind": "enum",
-                "values": [
-                  "Infinity",
-                  "-Infinity",
-                  "NaN"
-                ]
-              }
-            ]
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
           }
         },
         "team_cap_usd": {
@@ -21779,6 +21949,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -21894,6 +22091,62 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "site": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "image": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           },
@@ -22577,6 +22830,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -22692,6 +22972,62 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "site": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "image": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           },
@@ -23864,6 +24200,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -23979,6 +24342,62 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "site": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "image": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           },
@@ -24710,6 +25129,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -24825,6 +25271,62 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "site": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "image": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           },
@@ -25371,6 +25873,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -25486,6 +26015,62 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "site": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "image": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           },
@@ -42792,6 +43377,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -42907,6 +43519,62 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "site": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "image": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           }
@@ -43333,6 +44001,33 @@
             "additionalProperties": true,
             "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
           },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
           "HomePart": {
             "anyOf": [
               {
@@ -43448,6 +44143,62 @@
                 ],
                 "additionalProperties": true,
                 "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "site": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "image": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
               }
             ]
           },
@@ -50860,6 +51611,648 @@
         "$defs": {}
       }
     },
+    "team.ai_limit.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "cursor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 128
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "default_usd": {
+            "required": true,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "is_default": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "resets_at": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "me": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "TeamAiLimitMember"
+            }
+          },
+          "members": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "TeamAiLimitMember"
+              }
+            }
+          },
+          "next_cursor": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team ai-limit get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": "string",
+            "maxLength": 128
+          }
+        },
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "type": "string"
+          },
+          "default_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          },
+          "is_default": {
+            "type": "boolean"
+          },
+          "resets_at": {
+            "type": "integer"
+          },
+          "me": {
+            "$ref": "#/$defs/TeamAiLimitMember"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/TeamAiLimitMember"
+            }
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "team",
+          "default_usd",
+          "is_default",
+          "resets_at",
+          "me"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          },
+          "TeamAiLimitMember": {
+            "type": "object",
+            "properties": {
+              "user": {
+                "$ref": "#/$defs/UserId"
+              },
+              "display_name": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "limit_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "personal",
+                  "team",
+                  "default"
+                ]
+              },
+              "spent_usd": {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            },
+            "required": [
+              "user",
+              "display_name",
+              "role",
+              "limit_usd",
+              "source",
+              "spent_usd"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "team.ai_limit.member.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "member": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "UserId"
+            }
+          },
+          "limit_usd": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "union",
+                "variants": [
+                  {
+                    "kind": "primitive",
+                    "name": "float64"
+                  },
+                  {
+                    "kind": "enum",
+                    "values": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "member": {
+                "required": true,
+                "type": {
+                  "kind": "ref",
+                  "name": "UserId"
+                }
+              },
+              "limit_usd": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "money",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team ai-limit member-set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Set one member's personal monthly AI spending limit (USD per UTC month, any amount; 0 = no AI); null clears it and the member uses the team default again. Team admins and billing members, in a person's session. Recorded in the billing audit.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "member": {
+            "$ref": "#/$defs/UserId"
+          },
+          "limit_usd": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "member",
+          "limit_usd"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "member": {
+            "$ref": "#/$defs/UserId"
+          },
+          "limit_usd": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "member",
+          "limit_usd"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "UserId": {
+            "type": "string",
+            "pattern": "^user_[a-z0-9]{20}$",
+            "description": "A cmux user (Stack user id kept as an external id)."
+          }
+        }
+      }
+    },
+    "team.ai_limit.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "default_usd": {
+            "required": true,
+            "type": {
+              "kind": "nullable",
+              "inner": {
+                "kind": "union",
+                "variants": [
+                  {
+                    "kind": "primitive",
+                    "name": "float64"
+                  },
+                  {
+                    "kind": "enum",
+                    "values": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "object",
+            "fields": {
+              "default_usd": {
+                "required": true,
+                "type": {
+                  "kind": "nullable",
+                  "inner": {
+                    "kind": "union",
+                    "variants": [
+                      {
+                        "kind": "primitive",
+                        "name": "float64"
+                      },
+                      {
+                        "kind": "enum",
+                        "values": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "idempotency.conflict",
+        "revision.conflict",
+        "validation.invalid"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "money",
+      "principals": [
+        "session"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/ops"
+        }
+      },
+      "cli": {
+        "path": "team ai-limit set",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "Set the team's default monthly AI spending limit per member (USD per person per UTC month, any amount; 0 = no AI; null = the cmux default of 200). A member's personal limit wins over it. Team admins and billing members, in a person's session. Recorded in the billing audit.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "default_usd": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "default_usd"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "default_usd": {
+            "anyOf": [
+              {
+                "anyOf": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "string",
+                    "enum": [
+                      "Infinity",
+                      "-Infinity",
+                      "NaN"
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "default_usd"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
     "team.audit.list": {
       "class": "read",
       "idempotency": "forbidden",
@@ -57762,30 +59155,44 @@
               "cap_usd": {
                 "anyOf": [
                   {
-                    "type": "number"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
                   },
                   {
-                    "type": "string",
-                    "enum": [
-                      "Infinity",
-                      "-Infinity",
-                      "NaN"
-                    ]
+                    "type": "null"
                   }
                 ]
               },
               "ceiling_usd": {
                 "anyOf": [
                   {
-                    "type": "number"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
                   },
                   {
-                    "type": "string",
-                    "enum": [
-                      "Infinity",
-                      "-Infinity",
-                      "NaN"
-                    ]
+                    "type": "null"
                   }
                 ]
               },

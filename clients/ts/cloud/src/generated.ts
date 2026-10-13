@@ -509,6 +509,13 @@ export type HomeInvite = {
   readonly locale: string
 }
 
+/** An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}. */
+export type HomeLinkPreviewImage = {
+  readonly hash: HomeSha256
+  readonly mime_type: "image/jpeg" | "image/webp"
+  readonly byte_count: number
+}
+
 export type HomeMessage = {
   readonly id: MessageId
   readonly conversation: ConversationId
@@ -545,6 +552,12 @@ export type HomePart = {
   readonly duration_ms?: number
   readonly poster?: HomeAttachmentPoster
   readonly preview?: HomeAttachmentPreview
+} | {
+  readonly type: "link_preview"
+  readonly url: string
+  readonly title?: string | null
+  readonly site?: string | null
+  readonly image?: HomeLinkPreviewImage | null
 }
 
 export type HomeParticipant = {
@@ -858,6 +871,15 @@ export type TargetPolicy = {
   readonly fallback: "cloud_vm" | "wait" | "fail"
 }
 
+export type TeamAiLimitMember = {
+  readonly user: UserId
+  readonly display_name: string
+  readonly role: string
+  readonly limit_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly source: "personal" | "team" | "default"
+  readonly spent_usd: number | "Infinity" | "-Infinity" | "NaN"
+}
+
 export type TeamAuditEntry = {
   readonly n: number
   readonly op: string
@@ -1154,8 +1176,8 @@ export type UsageSummary = {
   readonly month: string
   readonly meters: ReadonlyArray<UsageMeterLine>
   readonly total_usd: number | "Infinity" | "-Infinity" | "NaN"
-  readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN"
-  readonly ceiling_usd: number | "Infinity" | "-Infinity" | "NaN"
+  readonly cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+  readonly ceiling_usd: number | "Infinity" | "-Infinity" | "NaN" | null
   readonly team_cap_usd: number | "Infinity" | "-Infinity" | "NaN" | null
   readonly stopped: UsageStopReason | null
 }
@@ -2906,6 +2928,41 @@ export interface CloudOps {
       readonly accepted_at: number
     }
   }
+  /** Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend. */
+  readonly "team.ai_limit.get": {
+    readonly params: {
+      readonly cursor?: string
+    }
+    readonly result: {
+      readonly team: string
+      readonly default_usd: number | "Infinity" | "-Infinity" | "NaN"
+      readonly is_default: boolean
+      readonly resets_at: number
+      readonly me: TeamAiLimitMember
+      readonly members?: ReadonlyArray<TeamAiLimitMember>
+      readonly next_cursor?: string | null
+    }
+  }
+  /** Set one member's personal monthly AI spending limit (USD per UTC month, any amount; 0 = no AI); null clears it and the member uses the team default again. Team admins and billing members, in a person's session. Recorded in the billing audit. */
+  readonly "team.ai_limit.member.set": {
+    readonly params: {
+      readonly member: UserId
+      readonly limit_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    }
+    readonly result: {
+      readonly member: UserId
+      readonly limit_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    }
+  }
+  /** Set the team's default monthly AI spending limit per member (USD per person per UTC month, any amount; 0 = no AI; null = the cmux default of 200). A member's personal limit wins over it. Team admins and billing members, in a person's session. Recorded in the billing audit. */
+  readonly "team.ai_limit.set": {
+    readonly params: {
+      readonly default_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    }
+    readonly result: {
+      readonly default_usd: number | "Infinity" | "-Infinity" | "NaN" | null
+    }
+  }
   /** Read the team's audit records, newest first (owners and admins: all; billing: billing records only). */
   readonly "team.audit.list": {
     readonly params: {
@@ -3375,6 +3432,9 @@ export const cloudOpMeta = {
   "team_vm.ssh_cert.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.taint.accept": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.ai_limit.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
+  "team.ai_limit.member.set": { class: "mutation", owner: "cloud:TeamDO", risk: "money" },
+  "team.ai_limit.set": { class: "mutation", owner: "cloud:TeamDO", risk: "money" },
   "team.audit.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.enroll": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-own" },

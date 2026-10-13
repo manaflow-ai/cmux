@@ -650,8 +650,10 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
                                             published=True)["run_macos"], "true")
 
     def test_pin_push_keeps_commit_artifacts_enabled(self):
+        # A pin push of a published tree whose commit's binaries are missing
+        # still builds them (only a true duplicate is skipped, cx-urd.26).
         self.assertEqual(self.run_preflight(artifacts=True, ref="refs/heads/cmux-tui-pin-repair",
-                                            published=True)["run_macos"], "true")
+                                            published=True, missing="/manifest.json")["run_macos"], "true")
 
     def test_fork_never_schedules_trusted_build(self):
         self.assertEqual(self.run_preflight(artifacts=True, event="pull_request_target",

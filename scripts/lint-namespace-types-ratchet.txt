@@ -50,6 +50,8 @@ Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/Omnibox/OmnibarRules.swift:Omnib
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/PageInfo/Model/PageInfoPermissionList.swift:PageInfoPermissionList
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/PageInfo/Model/SiteDomain.swift:SiteDomain
 Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/WebKit/DownloadDestination.swift:DownloadDestination
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/CloudStrings.swift:CloudStrings
+Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/RefusalStrings.swift:RefusalStrings
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/CloseFocus/FocusAfterClose.swift:FocusAfterClose
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DragGrabPoint.swift:DragGrabPoint
 Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicatorTunables.swift:FocusIndicatorTunables

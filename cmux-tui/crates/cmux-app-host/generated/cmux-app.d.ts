@@ -104,6 +104,9 @@ declare namespace Cmux {
   type FeedPriority = "low" | "normal" | "high" | "urgent"
   type FeedState = "open" | "answered" | "cancelled" | "expired"
   type FrontendProjectionSnapshot = { id: string /* frontend_projection_… */; session_id: string /* session_… */; projection: Cmux.JsonValue; frontend_id: string; window_id: string; generation: string; projection_revision: string; extra?: Record<string, Cmux.JsonValue> }
+  type GitBaseCandidate = { name: string; ref: string; reason: "recorded_base" | "default_branch" | "upstream" }
+  type GitBranch = { name: string; ref: string; kind: "local" | "remote"; commit: string; current: boolean; upstream?: string; upstream_gone?: boolean; ahead?: number; behind?: number; committed_at?: number }
+  type GitBranchesResult = { root: string; current?: string; detached: boolean; branches: Array<Cmux.GitBranch>; truncated: boolean; suggested_bases: Array<Cmux.GitBaseCandidate> }
   type GitChangedFile = { path: string; previous_path?: string; status: Cmux.GitChangeStatus; additions: number; deletions: number; binary?: boolean; patch?: string; patch_truncated?: boolean }
   type GitChangeStatus = "added" | "modified" | "deleted" | "renamed" | "untracked"
   type GitCheckpoint = { checkpoint_id: string; repository_id: string; worktree_id: string; ref: string; object_id: string; revision: string; complete: boolean; skipped: Array<Cmux.GitCheckpointSkip>; skipped_total: number; created_at: string; expires_at: string | null; base: Cmux.GitCheckpointBase; coverage: Cmux.GitCheckpointCoverage; included: Cmux.GitCheckpointIncluded; bytes: Cmux.GitCheckpointBytes; limits: Cmux.GitCheckpointLimits; pins: Array<Cmux.GitCheckpointPin> }
@@ -154,6 +157,7 @@ declare namespace Cmux {
   type HomeDeliveryState = "queued" | "sent" | "delivered" | "bounced" | "complained" | "failed" | "suppressed" | "refused_env"
   type HomeInboxEntry = { conversation: Cmux.ConversationId; rev: number; kind: Cmux.ConversationKind; title: string; last_seq: number; last_at: Cmux.Timestamp; preview: string; preview_attachments?: { kind: "photo" | "video" | "audio" | "file"; count: number }; dm_peer?: Cmux.ParticipantId; removed: boolean; unread: number; mentions: number; counts_rev: number; pinned: boolean; pin_position?: number; muted: boolean; muted_until?: unknown; archived: boolean; archived_seq: number; marked_unread: boolean }
   type HomeInvite = { id: Cmux.InviteId; address: Cmux.AddressId; channel: "email" | "sms"; display_name: string; invited_by: Cmux.ParticipantId; created_at: Cmux.Timestamp; expires_at: Cmux.Timestamp; status: "pending" | "pending_approval" | "accepted" | "revoked" | "expired"; accepted_by?: string; accepted_at?: Cmux.Timestamp; requested_by?: string; requested_name?: string; requested_at?: Cmux.Timestamp; delivery: { state: Cmux.HomeDeliveryState; provider_id?: string; at: Cmux.Timestamp }; copy_variant: string; locale: string }
+  type HomeLinkPreviewImage = { hash: Cmux.HomeSha256; mime_type: "image/jpeg" | "image/webp"; byte_count: number }
   type HomeMessage = { id: Cmux.MessageId; conversation: Cmux.ConversationId; seq: number; client_msg_id: Cmux.ClientToken; author: Cmux.ParticipantId; parts: Array<Cmux.HomePart>; reply_to?: Cmux.HomePartRef; thread_root?: Cmux.MessageId; created_at: Cmux.Timestamp; edited_at?: Cmux.Timestamp; retracted_at?: Cmux.Timestamp; reactions: Array<Cmux.HomeReaction> }
   type HomePart = unknown
   type HomeParticipant = { id: Cmux.ParticipantId; kind: "human" | "agent" | "address"; display_name: string; agent_class?: "mux" | "agent"; acp_session?: string; owner_user?: string; role?: "owner" | "member"; joined_seq?: number; added_by?: string; left_at?: Cmux.Timestamp }
@@ -346,6 +350,7 @@ declare namespace Cmux {
   type TabGroupSnapshot = { id: Cmux.StateId; pane_id: string /* pane_… */; name: string; color: Cmux.GroupColor; collapsed: boolean; tab_ids: Array<string /* tab_… */>; saved_tab_group_id: Cmux.StateId | null; icon?: string | null }
   type TabSnapshot = { id: string /* tab_… */; pane_id: string /* pane_… */; name: string | null; index: number; focused: boolean; content_kind: "terminal" | "browser" | "conversation"; content_id: unknown; extra?: Record<string, Cmux.JsonValue> }
   type TargetPolicy = unknown
+  type TeamAiLimitMember = { user: Cmux.UserId; display_name: string; role: string; limit_usd: unknown; source: "personal" | "team" | "default"; spent_usd: unknown }
   type TeamAuditEntry = { n: number; op: string; actor: string; at: number; category: "admin" | "billing"; summary: string; detail: string; hash: string }
   type TeamDomain = { domain: Cmux.EmailDomain; state: "pending" | "verified" | "lost" | "lapsed"; record_name: string; record_value: string; requested_at: number; expires_at: number; verified_at: number | null; last_checked_at?: number; check_failures?: number }
   type TeamId = string
@@ -390,7 +395,7 @@ declare namespace Cmux {
   type TriggerInput = unknown
   type UsageMeterLine = { meter: Cmux.Meter; unit: string; quantity: unknown; usd: unknown }
   type UsageStopReason = "cap.reached" | "cap.not_configured"
-  type UsageSummary = { owner: Cmux.TeamId | null; month: string; meters: Array<Cmux.UsageMeterLine>; total_usd: unknown; cap_usd: unknown; ceiling_usd: unknown; team_cap_usd: unknown | null; stopped: Cmux.UsageStopReason | null }
+  type UsageSummary = { owner: Cmux.TeamId | null; month: string; meters: Array<Cmux.UsageMeterLine>; total_usd: unknown; cap_usd: unknown | null; ceiling_usd: unknown | null; team_cap_usd: unknown | null; stopped: Cmux.UsageStopReason | null }
   type UserId = string
   type UserProfile = { id: Cmux.UserId; stack_user_id: string; email: string | null; email_verified?: boolean; display_name: string; personal_team: Cmux.TeamId }
   type UserTeam = { id: Cmux.TeamId; display_name: string; kind: "personal" | "stack"; role: Cmux.TeamRole; sso_required: boolean }
@@ -783,6 +788,8 @@ interface CmuxGlobal {
     open: CmuxOp<Record<string, never>, unknown>
   }
   git: {
+    /** `git.branches` (read, scope `git:read`) */
+    branches: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; limit?: number }, Cmux.GitBranchesResult>
     checkpoint: {
       /** `git.checkpoint.create` (mutation, scope `git:write`) */
       create: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; terminal?: string; path?: string; expected_repository_id?: string; expected_worktree_id?: string; include_untracked?: unknown; exclude_paths?: Array<string>; reason?: "manual" | "handoff" | "turn"; limits?: { max_bytes?: number; max_files?: number } }, Cmux.MutationResult<Cmux.GitCheckpoint>>
@@ -1317,6 +1324,10 @@ interface CmuxGlobal {
     update: CmuxOp<{ machine?: string; session?: string; tab_group: Cmux.StateId; name?: string; color?: Cmux.GroupColor; collapsed?: boolean; icon?: string | null; expected_revision?: string }, Cmux.MutationResult<Cmux.TabGroupSnapshot>>
   }
   team: {
+    ai_limit: {
+      /** `team.ai_limit.get` (read, scope `team:read`): Monthly AI spending limits: the team default, your own limit and spend this month, and when they reset. Team admins and billing members also get every member's limit and spend. */
+      get: CmuxOp<{ cursor?: string }, { team: string; default_usd: unknown; is_default: boolean; resets_at: number; me: Cmux.TeamAiLimitMember; members?: Array<Cmux.TeamAiLimitMember>; next_cursor?: string | null }>
+    }
     device: {
       /** `team.device.compliance` (read, scope `team:read`): Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
       compliance: CmuxOp<Record<string, never>, { team: Cmux.TeamId; policy_version: number; devices: Array<{ device: Cmux.ManagedDevice; status: Cmux.DeviceStatus | null; compliant: boolean; reasons: Array<string> }>; revision: string }>

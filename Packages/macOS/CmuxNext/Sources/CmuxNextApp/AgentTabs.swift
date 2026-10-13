@@ -145,6 +145,11 @@ final class AgentTabStore {
     var seeds: [String: AgentPaneSeedSource] = [:]
     /// A new workspace's chat seed until its tab is known (`seedFirstChat`).
     var firstChats: [WorkspaceHandle: AgentPaneSeedSource] = [:]
+    /// The key-hold token of a new workspace's first New Tab page (Cmd-N, NewTabInputCoordinator),
+    /// until its create returned: the page made for that workspace's tab, and only it, carries it.
+    var firstPageTokens: [WorkspaceHandle: String] = [:]
+    /// A first page took a key-hold token (the hold then waits for that page's readiness).
+    var onFirstPageToken: ((String) -> Void)?
     /// The tab resuming each outside chat (`harness:agentSessionId`), so
     /// picking the same chat again shows that tab instead of a second one.
     var adoptions: [String: String] = [:]
@@ -295,7 +300,7 @@ final class AgentTabStore {
         // new-conversation-tab replied): it stays the chat, never the page (cx-vurv).
         if local, seed == nil, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil,
            !linkedSessions.contains(key) {
-            newTabPages[key] = firstPageNewTab?(nil, nil)
+            newTabPages[key] = firstPage(cwd: nil, token: firstPageToken(of: key, in: store))
         }
         // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare
         // when there is one: no cold load and React mount on the open path (cx-ec99).
@@ -350,7 +355,6 @@ final class AgentTabStore {
         model.onSessionChange = { [weak self] session in
             guard let self else { return }
             let key = resolve(provisional)
-            newTabPages[key]?.handler.becameChat()
             newTabPages[key] = nil
             views[key]?.applyTheme() // now the agent chat surface (R55)
             sessions[key] = session
@@ -374,7 +378,6 @@ final class AgentTabStore {
         model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
-        model.onNewTabSetting = { [weak self] setting in self?.newTabPage(provisional)?.handler.write(setting) }
         model.onRunAction = { [weak self] id in
             guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.
