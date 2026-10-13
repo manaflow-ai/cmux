@@ -1,0 +1,43 @@
+# cnx-ios app project. Generate with `xcodegen generate` in cnx-ios/.
+# The project file is generated and not checked in.
+name: CnxApp
+options:
+  bundleIdPrefix: dev.cmux.cnx
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    CNX_TAG: ""
+packages:
+  CnxKit:
+    path: CnxKit
+targets:
+  CnxApp:
+    type: application
+    platform: iOS
+    sources:
+      - App
+      - path: ../AppIcon.icon
+        buildPhase: resources
+    dependencies:
+      - package: CnxKit
+        product: CnxShell
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.cnx$(CNX_TAG)
+        PRODUCT_NAME: CnxApp
+        SWIFT_VERSION: "6.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: YES
+        DEVELOPMENT_TEAM: 7WLXT3NR37
+        CODE_SIGN_STYLE: Automatic
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: cmux
+        UILaunchScreen:
+          UIColorName: LaunchBackground
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
