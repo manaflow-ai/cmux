@@ -56,6 +56,12 @@
     "dialog", "alertdialog"]);
 
   const q = (s) => JSON.stringify(String(s));
+  // A closed drop-down's option label in `[options: …]`: as it is when it
+  // is plain text, else quoted with q.
+  const optionLabel = (s) => {
+    const text = String(s);
+    return text === "" || text !== text.trim() || /^\+/.test(text) || /[\u0000-\u001f\u007f-\u009f\u2028\u2029",[\]]/.test(text) ? q(text) : text;
+  };
   const normalize = (s) => String(s || "").replace(/\s+/g, " ").trim();
   // Engines join inline content with or without spaces, and pages pad text
   // with zero-width characters; compare without either.
@@ -233,7 +239,10 @@
     else if (n.url && n.showUrl) head += ` [url=${cap(n.sameOrigin ? onSitePath(n.url) : n.url, URL_LIMIT)}]`;
     if (n.placeholder) head += ` [placeholder=${q(n.placeholder)}]`;
     if (n.inlineOptions && n.inlineOptions.length) {
-      const shown = n.inlineOptions.slice(0, INLINE_OPTIONS).join(", ");
+      // A label is page text: one that could read as structure (a line
+      // break, a separator, a bracket, a quote, a "+N more", spaces at
+      // its ends) is quoted like any other page text (q).
+      const shown = n.inlineOptions.slice(0, INLINE_OPTIONS).map(optionLabel).join(", ");
       const more = (n.inlineCount || n.inlineOptions.length) - INLINE_OPTIONS;
       head += ` [options: ${shown}${more > 0 ? `, +${more} more` : ""}]`;
     }
