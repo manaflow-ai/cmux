@@ -48,9 +48,10 @@ struct PaneZoomMotionTests {
             root.syncWithModel()
         }
 
-        /// How much of `pane` shows: 0 once its host is hidden, gone or transparent.
+        /// How much of `pane` shows: 0 once its host is hidden, gone, transparent or clipped away.
         func opacity(_ pane: PaneID) -> CGFloat {
             guard let host = root.context.hosts[pane], host.superview != nil, !host.isHidden else { return 0 }
+            if let clip = host.layer?.mask?.frame, clip.width < 0.5 || clip.height < 0.5 { return 0 }
             return host.alphaValue
         }
 
@@ -91,6 +92,8 @@ struct PaneZoomMotionTests {
         var cornerGone: Int?, othersGone: Int?, reached: Int?
         for frame in 1...120 {
             screen.step()
+            // The others fade: none is cut away under the zoomed pane's (full-size) host.
+            if frame == 1 { #expect(others.union([corner]).allSatisfy { screen.opacity($0) > 0.5 }, "a leaving pane vanished at once") }
             #expect(screen.hostSize(pane) == final, "frame \(frame): the zoomed terminal resized mid-move")
             if cornerGone == nil, screen.opacity(corner) < 0.05 { cornerGone = frame }
             if othersGone == nil, others.allSatisfy({ screen.opacity($0) < 0.05 }) { othersGone = frame }
@@ -162,6 +165,8 @@ struct PaneZoomMotionTests {
         for frame in 1...120 {
             screen.step()
             if let size = screen.hostSize("p4"), size != sizes.last { sizes.append(size) }
+            // Fading back in, not popping in as the zoomed pane lands.
+            if frame == 12 { #expect(["p1", "p2", "p3"].allSatisfy { screen.opacity($0) > 0.3 }, "a returning pane is still cut away") }
             if shown == nil, ["p1", "p2", "p3"].allSatisfy({ screen.opacity($0) > 0.95 }) { shown = frame }
         }
         #expect(sizes.count <= 2, "the unzooming terminal resized \(sizes.count - 1) times: \(sizes)")

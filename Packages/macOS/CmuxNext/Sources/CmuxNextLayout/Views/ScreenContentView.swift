@@ -314,8 +314,7 @@ final class ScreenContentView: NSView {
             let presented = zoomMotion.presentation(of: pane, frame) ?? (arriving.contains(pane) ? PaneArrival.presentation(shown: frame.rect, target: frame.targetRect) : nil)
             let revealing = presented.map { _ in frame.rect.offsetBy(dx: shift.dx, dy: shift.dy) }
             host.frame = (presented ?? frame.rect).offsetBy(dx: shift.dx, dy: shift.dy)
-            host.alphaValue = frame.alpha.value
-            host.isDocked = !scrolls
+            (host.alphaValue, host.isDocked, host.revealRect) = (frame.alpha.value, !scrolls, revealing)
             clips.append((host, scrolls, revealing))
         }
         // Once every frame is placed: a pane is clipped by the panes in front of it.

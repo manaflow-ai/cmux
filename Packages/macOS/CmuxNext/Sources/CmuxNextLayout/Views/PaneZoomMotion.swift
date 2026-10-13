@@ -27,7 +27,8 @@ struct PaneZoomMotion {
     /// A structural change: `pane` zooms in (`zooming`) or back, from `frames[pane]`; nil, nothing does.
     mutating func begin(_ pane: PaneID?, zooming: Bool, frames: [PaneID: AnimatedFrame], to geometry: ScreenGeometry) {
         guard let pane, let frame = frames[pane], let size = (zooming ? geometry.panes[pane] : frame.targetRect)?.size else {
-            self.pane = nil
+            // Another change mid-flight: the zooming pane keeps its size and reveal until it lands.
+            if let current = self.pane, geometry.panes[current] == nil { self.pane = nil }
             return
         }
         (self.pane, token, self.size) = (pane, zooming ? .zoom : .move, size)
