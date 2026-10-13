@@ -57,9 +57,10 @@ jobs:
         run: python3 cmux-tui/dist/scripts/package_notices.py check-data
 
   # The CmuxNextApp size cap (code-quality.md SW14) for pull requests into
-  # feat-cmux-next and pushes to it. cmux-next.yml's checks job skips both
-  # (cx-g34i), so only safe-push ran the cap and GitHub merges grew the App past
-  # it. This workflow has no path filter, so the check can be a required one.
+  # feat-cmux-next and pushes to it. cmux-next.yml's checks job skips pushes to
+  # feat-cmux-next and runs on pull requests only for its path filter, so GitHub
+  # merges grew the App past the cap. This workflow has no path filter, so the
+  # check can be a required one.
   # Only the size cap runs here: the god-file checks stay warn-only. A pull
   # request fails on what it grows (its merge commit's first parent is the
   # base); a push fails on what it grew over the previous tip (event.before), so
@@ -93,3 +94,34 @@ jobs:
             echo "::warning::no previous tip to compare with; checking the plain cap"
           fi
           scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
+
+  # A red size cap on a pull request into feat-cmux-next gets the same "red: <check>" comment as a
+  # red web check (chief 2026-10-12): ci.yml calls this workflow after `web`; both callers update
+  # one comment, recomputed from all check runs of the head commit.
+  pr-red-checks:
+    needs: [app-size]
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
+    permissions:
+      checks: read
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/pr-red-checks-comment.yml
+
+  # The defaults guard's tests, and schemas/defaults/cmux-next.json matching the
+  # action and settings exports, in seconds; cmux-next-defaults-guard.yml judges
+  # the changes and the approval.
+  defaults-snapshot:
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: The defaults guard judges changes and approvals
+        run: python3 tests/test_defaults_guard.py
+
+      - name: The defaults snapshot matches the exports
+        run: python3 scripts/ci/defaults_guard.py check-fresh

@@ -16,7 +16,7 @@ extension UpdaterService {
             if tip != nil { tip = nil }
             return
         }
-        let (next, state) = TipChooser.choose(TipCatalog.all, state: tipState, today: TipState.day(date))
+        let (next, state) = TipChooser.choose(TipCatalog.all, state: tipState, today: TipState.day(date), showing: tip?.id)
         storeTipState(state)
         if tip != next { tip = next }
     }

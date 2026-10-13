@@ -57,6 +57,12 @@ for line in sys.stdin:
     except ValueError:
         continue
     kind = msg.get("type")
+    # The answer to the late subagent's ask: the subagent says what it was answered.
+    if kind == "control_response" and (msg.get("response") or {}).get("request_id") == "late-1":
+        behavior = ((msg.get("response") or {}).get("response") or {}).get("behavior", "none")
+        send({"type": "stream_event", "parent_tool_use_id": "toolu_lateag", "event": {"type": "content_block_delta",
+              "index": 0, "delta": {"type": "text_delta", "text": "late " + behavior}}})
+        continue
     if kind == "control_request":
         request = msg.get("request") or {}
         send({"type": "control_response", "response": {"subtype": "success", "request_id": msg.get("request_id"), "response": {}}})
@@ -172,6 +178,23 @@ for line in sys.stdin:
                   "status": "killed", "reason": "Stopped by the agent", "output_file": "", "summary": ""})
             send({"type": "system", "subtype": "task_notification", "task_id": "b2", "tool_use_id": "toolu_bg2",
                   "status": "completed", "output_file": "", "summary": "Tests passed"})
+        # "agent-probe": the turn starts an Explore subagent (the Agent tool): its own read and
+        # reply carry its tool_use id as parent_tool_use_id, then the tool's result ends it.
+        if said.strip() == "agent-probe":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_ag1", "name": "Agent",
+                  "input": {"description": "Find the tests", "prompt": "List the test files", "subagent_type": "Explore"}}]}})
+            send({"type": "assistant", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
+                  {"type": "tool_use", "id": "toolu_ag2", "name": "Read", "input": {"file_path": "/a/tests.rs"}}]}})
+            send({"type": "user", "parent_tool_use_id": "toolu_ag1", "message": {"content": [
+                  {"type": "tool_result", "tool_use_id": "toolu_ag2", "content": "fn t() {}"}]}})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_ag1", "content": "one test file"}]}})
+        # "late-agent-ask": a background subagent (Agent with run_in_background) that is still
+        # running when the turn ends, and asks for permission after it (cx-jo8yo, below).
+        if said.strip() == "late-agent-ask":
+            send({"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "toolu_lateag", "name": "Agent",
+                  "input": {"description": "Late writer", "prompt": "Write late.txt", "run_in_background": True}}]}})
+            send({"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "toolu_lateag",
+                  "content": "Async agent launched"}]}})
         # "fg-probe": a foreground Bash is a local_bash task too (not backgrounded), and a
         # notification can name a call acpmux never saw run in the background.
         if said.strip() == "fg-probe":
@@ -221,3 +244,6 @@ for line in sys.stdin:
             result["modelUsage"] = {"claude-opus-1m": {"inputTokens": 90000, "contextWindow": 1000000},
                                     "claude-sonnet-x": {"inputTokens": 1200, "contextWindow": 200000}}
         send(result)
+        if said.strip() == "late-agent-ask":
+            send({"type": "control_request", "request_id": "late-1", "request": {"subtype": "can_use_tool",
+                  "tool_name": "Write", "tool_use_id": "toolu_late_w", "input": {"file_path": "late.txt", "content": "x"}}})
