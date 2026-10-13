@@ -4,8 +4,8 @@
   scripts/cmux-next/hibernation-busy-live.py --socket /tmp/cmux-debug-<tag>.sock
 
 The app must run with a short `browser.hibernation` (minutes, e.g. 0.05) from a config of its
-own: launch it with XDG_CONFIG_HOME=<dir> holding cmux/cmux-next.json
-{"browser": {"hibernation": 0.05}}, never by writing a shared config. Each page starts a Web
+own: launch it with CMUX_NEXT_CONFIG_FILE=<file> holding {"browser": {"hibernation": 0.05}},
+never by writing a shared config. Each page starts a Web
 Audio oscillator on a click (`debug.mouse {"target": "page"}`, an in-app event; autoplay
 needs a gesture). Then, in one pane:
 
