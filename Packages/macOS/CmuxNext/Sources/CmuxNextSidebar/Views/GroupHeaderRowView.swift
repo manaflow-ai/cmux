@@ -206,9 +206,9 @@ final class GroupHeaderRowView: SidebarRowView {
     }
 
     /// Minimal mode's header: the name and glyphs in secondary ink, the bar a hairline, and the
-    /// row's own fill for hover, the open editor and a drop.
+    /// row's own fill for hover, the open editor and a drop, all from `tokens` (the row's scope).
     private func paintThin(_ tokens: ThemeTokens) {
-        let ink = Palette.textSecondary
+        let ink = tokens.textSecondary.nsColor
         name.textColor = ink
         glyph.symbolInk = ink
         pin.contentTintColor = ink
@@ -216,11 +216,11 @@ final class GroupHeaderRowView: SidebarRowView {
         moreButton.tintOverride = ink
         addButton.tintOverride = ink
         dot.isHidden = true
-        ChromeHover.paint(pill, Palette.separator, animated: false)
+        ChromeHover.paint(pill, Borders.color(tokens.separator.nsColor), animated: false)
         paintFill(isDropTarget ? tokens.pressedFill.nsColor : isHovered || isEditing ? tokens.hoverFill.nsColor : nil)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer?.borderColor = Palette.focusRing.cgColor
+        layer?.borderColor = tokens.focusRing.nsColor.cgColor
         layer?.borderWidth = isKeyboardFocused ? Metrics.dividerThickness * 1.5 : 0
         layer?.cornerRadius = SidebarStyle.rowCornerRadius
         CATransaction.commit()

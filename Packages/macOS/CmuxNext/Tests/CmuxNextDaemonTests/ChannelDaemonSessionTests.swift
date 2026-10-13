@@ -5,8 +5,11 @@ import Testing
 /// A release and a nightly build on one Mac (cx-6so.41): the app launcher
 /// gives each untagged channel its own daemon session and state, while
 /// release keeps session `cmux-app` and cmux-tui's default state root, where
-/// existing release state lives.
-@Suite(.enabled(if: RealBinary.url != nil, "no cmux-tui binary available"), .timeLimit(.minutes(2)), .liveDaemon)
+/// existing release state lives. It needs this tree's cmux-tui: an
+/// installed or older one (the fallback when this tree's is not published)
+/// refuses the launcher's flags.
+@Suite(.enabled(if: RealBinary.isBranchBuild, "needs the same-tree cmux-tui (scripts/cmux-next/pin-cmux-tui.sh fetch)"),
+       .timeLimit(.minutes(2)), .liveDaemon)
 struct ChannelDaemonSessionTests {
     @Test func releaseAndNightlyRunSeparateDaemonsAtOnce() async throws {
         let binary = try #require(RealBinary.url)

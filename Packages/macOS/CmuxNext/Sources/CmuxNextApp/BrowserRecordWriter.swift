@@ -129,6 +129,9 @@ final class BrowserRecordWriter {
     private var pending: Task<Void, Never>?
     /// The page change the pending write waits to send.
     private var unsent: BrowserTabState?
+    /// The page as it is now, its address as the record keeps it. The
+    /// observation hears of a change only on a later turn.
+    private let current: @MainActor () -> BrowserTabState
 
     /// `recordURL` maps the page's address to the address the record keeps
     /// (a machine's page keeps its machine record, cx-2cob slice 2).
@@ -140,11 +143,15 @@ final class BrowserRecordWriter {
         self.delay = delay
         self.sleep = sleep
         self.send = send
+        let current: @MainActor () -> BrowserTabState = { [tab] in
+            var state = tab.state
+            if let recordURL { state.url = state.url.map(recordURL) }
+            return state
+        }
+        self.current = current
         observation = Task { [weak self, tab] in
-            for await state in ObservationStream({ tab.state }) {
-                var state = state
-                if let recordURL { state.url = state.url.map(recordURL) }
-                self?.pageDidChange(state)
+            for await _ in ObservationStream({ tab.state }) {
+                self?.pageDidChange(current())
             }
         }
         if let daemonRecord {
@@ -157,13 +164,15 @@ final class BrowserRecordWriter {
         }
     }
 
-    /// Sends a write still waiting out its delay now (quit: the app may be
-    /// gone before the delay ends).
+    /// Sends the page's change now (quit, close: the app or the record may
+    /// be gone before the delay ends), including one the observation has
+    /// not delivered yet.
     func flushNow() async {
-        guard let state = unsent else { return }
         pending?.cancel()
         pending = nil
         unsent = nil
+        let state = current()
+        page = state
         await flush(state)
     }
 

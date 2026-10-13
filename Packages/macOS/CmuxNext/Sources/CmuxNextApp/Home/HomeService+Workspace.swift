@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import Foundation
 
 /// Home as a workspace (plans/cmux-next/home.md 7): the store owns one home
