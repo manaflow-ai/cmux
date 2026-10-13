@@ -1,25 +1,25 @@
-import CoreGraphics
+public import CoreGraphics
 
-/// Whether a thumbnail holds a real picture (`debug.hover_sweep`, R131): its
+/// Whether a thumbnail holds a real picture (hover cards, `debug.hover_sweep`, R131): its
 /// size and the luminance mean and variance of a 16x16 grayscale copy. A
 /// blank capture (one flat color) has a variance near 0.
-struct ThumbnailStats: Equatable, Sendable {
-    var width: Int
-    var height: Int
+public struct ThumbnailStats: Equatable, Sendable {
+    public var width: Int
+    public var height: Int
     /// Luminance mean and variance over the downsampled copy (0...255 scale).
-    var mean: Double
-    var variance: Double
+    public var mean: Double
+    public var variance: Double
 
     /// A flat image (blank page capture, solid placeholder) is under this.
-    static let blankVariance = 4.0
-    var isBlank: Bool { variance < Self.blankVariance }
+    public static let blankVariance = 4.0
+    public var isBlank: Bool { variance < Self.blankVariance }
 
     /// Computes the stats on a background task.
-    static func measure(_ image: CGImage) async -> ThumbnailStats? {
+    public static func measure(_ image: CGImage) async -> ThumbnailStats? {
         await Task.detached(priority: .utility) { measured(image) }.value
     }
 
-    nonisolated static func measured(_ image: CGImage) -> ThumbnailStats? {
+    public nonisolated static func measured(_ image: CGImage) -> ThumbnailStats? {
         let side = 16
         var pixels = [UInt8](repeating: 0, count: side * side)
         let drawn = pixels.withUnsafeMutableBytes { buffer -> Bool in
