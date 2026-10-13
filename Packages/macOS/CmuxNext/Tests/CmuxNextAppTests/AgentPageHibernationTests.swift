@@ -4,13 +4,15 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
+import AppKit
 import Foundation
 import Testing
 
 /// cx-x15rz: each agent chat tab's page is a web view with its own web content process (about
 /// 75 MB). A chat hidden past the browser hibernation threshold lets its page go and keeps its
 /// tab: showing the tab again builds a new page on the same session, which acpmux replays. A
-/// chat whose agent works, a New Tab page, and every chat with hibernation off keep their page.
+/// chat whose turn runs (acpmux's turn state), a New Tab page, and every chat with hibernation
+/// off keep their page.
 @MainActor @Suite(.serialized)
 struct AgentPageHibernationTests {
     static let thisMac = "install:agent-page-hibernation-test"
@@ -21,8 +23,12 @@ struct AgentPageHibernationTests {
         let tabs: AgentTabStore
         let hibernation: AgentPageHibernation
         var records: [String: AgentSessionRef] = [:]
-        var states: [String: AgentState] = [:]
+        let turns = AgentTurnStateStore()
         var displaced: [String] = []
+        /// The tabs the panes draw (`TabContentCache.isRendering`).
+        var rendering: Set<String> = []
+        /// The window a page draws in while its pane shows it.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
         var elapsed: Duration = .zero
         let start = ContinuousClock.now
 
@@ -30,20 +36,27 @@ struct AgentPageHibernationTests {
             tabs = AgentTabStore(tag: nil, registry: ActionRegistry(),
                                  environment: [AgentPaneSource.devURLVariable: "http://127.0.0.1:9/"], showcase: true)
             tabs.localHost = AgentPageHibernationTests.thisMac
+            turns.localHost = AgentPageHibernationTests.thisMac
             let tree = DaemonStore()
             hibernation = AgentPageHibernation(tabs: { [tabs] in tabs })
             tabs.lookup = { [unowned self] key in self.records[key].map { ($0, tree) } }
-            hibernation.agentState = { [unowned self] key in self.states[key] }
+            hibernation.turnState = { [unowned self] key in self.records[key].flatMap(self.turns.state(for:)) }
             hibernation.displace = { [unowned self] key in self.displaced.append(key) }
             hibernation.now = { [unowned self] in self.start + self.elapsed }
         }
 
-        /// A chat of this Mac on `session`, shown once, then hidden.
+        /// A chat of this Mac on `session`, shown in a pane, then hidden as a pane switches away:
+        /// the presentation change comes while the page is still in the window, and the pane
+        /// takes it out after.
         func hiddenChat(_ key: String, session: String) throws -> AgentPaneView {
             records[key] = AgentSessionRef(host: AgentPageHibernationTests.thisMac, hostName: "This Mac", session: session, harness: "claude")
             let view = try #require(tabs.view(for: key), "no page for \(key)")
-            hibernation.pageVisibility(key, visible: true)
-            hibernation.pageVisibility(key, visible: false)
+            window.contentView?.addSubview(view)
+            rendering.insert(key)
+            hibernation.sync { self.rendering.contains($0) }
+            rendering.remove(key)
+            hibernation.sync { self.rendering.contains($0) }
+            view.removeFromSuperview()
             return view
         }
 
@@ -64,7 +77,7 @@ struct AgentPageHibernationTests {
         rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
         let page = try rig.hiddenChat("tab_quiet", session: "s-quiet")
         let busy = try rig.hiddenChat("tab_busy", session: "s-busy")
-        rig.states["tab_busy"] = .working
+        _ = rig.turns.states.set("s-busy", .working)
 
         // Moderate: an hour hidden. At half an hour both pages stay.
         rig.advance(minutes: 30)
