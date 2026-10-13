@@ -28,11 +28,19 @@ impl Source {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Responder {
-    Content { pane: String },
-    AddressBar { pane: String },
-    FindBar { pane: String },
+    Content {
+        pane: String,
+    },
+    AddressBar {
+        pane: String,
+    },
+    FindBar {
+        pane: String,
+    },
     /// A page's docked DevTools window became key.
-    DevTools { pane: String },
+    DevTools {
+        pane: String,
+    },
     Sidebar {},
     SidebarField {},
     TextField {},
@@ -129,14 +137,18 @@ pub enum FocusEvent {
         outcome: DragOutcome,
     },
     /// A pane's selected content view now exists (frame-deferred show).
-    ContentPresented { pane: String },
+    ContentPresented {
+        pane: String,
+    },
     /// None toggles the focused page.
     ToggleBrowserFocusMode {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         tab: Option<String>,
     },
     /// The window's sidebar was shown or hidden.
-    SidebarVisibility { hidden: bool },
+    SidebarVisibility {
+        hidden: bool,
+    },
     /// The pane this window's record saved for `workspace` (relaunch).
     RestoredPane {
         #[serde(rename = "_0")]
@@ -169,7 +181,10 @@ impl FocusEvent {
 #[serde(rename_all = "camelCase")]
 pub enum FocusEffect {
     /// Make `tab` the selected tab of `pane` (client-local selection).
-    Select { pane: String, tab: String },
+    Select {
+        pane: String,
+        tab: String,
+    },
     /// Mirror the focused pane into the layout without a layout intent.
     RevealPane {
         #[serde(rename = "_0")]
@@ -184,5 +199,8 @@ pub enum FocusEffect {
         #[serde(rename = "_0")]
         context: Context,
     },
-    BrowserFocusMode { tab: String, active: bool },
+    BrowserFocusMode {
+        tab: String,
+        active: bool,
+    },
 }

@@ -47,7 +47,8 @@ pub fn pane(
         return Some(focused.to_owned());
     }
     if policy == CloseFocusPolicy::MostRecent
-        && let Some(recent) = history.iter().find(|id| id.as_str() != focused && surviving.contains(id.as_str()))
+        && let Some(recent) =
+            history.iter().find(|id| id.as_str() != focused && surviving.contains(id.as_str()))
     {
         return Some(recent.clone());
     }
@@ -61,7 +62,9 @@ pub fn pane(
     if let Some(in_column) = neighbor(focused, &before[column], false, |id| stayed.contains(id)) {
         return Some(in_column.clone());
     }
-    if let Some(added) = history.iter().find(|id| stayed.contains(id.as_str())).or_else(|| after[column].first()) {
+    if let Some(added) =
+        history.iter().find(|id| stayed.contains(id.as_str())).or_else(|| after[column].first())
+    {
         return Some(added.clone());
     }
     // The column is empty or gone: the nearest non-empty column to the

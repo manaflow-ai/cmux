@@ -46,11 +46,22 @@ pub fn changes_view(request: &ChangesViewRequest) -> ChangesViewResponse {
 #[serde(rename_all = "camelCase")]
 pub enum TypeAheadOp {
     #[serde(rename_all = "camelCase")]
-    Append { characters: String, surface: String, now_ns: i64 },
-    DeleteBackward { surface: String },
+    Append {
+        characters: String,
+        surface: String,
+        now_ns: i64,
+    },
+    DeleteBackward {
+        surface: String,
+    },
     #[serde(rename_all = "camelCase")]
-    Take { surface: String, now_ns: i64 },
-    Pending { surface: String },
+    Take {
+        surface: String,
+        now_ns: i64,
+    },
+    Pending {
+        surface: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -74,7 +85,9 @@ pub fn type_ahead(request: &TypeAheadRequest) -> TypeAheadResponse {
     let mut text = None;
     let mut pending = false;
     match &request.op {
-        TypeAheadOp::Append { characters, surface, now_ns } => queue.append(characters, surface, *now_ns),
+        TypeAheadOp::Append { characters, surface, now_ns } => {
+            queue.append(characters, surface, *now_ns)
+        }
         TypeAheadOp::DeleteBackward { surface } => queue.delete_backward(surface),
         TypeAheadOp::Take { surface, now_ns } => text = queue.take(surface, *now_ns),
         TypeAheadOp::Pending { surface } => pending = queue.pending(surface),

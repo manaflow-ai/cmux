@@ -23,7 +23,9 @@ pub enum Target {
     /// The focused page's docked developer tools.
     DevTools {},
     /// The sidebar list; `keyboard` when it got there by keyboard.
-    Sidebar { keyboard: bool },
+    Sidebar {
+        keyboard: bool,
+    },
     /// Sidebar search or inline rename field.
     SidebarField {},
     /// Any other text field in the window.
@@ -38,7 +40,10 @@ impl Target {
     }
 
     pub fn is_pane_scoped(self) -> bool {
-        matches!(self, Target::Content {} | Target::AddressBar {} | Target::FindBar {} | Target::DevTools {})
+        matches!(
+            self,
+            Target::Content {} | Target::AddressBar {} | Target::FindBar {} | Target::DevTools {}
+        )
     }
 
     pub(crate) fn is_chrome(self) -> bool {
@@ -104,16 +109,42 @@ pub struct DragRestore {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Resolved {
-    Terminal { pane: String, tab: String },
-    BrowserPage { pane: String, tab: String },
-    AddressBar { pane: String, tab: String },
-    FindBar { pane: String, tab: String },
-    DevTools { pane: String, tab: String },
-    AgentPage { pane: String, tab: String },
-    Page { pane: String, tab: String },
-    Conversation { pane: String, tab: String },
+    Terminal {
+        pane: String,
+        tab: String,
+    },
+    BrowserPage {
+        pane: String,
+        tab: String,
+    },
+    AddressBar {
+        pane: String,
+        tab: String,
+    },
+    FindBar {
+        pane: String,
+        tab: String,
+    },
+    DevTools {
+        pane: String,
+        tab: String,
+    },
+    AgentPage {
+        pane: String,
+        tab: String,
+    },
+    Page {
+        pane: String,
+        tab: String,
+    },
+    Conversation {
+        pane: String,
+        tab: String,
+    },
     /// A focused pane with no content to type into (empty, loading).
-    EmptyPane { pane: String },
+    EmptyPane {
+        pane: String,
+    },
     Sidebar {},
     SidebarField {},
     TextField {},
@@ -231,7 +262,12 @@ impl Default for FocusState {
 impl FocusState {
     /// The shown workspace's focus history, newest first.
     pub fn recent_panes(&self) -> Vec<String> {
-        self.topology.workspace.as_ref().and_then(|w| self.history.get(w)).cloned().unwrap_or_default()
+        self.topology
+            .workspace
+            .as_ref()
+            .and_then(|w| self.history.get(w))
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub fn resolved(&self) -> Resolved {
@@ -249,15 +285,22 @@ impl FocusState {
             Target::SidebarField {} => Resolved::SidebarField {},
             Target::TextField {} => Resolved::TextField {},
             Target::None {} => Resolved::None {},
-            Target::Content {} | Target::AddressBar {} | Target::FindBar {} | Target::DevTools {} => {
+            Target::Content {}
+            | Target::AddressBar {}
+            | Target::FindBar {}
+            | Target::DevTools {} => {
                 let Some(pane) = self.pane.clone() else { return Resolved::None {} };
                 let Some(model) = self.topology.pane(&pane) else { return Resolved::None {} };
                 let Some(tab) = model.selected_tab() else { return Resolved::EmptyPane { pane } };
                 let tab_id = tab.id.clone();
                 match (tab.kind, self.target) {
-                    (Kind::Browser, Target::AddressBar {}) => Resolved::AddressBar { pane, tab: tab_id },
+                    (Kind::Browser, Target::AddressBar {}) => {
+                        Resolved::AddressBar { pane, tab: tab_id }
+                    }
                     (Kind::Browser, Target::FindBar {}) => Resolved::FindBar { pane, tab: tab_id },
-                    (Kind::Browser, Target::DevTools {}) => Resolved::DevTools { pane, tab: tab_id },
+                    (Kind::Browser, Target::DevTools {}) => {
+                        Resolved::DevTools { pane, tab: tab_id }
+                    }
                     (Kind::Browser, _) => Resolved::BrowserPage { pane, tab: tab_id },
                     (Kind::Terminal, _) => Resolved::Terminal { pane, tab: tab_id },
                     (Kind::Agent, _) => Resolved::AgentPage { pane, tab: tab_id },

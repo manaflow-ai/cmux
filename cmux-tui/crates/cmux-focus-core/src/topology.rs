@@ -76,7 +76,10 @@ impl Topology {
     pub fn columns_containing(&self, pane: &str) -> Option<Vec<Column>> {
         if self.screens.is_empty() {
             return self.contains_pane(pane).then(|| {
-                vec![Column { id: String::new(), panes: self.panes.iter().map(|p| p.id.clone()).collect() }]
+                vec![Column {
+                    id: String::new(),
+                    panes: self.panes.iter().map(|p| p.id.clone()).collect(),
+                }]
             });
         }
         self.screens
@@ -88,7 +91,10 @@ impl Topology {
     /// Column id -> panes, over every screen (the first column with an id wins).
     pub fn columns_by_id(&self) -> HashMap<String, Vec<String>> {
         if self.screens.is_empty() {
-            return HashMap::from([(String::new(), self.panes.iter().map(|p| p.id.clone()).collect())]);
+            return HashMap::from([(
+                String::new(),
+                self.panes.iter().map(|p| p.id.clone()).collect(),
+            )]);
         }
         let mut map = HashMap::new();
         for column in self.screens.iter().flatten() {

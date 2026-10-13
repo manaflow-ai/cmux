@@ -4,7 +4,9 @@
 
 use crate::close_focus;
 use crate::event::{DragOutcome, FocusEffect, FocusEvent, Responder, Source};
-use crate::state::{DragRestore, Expectation, ExpectationKey, FocusState, HISTORY_LIMIT, Resolved, Target};
+use crate::state::{
+    DragRestore, Expectation, ExpectationKey, FocusState, HISTORY_LIMIT, Resolved, Target,
+};
 use crate::topology::{Column, Kind, Topology};
 
 /// Reduces one event. The returned state's `derived` is current.
@@ -24,7 +26,9 @@ pub fn reduce(state: &FocusState, event: &FocusEvent) -> (FocusState, Vec<FocusE
     match event {
         FocusEvent::Topology { topology } => apply_topology(topology, &mut next, &mut effects),
         FocusEvent::RestoredPane { pane, workspace } => {
-            if !next.remembered.contains_key(workspace) && Some(workspace) != next.topology.workspace.as_ref() {
+            if !next.remembered.contains_key(workspace)
+                && Some(workspace) != next.topology.workspace.as_ref()
+            {
                 remember(pane, workspace, &mut next);
             }
         }
@@ -71,7 +75,9 @@ pub fn reduce(state: &FocusState, event: &FocusEvent) -> (FocusState, Vec<FocusE
             if source.is_user_intent() {
                 bump(&mut next);
             }
-            if target.is_chrome() && next.topology.selected_kind(next.pane.as_deref()) != Some(Kind::Browser) {
+            if target.is_chrome()
+                && next.topology.selected_kind(next.pane.as_deref()) != Some(Kind::Browser)
+            {
                 break 'arm;
             }
             next.target = *target;
@@ -108,7 +114,8 @@ pub fn reduce(state: &FocusState, event: &FocusEvent) -> (FocusState, Vec<FocusE
             }
         }
         FocusEvent::DragBegan { tabs, pane } => {
-            let tab = next.pane.as_deref().and_then(|p| next.topology.selected_of(p)).map(str::to_owned);
+            let tab =
+                next.pane.as_deref().and_then(|p| next.topology.selected_of(p)).map(str::to_owned);
             next.drag = Some(DragRestore {
                 tabs: tabs.clone(),
                 source_pane: pane.clone(),
@@ -132,8 +139,10 @@ pub fn reduce(state: &FocusState, event: &FocusEvent) -> (FocusState, Vec<FocusE
                         && next.topology.contains_pane(&pane)
                     {
                         if restore.target.is_pane_scoped() {
-                            let same_tab = next.topology.selected_of(&pane) == restore.tab.as_deref();
-                            next.target = if same_tab { restore.target } else { Target::Content {} };
+                            let same_tab =
+                                next.topology.selected_of(&pane) == restore.tab.as_deref();
+                            next.target =
+                                if same_tab { restore.target } else { Target::Content {} };
                         }
                         next.pane = Some(pane);
                     }
@@ -220,7 +229,8 @@ fn apply_topology(topology: &Topology, state: &mut FocusState, effects: &mut Vec
     if let Some(workspace) = topology.workspace.clone()
         && let Some(recent) = state.history.get(&workspace)
     {
-        let kept: Vec<String> = recent.iter().filter(|p| topology.contains_pane(p)).cloned().collect();
+        let kept: Vec<String> =
+            recent.iter().filter(|p| topology.contains_pane(p)).cloned().collect();
         if kept.len() != recent.len() {
             if kept.is_empty() {
                 state.history.remove(&workspace);
@@ -230,7 +240,8 @@ fn apply_topology(topology: &Topology, state: &mut FocusState, effects: &mut Vec
         }
     }
     let live = topology.all_tab_ids();
-    let dead: Vec<String> = state.browser_focus_mode.iter().filter(|t| !live.contains(*t)).cloned().collect();
+    let dead: Vec<String> =
+        state.browser_focus_mode.iter().filter(|t| !live.contains(*t)).cloned().collect();
     for tab in dead {
         state.browser_focus_mode.remove(&tab);
         effects.push(FocusEffect::BrowserFocusMode { tab, active: false });
@@ -257,9 +268,11 @@ pub fn successor(
     // Aligned by column id: a pane that moved to another column is not in
     // its old column any more (close-focus.md; LayoutRows.tla).
     let now = new.columns_by_id();
-    let after: Vec<Vec<String>> = columns.iter().map(|c| now.get(&c.id).cloned().unwrap_or_default()).collect();
+    let after: Vec<Vec<String>> =
+        columns.iter().map(|c| now.get(&c.id).cloned().unwrap_or_default()).collect();
     let on_screen: std::collections::HashSet<&String> = after.iter().flatten().collect();
-    let shown_history: Vec<String> = history.iter().filter(|p| on_screen.contains(p)).cloned().collect();
+    let shown_history: Vec<String> =
+        history.iter().filter(|p| on_screen.contains(p)).cloned().collect();
     if let Some(pick) = close_focus::pane(Some(pane), &before, &after, &shown_history, policy)
         && new.contains_pane(&pick)
     {
@@ -294,7 +307,9 @@ fn overrides_drag(event: &FocusEvent) -> bool {
         FocusEvent::FocusPane { source, .. }
         | FocusEvent::SelectTab { source, .. }
         | FocusEvent::FocusTarget { source, .. }
-        | FocusEvent::Responder { source, .. } => source.is_user_intent() && *source != Source::Mouse,
+        | FocusEvent::Responder { source, .. } => {
+            source.is_user_intent() && *source != Source::Mouse
+        }
         FocusEvent::BeginIntent {} => true,
         _ => false,
     }
