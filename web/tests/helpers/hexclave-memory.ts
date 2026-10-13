@@ -1,5 +1,8 @@
 import type { HexclaveWebhookOutcome } from "../../db/schema";
+import type { HexclaveInboxEntry, HexclaveInboxStore } from "../../services/auth/hexclave/inbox";
 import type { HexclaveMirrorStore, HexclaveUserState } from "../../services/auth/hexclave/mirrorStore";
+import type { HexclaveSyncTarget } from "../../services/auth/hexclave/sync";
+import { HexclaveApiError } from "../../services/auth/hexclave/serverApi";
 import type {
   HexclaveProjectPermission,
   HexclaveServerTeam,
@@ -18,8 +21,21 @@ export class FakeHexclave implements HexclaveSource {
   projectPermissions: HexclaveProjectPermission[] = [];
   failNext: Error | null = null;
   calls: string[] = [];
+  /** Answer 429 (Retry-After 1 s) above `perSecond` calls in one clock second. */
+  rateLimit: { perSecond: number; nowMs: () => number } | null = null;
+  throttled = 0;
+  private window = { second: -1, count: 0 };
 
   private check(call: string) {
+    if (this.rateLimit) {
+      const second = Math.floor(this.rateLimit.nowMs() / 1_000);
+      if (second !== this.window.second) this.window = { second, count: 0 };
+      this.window.count += 1;
+      if (this.window.count > this.rateLimit.perSecond) {
+        this.throttled += 1;
+        throw new HexclaveApiError("Hexclave GET failed", { status: 429, retryAfterSeconds: 1 });
+      }
+    }
     this.calls.push(call);
     if (this.failNext) {
       const error = this.failNext;
@@ -206,4 +222,87 @@ export class MemoryMirror implements HexclaveMirrorStore {
       attempts: (existing?.attempts ?? 0) + 1,
     });
   };
+}
+
+type MemoryInboxRow = {
+  svixId: string;
+  eventType: string;
+  target: HexclaveSyncTarget;
+  payload: unknown;
+  receivedOrder: number;
+  attempts: number;
+  nextAttemptAt: Date;
+  claimedUntil: Date | null;
+  lastError: string | null;
+};
+
+/** The webhook inbox in memory, with the same claim and coalescing rules as the Drizzle store. */
+export class MemoryInbox implements HexclaveInboxStore {
+  rows = new Map<string, MemoryInboxRow>();
+  slots = new Map<number, Date>();
+  failEnqueue: Error | null = null;
+  private order = 0;
+
+  async enqueue(input: { svixId: string; eventType: string; target: HexclaveSyncTarget; payload: unknown }): Promise<void> {
+    if (this.failEnqueue) throw this.failEnqueue;
+    if (this.rows.has(input.svixId)) return;
+    this.rows.set(input.svixId, {
+      ...input,
+      receivedOrder: this.order++,
+      attempts: 0,
+      nextAttemptAt: new Date(0),
+      claimedUntil: null,
+      lastError: null,
+    });
+  }
+
+  async claimDrainSlot(now: Date, leaseUntil: Date, slots: number): Promise<number | null> {
+    for (let slot = 0; slot < slots; slot++) {
+      const held = this.slots.get(slot);
+      if (!held || held <= now) {
+        this.slots.set(slot, leaseUntil);
+        return slot;
+      }
+    }
+    return null;
+  }
+
+  async releaseDrainSlot(slot: number): Promise<void> {
+    this.slots.set(slot, new Date(0));
+  }
+
+  async claimDue(now: Date, entityLimit: number, leaseUntil: Date): Promise<HexclaveInboxEntry[]> {
+    const due = [...this.rows.values()]
+      .filter((row) => row.nextAttemptAt <= now && (!row.claimedUntil || row.claimedUntil <= now))
+      .sort((a, b) => a.receivedOrder - b.receivedOrder);
+    const entities: string[] = [];
+    for (const row of due) {
+      const key = `${row.target.kind}:${row.target.id}`;
+      if (!entities.includes(key) && entities.length < entityLimit) entities.push(key);
+    }
+    const claimed = due.filter((row) => entities.includes(`${row.target.kind}:${row.target.id}`));
+    for (const row of claimed) row.claimedUntil = leaseUntil;
+    return claimed
+      .sort((a, b) => a.svixId.localeCompare(b.svixId))
+      .map((row) => ({ svixId: row.svixId, eventType: row.eventType, target: row.target, attempts: row.attempts }));
+  }
+
+  async complete(svixIds: readonly string[]): Promise<void> {
+    for (const id of svixIds) this.rows.delete(id);
+  }
+
+  async retryLater(svixIds: readonly string[], input: { nextAttemptAt: Date; error: string }): Promise<void> {
+    for (const id of svixIds) {
+      const row = this.rows.get(id);
+      if (!row) continue;
+      row.attempts += 1;
+      row.nextAttemptAt = input.nextAttemptAt;
+      row.claimedUntil = null;
+      row.lastError = input.error;
+    }
+  }
+
+  async countStuck(attempts: number): Promise<number> {
+    return [...this.rows.values()].filter((row) => row.attempts >= attempts).length;
+  }
 }
