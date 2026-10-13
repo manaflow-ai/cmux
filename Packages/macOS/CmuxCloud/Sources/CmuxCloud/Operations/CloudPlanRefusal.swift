@@ -92,7 +92,7 @@ public struct CloudPlanRefusal: Equatable, Sendable {
     /// - Returns: Whether the row should show its upgrade action.
     public static func offersUpgrade(for code: String?, plan: MachinePlanSnapshot?) -> Bool {
         if code == activeLimitExceededCode { return plan?.hasHigherPlan ?? true }
-        return code == resourcePoolExceededCode && plan?.hasHigherPlan == true
+        return code == resourcePoolExceededCode && plan?.hasHigherResourcePoolPlan == true
     }
 
     /// The localized sentence for a person: what stopped the request and what
@@ -109,7 +109,7 @@ public struct CloudPlanRefusal: Equatable, Sendable {
                 defaultValue: "Every active machine your plan allows is in use. Pause or delete a running machine, then try again."
             )
         case .createCredits:
-            return String(
+            return serverMessage ?? String(
                 localized: "cloud.operation.failure.createCredits",
                 defaultValue: "Your team has no machine create credits left. Ask a team admin to add credits or upgrade the plan."
             )
