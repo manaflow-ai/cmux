@@ -526,6 +526,11 @@ class FormatBeforeLanding(unittest.TestCase):
     the PR's head on a runner and pushes the fix to the PR's branch."""
 
     def setUp(self):
+        # Landing rechecks eligibility at nb.now(); pin it to the fixtures'
+        # clock so their head commits never age past the 5-day limit.
+        patcher = mock.patch.object(nb, "now", return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.tmp = tempfile.TemporaryDirectory()
         root = Path(self.tmp.name)
         self.env = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
@@ -642,6 +647,13 @@ class FormatBeforeLanding(unittest.TestCase):
 @mock.patch.object(nb, "now", lambda: NOW)
 class NotifyOwners(unittest.TestCase):
     """Until landing is allowed, serve posts a receipt and the owner lands."""
+
+    def setUp(self):
+        # Landing rechecks eligibility at nb.now(); pin it to the fixtures'
+        # clock so their head commits never age past the 5-day limit.
+        patcher = mock.patch.object(nb, "now", return_value=NOW)
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def controller(self, notify: bool) -> nb.Controller:
         controller = nb.Controller.__new__(nb.Controller)
