@@ -518,3 +518,98 @@ fn an_ungrouped_tab_group_reopens_whole() {
         by_name("Since").unwrap_or_else(|| panic!("the newer group lost its tab: {groups:?}"));
     assert_eq!(since["tab_ids"], serde_json::json!([tabs[1]]));
 }
+
+fn screen_groups(harness: &RecoveryHarness, request: &str) -> Vec<serde_json::Value> {
+    let reply = resource_request(
+        &harness.socket,
+        request,
+        "screen_group.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    reply.as_array().or_else(|| reply["value"].as_array()).cloned().unwrap_or_default()
+}
+
+/// A screen group's Ungroup (cx-gzh.10) is one closed-history group too:
+/// Cmd-Shift-T forms it again with its id, name, color and screens in order.
+#[test]
+fn an_ungrouped_screen_group_reopens_whole() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, _) = start("reopen-screen-ungroup");
+    let workspaces = app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"].clone();
+    let workspace = workspaces
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == "kinds")
+        .cloned()
+        .expect("the workspace exists");
+    let key = workspace["key"].as_str().expect("the workspace has a key").to_string();
+    put_window(&harness, "win-s", Some(&key), true, "win-s-open");
+    for _ in 0..2 {
+        app.send(serde_json::json!({"cmd":"new-screen","workspace":workspace["id"],
+                                    "cols":80,"rows":24}));
+    }
+    let public = resource_request(
+        &harness.socket,
+        "screen-ungroup-workspaces",
+        "workspace.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    )
+    .as_array()
+    .into_iter()
+    .flatten()
+    .find(|listed| listed["name"] == "kinds")
+    .and_then(|listed| listed["id"].as_str().map(str::to_string))
+    .expect("the workspace has a public id");
+    let screens = resource_request(
+        &harness.socket,
+        "screen-ungroup-screens",
+        "screen.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    )
+    .as_array()
+    .into_iter()
+    .flatten()
+    .filter(|screen| screen["workspace_id"] == public.as_str())
+    .filter_map(|screen| screen["id"].as_str().map(str::to_string))
+    .collect::<Vec<_>>();
+    assert_eq!(screens.len(), 3, "{screens:?}");
+    let members = vec![screens[1].clone(), screens[2].clone()];
+    resource_request(
+        &harness.socket,
+        "screen-ungroup-create",
+        "screen_group.create",
+        serde_json::json!({"machine":"current","session":"current",
+                           "screens":members,"name":"Agents","color":"green"}),
+        Some("screen-ungroup-create"),
+    );
+    let created = screen_groups(&harness, "screen-ungroup-list-1");
+    assert_eq!(created.len(), 1, "{created:?}");
+    let group_id = created[0]["id"].as_str().expect("the group has an id").to_string();
+    let before = closed_list(&harness, "screen-ungroup-closed-1").len();
+
+    resource_request(
+        &harness.socket,
+        "screen-ungroup",
+        "screen_group.ungroup",
+        serde_json::json!({"machine":"current","session":"current","screen_group":group_id}),
+        Some("screen-ungroup"),
+    );
+    assert!(screen_groups(&harness, "screen-ungroup-list-2").is_empty());
+    let closed = closed_list(&harness, "screen-ungroup-closed-2");
+    assert_eq!(closed.len(), before + 1, "the ungroup was not recorded: {closed:?}");
+    assert_eq!(closed[0]["window"], "reopen-kinds/win-s", "{closed:?}");
+
+    let reply = reopen_from(&harness, "reopen-kinds/win-s", "screen-ungroup-reopen");
+    assert_eq!(reply["ok"], true, "{reply}");
+    let groups = screen_groups(&harness, "screen-ungroup-list-3");
+    assert_eq!(groups.len(), 1, "{groups:?}");
+    assert_eq!(groups[0]["id"], group_id.as_str());
+    assert_eq!(groups[0]["name"], "Agents");
+    assert_eq!(groups[0]["color"], "green");
+    assert_eq!(groups[0]["screen_ids"], serde_json::json!(members));
+    assert_eq!(closed_list(&harness, "screen-ungroup-closed-3").len(), before);
+}
