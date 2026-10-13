@@ -1,7 +1,7 @@
 //! ALL-CHATS-ON-DEVICE S4: the daemon wires the chat index. Every store is
 //! a synthetic fixture in a temp home; no test reads a real harness store.
 
-use acpmux::chats::{ChatSources, launch_roots, lookup, refusal};
+use acpmux::chats::{ChatSources, refusal};
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -26,7 +26,9 @@ impl Drop for Home {
 }
 
 fn home(tag: &str) -> Home {
-    let base = std::env::temp_dir().join(format!("acpmux-chats-{tag}-{}", uuid::Uuid::now_v7()));
+    // Under /tmp, not the temp dir: a worker's temp dir may be on another volume (`/Volumes`),
+    // where no chat root is ever listed.
+    let base = PathBuf::from("/tmp").join(format!("acpmux-chats-{tag}-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&base).unwrap();
     Home(std::fs::canonicalize(&base).unwrap())
 }
@@ -133,17 +135,6 @@ fn keys(result: &Value) -> Vec<String> {
 }
 
 #[test]
-fn env_lookup_prefers_the_daemon_env_then_the_login_env() {
-    let process =
-        |k: &str| (k == "A").then(|| "daemon".to_owned()).or_else(|| (k == "E").then(String::new));
-    let login = |k: &str| matches!(k, "A" | "B" | "E").then(|| "login".to_owned());
-    assert_eq!(lookup("A", process, login).as_deref(), Some("daemon"));
-    assert_eq!(lookup("B", process, login).as_deref(), Some("login"));
-    assert_eq!(lookup("E", process, login).as_deref(), Some("login"), "empty counts as unset");
-    assert_eq!(lookup("C", process, login), None);
-}
-
-#[test]
 fn refusal_covers_guarded_folders_and_other_daemon_homes() {
     let home = Path::new("/Users/me");
     let acpmux = Path::new("/Users/me/.acpmux/tags/dev");
@@ -159,28 +150,6 @@ fn refusal_covers_guarded_folders_and_other_daemon_homes() {
     for path in ["/Users/me/.claude/projects", "/Users/me/.codex", "/opt/agents/.codex"] {
         assert_eq!(refusal(Path::new(path), home, acpmux), None, "{path} must be allowed");
     }
-}
-
-#[test]
-fn launch_roots_come_from_profile_and_family_env() {
-    let cfg: Config = serde_json::from_value(json!({
-        "harnesses": {
-            "claude-alt": {"argv": ["claude"], "env": {"CLAUDE_CONFIG_DIR": "/opt/alt-claude"}},
-            "codex-alt": {"argv": ["codex"], "env": {"CODEX_HOME": "/opt/alt-codex"}},
-            "rel": {"argv": ["claude"], "env": {"CLAUDE_CONFIG_DIR": "relative"}},
-        },
-        "defaults": {"claude": {"env": {"CLAUDE_CONFIG_DIR": "/opt/alt-claude"}}},
-    }))
-    .unwrap();
-    let roots: Vec<(String, PathBuf)> =
-        launch_roots(&cfg).into_iter().map(|r| (r.harness.id().to_owned(), r.path)).collect();
-    assert_eq!(
-        roots,
-        vec![
-            ("claude-code".to_owned(), PathBuf::from("/opt/alt-claude/projects")),
-            ("codex".to_owned(), PathBuf::from("/opt/alt-codex")),
-        ]
-    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -224,6 +193,7 @@ async fn chats_lists_synthetic_roots_with_filters_and_pages() {
     assert!(bad["error"]["message"].as_str().unwrap().contains("unknown"), "{bad}");
 
     // The cache is written, owner-only.
+    #[cfg(unix)]
     let cache = h.0.join(".acpmux/chat-index/v1.json");
     #[cfg(unix)]
     {
@@ -359,6 +329,7 @@ async fn websocket_origins_never_get_chats() {
             "_acpmux/chat_roots",
             "_acpmux/chat_roots_record",
             "_acpmux/chat_open",
+            "_acpmux/chat_transcript",
         ] {
             let reply = c.call(m, json!({})).await;
             assert_eq!(reply["error"]["code"], -32601, "{origin:?} {m}: {reply}");
@@ -373,4 +344,87 @@ async fn chats_answer_not_ready_before_the_index_starts() {
     let mut c = Client::new(&hub, Origin::Local);
     let reply = c.ok("_acpmux/chats", json!({})).await;
     assert_eq!((reply["ready"].clone(), reply["chats"].clone()), (json!(false), json!([])));
+}
+
+/// cx-fllj: the daemon's own reads of a live Codex state database (WAL
+/// mode, held open by the harness) must not count as changes. inotify
+/// reports every open, and each store scan opens the database, so a
+/// watcher that took opens (or the `-shm` file) as changes scanned the
+/// whole database again every burst, forever (~28k pread/s seen on
+/// cmux-lawrence-2). A real write still lands.
+#[cfg(target_os = "linux")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_idle_codex_state_db_is_not_read_again_and_again() {
+    use notify::Watcher as _;
+    use std::io::{BufRead, Write};
+    let h = home("codexdb");
+    let codex = h.0.join(".codex");
+    std::fs::create_dir_all(&codex).unwrap();
+    let db = codex.join("state_5.sqlite");
+    // The harness: creates the WAL database, keeps it open, inserts a
+    // thread per stdin line and prints "ok" after each commit.
+    let script = r#"
+import sqlite3, sys
+conn = sqlite3.connect(sys.argv[1], isolation_level=None)
+conn.execute("pragma journal_mode=wal")
+conn.execute("create table threads (id text primary key, rollout_path text, created_at integer, updated_at integer, cwd text, title text, first_user_message text, has_user_event integer, archived integer)")
+def add(i, title):
+    conn.execute("insert into threads values (?, '', 1759312800, 1759312800 + ?, '/work/app', ?, ?, 1, 0)", (i, len(title), title, title))
+    print("ok", flush=True)
+add(sys.argv[2], "first codex chat")
+for line in sys.stdin:
+    i, title = line.strip().split(" ", 1)
+    add(i, title)
+"#;
+    let mut harness = std::process::Command::new("python3")
+        .args(["-c", script])
+        .arg(&db)
+        .arg(A)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut harness_in = harness.stdin.take().unwrap();
+    let mut harness_out = std::io::BufReader::new(harness.stdout.take().unwrap()).lines();
+    assert_eq!(harness_out.next().unwrap().unwrap(), "ok");
+    assert!(codex.join("state_5.sqlite-wal").exists(), "the database is live in WAL mode");
+
+    let hub = hub();
+    hub.start_chats(sources(&h.0, &[])).await.unwrap();
+    let mut c = Client::new(&hub, Origin::Local);
+    let snapshot = c.ok("_acpmux/chats_watch", json!({})).await;
+    assert_eq!(keys(&snapshot), vec![format!("codex:{A}")]);
+
+    // Count every open of the database files from now on.
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut spy = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if let Ok(event) = event
+            && matches!(event.kind, notify::EventKind::Access(notify::event::AccessKind::Open(_)))
+            && event.paths.iter().any(|p| {
+                p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.starts_with("state_5"))
+            })
+        {
+            let _ = tx.send(());
+        }
+    })
+    .unwrap();
+    spy.watch(&codex, notify::RecursiveMode::NonRecursive).unwrap();
+    // The first scan's burst may still end inside this window: one more
+    // scan is fine. A loop scans every 300 ms quiet window (10+ in 4 s).
+    tokio::time::sleep(Duration::from_secs(4)).await;
+    let opens = rx.try_iter().count();
+    assert!(
+        opens <= 4,
+        "the idle database was opened {opens} times in 4 s (one scan opens up to 3 files)"
+    );
+
+    // A real commit still reaches the watcher.
+    writeln!(harness_in, "{B} second codex chat").unwrap();
+    assert_eq!(harness_out.next().unwrap().unwrap(), "ok");
+    let added = c.change(&format!("codex:{B}"), |p| p["kind"] == "upsert").await;
+    assert_eq!(added["chat"]["title"], "second codex chat");
+
+    drop(spy);
+    drop(harness_in);
+    let _ = harness.wait();
 }

@@ -29,22 +29,27 @@ enum TabSearchFactsBuilder {
         return result
     }
 
+    /// The closed tabs the daemons record (the only closed history), newest
+    /// first. Ids are history ids (`daemon:<closed id>`), so Reopen and Forget
+    /// take them as they are.
     private static func closed(_ services: AppServices) -> [ControlClosedTab] {
-        guard let tracker = services.closedTabs else { return [] }
         // Read inside the publisher's tracking: a close republishes.
-        _ = tracker.changes.revision
-        let connected = Set(services.machines.daemons.map(\.machineID))
-        return tracker.records.map { record in
-            let machineID = ClosedTabTracker.split(record.tabID)?.machine ?? MachineRegistry.localID
-            let workspace = ClosedTabTracker.split(record.workspaceID).flatMap { split in
-                services.machines.daemon(machine: split.machine)?.store.workspaces.first { $0.id == split.id }
-            }
+        _ = services.closedTabs?.changes.revision
+        // Untouched New Tab pages are left out, as in Recently Closed (HistoryService.isWorthReopening).
+        return DaemonClosedHistory.entries([.tab], in: services).filter { HistoryService.isWorthReopening($0.item) }.map { entry in
+            let item = entry.item, tab = HistoryService.shownTab(item), daemon = entry.daemon
+            let workspaceTitle = item.workspaceID.flatMap { daemon.store.workspace(resourceID: $0)?.displayName }
+            let local = daemon.machineID == MachineRegistry.localID
+            // One close gesture of several tabs is one item: its row reopens all of them.
+            let title = item.tabs.count > 1 ? MiscHandlerStrings.tabsClosed(item.tabs.count)
+                : HistoryService.realText(item.name) ?? HistoryService.realText(tab?.name)
+                    ?? HistoryService.realText(tab?.url) ?? tab?.cwd ?? ""
             return ControlClosedTab(
-                id: record.tabID, kind: record.kind == .browser ? "browser" : "terminal",
-                title: record.title ?? record.url ?? record.cwd ?? "", url: record.url, cwd: record.cwd,
-                workspaceTitle: workspace?.displayName,
-                machine: machineID == MachineRegistry.localID ? nil : services.machines.machineName(machineID) ?? machineID,
-                closedAt: record.closedAt ?? .distantPast, isAvailable: connected.contains(machineID))
+                id: DaemonClosedHistory.historyID(item.id), kind: tab?.kind == "browser" ? "browser" : "terminal",
+                title: title, url: HistoryService.realText(tab?.url), cwd: tab?.cwd,
+                workspaceTitle: workspaceTitle,
+                machine: local ? nil : services.machines.machineName(daemon.machineID) ?? daemon.machineID,
+                closedAt: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), isAvailable: daemon.connection != nil)
         }
     }
 }

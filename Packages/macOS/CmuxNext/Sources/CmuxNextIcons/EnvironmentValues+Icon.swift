@@ -5,6 +5,6 @@ extension EnvironmentValues {
     @Entry public var iconStyle: IconStyle = .line
     /// Whether `Icon` draws Cat drawings; set with `.iconAccent(_:)`.
     @Entry public var iconAccent: IconAccent = .none
-    /// The color of accent layers; nil uses `Color.accentColor`.
+    /// The color of accent layers; nil draws them in the secondary ink, never the system accent.
     @Entry public var iconAccentColor: Color? = nil
 }

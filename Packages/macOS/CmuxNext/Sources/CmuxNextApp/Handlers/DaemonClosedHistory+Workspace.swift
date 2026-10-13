@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -22,7 +23,7 @@ extension DaemonClosedHistory {
     }
 
     private static func appearance(of id: ResourceID, in store: DaemonStore) async -> String? {
-        for await workspace in Observations({ store.workspace(resourceID: id)?.id }) {
+        for await workspace in ObservationStream({ store.workspace(resourceID: id)?.id }) {
             if let workspace { return workspace }
         }
         return nil

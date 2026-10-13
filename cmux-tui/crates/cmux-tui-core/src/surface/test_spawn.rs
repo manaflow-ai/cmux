@@ -196,9 +196,9 @@ impl Surface {
                 lifetime,
                 supports_clear_history_key_fallback: AtomicBool::new(false),
                 host_identity: None,
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 pending_host_binding: Mutex::new(None),
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 host_exit_record_path: None,
                 pid: Some(id as u32),
                 command: opts.command.unwrap_or_else(|| vec![platform::default_shell()]),
@@ -209,6 +209,7 @@ impl Surface {
                 dead: AtomicBool::new(false),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Connected as u8),
+                host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(false),
                 title: RankedMutex::new(LockRank::Leaf, "pty.title", String::new()),
                 pwd: Mutex::new(None),
@@ -216,7 +217,16 @@ impl Surface {
                 directory_pending: AtomicBool::new(true),
                 directory_reported: AtomicBool::new(false),
                 geometry: RankedMutex::new(LockRank::Geometry, "pty.geometry", initial_geometry),
-                kitty_graphics_limits: Box::new(Mutex::new(initial_kitty_limits)),
+                kitty_graphics_limits: Box::new(RankedMutex::new(
+                    LockRank::KittyLimits,
+                    "pty.kitty_graphics_limits",
+                    initial_kitty_limits,
+                )),
+                kitty_limits_request: RankedMutex::new(
+                    LockRank::KittyLimitsRequest,
+                    "pty.kitty_limits_request",
+                    (),
+                ),
                 geometry_test_hook: Mutex::new(None),
                 deferred_cell_pixel_ack_test_hook: Mutex::new(None),
                 test_master_control: Some(test_master_control),

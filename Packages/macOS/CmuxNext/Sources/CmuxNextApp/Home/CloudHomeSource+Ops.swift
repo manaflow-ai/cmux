@@ -29,10 +29,21 @@ nonisolated extension CloudHomeSource {
             return HomeOpResult(rev: result.rev ?? 0, replayed: result.replayed, conversation: conversation)
         }
         switch intent.op {
-        case .sendMessage(let conversation, let parts):
-            // The owner's message.send key must equal client_msg_id.
-            return try await edit(.send(clientMsgID: key, parts: CloudHomeMapping.parts(parts, identity: identity), replyTo: nil),
+        case .sendMessage(let conversation, let parts, let threadRoot):
+            // The owner's message.send key must equal client_msg_id. `thread_root` is the thread
+            // (cx-59n8.4); the reply to the root's first part keeps it on an owner from before threads.
+            return try await edit(.send(clientMsgID: key, parts: CloudHomeMapping.parts(parts, identity: identity),
+                                        replyTo: threadRoot.map { ConversationPartRef(messageID: $0.rawValue, partIndex: 0) },
+                                        threadRoot: threadRoot?.rawValue),
                                   in: conversation)
+        case .editMessage(let message, let conversation, let parts):
+            return try await edit(.edit(messageID: message.rawValue, parts: CloudHomeMapping.parts(parts, identity: identity)),
+                                  in: conversation)
+        case .retractMessage(let message, let conversation):
+            return try await edit(.retract(messageID: message.rawValue), in: conversation)
+        case .removeReaction(let message, let conversation, let reaction, let partIndex):
+            return try await edit(.removeReaction(messageID: message.rawValue, partIndex: partIndex,
+                                                  kind: CloudHomeMapping.reaction(reaction)), in: conversation)
         case .setReadCursor(let conversation, let seq):
             return try await edit(.setReadCursor(seq: seq), in: conversation)
         case .addReaction(let message, let conversation, let reaction, let partIndex):

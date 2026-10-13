@@ -43,10 +43,7 @@ pub(super) fn parse_screen_strings(
             selectors.insert("screen", "screen", selector)?;
             state::screen_change(action, selectors, flags)
         }
-        [selector, "close"] => {
-            selectors.insert("screen", "screen", selector)?;
-            request(ResourceOperation::ScreenClose, selectors, flags, Map::new())
-        }
+        [selector, "close"] => bulk_close::close("screen", selector, selectors, flags),
         [selector, "layout", "export"] => {
             selectors.insert("screen", "screen", selector)?;
             request(ResourceOperation::ScreenLayoutExport, selectors, flags, Map::new())
@@ -87,11 +84,14 @@ fn column_update(
     if let Some(dock) = flags.take("dock") {
         params.insert("dock".into(), Value::Bool(parse_bool("--dock", &dock)?));
     }
-    for (flag, allowed) in [("edge", ["left", "right"]), ("mode", ["docked", "overlay"])] {
+    let choices: [(&str, &[&str], &str); 2] = [
+        ("edge", &["left", "right", "top", "bottom"], "left, right, top, or bottom"),
+        ("mode", &["docked", "overlay"], "docked or overlay"),
+    ];
+    for (flag, allowed, listed) in choices {
         if let Some(value) = flags.take(flag) {
             if !allowed.contains(&value.as_str()) {
-                let [first, second] = allowed;
-                return Err(UsageError::new(format!("--{flag} must be {first} or {second}")));
+                return Err(UsageError::new(format!("--{flag} must be {listed}")));
             }
             params.insert(flag.into(), Value::String(value));
         }

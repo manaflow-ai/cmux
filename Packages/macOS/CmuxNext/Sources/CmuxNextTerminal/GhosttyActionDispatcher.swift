@@ -1,5 +1,6 @@
 import AppKit
 import GhosttyNextKit
+import CmuxNextCompat
 
 /// Routes decoded actions on the main actor.
 enum GhosttyActionDispatcher {
@@ -30,7 +31,7 @@ enum GhosttyActionDispatcher {
             defer { ghostty_string_free(path) }
             guard let pointer = path.ptr, path.len > 0 else { return false }
             let text = String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(path.len)), as: UTF8.self)
-            NSWorkspace.shared.open(URL(fileURLWithPath: text))
+            NSWorkspace.shared.openInBackground(URL(fileURLWithPath: text))
             return true
         case .host(let hostAction):
             if let view = bridge?.view {

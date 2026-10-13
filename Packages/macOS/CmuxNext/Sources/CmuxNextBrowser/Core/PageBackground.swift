@@ -9,6 +9,10 @@ import CmuxNextDesign
 /// `CefBrowserSettings.background_color` and switches per tab with
 /// `cmux_browser_set_background_color` (fork API 12, which also paints it
 /// in Chromium's contents view, so it survives tab moves and popups).
+/// A tab on the New Tab or blank page is transparent in both engines
+/// (Lawrence 2026-10-10): WebKit draws no background there, and Chromium's
+/// page, which cannot be transparent, is masked out (`CEFTab.applyOcclusion`),
+/// so the window's backdrop shows.
 nonisolated enum PageBackground {
     /// A URL whose document keeps the theme color in WebKit: nothing, or
     /// the page of a new tab.

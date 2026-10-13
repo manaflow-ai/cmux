@@ -743,8 +743,29 @@
       guide: () => (host.readResource ? host.readResource("guide.md") : null),
     };
 
+    // The machine's browser page history, which the cmux daemon keeps
+    // (reached over the host's history link). Every delete answers a
+    // restoreId; history.restore(restoreId) undoes it. Only the person
+    // deletes a backup for good.
+    const historyHost = (op, args) => {
+      if (!host.history) throw Object.assign(new Error(`history.${op}: this host keeps no page history link`), { code: "unsupported" });
+      return host.history(op, args || {});
+    };
+    const historyApi = {
+      // [{ id, url, title, at }] newest first; { query, site, since (Date or ms), limit (default 100, at most 5000) }.
+      search(options = {}) {
+        if (options === null || typeof options !== "object") throw new Error(`history.search: options: expected an object, got ${JSON.stringify(options)}`);
+        const since = options.since === undefined ? undefined : options.since instanceof Date ? options.since.getTime() : Number(options.since);
+        return historyHost("search", { query: options.query, site: options.site, since, limit: options.limit });
+      },
+      // Exactly one of { site }, { ids }, { urls }, { range: "hour" | "today" | "week" | "month" | "all" } -> { removed, restoreId }.
+      delete: (what) => historyHost("delete", what),
+      restore: (restoreId) => historyHost("restore", { restoreId: restoreId && restoreId.restoreId ? restoreId.restoreId : restoreId }),
+    };
+
     const globals = {
       tabs,
+      history: historyApi,
       snapshot,
       screenshot,
       fetch: fetchWithCookies,

@@ -4,6 +4,59 @@
 #[allow(unused_imports)]
 use super::*;
 
+wire_op! {
+    /// Disconnect: deletes the stored provider credential at once and marks the connection revoked.
+    IntegrationRevokeOp {
+        name: "integration.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConnectionDO",
+        risk: "destructive",
+        principals: [Session],
+        params: IntegrationRevokeParams,
+        result: Connection,
+        error: IntegrationRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct IntegrationRevokeParams {
+    pub connection: ConnectionId,
+}
+
+wire_errors! {
+    /// The error codes integration.revoke declares.
+    IntegrationRevokeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Accept an invite from its link (/i/<code>#<secret>). The Worker turns the secret into the proof the owner checks; a group invite may wait for the inviter's approval.
+    InviteAcceptOp {
+        name: "invite.accept",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:ConversationDO",
+        risk: "mutate-own",
+        principals: [Session],
+        params: InviteAcceptParams,
+        result: HomeConversationCommit,
+        error: InviteAcceptError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct InviteAcceptParams {
+    pub code: String,
+    pub secret: String,
+}
+
 wire_errors! {
     /// The error codes invite.accept declares.
     InviteAcceptError {
@@ -563,7 +616,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message.
+    /// Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it.
     MessageSendOp {
         name: "message.send",
         class: Mutation,
@@ -584,6 +637,8 @@ pub struct MessageSendParams {
     pub parts: Vec<HomePart>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply_to: Option<HomePartRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thread_root: Option<MessageId>,
 }
 
 wire_errors! {
@@ -600,6 +655,7 @@ wire_errors! {
         IdempotencyConflict2 = "idempotency_conflict",
         InvalidClientMsgId = "invalid_client_msg_id",
         InvalidParts = "invalid_parts",
+        InvalidThreadRoot = "invalid_thread_root",
         KindForbids = "kind_forbids",
         NotParticipant = "not_participant",
         OwnerUnreachable = "owner.unreachable",
@@ -846,52 +902,4 @@ pub struct PushTargetRegisterParams {
     pub environment: PushTargetRegisterParamsEnvironment,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub device_name: Option<String>,
-}
-
-wire_errors! {
-    /// The error codes push.target.register declares.
-    PushTargetRegisterError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Remove an APNs token (sign-out on the device, or the user removes a device).
-    PushTargetRemoveOp {
-        name: "push.target.remove",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:UserDO",
-        risk: "mutate-own",
-        principals: [Session, Install],
-        params: PushTargetRemoveParams,
-        result: PushTargetRemoveResult,
-        error: PushTargetRemoveError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PushTargetRemoveParams {
-    pub token: PushToken,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct PushTargetRemoveResult {
-    pub token: PushToken,
-    pub removed: bool,
-}
-
-wire_errors! {
-    /// The error codes push.target.remove declares.
-    PushTargetRemoveError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
 }

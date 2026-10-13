@@ -23,6 +23,10 @@ on:
       - "scripts/lint-namespace-types-ratchet.txt"
       - "scripts/swift_source_mask.py"
       - "scripts/tests/test_ios_package_conventions.py"
+      - "scripts/tests/test_pr_scoped_lint_gates.py"
+      - "scripts/ci/package-conventions-gate.sh"
+      - "scripts/ci/crash-class-gate.sh"
+      - "scripts/ci/pr_owned_findings.py"
       - "scripts/ci/ios_runner_pool.py"
       - "scripts/ci/select_ios_simulator.py"
       - ".github/workflows/test-ios.yml"
@@ -376,7 +380,7 @@ jobs:
           fi
           # The conventions lint (free-function ban, namespace-type rule, ...)
           # covers every package, so it runs for any Packages/ change too.
-          if grep -Eq '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint-namespace-types-ratchet\.txt$)' /tmp/changed-files.txt; then
+          if grep -Eq '^(ios/|Packages/|vendor/stack-auth-swift-sdk-prerelease/|scripts/lint-ios-package-conventions\.sh$|scripts/lint_swift_namespaces\.py$|scripts/swift_source_mask\.py$|scripts/tests/test_ios_package_conventions\.py$|scripts/tests/test_pr_scoped_lint_gates\.py$|scripts/ci/package-conventions-gate\.sh$|scripts/ci/crash-class-gate\.sh$|scripts/ci/pr_owned_findings\.py$|scripts/lint-ios-package-conventions-baseline\.txt$|scripts/lint-namespace-types-baseline\.txt$|scripts/lint-namespace-types-ratchet\.txt$)' /tmp/changed-files.txt; then
             echo "should_lint=true" >> "$GITHUB_OUTPUT"
           else
             echo "No package-owned files changed; skipping conventions lint."
@@ -393,32 +397,19 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ needs.detect-ios-changes.outputs.target_sha }}
+          # A pull request's merge commit with its parents: the gate fails the
+          # PR only for findings in the files it changes.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
           persist-credentials: false
           submodules: false
 
       - name: Lint iOS package conventions
+        env:
+          GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
         run: |
           python3 scripts/tests/test_ios_package_conventions.py
-          # Run the mechanical namespace repair first. The clean checkout
-          # assertion turns any safe rewrite into an actionable failure while
-          # leaving the check below as the non-mutating backstop.
-          if ! ./scripts/lint-ios-package-conventions.sh --namespace-fix; then
-            echo "::error::Namespace/convention lint failed. Run ./scripts/lint-ios-package-conventions.sh --namespace-fix locally, review the edits, then commit them."
-            exit 1
-          fi
-          if ! git diff --quiet -- ios Packages; then
-            echo "::error::Namespace lint found safe rewrites. Run ./scripts/lint-ios-package-conventions.sh --namespace-fix locally, review the edits, then commit them."
-            git diff --stat -- ios Packages
-            exit 1
-          fi
-          # Mechanical enforcement of the modular-refactor conventions over the
-          # iOS line (no singletons / Combine / locks / timer hacks / KVO /
-          # namespace-enums) plus the repo-wide namespace-type rule (no
-          # all-static "namespace" types in any package). Exits non-zero on any
-          # unjustified ERROR; sanctioned exceptions carry a lint:allow /
-          # TRANSITIONAL / carve-out marker, and pre-existing debt is
-          # grandfathered in the lint baseline files under scripts/.
-          ./scripts/lint-ios-package-conventions.sh
+          python3 scripts/tests/test_pr_scoped_lint_gates.py
+          scripts/ci/package-conventions-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"}
 
   mobile-core-package:
     needs: [runner, detect-ios-changes, package-conventions-lint]

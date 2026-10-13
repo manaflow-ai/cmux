@@ -126,7 +126,10 @@ function checkpointReviewFile(file: TurnFile, toolFiles: readonly TurnFile[]): T
 
 /// A checkpoint file is one a tool call changed when a tool call's path is it, or ends with its
 /// path under the repository: tool calls report paths as the agent wrote them (`~/code/x/a.ts`).
-export function changedByTools(file: TurnFile, toolFiles: readonly TurnFile[]) {
+export function changedByTools(
+  file: Pick<TurnFile, "path" | "displayPath">,
+  toolFiles: readonly Pick<TurnFile, "path">[],
+) {
   return toolFiles.some((tool) => tool.path === file.path || tool.path.endsWith(`/${file.displayPath}`));
 }
 

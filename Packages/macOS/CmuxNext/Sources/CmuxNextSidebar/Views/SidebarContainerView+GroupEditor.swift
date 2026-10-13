@@ -22,6 +22,8 @@ extension SidebarContainerView {
     /// Window, Close Group; Ungroup, Delete Group, More Group Actions.
     /// The editor row that shows the group's full menu (the sidebar shows it).
     public static var moreActionsItem: String { SidebarGroupEditing.moreActionsItem }
+    /// Sent before the editor closes for a picker that still edits the group: keep a new empty group.
+    public static var keepGroupItem: String { SidebarGroupEditing.keepGroupItem }
 
     public static func standardGroupEditorItems() -> [[SidebarGroupEditorItem]] {
         SidebarGroupEditing.standardItems()

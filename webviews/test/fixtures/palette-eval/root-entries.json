@@ -1576,21 +1576,21 @@
     },
     {
       "entry": {
-        "actionID": "workspace.newInGroup",
+        "actionID": "workspace.newLikeThis",
         "demoted": false,
         "entersScope": false,
-        "frecencyKey": "action:workspace.newInGroup",
+        "frecencyKey": "action:workspace.newLikeThis",
         "hasShortcut": false,
         "hidesWhenTyping": false,
         "isEnabled": true,
         "isVisibleWhenQueryEmpty": true,
-        "keywords": ["create", "group", "section"],
+        "keywords": ["create", "same", "group", "cwd", "folder", "directory"],
         "rankBias": 0,
         "sectionIndex": 1,
-        "title": "New Workspace in This Group",
+        "title": "New Workspace Like This",
         "typingSectionIndex": 16
       },
-      "id": "action:workspace.newInGroup"
+      "id": "action:workspace.newLikeThis"
     },
     {
       "entry": {
@@ -1630,24 +1630,6 @@
     },
     {
       "entry": {
-        "actionID": "workspace.newInSameDirectory",
-        "demoted": false,
-        "entersScope": false,
-        "frecencyKey": "action:workspace.newInSameDirectory",
-        "hasShortcut": false,
-        "hidesWhenTyping": false,
-        "isEnabled": true,
-        "isVisibleWhenQueryEmpty": true,
-        "keywords": ["create", "cwd", "folder", "path"],
-        "rankBias": 0,
-        "sectionIndex": 1,
-        "title": "New Workspace in Same Directory",
-        "typingSectionIndex": 16
-      },
-      "id": "action:workspace.newInSameDirectory"
-    },
-    {
-      "entry": {
         "actionID": "workspace.duplicate",
         "demoted": false,
         "entersScope": false,
@@ -1677,7 +1659,7 @@
         "keywords": ["copy", "clone", "layout", "terminal"],
         "rankBias": 0,
         "sectionIndex": 1,
-        "title": "Duplicate Workspace without Browser Tabs",
+        "title": "Duplicate Workspace Without Browser Tabs",
         "typingSectionIndex": 16
       },
       "id": "action:workspace.duplicateTerminalsOnly"
@@ -3654,10 +3636,10 @@
     },
     {
       "entry": {
-        "actionID": "newTab.sameKind",
+        "actionID": "newTab.default",
         "demoted": false,
         "entersScope": false,
-        "frecencyKey": "action:newTab.sameKind",
+        "frecencyKey": "action:newTab.default",
         "hasShortcut": true,
         "hidesWhenTyping": false,
         "isEnabled": true,
@@ -3670,7 +3652,7 @@
         "title": "New Tab",
         "typingSectionIndex": 16
       },
-      "id": "action:newTab.sameKind"
+      "id": "action:newTab.default"
     },
     {
       "entry": {

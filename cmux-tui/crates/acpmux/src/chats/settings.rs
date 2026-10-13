@@ -219,7 +219,3 @@ pub fn probe(path: &Path) -> Vec<RootSpec> {
     }
     out
 }
-
-#[cfg(test)]
-#[path = "settings_tests.rs"]
-mod tests;

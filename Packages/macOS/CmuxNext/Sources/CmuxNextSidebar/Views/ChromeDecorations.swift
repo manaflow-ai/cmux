@@ -3,8 +3,9 @@ import CmuxNextDesign
 import QuartzCore
 
 /// Layer-hosting view under the rows that draws the drag gap as a plain
-/// CALayer (no views), animated with a CA spring. The selection highlight is
-/// not here: each selected row and item paints its own fill in place
+/// CALayer, animated with a CA spring. Group lines are views that move with
+/// the rows (SidebarGroupLineViews, cx-ai79). The selection highlight is not
+/// here: each selected row and item paints its own fill in place
 /// (SIDEBAR-SELECTION-NO-TRAVEL-ANIMATION).
 final class SidebarDecorationView: NSView {
     private let gap = CALayer()

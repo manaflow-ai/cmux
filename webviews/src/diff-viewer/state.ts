@@ -55,6 +55,8 @@ export type AppState = {
   /** Toggles made in this scope; they win over a later stored-marks reply. */
   viewedLocalEdits: Map<string, ViewedFileEntry | null>;
   viewedScopeKey: string;
+  /** The viewer's width in px, measured in the page; 0 until measured. */
+  viewerWidth: number;
 };
 
 export type AppAction =
@@ -83,6 +85,7 @@ export type AppAction =
   | { type: "set-find-query"; query: string }
   | { type: "request-find" }
   | { type: "set-files-width"; width: number }
+  | { type: "set-viewer-width"; width: number }
   | { type: "set-files-visible"; visible: boolean }
   | { type: "set-metrics"; metrics: StreamMetrics }
   | { type: "set-option"; key: keyof DiffViewerOptions; value: any }
@@ -124,6 +127,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     metrics: null,
     options: {
       collapsed: false,
+      colors: "theme",
       diffIndicators: "bars",
       expandUnchanged: false,
       lineNumbers: true,
@@ -140,6 +144,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     viewedByPath: new Map(),
     viewedLocalEdits: new Map(),
     viewedScopeKey: "",
+    viewerWidth: 0,
   };
 }
 
@@ -375,6 +380,8 @@ export function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, findOpen: true, findRequest: state.findRequest + 1 };
     case "set-files-width":
       return { ...state, filesWidth: action.width };
+    case "set-viewer-width":
+      return state.viewerWidth === action.width ? state : { ...state, viewerWidth: action.width };
     case "set-files-visible":
       return { ...state, filesVisible: action.visible };
     case "set-metrics":
@@ -434,4 +441,22 @@ function initialDiffViewerLayout(payload: Record<string, any>): DiffViewerLayout
 
 function parseDiffViewerLayout(value: unknown): DiffViewerLayout | null {
   return value === "split" || value === "unified" ? value : null;
+}
+
+/// The viewer width two readable split sides need. Below it the viewer draws unified, as GitHub
+/// does, and keeps the stored preference for a wider pane.
+export const SPLIT_MIN_WIDTH = 760;
+
+/** Whether a split diff fits the viewer; an unmeasured viewer counts as wide. */
+export function splitFits(viewerWidth: number): boolean {
+  return viewerWidth === 0 || viewerWidth >= SPLIT_MIN_WIDTH;
+}
+
+/** The options the viewer draws with: unified while a split preference does not fit. */
+export function renderedDiffOptions(state: Pick<AppState, "options" | "viewerWidth">): DiffViewerOptions {
+  return drawnDiffOptions(state.options, splitFits(state.viewerWidth));
+}
+
+export function drawnDiffOptions(options: DiffViewerOptions, fits: boolean): DiffViewerOptions {
+  return options.layout === "split" && !fits ? { ...options, layout: "unified" } : options;
 }

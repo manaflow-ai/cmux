@@ -111,10 +111,14 @@ pub fn add(
     {
         bail!("the registry profile does not load: {errors:?}");
     }
+    #[cfg(unix)]
     {
         use std::os::unix::fs::DirBuilderExt;
         std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&dir)?;
     }
+    // Windows port: owner-only is an ACL there (a later landing).
+    #[cfg(not(unix))]
+    std::fs::DirBuilder::new().recursive(true).create(&dir)?;
     crate::config::write_atomic(&path, text.as_bytes())?;
     Ok((harness, path))
 }

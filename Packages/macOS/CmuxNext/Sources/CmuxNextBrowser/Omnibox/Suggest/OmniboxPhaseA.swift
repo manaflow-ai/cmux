@@ -73,6 +73,10 @@ public nonisolated struct OmniboxPhaseA {
                 break
             }
         }
+        // Chromium internal page names, after every source in tie-break order.
+        for page in OmniboxInternalPages.rows(for: text, allowsChromiumSchemes: query.resolver.urlResolver.allowsChromiumSchemes) {
+            candidates.append((page, BrowserHistoryRanker.dedupeKey(for: page.url), query.sources.count, page.inlineCompletable))
+        }
         candidates.sort { lhs, rhs in
             if lhs.row.score != rhs.row.score { return lhs.row.score > rhs.row.score }
             if lhs.order != rhs.order { return lhs.order < rhs.order }

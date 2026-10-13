@@ -1,15 +1,6 @@
 import Foundation
 import CmuxNextCompat
 
-/// The store for tests and previews.
-nonisolated final class InMemoryHTTPCredentialStore: BrowserHTTPCredentialStoring {
-    private let logins = Mutex<[BrowserHTTPCredentialKey: BrowserHTTPRememberedLogin]>([:])
-
-    func login(for key: BrowserHTTPCredentialKey) -> BrowserHTTPRememberedLogin? { logins.withLock { $0[key] } }
-    func save(_ login: BrowserHTTPRememberedLogin, for key: BrowserHTTPCredentialKey) { logins.withLock { $0[key] = login } }
-    func forget(_ key: BrowserHTTPCredentialKey) { _ = logins.withLock { $0.removeValue(forKey: key) } }
-}
-
 /// What a sign-in does with the store (pure rules; the tab runs the I/O).
 nonisolated struct BrowserHTTPSignInMemory: Sendable {
     let store: any BrowserHTTPCredentialStoring

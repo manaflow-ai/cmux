@@ -25,7 +25,7 @@ pub(super) fn handle_resource_line(
     envelope: Result<RequestEnvelope, ResourceError>,
     writer: &MessageWriter,
 ) -> bool {
-    let envelope = match envelope {
+    let mut envelope = match envelope {
         Ok(envelope) => envelope,
         Err(error) => {
             let response = crate::resource_router::malformed_resource_response(message, error);
@@ -33,7 +33,19 @@ pub(super) fn handle_resource_line(
         }
     };
     let (id, operation) = (envelope.id.clone(), envelope.operation);
+    // The launch credential leaves the envelope here; it is verified after
+    // the clients lock is released and before any owner takes its locks.
+    let credential = envelope.credential.take();
     let admitted = check(mux, client, &envelope)
+        .and_then(|actor| {
+            check_credential_owner(mux, client, operation, &actor, credential.is_some())?;
+            if credential.is_some() && derived_origin(mux, client) == RequestOrigin::Page {
+                // A page relay forwards a page's requests: never a terminal.
+                let reason = "credential_not_local";
+                return Err(ResourceError::validation_invalid(Some("credential"), reason));
+            }
+            mux.request_actor(actor, credential.as_ref().map(|c| c.as_str()))
+        })
         .and_then(|actor| check_pairing_accept(mux, client, &envelope, &actor).map(|()| actor))
         .and_then(|actor| crate::resource_router::validate_resource_envelope(envelope, actor));
     match admitted {
@@ -72,6 +84,35 @@ fn check(mux: &Mux, client: u64, envelope: &RequestEnvelope) -> Result<Actor, Re
     Ok(peer_or_local(mux, client, transport, local))
 }
 
+/// `credential.mint` and `credential.rotate` are the owner's: a registered
+/// local Unix connection with no link peer record whose principal is the
+/// local user (or the verified app), on a request that presents no
+/// credential. An agent in a terminal or ACP session (it presents one, valid
+/// or not) is refused, so no agent can mint another identity or revoke one.
+fn check_credential_owner(
+    mux: &Mux,
+    client: u64,
+    operation: ResourceOperation,
+    actor: &Actor,
+    presents_credential: bool,
+) -> Result<(), ResourceError> {
+    if !matches!(operation, ResourceOperation::CredentialMint | ResourceOperation::CredentialRotate)
+    {
+        return Ok(());
+    }
+    let owner = matches!(actor, Actor::User { id } if id == crate::conversation_store::LOCAL_USER)
+        || matches!(actor, Actor::Frontend { .. });
+    let local = mux.control_clients.is_unix(client) && !mux.is_remote_client(client);
+    let principal = mux.conversation_principal(client) == crate::conversation_store::LOCAL_USER;
+    if owner && local && principal && !presents_credential {
+        return Ok(());
+    }
+    Err(forbidden(
+        "minting and rotating launch credentials is for the owner's own connection only",
+        json!({"derived": "agent", "required": "user", "reason": "credential_owner_only"}),
+    ))
+}
+
 /// Refusal text when a connection that is not a human surface approves a
 /// WebSocket pairing.
 pub(super) const PAIRING_APPROVAL_NEEDS_HUMAN: &str =
@@ -85,6 +126,12 @@ pub(super) const PAIRING_APPROVAL_NEEDS_HUMAN: &str =
 /// plain local user to the daemon and may only deny.
 pub(super) fn may_approve_pairing(mux: &Mux, client: u64) -> bool {
     matches!(connection_actor(mux, client), Actor::Frontend { .. })
+}
+
+/// The origin `client` derives; a client with no record is an agent.
+fn derived_origin(mux: &Mux, client: u64) -> RequestOrigin {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    state.clients.get(&client).map_or(RequestOrigin::Agent, |record| record.origin.derive())
 }
 
 /// The v2 form of [`may_approve_pairing`]: `pairing_request.resolve` with

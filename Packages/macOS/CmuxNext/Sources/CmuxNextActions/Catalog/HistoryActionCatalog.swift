@@ -112,7 +112,8 @@ nonisolated enum HistoryActionCatalog: ActionCatalogGroup {
         ]
     }
 
-    private static var historyRange: ActionArgument {
+    /// The time range of Clear History and Clear Browsing Data.
+    static var historyRange: ActionArgument {
         ActionArgument(name: "range", title: t("argument.history.range", "Time Range"), kind: .enumeration([
             ActionEnumCase(value: "hour", title: t("argument.history.range.hour", "Last Hour")),
             ActionEnumCase(value: "today", title: t("argument.history.range.today", "Today")),

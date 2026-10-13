@@ -31,12 +31,15 @@ extension SidebarBridge {
 
     /// Puts `ids` at `position` of this window's `sections` (taken before
     /// the move): personal order in the home session when it serves
-    /// personal state, else reorder commands to the owning daemon.
+    /// personal state, else reorder commands to the owning daemon. The rows
+    /// show there at once, as after a drag, until the store holds the move:
+    /// a new workspace is never drawn at its daemon slot first (cx-f6i7).
     func place(_ ids: [SidebarWorkspaceID], at position: DropPosition, in sections: [SidebarRowSection]) {
+        let edit = rows.add(.reorder(ids, to: position))
         if usesPersonalOrganization {
-            placePersonal(ids, at: position, in: sections)
+            placePersonal(ids, at: position, in: sections, edit: edit)
         } else {
-            reorder(ids, to: position, in: sections)
+            SidebarDaemonReorder.reorder(ids, to: position, in: sections, edit: edit, bridge: self)
         }
     }
 

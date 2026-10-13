@@ -1,7 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextWakeups
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// openBrowser's optional `profile` argument (plans/cmux-next/passwords.md,
 /// section 3.4). "agent" asks for the clean agent profile: one profile with a
@@ -47,7 +47,7 @@ enum AgentBrowserProfile {
             once.begin(continuation)
             // Event-driven: the profile list is observable state of the home store.
             let watch = Task { @MainActor in
-                for await known in Observations({ profiles.isKnown(id) }) where known {
+                for await known in ObservationStream({ profiles.isKnown(id) }) where known {
                     if once.resume(.success(())) { timer.cancel() }
                     return
                 }

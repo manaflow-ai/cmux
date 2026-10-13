@@ -33,14 +33,8 @@ struct FeedView: View {
             }
         }
         .background(colors.background)
-        .overlay(alignment: .bottom) {
-            if let reject = model.lastReject {
-                FeedToast(text: FeedStrings.reject(reject)) { model.clearReject() }
-                    .padding(12)
-                    .transition(.opacity)
-            }
-        }
-        .animation(Motion.animation(.fadeIn), value: model.lastReject)
+        // A refusal is a toast, the one toast component's.
+        .cmuxToast(id: "feed.reject", message: model.lastReject.map(FeedStrings.reject)) { model.clearReject() }
     }
 }
 

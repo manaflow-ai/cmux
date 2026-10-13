@@ -4,11 +4,26 @@ import CmuxNextSettings
 import CmuxNextSidebar
 
 /// `debug.sidebar_rows`: each window's workspace-list rows with their
-/// views (frame, alpha, in the list), the selection and the dragged keys,
+/// views (frame, alpha, in the list, the group it lists in), the selection and the dragged keys,
 /// so a live drag can be checked row by row (R77, nxdog30), and the layout
-/// items (Home, App Store, Settings) with their frames, so a proof clicks them.
+/// items (Home, App Store, Settings) and the + button with their frames, so a proof clicks them.
+/// `menu_x`, `menu_y` (window points from the top-left, as `debug.mouse`) add
+/// the first window's `menu`: the titles a right-click there opens, built by
+/// the list's own `menu(for:)` without showing it, and `submenus`: each
+/// folder's titles by the folder's title.
 enum DebugSidebarRows {
-    static func report(services: AppServices) -> JSONValue {
+    static func report(_ params: [String: JSONValue] = [:], services: AppServices) -> JSONValue {
+        guard let x = params["menu_x"]?.doubleValue, let y = params["menu_y"]?.doubleValue else { return rows(services: services) }
+        let menu = services.windows.controllers.first.flatMap {
+            $0.sidebar.container.debugMenu(atWindowPoint: CGPoint(x: x, y: y))
+        }
+        func titles(_ menu: NSMenu) -> JSONValue { .array(menu.items.map { .string($0.isSeparatorItem ? "-" : $0.title) }) }
+        let submenus = (menu?.items ?? []).compactMap { item in item.submenu.map { (item.title, titles($0)) } }
+        return .object(["menu": menu.map(titles) ?? .null,
+                        "submenus": .object(Dictionary(submenus, uniquingKeysWith: { first, _ in first }))])
+    }
+
+    private static func rows(services: AppServices) -> JSONValue {
         .object(["windows": .array(services.windows.controllers.map { controller in
             let sidebar = controller.sidebar.container.sidebarView
             let (rows, selection, dragging) = sidebar.debugRows()
@@ -19,6 +34,7 @@ enum DebugSidebarRows {
                 "drop": sidebar.debugDropProbe().map(probe) ?? .null,
                 "paging": .object(sidebar.debugPaging().mapValues(JSONValue.string)),
                 "items": .array(items(of: controller)),
+                "new_button": sidebar.debugNewButtonFrame().map(rect) ?? .null,
                 "rows": .array(rows.map { row in
                     .object([
                         "key": .string(row.key), "title": row.title.map(JSONValue.string) ?? .null,
@@ -26,6 +42,14 @@ enum DebugSidebarRows {
                         "view_alpha": row.viewAlpha.map { .number(Double($0)) } ?? .null,
                         "in_list": .bool(row.inList), "suppressed": .bool(row.suppressed), "selected": .bool(row.selected),
                         "muted": .bool(row.muted), "activity": row.activity.map(JSONValue.string) ?? .null,
+                        "icon": row.icon.map(JSONValue.string) ?? .null,
+                        "shown_frame": row.shownFrame.map(rect) ?? .null, "clips": .bool(row.clips),
+                        "group": row.group.map(JSONValue.string) ?? .null,
+                        "detail": row.detail.map(JSONValue.string) ?? .null,
+                        "fill": .bool(row.fill), "hovered": .bool(row.hovered),
+                        "disclosure": row.disclosureIcon.map { icon in
+                            .object(["icon": .string(icon), "frame": row.disclosureFrame.map(rect) ?? .null, "shown": .bool(row.disclosureShown)])
+                        } ?? .null,
                     ])
                 }),
             ])
@@ -37,7 +61,8 @@ enum DebugSidebarRows {
         controller.sidebar.container.sidebarView.debugLayoutItems().map { item in
             .object([
                 "id": .string(item.id), "ref_kind": .string(item.refKind), "ref": .string(item.ref),
-                "region": .string(item.region), "active": .bool(item.isActive),
+                "region": .string(item.region), "section": .string(item.section),
+                "section_title": item.sectionTitle.map(JSONValue.string) ?? .null, "active": .bool(item.isActive),
                 "window_frame": item.windowFrame.map(rect) ?? .null,
             ])
         }

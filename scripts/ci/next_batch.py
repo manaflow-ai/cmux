@@ -91,7 +91,8 @@ WEB_GENERATED = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages/*",
     "Packages/macOS/CmuxNext/Sources/CmuxNextPalette/Resources/palette-ranker.js",
     "Resources/markdown-viewer/webviews-app/*",
-    "webviews/src/pages/*/generated/strings.json",
+    # fnmatch's * crosses "/": every strings table gen-strings.mjs writes.
+    "webviews/src/*/generated/strings.json",
 )
 # Written by Swift tests under CMUX_UPDATE_*; only a mini can rebuild them.
 SWIFT_GENERATED = (

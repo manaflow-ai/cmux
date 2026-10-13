@@ -1,4 +1,5 @@
-// The changes view's own keys: j and k move between files, n and p between changes. They are
+// The changes view's own keys: j and k move between files, n and p between changes, and s (in
+// Unstaged) or u (in Staged) stages or unstages the hunk n/p stopped at. They are
 // the view's reading keys, like a list's arrows, so they are drawn as they are (DiffKeyHints)
 // rather than bound in Settings, and work only while focus is in the view and not in a field.
 import { useEffect, type RefObject } from "react";
@@ -19,6 +20,8 @@ export function useDiffKeys(
   revealFile: (path: string) => void,
   /// The file last picked, in the tree or with j/k.
   selectedFile: () => string | undefined,
+  /// The key that presses the current hunk's Stage hunk (`s`) or Unstage hunk (`u`), if any.
+  hunkKey?: "s" | "u",
 ) {
   useEffect(() => {
     const node = panel.current;
@@ -29,6 +32,27 @@ export function useDiffKeys(
       if (!scroller || event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return;
       // A field in a shadow root (Pierre's) targets its host here; the composed path has the field.
       if (event.isComposing || typing(event.composedPath()[0] ?? event.target)) return;
+      if (event.key === hunkKey) {
+        // The change n/p marked while it shows, else the first change in view: its hunk's button
+        // is the first one below the change's first row in the same file (HunkStage sits under
+        // the hunk's last row). A file without them (new, deleted) stages nothing.
+        const box = scroller.getBoundingClientRect();
+        const shows = (row: HTMLElement) => {
+          const top = row.getBoundingClientRect().top;
+          return top >= box.top - 1 && top <= box.top + scroller.clientHeight;
+        };
+        const row = current?.isConnected && shows(current) ? current : changeStarts(scroller).find(shows);
+        event.preventDefault();
+        const root = row?.getRootNode();
+        const file =
+          root instanceof ShadowRoot ? root.host.closest(".acpmux-diff-file") : row?.closest(".acpmux-diff-file");
+        if (!row || !file) return;
+        const from = row.getBoundingClientRect().top;
+        [...file.querySelectorAll<HTMLButtonElement>(".acpmux-hunk-stage")]
+          .find((button) => button.getBoundingClientRect().top > from)
+          ?.click();
+        return;
+      }
       if (!["j", "k", "n", "p"].includes(event.key)) return;
       const step = event.key === "j" || event.key === "n" ? 1 : -1;
       const box = scroller.getBoundingClientRect();
@@ -74,5 +98,5 @@ export function useDiffKeys(
       node.removeEventListener("keydown", onKey);
       current?.removeAttribute(CURRENT_CHANGE);
     };
-  }, [panel, body, revealFile, selectedFile]);
+  }, [panel, body, revealFile, selectedFile, hunkKey]);
 }

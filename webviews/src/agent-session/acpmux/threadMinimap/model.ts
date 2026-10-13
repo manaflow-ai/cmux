@@ -27,6 +27,9 @@ export const POPOVER_LEFT = TICK_LEFT + 35;
 const TICK_WIDTHS = [26, 20, 14, 10, 6] as const;
 export const TICK_MAX_WIDTH = TICK_WIDTHS[0];
 export const TICK_REST_WIDTH = TICK_WIDTHS[TICK_WIDTHS.length - 1];
+/// The turn being read rests longer than the others (and in the accent, threadMinimap.css), so the
+/// reader sees where they are in the thread at a glance (cx-f7c).
+export const TICK_CURRENT_WIDTH = TICK_WIDTHS[2];
 /// Space kept free above and below the column and the popover.
 export const EDGE_MARGIN = 8;
 /// The pause before the first popover shows; moving between ticks shows the next at once.
@@ -56,26 +59,59 @@ export function popoverOffset(center: number, popoverHeight: number, viewportHei
   return Math.max(EDGE_MARGIN, Math.min(top, max));
 }
 
-export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = ""): MinimapTurn[] {
-  const turns: MinimapTurn[] = [];
-  let open: MinimapTurn | undefined;
-  for (let index = 0; index < rows.length; index += 1) {
-    const row = rows[index];
-    if (row.kind === "user") {
-      open = {
-        index,
-        id: row.id,
-        key: `${sessionId}#${row.id}#${hash(row.text ?? "")}`,
-        prompt: (row.text ?? "").replace(/\s+/g, " ").trim(),
-        reply: [],
+/// Each prompt's turn and the reply it previews, by row object: rows are immutable, so a long
+/// chat's snapshot hashes and previews only the turns that changed.
+const turnsByPrompt = new WeakMap<AcpmuxRow, { turn: MinimapTurn; sessionId: string; reply?: AcpmuxRow }>();
+
+/// The turns of `rows`, and the rows they were read from.
+export type MinimapTurns = { rows: readonly AcpmuxRow[]; sessionId: string; turns: MinimapTurn[] };
+
+/// The transcript's turns. A turn that ends before the first row that differs from
+/// `previous.rows` (by object) is kept, and `turns` stays `previous.turns` when every turn is.
+export function minimapTurns(rows: readonly AcpmuxRow[], sessionId = "", previous?: MinimapTurns): MinimapTurns {
+  const reuse = previous?.sessionId === sessionId ? previous : undefined;
+  let from = 0;
+  if (reuse) while (from < rows.length && from < reuse.rows.length && rows[from] === reuse.rows[from]) from += 1;
+  // A kept turn's rows all come before `from`: the next turn's prompt is before it (a row
+  // inserted at that prompt's index joins the turn before).
+  let keep = 0;
+  if (reuse) while (keep + 1 < reuse.turns.length && reuse.turns[keep + 1]!.index < from) keep += 1;
+  const turns: MinimapTurn[] = reuse ? reuse.turns.slice(0, keep) : [];
+  let user: AcpmuxRow | undefined;
+  let userIndex = 0;
+  let reply: AcpmuxRow | undefined;
+  const close = () => {
+    if (!user) return;
+    const kept = turnsByPrompt.get(user);
+    if (kept && kept.sessionId === sessionId && kept.reply === reply && kept.turn.index === userIndex)
+      turns.push(kept.turn);
+    else {
+      const turn: MinimapTurn = {
+        index: userIndex,
+        id: user.id,
+        key: `${sessionId}#${user.id}#${hash(user.text ?? "")}`,
+        prompt: (user.text ?? "").replace(/\s+/g, " ").trim(),
+        reply: reply?.text ? replyPreview(reply.text) : [],
       };
-      turns.push(open);
-    } else if (open && row.kind === "assistant" && row.text) {
-      open.reply = replyPreview(row.text);
-      open = undefined;
+      turnsByPrompt.set(user, { turn, sessionId, reply });
+      turns.push(turn);
     }
+    user = undefined;
+    reply = undefined;
+  };
+  const start = keep < (reuse?.turns.length ?? 0) ? reuse!.turns[keep]!.index : 0;
+  for (let index = reuse && keep > 0 ? start : 0; index < rows.length; index += 1) {
+    const row = rows[index]!;
+    if (row.kind === "user") {
+      close();
+      user = row;
+      userIndex = index;
+    } else if (user && !reply && row.kind === "assistant" && row.text) reply = row;
   }
-  return turns;
+  close();
+  const old = reuse?.turns;
+  const same = old && old.length === turns.length && old.every((turn, index) => turn === turns[index]);
+  return { rows, sessionId, turns: same ? old : turns };
 }
 
 /// FNV-1a of `text`, as base 36.

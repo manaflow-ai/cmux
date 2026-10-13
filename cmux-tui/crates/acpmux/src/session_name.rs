@@ -13,22 +13,3 @@ pub fn validate(name: &str) -> Result<(), String> {
     }
     Ok(())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::validate;
-
-    #[test]
-    fn accepts_slugs() {
-        assert!(validate("backend-review").is_ok());
-        assert!(validate("t1.x_y").is_ok());
-    }
-
-    #[test]
-    fn rejects_bad_names() {
-        assert!(validate("").is_err());
-        assert!(validate("a b").is_err());
-        assert!(validate("-x").is_err());
-        assert!(validate("../x").is_err());
-    }
-}

@@ -99,19 +99,5 @@ nonisolated public struct FrecencyStore: Codable, Sendable, Equatable {
         return min(Self.maximumBoost, Int(scaled.rounded()))
     }
 
-    /// Keys ordered by decayed score, highest first.
-    public func topKeys(limit: Int, at now: Date, minimumScore: Double = 0.05) -> [String] {
-        var scored: [(key: String, score: Double)] = []
-        for key in entries.keys {
-            let value = score(for: key, at: now)
-            if value >= minimumScore { scored.append((key, value)) }
-        }
-        scored.sort { lhs, rhs in
-            if lhs.score != rhs.score { return lhs.score > rhs.score }
-            return lhs.key < rhs.key
-        }
-        return scored.prefix(limit).map(\.key)
-    }
-
     public static let maximumBoost = 60
 }

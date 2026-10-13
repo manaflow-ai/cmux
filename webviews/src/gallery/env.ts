@@ -7,6 +7,7 @@
 // The shell keeps it in its own URL and passes the same query to every stage frame; the matrix
 // runner builds frame URLs from it. Defaults are left out of the query, so links stay short.
 import { DEFAULT_DARK_THEME } from "./theme/ghostty";
+import { APP_ACCENTS, type AppAccent } from "../theme/appTheme";
 import { PANE_LAYOUTS, WINDOW_PRESETS, type PaneLayout } from "./window";
 
 /** The 21 languages the app ships (Localizable.xcstrings, scripts/pages/gen-strings.mjs LOCALES). */
@@ -56,6 +57,9 @@ export type GalleryEnv = {
   locale: string;
   /** The Ghostty theme the window shows (a shipped theme's file name). */
   theme: string;
+  /** `appearance.accent`: where the chrome's accent comes from; absent is neutral. Web only for
+   * now (outside the shared vectors: the native gallery has no accent control yet). */
+  accent?: AppAccent;
   /** The window appearance; `auto` is the theme's own (dark when its background is darker). */
   colorScheme: "auto" | "dark" | "light";
   /** Empty: the page's own font. */
@@ -107,7 +111,7 @@ export const DEFAULT_ENV: GalleryEnv = {
 
 export const ZOOMS = ["fit", 0.5, 0.75, 1] as const;
 
-const KEYS = Object.keys(DEFAULT_ENV) as (keyof GalleryEnv)[];
+const KEYS = [...Object.keys(DEFAULT_ENV), "accent"] as (keyof GalleryEnv)[];
 
 export function widthPx(width: GalleryEnv["width"], presets: Partial<Record<WidthName, number>> = WIDTHS): number {
   return typeof width === "number" ? width : (presets[width] ?? WIDTHS[width]);
@@ -126,6 +130,9 @@ export function readEnv(params: URLSearchParams): GalleryEnv {
   const locale = params.get("locale");
   if (locale && ([...LOCALES, ...PSEUDO_LOCALES] as readonly string[]).includes(locale)) env.locale = locale;
   env.theme = params.get("theme") || env.theme;
+  const accent = params.get("accent");
+  if (accent !== "neutral" && (APP_ACCENTS as readonly string[]).includes(accent ?? ""))
+    env.accent = accent as AppAccent;
   const scheme = params.get("colorScheme");
   if (scheme === "dark" || scheme === "light") env.colorScheme = scheme;
   env.fontFamily = (params.get("fontFamily") ?? "").slice(0, 200);
@@ -156,7 +163,7 @@ export function writeEnv(env: GalleryEnv, params = new URLSearchParams()): URLSe
   for (const key of KEYS) {
     params.delete(key);
     const value = env[key];
-    if (value === DEFAULT_ENV[key]) continue;
+    if (value === DEFAULT_ENV[key] || value === undefined || (key === "accent" && value === "neutral")) continue;
     params.set(key, typeof value === "boolean" ? "1" : String(value));
   }
   return params;

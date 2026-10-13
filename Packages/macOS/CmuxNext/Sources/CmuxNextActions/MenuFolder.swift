@@ -16,6 +16,8 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
     case copy
     case tools
     case close
+    /// Every row a crowded menu keeps off its top level (`ContextMenuEssentials`).
+    case more
 
     /// Where the folder row sits in its menu.
     public var group: MenuGroup {
@@ -28,7 +30,7 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
         case .layout: .layout
         case .connection: .connection
         case .copy, .tools: .inspect
-        case .close: .close
+        case .close, .more: .close
         }
     }
 
@@ -48,6 +50,7 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
         case .copy: String(localized: "menu.folder.copy", defaultValue: "Copy", bundle: .module)
         case .tools: String(localized: "menu.folder.tools", defaultValue: "Tools", bundle: .module)
         case .close: String(localized: "menu.folder.close", defaultValue: "Close", bundle: .module)
+        case .more: String(localized: "menu.folder.more", defaultValue: "More", bundle: .module)
         }
     }
 }

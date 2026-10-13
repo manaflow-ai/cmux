@@ -16,7 +16,7 @@ struct PendingPlacement {
     var run: ActionRunScope? = ActionRunScope.current
 }
 
-// Placing new workspaces (New Workspace Above/Below/at Top/in This Group, a
+// Placing new workspaces (New Workspace Above/Below/at Top/Like This, a
 // double-click in a group, and `workspaces.newPlacement` for every other new
 // workspace): the slot is resolved against the window's sidebar only once
 // the daemon reports the workspace, because the reorder plan needs it in the
@@ -29,7 +29,7 @@ extension WindowManager {
             pendingPlacements[id] = nil
             guard let window = pending.window ?? registry.value.owner(of: id), let bridge = controller(for: window)?.sidebar,
                   let machine = services.machines.daemon(forWorkspace: id)?.machineID else { continue }
-            let sections = bridge.model.sections
+            let sections = PendingWorkspaceRows.withoutPlaceholders(bridge.model.sections)
             let section = SectionID.machine(MachineID(machine))
             let slot = pending.slot ?? pending.byDefault?.slot(for: id, section: section, in: sections, home: NewWorkspacePlacements.home(services.machines))
             if let position = slot?.position(moving: [id], section: section, in: sections) {

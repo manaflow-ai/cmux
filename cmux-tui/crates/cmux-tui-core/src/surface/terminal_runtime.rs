@@ -15,6 +15,11 @@ impl ReaderCompletion {
         *self.finished.lock().unwrap() = false;
     }
 
+    /// Whether the reader thread has ended.
+    pub(super) fn is_complete(&self) -> bool {
+        *self.finished.lock().unwrap()
+    }
+
     pub(super) fn complete(&self) {
         let mut finished = self.finished.lock().unwrap();
         *finished = true;
@@ -147,10 +152,12 @@ impl PtyTerminalRuntime {
 /// canonical geometry. Keeping the two identities distinct makes a terminal
 /// projectable into any number of panes without cloning its PTY or VT state.
 ///
-/// Lock order (outer first): `Mux::state` -> `geometry` -> `term` ->
-/// `runtime` -> `taps` -> leaf locks (`render`, `title`, `mouse_encoders`,
-/// `last_attach_colors`, `Mux::default_colors`, ...). These locks carry the
-/// ranks `LockRank::{MuxState, Geometry, Terminal, Runtime, AttachTaps, Leaf}`
+/// Lock order (outer first): `Mux::state` -> `kitty_limits_request` ->
+/// `geometry` -> `term` -> `runtime` -> `kitty_graphics_limits` -> `taps` ->
+/// leaf locks (`render`, `title`, `mouse_encoders`, `last_attach_colors`,
+/// `Mux::default_colors`, ...). These locks carry the ranks
+/// `LockRank::{MuxState, KittyLimitsRequest, Geometry, Terminal, Runtime,
+/// KittyLimits, AttachTaps, Leaf}`
 /// (crate::lock_rank; `Mux::state` through `StateMutex`, the others as
 /// [`RankedMutex`]): in debug and test builds a blocking acquisition at a rank
 /// equal to or before one the thread holds panics and names both locks;
@@ -193,7 +200,7 @@ pub struct PtyTerminalRuntime {
     /// or roster knowledge, so userland plugins can consume it through the
     /// resource API without moving detection policy into core.
     pub(super) terminal_metadata: Mutex<crate::terminal_metadata::TerminalMetadata>,
-    /// OSC 133 command tracking (`terminal-command-journal-v1`); idle unless
+    /// OSC 133 command tracking (`terminal-command-history-v1`); idle unless
     /// the daemon records terminal commands.
     pub(super) command_tracker: Mutex<crate::shell_history::CommandTracker>,
     pub(super) mouse_encoders: RankedMutex<Box<MouseEncoders>>,
@@ -204,9 +211,9 @@ pub struct PtyTerminalRuntime {
     pub(super) lifetime: PtyLifetime,
     pub(super) supports_clear_history_key_fallback: AtomicBool,
     pub(super) host_identity: Option<crate::terminal_host_runtime::TerminalHostIdentity>,
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) pending_host_binding: Mutex<Option<crate::mux::PendingTerminalHostBinding>>,
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(super) host_exit_record_path: Option<PathBuf>,
     pub(super) pid: Option<u32>,
     pub(super) command: Vec<String>,
@@ -223,6 +230,10 @@ pub struct PtyTerminalRuntime {
     /// The host socket ended without a sequenced Exit. Closing this proxy
     /// must retain the host record so a fresh snapshot can recover it.
     pub(super) host_connection_state: AtomicU8,
+    /// Why this terminal runs in the daemon process although terminal hosts
+    /// are on (cx-ko2e); unset for a hosted terminal and for every terminal
+    /// where hosts are off. Set before the surface is published.
+    pub(super) host_fallback: std::sync::OnceLock<TerminalHostFallback>,
     /// Set when output arrived since the last render; cleared by the
     /// frontend when it draws.
     pub(super) dirty: AtomicBool,
@@ -234,7 +245,15 @@ pub struct PtyTerminalRuntime {
     /// absent report a clear rather than the still-unreported launch directory.
     pub(super) directory_reported: AtomicBool,
     pub(super) geometry: RankedMutex<PtyGeometry>,
-    pub(super) kitty_graphics_limits: Box<Mutex<KittyGraphicsLimits>>,
+    /// The Kitty limits this surface last committed. Ranked between the
+    /// runtime and the attach taps: a request reads it under the runtime,
+    /// and a commit holds it with the terminal while it resynchronizes taps.
+    pub(super) kitty_graphics_limits: Box<RankedMutex<KittyGraphicsLimits>>,
+    /// Serializes Kitty limits requests for this surface. A request waits
+    /// for the host's acknowledgement without the runtime lock (the
+    /// reconnecting reader needs that lock), so this keeps a slower request
+    /// from committing its limits after a newer one.
+    pub(super) kitty_limits_request: RankedMutex<()>,
     #[cfg(test)]
     pub(super) geometry_test_hook: Mutex<Option<PtyGeometryTestHook>>,
     #[cfg(test)]
@@ -283,9 +302,9 @@ pub(super) enum PtyRuntime {
         master: Option<Box<dyn MasterPty + Send>>,
         killer: Box<dyn ChildKiller + Send>,
     },
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     Hosted(Box<crate::terminal_host_runtime::HostAttachment>),
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     ExitedHosted,
 }
 

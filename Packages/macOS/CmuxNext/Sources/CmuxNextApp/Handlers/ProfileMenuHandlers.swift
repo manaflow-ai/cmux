@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 
 /// The sidebar profile menu (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2):
 /// `sidebar.profileMenu` opens it over the active window's profile control
@@ -18,7 +19,7 @@ enum ProfileMenuHandlers {
         registry.bind("browser.downloads.showFolder", run: { _ in
             // Finder lists the folder; cmux itself reads nothing in it (LAUNCH-NO-TCC-PROMPTS).
             guard let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return }
-            NSWorkspace.shared.open(folder)
+            NSWorkspace.shared.openInBackground(folder)
         })
     }
 }

@@ -6,7 +6,24 @@ extension UpdaterService {
     public var releaseNotes: ReleaseNotesStore? {
         let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         let cache = caches.appending(path: "\(identity.bundleIdentifier ?? "cmux")/release-notes", directoryHint: .isDirectory)
+        #if DEBUG
+        // The update harness signs its own notes next to its loopback feed.
+        if let harness = UpdateHarness.current, let key = harness.contentKey {
+            return ReleaseNotesStore(feedURL: harness.feedURL, cache: cache.appending(path: "harness", directoryHint: .isDirectory), publicKey: key)
+        }
+        #endif
         return ReleaseNotesStore(feedURL: testFeedURL ?? identity.feed().url, cache: cache)
+    }
+
+    /// The changelog page's media (cx-urd.61.1): signed highlight media, the bundled What's New
+    /// media (and a DEV build's `CMUX_NEXT_WHATS_NEW_DIR`), cached beside the notes.
+    public var releaseMedia: ReleaseMediaStore? {
+        guard let releaseNotes else { return nil }
+        var directories = [BundledWhatsNewSource.app.directory].compactMap { $0 }
+        if identity.track == .development, let folder = ProcessInfo.processInfo.environment["CMUX_NEXT_WHATS_NEW_DIR"], !folder.isEmpty {
+            directories.append(URL(fileURLWithPath: folder, isDirectory: true))
+        }
+        return releaseNotes.media(bundledDirectories: directories)
     }
 
     /// The What's New sources of a build: the bundled documents, and the

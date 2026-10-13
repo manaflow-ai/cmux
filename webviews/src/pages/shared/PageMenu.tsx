@@ -1,9 +1,10 @@
 // A point-anchored context menu for page surfaces. Base UI owns the menu
 // semantics, keyboard navigation, dismissal and focus restoration; this adapter
 // only supplies the pointer location and page-specific actions.
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
-import { usePortalContainer } from "../../ui/UiProvider";
+import { usePopupHost, usePortalContainer } from "../../ui/UiProvider";
+import { useEscapingPopup } from "../../ui/popupHost";
 
 export interface PageMenuItem {
   id: string;
@@ -42,6 +43,10 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
     }),
     [x, y],
   );
+  // No room above or below the pointer in the page: past the window's edge (popupHost.ts).
+  const host = usePopupHost();
+  const [popup, setPopup] = useState<HTMLElement | null>(null);
+  useEscapingPopup(host, popup, () => anchor, { side: "bottom", align: "start", gap: 0 });
 
   return (
     <BaseMenu.Root
@@ -61,7 +66,7 @@ export function PageMenu({ x, y, items, onClose, returnFocus }: PageMenuProps) {
           align="start"
           sideOffset={0}
         >
-          <BaseMenu.Popup className="page-menu" finalFocus={() => opener.current}>
+          <BaseMenu.Popup ref={host ? setPopup : undefined} className="page-menu" finalFocus={() => opener.current}>
             {items.map((item) => (
               <PageMenuRow key={item.id} item={item} onClose={onClose} />
             ))}

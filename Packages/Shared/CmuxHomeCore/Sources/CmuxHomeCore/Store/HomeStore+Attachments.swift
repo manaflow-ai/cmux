@@ -58,9 +58,9 @@ extension HomeStore {
     /// like a text send; `cancelSend` stops it
     /// (`CancellationError`). Throws like `perform`, and
     /// `HomeAttachmentError` (nothing logged) for a file the owner would
-    /// refuse.
+    /// refuse. `threadRoot` set: the message is a reply in that thread.
     public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
-                     key: IdempotencyKey = .make()) async throws {
+                     key: IdempotencyKey = .make(), threadRoot: MessageID? = nil) async throws {
         guard !stopped else { throw HomeRejection.ownerUnreachable }
         // The owner's spelling and ranges, also for refs built outside prepare.
         let attachments = attachments.map { attachment -> LocalAttachment in
@@ -78,7 +78,7 @@ extension HomeStore {
             try HomeAttachmentPolicy.check(mimeType: attachment.ref.mimeType, byteCount: attachment.ref.byteCount,
                                            name: attachment.ref.name)
         }
-        let op = HomeOp.sendMessage(conversation: conversation, parts: parts)
+        let op = HomeOp.sendMessage(conversation: conversation, parts: parts, threadRoot: threadRoot)
         guard !attachments.isEmpty else {
             try await perform(op, key: key)
             return

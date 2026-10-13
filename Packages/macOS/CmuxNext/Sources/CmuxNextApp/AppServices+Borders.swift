@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 
@@ -9,7 +10,7 @@ extension AppServices {
         borderObservation?.cancel()
         borderObservation = Task {
             var last = Borders.current.mode
-            for await mode in Observations({ Borders.current.mode }) where mode != last {
+            for await mode in ObservationStream({ Borders.current.mode }) where mode != last {
                 last = mode
                 ThemeStore.shared.repaintAll()
             }

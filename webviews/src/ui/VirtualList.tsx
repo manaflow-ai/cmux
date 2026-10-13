@@ -73,8 +73,20 @@ export function VirtualList({
     items.push({ index: activeIndex, start: measured?.start ?? 0, size: measured?.size ?? estimateSize(activeIndex) });
   }
   return (
-    <div ref={scroller} id={id} className={cx("ui-virtual", className)} role={role} aria-label={label}>
-      <div className="ui-virtual-space" style={{ height: virtualizer.getTotalSize() }}>
+    // The layout the absolute rows need is inline, not only in ui.css: a page that does not load
+    // ui.css (the agent pane) otherwise places the rows against the page and draws them over it.
+    <div
+      ref={scroller}
+      id={id}
+      className={cx("ui-virtual", className)}
+      style={{ overflow: "auto" }}
+      role={role}
+      aria-label={label}
+    >
+      <div
+        className="ui-virtual-space"
+        style={{ position: "relative", width: "100%", height: virtualizer.getTotalSize() }}
+      >
         {items.map((item) =>
           renderRow(item.index, {
             position: "absolute",

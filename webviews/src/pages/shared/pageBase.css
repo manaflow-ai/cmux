@@ -42,7 +42,7 @@ input {
   max-width: 280px;
   padding: 4px;
   border-radius: 8px;
-  background: var(--page-elevated);
+  background: var(--surface-popup);
   border: 1px solid var(--page-separator);
   box-shadow: 0 6px 24px rgb(0 0 0 / 0.18);
   outline: none;
@@ -61,7 +61,8 @@ input {
 
 .page-menu-item.active:not([data-disabled]):not([aria-disabled="true"]),
 .page-menu-item[data-highlighted]:not([data-disabled]):not([aria-disabled="true"]) {
-  background: var(--page-selection);
+  background: var(--cmux-row-focus, var(--page-selection));
+  box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
 
 .page-menu-item:is([data-disabled], [aria-disabled="true"]) {

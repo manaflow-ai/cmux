@@ -79,6 +79,7 @@ const paths: Record<string, ReactNode> = {
     </>
   ),
   warning: <path d="M8 2.2 14.2 13H1.8L8 2.2ZM8 6.4v3.2M8 11.4h.01" />,
+  update: <path d="M8 11.2V4.8M5.4 7.4 8 4.8l2.6 2.6M8 14.2A6.2 6.2 0 1 0 8 1.8a6.2 6.2 0 0 0 0 12.4Z" />,
   reset: <path d="M3.2 6.2A5 5 0 1 1 3 9.4M3 2.8v3.6h3.6" />,
   play: <path d="M5 3.2v9.6L12.6 8 5 3.2Z" />,
   search: (

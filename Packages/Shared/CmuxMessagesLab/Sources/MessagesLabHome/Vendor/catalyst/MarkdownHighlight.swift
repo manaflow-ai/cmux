@@ -30,22 +30,22 @@ enum MarkdownHighlight {
         let sql: Set<String> = ["select", "from", "where", "insert", "into", "values", "update", "set", "delete", "create", "table", "index", "drop", "alter", "join", "left", "right", "inner", "outer", "on", "group", "by", "order", "having", "limit", "offset", "as", "and", "or", "not", "null", "is", "in", "primary", "key", "references", "default", "distinct", "union", "all", "case", "when", "then", "else", "end", "with", "returning", "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "TABLE", "INDEX", "DROP", "ALTER", "JOIN", "LEFT", "INNER", "ON", "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "AS", "AND", "OR", "NOT", "NULL", "IS", "IN", "PRIMARY", "KEY", "DEFAULT", "DISTINCT", "UNION", "CASE", "WHEN", "THEN", "ELSE", "END", "WITH", "RETURNING"]
         let q2: Set<UInt16> = [34, 39], q3: Set<UInt16> = [34, 39, 96]
         var m: [String: Lang] = [:]
-        m.updateValue(Lang(keywords: swift, line: ["//"], block: ("/*", "*/"), quotes: [34]), forKey: "swift") // cmux: dictionary write
-        for k in ["js", "javascript", "jsx", "ts", "typescript", "tsx", "mjs", "cjs"] { m.updateValue(Lang(keywords: js, line: ["//"], block: ("/*", "*/"), quotes: q3), forKey: k) } // cmux: dictionary write
-        for k in ["py", "python", "python3"] { m.updateValue(Lang(keywords: py, line: ["#"], block: nil, quotes: q2), forKey: k) } // cmux: dictionary write
-        m.updateValue(Lang(keywords: go, line: ["//"], block: ("/*", "*/"), quotes: q3), forKey: "go") // cmux: dictionary write
-        for k in ["rs", "rust"] { m.updateValue(Lang(keywords: rust, line: ["//"], block: ("/*", "*/"), quotes: [34]), forKey: k) } // cmux: dictionary write
-        for k in ["sh", "bash", "zsh", "shell", "console", "fish"] { m.updateValue(Lang(keywords: sh, line: ["#"], block: nil, quotes: q2, types: false), forKey: k) } // cmux: dictionary write
+        m.updateValue(Lang(keywords: swift, line: ["//"], block: ("/*", "*/"), quotes: [34]), forKey: "swift") // dictionary write
+        for k in ["js", "javascript", "jsx", "ts", "typescript", "tsx", "mjs", "cjs"] { m.updateValue(Lang(keywords: js, line: ["//"], block: ("/*", "*/"), quotes: q3), forKey: k) } // dictionary write
+        for k in ["py", "python", "python3"] { m.updateValue(Lang(keywords: py, line: ["#"], block: nil, quotes: q2), forKey: k) } // dictionary write
+        m.updateValue(Lang(keywords: go, line: ["//"], block: ("/*", "*/"), quotes: q3), forKey: "go") // dictionary write
+        for k in ["rs", "rust"] { m.updateValue(Lang(keywords: rust, line: ["//"], block: ("/*", "*/"), quotes: [34]), forKey: k) } // dictionary write
+        for k in ["sh", "bash", "zsh", "shell", "console", "fish"] { m.updateValue(Lang(keywords: sh, line: ["#"], block: nil, quotes: q2, types: false), forKey: k) } // dictionary write
         for k in ["c", "h", "cpp", "c++", "cc", "hpp", "objc", "m", "mm", "java", "kotlin", "kt", "cs", "csharp", "zig", "dart", "scala"] {
-            m.updateValue(Lang(keywords: cLike.union(["int", "long", "char", "float", "double", "bool", "unsigned", "signed", "auto", "fun", "val", "var", "fn", "pub", "using", "namespace", "template", "typename", "sizeof", "extern", "inline", "virtual", "goto", "typedef", "union", "package", "extends", "implements", "interface", "abstract", "final", "override", "when", "object", "data"]), line: ["//"], block: ("/*", "*/"), quotes: q2), forKey: k) // cmux: dictionary write
+            m.updateValue(Lang(keywords: cLike.union(["int", "long", "char", "float", "double", "bool", "unsigned", "signed", "auto", "fun", "val", "var", "fn", "pub", "using", "namespace", "template", "typename", "sizeof", "extern", "inline", "virtual", "goto", "typedef", "union", "package", "extends", "implements", "interface", "abstract", "final", "override", "when", "object", "data"]), line: ["//"], block: ("/*", "*/"), quotes: q2), forKey: k) // dictionary write
         }
-        for k in ["sql", "psql", "postgres", "sqlite"] { m.updateValue(Lang(keywords: sql, line: ["--"], block: ("/*", "*/"), quotes: q2, types: false), forKey: k) } // cmux: dictionary write
-        for k in ["json", "jsonc", "json5"] { m.updateValue(Lang(keywords: ["true", "false", "null"], line: ["//"], block: ("/*", "*/"), quotes: [34], types: false), forKey: k) } // cmux: dictionary write
+        for k in ["sql", "psql", "postgres", "sqlite"] { m.updateValue(Lang(keywords: sql, line: ["--"], block: ("/*", "*/"), quotes: q2, types: false), forKey: k) } // dictionary write
+        for k in ["json", "jsonc", "json5"] { m.updateValue(Lang(keywords: ["true", "false", "null"], line: ["//"], block: ("/*", "*/"), quotes: [34], types: false), forKey: k) } // dictionary write
         for k in ["yaml", "yml", "toml", "ini", "conf", "dockerfile", "make", "makefile", "ruby", "rb", "perl", "r", "nix"] {
-            m.updateValue(Lang(keywords: ["true", "false", "null", "yes", "no", "on", "off", "def", "end", "if", "else", "elsif", "unless", "do", "class", "module", "require", "return", "FROM", "RUN", "COPY", "CMD", "ENV", "WORKDIR", "ENTRYPOINT", "ARG", "let", "in", "with", "inherit", "rec"], line: ["#"], block: nil, quotes: q2, types: false), forKey: k) // cmux: dictionary write
+            m.updateValue(Lang(keywords: ["true", "false", "null", "yes", "no", "on", "off", "def", "end", "if", "else", "elsif", "unless", "do", "class", "module", "require", "return", "FROM", "RUN", "COPY", "CMD", "ENV", "WORKDIR", "ENTRYPOINT", "ARG", "let", "in", "with", "inherit", "rec"], line: ["#"], block: nil, quotes: q2, types: false), forKey: k) // dictionary write
         }
-        for k in ["css", "scss", "less"] { m.updateValue(Lang(keywords: ["important", "media", "import", "keyframes", "from", "to"], line: k == "css" ? [] : ["//"], block: ("/*", "*/"), quotes: q2, types: false), forKey: k) } // cmux: dictionary write
-        for k in ["lua"] { m.updateValue(Lang(keywords: ["local", "function", "end", "if", "then", "else", "elseif", "for", "while", "do", "return", "nil", "true", "false", "and", "or", "not", "repeat", "until", "in", "break"], line: ["--"], block: nil, quotes: q2, types: false), forKey: k) } // cmux: dictionary write
+        for k in ["css", "scss", "less"] { m.updateValue(Lang(keywords: ["important", "media", "import", "keyframes", "from", "to"], line: k == "css" ? [] : ["//"], block: ("/*", "*/"), quotes: q2, types: false), forKey: k) } // dictionary write
+        for k in ["lua"] { m.updateValue(Lang(keywords: ["local", "function", "end", "if", "then", "else", "elseif", "for", "while", "do", "return", "nil", "true", "false", "and", "or", "not", "repeat", "until", "in", "break"], line: ["--"], block: nil, quotes: q2, types: false), forKey: k) } // dictionary write
         return m
     }()
 
@@ -96,16 +96,16 @@ enum MarkdownHighlight {
         let blockOpen = spec.block.map { Array($0.0.utf16) }, blockClose = spec.block.map { Array($0.1.utf16) }
         func starts(_ p: [UInt16], at i: Int) -> Bool {
             guard i + p.count <= limit else { return false }
-            for (x, y) in zip(buf.slice(from: i), p) where x != y { return false } // cmux: no index math (i + p.count <= limit above)
+            for (x, y) in zip(buf.slice(from: i), p) where x != y { return false } // no index math (i + p.count <= limit above)
             return true
         }
         func isIdentStart(_ c: UInt16) -> Bool { (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 95 || c == 36 || c >= 0x80 }
         func isIdent(_ c: UInt16) -> Bool { isIdentStart(c) || (c >= 48 && c <= 57) }
-        // cmux: checked reads of the buffer (crash program); nil outside it.
+        // checked reads of the buffer ; nil outside it.
         func at(_ j: Int) -> UInt16? { buf[checked: j] }
         func isIdent(at j: Int) -> Bool { at(j).map(isIdent) ?? false }
         var i = 0
-        while i < limit, let c = at(i) { // cmux: checked
+        while i < limit, let c = at(i) { // checked
             if let bo = blockOpen, let bc = blockClose, starts(bo, at: i) {
                 var j = i + bo.count
                 while j < limit, !starts(bc, at: j) { j += 1 }
@@ -114,15 +114,15 @@ enum MarkdownHighlight {
             }
             if lineStarts.contains(where: { starts($0, at: i) }), !(c == 35 && i > 0 && isIdent(at: i - 1)) {
                 var j = i
-                while j < limit, at(j) != 10 { j += 1 } // cmux
+                while j < limit, at(j) != 10 { j += 1 }
                 set(a, NSRange(location: i, length: j - i), .comment); i = j; continue
             }
             if spec.quotes.contains(c) {
                 // Python triple quotes; else to the closing quote on the line (backticks span lines).
-                let triple = i + 2 < limit && at(i + 1) == c && at(i + 2) == c // cmux
+                let triple = i + 2 < limit && at(i + 1) == c && at(i + 2) == c
                 var j = i + (triple ? 3 : 1)
                 while j < limit {
-                    if at(j) == 92 { j += 2; continue } // cmux: checked reads
+                    if at(j) == 92 { j += 2; continue } // checked reads
                     if triple { if j + 2 < limit, at(j) == c, at(j + 1) == c, at(j + 2) == c { j += 3; break } }
                     else if at(j) == c { j += 1; break }
                     else if at(j) == 10, c != 96 { break }
@@ -131,14 +131,14 @@ enum MarkdownHighlight {
                 j = min(j, limit)
                 set(a, NSRange(location: i, length: j - i), .string); i = j; continue
             }
-            if c >= 48 && c <= 57, i == 0 || !isIdent(at: i - 1) { // cmux: checked reads
+            if c >= 48 && c <= 57, i == 0 || !isIdent(at: i - 1) { // checked reads
                 var j = i + 1
                 while j < limit, isIdent(at: j) || at(j) == 46 && j + 1 < limit && (at(j + 1).map({ $0 >= 48 && $0 <= 57 }) ?? false) { j += 1 }
                 set(a, NSRange(location: i, length: j - i), .number); i = j; continue
             }
             if isIdentStart(c) {
                 var j = i + 1
-                while j < limit, isIdent(at: j) { j += 1 } // cmux
+                while j < limit, isIdent(at: j) { j += 1 }
                 let r = NSRange(location: i, length: j - i)
                 let w = ns.substring(with: r)
                 if spec.keywords.contains(w) { set(a, r, .keyword) }

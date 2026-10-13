@@ -23,21 +23,23 @@ extension ScreenContentView {
         let rowsNeedFrames = syncRows(focused: focused, source: source, animated: animate, reveals: reveals)
         guard let strip else {
             scrollState = ColumnScrollState()
+            settleCarried()
             applyPresentation()
             return rowsNeedFrames
         }
         scrollState.mode = mode
         let effects = scrollState.reduce(.sync(strip, focused: focused, source: source, animated: animate, reveals: reveals,
                                                anchor: ScreenDividers(screen: self).dragAnchorColumn))
+        settleCarried()
         if effects.snapped && showsScrollbarOnSnap { scrollbarFlash = true }
         return apply(effects) || rowsNeedFrames
     }
 
-    /// Centers the column holding `pane` once. Returns true if the spring needs frames.
+    /// Centers the column holding `pane` once, or with `reveal` scrolls it the least into view (cx-27j7). Returns true if the spring needs frames.
     @discardableResult
-    func center(_ pane: PaneID, animated: Bool) -> Bool {
+    func center(_ pane: PaneID, animated: Bool, reveal: Bool = false) -> Bool {
         scrollbarFlash = true
-        return apply(scrollState.reduce(.center(pane, animated: animated && !context.reduceMotion)))
+        return apply(scrollState.reduce(reveal ? .reveal(pane, animated: animated && !context.reduceMotion) : .center(pane, animated: animated && !context.reduceMotion)))
     }
 
     var acceptsHorizontalScroll: Bool { geometry.isColumns && geometry.maxOffset > 0.5 }

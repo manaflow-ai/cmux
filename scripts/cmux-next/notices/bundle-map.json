@@ -37,6 +37,11 @@
       "notices": ["first-party", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/CREDITS.html", "file:Contents/Frameworks/Chromium Embedded Framework.framework/Resources/LICENSE.txt"]
     },
     {
+      "path": "Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua",
+      "what": "the Computer Use helper that onboarding grants Accessibility and Screen Recording to (manaflow-ai/cmux-cua at the scripts/build-cmux-cua.sh pin)",
+      "notices": ["section:manual-cmux-cua-engine", "section:rust-cmux-cua", "rust-std", "section:manual-rust-and-zig-standard-libraries"]
+    },
+    {
       "path": "Contents/Resources/bin/cmux",
       "what": "the cmux CLI and daemon (cmux-tui crates; acpmux and libghostty-vt are linked in; check_ghostty_vt_notices.py checks libghostty-vt's Zig packages)",
       "notices": ["first-party", "section:rust-cmux-cli", "section:manual-ghostty", "rust-std", "zig-std", "section:manual-rust-and-zig-standard-libraries", "section:manual-ghostty-shell-integration"]

@@ -47,6 +47,7 @@ await requireBrowserLane("gallery-browse-layout.test.ts", async () => {
               <div class="gallery-browse-tools">
                 <label class="gallery-browse-filter">Filter previews<input type="search" aria-label="Filter gallery previews"></label>
                 <fieldset class="gallery-browse-kind-filter"><legend>Show</legend><button>All</button><button>Static</button><button>Motion</button></fieldset>
+                <fieldset class="gallery-browse-view-filter"><legend>Layout</legend><button>One per entry</button><button>All variants</button></fieldset>
                 <label class="gallery-browse-cycle"><input type="checkbox" aria-label="Cycle previews">Cycle previews</label>
               </div>
             </header>
@@ -76,6 +77,7 @@ await requireBrowserLane("gallery-browse-layout.test.ts", async () => {
         main: rect(".gallery-main"),
         controls: rect(".gallery-controls"),
         segmented: rect(".gallery-segmented"),
+        viewFilter: rect(".gallery-browse-view-filter"),
         card: rect(".gallery-browse-card"),
         window: rect(".gallery-window"),
       };
@@ -96,6 +98,7 @@ await requireBrowserLane("gallery-browse-layout.test.ts", async () => {
         const layout = await measure(page);
         expect(layout.documentWidth).toBeLessThanOrEqual(layout.viewport);
         expect(layout.segmented.right).toBeLessThanOrEqual(layout.viewport);
+        expect(layout.viewFilter.right).toBeLessThanOrEqual(layout.viewport);
         expect(layout.segmented.right).toBeLessThanOrEqual(layout.controls.right);
         expect(layout.card.right).toBeLessThanOrEqual(layout.main.right);
         expect(layout.window.width).toBeLessThanOrEqual(layout.card.width);

@@ -391,6 +391,14 @@ pub(super) fn compose_snapshot(daemon: Result<Value, Value>, app: Result<Value, 
             "app": {"available": app_value.is_some(), "error": app_error.unwrap_or(Value::Null)},
         },
     });
+    // Where the caller is (the app resolves its agent session or terminal):
+    // `caller` marks its own workspace, pane and tab, `beside` the column
+    // right of it, where the app opens the caller's new tabs.
+    for key in ["caller", "beside"] {
+        if let Some(value) = app_value.as_ref().and_then(|value| value.get(key)) {
+            snapshot[key] = value.clone();
+        }
+    }
     if let Some(shown) = topology
         .filter(|value| {
             value.get("focus").is_some_and(|focus| focus_in_scope(focus, workspace_ids.as_ref()))

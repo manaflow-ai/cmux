@@ -191,10 +191,17 @@ start it, and a daemon without the sibling file starts nothing.
 The supervisor passes `CMUX_TUI_SOCKET`, `CMUX_MUX_SOCKET`,
 `CMUX_TUI_SESSION_ID`, and the required `CMUX_PLUGIN_ID`, plus
 `CMUX_PLUGIN_REVISION`,
-`CMUX_PLUGIN_GENERATION`, `CMUX_PLUGIN_PROTOCOL_VERSION=1`,
+`CMUX_PLUGIN_GENERATION`, `CMUX_PLUGIN_HOST_PID` (the daemon's pid),
+`CMUX_PLUGIN_PROTOCOL_VERSION=1`,
 `CMUX_PLUGIN_KIND=journal`, `CMUX_JOURNAL_PLUGIN=1`, and the compatibility
 hint `CMUX_AGENT_PLUGIN=1`. The socket is already bound before the child
-starts. A plugin that emits restart-fenced observations should copy
+starts. A plugin should exit when the `CMUX_PLUGIN_HOST_PID` process exits: a
+`kill -9` of the daemon skips the supervisor's process-group shutdown, and an
+orphaned plugin would otherwise reconnect to the next daemon on the same
+socket. The reference screen detector watches that pid (kqueue on macOS, pidfd
+on Linux, a 1 s poll otherwise). Under an older daemon that does not pass it,
+the detector watches its parent pid when `CMUX_PLUGIN_GENERATION` is set. A
+standalone run with neither variable is not watched. A plugin that emits restart-fenced observations should copy
 `CMUX_PLUGIN_GENERATION` into its event's `normalized.plugin_generation` field.
 The reference screen detector validates this ID before entering its reconnect
 loop, so a malformed hand-written configuration fails once instead of retrying

@@ -13,24 +13,29 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
     /// Runs once after the window closed (the owner releases it).
     public var onClose: (() -> Void)?
 
-    public init(model: DebugSettingsModel) {
+    /// `content` replaces the SwiftUI view (the React page, `debugSettings.surface`); `onFind`
+    /// then takes Cmd-F instead of the SwiftUI search field. A web view under a transparent title
+    /// bar takes the title bar's drags, so that window keeps a standard title bar.
+    public init(model: DebugSettingsModel, content: NSView? = nil, onFind: (() -> Void)? = nil) {
         self.model = model
         let window = DebugSettingsWindow(
             contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+            styleMask: content == nil ? [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+                : [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered, defer: false)
         window.title = DebugSettingsStrings.windowTitle
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
+        window.titleVisibility = content == nil ? .hidden : .visible
+        window.titlebarAppearsTransparent = content == nil
         window.isReleasedWhenClosed = false
         window.contentMinSize = NSSize(width: 680, height: 420)
         window.identifier = NSUserInterfaceItemIdentifier("cmux.debugSettings")
         window.setFrameAutosaveName("cmux.debugSettings")
         window.model = model
+        window.onFind = onFind
         super.init(window: window)
         window.delegate = self
         SettingsTheme.shared.follow(SettingsTheme.shared.scope)
-        window.install(kind: .debugSettings, content: NSHostingView(rootView: DebugSettingsRootView(model: model)),
+        window.install(kind: .debugSettings, content: content ?? NSHostingView(rootView: DebugSettingsRootView(model: model)),
                        scope: SettingsTheme.shared.scope)
     }
 
@@ -63,13 +68,14 @@ public final class DebugSettingsWindowController: NSWindowController, NSWindowDe
 /// (`WindowKeyTable`, kind `.debugSettings`), like every window of its own.
 final class DebugSettingsWindow: NSWindow {
     weak var model: DebugSettingsModel?
+    var onFind: (() -> Void)?
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         guard event.type == .keyDown else { return super.performKeyEquivalent(with: event) }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers?.lowercased()
         if flags == .command, key == "f" {
-            model?.searchFocusRequest += 1
+            if let onFind { onFind() } else { model?.searchFocusRequest += 1 }
             return true
         }
         return super.performKeyEquivalent(with: event)

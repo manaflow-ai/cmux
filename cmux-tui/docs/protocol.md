@@ -127,7 +127,8 @@ every tab. `set-tab-pinned` pins a tab; pinned tabs sort first, and
 `move-tab` keeps them ahead of unpinned tabs. The daemon resolves `cwd` from
 OSC 7 (or the launch directory) and reads the repository's HEAD on the host
 that owns the PTY, so remote daemons report their own branches. `tab-changed`
-delivers the refreshed tab after a pin or directory change.
+delivers the refreshed tab after a pin or directory change. A pinned browser
+tab also reports `pinned_url`, the page it showed when it was pinned.
 
 Protocol-v8 split nodes serialize as `{type:"split",split:<id>,dir,ratio,a,b}`. The `split` value remains stable until that node collapses. Resize an exact divider with:
 
@@ -154,6 +155,22 @@ tab (`replayed:true`) instead of creating a second one.
 most 64 KiB) per frontend-rendered browser tab, such as its back/forward
 entries and scroll, and reads it back after a relaunch. `history:null`
 clears it. The daemon never journals it or puts it in the tree.
+
+`remote-terminal-tabs-v1` adds tabs that reference a terminal on another
+session, for frontends that federate several sessions. `new-remote-terminal-tab`
+stores `{session_id, terminal_id, session_name, title?}` in the durable tree;
+`update-remote-terminal-tab` records the title, session name, or a bounded
+text snapshot, which `remote-terminal-snapshot` reads back. The daemon never
+attaches or spawns anything for these tabs. They report
+`kind:"remote-terminal"` with a `remote` object and move, pin, group, and
+close like any tab. The TUI does not render them.
+
+`detached-terminals-v1` adds `detached:true` to `create-terminal`: the daemon
+creates a kept terminal with no workspace, pane, screen, or tab and returns
+its public `terminal_resource_id`, so another session's frontend can show it
+as a remote-terminal tab and attach by that id. Send it only to a daemon that
+advertises the capability; an older daemon ignores the field and creates a
+tab.
 
 `tab-drag-v1` makes every tab drag outcome one atomic command:
 `move-tab` (pane and index, across screens and workspaces),

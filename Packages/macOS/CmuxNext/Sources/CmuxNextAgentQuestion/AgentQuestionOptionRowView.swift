@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// One option row: number keycap, label, description and a checkmark. It
 /// is an accessibility radio button (single select) or checkbox (multi).
@@ -63,8 +64,8 @@ final class AgentQuestionOptionRowView: NSView {
         detail.font = style.detailFont
         detail.stringValue = content.detail ?? ""
         detail.isHidden = content.detail == nil
-        let symbol = content.multiSelect ? (content.chosen ? "checkmark.square.fill" : "square") : "checkmark"
-        check.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+        let icon: IconName = content.multiSelect ? (content.chosen ? .checkboxOn : .checkboxOff) : .stateSelected
+        check.image = NSImage.icon(icon, size: style.checkSize)
         check.isHidden = !content.multiSelect && !content.chosen
         applyColors()
         needsLayout = true

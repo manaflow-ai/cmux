@@ -9,12 +9,14 @@ public import Foundation
 public nonisolated extension LinkHintSession {
     internal static let overlayTag = "cmux-link-hints"
 
-    /// Returns a JSON string: `[{x, y, left, top, href}]`, at most 1000,
-    /// in document order. Hidden, disabled and covered elements are skipped.
-    static let collectScript = """
+    /// Returns a JSON string: `[{x, y, left, top, href, text}]` (CSS
+    /// pixels in the viewport; `text` names the element), at most 1000, in
+    /// document order. Hidden, disabled and covered elements are skipped.
+    /// Window hint mode runs it in first-party pages too.
+    public static let collectScript = """
     (() => {
       const selector = 'a[href],area[href],button,input:not([type=hidden]),select,textarea,summary,label[for],' +
-        '[role=button],[role=link],[role=checkbox],[role=radio],[role=tab],[role=menuitem],[role=option],' +
+        '[role=button],[role=link],[role=checkbox],[role=radio],[role=switch],[role=tab],[role=menuitem],[role=option],' +
         '[onclick],[contenteditable=""],[contenteditable=true],[tabindex]:not([tabindex="-1"])';
       const width = innerWidth, height = innerHeight, out = [];
       for (const element of document.querySelectorAll(selector)) {
@@ -29,7 +31,11 @@ public nonisolated extension LinkHintSession {
         const hit = document.elementFromPoint(x, y);
         if (!hit || !(hit === element || element.contains(hit) || hit.contains(element))) continue;
         const href = typeof element.href === 'string' ? element.href : null;
-        out.push({ x: Math.round(x), y: Math.round(y), left: Math.round(left), top: Math.round(top), href });
+        const named = (element.getAttribute('aria-labelledby') || '').split(/\\s+/)
+          .map((id) => document.getElementById(id)?.innerText || '').join(' ').trim();
+        const text = (element.getAttribute('aria-label') || named || element.labels?.[0]?.innerText || element.title ||
+          element.innerText || element.value || '').toString().trim().slice(0, 80);
+        out.push({ x: Math.round(x), y: Math.round(y), left: Math.round(left), top: Math.round(top), href, text });
         if (out.length >= 1000) break;
       }
       return JSON.stringify(out);

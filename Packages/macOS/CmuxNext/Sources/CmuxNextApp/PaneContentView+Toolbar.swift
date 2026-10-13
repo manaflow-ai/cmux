@@ -1,0 +1,34 @@
+import AppKit
+
+// The pane's buttons (`PaneToolbar`, cx-kk7lm) sit at the strip's trailing end, as wide as they
+// need: in frame layout the strip gives up that width (`layout()`); pinned to a browser's band
+// (R109) they pin beside it.
+extension PaneContentView {
+    func installToolbar(replacing old: PaneToolbar?) {
+        // Pins to a browser's band name the toolbar: they are made again for the new one.
+        let pinned = isBandActive
+        if pinned { releaseBand() }
+        old?.view.removeFromSuperview()
+        if let view = toolbar?.view { addSubview(view, positioned: .above, relativeTo: stripView) }
+        if pinned { updateBand() }
+        needsLayout = true
+    }
+
+    /// The buttons' width beside a strip `shown` tall (`layout()` hides them with the strip).
+    func toolbarWidth(shown: CGFloat) -> CGFloat {
+        guard let view = toolbar?.view, shown > 0 else { return 0 }
+        return min(view.intrinsicContentSize.width, bounds.width / 2)
+    }
+
+    /// The buttons' pins beside a strip pinned to a browser's band.
+    func toolbarBandPins() -> [NSLayoutConstraint] {
+        guard let view = toolbar?.view else { return [] }
+        view.translatesAutoresizingMaskIntoConstraints = false
+        view.setContentHuggingPriority(.required, for: .horizontal)
+        return [
+            view.topAnchor.constraint(equalTo: stripView.topAnchor),
+            view.heightAnchor.constraint(equalTo: stripView.heightAnchor),
+            view.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ]
+    }
+}

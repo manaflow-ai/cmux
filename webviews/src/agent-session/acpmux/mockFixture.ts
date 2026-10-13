@@ -415,9 +415,17 @@ export function sessionSummary(session: MockSession, now: number, turnCount: num
     name: session.harness,
     updatedAt: now - ago * 60_000,
     turnCount,
+    indicator: fixtureIndicator(session),
     modes: session.harness === "codex" ? codexModes : claudeModes,
     configOptions: effort(session.harness === "codex" ? "high" : "medium"),
   };
+}
+
+/// The status dot acpmux would name for a fixture session: a disconnected one left mid-answer.
+function fixtureIndicator(session: MockSession): string {
+  if (session.status === "waiting" || (session.pendingPermissions ?? 0) > 0) return "input";
+  if (session.status === "running") return "working";
+  return session.status === "disconnected" ? "lost" : "done";
 }
 
 /// A new chat in `cwd` on `harness` (Claude Code unless asked): no turns yet.

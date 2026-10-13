@@ -52,9 +52,9 @@ export function Editor(props: EditorProps): ReactNode {
     case "time_range":
       return <TimeRangeEditor {...props} />;
     case "string_list":
-      // A list of fixed choices in an order the user picks (sidebar.workspaceRow.secondLineOrder).
-      // Other string lists are page-hidden keys, which the page never lists (schema.ts).
-      return row.choices ? <OrderedChoicesEditor {...props} /> : null;
+      // A list of fixed choices in an order the user picks (sidebar.workspaceRow.secondLineOrder),
+      // else free-text tokens (browser.urlsToAlwaysOpenExternally).
+      return row.choices ? <OrderedChoicesEditor {...props} /> : <HostListEditor {...props} />;
     case "number_list":
     case "string_map":
       // Only cmux-browser and page-hidden keys have these kinds, and the page never lists them (schema.ts).

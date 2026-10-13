@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
 import Foundation
@@ -87,7 +88,7 @@ final class SSHService {
         observers.append(Task { [weak self] in
             // Live state only: restoring connects and prunes saved hosts,
             // which the launch snapshot's cached registry must not drive.
-            for await records in Observations({ () -> [SessionRecord] in
+            for await records in ObservationStream({ () -> [SessionRecord] in
                 let store = machines.local.store
                 return store.personal.isLoaded && !store.isProvisional ? store.personal.sessions : []
             }) {
@@ -140,6 +141,17 @@ final class SSHService {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         let destination: SSHDestination
         do { destination = try SSHDestination(parsing: text) } catch { throw ActionFailure(message: RemoteStrings.invalidDestination(text, error)) }
+        // SSH… with only a destination names the machine, not a new entry: a machine already in
+        // the list for the same host, user and port is reused, never added twice (cx-k21v).
+        if nonEmpty(name) == nil, nonEmpty(binary) == nil, nonEmpty(stateDir) == nil, let saved = existing(destination) {
+            saved.autoConnect = true
+            rememberHost(saved)
+            saved.offersInstall = offerInstall
+            if offerInstall { offerInstallWhenOld(saved) }
+            reconnect(saved)
+            logger.info("connect \(destination.description, privacy: .public): reusing \(saved.machineID, privacy: .public)")
+            return saved
+        }
         let sessionName: String
         do { sessionName = try RemoteSessionName.validate(name) } catch { throw ActionFailure(message: RemoteStrings.invalidSession(name ?? "")) }
         let host: SSHHost
@@ -150,6 +162,14 @@ final class SSHService {
             throw ActionFailure(message: RemoteStrings.invalidPath((error as? SSHHost.Invalid)?.field == "remote_state_dir" ? stateDir ?? "" : binary ?? ""))
         }
         forgotten.remove(host.machineID)
+        // The same machine (route, session, state directory) with another
+        // cmux-tui path: the old link goes and the record takes the new
+        // path, so a connect never runs the old binary again (cx-vuvc).
+        if let saved = machines.sshSession(host.machineID), saved.host != host {
+            logger.info("\(host.destination.description, privacy: .public): cmux-tui path is now \(host.remoteBinary, privacy: .public)")
+            saved.close()
+            _ = machines.removeSSH(host.machineID)
+        }
         let session = machines.sshSession(host.machineID) ?? makeSession(host)
         guard let session else { throw ActionFailure(message: RemoteStrings.noClient) }
         // Saved now, before the first connect succeeds (no session id yet).
@@ -164,6 +184,18 @@ final class SSHService {
         }
         logger.info("connect \(host.destination.description, privacy: .public) session \(host.session, privacy: .public)")
         return session
+    }
+
+    /// The machine in the list for `destination`'s host, user and port: the same user and port
+    /// (a part left out matches only a saved entry that left it out too, so `host` never picks
+    /// `root@host` or `host:2222`); host names compare without case. The default session wins.
+    private func existing(_ destination: SSHDestination) -> SSHMachineSession? {
+        let matches = machines.ssh.filter { session in
+            let saved = session.host.destination
+            return saved.host.caseInsensitiveCompare(destination.host) == .orderedSame
+                && saved.user == destination.user && saved.port == destination.port
+        }
+        return matches.first { $0.host.session == RemoteSessionName.defaultName } ?? matches.first
     }
 
     private func nonEmpty(_ text: String?) -> String? {
@@ -182,15 +214,49 @@ final class SSHService {
         logger.info("disconnected \(session.host.destination.description, privacy: .public)")
     }
 
+    /// A Forget shown but not yet written: the machine is gone from this
+    /// run, while the saved list and the home session still hold it.
+    struct PendingForget {
+        let machineID: String
+        let label: String
+        /// The registry transport, with its `connect` flag.
+        let fields: [String: String]
+        let sessionID: String?
+    }
+
     /// Disconnects and removes the machine from the saved list, with its
     /// personal organization (order, groups, pins) in the home session.
     func forget(_ session: SSHMachineSession) async {
+        await commitForget(hide(session))
+    }
+
+    /// Disconnects the machine and takes it out of this run at once; the
+    /// writes wait for `commitForget` (the undo toast's end, `RemoteForgetUndo`).
+    func hide(_ session: SSHMachineSession) -> PendingForget {
         forgotten.insert(session.machineID)
-        let sessionID = session.daemon.identity?.sessionID ?? recordID(for: session.host)
+        let pending = PendingForget(machineID: session.machineID, label: session.host.label,
+                                    fields: Self.fields(Self.transport(session)) ?? [:],
+                                    sessionID: session.daemon.identity?.sessionID ?? recordID(for: session.host))
         session.close()
         _ = machines.removeSSH(session.machineID)
-        forgetSavedHost(session.machineID)
-        guard let sessionID, machines.local.supports(DaemonCapabilities.shared.profiles), let home = machines.local.connection else { return }
+        return pending
+    }
+
+    /// Undo of a hidden Forget: the machine comes back as it was saved, and
+    /// connects again when it was set to connect.
+    func unhide(_ pending: PendingForget) {
+        forgotten.remove(pending.machineID)
+        restore(pending.fields)
+    }
+
+    /// Writes a hidden Forget: the saved list entry and the home session's
+    /// record with its personal organization go.
+    func commitForget(_ pending: PendingForget) async {
+        // A connect to the same machine while the toast showed took it back.
+        guard forgotten.contains(pending.machineID), machines.sshSession(pending.machineID) == nil else { return }
+        forgetSavedHost(pending.machineID)
+        guard let sessionID = pending.sessionID, machines.local.supports(DaemonCapabilities.shared.profiles),
+              let home = machines.local.connection else { return }
         do {
             try await home.forgetSession(sessionID, force: true)
         } catch {
@@ -221,7 +287,7 @@ final class SSHService {
         let machines = machines
         // task-owner: ends at the first answer from the machine's daemon, or when the session is forgotten
         Task { [weak self, weak session] in
-            for await level in Observations({ session.flatMap { machines.compatibility(of: $0.daemon)?.level } }) {
+            for await level in ObservationStream({ session.flatMap { machines.compatibility(of: $0.daemon)?.level } }) {
                 guard let session, session.offersInstall, machines.sshSession(session.machineID) === session else { return }
                 guard let level else { continue }
                 if level != .current {
@@ -260,7 +326,8 @@ final class SSHService {
         session.lastError = nil
         do {
             session.installPhase = .manifest
-            let plan = try await installer.plan(commit: commit, platform: platform, remoteBinary: host.remoteBinary)
+            let plan = try await installer.plan(commit: commit, treeKey: BundledCmuxTUI.treeKey(binary: binary), platform: platform,
+                                                remoteBinary: host.remoteBinary)
             // Turned off while planning: refuse before the remote work starts (never mid-install).
             if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
             try await installer.install(plan, on: host, daemonPID: daemonPID, environment: environment) { phase in
@@ -268,7 +335,7 @@ final class SSHService {
                 Task { @MainActor in session.installPhase = phase }
             }
             session.installPhase = nil
-            logger.info("installed cmux-tui \(commit, privacy: .public) on \(host.destination.description, privacy: .public)")
+            logger.info("installed cmux-tui \(plan.commit, privacy: .public) on \(host.destination.description, privacy: .public)")
             await link.handle(.installFinished(.success))
             reconnect(session)
         } catch {

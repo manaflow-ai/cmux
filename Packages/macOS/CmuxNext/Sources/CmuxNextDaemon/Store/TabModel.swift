@@ -1,4 +1,5 @@
-import Foundation
+import CmuxNextWakeups
+public import Foundation
 public import Observation
 
 // Main-actor mirror records. Each record is a small @Observable final class
@@ -30,6 +31,8 @@ public final class TabModel: Identifiable {
     public internal(set) var notification: TabNotification?
     public internal(set) var url: String?
     public internal(set) var pinned: Bool
+    /// The page a pinned browser tab was pinned on (Back to Pinned Page).
+    public internal(set) var pinnedURL: String?
     /// The daemon's cwd, else the folder the shell last reported to this
     /// app's surface (`noteTerminalDirectory`): the pinned daemon clears its
     /// own on a `kitty-shell-cwd://` report.
@@ -41,6 +44,8 @@ public final class TabModel: Identifiable {
     public internal(set) var isFrontendOwned: Bool
     public internal(set) var tabGroup: TabGroupID?
     public internal(set) var agent: AgentStatus?
+    /// What the tab's agent is touching now; nil when it is not acting (`agent-presence-v1`).
+    public internal(set) var presence: AgentPresence?
     /// Browser page zoom or terminal font scale saved on the tab record;
     /// nil = 1 (daemon state resources).
     public internal(set) var zoom: Double?
@@ -56,6 +61,14 @@ public final class TabModel: Identifiable {
     public internal(set) var progress: TerminalProgressReport?
     /// The terminal's OSC 7501 program status records (`extra.program_status`).
     public internal(set) var programStatus: [ProgramStatusRecord] = []
+    /// When the terminal's running shell command started (`extra.busy.since_ms`: the daemon's
+    /// OSC 133 C..D fact), nil at a prompt. How long it must run to show is the client's call.
+    public internal(set) var commandSinceMs: UInt64?
+    /// This clock's time when `commandSinceMs` arrived: another machine's daemon may run ahead.
+    @ObservationIgnored public private(set) var commandSeenAt: Date?
+    /// Bumped when `recheckCommand(after:)` fires: whoever read the command's age reads it again.
+    public private(set) var commandRecheck = 0
+    @ObservationIgnored private var commandTimer: DemandTimer?
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
     /// Last snapshot, for fields the record does not surface. Views should
@@ -81,10 +94,20 @@ public final class TabModel: Identifiable {
         kind == .conversation ? snapshot.conversation?.agentSession : nil
     }
 
+    /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
+    public var appTab: AppTabRef? {
+        kind == .browser ? snapshot.app : nil
+    }
+
     /// The page id of a page tab (a conversation tab with a page source, `page-tabs-v1`: the
     /// App Store, Settings); nil for every other tab.
     public var page: String? {
         kind == .conversation ? snapshot.conversation?.page : nil
+    }
+
+    /// What a page tab shows (`page-tab-route-v1`); nil for none or any other tab.
+    public var pageRoute: String? {
+        kind == .conversation ? snapshot.conversation?.route : nil
     }
 
     init(_ s: TabSnapshot) {
@@ -105,6 +128,7 @@ public final class TabModel: Identifiable {
         notification = s.notification
         url = s.url
         pinned = s.pinned
+        pinnedURL = s.pinnedURL
         cwd = s.cwd
         gitBranch = s.gitBranch
         gitDetached = s.gitDetached
@@ -137,6 +161,7 @@ public final class TabModel: Identifiable {
         if notification != s.notification { notification = s.notification }
         if url != s.url { url = s.url }
         if pinned != s.pinned { pinned = s.pinned }
+        if pinnedURL != s.pinnedURL { pinnedURL = s.pinnedURL }
         refreshCwd()
         if gitBranch != s.gitBranch { gitBranch = s.gitBranch }
         if gitDetached != s.gitDetached { gitDetached = s.gitDetached }
@@ -148,7 +173,8 @@ public final class TabModel: Identifiable {
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.
-    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = []) {
+    func applyState(_ record: SessionStateMirror.TabRecord?, progress: TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [],
+                    commandSinceMs: UInt64? = nil) {
         let record = record ?? SessionStateMirror.TabRecord()
         if zoom != record.zoom { zoom = record.zoom }
         if userIcon != record.icon { userIcon = record.icon }
@@ -156,6 +182,20 @@ public final class TabModel: Identifiable {
         if forwardURLs != record.forward { forwardURLs = record.forward }
         if self.progress != progress { self.progress = progress }
         if self.programStatus != programStatus { self.programStatus = programStatus }
+        if self.commandSinceMs != commandSinceMs {
+            commandSeenAt = commandSinceMs.map { _ in Date() }
+            self.commandSinceMs = commandSinceMs
+            commandTimer?.cancel()
+        }
+    }
+
+    /// Reads the running command's age again after `delay`: one one-shot timer per running command,
+    /// armed by the status mapping while the command is younger than its threshold.
+    public func recheckCommand(after delay: Duration) {
+        let timer = commandTimer ?? DemandTimer(owner: "tab.command-busy")
+        commandTimer = timer
+        // A replace, not scheduleIfIdle: a lowered threshold moves the deadline earlier.
+        timer.schedule(after: delay) { @MainActor [weak self] in self?.commandRecheck += 1 }
     }
 
     /// Point updates from surface events (no full snapshot).
@@ -171,6 +211,10 @@ public final class TabModel: Identifiable {
 
     func setAgent(_ value: AgentStatus?) {
         if agent != value { agent = value }
+    }
+
+    func setPresence(_ value: AgentPresence?) {
+        if presence != value { presence = value }
     }
 
     func markDead() {

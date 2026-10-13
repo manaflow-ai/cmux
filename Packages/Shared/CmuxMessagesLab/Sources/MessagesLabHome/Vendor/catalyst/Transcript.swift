@@ -39,7 +39,7 @@ final class TranscriptModel {
         var i = rows.count, live = liveCount
         while live > n, i > 0 {
             i -= 1
-            if rows[checked: i]?.ghost == false { live -= 1 } // cmux: checked
+            if rows[checked: i]?.ghost == false { live -= 1 } // checked
         }
         return i
     }
@@ -60,8 +60,8 @@ final class TranscriptModel {
     func setTail(from m0: Int, liveCut cut: Int, _ tail: [RowSpec], at t: Double, ghosts: Bool) {
         let mc = modelIndex(ofLive: cut)
         var specs: [RowSpec] = []
-        specs.reserveCapacity(tail.count + max(0, mc - m0)) // cmux
-        for row in rows.slice(m0, mc) where !row.ghost { specs.append(row.spec) } // cmux: clamped slice (an m0 past mc built an inverted range)
+        specs.reserveCapacity(tail.count + max(0, mc - m0))
+        for row in rows.slice(m0, mc) where !row.ghost { specs.append(row.spec) } // clamped slice (an m0 past mc built an inverted range)
         specs += tail
         let previous = merge(specs, from: m0, at: t, ghosts: ghosts)
         rebuild(from: m0, previous: previous)
@@ -71,10 +71,10 @@ final class TranscriptModel {
     @discardableResult
     private func merge(_ specs: [RowSpec], from m0: Int, at t: Double, ghosts: Bool) -> [Row] {
         let newKeys = Set(specs.map(\.key))
-        let start = min(max(0, m0), rows.count) // cmux: a start outside the rows is clamped (no trap)
+        let start = min(max(0, m0), rows.count) // a start outside the rows is clamped (no trap)
         let previous = start == 0 ? rows : Array(rows.slice(from: start))
         let old = previous.filter { !$0.ghost }
-        // cmux: a key -> row map and a slice cursor instead of index math (crash program).
+        // a key -> row map and a slice cursor instead of index math.
         var oldRows: [String: Row] = [:]
         oldRows.reserveCapacity(old.count)
         for r in old { oldRows.updateValue(r, forKey: r.spec.key) }
@@ -104,7 +104,7 @@ final class TranscriptModel {
         return previous
     }
 
-    private func index(ofKey key: String, from base: Int = 0) -> Int? { rows.slice(from: base).firstIndex { $0.spec.key == key } } // cmux: clamped slice
+    private func index(ofKey key: String, from base: Int = 0) -> Int? { rows.slice(from: base).firstIndex { $0.spec.key == key } } // clamped slice
 
     /// Put a ghost that is still fading back right after the row it followed
     /// (the first row if none). It used to be appended at the end: a second
@@ -115,10 +115,10 @@ final class TranscriptModel {
     /// (`previous`: the replaced rows from `base` on.)
     private func insertGhost(_ g: Row, _ previous: [Row], base: Int) {
         guard let k = previous.firstIndex(where: { $0.spec.key == g.spec.key }) else { rows.append(g); return }
-        for p in previous.prefix(k).reversed() { // cmux: no index math
+        for p in previous.prefix(k).reversed() { // no index math
             if let at = index(ofKey: p.spec.key, from: base) { rows.insert(g, at: at + 1); return }
         }
-        rows.insert(g, at: min(max(0, base), rows.count)) // cmux: never past the end
+        rows.insert(g, at: min(max(0, base), rows.count)) // never past the end
     }
 
     /// Paging splice (no animation): replace rows at the two ends.
@@ -126,7 +126,7 @@ final class TranscriptModel {
         let keepEnd = rows.count - dropTail
         guard dropHead <= keepEnd else { return }
         let make = { (s: RowSpec) in Row(spec: s, removedAt: nil, insertedAt: -1) }
-        rows = newHead.map(make) + rows.slice(dropHead, keepEnd) + newTail.map(make) // cmux: clamped slice
+        rows = newHead.map(make) + rows.slice(dropHead, keepEnd) + newTail.map(make) // clamped slice
         rebuild()
     }
 
@@ -147,13 +147,13 @@ final class TranscriptModel {
 
     private func rebuild() {
         defer {
-            connectors = rows.enumerated().compactMap { entry -> (reply: Int, root: Int?)? in // cmux: no index math
+            connectors = rows.enumerated().compactMap { entry -> (reply: Int, root: Int?)? in // no index math
                 let (i, row) = entry
                 guard !row.ghost, case let .part(p) = row.spec.kind, let root = p.connectorRoot else { return nil }
-                return (i, self.index.value(for: root)) // cmux: dictionary read
+                return (i, self.index.value(for: root)) // dictionary read
             }
         }
-        // cmux: built by appending (no index writes).
+        // built by appending (no index writes).
         var newOffsets: [CGFloat] = []
         newOffsets.reserveCapacity(rows.count + 1)
         var newIndex: [String: Int] = [:]
@@ -174,30 +174,30 @@ final class TranscriptModel {
     /// `rebuild` for a tail update from `m0` (no ghost before it): index entries of the replaced
     /// rows go, the tail's are added; offsets and connectors before `m0` stay.
     private func rebuild(from m0: Int, previous: [Row]) {
-        let m0 = min(max(0, m0), rows.count, max(0, offsets.count - 1)) // cmux: a start outside the rows is clamped
-        for r in previous where (index[r.spec.key] ?? -1) >= m0 { index.removeValue(forKey: r.spec.key) } // cmux: dictionary write
-        var y = offsets[checked: m0] ?? 0 // cmux: checked
-        offsets.removeLast(offsets.count - m0) // cmux: no range that can trap
+        let m0 = min(max(0, m0), rows.count, max(0, offsets.count - 1)) // a start outside the rows is clamped
+        for r in previous where (index[r.spec.key] ?? -1) >= m0 { index.removeValue(forKey: r.spec.key) } // dictionary write
+        var y = offsets[checked: m0] ?? 0 // checked
+        offsets.removeLast(offsets.count - m0) // no range that can trap
         var ghostsInTail = 0
         lowestGhost = rows.count
-        for (i, r) in rows.enumerated().dropFirst(m0) { // cmux: no index math
+        for (i, r) in rows.enumerated().dropFirst(m0) { // no index math
             offsets.append(y)
             if r.ghost { ghostsInTail += 1; if lowestGhost == rows.count { lowestGhost = i } } else { y += r.spec.total }
-            index.updateValue(i, forKey: r.spec.key) // cmux: dictionary write
+            index.updateValue(i, forKey: r.spec.key) // dictionary write
         }
         offsets.append(y)
         liveCount = rows.count - ghostsInTail
         // A connector's root is an older message: replies before m0 keep theirs.
         connectors.removeAll { $0.reply >= m0 }
-        for (i, row) in rows.enumerated().dropFirst(m0) { // cmux: no index math
+        for (i, row) in rows.enumerated().dropFirst(m0) { // no index math
             guard !row.ghost, case let .part(p) = row.spec.kind, let root = p.connectorRoot else { continue }
-            connectors.append((i, index.value(for: root))) // cmux: dictionary read
+            connectors.append((i, index.value(for: root))) // dictionary read
         }
     }
 
     /// Content top of row i relative to the first slot (bottom aligned in its
     /// slot; a ghost keeps its content below its zero-height slot).
-    /// cmux: a stale index (outside the rows) gives 0 and logs a fault once.
+    /// a stale index (outside the rows) gives 0 and logs a fault once.
     func contentTop(_ i: Int) -> CGFloat { Self.contentTop(i, rows: rows, offsets: offsets) ?? 0 }
 
     fileprivate static func contentTop(_ i: Int, rows: [Row], offsets: [CGFloat]) -> CGFloat? {
@@ -217,7 +217,7 @@ final class TranscriptModel {
         var lo = 0, hi = rows.count
         while lo < hi {
             let mid = (lo + hi) / 2
-            if (offsets[checked: mid + 1] ?? .infinity) < y { lo = mid + 1 } else { hi = mid } // cmux: checked
+            if (offsets[checked: mid + 1] ?? .infinity) < y { lo = mid + 1 } else { hi = mid } // checked
         }
         return lo
     }
@@ -229,7 +229,7 @@ final class TranscriptModel {
         var rows: [Row]
         func contentTop(_ key: String) -> CGFloat? {
             guard let i = index[key] else { return nil }
-            return TranscriptModel.contentTop(i, rows: rows, offsets: offsets) // cmux: checked
+            return TranscriptModel.contentTop(i, rows: rows, offsets: offsets) // checked
         }
     }
     var snapshot: Snapshot { Snapshot(index: index, offsets: offsets, rows: rows) }
@@ -248,10 +248,10 @@ final class TranscriptModel {
         init(_ m: TranscriptModel, from: Int) {
             model = m; self.from = from; count = m.rows.count
             if from == 0 { rows = m.rows; offsets = m.offsets; tailIndex = m.index; return }
-            rows = Array(m.rows.slice(from: from)); offsets = Array(m.offsets.slice(from: from)) // cmux: clamped slices
+            rows = Array(m.rows.slice(from: from)); offsets = Array(m.offsets.slice(from: from)) // clamped slices
             var idx: [String: Int] = [:]
             idx.reserveCapacity(rows.count)
-            for (j, r) in rows.enumerated() { idx.updateValue(from + j, forKey: r.spec.key) } // cmux: dictionary write
+            for (j, r) in rows.enumerated() { idx.updateValue(from + j, forKey: r.spec.key) } // dictionary write
             tailIndex = idx
         }
         func index(_ key: String) -> Int? {
@@ -259,16 +259,16 @@ final class TranscriptModel {
             if from > 0, let j = model.index[key], j < from { return j }
             return nil
         }
-        /// cmux: nil for an index outside the snapshot (no trap).
+        /// nil for an index outside the snapshot (no trap).
         func row(_ i: Int) -> Row? { i >= from ? rows[checked: i - from] : model.rows[checked: i] }
         func contentTop(_ key: String) -> CGFloat? {
-            guard let i = index(key), let r = row(i) else { return nil } // cmux: checked
+            guard let i = index(key), let r = row(i) else { return nil } // checked
             let o = { (k: Int) -> CGFloat? in k >= self.from ? self.offsets[checked: k - self.from] : self.model.offsets[checked: k] }
             guard let top = o(i), let bottom = o(i + 1) else { return nil }
             return r.ghost ? top + r.spec.gap : bottom - r.spec.height
         }
         /// Every old key in order (UICollectionView's diff only).
-        var keys: [String] { model.rows.prefix(max(0, from)).map(\.spec.key) + rows.map(\.spec.key) } // cmux: no range subscript
+        var keys: [String] { model.rows.prefix(max(0, from)).map(\.spec.key) + rows.map(\.spec.key) } // no range subscript
     }
     func tailSnapshot(from: Int) -> TailSnapshot { TailSnapshot(self, from: from) }
 }
@@ -301,7 +301,7 @@ final class ChatLayout: UICollectionViewLayout {
     func contentTop(_ i: Int) -> CGFloat { rowsTop + model.contentTop(i) }
 
     func frame(for i: Int) -> CGRect {
-        let h = model.rows[checked: i]?.spec.height ?? 0 // cmux: checked
+        let h = model.rows[checked: i]?.spec.height ?? 0 // checked
         return CGRect(x: 0, y: contentTop(i) - RowDraw.margin, width: width, height: h + 2 * RowDraw.margin)
     }
 
@@ -344,7 +344,7 @@ final class ChatLayout: UICollectionViewLayout {
         let a = UICollectionViewLayoutAttributes(forCellWith: IndexPath(item: i, section: 0))
         a.frame = frame(for: i)
         a.zIndex = i
-        cache.updateValue(a, forKey: i) // cmux: dictionary write
+        cache.updateValue(a, forKey: i) // dictionary write
         return a
     }
 
@@ -352,7 +352,7 @@ final class ChatLayout: UICollectionViewLayout {
     /// Content y of a connector's top (the root's vertical center).
     func connectorTop(_ c: (reply: Int, root: Int?)) -> CGFloat {
         guard let r = c.root else { return rowsTop }
-        return contentTop(r) + (model.rows[checked: r]?.spec.height ?? 0) / 2 // cmux: checked
+        return contentTop(r) + (model.rows[checked: r]?.spec.height ?? 0) / 2 // checked
     }
 
     override func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
@@ -384,7 +384,9 @@ final class ChatLayout: UICollectionViewLayout {
 /// a row by adding that row's live components with their original begin
 /// times, so recycled and newly visible cells join the motion in progress.
 final class MotionLedger {
-    enum Target: Hashable { case cell, content, typing, receiptOld, receiptNew, connector, connectorLine, fillGradient }
+    /// `bubble`: the bubble's own drawing without the connector (a long text's tiled body, else the bitmap).
+    /// `typingDisc(i)`: the typing bubble's tail disc i (RowDraw.typingDiscs; 0 large, 1 small).
+    enum Target: Hashable { case cell, content, typing, typingDisc(Int), receiptOld, receiptNew, connector, connectorLine, fillGradient, bubble }
     struct Entry {
         var id: Int
         var target: Target
@@ -418,14 +420,14 @@ final class MotionLedger {
         guard let list = entries[key] else { return [] }
         let holds = list.filter { $0.hold != nil }.map(\.id)
         let keep = list.filter { $0.hold == nil }
-        if keep.isEmpty { entries.removeValue(forKey: key) } else { entries.updateValue(keep, forKey: key) } // cmux: dictionary write
+        if keep.isEmpty { entries.removeValue(forKey: key) } else { entries.updateValue(keep, forKey: key) } // dictionary write
         return holds
     }
 
     func prune(before t: CFTimeInterval) {
         for (k, list) in entries {
             let keep = list.filter { $0.end > t }
-            if keep.isEmpty { entries.removeValue(forKey: k) } else { entries.updateValue(keep, forKey: k) } // cmux: dictionary write
+            if keep.isEmpty { entries.removeValue(forKey: k) } else { entries.updateValue(keep, forKey: k) } // dictionary write
         }
     }
 
@@ -468,7 +470,19 @@ final class RowCell: UICollectionViewCell {
     let connectorLine = CALayer()
     private(set) var connectorHeight: CGFloat = 0
     let typingContainer = CALayer()
+    /// macOS: the typing bubble's body, a vector layer under the dots (RowDraw.typingBubble; the row bitmap does not
+    /// draw it). The render server draws its edges at the final transform, so they stay one pixel wide while the
+    /// bubble grows and breathes, and its top sits on a whole device pixel at rest (snapTyping), as Messages'.
+    let typingBody = CAShapeLayer()
+    /// macOS: the body's parent in the container (masksToBounds): while the bubble breathes, its frame is the body's
+    /// frame rounded to whole device pixels in the window, as Messages clips its bubble (clipTypingBody).
+    let typingClip = CALayer()
     var dots: [CALayer] = []
+    /// The typing bubble's tail discs (RowDraw.typingDiscs): on macOS beside the scaled bubble in the
+    /// row's content (they move on their own, Springs.typingDiscFrom); on iOS in the bubble's container.
+    let typingDiscs = [CALayer(), CALayer()]
+    /// The typing row's insert time (RowSpec model time) that its dots and breathing run from (-inf: none).
+    var typingInsertedAt = -Double.infinity
     let receiptOld = CALayer()
     /// Long text rows: tiles and the three-slice bubble (TiledBubble.swift).
     var tiled: TiledBody?
@@ -525,13 +539,16 @@ final class RowCell: UICollectionViewCell {
     deinit {
         RowCell.destroyed += 1
         if ProcessInfo.processInfo.environment["ML_CELLS"] != nil, RowCell.destroyed % 500 == 7 {
-            FileHandle.standardError.write(Data(("deinit stack:\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n") + "\n").utf8)) // cmux: no force unwrap
+            FileHandle.standardError.write(Data(("deinit stack:\n" + Thread.callStackSymbols.prefix(14).joined(separator: "\n") + "\n").utf8)) // no force unwrap
         }
     }
 
+    /// The content layer's own group-opacity setting (setTyping turns it on for the typing row).
+    private var contentGroupOpacity = true
     override init(frame: CGRect) {
         super.init(frame: frame)
         RowCell.created += 1
+        contentGroupOpacity = contentView.layer.allowsGroupOpacity
         // Accessibility is set once here, not per configure.
         isAccessibilityElement = true
         accessibilityTraits = .staticText
@@ -539,10 +556,23 @@ final class RowCell: UICollectionViewCell {
         contentView.clipsToBounds = false
         let noActions: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "path": NSNull(),
                                              "hidden": NSNull(), "opacity": NSNull(), "strokeEnd": NSNull(), "transform": NSNull()]
-        for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, receiptOld] {
+        for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
             l.actions = noActions
             l.contentsScale = Fixture.renderScale
         }
+        typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
+        typingBody.frame = RowDraw.typingBubble
+        typingClip.actions = noActions
+        typingClip.masksToBounds = true
+        typingClip.anchorPoint = .zero
+        typingClip.position = Self.typingClipRest.origin
+        typingClip.bounds = Self.typingClipRest
+        typingClip.addSublayer(typingBody)
+        // Circular ends with a flat top and bottom, as Messages' (its stills: the top row fully covered between the
+        // ends). UIBezierPath(roundedRect:cornerRadius:) curves continuously at this radius: no flat part at all.
+        let r = RowDraw.typingBubble.height / 2
+        typingBody.path = CGPath(roundedRect: typingBody.bounds, cornerWidth: r, cornerHeight: r, transform: nil)
+        typingBody.fillColor = Fixture.typingFill.cgColor
         connector.fillColor = nil
         connector.strokeColor = Fixture.connector.cgColor
         connector.lineWidth = 2.6
@@ -560,12 +590,12 @@ final class RowCell: UICollectionViewCell {
         for i in 0..<3 {
             let d = CALayer()
             d.actions = noActions
-            // Dot levels over the 13 lossless typing stills: dim (91, 91, 94), lit (133, 133, 135).
-            d.backgroundColor = Fixture.typingDot.cgColor  // cmux: themed (Fixture keeps the measured levels)
+            // Dot levels (Fixture.typingDotDim / typingDotLit; tintTypingDiscs follows a palette change).
+            d.backgroundColor = Fixture.typingDotDim.cgColor
             d.cornerRadius = 3.25
             let hi = CALayer()
             hi.actions = noActions
-            hi.backgroundColor = Fixture.typingDotHighlight.cgColor  // cmux: themed
+            hi.backgroundColor = Fixture.typingDotLit.cgColor
             hi.cornerRadius = 3.25
             hi.opacity = 0
             hi.name = "hi"
@@ -574,6 +604,12 @@ final class RowCell: UICollectionViewCell {
             d.frame = CGRect(x: c.x - 3.25, y: c.y - 3.25, width: 6.5, height: 6.5)
             hi.frame = d.bounds
             dots.append(d)
+        }
+        for (l, r) in zip(typingDiscs, RowDraw.typingDiscs) {
+            l.actions = noActions
+            l.frame = r
+            l.cornerRadius = r.width / 2
+            l.isHidden = true
         }
         typingContainer.isHidden = true
     }
@@ -598,9 +634,12 @@ final class RowCell: UICollectionViewCell {
         contentView.layer.removeAllAnimations()
         // fillGradient is a sublayer of fillContainer (removeAllAnimations does not recurse): a reused cell kept
         // the previous row's gradient counter-springs (ledger .fillGradient) while `applied` restarted empty.
-        for l in [fillContainer, fillGradient, bitmap, connector, connectorLine, typingContainer, receiptOld] { l.removeAllAnimations() }
+        for l in [fillContainer, fillGradient, bitmap, connector, connectorLine, typingContainer, typingClip, receiptOld] + typingDiscs { l.removeAllAnimations() }
         badge?.removeAllAnimations(); badgeGlyph?.removeAllAnimations()
+        // A tiled body's container gets only a received thread reply's fade (ledger .bubble: its curve and hold).
+        if let c = tiled?.container { for k in c.animationKeys() ?? [] where k.contains(".opacity.") || k.hasPrefix("hold.") { c.removeAnimation(forKey: k) } }
         dots.forEach { $0.sublayers?.first?.removeAllAnimations() }
+        typingInsertedAt = -.infinity
     }
 
     /// VoiceOver text, computed when asked (no per-configure work).
@@ -633,15 +672,13 @@ final class RowCell: UICollectionViewCell {
             palette = Fixture.paletteGeneration
             CATransaction.begin(); CATransaction.setDisableActions(true)
             // A scale change: every layer this cell owns follows the screen.
-            for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, receiptOld] {
+            for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
                 l.contentsScale = Fixture.renderScale
             }
+            // The breathing body's clip rounds to the screen's device pixels: a running clip starts again on the new
+            // grid in refreshSnap (decorate, after this), from the indicator's place snapped at the new scale.
             connector.strokeColor = Fixture.connector.cgColor
             connectorLine.backgroundColor = Fixture.connector.cgColor
-            for d in dots {  // cmux: themed typing dots
-                d.backgroundColor = Fixture.typingDot.cgColor
-                d.sublayers?.first?.backgroundColor = Fixture.typingDotHighlight.cgColor
-            }
             applyFillPalette()  // cmux: colours and locations together (8 measured stops, 11 themed)
             CATransaction.commit()
             self.spec = nil
@@ -655,16 +692,17 @@ final class RowCell: UICollectionViewCell {
         CATransaction.setDisableActions(true)
         // Long text: no bubble-sized bitmap (TiledBubble.swift, shared/LONG-MESSAGES.md).
         configureBadge(spec)
-        if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
-        tiled?.detach(self)
-        let span = RowDraw.drawSpan(spec)
-        let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
-        let bitmapFrame = CGRect(origin: CGPoint(x: span.lowerBound, y: 0), size: size)
+        // Before the long-text return: a reused cell that showed the typing bubble hides it (and its discs).
         if case .typing = spec.kind {
             setTyping(true, spec)
         } else {
             setTyping(false, spec)
         }
+        if TiledBubble.applies(spec) { markdownOverlay?.detach(); TiledBubble.configure(self, spec); CATransaction.commit(); return }
+        tiled?.detach(self)
+        let span = RowDraw.drawSpan(spec)
+        let size = CGSize(width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
+        let bitmapFrame = CGRect(origin: CGPoint(x: span.lowerBound, y: 0), size: size)
         configureFill(spec)
         // A visible row never shows empty contents (dogfood: "the message
         // disappears and reappears"; appkit-native --flash-check). The frame
@@ -686,31 +724,35 @@ final class RowCell: UICollectionViewCell {
             bitmap.frame = bitmapFrame
             bitmap.contents = img
             unstretch(bitmapFrame.size)
-        } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow)
+            tintTypingDiscs()
+        } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow) && !(RowCell.reflow != nil && showingThisRow && Images.ready(spec))
                                                     && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
                                                         || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
             // (A scrolled-in row whose image is not decoded waits for its off-main bitmap: no decode on main.)
             let t0 = CACurrentMediaTime()
             let img = RowBitmaps.render(spec)
             RowCell.mainDrawSpent += CACurrentMediaTime() - t0
-            if let img { RowBitmaps.shared.insert([(spec, img)]) } // cmux: an unallocated bitmap is not cached
+            if let img { RowBitmaps.shared.insert([(spec, img)]) } // an unallocated bitmap is not cached
             RowCell.syncRenders += 1
             Reclaimer.release(bitmap.contents)
             MediaPlaceholder.clear(bitmap)
             bitmap.frame = bitmapFrame
             bitmap.contents = img
             unstretch(bitmapFrame.size)
+            tintTypingDiscs()
         } else {
             // Palette change: the previous bitmap stays. Over the main-thread
             // budget (a fling faster than the prefetch, about 70,000 pt/s in
             // the bench): the row waits for its off-main bitmap.
             let want = spec
+            var queued = false
             if deferred {
                 RowCell.deferredRenders += 1
                 Reclaimer.release(bitmap.contents)
                 MediaPlaceholder.clear(bitmap)
                 bitmap.frame = bitmapFrame
                 bitmap.contents = nil
+                tintTypingDiscs()
             } else if showingThisRow {
                 // The same row is on screen with its previous bitmap and its spec changed: a new
                 // width (live resize, the sidebar divider: every visible row at once) or a palette
@@ -720,6 +762,13 @@ final class RowCell: UICollectionViewCell {
                 // and tail keep their shape and only the middle stretches.
                 RowCell.keptBitmaps += 1
                 if !repaint { stretch(to: bitmapFrame) }
+                // Inside a width change's layout pass the new bitmap is drawn with the other visible
+                // rows of the pass, in parallel, and installed in the same commit (flushReflow): the
+                // visible rows show the new line breaks at once, the stretched bitmap is not seen.
+                if !repaint, RowCell.reflow != nil, Images.ready(spec) {
+                    RowCell.reflow?.append((self, spec, bitmapFrame))
+                    queued = true
+                }
             } else {
                 RowCell.overBudget += 1
                 Reclaimer.release(bitmap.contents)
@@ -728,8 +777,10 @@ final class RowCell: UICollectionViewCell {
                 bitmap.contents = nil
                 // Media: the blurred thumbnail at the final size until the bitmap lands.
                 MediaPlaceholder.show(bitmap, spec)
+                tintTypingDiscs()
             }
             dropWant()
+            if !queued {
             RowBitmaps.shared.want(want)
             pendingWant = want
             RowBitmaps.shared.request(want) { [weak self] img in
@@ -741,7 +792,9 @@ final class RowCell: UICollectionViewCell {
                 self.bitmap.frame = bitmapFrame
                 self.bitmap.contents = img
                 self.unstretch(bitmapFrame.size)
+                self.tintTypingDiscs()
                 CATransaction.commit()
+            }
             }
         }
         receiptOld.contents = nil
@@ -756,7 +809,7 @@ final class RowCell: UICollectionViewCell {
         guard let spec else { return }
         let img: CGImage
         if let cached = RowBitmaps.shared.image(for: spec) { img = cached } else {
-            // cmux: a bitmap that could not be allocated is not shown (BitmapFailure logged it).
+            // a bitmap that could not be allocated is not shown (BitmapFailure logged it).
             guard let rendered = RowBitmaps.render(spec) else { return }
             img = rendered
             RowBitmaps.shared.insert([(spec, img)])
@@ -769,6 +822,7 @@ final class RowCell: UICollectionViewCell {
         bitmap.frame = CGRect(x: span.lowerBound, y: 0, width: span.upperBound - span.lowerBound, height: spec.height + 2 * RowDraw.margin)
         bitmap.contents = img
         unstretch(bitmap.frame.size)
+        tintTypingDiscs()
         CustomRows.host?.configure(self, spec)
     }
 
@@ -776,9 +830,47 @@ final class RowCell: UICollectionViewCell {
     private var drawnSize = CGSize.zero
     /// Rows that kept their previous bitmap, stretched, until a new one arrived (bench evidence).
     static var keptBitmaps = 0
+    /// A width change's layout pass (MessagesWindowView.layoutSubviews): the visible rows whose
+    /// bitmap changes, drawn together by `flushReflow` (nil outside the pass).
+    static var reflow: [(RowCell, RowSpec, CGRect)]?
+    /// Rows drawn by reflow passes, and the longest pass's wall time (bench evidence).
+    static var reflowRows = 0, reflowMaxMs = 0.0
+    static func beginReflow() { reflow = [] }
+    /// Draws the pass's rows on all cores at once (RowBitmaps.render is thread safe) and installs
+    /// them in this commit. The pass waits for them: about one row's drawing time per core.
+    static func flushReflow() {
+        guard let q = reflow else { return }
+        reflow = nil
+        guard !q.isEmpty else { return }
+        let t0 = CACurrentMediaTime()
+        let specs = q.map(\.1)
+        var images = [CGImage?](repeating: nil, count: specs.count)
+        images.withUnsafeMutableBufferPointer { out in
+            DispatchQueue.concurrentPerform(iterations: specs.count) { i in
+                // checked reads and writes (crash ratchet)
+                if let slot = out.checkedIndex(i), let spec = specs[checked: i] { out[slot] = RowBitmaps.render(spec) }
+            }
+        }
+        RowBitmaps.shared.insert(zip(specs, images).compactMap { s, img in img.map { (s, $0) } })
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        for (k, (cell, spec, frame)) in q.enumerated() where cell.spec == spec {
+            guard let img = images[k] else { continue }
+            Reclaimer.release(cell.bitmap.contents)
+            MediaPlaceholder.clear(cell.bitmap)
+            cell.bitmap.frame = frame
+            cell.bitmap.contents = img
+            cell.unstretch(frame.size)
+        }
+        CATransaction.commit()
+        reflowRows += q.count
+        reflowMaxMs = max(reflowMaxMs, (CACurrentMediaTime() - t0) * 1000)
+    }
     /// A bitmap drawn for its frame: shown 1:1 (custom rows set their own 9-slice after this).
+    /// The cell shows its previous bitmap stretched to a new frame (its own is not drawn yet).
+    private(set) var stretched = false
     private func unstretch(_ size: CGSize) {
         drawnSize = size
+        stretched = false
         bitmap.contentsCenter = CGRect(x: 0, y: 0, width: 1, height: 1)
     }
     /// The previous bitmap at a new frame: the corners (60 pt wide, 30 pt tall at most, the bubble's
@@ -786,30 +878,104 @@ final class RowCell: UICollectionViewCell {
     private func stretch(to f: CGRect) {
         let d = drawnSize
         bitmap.frame = f
+        stretched = d != f.size
         guard d.width > 1, d.height > 1 else { return }
         let ix = min(60, d.width * 0.45) / d.width, iy = min(30, d.height * 0.45) / d.height
         bitmap.contentsCenter = CGRect(x: ix, y: iy, width: 1 - 2 * ix, height: 1 - 2 * iy)
     }
 
+    /// The discs and dots take the indicator's colours when the bubble's bitmap goes on screen (after a palette
+    /// change the previous bitmap stays until the new one lands: the discs and dots change with it, not before).
+    private func tintTypingDiscs() {
+        guard case .typing? = spec?.kind else { return }
+        let c = Fixture.typingFill.cgColor
+        for d in typingDiscs { d.backgroundColor = c }
+        typingBody.fillColor = c
+        let dim = Fixture.typingDotDim.cgColor, lit = Fixture.typingDotLit.cgColor
+        for d in dots {
+            d.backgroundColor = dim
+            d.sublayers?.first { $0.name == "hi" }?.backgroundColor = lit
+        }
+    }
+
     private func setTyping(_ on: Bool, _ spec: RowSpec) {
         typingContainer.isHidden = !on
+        typingDiscs.forEach { $0.isHidden = !on }
+        // The typing bubble fades in on the row's content (bubble, dots and discs as one layer group: the
+        // large disc overlaps the bubble). Other rows keep the layer's own setting.
+        contentView.layer.allowsGroupOpacity = on || contentGroupOpacity
         guard on else { return }
         if typingContainer.superlayer == nil { contentView.layer.addSublayer(typingContainer) }
-        // Scale about the small tail circle at the bubble's lower left.
+        // macOS: scale about RowDraw.typingAnchor (Messages' growth point, near the bubble's upper
+        // left). The iOS app (ios/Sources/ChatColumn.swift, typing.pop) scales about the small tail
+        // circle at the bubble's lower left.
         let b = RowDraw.typingBubble
-        typingContainer.anchorPoint = CGPoint(x: 0, y: 1)
-        typingContainer.bounds = CGRect(x: 0, y: 0, width: 140, height: b.maxY + 8)
-        typingContainer.position = CGPoint(x: 0, y: b.maxY + 8)
+        let size = CGSize(width: 140, height: b.maxY + 8)
+#if os(iOS) && !targetEnvironment(macCatalyst)
+        let a = CGPoint(x: 0, y: size.height)
+#else
+        let a = RowDraw.typingAnchor
+#endif
+        typingContainer.anchorPoint = CGPoint(x: a.x / size.width, y: a.y / size.height)
+        typingContainer.bounds = CGRect(origin: .zero, size: size)
+        typingContainer.position = a
         typingContainer.sublayerTransform = CATransform3DIdentity
         // The bubble bitmap goes UNDER the dots. It used to be re-appended on every
         // configure: after a palette change (the window losing or regaining key
         // status) it landed on top of the running dots and hid them (dogfood:
         // "if the user unfocuses, we lose the typing dots"; --typing-focus-check).
-        if bitmap.superlayer !== typingContainer || typingContainer.sublayers?.first !== bitmap {
+        // macOS: the body layer goes under the bitmap (first), the bitmap next.
+        if bitmap.superlayer !== typingContainer || typingContainer.sublayers?.first(where: { $0 !== typingClip }) !== bitmap {
             bitmap.removeFromSuperlayer()
             typingContainer.insertSublayer(bitmap, at: 0)
         }
+#if !os(iOS) || targetEnvironment(macCatalyst)
+        if typingContainer.sublayers?.first !== typingClip {
+            typingClip.removeFromSuperlayer()
+            typingContainer.insertSublayer(typingClip, at: 0)
+        }
+#endif
         dots.forEach { if $0.superlayer == nil { typingContainer.addSublayer($0) } }
+#if os(iOS) && !targetEnvironment(macCatalyst)
+        let discParent = typingContainer
+#else
+        let discParent = contentView.layer
+#endif
+        // Below the bubble (macOS: in the content, under the bubble's container; iOS: above its bitmap, under the dots).
+        for d in typingDiscs where d.superlayer !== discParent {
+            d.removeFromSuperlayer()
+#if os(iOS) && !targetEnvironment(macCatalyst)
+            discParent.insertSublayer(d, above: bitmap)
+#else
+            discParent.insertSublayer(d, below: typingContainer)
+#endif
+        }
+        snapTyping()
+    }
+
+    /// macOS: moves the typing group (bubble container and tail discs) by less than half a device pixel so that the
+    /// bubble's top and left edges lie on whole device pixels of the window's backing store at rest (Messages' straight
+    /// edges sit on the pixel grid: top 1907.00 px, left 40.00 px in its stills; ours lay wherever the row's
+    /// fractional window y put them). The place is the window view's origin in the window's layer tree
+    /// (`windowPlace`, set by the window view: a host such as cmux Home can start the view on a fraction of a point)
+    /// plus the row's y in the view (`windowY`) and the cell's x. Runs when the row is configured and when either
+    /// changes (scroll, layout); the group's animations are additive, so they keep running about the snapped place.
+    private func snapTyping() {
+#if !os(iOS) || targetEnvironment(macCatalyst)
+        guard case .typing? = spec?.kind else { return }
+        let s = max(1, Fixture.renderScale)
+        // In the row's content, which snapRow already moved by rowSnap.
+        let top = windowY + rowSnap.y + RowDraw.typingBubble.minY, left = layer.frame.minX + rowSnap.x + RowDraw.typingBubble.minX
+        guard top.isFinite, left.isFinite else { return }
+        let dy = RowCell.snap(top, windowPlace.origin.y, windowPlace.axis.y, scale: s)
+        let dx = RowCell.snap(left, windowPlace.origin.x, windowPlace.axis.x, scale: s)
+        guard dx.isFinite, dy.isFinite else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        let a = RowDraw.typingAnchor
+        typingContainer.position = CGPoint(x: a.x + dx, y: a.y + dy)
+        for (l, r) in zip(typingDiscs, RowDraw.typingDiscs) { l.position = CGPoint(x: r.midX + dx, y: r.midY + dy) }
+        CATransaction.commit()
+#endif
     }
 
     // MARK: My tapback badge
@@ -828,11 +994,11 @@ final class RowCell: UICollectionViewCell {
     private static let badgeBox = CGSize(width: 40, height: 44)
 
     private func configureBadge(_ spec: RowSpec) {
-        guard case let .part(p) = spec.kind, let i = p.reactions.firstIndex(where: { $0.senderId == PartRenderer.me }) else {
+        guard case let .part(p) = spec.kind, let i = p.myReaction else {
             if let badge, !badge.isHidden { badge.isHidden = true; badgeState = "" }
             return
         }
-        guard let kind = p.reactions[checked: i]?.kind else { return } // cmux: checked (i from firstIndex)
+        guard let kind = p.reactions[checked: i]?.kind else { return } // checked (i from PartRow.myReaction)
         let side: CGFloat = p.outgoing ? -1 : 1
         let c = PartRenderer.badgeCenter(body: RowDraw.bodyRect(spec), outgoing: p.outgoing, index: i)
         let pop = RowCell.badgePop.flatMap { $0.0 == p.ref ? $0.1 : nil }
@@ -863,7 +1029,7 @@ final class RowCell: UICollectionViewCell {
         badgeTop = c.y - 20
         fill.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
         fill.locations = Fixture.gradientStops.map { NSNumber(value: Double($0.0 / (Fixture.gradientHeight * 2))) }
-        RowCell.placeFill(fill, windowTop: windowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
+        RowCell.placeFill(fill, windowTop: contentWindowY + badgeTop, width: size.width, span: fillSpan, reachBelow: fillReachBelow)
         if let holder = fill.superlayer, let mask = holder.mask as? CAShapeLayer {
             holder.frame = CGRect(origin: .zero, size: size)
             mask.frame = holder.bounds
@@ -875,7 +1041,7 @@ final class RowCell: UICollectionViewCell {
             img = WideBitmap.make(size: size, scale: Fixture.renderScale, opaque: false) { ctx in
                 PartRenderer.drawBadgeGlyph(kind, center: CGPoint(x: 20, y: 20), ctx: ctx)
             }
-            Self.badgeGlyphs[key] = img // cmux: an unallocated glyph is not cached (nil)
+            Self.badgeGlyphs[key] = img // an unallocated glyph is not cached (nil)
         }
         glyph.contents = img
         glyph.contentsScale = Fixture.renderScale
@@ -895,7 +1061,7 @@ final class RowCell: UICollectionViewCell {
     static let popGlyph = (delay: 0.136, spring: Spring(duration: 0.6298, bounce: 0.596))
     private static func pop(box: CALayer, glyph: CALayer, begin: CFTimeInterval) {
         func keyframes(_ f: (Double) -> Double, until end: Double) -> CAKeyframeAnimation {
-            let n = CrashGuard.int(end * 240, in: 0...14_400) // cmux: at most 60 s of keyframes; never a negative range
+            let n = CrashGuard.int(end * 240, in: 0...14_400) // at most 60 s of keyframes; never a negative range
             let a = CAKeyframeAnimation(keyPath: "transform.scale")
             a.values = (0...n).map { NSNumber(value: max(0.001, f(Double($0) / 240))) }
             a.keyTimes = (0...n).map { NSNumber(value: Double($0) / Double(n)) }
@@ -920,10 +1086,10 @@ final class RowCell: UICollectionViewCell {
         }
         if bitmap.superlayer !== contentView.layer { contentView.layer.insertSublayer(bitmap, above: fillContainer) }
         fillContainer.isHidden = false
-        let body = RowDraw.bodyRect(spec)
+        let frame = RowDraw.bodyRect(spec), body = RowDraw.balloon(frame, row: p)
         fillContainer.frame = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
         fillMask.frame = body
-        fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail)
+        fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail, cornersOf: frame.size)
         placeFillGradient(width: spec.width)
     }
 
@@ -983,7 +1149,7 @@ final class RowCell: UICollectionViewCell {
     }
 
     private func placeFillGradient(width: CGFloat) {
-        RowCell.placeFill(fillGradient, windowTop: windowY, width: width, span: fillSpan, reachBelow: fillReachBelow)
+        RowCell.placeFill(fillGradient, windowTop: contentWindowY, width: width, span: fillSpan, reachBelow: fillReachBelow)
         assertFillCovers()
     }
 
@@ -992,8 +1158,8 @@ final class RowCell: UICollectionViewCell {
         #if DEBUG
         guard let spec, !fillContainer.isHidden, !fillGradient.isHidden else { return }
         let body = RowDraw.bodyRect(spec)
-        assert(fillCovers(bodyTop: windowY + body.minY, bodyBottom: windowY + body.maxY),
-               "outgoing bubble \(spec.key) at window y \(windowY + body.minY)...\(windowY + body.maxY) leaves its fill span \(fillSpan)")
+        assert(fillCovers(bodyTop: contentWindowY + body.minY, bodyBottom: contentWindowY + body.maxY),
+               "outgoing bubble \(spec.key) at window y \(contentWindowY + body.minY)...\(contentWindowY + body.maxY) leaves its fill span \(fillSpan)")
         #endif
     }
 
@@ -1003,9 +1169,107 @@ final class RowCell: UICollectionViewCell {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         if !fillContainer.isHidden { placeFillGradient(width: fillGradient.bounds.width) }
         if let badgeFill, !(badge?.isHidden ?? true) {
-            RowCell.placeFill(badgeFill, windowTop: windowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
+            RowCell.placeFill(badgeFill, windowTop: contentWindowY + badgeTop, width: badgeFill.bounds.width, span: fillSpan, reachBelow: fillReachBelow)
         }
         CATransaction.commit()
+    }
+
+    /// The move (view pt) that puts `v` on a whole device pixel of the window: `o + k * v` is its place in the window's
+    /// layer tree (o: the window view's origin there, k: the window's length of one view point along the axis, +1 or
+    /// -1 when not scaled), rounded at `scale`. A tie (exactly half a pixel off) rounds up in the window, the same in
+    /// every pass.
+    static func snap(_ v: CGFloat, _ o: CGFloat, _ k: CGFloat, scale s: CGFloat) -> CGFloat {
+        guard abs(k) > 1e-6 else { return 0 }
+        let r = o + k * v
+        let d = ((r * s + 1e-6).rounded() / s - r) / k
+        return d.isFinite ? d : 0
+    }
+
+    /// The row's content (contentView) moved by less than half a device pixel so that the row's top and its anchored
+    /// side lie on whole device pixels of the window (macOS; zero on iOS). Messages' rows sit on whole device pixels: its
+    /// incoming edges are crisp at 798.00, 864.00 px in deactivate-activate tp0000ms, its outgoing right edges at whole
+    /// pixels too. The rows' places in the view are whole pixels (ThreadPreview.height); this covers a host that starts
+    /// the window view on a fraction of a point or makes it a fraction of a pixel wide (cmux Home's panes,
+    /// `--rows-origin`, `--rows-width-frac`). The anchored side (RowCell.anchorsRight): the right edge for my rows
+    /// (outgoing bubbles, receipts, my labels and previews: they keep a whole-point distance to the row's right edge),
+    /// the left edge for the others (incoming rows, the typing indicator, separators). From `windowY`, the model place: a
+    /// moving row keeps its snap through the motion (mid frames are not snapped) and rests on the grid.
+    private(set) var rowSnap = CGPoint.zero
+    /// The content's window y: the row's top plus its snap (fills, badge, typing).
+    var contentWindowY: CGFloat { windowY + rowSnap.y }
+    /// Rows drawn from the row's right edge: my bubbles, labels, reply counts and thread previews, and the receipts
+    /// (Delivered, Read: right-aligned at Metrics.receiptRight). Their drawn right edges keep a fixed distance to the
+    /// row's right edge at every width (Metrics.rightEdge: width - 20 pt, my bubbles and previews; receiptRight: width
+    /// - 35.8 pt, receipts, labels, reply counts). Centered rows (separators, unsent notes) and the others keep the left.
+    static func anchorsRight(_ spec: RowSpec) -> Bool {
+        switch spec.kind {
+        case let .part(p): return p.outgoing
+        case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
+        case .receipt: return true
+        case let .threadPreview(pv): return pv.outgoing
+        case .separator, .unsent, .typing: return false
+        }
+    }
+    /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
+    /// row's drawn right edge is its width (`spec.width`) from the cell's left (one display frame of a live resize can
+    /// lay the cell out at the next width before its row is made again).
+    static func anchorX(_ spec: RowSpec?, _ frame: CGRect) -> CGFloat {
+        guard let spec, anchorsRight(spec) else { return frame.minX }
+        return frame.minX + spec.width
+    }
+    /// The display scale and the indicator's (snapped) place the typing clip's keyframes were made for
+    /// (clipTypingBody): a change of either makes them again (refreshSnap).
+    private var clipScale: CGFloat = 0, clipPosition = CGPoint.zero
+    /// Moves the content to the snapped place; true when the snap changed.
+    @discardableResult private func snapRow() -> Bool {
+#if !os(iOS) || targetEnvironment(macCatalyst)
+        let s = max(1, Fixture.renderScale)
+        let x = RowCell.anchorX(spec, layer.frame)
+        guard windowY.isFinite, x.isFinite else { return false }
+        let d = CGPoint(x: RowCell.snap(x, windowPlace.origin.x, windowPlace.axis.x, scale: s),
+                        y: RowCell.snap(windowY, windowPlace.origin.y, windowPlace.axis.y, scale: s))
+        guard d != rowSnap else { return false }
+        rowSnap = d
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        contentView.bounds.origin = CGPoint(x: -d.x, y: -d.y)
+        CATransaction.commit()
+        return true
+#else
+        return false
+#endif
+    }
+
+    /// The window view's origin in its window's layer tree and the window length of one view point along each axis (pt; +1 or -1 unscaled),
+    /// set by the window view with `windowY`: the row (snapRow) and the typing indicator (snapTyping) snap to the window's
+    /// device pixels.
+    var windowPlace = (origin: CGPoint.zero, axis: CGPoint(x: 1, y: 1)) {
+        didSet {
+            guard windowPlace.origin != oldValue.origin || windowPlace.axis != oldValue.axis else { return }
+            if snapRow() { placeFills() }
+            guard case .typing? = spec?.kind else { return }
+            snapTyping()
+            // A running clip read the old place's pixel grid: it starts again on the new one (same wave phase).
+            restartTypingClip()
+        }
+    }
+
+    /// The row and the typing indicator snap again for the current display scale and the row's anchored side; the
+    /// window view calls it in decorate after windowPlace and windowY (a scale change keeps both: the window moved to
+    /// a display with another backing scale, MessagesWindowView.setRenderScale; a reused cell now shows a row of the
+    /// other side). No change: no work beyond the snap's arithmetic.
+    func refreshSnap() {
+        if snapRow() { placeFills() }
+        guard case .typing? = spec?.kind else { return }
+        snapTyping()
+        // The running clip's keyframes hold the pixel grid of the scale and place they were made at (a scale change; a
+        // windowPlace and windowY change in one pass, where the place's restart read the old y): they start again.
+        if clipScale != max(1, Fixture.renderScale) || clipPosition != typingContainer.position { restartTypingClip() }
+    }
+
+    /// A running typing clip starts again from the current place and scale (the same wave phase).
+    private func restartTypingClip() {
+        guard let c = typingClip.animation(forKey: "breath.clip.position.x") else { return }
+        clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
     }
 
     /// cmux: the outgoing gradient's colours and their locations from one
@@ -1022,12 +1286,14 @@ final class RowCell: UICollectionViewCell {
     var windowY: CGFloat = 0 {
         didSet {
             guard windowY != oldValue else { return }
+            snapRow()
+            if case .typing? = spec?.kind { snapTyping() }
             let fill = !fillContainer.isHidden, mine = badge.map { !$0.isHidden } ?? false
             guard fill || mine else { return }
             CATransaction.begin(); CATransaction.setDisableActions(true)
             let top = RowCell.noGradientEnds ? 0 : fillSpan.top
-            if fill { fillGradient.frame.origin.y = top - windowY; assertFillCovers() }
-            if mine { badgeFill?.frame.origin.y = top - (windowY + badgeTop) }
+            if fill { fillGradient.frame.origin.y = top - contentWindowY; assertFillCovers() }
+            if mine { badgeFill?.frame.origin.y = top - (contentWindowY + badgeTop) }
             CATransaction.commit()
         }
     }
@@ -1102,22 +1368,23 @@ final class RowCell: UICollectionViewCell {
         CATransaction.commit()
     }
 
-    /// Typing dots: a Gaussian brightness pulse per dot, 0.247 s apart, every
-    /// second, as one repeating keyframe animation each (render server).
-    /// Phase from two lossless macOS 27 takes (typing-unfocused-take1,
-    /// send-typed-media-take1): the first dot peaks 0.29-0.35 s after the dots
-    /// become visible (ours was 0.20), the next ones 0.246 and 0.248 s later,
-    /// period 1.0 s. The dots become visible about 0.15 s after `begin`, so the
-    /// first peak sits 0.45 s after it.
+    /// Typing dots: a Gaussian brightness pulse per dot (1/e half width 0.223 s),
+    /// 0.251 s apart, every second, as one repeating keyframe animation each
+    /// (render server). Fitted on every frame of the indicator at rest in the
+    /// lossless send-typed-media-take1 (249 frames, 2.25 s, rms 0.96 levels) and
+    /// typing-unfocused-take1 (51 frames): the first dot peaks 0.461 / 0.453 s
+    /// after the rows begin (the insert's begin; `begin` here is 0.05 s later,
+    /// Springs.typingDotsPhase), the others 0.250 / 0.252 s apart, period
+    /// 1.001 s, width 0.223 / 0.224 s (ANIMATIONS.md section 6, cx-3cb typing-breath).
     func startTypingDots(begin: CFTimeInterval) {
         for (i, d) in dots.enumerated() {
             guard let hi = d.sublayers?.first else { continue }
             let n = 60
             var values: [NSNumber] = []
             for k in 0...n {
-                var x = Double(k) / Double(n) - 0.45 - Double(i) * 0.247
+                var x = Double(k) / Double(n) - Self.typingDotPeak - Double(i) * 0.251
                 x -= x.rounded()
-                values.append(NSNumber(value: exp(-(x / 0.22) * (x / 0.22))))
+                values.append(NSNumber(value: exp(-(x / 0.223) * (x / 0.223))))
             }
             let a = CAKeyframeAnimation(keyPath: "opacity")
             a.values = values
@@ -1126,8 +1393,148 @@ final class RowCell: UICollectionViewCell {
             a.beginTime = begin
             a.isRemovedOnCompletion = false
             a.calculationMode = .linear
+            if let p = Springs.typingStillPhase { a.speed = 0; a.timeOffset = p }
             hi.add(a, forKey: "dots")
         }
+    }
+
+    /// Messages' indicator breathes while it shows (Springs.typingBreathBody, typingBreathDiscs): the bubble
+    /// with its dots about Springs.typingBreathAnchor, each tail disc about its centre, from the insert's begin
+    /// (layer time). A still scene (--typing-phase) keeps them at rest. macOS only (no iOS reference).
+    func startTypingBreath(insert: CFTimeInterval) {
+#if !os(iOS) || targetEnvironment(macCatalyst)
+        guard Springs.typingStillPhase == nil else { return }
+        let a = RowDraw.typingAnchor, b = Springs.typingBreathAnchor
+        // The container scales about RowDraw.typingAnchor; the opposite offset of a scale e about it moves the
+        // fixed point to b: e x (a - b).
+        let body = Springs.typingBreathBody
+        Self.breathe(typingContainer, "transform.scale", body, gain: 1, begin: insert)
+        Self.breathe(typingContainer, "position.x", body, gain: Double(a.x - b.x), begin: insert)
+        Self.breathe(typingContainer, "position.y", body, gain: Double(a.y - b.y), begin: insert)
+        for (l, w) in zip(typingDiscs, Springs.typingBreathDiscs) { Self.breathe(l, "transform.scale", w, gain: 1, begin: insert) }
+        clipTypingBody(body, about: b, begin: insert)
+#endif
+    }
+
+    /// Messages draws the breathing bubble at its scaled size and clips it to its frame rounded to whole device
+    /// pixels: an edge whose outer pixel is covered less than half stops on the whole pixel inside, one covered half
+    /// or more shows its partial pixel (lossless send-typed-media-take1, every frame of 2.2 s at rest: the right and
+    /// bottom edges hold on a whole pixel, then jump 0.5 px and grow; the left edge stays at 40.00 px while it moves
+    /// out by less than half a pixel; tools/evidence/anim/typanchor.py, ANIMATIONS.md section 6 cx-3cb typing-anchor). `typingClip` (the
+    /// body's parent, masksToBounds, in the container's coordinates) does the same: its frame is the body's frame
+    /// rounded in the window, mapped back through the container's scale about `b`, as linear keyframes (61 per wave
+    /// for the scale, plus a pair at each time an edge crosses half a device pixel: the jump). Render server; Presenter
+    /// reads them too (scalar key paths). It assumes the body's edges on whole device pixels at rest (snapTyping: the
+    /// top; the left edge, 20 pt, when the cell's window x is whole). At rest and while the bubble appears the clip is
+    /// larger than the body (RowCell.typingClipRest).
+    private func clipTypingBody(_ w: Springs.Breath, about b: CGPoint, begin: CFTimeInterval) {
+        guard w.amplitude > 0, w.amplitude < 1, w.period > 0 else { return }
+        let r = RowDraw.typingBubble
+        clipScale = max(1, Fixture.renderScale)
+        clipPosition = typingContainer.position
+        let s = Double(clipScale)
+        // Each edge (container coordinates), its offset d from b (it moves e x d at scale 1 + e) and its rest place's
+        // offset f from the nearest device pixel of the window (px, -0.5..0.5, along the edge's direction of motion;
+        // 0 after snapTyping), read from the window's layer tree.
+        let o = typingContainer.convert(CGPoint(x: r.minX, y: r.minY), to: nil)
+        let o1 = typingContainer.convert(CGPoint(x: r.minX + 1, y: r.minY + 1), to: nil)
+        func rest(_ v: CGFloat, _ v1: CGFloat) -> Double {
+            let g = Double(v) * s, k = Double(v1 - v)
+            guard g.isFinite, k.isFinite, abs(k) > 1e-6 else { return 0 }
+            let f = (g - (g + 1e-6).rounded()) * (k < 0 ? -1 : 1)
+            return abs(f) > 1e-6 ? f : 0
+        }
+        let fx = rest(o.x, o1.x), fy = rest(o.y, o1.y)
+        let edges: [(p: Double, d: Double, f: Double)] = [Double(r.minX), Double(r.maxX), Double(r.minY), Double(r.maxY)].enumerated().map {
+            ($0.element, $0.element - Double($0.offset < 2 ? b.x : b.y), $0.offset < 2 ? fx : fy)
+        }
+        // Wave phase u (0..0.5) of a scale offset e on the rise; the fall is 1 - u.
+        func phase(_ e: Double) -> Double { acos(max(-1, min(1, 1 - 2 * e / w.amplitude))) / (2 * .pi) }
+        var keys: [(u: Double, side: Double)] = (0...60).map { (Double($0) / 60, 0) }
+        for edge in edges where abs(edge.d) > 1e-9 {
+            // The edge's place f + e d s (px from its rest pixel) crosses a half pixel h at e = (h - f) / (d s).
+            let reach = w.amplitude * edge.d * s
+            var h = (min(edge.f, edge.f + reach) - 0.5).rounded(.down) + 0.5
+            while h < max(edge.f, edge.f + reach), h < 64 {
+                let e = (h - edge.f) / (edge.d * s)
+                if e > 0, e < w.amplitude {
+                    let u = phase(e)
+                    keys += [(u, -1), (u, 1), (1 - u, -1), (1 - u, 1)]
+                }
+                h += 1
+            }
+        }
+        keys.sort { $0.u != $1.u ? $0.u < $1.u : $0.side < $1.side }
+        func clipped(_ edge: (p: Double, d: Double, f: Double), _ e: Double) -> Double {
+            // The window edge rounded to a whole device pixel, as an offset q from its rest place, mapped back through the
+            // container's scale about b: b + (d + q) / (1 + e).
+            let q = ((edge.f + e * edge.d * s).rounded() - edge.f) / s
+            return (edge.p - edge.d) + (edge.d + q) / (1 + e)
+        }
+        var x0: [NSNumber] = [], y0: [NSNumber] = [], wd: [NSNumber] = [], ht: [NSNumber] = [], times: [NSNumber] = []
+        for k in keys {
+            let u = min(1, max(0, k.u + k.side * 1e-9))
+            let e = w.amplitude * (1 - cos(2 * .pi * u)) / 2
+            let c = edges.map { clipped($0, e) }
+            guard c.count == 4, let l = c.first, let rr = c.dropFirst().first, let t = c.dropFirst(2).first, let bt = c.last else { continue }
+            x0.append(NSNumber(value: l)); y0.append(NSNumber(value: t))
+            wd.append(NSNumber(value: rr - l)); ht.append(NSNumber(value: bt - t))
+            times.append(NSNumber(value: k.u))
+        }
+        for (path, values) in [("position.x", x0), ("bounds.origin.x", x0), ("position.y", y0), ("bounds.origin.y", y0),
+                               ("bounds.size.width", wd), ("bounds.size.height", ht)] {
+            let a = CAKeyframeAnimation(keyPath: path)
+            a.values = values
+            a.keyTimes = times
+            a.calculationMode = .linear
+            a.duration = w.period
+            a.repeatCount = .infinity
+            a.beginTime = begin + w.start
+            a.isRemovedOnCompletion = false
+            typingClip.add(a, forKey: "breath.clip.\(path)")
+        }
+    }
+
+    /// The clip's frame at rest and while the bubble appears: 2 pt around the body (no clip). Its bounds' origin is
+    /// its position, so the body keeps the container's coordinates (RowDraw.typingBubble).
+    static let typingClipRest = RowDraw.typingBubble.insetBy(dx: -2, dy: -2)
+
+    /// The typing row should breathe but does not (macOS, not a still scene): its breathing was stopped or never started.
+    var needsTypingBreath: Bool {
+#if !os(iOS) || targetEnvironment(macCatalyst)
+        Springs.typingStillPhase == nil && typingContainer.animation(forKey: "breath.transform.scale") == nil
+#else
+        false
+#endif
+    }
+
+    /// The first dot's peak, s after `begin` of startTypingDots (0.457 s after the insert's begin).
+    static let typingDotPeak = 0.407
+
+    /// The reply replaces the indicator: Messages shows it at rest from the arrival's first frame on
+    /// (typing-unfocused-take1 +10.15 s, link-ask-instinct-take1).
+    func stopTypingBreath() {
+        for l in [typingContainer, typingClip] + typingDiscs {
+            for k in l.animationKeys() ?? [] where k.hasPrefix("breath.") { l.removeAnimation(forKey: k) }
+        }
+    }
+
+    /// One additive repeating wave on `keyPath` (Springs.Breath): gain x amplitude x (1 - cos(2 pi u)) / 2,
+    /// u = (t - start) / period, from `begin + start` on (61 linear keyframes per period; render server).
+    private static func breathe(_ l: CALayer, _ keyPath: String, _ w: Springs.Breath, gain: Double, begin: CFTimeInterval) {
+        guard w.amplitude > 0, w.period > 0, abs(gain) > 1e-9 else { return }
+        let n = 60
+        var values: [NSNumber] = []
+        for k in 0...n { values.append(NSNumber(value: gain * w.amplitude * (1 - cos(2 * .pi * Double(k) / Double(n))) / 2)) }
+        let a = CAKeyframeAnimation(keyPath: keyPath)
+        a.values = values
+        a.duration = w.period
+        a.repeatCount = .infinity
+        a.beginTime = begin + w.start
+        a.isAdditive = true
+        a.isRemovedOnCompletion = false
+        a.calculationMode = .linear
+        l.add(a, forKey: "breath.\(keyPath)")
     }
 }
 

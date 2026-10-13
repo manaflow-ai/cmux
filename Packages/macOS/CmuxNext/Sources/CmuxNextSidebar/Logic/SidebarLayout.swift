@@ -51,9 +51,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
     public static func make(
         sections: [SidebarSection],
-        metrics m: SidebarLayoutMetrics,
+        metrics base: SidebarLayoutMetrics,
         options o: SidebarLayoutOptions = SidebarLayoutOptions()
     ) -> SidebarLayout {
+        // Minimal mode is visibly compact: shorter rows, thin group headers (cx-7swgy).
+        let m = o.minimal ? base.minimal : base
+        // A new workspace's drop gap is a row: as short as minimal mode's rows.
+        let gapHeight = max(0, o.gapHeight - (base.rowHeight - m.rowHeight))
         if o.hidesWorkspaces { return .empty }
         var rows: [SidebarRow] = []
         var y = m.topPadding
@@ -90,7 +94,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         func openGapIfNeeded(section: SectionID, group: GroupID?, index: Int) {
             guard gapY == nil, let gap = o.gap, gap.section == section, gap.group == group, gap.index == index else { return }
             gapY = y
-            y += o.gapHeight + m.rowSpacing
+            y += gapHeight + m.rowSpacing
         }
 
         var firstSection = true
@@ -163,7 +167,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
-                    let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now, machine: machineLabel)
+                    let content = o.rowContent(ws, machine: machineLabel)
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
@@ -185,16 +189,35 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     }
                 case let .group(group):
                     let groupCollapsed = group.isCollapsed && !filtering
-                    rows.append(SidebarRow(
+                    var header = SidebarRow(
                         key: .group(group.id), y: y, height: m.groupHeaderHeight, section: section.id,
                         group: group.id, siblingIndex: index, parentIndex: nil, isLastInGroup: false,
                         isCollapsed: groupCollapsed, childCount: entry.children.count, groupColor: group.color
-                    ))
+                    )
+                    header.isThinHeader = o.minimal
+                    rows.append(header)
                     y += m.groupHeaderHeight + m.rowSpacing
-                    guard !groupCollapsed else { return }
+                    if groupCollapsed {
+                        // Keep the selected workspace as the one visible member
+                        // of a collapsed group. This preserves orientation and
+                        // selection without reopening the rest of the group.
+                        guard let activeID = o.activeWorkspaceID,
+                              let childIndex = entry.children.firstIndex(where: { $0.id == activeID }),
+                              let ws = entry.children.first(where: { $0.id == activeID }) else { return }
+                        let content = o.rowContent(ws, machine: machineLabel)
+                        let h = m.height(for: content)
+                        rows.append(SidebarRow(
+                            key: .workspace(ws.id), y: y, height: h, section: section.id,
+                            group: group.id, siblingIndex: childIndex, parentIndex: index,
+                            isLastInGroup: true, isCollapsed: false, childCount: 0,
+                            groupColor: group.color, tabDisclosure: disclosure(ws), content: content
+                        ))
+                        y += h + m.rowSpacing
+                        return
+                    }
                     for (childIndex, ws) in entry.children.enumerated() {
                         openGapIfNeeded(section: section.id, group: group.id, index: childIndex)
-                        let content = WorkspaceRowContent(ws, preferences: o.workspaceRow, now: o.now, machine: machineLabel)
+                        let content = o.rowContent(ws, machine: machineLabel)
                     let h = m.height(for: content)
                         rows.append(SidebarRow(
                             key: .workspace(ws.id), y: y, height: h, section: section.id,
@@ -258,8 +281,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         y += m.bottomPadding
         return SidebarLayout(
             rows: rows, totalHeight: y, gapY: gapY,
-            gapHeight: gapY == nil ? 0 : o.gapHeight,
-            gapShift: gapY == nil ? 0 : o.gapHeight + m.rowSpacing
+            gapHeight: gapY == nil ? 0 : gapHeight,
+            gapShift: gapY == nil ? 0 : gapHeight + m.rowSpacing
         )
     }
 }

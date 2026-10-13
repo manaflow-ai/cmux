@@ -24,35 +24,45 @@ pub fn home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
 }
 
-/// Unix socket path. macOS limits socket paths to about 100 bytes, so a
-/// long home directory falls back to a short path in a private per-user
-/// directory under /tmp, derived from the home path so daemon and clients
-/// agree.
+/// Unix socket path, by the rule every host and client shares
+/// (cmux-agent-pane-policy `environment::socket_path`): `ACPMUX_SOCKET`, else
+/// `<home>/acpmux.sock`. A long home, or an absolute `ACPMUX_SOCKET` past the
+/// Unix socket limit (a long TMPDIR), falls back to a short path in a private
+/// per-user directory under /tmp, derived from the home or the configured
+/// path so daemon and clients agree.
+#[cfg(unix)]
 pub fn socket_path() -> PathBuf {
-    if let Ok(v) = std::env::var("ACPMUX_SOCKET") {
-        return PathBuf::from(v);
-    }
-    let preferred = home().join("acpmux.sock");
-    if preferred.as_os_str().len() < 96 {
-        return preferred;
-    }
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for b in home().to_string_lossy().bytes() {
-        hash ^= b as u64;
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
+    let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
+    // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() };
-    let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
-    if private_dir(&dir, uid) {
-        return dir.join(format!("{hash:016x}.sock"));
-    }
+    let resolved = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
+        configured.as_deref(),
+        &home(),
+        uid,
+    ));
     // Another user owns or can write the shared directory: never trust a
     // socket there. The long path fails to bind with a clear error instead.
-    preferred
+    let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
+    if resolved.parent() == Some(dir.as_path()) && !private_dir(&dir, uid) {
+        return configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock"));
+    }
+    resolved
+}
+
+/// Windows port: the socket path rule there is `cmux::local_socket`'s (a
+/// later landing).
+#[cfg(not(unix))]
+pub fn socket_path() -> PathBuf {
+    std::env::var("ACPMUX_SOCKET")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| home().join("acpmux.sock"))
 }
 
 /// Create `dir` mode 0700 if missing; true only when it is a real directory
 /// owned by `uid` that nobody else can enter.
+#[cfg(unix)]
 fn private_dir(dir: &Path, uid: u32) -> bool {
     use std::os::unix::fs::{DirBuilderExt, MetadataExt};
     let _ = std::fs::DirBuilder::new().mode(0o700).create(dir);
@@ -404,6 +414,12 @@ pub struct Config {
     /// ACPMUX_SESSION_ID, ACPMUX_SESSION_NAME and ACPMUX_TEXT in its env.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub notify_command: Option<String>,
+    /// `agentStartTimeoutMs`: the longest one agent start (spawn or adopt,
+    /// `initialize`, session load or new, config replay) may take. Past it
+    /// the request fails with a `deadline_exceeded` error and the agent is
+    /// ended. Default 90000.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_start_timeout_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub websocket: Option<WebSocketConfig>,
     #[serde(default)]
@@ -484,6 +500,11 @@ pub struct Config {
 }
 
 impl Config {
+    /// `agentStartTimeoutMs`, or its 90 s default.
+    pub fn agent_start_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))
+    }
+
     /// Family of a configured profile.
     pub fn family(&self, profile: &str) -> Option<String> {
         self.harnesses.get(profile).map(|p| derive_family(profile, p))
@@ -744,6 +765,7 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
     let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let tmp = path.with_extension(format!("tmp-{}-{n}", std::process::id()));
     // Owner-only from creation: these files hold tokens and session data.
+    #[cfg(unix)]
     {
         use std::io::Write;
         use std::os::unix::fs::OpenOptionsExt;
@@ -756,6 +778,10 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
             .with_context(|| format!("write {}", tmp.display()))?;
         f.write_all(bytes).with_context(|| format!("write {}", tmp.display()))?;
     }
+    // Windows port: owner-only is an ACL there (a later landing); the file
+    // keeps the folder's ACL (a user profile folder is private by default).
+    #[cfg(not(unix))]
+    std::fs::write(&tmp, bytes).with_context(|| format!("write {}", tmp.display()))?;
     std::fs::rename(&tmp, path).with_context(|| format!("rename to {}", path.display()))?;
     Ok(())
 }
@@ -770,7 +796,14 @@ pub fn scrub_nested_claude_env(cmd: &mut std::process::Command) {
     for k in nested_claude_keys() {
         cmd.env_remove(k);
     }
+    cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
 }
+
+/// The cmux terminal launch credential (plans/cmux-next/identity.md
+/// section 2). It names the one terminal that started a process; acpmux, its
+/// daemon, agents and hooks serve many terminals, so none of them carries it.
+/// Both scrubs remove it from every child they prepare.
+pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
 
 /// The keys `scrub_nested_claude_env` removes, from the daemon's environment
 /// and the imported login environment.
@@ -797,11 +830,10 @@ pub fn scrub_nested_claude_env_tokio(cmd: &mut tokio::process::Command) {
     for k in nested_claude_keys() {
         cmd.env_remove(k);
     }
+    cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
 }
 
 mod launchers;
-#[cfg(test)]
-pub(super) use launchers::launcher_ok;
 pub(crate) use launchers::which;
 pub use launchers::{subrouter_route, verify_launchers, verify_launchers_with};
 mod codex_adapter;
@@ -823,6 +855,7 @@ pub mod profiles;
 pub use profiles::{
     Diagnostic as ProfileDiagnostic, LoadedProfiles, ProfileMeta, ProfileSource, ProfileSources,
 };
+pub mod chief_builtins;
 mod preset_args;
 pub use preset_args::{
     Preset, SYSTEM_PROMPT_FILE, check_preset_args, check_preset_dir_name, checked_system_prompt,

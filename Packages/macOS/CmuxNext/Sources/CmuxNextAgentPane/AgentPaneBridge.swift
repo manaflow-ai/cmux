@@ -23,6 +23,11 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             logger.error("agent pane message rejected as untrusted name=\(message.name, privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
             return replyHandler(AgentPaneReply.failure(code: "untrusted_frame", message: "Untrusted frame"), nil)
         }
+        // A page menu with no room in the pane draws past the window's edge (AgentPaneView+Popup).
+        if let body = message.body as? [String: Any], let method = body["method"] as? String, method.hasPrefix("popup."),
+           let view {
+            return replyHandler(view.popup(method, params: body["params"] as? [String: Any] ?? [:]), nil)
+        }
         let request = AgentPaneRequest(body: message.body)
         // A page frame for the host's socket goes out on this turn when it can (no Task hop).
         if case .transportSend(let connection, let frames) = request, let model = view?.model {
@@ -30,8 +35,9 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
                 replyHandler(AgentPaneModel.transportReply(error), nil)
             }
         }
-        // Transport and shell requests carry chat content or commands and run often: not logged.
-        if !request.isTransport, !request.isShell {
+        // Transport and shell requests carry chat content or commands and run often, a tool card's
+        // typed value is a secret, and an upload carries the person's files: not logged.
+        if !request.isTransport, !request.isShell, !request.carriesEntered, !request.carriesFiles {
             logger.info("agent pane trusted message request=\(String(describing: request), privacy: .public) url=\(message.frameInfo.request.url?.absoluteString ?? "", privacy: .public)")
         }
         // task-owner: one page request; its reply goes back through replyHandler
@@ -60,7 +66,8 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
         guard let view else { return nil }
         // The page installs its bridge and registry before asking for the
         // handshake, which can be after didFinish, where the theme and
-        // customization were first pushed; push them again so they land.
+        // customization were first pushed; push them again so they land. The New Tab page's chats
+        // and closed items are set when the view is made, before the page loads (cx-uw104).
         if request == .ready {
             logger.info("agent pane ready accepted")
             view.applyTheme()
@@ -68,6 +75,9 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
             view.applyPreviewFeatures()
             view.applyEditedFiles()
             view.replayCustomization()
+            AgentPaneToolCard.replay(to: view)
+            AgentPaneDeviceChat.push(view.deviceChats, to: view)
+            AgentPaneClosedItem.push(view.recentlyClosed, to: view)
         }
         return view.model
     }

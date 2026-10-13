@@ -94,7 +94,13 @@ const fn access(operation: Op) -> Access {
         Op::TerminalRendererGrantCreate => Access::Denied(Denied::Renderer),
         Op::GitStatus
         | Op::GitDiff
+        | Op::GitFilesList
         | Op::GitFilesSearch
+        | Op::GitCommit
+        | Op::GitPush
+        | Op::GitWorktreeCreate
+        | Op::GitWorktreeApply
+        | Op::GitWorktreeRemove
         | Op::GitCheckpointCreate
         | Op::GitCheckpointDiff
         | Op::GitCheckpointGet
@@ -102,6 +108,8 @@ const fn access(operation: Op) -> Access {
         | Op::GitCheckpointPin
         | Op::GitCheckpointUnpin
         | Op::SessionJournalHookPut
+        // It tells whether a path exists and is a folder (cx-9aps).
+        | Op::WorkspaceAgentStartGet
         // The user's folders (project-list-v1): read and edited by the app, never a page.
         | Op::ProjectList
         | Op::ProjectObserve
@@ -109,6 +117,18 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectUpdate
         | Op::ProjectRemove
         | Op::ProjectSync => Access::Denied(Denied::FileSystem),
+        // A browser profile's visited pages: never a page's to read or delete.
+        Op::HistoryEntriesList
+        | Op::HistoryEntriesRemove
+        | Op::HistorySiteRemove
+        | Op::HistoryClear
+        | Op::HistoryRestore
+        | Op::HistoryBackupsPurge
+        | Op::HistoryVisitRecord
+        | Op::HistoryVisitTitle
+        | Op::HistoryVisitRemove
+        | Op::HistoryVisitSummaries
+        | Op::HistoryVisitImport => Access::Denied(Denied::NotAllowed),
         Op::PaneCreate | Op::PaneSplit | Op::TabCreateTerminal => Access::DeniedWithCwd,
         Op::MachineList
         | Op::MachineGet
@@ -149,6 +169,7 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceGet
         | Op::WorkspaceCreate
         | Op::WorkspaceEnsureHome
+        | Op::WorkspaceEnsureApp
         | Op::WorkspaceRename
         | Op::WorkspaceMove
         | Op::WorkspaceFocus
@@ -212,6 +233,17 @@ const fn access(operation: Op) -> Access {
         | Op::ClosedDelete
         | Op::ClosedReopen
         | Op::WindowRecordList
+        | Op::SettingsSchema
+        | Op::SettingsList
+        | Op::SettingsGet
+        | Op::SettingsSnapshot
+        | Op::SettingsSet
+        | Op::SettingsReset
+        | Op::SettingsResetAll
+        | Op::KeybindingsGet
+        | Op::KeybindingsSet
+        | Op::KeybindingsRemove
+        | Op::KeybindingsReset
         | Op::WindowRecordPut
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
@@ -247,6 +279,7 @@ const fn access(operation: Op) -> Access {
         | Op::TabUpdate
         | Op::TabGroupAddTabs
         | Op::TabGroupClose
+        | Op::LayoutBulk
         | Op::TabGroupCreate
         | Op::TabGroupGet
         | Op::TabGroupList
@@ -271,6 +304,10 @@ const fn access(operation: Op) -> Access {
         | Op::WorkspaceStatusClear
         | Op::WorkspaceStatusList
         | Op::WorkspaceStatusSet
+        // A page never sees, mints or rotates launch credentials.
+        | Op::CredentialVerify
+        | Op::CredentialMint
+        | Op::CredentialRotate
         // A page never controls the Chief.
         | Op::ChiefEngineGet
         | Op::ChiefEngineSet

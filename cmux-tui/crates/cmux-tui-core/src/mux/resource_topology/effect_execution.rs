@@ -2,6 +2,7 @@
 
 use super::client_ids::{requested_client_pane_id, requested_client_tab_id};
 use super::*;
+use crate::state::app_workspaces::{APP_WORKSPACE_FIELD, APP_WORKSPACE_NAME_FIELD};
 
 impl Mux {
     pub(super) fn resource_topology_effect_intent(
@@ -433,12 +434,20 @@ impl Mux {
                     None => {
                         let (workspace_key, workspace_public_id, workspace_mutation) =
                             self.effect_workspace_reservation(intent)?;
+                        // `app-screens-v1`: the app workspace and its kind
+                        // row are staged together with the app tab.
+                        let mark = match fields.get(APP_WORKSPACE_FIELD).and_then(Value::as_str) {
+                            Some(app) => {
+                                crate::state::home_store::EmptyWorkspaceMark::App(app.to_string())
+                            }
+                            None => crate::state::home_store::EmptyWorkspaceMark::None,
+                        };
                         let placement = self.create_empty_workspace_for_resource_effect(
-                            None,
+                            optional_owned_string(fields, APP_WORKSPACE_NAME_FIELD)?,
                             Some(workspace_key),
                             workspace_public_id,
                             &workspace_mutation,
-                            false,
+                            mark,
                         )?;
                         self.create_browser_surface_in_workspace(
                             placement.workspace,
@@ -618,7 +627,7 @@ impl Mux {
             Some(workspace_key),
             workspace_public_id,
             &workspace_mutation,
-            ephemeral,
+            crate::state::home_store::EmptyWorkspaceMark::ephemeral(ephemeral),
         )?;
         self.effect_create_terminal_in_workspace(intent, placement.workspace, options)
     }
@@ -685,7 +694,7 @@ impl Mux {
         let workspace_key = self
             .workspace_key_for_pane(target)
             .with_context(|| format!("pane {target} has no workspace"))?;
-        let cwd = cwd.or_else(|| self.pane_cwd(target));
+        let cwd = self.new_terminal_cwd(cwd, Some(target), None);
         let reservation = self.effect_terminal_reservation(
             intent,
             &workspace_key,

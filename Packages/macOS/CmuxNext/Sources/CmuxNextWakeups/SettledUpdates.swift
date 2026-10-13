@@ -34,9 +34,6 @@ public final class UpdateCycleDetector: Sendable {
         self.ledger = ledger
     }
 
-    /// Re-entries seen since launch.
-    public var reentryCount: UInt64 { reentries.load(ordering: .relaxed) }
-
     /// Runs `update`, reporting when it runs inside another update of this owner.
     public func run<T>(_ update: () throws -> T) rethrows -> T {
         let level = depth.withLock { depth -> Int in

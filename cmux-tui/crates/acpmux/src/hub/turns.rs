@@ -3,6 +3,56 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// ACP v1 does not define a `document` content block. Claude's translator can
+/// turn our internal document block into Anthropic's native document. Strict
+/// ACP adapters (including Codex) instead get a stable workspace file and a
+/// resource link, plus a short note telling the agent where to open it.
+pub(super) fn acp_prompt_blocks(
+    session: &Session,
+    blocks: &[Value],
+) -> Result<Vec<Value>, RpcError> {
+    let is_claude = session.meta().family.as_deref() == Some("claude");
+    let mut out = Vec::with_capacity(blocks.len());
+    for block in blocks {
+        if block.get("type").and_then(Value::as_str) != Some("document") || is_claude {
+            out.push(block.clone());
+            continue;
+        }
+        let name = block.get("name").and_then(Value::as_str).unwrap_or("document.pdf");
+        let safe_name: String = name
+            .chars()
+            .map(
+                |c| if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') { c } else { '_' },
+            )
+            .collect();
+        let safe_name = if safe_name.is_empty() { "document.pdf" } else { &safe_name };
+        let dir = session.meta().cwd.join(".cmux").join("attachments");
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            RpcError::internal(format!("cannot create PDF attachment directory: {e}"))
+        })?;
+        let path = dir.join(format!("{}-{safe_name}", uuid::Uuid::now_v7()));
+        let encoded = block.get("data").and_then(Value::as_str).unwrap_or("");
+        use base64::Engine;
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(encoded)
+            .map_err(|e| RpcError::invalid_params(format!("invalid PDF attachment: {e}")))?;
+        std::fs::write(&path, bytes)
+            .map_err(|e| RpcError::internal(format!("cannot save PDF attachment: {e}")))?;
+        let uri = format!("file://{}", path.display());
+        out.push(json!({
+            "type": "text",
+            "text": format!("PDF attachment saved at {}; open it with your tools.", path.display())
+        }));
+        out.push(json!({
+            "type": "resource_link",
+            "uri": uri,
+            "name": name,
+            "mimeType": "application/pdf"
+        }));
+    }
+    Ok(out)
+}
+
 impl Hub {
     // --------------------------------------------------------------- turns
 
@@ -148,10 +198,10 @@ impl Hub {
         }))
     }
 
-    async fn run_prompt(
+    pub(super) async fn run_prompt(
         self: &Arc<Self>,
         session: &Arc<Session>,
-        mut blocks: Vec<Value>,
+        blocks: Vec<Value>,
         client: &str,
         steer: bool,
         opts: PromptOptions,
@@ -186,75 +236,32 @@ impl Hub {
             )
             .with_data(json!({"reason": "steer.unavailable"})));
         }
+        if steer_now && session.moving().is_some() {
+            return Err(super::queue::moving_error());
+        }
         if steer_now {
-            self.check_steer(session, control)?;
-            // A running turn has a live agent.
-            let child = self.child_for(session).await?;
-            let agent_sid = session
-                .meta()
-                .agent_session_id
-                .ok_or_else(|| RpcError::internal("no agent session"))?;
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
-            self.append(
-                session,
-                "mux",
-                "user_message",
-                json!({"text": text, "steer": true, "client": client, "promptId": prompt_id, "turnId": turn_id}),
-            );
-            accept(
-                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false, "steer": true}),
-            );
-            // The turn may end between this check and the agent: without
-            // steerOnly the message then becomes the next prompt, as before.
-            let fallback = (!opts.steer_only).then(|| blocks.clone());
-            let mut params = json!({"sessionId": agent_sid, "prompt": blocks});
-            params["_meta"] = json!({"steer": true});
-            let mut r =
-                match super::steer_end::agent_prompt(session, &child, params, &turn_id, true).await
-                {
-                    Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
-                        let Some(blocks) = fallback else { return Err(e) };
-                        let opts = PromptOptions {
-                            prompt_id: Some(prompt_id),
-                            control,
-                            trust_gate,
-                            ..PromptOptions::default()
-                        };
-                        return Box::pin(self.run_prompt(session, blocks, client, false, opts))
-                            .await;
-                    }
-                    r => r?,
-                };
-            merge_mux_meta(
-                &mut r,
-                json!({"promptId": prompt_id, "turnId": turn_id, "steer": true}),
-            );
-            return Ok(r);
+            let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
+            return self.steer_turn(session, blocks, client, &turn_id, opts, &mut accept).await;
         }
-        let turn_id = uuid::Uuid::now_v7().to_string();
-        let waiting = session.turn().is_some() || session.queued() > 0;
-        let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
-        let withdraw = waiting.then(|| {
-            let withdraw = self.enqueue(session, &text, client, position, &prompt_id, &turn_id);
-            accept(
-                json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": true, "position": position}),
-            );
-            withdraw
-        });
-        // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
-        let guard = match withdraw {
-            Some(withdraw) => tokio::select! {
-                guard = session.turn_lock.lock() => guard,
-                () = withdraw.notified() => return Ok(super::queue::withdrawn_reply(&prompt_id, &turn_id)),
-            },
-            None => session.turn_lock.lock().await,
+        // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
+        let slot = super::queue::Slot {
+            text: &text,
+            blocks: &blocks,
+            client,
+            prompt_id: &prompt_id,
+            control,
+            trust_gate,
+            interrupt: opts.interrupt,
         };
-        if !waiting {
-            session.queued.fetch_sub(1, Ordering::SeqCst);
-        } else if let Some(withdrawn) = self.take_queued(session, &prompt_id, &turn_id) {
-            drop(guard);
-            return Ok(withdrawn);
-        }
+        let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
+        {
+            Ok(slot) => slot,
+            Err(done) => return done,
+        };
+        // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
+        let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        let text = prompt_text(&blocks);
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
         {
@@ -264,6 +271,7 @@ impl Hub {
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
+            clear_sent_draft(&mut m, &text);
             if m.title.is_none() {
                 let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
                 if !first.is_empty() {
@@ -364,7 +372,7 @@ impl Hub {
         let mut result = super::steer_end::agent_prompt(
             session,
             &child,
-            json!({"sessionId": agent_sid, "prompt": blocks.clone()}),
+            json!({"sessionId": agent_sid, "prompt": acp_prompt_blocks(session, &blocks)?}),
             &turn_id,
             false,
         )
@@ -385,7 +393,11 @@ impl Hub {
                     "failover",
                     json!({"from": from, "to": to, "reason": e.message, "turnId": turn_id}),
                 );
+                // The turn goes on, on the fallback.
+                let turn = session.turn();
                 self.detach_child(session).await;
+                *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = turn;
+                self.set_status(session, SessionStatus::Running);
                 session.meta.lock().unwrap().harness = to.clone();
                 self.save_meta(session);
                 let control = session.turn().map_or(control, |t| t.control);
@@ -417,7 +429,7 @@ impl Hub {
                             result = child2
                                 .request(
                                     method::SESSION_PROMPT,
-                                    json!({"sessionId": sid2, "prompt": blocks}),
+                                    json!({"sessionId": sid2, "prompt": acp_prompt_blocks(session, &blocks)?}),
                                 )
                                 .await;
                         }
@@ -429,6 +441,12 @@ impl Hub {
         let ids = json!({"promptId": prompt_id, "turnId": turn_id, "turnSeq": turn_seq});
         let mut result =
             self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        // The chat's route changed during the turn: move it before the next
+        // one starts (route_switch.rs). A restart that fails leaves the
+        // harness stopped; the next prompt's spawn reports why.
+        if session.route_switch.load(Ordering::SeqCst) {
+            let _ = self.restart_on_route(session).await;
+        }
         drop(guard);
         if let Ok(v) = &mut result {
             merge_mux_meta(v, ids);
@@ -448,7 +466,14 @@ impl Hub {
         turn_id: &str,
         turn_seq: u64,
     ) -> Result<Value, RpcError> {
-        *session.turn.lock().unwrap() = None;
+        // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
+        let detached = session
+            .turn
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .take()
+            .is_none_or(|t| t.turn_id != turn_id);
+        session.queue_moved.notify_waiters();
         // A turn Claude answered is in its store: a respawn resumes it.
         if result.is_ok() {
             let was_unstored = std::mem::take(&mut session.meta.lock().unwrap().claude_unstored);
@@ -497,6 +522,23 @@ impl Hub {
         if let Some(e) = harness_failure {
             result = Err(e);
         }
+        // A failure on a bound route names the route and its fallback
+        // (route_switch.rs), in the error's data and the turn result.
+        let route_info = match &result {
+            Err(e) => self.route_failure(session, &e.message).await,
+            Ok(_) => None,
+        };
+        if let (Err(e), Some(Value::Object(info))) = (&mut result, &route_info) {
+            match &mut e.data {
+                Some(Value::Object(data)) => data.extend(info.clone()),
+                None => e.data = Some(Value::Object(info.clone())),
+                Some(_) => {}
+            }
+        }
+        // The agent's notifications before this answer (the reply text, the
+        // preview) are applied before the turn settles, so every record below
+        // and the chat activity it sends see them.
+        Self::drain_inbound(session).await;
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -524,19 +566,25 @@ impl Hub {
                     json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": turn_seq}),
                 );
                 self.note_model_refusal(session, &e.message);
+                if !detached {
+                    self.pause_queue(session, turn_id);
+                }
                 let mut msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": turn_seq, "turnId": turn_id, "promptId": prompt_id});
                 if let Some(o) = msg.as_object_mut() {
                     let agent_error =
                         (!harness_failed).then(|| (e.message.as_str(), json!(e.code)));
                     o.extend(self.turn_error_fields(session, agent_error));
+                    if let Some(Value::Object(info)) = &route_info {
+                        o.extend(info.clone());
+                    }
                 }
                 self.record_last_turn(session, &msg);
                 self.append(session, "mux", "turn_result", msg);
             }
         }
         self.reset_stream(session);
-        // Nobody watching: the sidebar dot and `wait --until done` see it.
-        if session.attached.load(Ordering::SeqCst) == 0 {
+        // Nobody showing it: the sidebar dot and `wait --until done` see it.
+        if !self.shown(session) {
             session.meta.lock().unwrap().unread = true;
         }
         if session.status() != SessionStatus::Closed {
@@ -581,6 +629,7 @@ impl Hub {
             "turn_error",
             json!({"error": e.message, "code": e.code, "turnId": turn_id, "turnSeq": 0}),
         );
+        self.pause_queue(session, turn_id);
         let msg = json!({"status": "failed", "error": e.message, "code": e.code, "turnSeq": 0, "turnId": turn_id, "promptId": prompt_id});
         self.record_last_turn(session, &msg);
         self.append(session, "mux", "turn_result", msg);
@@ -589,6 +638,21 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
+    }
+
+    /// Waits until the inbound loop handled every agent message queued before
+    /// now. Bounded: a loop that is gone (closed channel) or stuck never holds
+    /// a turn's settlement past the bound.
+    async fn drain_inbound(session: &Session) {
+        let (done, handled) = tokio::sync::oneshot::channel();
+        let queued = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            session.inbound_tx.send(crate::agent::Inbound::Barrier(done)),
+        )
+        .await;
+        if matches!(queued, Ok(Ok(()))) {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handled).await;
+        }
     }
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the
@@ -954,17 +1018,4 @@ pub fn is_limit_error(message: &str) -> bool {
         || m.contains("quota")
         || m.contains("overloaded")
         || m.contains("429")
-}
-
-#[cfg(test)]
-mod limit_tests {
-    #[test]
-    fn recognizes_limit_messages() {
-        assert!(super::is_limit_error("You've reached your Fable limit. Switch to another model"));
-        assert!(super::is_limit_error("rate_limit_error: too many requests"));
-        assert!(super::is_limit_error("HTTP 429 overloaded"));
-        assert!(super::is_limit_error("Not logged in · Please run /login"));
-        assert!(!super::is_limit_error("simulated internal error"));
-        assert!(!super::is_limit_error("permission denied"));
-    }
 }

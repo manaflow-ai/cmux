@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, openSync } from "node:fs";
 import { connect } from "node:net";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { Readable } from "node:stream";
 
@@ -53,6 +54,21 @@ export function waitForReady(pipe: Readable, options: { timeoutMs: number; exite
 }
 
 /**
+ * The home a started daemon gets: ACPMUX_HOME, else the configured socket's folder, else the
+ * socket's own, except the shared short alias folder a long path resolves to (acpmuxSocketPath):
+ * acpmux creates that one private, so a home there would be `~/.acpmux`.
+ */
+export function acpmuxDaemonHome(
+  env: Record<string, string | undefined>,
+  socket: string,
+  uid: number = process.getuid?.() ?? 0,
+): string {
+  if (env.ACPMUX_HOME) return env.ACPMUX_HOME;
+  const folder = dirname(env.ACPMUX_SOCKET || socket);
+  return folder === `/tmp/acpmux-${uid}` ? join(env.HOME ?? homedir(), ".acpmux") : folder;
+}
+
+/**
  * Starts `$ACPMUX_BIN daemon run` unless the socket answers. Returns the
  * started pid, or undefined when a daemon was already running.
  */
@@ -60,7 +76,7 @@ export async function ensureAcpmuxDaemon(env: Record<string, string | undefined>
   if (await socketReachable(socket)) return undefined;
   const bin = env.ACPMUX_BIN;
   if (!bin) throw new Error(`acpmux is not reachable at ${socket} and ACPMUX_BIN is not set`);
-  const home = env.ACPMUX_HOME ?? dirname(socket);
+  const home = acpmuxDaemonHome(env, socket);
   mkdirSync(home, { recursive: true });
   const out = openSync(join(home, "daemon.log"), "a");
   // The daemon writes one line to fd 3 once its socket listens (acpmux --ready-fd): a

@@ -34,6 +34,12 @@ export function deviceChats(): DeviceChat[] {
   return chats;
 }
 
+/// Runs `listener` after every host push (the All chats list reloads its first page when the index
+/// arrives after it mounted, cx-ztlw).
+export function subscribeDeviceChats(listener: () => void): () => void {
+  return subscribe(listener);
+}
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);

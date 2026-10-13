@@ -51,11 +51,8 @@ extension SidebarListView {
         case let .group(group):
             // Arrow keys continue from this group; the ring is for keyboard focus only (cx-qno.17).
             SidebarGroupKeys(list: self).setFocus(group, ring: false)
-            // Every click on the bar toggles, also fast ones; only a chip double click is dropped (cx-qno.17).
-            if event.clickCount >= 2, groupEditing.isOnChip(point, group: group) {
-                self.press = nil
-                return
-            }
+            // Every click toggles, also fast ones (cx-q5jw): the bar collapses or expands, and the
+            // chip opens its editor or, when this click's mouse-down closed it, leaves it closed.
         case let .tab(workspace, tab):
             // Selected at once; the press stays so a drag can take the tab.
             model.send(.selectTab(workspace: workspace, tab: tab))
@@ -114,11 +111,6 @@ extension SidebarListView {
     override func otherMouseDown(with event: NSEvent) { if !middleClick.down(event, in: self) { super.otherMouseDown(with: event) } }
     override func otherMouseUp(with event: NSEvent) { if !middleClick.up(event, in: self) { super.otherMouseUp(with: event) } }
     // MARK: - Group header hit testing
-    /// Whether `point` (list coordinates) is on the group's chevron/folder.
-    func isOnDisclosure(_ point: NSPoint, group: GroupID) -> Bool {
-        guard let view = rowViews[.group(group)] as? GroupHeaderRowView else { return false }
-        return view.disclosureFrame.contains(convert(point, to: view))
-    }
     // MARK: - Keyboard
     override func keyDown(with event: NSEvent) {
         let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
@@ -132,7 +124,7 @@ extension SidebarListView {
                 return
             }
         }
-        if flags.isEmpty, SidebarGroupKeys(list: self).handle(event) { return }
+        if SidebarGroupKeys(list: self).handle(event, flags: flags) { return }
         switch event.specialKey {
         case .upArrow?, .downArrow?:
             let up = event.specialKey == .upArrow

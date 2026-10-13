@@ -1,13 +1,15 @@
 public import CmuxNextDaemon
 public import CmuxNextDesign
 public import CmuxNextTabs
+import Foundation
 
 /// Turns the status facts the daemon publishes about a tab into
 /// `StatusReport`s, and merges them per tab and per workspace with
 /// `StatusStack` (plans/cmux-next/status-indicators.md). The app only
 /// renders: every fact here is written by its owner (agent hooks through
-/// the session host today; `workspace_status` entries, OSC 9;4 terminal
-/// progress and running commands once the daemon publishes them).
+/// the session host; running shell commands from the terminal record's
+/// `extra.busy`; `workspace_status` entries and OSC 9;4 terminal progress
+/// once the app reads them).
 public struct StatusMapping {
     public static let shared = Self()
 
@@ -35,7 +37,27 @@ public struct StatusMapping {
         if let ref = tab.agentSession, let turn = visibleTurn(tab) {
             reports.append(StatusReport(id: "acp:\(ref.session ?? tab.id)", source: .agent, state: state(turn), label: ref.harness))
         }
+        if let report = command(tab) { reports.append(report) }
         return reports
+    }
+
+    /// A plain shell command (the daemon's `extra.busy`) that has run `status.inferCommandBusyAfter`:
+    /// busy, the weakest source. A younger one arms the tab's one-shot recheck for when it comes of age.
+    /// An agent's terminal shows its own hook or turn state instead: the agent CLI is one long command
+    /// that would look busy while it waits at its prompt.
+    func command(_ tab: TabModel, nowMs: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000)) -> StatusReport? {
+        let behavior = DesignSettings.shared.statusBehavior
+        guard behavior.inferCommandBusy, tab.agent == nil, tab.agentSession == nil, var since = tab.commandSinceMs else { return nil }
+        _ = tab.commandRecheck
+        // A daemon whose clock runs ahead (another machine) counts from when this client saw the command.
+        if let seen = tab.commandSeenAt { since = min(since, UInt64(seen.timeIntervalSince1970 * 1000)) }
+        let age = nowMs > since ? nowMs - since : 0
+        let after = UInt64(behavior.inferCommandBusyAfter * 1000)
+        guard age >= after else {
+            tab.recheckCommand(after: .milliseconds(after - age))
+            return nil
+        }
+        return StatusReport(id: "command:\(tab.id)", source: .command, state: .busy(progress: nil), updatedAtMs: since)
     }
 
     /// Roster sources that infer state from the screen (the agent plugin,
@@ -52,14 +74,10 @@ public struct StatusMapping {
         return records.contains { ($0.updatedAtMs ?? .max) >= agent.updatedAtMs }
     }
 
-    /// The turn state still to show: a completed turn the user has seen is
-    /// nothing (client seen state, like an OSC 7501 done).
+    /// The turn state still to show. acpmux owns what the person has seen of
+    /// a chat (cx-n8ou): a completed turn is `done` only while it is unread.
     public func visibleTurn(_ tab: TabModel) -> AgentTurnState? {
-        guard let turn = turn(tab) else { return nil }
-        if case .done(let id) = turn, let session = tab.agentSession?.session, seen.isTurnSeen(session: session, turn: id) {
-            return nil
-        }
-        return turn
+        turn(tab)
     }
 
     /// The acpmux turn state of an agent chat tab, nil for every other tab.
@@ -93,10 +111,21 @@ public struct StatusMapping {
         default: break
         }
         switch visibleTurn(tab) {
-        case .failed?: return .failure
+        case .failed?, .lost?: return .failure
         case .done?: return .success
         default: return nil
         }
+    }
+
+    /// The shown OSC 7501 record's title and message for a hover detail (cx-6so.36.9): program
+    /// text, untrusted, folded to one plain line after the program's `app` name, so it says
+    /// whose words they are; nil when it has neither or nothing shows.
+    public func detail(_ tab: TabModel) -> String? {
+        guard let record = ProgramStatusRecord.strongest(seen.visible(tab)) else { return nil }
+        let parts = [record.title, record.msg].compactMap { $0?.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+            .filter { !$0.isEmpty }
+        guard !parts.isEmpty else { return nil }
+        return (record.app.map { "\($0): " } ?? "") + parts.joined(separator: " · ")
     }
 
     /// One tab's merged status.
@@ -157,7 +186,7 @@ public struct StatusMapping {
         switch turn {
         case .working: .working
         case .needsInput: .waiting
-        case .failed: .error
+        case .failed, .lost: .error
         case .done: .success
         }
     }

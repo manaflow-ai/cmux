@@ -82,24 +82,29 @@ enum SidebarSectionHandlers {
             guard let registry, registry.action(for: "app.hide") != nil else { throw ActionFailure.needsAppCapability("app.hide") }
             _ = registry.perform("app.hide", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: invocation.origin))
         })
+        // The sidebar has no bottom-left area (Lawrence 2026-10-10, cx-n0i9): a section after the
+        // workspaces would not draw, so new and moved sections go above the workspaces.
         bind("sidebar.section.add") { invocation, _ in
             let region = invocation["region"]?.stringValue.flatMap(SidebarRegion.init(rawValue:)) ?? .top
+            guard region != .bottom else { throw ActionFailure(message: SidebarSectionStrings.noBottomArea) }
             let title = invocation["title"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
             return .sectionAdd(LayoutSection(id: .mint(), title: title ?? SidebarSectionStrings.untitledSection, region: region, look: .list),
-                               index: Int.max)
+                               index: region == .middle ? 0 : Int.max)
         }
         bind("sidebar.section.rename") { invocation, doc in
             let section = try SidebarSectionResolve.section(invocation.target, in: doc)
             let title = invocation["title"]?.stringValue ?? ""
             return .sectionUpdate(section.id, SectionPatch(title: title.isEmpty ? .clear : .set(title)))
         }
-        let moves: [(ActionID, SidebarRegion)] = [("sidebar.section.moveToTop", .top), ("sidebar.section.moveToScrolling", .middle),
-                                                  ("sidebar.section.moveToBottom", .bottom)]
+        let moves: [(ActionID, SidebarRegion)] = [("sidebar.section.moveToTop", .top), ("sidebar.section.moveToScrolling", .middle)]
         for (id, region) in moves {
             bind(id) { invocation, doc in
                 let section = try SidebarSectionResolve.section(invocation.target, in: doc)
-                return .sectionMove(section.id, region: region, index: region == .bottom ? 0 : Int.max)
+                return .sectionMove(section.id, region: region, index: region == .middle ? 0 : Int.max)
             }
+        }
+        bind("sidebar.section.moveToBottom", unavailable: { SidebarSectionStrings.noBottomArea }) { _, _ in
+            throw ActionFailure(message: SidebarSectionStrings.noBottomArea)
         }
         let looks: [(ActionID, SectionLook)] = [("sidebar.section.useBuiltInLook", .builtIn), ("sidebar.section.useListLook", .list)]
         for (id, look) in looks {

@@ -94,8 +94,15 @@ public struct ConversationSummary: Hashable, Sendable, Codable, Identifiable {
         return names.isEmpty ? "" : ListFormatter.localizedString(byJoining: names)
     }
 
+    /// Messages after my read cursor, without my own: my newest message
+    /// counts as read up to its seq (Messages and Slack: a person who
+    /// writes has seen the conversation). An owner that moves the sender's
+    /// cursor on send (the mock, `DaemonHomeSource`) gives an exact count;
+    /// for one that does not, my own messages between other people's still
+    /// count until my cursor passes them.
     public func unreadCount(me: ParticipantID) -> Int {
-        let cursor = readCursors[me] ?? 0
+        var cursor = readCursors[me] ?? 0
+        if let lastMessage, lastMessage.author == me { cursor = max(cursor, lastMessage.seq) }
         return lastSeq > cursor ? Int(lastSeq - cursor) : 0
     }
 
@@ -119,9 +126,13 @@ public struct InboxSnapshot: Hashable, Sendable {
 public struct ConversationPage: Hashable, Sendable {
     public var conversation: ConversationSummary
     public var messages: [Message]
+    /// The owner's stats of the thread roots in `messages` (empty from an
+    /// owner without thread stats).
+    public var threads: [ThreadSummary]
 
-    public init(conversation: ConversationSummary, messages: [Message]) {
+    public init(conversation: ConversationSummary, messages: [Message], threads: [ThreadSummary] = []) {
         self.conversation = conversation
         self.messages = messages
+        self.threads = threads
     }
 }

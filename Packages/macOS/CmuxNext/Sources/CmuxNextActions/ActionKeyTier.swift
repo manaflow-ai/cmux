@@ -88,11 +88,4 @@ extension ActionRegistry {
         }
         return nil
     }
-
-    /// Runs a resolved shortcut. Returns whether an action ran.
-    @discardableResult
-    public func runShortcut(_ id: ActionID, argument: String?) -> Bool {
-        if let argument { return perform(id, argument: argument) }
-        return perform(id)
-    }
 }

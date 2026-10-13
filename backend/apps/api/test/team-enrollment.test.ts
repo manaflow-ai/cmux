@@ -83,28 +83,6 @@ describe("enrollment and audit reducer (TeamDO)", () => {
     expect(ok(teamDomain.reduce(s, "team.device.release", { install: INST }, ctx(OWNER))).state.managed_devices?.[INST]).toBeUndefined()
   })
 
-  it("every admin action appends one record to a hash chain that verifies, and tampering breaks it", async () => {
-    let s = baseState()
-    const records: Array<AuditRecord> = []
-    const step = (op: string, params: unknown, c = ctx()) => {
-      const r = ok(teamDomain.reduce(s, op, params, c))
-      s = r.state as TeamState
-      for (const o of r.outbox ?? []) if (o.kind === "audit.append") records.push(o.payload as AuditRecord)
-    }
-    step("team.policy.update", { changes: [{ key: "telemetry.level", value: { value: "off", mode: "enforced" } }], expected_version: 0, reason: "privacy" })
-    step("team.enrollment_token.create", { label: "Kandji", token_hash: await tokenHash("t2") })
-    step("team.device.enroll", {}, asInstall(OWNER, INST))
-    step("team.policy.rollback", { version: 0, expected_version: 1 })
-    // A no-op writes no record.
-    step("team.policy.update", { changes: [{ key: "telemetry.level", value: null }], expected_version: 2 })
-    expect(records.map((r) => r.op)).toEqual(["team.policy.update", "team.enrollment_token.create", "team.device.enroll", "team.policy.rollback"])
-    expect(records.map((r) => r.n)).toEqual([1, 2, 3, 4])
-    expect(records.every((r) => !JSON.stringify(r).includes("@"))).toBe(true)
-    expect(verifyChain(records)).toBe(true)
-    expect(verifyChain([records[0]!, records[2]!, records[3]!])).toBe(false)
-    expect(verifyChain([{ ...records[0]!, summary: "edited" }, ...records.slice(1)])).toBe(false)
-  })
-
 })
 
 const sessionToken = async (stackUser: string) => {

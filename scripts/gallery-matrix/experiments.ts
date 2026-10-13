@@ -139,7 +139,7 @@ export function buildExperimentReport(outputDir: string, run: string) {
       })
       .join("");
     sections.push(
-      `<section><h2>${entry} · arm ${arm} · ${result.engine}</h2><p>Action-to-settled p50 / p95 / max (count): ${settle.settleCount ? `${settle.settleP50} / ${settle.settleP95} / ${settle.settleMax} ms (${settle.settleCount})` : "no click, key or press-drag samples"}.</p><table><tr><th>step</th><th>ms</th><th>frames</th><th>p50</th><th>p95</th><th>max</th><th>&gt;16.7</th><th>plan ms</th><th>settle p50 / p95 / max (count)</th><th>problems</th></tr>${stepRows}</table>` +
+      `<section><h2>${entry} · arm ${arm} · ${result.engine}</h2><p>Action-to-settled p50 / p95 / max (count): ${settle.settleCount ? `${settle.settleP50} / ${settle.settleP95} / ${settle.settleMax} ms (${settle.settleCount})` : "no click, context-menu, key or press-drag samples"}.</p><table><tr><th>step</th><th>ms</th><th>frames</th><th>p50</th><th>p95</th><th>max</th><th>&gt;16.7</th><th>plan ms</th><th>settle p50 / p95 / max (count)</th><th>problems</th></tr>${stepRows}</table>` +
         (strip ? `<p>Columns: ${times.join(", ")} ms after the input; rows: steps ${steps.join(", ")}.</p><img src="${strip}" style="max-width:100%">` : "") +
         `</section>`,
     );

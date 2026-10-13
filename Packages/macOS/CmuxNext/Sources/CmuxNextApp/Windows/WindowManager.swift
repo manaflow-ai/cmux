@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
@@ -71,6 +72,10 @@ final class WindowManager {
     private(set) var isTerminating = false
     /// False in tests: windows are created but never ordered on screen.
     var ordersWindowsIn = true
+    /// Restore finished: windows saved in full screen may enter it.
+    var fullScreenRestoreReady = false
+    /// A restored window is entering full screen (one at a time).
+    var fullScreenRestoreRunning = false
     var onFirstWindow: ((WindowController) -> Void)?
     /// A window installed workspace content (links opened at launch wait for it).
     var onContentDidAppear: ((WindowController) -> Void)?
@@ -159,7 +164,7 @@ final class WindowManager {
         }
         let store = services.daemon.store
         loadObservation = Task { [weak self] in
-            for await loaded in Observations({ store.isLoaded }) where loaded {
+            for await loaded in ObservationStream({ store.isLoaded }) where loaded {
                 await self?.restore()
                 return
             }
@@ -185,9 +190,7 @@ final class WindowManager {
             discard(leftover)
         }
         await EphemeralWorkspaces.awaitFlags(self)
-        if FirstWorkspace.isNeeded(services.daemon.store.workspaces, leftover: leftover) {
-            services.onboarding.freshWorkspaceID = await createWorkspace(newTabPage: true)
-        }
+        let firstWorkspace = await FirstWorkspaceLaunch(manager: self).create(leftover: leftover)
         let restoredRegistry = WindowRegistry(records: document.windows)
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
@@ -215,7 +218,9 @@ final class WindowManager {
         observeMembership()
         sessionRegistrar.start()
         registry.isLaunching = false
-        services.onboarding.landOnFirstWorkspace() // the workspace made above, on its New Tab page, not Home
+        fullScreenRestoreReady = true
+        enterRestoredFullScreens()
+        FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
     }
 
     /// The launch window takes the frontmost saved window's identity and
@@ -303,6 +308,7 @@ final class WindowManager {
         let behind = behindWindows.remove(controller.state.id) != nil
         if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, behind ? .presentBehind : .present) }
         onPresent?(controller)
+        enterRestoredFullScreens()
     }
 
     /// Brings a window forward (not key and no activation under

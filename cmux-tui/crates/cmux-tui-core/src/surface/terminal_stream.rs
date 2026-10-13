@@ -52,14 +52,24 @@ impl Surface {
         let requested = requested
             .validate()
             .map_err(|_| anyhow::anyhow!("Kitty graphics limits are out of range"))?;
-        #[cfg(unix)]
+        // One request at a time per surface: the acknowledgement is awaited
+        // without the runtime lock, which the reconnecting reader needs
+        // before it can read the new stream.
+        let _request = pty.kitty_limits_request.lock().unwrap();
+        #[cfg(any(unix, windows))]
         let next = {
-            let runtime = pty.runtime.lock().unwrap();
-            if let PtyRuntime::Hosted(host) = &*runtime {
-                if *pty.kitty_graphics_limits.lock().unwrap() == requested {
-                    return Ok(());
+            let pending = match &*pty.runtime.lock().unwrap() {
+                PtyRuntime::Hosted(host) => {
+                    if *pty.kitty_graphics_limits.lock().unwrap() == requested {
+                        return Ok(());
+                    }
+                    Some(host.begin_kitty_graphics_limits(requested, deadline)?)
                 }
-                if host.send_kitty_graphics_limits_until(requested, deadline)? {
+                PtyRuntime::ExitedHosted | PtyRuntime::Local { .. } => None,
+            };
+            match pending {
+                Some(Some(pending)) => {
+                    pending.wait()?;
                     // The host committed them; a smart host's resync reopens the
                     // mirror later, so a repeat request compares against this.
                     *pty.kitty_graphics_limits.lock().unwrap() = requested;
@@ -67,12 +77,11 @@ impl Surface {
                 }
                 // Older hosts cannot carry Kitty sidecar state. Keep the
                 // disposable mirror disabled so it cannot silently diverge.
-                KittyGraphicsLimits::disabled()
-            } else {
-                requested
+                Some(None) => KittyGraphicsLimits::disabled(),
+                None => requested,
             }
         };
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         let next = requested;
         let graphics_changed = {
             let mut term = pty.term.lock().unwrap();

@@ -4,7 +4,7 @@
 // bookmark in the popover marks the turn (bookmarks.ts). Geometry comes from the transcript's
 // layout (`tops`), so nothing here measures a row; the only element read is the popover itself.
 // Motion is transforms and opacity only (threadMinimap.css). Spec: minimap-spec.md in the lane notes.
-import React, { memo, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxRow, ConversationLayout } from "../model";
 import { useT } from "../i18n";
 import { useBookmarks } from "./bookmarks";
@@ -16,16 +16,20 @@ import {
   POPOVER_DELAY_MS,
   tickLayout,
   tickWidth,
+  TICK_CURRENT_WIDTH,
   TICK_LEFT,
   TICK_MAX_WIDTH,
   POPOVER_LEFT,
   turnScrollTop,
   visibleTurns,
   type MinimapTurn,
+  type MinimapTurns,
 } from "./model";
 
 /// The narrowest gutter (the space left of the rows) the column draws in; narrower panes hide it.
 const MIN_GUTTER = 28;
+/// How long a Previous or Next Turn step's smooth scroll counts as under way for the next step.
+const STEP_PENDING_MS = 800;
 /// Matches `.acpmux-row`'s left: max(18px, (100% - 760px) / 2).
 const gutter = (width: number) => Math.max(18, (width - 760) / 2);
 
@@ -48,7 +52,12 @@ export function ThreadMinimap({
 }) {
   const t = useT();
   const bookmarks = useBookmarks();
-  const turns = useMemo(() => minimapTurns(rows, sessionId), [rows, sessionId]);
+  const lastTurns = useRef<MinimapTurns | undefined>(undefined);
+  const turns = useMemo(() => {
+    const next = minimapTurns(rows, sessionId, lastTurns.current);
+    lastTurns.current = next;
+    return next.turns;
+  }, [rows, sessionId]);
   /// The tick under the pointer or keyboard focus.
   const [hovered, setHovered] = useState<number | undefined>(undefined);
   const [shown, setShown] = useState(false);
@@ -91,6 +100,59 @@ export function ThreadMinimap({
     if (shown && node) setPopoverHeight(node.offsetHeight);
   }, [shown, turn?.key, turn?.reply]);
   useLayoutEffect(() => () => clearTimeout(timer.current), []);
+  // Previous Turn and Next Turn (the app's Ctrl-Opt-Up and Ctrl-Opt-Down, bridge commands that raise
+  // these events) step the transcript from prompt to prompt, as a tick's click does. They work while the column is hidden too (a narrow pane, one turn).
+  const stepping = useRef({
+    turns,
+    tops: layout.tops,
+    total: layout.totalHeight,
+    /// Where the last step's smooth scroll goes, and until when that counts (STEP_PENDING_MS).
+    target: undefined as number | undefined,
+    until: 0,
+  });
+  useEffect(() => {
+    stepping.current.turns = turns;
+    stepping.current.tops = layout.tops;
+    stepping.current.total = layout.totalHeight;
+  }, [turns, layout.tops, layout.totalHeight]);
+  useEffect(() => {
+    const step = (by: -1 | 1) => {
+      const node = scroller.current;
+      const { turns: all, tops, total, target, until } = stepping.current;
+      if (!node || !all.length) return;
+      // A step during its smooth scroll counts from where that scroll goes, so repeats keep stepping.
+      // Only then: once it has passed or the reader scrolled, the view is where they are.
+      const pending = target !== undefined && performance.now() < until && Math.abs(node.scrollTop - target) > 1;
+      const from = pending ? target : node.scrollTop;
+      // From the turn being read: Next goes to the turn after it; Previous to its own prompt when
+      // that is above the viewport, else to the turn before it.
+      const reading = currentTurn(all, tops, from, node.clientHeight);
+      const index = by > 0 || turnScrollTop(all[reading], tops) >= from - 1 ? reading + by : reading;
+      if (index < 0 || index >= all.length) return;
+      // The last turns' prompts can sit below the furthest the transcript scrolls.
+      const next = Math.min(turnScrollTop(all[index], tops), Math.max(0, total - node.clientHeight));
+      stepping.current.target = next;
+      stepping.current.until = performance.now() + STEP_PENDING_MS;
+      const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+      node.scrollTo({ top: next, behavior: reduce ? "auto" : "smooth" });
+    };
+    const previous = () => step(-1);
+    const following = () => step(1);
+    // The reader's own scroll ends a pending step.
+    const reader = () => {
+      stepping.current.target = undefined;
+    };
+    const node = scroller.current;
+    const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
+    for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
+    window.addEventListener("cmux-acpmux-previousTurn", previous);
+    window.addEventListener("cmux-acpmux-nextTurn", following);
+    return () => {
+      window.removeEventListener("cmux-acpmux-previousTurn", previous);
+      window.removeEventListener("cmux-acpmux-nextTurn", following);
+      for (const name of inputs) node?.removeEventListener(name, reader);
+    };
+  }, [scroller]);
 
   const indexAt = (clientY: number) => {
     const box = root.current?.getBoundingClientRect();
@@ -140,7 +202,10 @@ export function ThreadMinimap({
             index={index}
             top={index * pitch}
             pitch={pitch}
-            width={tickWidth(hovered === undefined ? undefined : index - hovered)}
+            width={Math.max(
+              tickWidth(hovered === undefined ? undefined : index - hovered),
+              index === current ? TICK_CURRENT_WIDTH : 0,
+            )}
             tone={
               hovered === index
                 ? "active"
@@ -238,6 +303,7 @@ const Tick = memo(function Tick({
       data-tone={tone}
       aria-label={label}
       aria-current={current ? "location" : undefined}
+      data-current={current ? "" : undefined}
       active={tabbable}
       style={{ transform: `translate3d(0, ${top}px, 0)`, height: pitch }}
       onClick={() => onJump(index)}

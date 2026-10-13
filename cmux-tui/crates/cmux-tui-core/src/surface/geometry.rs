@@ -20,11 +20,11 @@ impl Surface {
     pub(crate) fn resize_reports_asynchronously(&self) -> bool {
         match self {
             Surface::Pty(pty) => {
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 {
                     matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Hosted(_))
                 }
-                #[cfg(not(unix))]
+                #[cfg(not(any(unix, windows)))]
                 {
                     false
                 }
@@ -209,7 +209,7 @@ impl Surface {
     /// surface. A later viewer report re-registers through `resize`.
     pub(crate) fn release_viewer_size(&self) -> anyhow::Result<bool> {
         let Surface::Pty(pty) = self else { return Ok(false) };
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let runtime = pty.runtime.lock().unwrap();
             if let PtyRuntime::Hosted(host) = &*runtime {

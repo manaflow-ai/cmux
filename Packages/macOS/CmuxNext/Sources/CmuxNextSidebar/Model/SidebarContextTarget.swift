@@ -13,6 +13,8 @@ public nonisolated enum SidebarContextTarget: Hashable, Sendable {
     case section(SectionID)
     /// Empty space below or between sections.
     case background
+    /// Empty space in the bottom band (cx-wab7m): Show for each piece hidden from it.
+    case footer
     /// A dot in the profile bar.
     case profile(ProfileKey)
     /// An item of a pinned section.

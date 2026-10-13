@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The "vim" pill in the terminal's top-right corner while copy mode is on
 /// (the old app's copy-mode indicator). Clicks go to the terminal below.
@@ -18,13 +19,11 @@ final class TerminalCopyModeBadge: NSVisualEffectView {
         layer?.cornerRadius = 14
         layer?.masksToBounds = true
         layer?.borderWidth = Metrics.lineWidth(1)
-        layer?.borderColor = NSColor.white.withAlphaComponent(0.12).cgColor
 
-        let icon = NSImageView(image: NSImage(systemSymbolName: "keyboard.badge.ellipsis", accessibilityDescription: nil) ?? NSImage())
-        icon.contentTintColor = .secondaryLabelColor
-        let label = NSTextField(labelWithString: Self.text)
+        let icon = ThemedImageView(image: NSImage.icon(.terminalCopymode, size: 14))
+        icon.ink = .secondary
+        let label = ThemedLabel(labelWithString: Self.text)
         label.font = .systemFont(ofSize: 12, weight: .semibold)
-        label.textColor = .labelColor
         for view in [icon, label] as [NSView] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
@@ -47,6 +46,20 @@ final class TerminalCopyModeBadge: NSVisualEffectView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyThemeEdge()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyThemeEdge()
+    }
+
+    private func applyThemeEdge() {
+        layer?.borderColor = performWithTheme { Palette.separator.cgColor }
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

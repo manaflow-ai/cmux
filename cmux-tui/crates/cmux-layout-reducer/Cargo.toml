@@ -9,10 +9,10 @@ description = "Pure layout reducer and tab-conservation invariants for the cmux 
 
 [dependencies]
 serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 proptest = { version = "1", default-features = false, features = ["std"] }
-serde_json = { workspace = true }
 
 [lints]
 workspace = true

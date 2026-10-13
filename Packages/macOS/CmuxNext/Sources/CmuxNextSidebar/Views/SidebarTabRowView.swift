@@ -1,17 +1,15 @@
 import AppKit
+import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
-import QuartzCore
 
-/// A compact tab row shown below a workspace when tab listing is enabled.
+/// A compact tab row shown below a workspace when tab listing is enabled. It
+/// reads as the workspace's child by indent and icon alone, no bars: a
+/// grouped workspace's line is the only bar in a hierarchy (cx-ai79).
 final class SidebarTabRowView: SidebarRowView {
     private let icon = NSImageView()
     private let title = SidebarRowView.label(font: SidebarStyle.subtitleFont)
-    private let groupRail = CALayer()
-    private let rails = [CALayer(), CALayer()]
     private var unread = false
-    private var kind: SidebarTabKind = .terminal
-    private var groupColor: GroupColor?
     /// Activates this tab from an accessibility AXPress.
     var onSelect: (() -> Void)?
 
@@ -23,16 +21,12 @@ final class SidebarTabRowView: SidebarRowView {
 
     required init(key: SidebarRowKey) {
         super.init(key: key)
-        layer?.addSublayer(groupRail)
-        rails.forEach { layer?.addSublayer($0) }
         [icon, title].forEach(addSubview)
     }
 
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         unread = false
-        kind = .terminal
-        groupColor = nil
         onSelect = nil
     }
 
@@ -41,10 +35,12 @@ final class SidebarTabRowView: SidebarRowView {
         guard needsConfigure(content) else { return }
         title.stringValue = tab.title
         title.font = tab.isUnread ? SidebarStyle.titleUnreadFont : SidebarStyle.subtitleFont
-        kind = tab.kind
         unread = tab.isUnread
-        groupColor = row.groupColor
-        icon.image = NSImage.icon(tab.kind.icon, size: SidebarStyle.tabIconSize)
+        // A page's favicon draws as is (not a template, so the unread tint leaves it alone).
+        let side = SidebarStyle.tabIconSize
+        icon.image = tab.favicon.map { NSImage(cgImage: $0.image, size: NSSize(width: side, height: side)) }
+            ?? tab.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: side) }
+            ?? NSImage.icon(tab.kind.icon, size: side)
         setAccessibilityElement(true)
         setAccessibilityRole(.row)
         let workspaceIdentifier = row.workspace?.rawValue ?? "unknown"
@@ -66,37 +62,15 @@ final class SidebarTabRowView: SidebarRowView {
             icon.contentTintColor = unread ? Palette.textPrimary : Palette.textTertiary
             title.textColor = unread ? Palette.textPrimary : Palette.textSecondary
             paintFill(isHovered ? Palette.hoverFill : nil)
-            let groupTint = groupColor.flatMap { $0.swatch.blended(withFraction: 0.25, of: Palette.accent) }
-            let groupRailWidth = max(Metrics.dividerThickness * 2, 2)
-            groupRail.backgroundColor = groupTint?.cgColor
-            groupRail.cornerRadius = groupRailWidth / 2
-            groupRail.isHidden = groupColor == nil
-            let color = SidebarStyle.color(kind == .browser ? .blue : .grey)
-            for rail in rails { rail.backgroundColor = color.withAlphaComponent(0.75).cgColor }
         }
     }
 
     override func layout() {
         super.layout()
         let b = layoutBounds
-        let groupRailWidth = max(Metrics.dividerThickness * 2, 2)
-        groupRail.frame = NSRect(
-            x: SidebarStyle.horizontalInset - Metrics.space2,
-            y: Metrics.space1,
-            width: groupRailWidth,
-            height: max(0, b.height - Metrics.space2)
-        )
-        groupRail.cornerRadius = groupRailWidth / 2
-        let railWidth = max(Metrics.dividerThickness, 1)
-        let gap = Metrics.space1
-        let railX = SidebarStyle.horizontalInset + Metrics.space1
-        for (index, rail) in rails.enumerated() {
-            rail.frame = NSRect(x: railX + CGFloat(index) * (railWidth + gap), y: Metrics.space1,
-                                 width: railWidth, height: max(0, b.height - Metrics.space2))
-            rail.cornerRadius = railWidth / 2
-        }
+        // A grouped tab row starts right of its group's line (SidebarListView.frame(for:)).
         let iconSide = SidebarStyle.tabIconSize
-        let iconX = railX + railWidth * 2 + gap * 2
+        let iconX = SidebarStyle.titleLeading + Metrics.space3
         icon.frame = NSRect(x: iconX, y: (b.height - iconSide) / 2, width: iconSide, height: iconSide)
         let textX = icon.frame.maxX + Metrics.space2
         title.frame = NSRect(x: textX, y: (b.height - title.intrinsicContentSize.height) / 2,

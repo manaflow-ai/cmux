@@ -26,9 +26,9 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             avatarHolder?.shift = contentLeading / 2
         }
     }
-    // cmux: built on first use in init, never an IUO (crash program).
+    // built on first use in init, never an IUO.
     private let pillHolder = PassThroughView()
-    private lazy var pillCenter: NSLayoutConstraint = pill.centerXAnchor.constraint(equalTo: pillHolder.centerXAnchor)
+    private(set) lazy var pillCenter: NSLayoutConstraint = pill.centerXAnchor.constraint(equalTo: pillHolder.centerXAnchor)
     /// The accessory spans the window, or (macOS 26 with a sidebar item) only the detail
     /// pane: the pill moves from the accessory's center to the transcript's.
     func centerPill() {
@@ -57,13 +57,17 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         toolbar.showsBaselineSeparator = false
         toolbar.centeredItemIdentifiers = [Self.avatarID]
 
-        pill.bezelStyle = .glass
-        pill.borderShape = .capsule
+        if #available(macOS 26, *) {
+            pill.bezelStyle = .glass
+            pill.borderShape = .capsule
+        } else { // macOS 14 and 15 have no glass bezel
+            pill.bezelStyle = .push
+        }
         pill.controlSize = .large
         pill.imagePosition = .imageTrailing
         pill.image = HeaderBar.pillImageMode ? nil : HeaderBar.chevronImage()
         pill.imageHugsTitle = true
-        pill.font = .systemFont(ofSize: 13, weight: .bold)
+        pill.font = HomeFonts.system(ofSize: 13, weight: .bold)
         pill.target = self
         pill.action = #selector(contactClicked)
         let holder = pillHolder
@@ -85,6 +89,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
             pill.heightAnchor.constraint(equalToConstant: 28),
         ])
         accessory.view = holder
+        holder.onLayout = { [weak self] in self?.centerPill() }
         accessory.layoutAttribute = .bottom
         if #available(macOS 26.1, *) { accessory.preferredScrollEdgeEffectStyle = .soft }
         applyTitle()
@@ -95,7 +100,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     static let accessoryHeight: CGFloat = 28
     static func flag(_ name: String, _ fallback: CGFloat) -> CGFloat {
         let a = ProcessInfo.processInfo.arguments
-        return a.firstIndex(of: name).flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? fallback // cmux: no index math
+        return a.firstIndex(of: name).flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? fallback // no index math
     }
     /// The pill's title and chevron sit 1 pt right of AppKit's centering in
     /// Messages (ink x 262-360.5 pt against 261-359.5).
@@ -109,7 +114,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     static let chevronCompact = flag("--chev-compact", 1) != 0
     static func chevronImage() -> NSImage? {
         guard let sym = NSImage(systemSymbolName: chevronCompact ? "chevron.compact.right" : "chevron.right", accessibilityDescription: nil)?
-            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: chevronPoint, weight: [NSFont.Weight.light, .regular, .medium, .semibold, .bold][checked: CrashGuard.int(chevronWeight)] ?? .bold) /* cmux: an out-of-range flag is bold, not a trap */
+          .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: chevronPoint, weight: [NSFont.Weight.light, .regular, .medium, .semibold, .bold][checked: CrashGuard.int(chevronWeight)] ?? .bold) /* an out-of-range flag is bold, not a trap */
                 .applying(NSImage.SymbolConfiguration(paletteColors: [NSColor(white: chevronWhite, alpha: 1)]))) else { return nil }
         if chevronPad == 0 { return sym }
         let size = NSSize(width: sym.size.width + chevronPad, height: sym.size.height)
@@ -122,7 +127,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     static let avatarTop = flag("--avatar-top", 8)
     static let pillLift: CGFloat = {
         let a = ProcessInfo.processInfo.arguments
-        return a.firstIndex(of: "--pill-lift").flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? -12 // cmux
+        return a.firstIndex(of: "--pill-lift").flatMap { a.dropFirst($0 + 1).first }.flatMap { Double($0) }.map { CGFloat($0) } ?? -12
     }()
 
     /// Messages' pill width: 77.75 pt for "Instinct", plus the title's extra width.
@@ -134,7 +139,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
     /// Draws the pill's title and chevron at the measured places (rect: the pill's bounds,
     /// flipped).
     static func drawPillContent(_ title: String, in rect: NSRect) {
-        let font = NSFont.systemFont(ofSize: 13, weight: .bold)
+        let font = HomeFonts.system(ofSize: 13, weight: .bold)
         // Messages' title is opaque (255 levels in dark mode; labelColor is 85 % white).
         let ink = NSColor(name: nil) { $0.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua ? .white : .black }
         let s = NSAttributedString(string: title, attributes: [.font: font, .foregroundColor: ink])
@@ -146,7 +151,7 @@ final class HeaderBar: NSObject, NSToolbarDelegate {
         }
     }
     static func pillWidth(_ title: String) -> CGFloat {
-        let bold = NSFont.systemFont(ofSize: 13, weight: .bold)
+        let bold = HomeFonts.system(ofSize: 13, weight: .bold)
         return TextDraw.width(title, font: bold) + 77.75 - TextDraw.width("Instinct", font: bold)
     }
     private var widthConstraint: NSLayoutConstraint? { pill.constraints.first { $0.firstAttribute == .width } }
@@ -321,6 +326,14 @@ private final class AvatarLane: NSView {
 /// The contact pill's title and chevron, drawn over the glass button (clicks pass to it).
 private final class PillContentView: NSView {
     var title = "" { didSet { needsDisplay = true } }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        // Drawn when the title changes, not when the pill moves (it moves at every width of a
+        // live resize; the default policy redrew it in each frame).
+        wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+    }
+    required init?(coder: NSCoder) { nil }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) { HeaderBar.drawPillContent(title, in: bounds) }
@@ -328,9 +341,22 @@ private final class PillContentView: NSView {
 
 /// The name pill's accessory: only the pill takes clicks (the sidebar's controls sit under
 /// the accessory's empty sides).
+/// Its layout re-centres the pill (`onLayout`): the pill's offset depends on this view's frame in
+/// the window, which AppKit's titlebar can change after the content's own layout reported the
+/// content leading (a sidebar collapse moves the accessory from the detail pane to the window).
 private final class PassThroughView: NSView {
+    var onLayout: (() -> Void)?
     override func hitTest(_ point: NSPoint) -> NSView? {
         let v = super.hitTest(point)
         return v === self ? nil : v
+    }
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        let moved = newOrigin != frame.origin
+        super.setFrameOrigin(newOrigin)
+        if moved { needsLayout = true }
+    }
+    override func layout() {
+        onLayout?()
+        super.layout()
     }
 }

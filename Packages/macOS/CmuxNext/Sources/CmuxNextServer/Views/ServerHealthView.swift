@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// Server health: one of three prototypes over the alert set.
@@ -11,7 +12,7 @@ struct ServerHealthView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                Image(systemName: "heart.text.square").font(.system(size: 15)).foregroundStyle(colors.secondary)
+                Icon(.serverHealth, size: 16).foregroundStyle(colors.secondary)
                 Text(ServerStrings.health).font(.system(size: 13, weight: .semibold)).foregroundStyle(colors.primary)
                 if let host = model.snapshot?.hostName {
                     Text(verbatim: host).font(.system(size: 12)).foregroundStyle(colors.tertiary)
@@ -38,16 +39,16 @@ struct CheckGlyph: View {
     @Environment(\.serverColors) private var colors
 
     var body: some View {
-        Image(systemName: symbol).font(.system(size: 12, weight: .medium))
+        Icon(icon, size: 15)
             .foregroundStyle(severity == nil ? colors.ok.opacity(0.8) : colors.severity(severity)).frame(width: 18)
     }
 
-    private var symbol: String {
+    private var icon: IconName {
         switch severity {
-        case .critical: "exclamationmark.octagon.fill"
-        case .warning: "exclamationmark.triangle.fill"
-        case .info: "info.circle"
-        case nil: "checkmark.circle"
+        case .critical: .statusCritical
+        case .warning: .statusWarning
+        case .info: .statusInfo
+        case nil: .statusSuccess
         }
     }
 }

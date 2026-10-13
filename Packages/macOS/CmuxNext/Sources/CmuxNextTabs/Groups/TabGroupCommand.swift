@@ -6,7 +6,8 @@ public import CmuxNextDesign
 /// `TabStripIntent.group`.
 public enum TabGroupCommand: Hashable, Sendable {
     case rename(TabGroupID, name: String)
-    case setColor(TabGroupID, GroupColor)
+    /// A palette token or a custom color (`#RRGGBB` on the wire).
+    case setColor(TabGroupID, GroupTint)
     case newTab(TabGroupID)
     case ungroup(TabGroupID)
     case close(TabGroupID)
@@ -41,7 +42,7 @@ public enum TabGroupCommand: Hashable, Sendable {
         var args = ["group": groupID.rawValue]
         switch self {
         case .rename(_, let name): args["name"] = name
-        case .setColor(_, let color): args["color"] = color.rawValue
+        case .setColor(_, let tint): args["color"] = tint.wire
         default: break
         }
         return args

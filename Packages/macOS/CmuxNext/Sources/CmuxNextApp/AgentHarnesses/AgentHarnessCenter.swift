@@ -27,6 +27,7 @@ final class AgentHarnessCenter {
     @ObservationIgnored private var removed: JSONValue?
     @ObservationIgnored private var watchers = 0
     @ObservationIgnored private var watch: Task<Void, Never>?
+    @ObservationIgnored private var reload: Task<Void, Never>?
 
     init(environment: @escaping @MainActor () -> AcpmuxEnvironment?) {
         self.environment = environment
@@ -137,6 +138,33 @@ final class AgentHarnessCenter {
             publish()
             throw AgentHarnessFailure.unsupported
         }
+    }
+
+    /// The ids of the daemon's harnesses (`_acpmux/harnesses`), as Settings > Agents lists them.
+    func listed() async throws -> [String] {
+        try await call(.list)["harnesses"]?.objectValue.map { Array($0.keys) } ?? []
+    }
+
+    /// `_acpmux/harness/health` (cx-ny85): the daemon's last check of every harness; `rescan` has
+    /// acpmux look for harnesses first.
+    func health(refresh: Bool = false, rescan: Bool = false) async throws -> [JSONValue] {
+        if rescan { await self.rescan() }
+        return try await call(.health, refresh ? ["refresh": true] : [:])["harnesses"]?.arrayValue ?? []
+    }
+
+    /// `_acpmux/reload_config` (cx-apoko): acpmux reads its profiles and looks on PATH again, for
+    /// a harness the Harnesses page just installed. Running chats stay; idle pooled sessions are
+    /// dropped and model lists probed again, so reloads run one after another, never at once (a
+    /// second install that ends during a reload gets its own after it). A daemon without a config
+    /// file refuses; the health check after it still runs.
+    private func rescan() async {
+        let previous = reload
+        let next = Task { [weak self] in
+            await previous?.value
+            _ = try? await self?.call(.reload)
+        }
+        reload = next
+        await next.value
     }
 
     private func call(_ method: AcpmuxHarnessMethod, _ params: [String: any Sendable] = [:]) async throws -> JSONValue {

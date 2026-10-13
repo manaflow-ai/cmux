@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -129,8 +130,10 @@ final class BrowserRecordWriter {
     /// The page change the pending write waits to send.
     private var unsent: BrowserTabState?
 
+    /// `recordURL` maps the page's address to the address the record keeps
+    /// (a machine's page keeps its machine record, cx-2cob slice 2).
     init(tab: any BrowserTab, recorded: BrowserRecord, tracksState: Bool = false,
-         daemonRecord: (@MainActor () -> BrowserRecord?)? = nil,
+         daemonRecord: (@MainActor () -> BrowserRecord?)? = nil, recordURL: (@MainActor (URL) -> URL)? = nil,
          delay: Duration, sleep: @escaping Sleep, send: @escaping Send) {
         self.recorded = recorded
         self.tracksState = tracksState
@@ -138,13 +141,15 @@ final class BrowserRecordWriter {
         self.sleep = sleep
         self.send = send
         observation = Task { [weak self, tab] in
-            for await state in Observations({ tab.state }) {
+            for await state in ObservationStream({ tab.state }) {
+                var state = state
+                if let recordURL { state.url = state.url.map(recordURL) }
                 self?.pageDidChange(state)
             }
         }
         if let daemonRecord {
             rebasing = Task { [weak self] in
-                for await record in Observations({ daemonRecord() }) {
+                for await record in ObservationStream({ daemonRecord() }) {
                     guard let record else { continue }
                     self?.rebase(record)
                 }

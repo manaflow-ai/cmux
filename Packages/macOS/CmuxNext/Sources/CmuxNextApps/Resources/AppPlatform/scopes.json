@@ -385,6 +385,10 @@
       "scope": "coderouter:write",
       "class": "mutation"
     },
+    "coderouter.detect": {
+      "scope": "coderouter:read",
+      "class": "read"
+    },
     "coderouter.status": {
       "scope": "coderouter:read",
       "class": "read"
@@ -438,6 +442,10 @@
       "class": "mutation"
     },
     "conversation.snapshot": {
+      "scope": "conversation:read",
+      "class": "read"
+    },
+    "conversation.thread": {
       "scope": "conversation:read",
       "class": "read"
     },
@@ -577,7 +585,15 @@
       "scope": "git:write",
       "class": "mutation"
     },
+    "git.commit": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
     "git.diff": {
+      "scope": "git:read",
+      "class": "read"
+    },
+    "git.files.list": {
       "scope": "git:read",
       "class": "read"
     },
@@ -585,9 +601,25 @@
       "scope": "git:read",
       "class": "read"
     },
+    "git.push": {
+      "scope": "git:external",
+      "class": "mutation"
+    },
     "git.status": {
       "scope": "git:read",
       "class": "read"
+    },
+    "git.worktree.apply": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
+    "git.worktree.create": {
+      "scope": "git:execute",
+      "class": "mutation"
+    },
+    "git.worktree.remove": {
+      "scope": "git:execute",
+      "class": "mutation"
     },
     "github.issue.comment": {
       "scope": "github:external",
@@ -692,6 +724,10 @@
     "invite.revoke": {
       "scope": "invite:write",
       "class": "mutation"
+    },
+    "keybindings.get": {
+      "scope": "keybindings:read",
+      "class": "read"
     },
     "linear.issue.create": {
       "scope": "linear:write",
@@ -1201,6 +1237,22 @@
       "scope": "session:write",
       "class": "mutation"
     },
+    "settings.get": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.list": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.schema": {
+      "scope": "settings:read",
+      "class": "read"
+    },
+    "settings.snapshot": {
+      "scope": "settings:read",
+      "class": "read"
+    },
     "sidebar_layout.get": {
       "scope": "sidebar_layout:read",
       "class": "read"
@@ -1569,6 +1621,10 @@
       "scope": "workspace:write",
       "class": "mutation"
     },
+    "workspace.ensure_app": {
+      "scope": "workspace:write",
+      "class": "mutation"
+    },
     "workspace.ensure_home": {
       "scope": "workspace:write",
       "class": "mutation"
@@ -1644,6 +1700,9 @@
     "cloud.snapshot.delete",
     "cloud.snapshot.restore",
     "conversation.events",
+    "credential.mint",
+    "credential.rotate",
+    "credential.verify",
     "domain.claim",
     "domain.release",
     "domain.verify",
@@ -1653,6 +1712,17 @@
     "firewall.list",
     "frontend_projection.get",
     "frontend_projection.put",
+    "history.backups.purge",
+    "history.clear",
+    "history.entries.list",
+    "history.entries.remove",
+    "history.restore",
+    "history.site.remove",
+    "history.visit.import",
+    "history.visit.record",
+    "history.visit.remove",
+    "history.visit.summaries",
+    "history.visit.title",
     "home.settings.set",
     "host.enroll",
     "host.remove",
@@ -1667,6 +1737,10 @@
     "integration.policy.set",
     "integration.revoke",
     "invite.accept",
+    "keybindings.remove",
+    "keybindings.reset",
+    "keybindings.set",
+    "layout.bulk",
     "network.list",
     "origin.confirmation.issue",
     "pairing_request.list",
@@ -1684,6 +1758,9 @@
     "session.open",
     "session.reload_config",
     "session.shutdown",
+    "settings.reset",
+    "settings.reset_all",
+    "settings.set",
     "sidebar_view.attach",
     "sso.connection.activate",
     "sso.connection.create",
@@ -1715,6 +1792,7 @@
     "tunnel.rotate-key",
     "usage.cap.set",
     "user.ensure",
+    "user.presence_key.list",
     "user.presence_key.revoke",
     "user.teams.list",
     "user.text_confirm.get",
@@ -1722,6 +1800,7 @@
     "user.text_confirm.lower",
     "user.text_confirm.lower.challenge",
     "workspace.agent_folder.set",
+    "workspace.agent_start.get",
     "workspace.close"
   ]
 }

@@ -18,6 +18,35 @@ enum DebugLayers {
         return .object([
             "windows": .array(windows),
             "consistent": .bool(windows.allSatisfy { $0["consistent"]?.boolValue == true }),
+            "layout_passes": layoutPasses(),
+        ])
+    }
+
+    /// `LayoutPassGuard`: the most layout calls one view had in one
+    /// window layout (one `layoutIfNeeded`), the loops it caught (view class, window, ancestry)
+    /// and the busiest view classes since launch or the last reset.
+    static func layoutPasses() -> JSONValue {
+        let guardian = LayoutPassGuard.shared
+        return .object([
+            "installed": .bool(guardian.isInstalled),
+            "bound": .number(Double(LayoutPassGuard.bound)),
+            "max_in_one_turn": .number(Double(guardian.maxPassesInOneTurn)),
+            "max_view_class": guardian.maxPassesClass.map(JSONValue.string) ?? .null,
+            "max_window_class": guardian.maxPassesWindowClass.map(JSONValue.string) ?? .null,
+            // The limit of that window (LayoutPassGuard.limit(viewCount:)); `bound` is the largest.
+            "max_window_limit": guardian.maxPassesWindowLimit.map { .number(Double($0)) } ?? .null,
+            "loops": .array(guardian.reports.map { report in
+                .object([
+                    "view_class": .string(report.viewClass),
+                    "window_class": report.windowClass.map(JSONValue.string) ?? .null,
+                    "ancestry": .array(report.ancestry.map(JSONValue.string)),
+                    "passes": .number(Double(report.passes)),
+                    "limit": .number(Double(report.limit)),
+                ])
+            }),
+            "top_classes": .array(guardian.passesByClass.prefix(20).map { entry in
+                .object(["view_class": .string(entry.viewClass), "passes": .number(Double(entry.passes))])
+            }),
         ])
     }
 
@@ -31,6 +60,7 @@ enum DebugLayers {
                 "visible": .bool(child.isVisible),
                 "level": .number(Double(child.level.rawValue)),
                 "frame": rect(child.frame),
+                "layout_pass_limit": .number(Double(LayoutPassGuard.limit(viewCount: LayoutPassGuard.viewCount(of: child)))),
             ])
         }
         let planes = layer.adoptedPlanes.map { plane -> JSONValue in
@@ -43,7 +73,7 @@ enum DebugLayers {
                 "rings": .array((root?.overlayRings ?? []).map { ring in
                     .object(["pane": .string(ring.pane), "frame_in_window": rect(ring.frameInWindow), "shows_ring": .bool(ring.showsRing),
                              "ring_in_window": rect(ring.ringInWindow), "content_in_window": rect(ring.contentInWindow),
-                             "ring_in_sync": .bool(ring.ringInWindow == ring.contentInWindow)])
+                             "ring_in_sync": .bool(ring.ringInSync)])
                 }),
                 "drop_highlight_in_window": root?.dropHighlightFrameInWindow.map(rect) ?? .null,
                 "drop_highlight_material": root.map { .string(String(describing: $0.dropHighlightMaterial)) } ?? .null,
@@ -77,7 +107,7 @@ enum DebugLayers {
         let inSync = layer.adoptedPlanes.allSatisfy(\.isInSync)
         // Every displayed ring strokes its pane's rounded content rect.
         let ringsInSync = layer.adoptedPlanes.allSatisfy { plane in
-            ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInWindow == $0.contentInWindow }
+            ((plane.home as? LayoutRootView)?.overlayRings ?? []).allSatisfy { $0.ringInSync }
         }
         var fields: [String: JSONValue] = [:]
         #if DEBUG
@@ -89,6 +119,8 @@ enum DebugLayers {
             "id": .string(controller.state.id),
             "window_number": .number(Double(window.windowNumber)),
             "frame": rect(window.frame),
+            // Layout calls of one view in one window layout the guard allows in this window.
+            "layout_pass_limit": .number(Double(LayoutPassGuard.limit(viewCount: LayoutPassGuard.viewCount(of: window)))),
             "placement": .string(layer.placement.rawValue),
             "overlay_panel": layer.overlayPanel.map { .number(Double($0.windowNumber)) } ?? .null,
             "overlay_panel_frame": layer.overlayPanel.map { rect($0.frame) } ?? .null,

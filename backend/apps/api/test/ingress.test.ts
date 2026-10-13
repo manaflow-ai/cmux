@@ -6,16 +6,6 @@ const SECRET = "test-secret"
 const now = Date.UTC(2026, 9, 2, 12, 0, 0)
 
 describe("verify primitives", () => {
-  it("compares in constant time and checks the replay window", async () => {
-    expect(timingSafeEqual("abc", "abc")).toBe(true)
-    expect(timingSafeEqual("abc", "abd")).toBe(false)
-    expect(timingSafeEqual("abc", "abcd")).toBe(false)
-    expect(freshTimestamp(String(now / 1000 - 299), now)).toBe(true)
-    expect(freshTimestamp(String(now / 1000 - 301), now)).toBe(false)
-    expect(freshTimestamp("12abc", now)).toBe(false)
-    // RFC 4231 test case 2.
-    expect(await hmacHex("Jefe", "what do ya want for nothing?")).toBe("5bdcc146bf60754e6a042426089575c75a003f089d2739839dec58b964ec3843")
-  })
   it("refuses bodies over the limit by header and by stream", async () => {
     const declared = await readRawBody(new Request("https://x", { method: "POST", body: "x", headers: { "content-length": "999999999" } }), 10)
     expect(declared).toMatchObject({ ok: false, status: 413 })

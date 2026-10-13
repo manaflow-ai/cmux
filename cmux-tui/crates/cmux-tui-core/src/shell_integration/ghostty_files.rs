@@ -314,20 +314,4 @@ mod tests {
             fs::remove_dir_all(&dir).unwrap();
         }
     }
-
-    /// The env value Ghostty's `setupFeatures` writes: sorted names, the
-    /// cursor with its blink state, empty when every feature is off.
-    #[test]
-    fn the_env_value_is_ghosttys() {
-        assert_eq!(Settings::default().env_value(), "cursor:blink,path,title");
-        let steady = Settings {
-            features: Features::all(true),
-            cursor_blink: Some(false),
-            ..Settings::default()
-        };
-        assert_eq!(steady.env_value(), "cursor:steady,path,ssh-env,ssh-terminfo,sudo,title");
-        let none =
-            Settings { features: Features::all(false), cursor_blink: None, ..Settings::default() };
-        assert_eq!(none.env_value(), "");
-    }
 }

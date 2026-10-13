@@ -76,18 +76,24 @@ nonisolated enum BrowserPlacement: Equatable, Sendable {
 }
 
 /// Why a machine browser tab shows no page yet (the design's not-ready
-/// states). Slice 1 has no browser host on any machine.
+/// states, cx-2cob slice 2).
 nonisolated enum MachineBrowserState: Equatable, Sendable {
     case ready
-    /// The machine has no browser host (an SSH machine: slice 2 installs it).
+    /// The machine has no browser installed.
     case notInstalled(String)
     /// The machine's platform has no browser host yet (Cloud machines run Linux).
     case unavailable(String)
     case notConnected(String)
+    /// The machine's cmux-tui has no browser runtimes (update it).
+    case tooOld(String)
+    case starting(String)
+    /// The browser stopped or did not start; the reason ends with its log.
+    case failed(String, String)
 
-    static func resolve(name: String, isCloud: Bool, connected: Bool, hostReady: Bool) -> MachineBrowserState {
+    /// `installed`: the machine's last status (nil: not known yet).
+    static func resolve(name: String, isCloud: Bool, connected: Bool, installed: Bool?) -> MachineBrowserState {
         guard connected else { return .notConnected(name) }
-        if hostReady { return .ready }
+        if installed == true { return .ready }
         return isCloud ? .unavailable(name) : .notInstalled(name)
     }
 
@@ -97,6 +103,9 @@ nonisolated enum MachineBrowserState: Equatable, Sendable {
         case let .notInstalled(name): MachineBrowserStrings.notInstalled(name)
         case let .unavailable(name): MachineBrowserStrings.unavailable(name)
         case let .notConnected(name): MachineBrowserStrings.notConnected(name)
+        case let .tooOld(name): MachineBrowserStrings.tooOld(name)
+        case let .starting(name): MachineBrowserStrings.starting(name)
+        case let .failed(name, reason): MachineBrowserStrings.failed(name, reason)
         }
     }
 }

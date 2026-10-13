@@ -117,6 +117,15 @@ extension TabContentCache {
         }
     }
 
+    /// Installs the page that replaces a tab's page (`swapPage`). The tab's
+    /// lifecycle does not change, so no reveal follows: a tab on screen
+    /// shows the new page at once (a remote view tab's Connect starts its
+    /// stream here; before, the replacement never learned it was visible).
+    func installReplacement(_ page: any BrowserTab, for key: String) {
+        _ = install(page, for: key)
+        if shownPages.contains(key) { page.setContentVisible(true) }
+    }
+
     private func reveal(_ key: String) {
         if let entry = terminals[key] {
             entry.session.isRenderingSuspended = false

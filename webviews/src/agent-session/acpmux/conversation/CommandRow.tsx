@@ -1,8 +1,10 @@
 // One command in a "Ran N commands" group: the command line in mono, cut to the row, then its
 // exit status and run time, opening to its Shell block.
-import { useId, useState } from "react";
+import { useFindReveal } from "./chatFind";
+import { useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
+import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
 import { Check, ChevronRight, Spinner } from "./icons";
 import { isFailed, isRunning, toolDuration } from "./toolGroups";
@@ -10,6 +12,10 @@ import { isFailed, isRunning, toolDuration } from "./toolGroups";
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  useFindReveal(
+    useMemo(() => [item], [item]),
+    () => setOpen(true),
+  );
   const detailsId = useId();
   const tool = item.tool!;
   const running = isRunning(tool);
@@ -24,9 +30,12 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
         title={tool.command}
+        ref={menuPartRef({ command: tool.command, output: tool.output?.replace(/\n$/, "") })}
         onClick={() => setOpen((value) => !value)}
       >
-        <code className="cv-command__line">{tool.command}</code>
+        <code className="cv-command__line" data-find-skip={open || undefined}>
+          {tool.command}
+        </code>
         <span className="cv-command__meta">
           {running ? (
             <Spinner size={12} />

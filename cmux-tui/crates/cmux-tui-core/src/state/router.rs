@@ -32,6 +32,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
         operation,
         Op::WorkspaceUpdate
             | Op::WorkspaceAgentFolderSet
+            | Op::WorkspaceAgentStartGet
             | Op::TabPin
             | Op::TabUnpin
             | Op::TabUpdate
@@ -44,6 +45,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::TabGroupMove
             | Op::TabGroupUngroup
             | Op::TabGroupClose
+            | Op::LayoutBulk
             | Op::WorkspaceGroupList
             | Op::WorkspaceGroupCreate
             | Op::WorkspaceGroupUpdate
@@ -92,6 +94,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::PaletteUsageHide
             | Op::PaletteUsageForget
             | Op::WorkspaceEnsureHome
+            | Op::WorkspaceEnsureApp
             | Op::WorkspaceStatusList
             | Op::WorkspaceStatusSet
             | Op::WorkspaceStatusClear
@@ -115,6 +118,29 @@ fn state_error(error: anyhow::Error) -> ResourceError {
         return ResourceError::validation_invalid(None, reason);
     }
     resource_operation_error(error)
+}
+
+/// The loading-indicator fields of `workspace_status.set`. A process owner
+/// is accepted only from a local caller (the user's own CLI or the verified
+/// app): an app's or a remote peer's process id names nothing it owns on
+/// this machine. Whether the process runs is checked inside the commit,
+/// after the replay check.
+fn status_set_meta(
+    request: &ParsedResourceRequest,
+) -> Result<crate::state::status_meta::StatusMeta, ResourceError> {
+    use crate::workspace_registry::Actor;
+    let meta =
+        crate::state::status_meta::StatusMeta::from_fields(&request.fields).map_err(state_error)?;
+    let local =
+        matches!(request.actor, Actor::User { .. } | Actor::Frontend { .. } | Actor::Daemon);
+    if meta.owner_pid.is_some() && !local {
+        return Err(ResourceError::operation_failed(
+            "workspace_status.set",
+            "owner.pid requires a trusted local connection",
+            json!({"required_authority": "trusted_local"}),
+        ));
+    }
+    Ok(meta)
 }
 
 fn mutation(request: &ParsedResourceRequest) -> Result<WorkspaceMutation, ResourceError> {
@@ -243,6 +269,8 @@ pub(crate) fn dispatch(
                 .map_err(state_error)?;
             state_result(mux, commit)
         }
+        // cx-9aps: the one answer for where a new agent chat starts.
+        Op::WorkspaceAgentStartGet => mux.agent_start(selectors, string(fields, "cwd").as_deref()),
         Op::TabPin | Op::TabUnpin => {
             let commit = mux
                 .state_pin_tab(strip_request(&request)?, selectors.clone(), operation == Op::TabPin)
@@ -293,7 +321,7 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed"])?;
+            require_any(fields, &["name", "color", "collapsed", "icon"])?;
             let group = string(fields, "tab_group").unwrap_or_default();
             let commit = mux
                 .tab_group_update(
@@ -302,6 +330,7 @@ pub(crate) fn dispatch(
                     string(fields, "name"),
                     string(fields, "color"),
                     fields.get("collapsed").and_then(Value::as_bool),
+                    nullable_string(fields, "icon"),
                 )
                 .map_err(state_error)?;
             patch_result(mux, commit)
@@ -347,6 +376,23 @@ pub(crate) fn dispatch(
             let (_, commit) =
                 mux.tab_group_close(strip_request(&request)?, &group).map_err(state_error)?;
             patch_result(mux, commit)
+        }
+        // One bulk preset: one commit, one closed group (cx-gzh.5).
+        Op::LayoutBulk => {
+            // The level's selectors may name the anchor; the session check
+            // takes only machine and session.
+            let session = ResourceSelectors {
+                machine: selectors.machine.clone(),
+                session: selectors.session.clone(),
+                ..ResourceSelectors::default()
+            };
+            ensure_session(mux, &session)?;
+            let bulk =
+                crate::state::layout_bulk::BulkRequest::from_fields(fields).map_err(state_error)?;
+            let commit = mux
+                .state_layout_bulk(&mutation(&request)?, selectors, &bulk)
+                .map_err(state_error)?;
+            state_result(mux, commit)
         }
         // A3: personal workspace groups, placements, rooms
         Op::WorkspaceGroupList => {
@@ -509,33 +555,7 @@ pub(crate) fn dispatch(
         }
         Op::ClosedDelete => {
             ensure_session(mux, selectors)?;
-            let members = match fields.get("members").and_then(Value::as_array) {
-                Some(members) => Some(
-                    members
-                        .iter()
-                        .map(|member| {
-                            member.as_u64().and_then(|m| usize::try_from(m).ok()).ok_or_else(|| {
-                                ResourceError::validation_invalid(
-                                    Some("members"),
-                                    "members must be member indexes",
-                                )
-                            })
-                        })
-                        .collect::<Result<Vec<_>, _>>()?,
-                ),
-                None => None,
-            };
-            let delete = DeleteRequest {
-                closed: string(fields, "closed"),
-                all: fields.get("all").and_then(Value::as_bool).unwrap_or(false),
-                members,
-                since_ms: match string(fields, "since_ms") {
-                    Some(since) => Some(since.parse::<i64>().map_err(|_| {
-                        ResourceError::validation_invalid(None, "since_ms must be a decimal")
-                    })?),
-                    None => None,
-                },
-            };
+            let delete = DeleteRequest::from_fields(fields)?;
             let commit = mux
                 .state_delete_closed(&mutation(&request)?, expected_revision(fields)?, &delete)
                 .map_err(state_error)?;
@@ -706,6 +726,15 @@ pub(crate) fn dispatch(
                 home.replayed,
             )
         }
+        // app-screens-v1: the one workspace of an installed app.
+        Op::WorkspaceEnsureApp => {
+            ensure_session(mux, selectors)?;
+            let app = string(fields, "app").unwrap_or_default();
+            let route = string(fields, "route");
+            let name = string(fields, "name");
+            let ensured = mux.state_ensure_app(&app, route, name, &mutation(&request)?)?;
+            mutation_result(mux, ensured.result, ensured.revision, ensured.replayed)
+        }
         // B4: workspace status
         Op::WorkspaceStatusList => mux.workspace_status_snapshots(selectors).map(Value::Array),
         Op::WorkspaceLogList => {
@@ -718,12 +747,17 @@ pub(crate) fn dispatch(
         | Op::WorkspaceProgressClear
         | Op::WorkspaceLogAppend
         | Op::WorkspaceLogClear => {
+            let meta = match operation {
+                Op::WorkspaceStatusSet => Some(status_set_meta(&request)?),
+                _ => None,
+            };
             let change = match operation {
                 Op::WorkspaceStatusSet => WorkspaceStatusChange::Set {
                     key: string(fields, "key").unwrap_or_default(),
                     text: string(fields, "text").unwrap_or_default(),
                     icon: string(fields, "icon"),
                     color: string(fields, "color"),
+                    meta: Box::new(meta.clone().unwrap_or_default()),
                 },
                 Op::WorkspaceStatusClear => {
                     WorkspaceStatusChange::Clear { key: string(fields, "key") }
@@ -749,6 +783,14 @@ pub(crate) fn dispatch(
                     change,
                 )
                 .map_err(state_error)?;
+            if let Some(meta) = meta {
+                crate::state::status_owners::watch_owners(
+                    mux,
+                    meta.owner_terminal.as_deref(),
+                    meta.owner_pid,
+                    meta.ttl_ms.is_some(),
+                );
+            }
             state_result(mux, commit)
         }
         // Agent messages (plans/feat-agent-rooms/DESIGN.md)
@@ -918,12 +960,13 @@ fn screen_change(
             screens: strings(fields, "screens"),
         },
         Op::ScreenGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed"])?;
+            require_any(fields, &["name", "color", "collapsed", "icon"])?;
             ScreenChange::GroupUpdate {
                 group: string(fields, "screen_group").unwrap_or_default(),
                 name: string(fields, "name"),
                 color: string(fields, "color"),
                 collapsed: fields.get("collapsed").and_then(Value::as_bool),
+                icon: nullable_string(fields, "icon"),
             }
         }
         Op::ScreenGroupUngroup => {

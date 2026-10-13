@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// The approving device's sheet (palette "Add Server…", the menubar, the
@@ -33,6 +34,7 @@ struct ServerApproverView: View {
                 }
                 Toggle(ServerStrings.runChief, isOn: Binding(get: { model.approval.runChief }, set: { model.approval.runChief = $0 }))
                     .toggleStyle(.checkbox).font(.system(size: 12)).foregroundStyle(colors.primary)
+                    .tint(colors.primary)
             }
             if let reject = model.lastReject {
                 Text(reject).font(.system(size: 11.5)).foregroundStyle(colors.critical)
@@ -49,7 +51,7 @@ struct ServerApproverView: View {
         }
         .padding(ServerMetrics.padding + 2)
         .frame(width: ServerMetrics.dashboardWidth)
-        .animation(reduceMotion ? nil : Motion.animation(.crossfade), value: model.candidate)
+        .animation(reduceMotion ? nil : Motion.animation(.crossfade), value: model.candidate == nil)
         .onChange(of: model.lastApproved) { _, approved in
             if approved != nil { close() }
         }
@@ -70,7 +72,7 @@ struct CandidateFacts: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: "server.rack").font(.system(size: 18)).foregroundStyle(colors.secondary).frame(width: 28)
+            Icon(.machineRemote, size: 18).foregroundStyle(colors.secondary).frame(width: 28)
             VStack(alignment: .leading, spacing: 2) {
                 Text(verbatim: candidate.name).font(.system(size: 13, weight: .semibold)).foregroundStyle(colors.primary)
                 Text(verbatim: facts).font(.system(size: 11.5)).foregroundStyle(colors.secondary).lineLimit(2)

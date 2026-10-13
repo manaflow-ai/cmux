@@ -35,7 +35,8 @@ impl HostedReader {
             }
             let journal_enabled = journal_update.is_some();
             let before = terminal_scroll_position(&term);
-            let normalized = term.vt_write_with_normalized(&output);
+            let normalized =
+                crate::prompt_mode_reset::write_output(&mut term, &output, &mut self.shell_marks);
             terminal_notifications = pty.observe_terminal_output(&output);
             finished_commands = pty.observe_shell_marks(&mut term, || {
                 mux.upgrade().is_some_and(|mux| mux.terminal_command_history_enabled())

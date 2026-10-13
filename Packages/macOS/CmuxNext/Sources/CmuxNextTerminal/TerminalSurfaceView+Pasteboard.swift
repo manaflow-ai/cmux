@@ -8,8 +8,24 @@ import UniformTypeIdentifiers
 extension TerminalSurfaceView: NSMenuItemValidation {
     // MARK: Edit menu
 
+    /// Copies the selection. With nothing selected, Copy is Cmd-C for the
+    /// program: the key goes to Ghostty, whose `performable:` copy keybind
+    /// then passes it on, so a TUI (Kitty keyboard protocol) copies its own
+    /// selection, as in Ghostty and the shipping cmux. Legacy encoding sends
+    /// nothing for a Command key on macOS, so a shell sees nothing.
     @objc public func copy(_ sender: Any?) {
+        guard hasSelection else { return sendCommandKeyToProgram("c", keyCode: UInt16(kVK_ANSI_C)) }
         performBindingAction("copy_to_clipboard")
+    }
+
+    private func sendCommandKeyToProgram(_ character: String, keyCode: UInt16) {
+        for (type, action) in [(NSEvent.EventType.keyDown, GHOSTTY_ACTION_PRESS), (.keyUp, GHOSTTY_ACTION_RELEASE)] {
+            guard let event = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: .command,
+                                               timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window?.windowNumber ?? 0,
+                                               context: nil, characters: character, charactersIgnoringModifiers: character,
+                                               isARepeat: false, keyCode: keyCode) else { return }
+            sendKey(action, event: event, text: action == GHOSTTY_ACTION_PRESS ? character : nil)
+        }
     }
 
     @objc public func paste(_ sender: Any?) {
@@ -27,7 +43,9 @@ extension TerminalSurfaceView: NSMenuItemValidation {
     public func validateMenuItem(_ item: NSMenuItem) -> Bool {
         switch item.action {
         case #selector(copy(_:)):
-            return hasSelection
+            // Enabled without a selection too: a disabled item would swallow
+            // Cmd-C before the program can get it (see `copy(_:)`).
+            return surface != nil
         case #selector(paste(_:)), #selector(pasteAsPlainText(_:)):
             return TerminalPasteboard.pasteText(from: .general) != nil
         default:

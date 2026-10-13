@@ -12,7 +12,7 @@ import CmuxNextDesign
 /// may appear and disappear).
 struct SidebarBottomCardSlot {
     let update: SidebarUpdateCardView
-    let updated: SidebarUpdatedCardView
+    let updated: SidebarUpdatedCardHost
     let notice: SidebarNoticeCardView
 
     /// Adds the views to `sidebar` and routes their actions to its model.
@@ -20,9 +20,6 @@ struct SidebarBottomCardSlot {
         update.onInstall = { [weak sidebar] in sidebar?.model.send(.installUpdate) }
         update.onAutomaticUpdates = { [weak sidebar] on in sidebar?.model.send(.setAutomaticUpdates(on)) }
         update.onOpenLink = { [weak sidebar] url in sidebar?.model.send(.openUpdateLink(url)) }
-        updated.whatsNewRow.onPress = { [weak sidebar] in sidebar?.model.send(.openWhatsNew) }
-        updated.shareRow.onPress = { [weak sidebar] in sidebar?.model.send(.shareCmux) }
-        updated.closeButton.onPress = { [weak sidebar] in sidebar?.model.send(.dismissUpdated) }
         notice.onAction = { [weak sidebar] card, action in sidebar?.model.send(.noticeAction(card: card, action: action)) }
         notice.onDismiss = { [weak sidebar] card in sidebar?.model.send(.dismissNotice(card)) }
         sidebar.addSubview(update)
@@ -42,7 +39,8 @@ struct SidebarBottomCardSlot {
     /// The card that has the slot: update, then updated, then the notice.
     private var shown: Shown? {
         if update.card != nil { return .update }
-        if updated.card != nil { return .updated }
+        // The React card's actions go to the App through its page; it shows once it has drawn.
+        if updated.card != nil, updated.height > 0 { return .updated }
         return notice.notice != nil ? .notice : nil
     }
 
@@ -54,7 +52,7 @@ struct SidebarBottomCardSlot {
     var height: CGFloat {
         switch shown {
         case .update: (update.card.map(SidebarUpdateCardView.height(for:)) ?? 0) + 2 * Metrics.space2
-        case .updated: SidebarUpdatedCardView.height + 2 * Metrics.space2
+        case .updated: updated.height + 2 * Metrics.space2
         case .notice: (notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0) + 2 * Metrics.space2
         case nil: 0
         }
@@ -71,7 +69,7 @@ struct SidebarBottomCardSlot {
         notice.isHidden = shown != .notice
         updated.isHidden = shown != .updated
         update.frame = frame(.update, height: update.card.map(SidebarUpdateCardView.height(for:)) ?? 0)
-        updated.frame = frame(.updated, height: SidebarUpdatedCardView.height)
+        updated.frame = frame(.updated, height: updated.height)
         notice.frame = frame(.notice, height: notice.notice.map(SidebarNoticeCardView.height(for:)) ?? 0)
     }
 }

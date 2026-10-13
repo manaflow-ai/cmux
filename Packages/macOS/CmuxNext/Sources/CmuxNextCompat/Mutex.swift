@@ -43,13 +43,13 @@ extension Mutex: @unchecked Sendable where Value: ~Copyable {} // crash-allow: t
 /// own allocation, never inline in a struct.
 final class LockedStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allow: every access holds lockPointer
     let pointer: UnsafeMutablePointer<Value>
-    private let lockPointer: UnsafeMutablePointer<os_unfair_lock>
+    private let lockPointer: UnsafeMutablePointer<os_unfair_lock> // concurrency-allow: Mutex back-port for macOS 14; os_unfair_lock is the lock Synchronization.Mutex uses on Darwin, held only for the caller's short critical section
 
     init(_ initialValue: consuming Value) {
         pointer = .allocate(capacity: 1)
         pointer.initialize(to: initialValue)
         lockPointer = .allocate(capacity: 1)
-        lockPointer.initialize(to: os_unfair_lock())
+        lockPointer.initialize(to: os_unfair_lock()) // concurrency-allow: Mutex back-port for macOS 14; os_unfair_lock is the lock Synchronization.Mutex uses on Darwin, held only for the caller's short critical section
     }
 
     deinit {
@@ -60,14 +60,14 @@ final class LockedStorage<Value: ~Copyable>: @unchecked Sendable { // crash-allo
     }
 
     func lock() {
-        os_unfair_lock_lock(lockPointer)
+        os_unfair_lock_lock(lockPointer) // concurrency-allow: Mutex back-port for macOS 14; os_unfair_lock is the lock Synchronization.Mutex uses on Darwin, held only for the caller's short critical section
     }
 
     func tryLock() -> Bool {
-        os_unfair_lock_trylock(lockPointer)
+        os_unfair_lock_trylock(lockPointer) // concurrency-allow: Mutex back-port for macOS 14; os_unfair_lock is the lock Synchronization.Mutex uses on Darwin, held only for the caller's short critical section
     }
 
     func unlock() {
-        os_unfair_lock_unlock(lockPointer)
+        os_unfair_lock_unlock(lockPointer) // concurrency-allow: Mutex back-port for macOS 14; os_unfair_lock is the lock Synchronization.Mutex uses on Darwin, held only for the caller's short critical section
     }
 }

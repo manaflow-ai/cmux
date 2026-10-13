@@ -59,6 +59,19 @@ describe("team VM taint after a member removal (cx-q4f3)", { timeout: 60_000 }, 
     expect(s.taint.at).toBeGreaterThan(0)
   })
 
+  it("a member whose last certificate expired before the VM was created, or who never had one, taints nothing", async () => {
+    const t = await fresh()
+    // A certificate that ended an hour before the VM existed (the record outlives the 24 h issued-log retention).
+    await inDO(t.stub, async (_i, st) => {
+      ensureSshTables(st.storage.sql)
+      const now = Date.now()
+      st.storage.sql.exec(`INSERT INTO ssh_certs (serial, identity, user, install, key_id, class, generation, issued_at, valid_before) VALUES (77001, 'id-x', ?, NULL, 'k', 'agent', 1, ?, ?)`, t.member, now - 7_200_000, now - 3_600_000)
+    })
+    await t.wake()
+    await t.remove(t.member)
+    expect((await t.status()).taint ?? null).toBeNull()
+  })
+
   it("a member who never had a certificate taints nothing, and the holder record survives a removal", async () => {
     const t = await fresh()
     await t.wake()
@@ -257,18 +270,13 @@ describe("team_vm.accounts is fenced to the current epoch's install (cx-n3fb)", 
   })
 })
 
-describe("team VM taint (TeamVmDO reducer)", () => {
-  const sys: Principal = { identity: "system:team_vm", kind: "system" }
-  const fromTeam = (team: string): Principal => ({ identity: `system:team:${team}`, kind: "system" })
-  const ctx = (p: Principal, now: number): ReduceContext => ({ principal: p, now, tx: `tx${now}`, newId: (x) => `${x}_${now}` })
-  const running = { ...teamVmDomain.initial(), team: "team_t", vm: "vm-a", slug: "s", epoch: 1, status: "running" as const, vm_created_at: 1_000 }
-
-  it("the owner-action ops refuse every identity but TeamVmDO's own", () => {
-    const tainted = { ...running, taint: { epoch: 1, at: 2_000, users: ["user_a"], accepted_by: null, accepted_at: null } }
-    for (const who of [fromTeam("team_t"), { identity: "system:team", kind: "system" } as Principal, { identity: "user:x", kind: "session", user: "x", team: "team_t" } as Principal]) {
-      expect(teamVmDomain.reduce(tainted, "team_vm.taint_accepted", { epoch: 1, users: ["user_a"], by: "x" }, ctx(who, 3_000))).toMatchObject({ ok: false, code: "auth.forbidden" })
-      expect(teamVmDomain.reduce(tainted, "team_vm.rebuild_requested", { epoch: 1, by: "x" }, ctx(who, 3_000))).toMatchObject({ ok: false, code: "auth.forbidden" })
+describe("internal owner-action ops over the API", () => {
+  it("the owner-action ops refuse every identity but TeamVmDO's own: the public API does not run them", async () => {
+    const { token } = await setup("88800000000000000088")
+    for (const op of ["team_vm.taint_accepted", "team_vm.rebuild_requested"]) {
+      const r = await mutate(token, op, { epoch: 1, users: ["user_a"], by: "x" })
+      expect(r.ok ?? false, op).toBe(false)
+      expect(r.error?.code ?? r.code, op).toBe("validation.invalid")
     }
   })
-
 })

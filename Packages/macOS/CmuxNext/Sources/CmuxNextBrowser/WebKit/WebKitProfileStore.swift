@@ -74,6 +74,21 @@ public final class WebKitProfileStore {
         try await factory.removeStore(identifier: profile.rawValue)
     }
 
+    /// Clear Browsing Data (cx-d0d.23): removes `profile`'s cookies and site
+    /// data (storage of every kind) and/or its caches changed since `since`
+    /// (nil: all time).
+    public func clearBrowsingData(for profile: BrowserProfileID, siteData: Bool, cache: Bool, since: Date?) async {
+        var types: Set<String> = []
+        if cache { types.formUnion(Self.cacheTypes) }
+        if siteData { types.formUnion(WKWebsiteDataStore.allWebsiteDataTypes().subtracting(Self.cacheTypes)) }
+        guard !types.isEmpty else { return }
+        await dataStore(for: profile).removeData(ofTypes: types, modifiedSince: since ?? .distantPast)
+    }
+
+    /// The cache kinds of website data (Chrome's "Cached images and files").
+    static let cacheTypes: Set<String> = [WKWebsiteDataTypeDiskCache, WKWebsiteDataTypeMemoryCache,
+                                          WKWebsiteDataTypeOfflineWebApplicationCache, WKWebsiteDataTypeFetchCache]
+
     /// Deletes every record of a deleted profile's store (cookies, storage,
     /// caches) through a store instance. The static
     /// `WKWebsiteDataStore.remove(forIdentifier:)` crashed on WebKit's IO

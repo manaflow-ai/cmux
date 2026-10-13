@@ -38,7 +38,9 @@ struct ChiefHomeAcpmux {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
         let environment = AcpmuxEnvironment.resolve(tag: nil, bundledBinDirectory: bin,
                                                     environment: ["ACPMUX_HOME": home.acpmuxHome.path])
-        let chief = AcpmuxHost(environment: environment)
+        // The Chief host owns this daemon (it starts it, with the Chief's env): a
+        // tab only attaches, never hands it off or starts one (cx-ebm.54).
+        let chief = AcpmuxHost(environment: environment, startsDaemons: false)
         paneHost = chief
         // optchat-chief `brain::parent_tag`: optchat-chief:<home id>.
         let tag = "optchat-chief:" + host.dropFirst("chief:".count)

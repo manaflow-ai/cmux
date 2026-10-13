@@ -72,11 +72,15 @@ extension ChatColumnPlacement {
     /// nil when it is already open. A lone chat moves into a new left dock
     /// with the agent chat role, leaving `respawn` in its pane, in one daemon
     /// commit. Without `respawn` (a New Tab page, which is not a daemon tab)
-    /// it stays in `controller`.
+    /// it stays in `controller`, and so does a lone chat that shows its tab bar.
     @MainActor static func route(from controller: PaneController, respawn: SplitRespawn?,
                                  services: AppServices) -> PaneController? {
         guard let content = controller.workspace else { return controller }
-        switch resolve(from: controller, services: services) {
+        let placement = resolve(from: controller, services: services)
+        // A lone chat that shows its tab bar (its own choice or `tabs.tabBar.agent`, cx-soza) keeps
+        // the new tab beside it instead of docking; the chat dock still sends tabs to the strip.
+        if case .dockChat = placement, !controller.view.hidesStrip { return controller }
+        switch placement {
         case .here:
             return controller
         case .tab(let target):

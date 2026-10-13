@@ -45,6 +45,9 @@
     "conversation.search",
     "conversation.send",
     "conversation.typing",
+    "credential.mint",
+    "credential.rotate",
+    "credential.verify",
     "frontend_projection.get",
     "frontend_projection.put",
     "git.checkpoint.create",
@@ -53,9 +56,31 @@
     "git.checkpoint.list",
     "git.checkpoint.pin",
     "git.checkpoint.unpin",
+    "git.commit",
     "git.diff",
+    "git.files.list",
     "git.files.search",
+    "git.push",
     "git.status",
+    "git.worktree.apply",
+    "git.worktree.create",
+    "git.worktree.remove",
+    "history.backups.purge",
+    "history.clear",
+    "history.entries.list",
+    "history.entries.remove",
+    "history.restore",
+    "history.site.remove",
+    "history.visit.import",
+    "history.visit.record",
+    "history.visit.remove",
+    "history.visit.summaries",
+    "history.visit.title",
+    "keybindings.get",
+    "keybindings.remove",
+    "keybindings.reset",
+    "keybindings.set",
+    "layout.bulk",
     "machine.get",
     "machine.list",
     "notification.ack",
@@ -143,6 +168,13 @@
     "session.terminal_defaults.update",
     "session.window.title.clear",
     "session.window.title.set",
+    "settings.get",
+    "settings.list",
+    "settings.reset",
+    "settings.reset_all",
+    "settings.schema",
+    "settings.set",
+    "settings.snapshot",
     "sidebar_layout.get",
     "sidebar_layout.update",
     "sidebar_view.attach",
@@ -199,8 +231,10 @@
     "window_record.list",
     "window_record.put",
     "workspace.agent_folder.set",
+    "workspace.agent_start.get",
     "workspace.close",
     "workspace.create",
+    "workspace.ensure_app",
     "workspace.ensure_home",
     "workspace.focus",
     "workspace.get",
@@ -275,6 +309,7 @@
       "focus-direction",
       "focus-pane",
       "forget-session",
+      "get-blob",
       "get-frontend-browser-history",
       "get-frontend-projection",
       "get-size-state",
@@ -320,6 +355,7 @@
       "new-frontend-browser-tab",
       "new-pane",
       "new-pane-right",
+      "new-remote-terminal-tab",
       "new-row",
       "new-screen",
       "new-tab",
@@ -331,6 +367,7 @@
       "pin-workspace",
       "ping",
       "process-info",
+      "put-blob",
       "put-frontend-projection",
       "put-session",
       "read-screen",
@@ -338,6 +375,7 @@
       "reattach-view",
       "release-surface-size",
       "reload-config",
+      "remote-terminal-snapshot",
       "remove-screens-from-screen-group",
       "remove-tabs-from-tab-group",
       "rename-pane",
@@ -350,6 +388,7 @@
       "report-focus",
       "resize-surface",
       "resolve-terminal",
+      "restart-tab",
       "run",
       "save-screen-group",
       "save-tab-group",
@@ -397,6 +436,7 @@
       "update-frontend-browser-tab",
       "update-personal-group",
       "update-profile",
+      "update-remote-terminal-tab",
       "update-screen-group",
       "update-tab-group",
       "update-workspace-group",
@@ -439,6 +479,8 @@
       "server-stats",
       "subscribe-activity",
       "set-terminal-command-history",
+      "list-terminal-commands",
+      "delete-terminal-commands",
       "register-browser-provider",
       "get-browser-provider",
       "unregister-browser-provider",
@@ -449,10 +491,12 @@
       "conversation-create",
       "conversation-snapshot",
       "conversation-history",
+      "conversation-thread",
       "conversation-search",
       "history-search",
       "conversation-op",
       "conversation-typing",
+      "conversation-draft",
       "conversation-bind",
       "conversation-agent-token",
       "conversation-import",
@@ -464,6 +508,7 @@
       "cloud-inbox-list",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
+      "cloud-conversation-thread",
       "cloud-conversation-op",
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
@@ -492,13 +537,31 @@
       ]
     },
     {
+      "name": "agent-presence-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "bell",
       "streams": [
         "subscribe"
       ]
     },
     {
+      "name": "program-status-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "bookmarks-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "history-changed",
       "streams": [
         "subscribe"
       ]
@@ -559,6 +622,12 @@
       ]
     },
     {
+      "name": "conversation-draft",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "daemon-shutdown",
       "streams": [
         "control"
@@ -592,6 +661,12 @@
     },
     {
       "name": "graphics-status",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "keybindings-changed",
       "streams": [
         "subscribe"
       ]
@@ -710,6 +785,12 @@
         "attach-byte",
         "attach-render",
         "attach-browser"
+      ]
+    },
+    {
+      "name": "settings-changed",
+      "streams": [
+        "subscribe"
       ]
     },
     {

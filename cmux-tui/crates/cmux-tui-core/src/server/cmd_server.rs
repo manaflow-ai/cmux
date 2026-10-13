@@ -34,10 +34,13 @@ pub(super) fn server_stats(
 
 pub(super) fn identify(mux: &Arc<Mux>) -> anyhow::Result<Value> {
     let (registry_id, generation) = mux.registry_identity();
+    let (build_id, cli_path) = super::daemon_build::identify_build_fields();
     Ok(json!({
         "app": "cmux-tui",
         "version": env!("CARGO_PKG_VERSION"),
         "build_commit": stamped_build_commit(),
+        "build_id": build_id,
+        "cli_path": cli_path,
         "ghostty_commit": stamped_ghostty_commit(),
         "protocol": PROTOCOL_VERSION,
         "capabilities": identify_capabilities(mux),

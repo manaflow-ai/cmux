@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextCompat
 
 /// Workspace names, colors, notifications, identifiers, and Finder reveal.
 /// Colors go through the sidebar bridge (optimistic row update, then
@@ -55,7 +56,7 @@ enum WorkspaceMetadataHandlers {
         registry.bind("revealWorkspaceInFinder", run: { invocation in
             let workspace = try context.workspace(invocation).model
             guard let cwd = directory(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceHasNoDirectory) }
-            NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: cwd)])
+            NSWorkspace.shared.revealInBackground([URL(fileURLWithPath: cwd)])
         })
         registry.bind("palette.copyWorkspaceID", run: { invocation in context.copy(try context.workspace(invocation).key.rawValue) })
         registry.bind("palette.copyWorkspaceIDAndRef", run: { invocation in
@@ -63,7 +64,6 @@ enum WorkspaceMetadataHandlers {
             context.copy("\(key)\n\(ActionTargetRef(kind: .workspace, id: key))")
         })
 
-        registry.bindUnavailable(["palette.workspaceCustomColor"], ActionFailure.needsAppCapability("custom-workspace-colors"))
         registry.bind("palette.markWorkspaceUnread", requires: DaemonCapabilities.shared.notificationMarkUnread, daemon: context.services.activeDaemon, run: { invocation in
             try context.require(DaemonCapabilities.shared.notificationMarkUnread)
             WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], machines: context.services.machines)

@@ -16,7 +16,8 @@ public struct HoverCardPolicy: Equatable, Sendable {
     /// After a card hides, a new hover within this window shows immediately.
     public var reshowWindow: Duration
 
-    /// Delays default to 300 and 800 ms (`TabTunables`, overridable in Debug Settings).
+    /// Delays default to zero: the card opens on the first frame, as the sidebar's does
+    /// (`TabTunables`, overridable in Debug Settings).
     public init() {
         minimumDelay = Self.milliseconds(TabTunables.hoverCardMinimumDelay.value)
         maximumDelay = Self.milliseconds(TabTunables.hoverCardMaximumDelay.value)

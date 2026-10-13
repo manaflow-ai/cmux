@@ -21,7 +21,10 @@ pub(super) fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
         .collect::<Vec<_>>();
     serde_json::json!({
         // This is diagnostic shape, not a respawn recipe. argv and cwd can
-        // both contain credentials and missing hosts are never recreated.
+        // both contain credentials. The respawn recipe is the relaunch record
+        // (`relaunch_store`): it keeps a command's argv, minus arguments that
+        // look like credentials, so a later daemon can offer the command
+        // again (typed on the prompt, never run). Nothing here needs it.
         "command_present": options.command.is_some(),
         "cwd_present": options.cwd.is_some(),
         "term": options.term,
@@ -38,7 +41,11 @@ pub(super) fn terminal_launch_spec(options: &SurfaceOptions) -> Value {
 /// Durable exactly-once metadata must distinguish retries without turning the
 /// workspace registry into a second secret store. Command arguments, cwd, and
 /// user-provided names can all contain credentials, so only their digest is
-/// persisted alongside the non-secret routing identity.
+/// persisted alongside the non-secret routing identity. The one stored copy
+/// of a command's argv is the relaunch record's (`relaunch_store`), filtered
+/// for credential-like arguments and capped, because a respawn after a
+/// daemon restart has no other way to offer the command again; a retry
+/// digest needs no argv, so none is kept here.
 pub(super) fn terminal_create_fingerprint(
     workspace_key: &str,
     terminal_id: Option<&str>,

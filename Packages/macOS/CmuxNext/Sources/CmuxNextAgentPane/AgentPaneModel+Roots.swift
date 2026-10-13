@@ -7,6 +7,9 @@ extension AgentPaneModel {
     func roots() -> [String] {
         var roots = (chosenFolder.map { [$0] } ?? []) + (workspaceRoots?() ?? [])
         if let handshakeCwd { roots.append(handshakeCwd) }
+        // The store's start folder is where the chat runs, so it is a root (cx-9aps), while it
+        // is still current (``AgentPaneStartFolders/current(of:)``).
+        if let folder = startFolders.current(of: self), !roots.contains(folder) { roots.append(folder) }
         if let cwd = newTab?.cwd { roots.append(cwd) }
         return roots
     }
@@ -24,6 +27,9 @@ extension AgentPaneModel {
     /// An agent-home folder (a terminal the user moved there) is no workspace folder either: the
     /// chat still starts in agent-home, and the page still offers Choose Folder….
     func primaryRoot() -> String? {
+        // The store's answer when it gave one (cx-9aps): a real folder, else agent-home (nil).
+        if startFolders.answer != nil { return chosenFolder ?? startFolders.current(of: self) }
+        // Compatibility only (a daemon without workspace-agent-start-v1). Remove with cx-6bf9.
         let candidates = [handshakeCwd, chosenFolder] + (workspaceRoots?() ?? []).map(Optional.some) + [newTab?.cwd]
         return candidates.lazy.compactMap { $0 }.first { !isHomeOrAbove($0) && !isAgentHome($0) }
     }
@@ -36,13 +42,12 @@ extension AgentPaneModel {
 
     /// The chat's folder as the start of another tab (a terminal or split opened from the chat,
     /// #16620). An agent-home folder never leaves the chat: agent-home is never a terminal's
-    /// folder and never the workspace's folder.
+    /// folder and never the workspace's folder. For it the tab gets no folder, and the daemon's
+    /// new-terminal resolver decides (NEW-TERMINAL-INHERITS-CWD, cx-zld: the workspace's last
+    /// focused terminal, else the spawn default, the home folder for an app launch).
     public func folderForOtherTabs(_ cwd: String?) -> String? {
-        guard let cwd, isAgentHome(cwd) else { return cwd }
-        // Temporary: remove when NEW-TERMINAL-INHERITS-CWD (cx-zld) lands; then the shared resolver
-        // decides. Until then a terminal with no cwd starts in the daemon's own working folder (`/`
-        // for a Dock launch), so the terminal gets the home folder, its normal default.
-        return transport.homeFolder
+        guard let cwd, !isAgentHome(cwd) else { return nil }
+        return cwd
     }
 
     /// "Choose Folder…" (`workspace.chooseFolder`): the native sheet only after a real gesture (it
@@ -94,4 +99,5 @@ extension AgentPaneModel {
     func isHomeOrAbove(_ path: String) -> Bool {
         AgentHome.isHomeOrAbove(path, home: transport.homeFolder)
     }
+
 }

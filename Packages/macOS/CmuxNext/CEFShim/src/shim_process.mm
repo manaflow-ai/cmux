@@ -59,11 +59,6 @@ bool TakeHostClose(int browser_id) {
 }
 
 static bool g_extension_developer_mode = false;
-static cef_color_t g_background_color = 0;
-
-cef_color_t BackgroundColor() {
-  return g_background_color;
-}
 // accept_language_list from cmux_shim_initialize, for every request context.
 static std::string g_accept_languages;
 
@@ -89,6 +84,7 @@ class ContextHandler : public CefRequestContextHandler {
     // Remote localhost: before any browser of this context navigates.
     ApplyContextProxy(context, cache_path_);
     initialized_contexts().insert(cache_path_);
+    WatchBookmarks(cache_path_);
   }
 
  private:
@@ -142,6 +138,7 @@ CefRefPtr<CefRequestContext> RequestContextFor(const std::string& cache_path) {
 
 void ReleaseRequestContext(const std::string& key) {
   ForgetPreferenceWatches(key);
+  ForgetBookmarkWatch(key);
   request_contexts().erase(key);
   initialized_contexts().erase(key);
   ForgetContextProxy(key);
@@ -234,6 +231,13 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(password_set_username, "cmux_password_set_username");
   CMUX_BIND(password_reveal, "cmux_password_reveal");
   CMUX_BIND(password_export, "cmux_password_export");
+  CMUX_BIND(password_import_v2, "cmux_password_import_v2");
+  CMUX_BIND(password_import_replace, "cmux_password_import_replace");
+  CMUX_BIND(set_password_prompt_handler, "cmux_set_password_prompt_handler");
+  CMUX_BIND(password_prompt_answer, "cmux_password_prompt_answer");
+  CMUX_BIND(set_password_generation_enabled, "cmux_set_password_generation_enabled");
+  CMUX_BIND(bookmarks_observe, "cmux_bookmarks_observe");
+  CMUX_BIND(bookmarks_sync, "cmux_bookmarks_sync");
 #undef CMUX_BIND
 }
 
@@ -242,15 +246,6 @@ static void BindForkApi(const char* framework_binary) {
 // Chromium requires NSApp to implement CefAppProtocol before CefInitialize.
 // The app's NSApplication subclass (CmuxApplication) conforms statically and
 // maintains the sendEvent flag itself; the shim only checks.
-
-std::set<int>& own_background_browsers() {
-  static std::set<int> set;
-  return set;
-}
-
-void ForgetOwnBackground(int browser_id) {
-  own_background_browsers().erase(browser_id);
-}
 
 }  // namespace cmux_shim
 
@@ -284,26 +279,6 @@ int cmux_shim_load(const char* framework_binary, char* err, size_t err_len) {
 
 void cmux_shim_set_extension_developer_mode(int enabled) {
   g_extension_developer_mode = enabled != 0;
-}
-
-void cmux_shim_set_background_color(unsigned int argb) {
-  const bool changed = g_background_color != static_cast<cef_color_t>(argb);
-  g_background_color = static_cast<cef_color_t>(argb);
-  // Fork API 12: live tabs still on the theme color follow a theme change;
-  // tabs past their first real page keep their own (white) background.
-  if (changed && argb && fork_api().browser_set_background_color) {
-    for (auto& [id, browser] : browsers()) {
-      if (own_background_browsers().count(id)) continue;
-      fork_api().browser_set_background_color(id, argb);
-    }
-  }
-}
-
-int cmux_shim_browser_set_background_color(int browser_id, unsigned int argb) {
-  if (!fork_api().browser_set_background_color) return 0;
-  own_background_browsers().insert(browser_id);
-  fork_api().browser_set_background_color(browser_id, argb);
-  return 1;
 }
 
 int cmux_shim_fork_api_version(void) {
@@ -347,7 +322,7 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   if (locale && *locale) {
     CefString(&settings.locale) = locale;
   }
-  settings.background_color = g_background_color;
+  settings.background_color = BackgroundColor();
   g_accept_languages = accept_languages ? accept_languages : "";
   if (!g_accept_languages.empty()) {
     CefString(&settings.accept_language_list) = g_accept_languages;
@@ -395,12 +370,15 @@ void cmux_shim_shutdown(void) {
   if (fork_api().set_omnibox_suggestions_handler) {
     fork_api().set_omnibox_suggestions_handler(nullptr, nullptr);
   }
+  RemovePasswordPromptHandler();
   host() = Host();
   // Preference observer registrations go before their contexts.
   ReleasePreferenceWatches();
+  ReleaseBookmarkWatches();
   request_contexts().clear();
   // Download callbacks hold Chromium objects: release them first.
   ForgetDownloads();
+  ForgetPermissionPrompts();
   CefShutdown();
 }
 

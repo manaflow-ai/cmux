@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextSettings
 import Foundation
 import Observation
@@ -89,7 +90,7 @@ final class FilePageLook {
         let section = kind.section
         let settings = settings
         settingsTask = Task { [weak self] in
-            for await _ in Observations({ (settings()?.fileRoot[section], settings()?.fileRoot["appearance"]?["syntaxTheme"]) }) {
+            for await _ in ObservationStream({ (settings()?.fileRoot[section], settings()?.fileRoot["appearance"]?["syntaxTheme"]) }) {
                 self?.publish()
             }
         }

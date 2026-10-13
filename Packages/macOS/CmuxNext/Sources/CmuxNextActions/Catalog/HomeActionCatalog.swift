@@ -26,6 +26,24 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .menu], cliName: "home show",
                 mainMenu: .file
             ),
+            // The native Home as a pane tab (HomePageTab): it splits next to any other tab
+            // (the channels Home among them) over the same Home data. Each run opens one more.
+            ActionDescriptor(
+                id: "home.tab", title: t("action.home.tab", "Open Home in Tab"),
+                keywords: ["home", "tab", "split", "pane", "messages", "conversations", "side by side"],
+                category: .window, symbol: "house", surfaces: [.palette, .menu], cliName: "home tab",
+                mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
+            // The channels Home (webviews/src/pages/home-channels) as a tab next to the native
+            // Home, over the same Home data, so both can be open at once.
+            ActionDescriptor(
+                id: "home.channels", title: t("action.home.channels", "Open Channels"),
+                keywords: ["home", "channels", "threads", "direct messages", "conversations", "messages"],
+                category: .window, symbol: "number", surfaces: [.palette, .menu], cliName: "home channels",
+                mainMenu: .file,
+                surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
+            ),
             ActionDescriptor(
                 id: "home.attachFiles", title: t("action.home.attachFiles", "Attach Files…"),
                 keywords: ["home", "attach", "file", "photo", "video", "image", "upload", "message", "conversation"],
@@ -76,7 +94,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 cliName: "home archive-chief",
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
-            // Cmd-Shift-[ / ] while Home is shown (KeyBindingDefaults.homeNavigation, a scoped default).
+            // No keys: Cmd-Shift-[ / ] are Chrome tab keys everywhere, Home too (KeyBindingDefaults.tabSwitching).
             ActionDescriptor(
                 id: "home.previousConversation", title: t("action.home.previousConversation", "Previous Conversation"),
                 keywords: ["home", "conversation", "previous", "person", "people", "chief", "up"],

@@ -50,11 +50,13 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         } else {
             home = userHome.appendingPathComponent(".acpmux", isDirectory: true)
         }
-        let socket = environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 } ?? defaultSocketPath(home: home, uid: uid)
+        let socket = socketPath(configured: environment["ACPMUX_SOCKET"].flatMap { $0.isEmpty ? nil : $0 }, home: home, uid: uid)
         return AcpmuxEnvironment(
             executable: executable, home: home, socketPath: socket,
             daemonArguments: slug == nil ? [] : ["--listen", "127.0.0.1:0"],
-            childEnvironment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket]
+            // ACPMUX_LOCAL_ROUTER: the daemon starts the local model relay
+            // (cmux-router routes; ModelRouterLease gives it the bearer).
+            childEnvironment: ["ACPMUX_HOME": home.path, "ACPMUX_SOCKET": socket, "ACPMUX_LOCAL_ROUTER": "1"]
         )
     }
 
@@ -79,10 +81,31 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Mirrors acpmux `config::socket_path()`: `<home>/acpmux.sock`, or
     /// `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock` (a private 0700 directory)
     /// when that is too long for `sun_path` (96 bytes or more).
+    /// The longest Unix socket path every host binds (cmux-agent-pane-policy
+    /// `MAX_SOCKET_PATH_BYTES`): macOS's `sun_path` less its NUL.
+    static let maxSocketPathBytes = 103
+
+    /// The acpmux daemon socket every host and client resolves (cmux-agent-pane-policy
+    /// `environment::socket_path`, tests/cases/environment.json): `configured`
+    /// (`ACPMUX_SOCKET`) when set, except an absolute path past the Unix socket limit (a long
+    /// TMPDIR), which maps to the short alias acpmux binds; else ``defaultSocketPath(home:uid:)``.
+    static func socketPath(configured: String?, home: URL, uid: UInt32) -> String {
+        guard let configured else { return defaultSocketPath(home: home, uid: uid) }
+        if configured.hasPrefix("/"), configured.utf8.count > maxSocketPathBytes {
+            return shortAlias(configured, uid: uid)
+        }
+        return configured
+    }
+
+    /// `/tmp/acpmux-<uid>/<fnv1a64(key)>.sock`.
+    static func shortAlias(_ key: String, uid: UInt32) -> String {
+        "/tmp/acpmux-\(uid)/\(String(format: "%016llx", fnv1a64(key))).sock"
+    }
+
     static func defaultSocketPath(home: URL, uid: UInt32) -> String {
         let preferred = home.appendingPathComponent("acpmux.sock").path
         if preferred.utf8.count < 96 { return preferred }
-        return "/tmp/acpmux-\(uid)/\(String(format: "%016llx", fnv1a64(home.path)))" + ".sock"
+        return shortAlias(home.path, uid: uid)
     }
 
     static func fnv1a64(_ text: String) -> UInt64 {
@@ -107,5 +130,12 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         }
         let trimmed = slug.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+extension AcpmuxEnvironment {
+    /// `_acpmux/tag`: sets and removes tags of one session (a chat's mute, cx-sg1qz).
+    public nonisolated func tag(session: String, set: [String: String], remove: [String]) async throws {
+        try await AcpmuxStatusClient.tag(socketPath: socketPath, sessionId: session, set: set, remove: remove)
     }
 }

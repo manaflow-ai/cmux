@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextSettings
 import Observation
 import os
@@ -36,11 +37,13 @@ enum BrowserOmnibarPreference {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "omnibar")
 
     static func follow(_ settings: SettingsController, cache: TabContentCache) {
+        // The password keys follow from here too: AppDelegate, which starts the followers, is at its line budget.
+        BrowserPasswordsPreference.follow(settings, cef: cache.cef)
         // task-owner: lives as long as the app's settings and cache; both weak.
         Task { [weak settings, weak cache] in
             guard let settings else { return }
             var reported: BrowserOmnibarSetting?
-            for await setting in Observations({ settings.snapshot.browserOmnibar }) {
+            for await setting in ObservationStream({ settings.snapshot.browserOmnibar }) {
                 guard let cache else { return }
                 let resolved = OmniboxConfiguration.resolve(setting)
                 if resolved.invalidCustomEngine, reported != setting {

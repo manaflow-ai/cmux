@@ -13,6 +13,16 @@ extension LayoutRootView {
         syncOverlay()
     }
 
+    /// Re-reads the plane's place and every ring's pane frame now. The
+    /// window calls it after its layout pass while the plane lives in the
+    /// overlay panel: an ancestor that moved this view (sidebar width) runs
+    /// no layout of this view, and the panel is another window.
+    /// Ring frames are in this view's coordinates, so only the plane's
+    /// frame can go stale: the rings sync only when it moved.
+    public func resyncOverlay() {
+        if overlayPlane.syncFrame() { syncOverlay() }
+    }
+
     /// Places every displayed pane's ring and dim over its host, in this
     /// view's (= the plane's) coordinates, and reports interactive rects.
     func syncOverlay() {
@@ -20,14 +30,14 @@ extension LayoutRootView {
         var shown: Set<ObjectIdentifier> = []
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
-            let covers = screen.coverRects.map { convert($0, from: screen) }
+            let docks = screen.coverRects
             for host in screen.displayedHosts {
                 let chrome = host.chrome
                 if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
                 let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
-                // A strip pane's ring never draws over a docked column.
-                chrome.setExcluded(screen.isStripHost(host) ? covers.map { $0.offsetBy(dx: -rect.minX, dy: -rect.minY) } : [])
+                // A ring never draws over a docked column (strip panes) or a pane in front of it.
+                chrome.setExcluded(screen.ringCovers(of: host, docks: docks).map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
                 let alpha = host.alphaValue * screenAlpha
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
@@ -89,14 +99,27 @@ extension LayoutRootView {
     /// strokes and the pane's rounded content rect it must equal (both in
     /// window coordinates; the plane has the root's coordinates wherever it
     /// lives, so the ring rect is read from the overlay itself).
-    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool, ringInWindow: CGRect, contentInWindow: CGRect)] {
+    /// `ringInSync`: the two rects agree within ``ringSyncTolerance`` (they
+    /// come through different coordinate conversions, so a fractional pane
+    /// size gives rounding noise near 1e-13 pt, not a lag).
+    public var overlayRings: [(pane: String, frameInWindow: CGRect, showsRing: Bool, ringInWindow: CGRect, contentInWindow: CGRect,
+                               ringInSync: Bool)] {
         guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return [] }
         return screen.displayedHosts.map { host in
             let chrome = host.chrome
-            let ring = chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY)
+            let ring = convert(chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY), to: nil)
+            let content = host.convert(host.roundedRect, to: nil)
             return (host.pane.rawValue, host.convert(host.bounds, to: nil), chrome.showsRing && !chrome.isHidden,
-                    convert(ring, to: nil), host.convert(host.roundedRect, to: nil))
+                    ring, content, Self.ringRectsMatch(ring, content))
         }
+    }
+
+    /// Far below a device pixel (0.5 pt at 2x), far above conversion noise.
+    public static let ringSyncTolerance: CGFloat = 0.001
+
+    static func ringRectsMatch(_ a: CGRect, _ b: CGRect) -> Bool {
+        abs(a.minX - b.minX) <= ringSyncTolerance && abs(a.minY - b.minY) <= ringSyncTolerance
+            && abs(a.width - b.width) <= ringSyncTolerance && abs(a.height - b.height) <= ringSyncTolerance
     }
 
     /// The drop highlight's material (`debug.layers`), and a pin for it

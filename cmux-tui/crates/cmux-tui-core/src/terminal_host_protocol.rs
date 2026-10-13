@@ -67,6 +67,12 @@ pub const FLAG_VIEWER_SIZE_PRIORITY: u32 = 1 << 5;
 /// frame carrying a duplicate of its PTY master descriptor and closes the
 /// connection; the owner keeps the PTY open if the host dies.
 pub const FLAG_PTY_CUSTODY: u32 = 1 << 6;
+/// ClientHello opt-in and HostHello acknowledgement for the OSC 7501 program
+/// status records after the terminal metadata tail of a Snapshot payload
+/// (cx-6so.36.6). Only with `FLAG_TERMINAL_METADATA`, and only toward a host
+/// whose record advertises `supports_program_status`; older hosts reject the
+/// unknown bit.
+pub const FLAG_PROGRAM_STATUS: u32 = 1 << 7;
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.
@@ -161,18 +167,6 @@ impl TerminalExit {
             }
         }
     }
-}
-
-/// Wait for the native child hidden behind cmux-pty without collapsing Unix
-/// signal/core information into its display-only fallback status.
-///
-/// cmux-pty's Unix backend returns `std::process::Child`, so failure to downcast
-/// is an alternate backend and becomes an explicit unknown outcome.
-#[cfg(test)]
-pub(crate) fn wait_for_native_child_status(
-    child: &mut (dyn cmux_pty::Child + Send + Sync),
-) -> TerminalExit {
-    wait_for_native_child_status_with_reap_result(child).0
 }
 
 /// Wait for a PTY child and report whether the wait reaped it successfully.

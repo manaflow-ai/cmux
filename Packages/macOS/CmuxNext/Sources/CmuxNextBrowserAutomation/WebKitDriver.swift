@@ -36,8 +36,12 @@ public final class WebKitDriver: DriverCallHandler {
         (events, emitter) = AsyncStream.makeStream(of: DriverEvent.self, bufferingPolicy: .bufferingOldest(8192))
     }
 
-    isolated deinit {
-        emitter.finish()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            emitter.finish()
+        }
     }
 
     public func call(method: String, params json: DriverJSON) async throws(DriverError) -> DriverJSON {
@@ -59,7 +63,13 @@ public final class WebKitDriver: DriverCallHandler {
             let timeout = try params.optionalNumber("timeoutMs").flatMap { $0 > 0 ? Duration.milliseconds(Int64($0)) : nil }
             return try await CallDeadline.run(timeout, what: "frame.evaluate") { () throws(DriverError) in try await self.frameEvaluate(params) }
         case "input.mouse": return try await inputMouse(params)
-        case "input.key": return try await inputKey(params)
+        case "input.key":
+            if let kind = WebKitClipboard.clipboardShortcut(params) { return try await WebKitClipboard(driver: self).clipboardKey(kind, params) }
+            return try await inputKey(params)
+        case "input.setFiles": return try await WebKitSetFiles(driver: self).inputSetFiles(params)
+        case "input.drag": return try await WebKitDrag(driver: self).inputDrag(params)
+        case "clipboard.read": return try WebKitClipboard(driver: self).clipboardRead(params)
+        case "clipboard.write": return try WebKitClipboard(driver: self).clipboardWrite(params)
         case "input.insertText": return try await inputInsertText(params)
         case "tab.screenshot": return try await tabScreenshot(params)
         case "tab.pdf": return try await tabPDF(params)
@@ -158,6 +168,8 @@ final class TabSession {
     /// lag the load event.
     var lastTitle: String?
     var watcher: TabWatcher?
+    /// The tab's virtual clipboard: `{type, base64}` items (WebKitClipboard).
+    var clipboard: [DriverJSON] = []
     let messages: LoadStateMessages
 
     init(tabID: BrowserTabID, driver: WebKitDriver) {

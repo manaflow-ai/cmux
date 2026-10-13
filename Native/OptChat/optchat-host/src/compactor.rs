@@ -324,8 +324,9 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
         // A refusal repeats on every try: ask the fallback model, in a fresh
         // conversation (the declined model's blocks mean nothing to it).
         Err(declined) if declined.refused => match &shared.fallback {
-            Some(fallback) => gated(fallback).map_err(|e| {
-                ModelError::new(format!("{declined}; the fallback model failed too: {e}"))
+            Some(fallback) => gated(fallback).map_err(|e| ModelError {
+                message: format!("{declined}; the fallback model failed too: {e}"),
+                ..e
             }),
             None => Err(declined),
         },
@@ -366,12 +367,25 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
         *t += 1;
         *t
     };
-    if !st.failing.contains_key(&node) {
+    // The first error is kept, but a setup error replaces an ordinary one:
+    // it is why the node is stuck.
+    let replaces = error.setup
+        && st
+            .failing
+            .get(&node)
+            .is_some_and(|e| !e.starts_with(crate::model::SETUP_ERROR));
+    if replaces || !st.failing.contains_key(&node) {
+        // The status keeps the type: a setup error reads "setup error: ...".
+        let message = if error.setup {
+            format!("{}{}", crate::model::SETUP_ERROR, error.message)
+        } else {
+            error.message.clone()
+        };
         st.reports.push(Report::NodeFailed {
             node,
-            error: error.message.clone(),
+            error: message.clone(),
         });
-        st.failing.insert(node, error.message.clone());
+        st.failing.insert(node, message);
     }
     // A request error repeats on every try; a transient one may pass, up to
     // COMPACT_TRIES; an exhausted route (a capacity error naming a wait past
@@ -380,7 +394,10 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
     let permanent = class.as_ref().is_some_and(|c| c.permanent());
     let capacity = crate::model::capacity_wait(&error.message);
     let exhausted = capacity.is_some_and(|w| w > crate::MAX_RETRY_WAIT);
-    let stuck = permanent || exhausted || tries >= crate::COMPACT_TRIES;
+    // A setup error (no preset, a refused harness): stuck at once, so no turn
+    // waits for it; the stuck notice says why (chief 2026-10-10: a user turn
+    // never waits more than 10 s on compaction).
+    let stuck = error.setup || permanent || exhausted || tries >= crate::COMPACT_TRIES;
     if exhausted && st.stuck.insert(node) {
         st.recovered = false;
         st.reports.push(Report::NodeWaiting {
@@ -390,6 +407,11 @@ fn job(shared: Arc<Shared>, request: CompactRequest) {
     } else if stuck && st.stuck.insert(node) {
         st.recovered = false;
         let class = match &class {
+            _ if error.setup => format!(
+                "{}{}",
+                crate::model::SETUP_ERROR,
+                optchat_core::cut_at_bytes(&error.message, 200)
+            ),
             Some(c) if permanent => c.to_string(),
             Some(c) => format!("{tries} tries, last {c}"),
             None => format!(

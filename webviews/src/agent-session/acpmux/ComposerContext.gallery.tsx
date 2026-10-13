@@ -95,6 +95,21 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       props: baseProps,
       play: openComputer,
     },
+    "ssh-chat": {
+      note: "A chat on an SSH machine names that machine as its Computer, not this Mac (cx-7ooz).",
+      props: {
+        ...baseProps,
+        started: true,
+        summary: {
+          sessionId: "gallery-ssh",
+          harness: "claude",
+          model: "claude-opus-5-5",
+          cwd: "/home/dev/project",
+          host: "gpu-box",
+          peer: "gpu-box",
+        },
+      },
+    },
     "started-branch": {
       note: "After a turn starts, location labels lock while the branch remains visible at the right.",
       props: {

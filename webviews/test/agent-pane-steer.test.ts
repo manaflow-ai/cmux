@@ -1,0 +1,251 @@
+// Queue and steer while a turn runs, in the real agent pane (cx-xtg0.3). The page is the pane's dev
+// entry (vite.config.acpmux-pane.mjs) with its browser host, talking JSON-RPC over a WebSocket to a
+// stand-in acpmux daemon whose one chat has a turn running, and which answers prompts as acpmux
+// does: a plain prompt waits behind the turn (`queued`), a steer goes into it (`user_message`).
+//
+// - Enter queues: the queue row shows the prompt and the composer is free for the next one.
+// - ⌘Enter steers, and an agent that cannot steer is told to stop the turn and run it next
+//   (`_meta.acpmux.interrupt`); the button says so.
+// - Esc on an empty composer stops the turn.
+//
+// Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
+import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import path from "node:path";
+import { chromium, type Browser, type Page } from "playwright";
+import { requireBrowserLane } from "./support/requireBrowserLane";
+
+await requireBrowserLane("agent-pane-steer.test.ts", async () => {
+  setDefaultTimeout(120_000);
+  try {
+    await (await chromium.launch({ headless: true })).close();
+  } catch {
+    console.warn("agent-pane-steer: skipping (run `bunx playwright install chromium`)");
+    describe.skip("queue and steer", () => test("chromium", () => {}));
+    return;
+  }
+  const { createServer } = await import("vite");
+  const webviews = path.resolve(import.meta.dir, "..");
+
+  const SESSION = "steer-session";
+  const turn = {
+    turnId: "turn-1",
+    promptId: "p-turn",
+    startedAt: Date.now(),
+    prompt: "Refactor the parser",
+  };
+  const summary = {
+    sessionId: SESSION,
+    cwd: "/home/dev/api",
+    title: "Refactor the parser",
+    harness: "claude",
+    status: "running",
+    steering: false,
+    queued: 0,
+    queue: [],
+    turn,
+    updatedAt: Date.now(),
+  };
+  const opening = [
+    {
+      sessionId: SESSION,
+      seq: 1,
+      at: Date.now(),
+      dir: "mux",
+      kind: "user_message",
+      msg: { text: turn.prompt, promptId: "p-turn", turnId: "turn-1" },
+    },
+    {
+      sessionId: SESSION,
+      seq: 2,
+      at: Date.now(),
+      dir: "mux",
+      kind: "turn_started",
+      msg: { prompt: turn.prompt, promptId: "p-turn", turnId: "turn-1" },
+    },
+  ];
+  let seq = opening.length;
+  const prompts: Record<string, any>[] = [];
+  const cancels: Record<string, any>[] = [];
+
+  function answer(method: string): unknown {
+    switch (method) {
+      case "initialize":
+        return {
+          protocolVersion: 1,
+          _meta: { acpmux: { origin: "local", extensions: [] } },
+        };
+      case "_acpmux/watch":
+        return { sessions: [summary] };
+      case "_acpmux/attach":
+        return { session: summary, lastSeq: opening.length, events: opening };
+      case "_acpmux/events":
+        return { events: [], hasMore: false, lastSeq: seq };
+      default:
+        return null;
+    }
+  }
+
+  /// acpmux's answer to a prompt while the turn runs: no reply until its turn, only an event.
+  function prompted(ws: { send(data: string): void }, params: Record<string, any>, id?: number): void {
+    prompts.push(params);
+    const meta = params._meta?.acpmux ?? {};
+    const text = (params.prompt ?? []).map((block: { text?: string }) => block.text ?? "").join("");
+    const msg = meta.steer
+      ? { text, promptId: meta.promptId, turnId: "turn-1", steer: true }
+      : {
+          text,
+          promptId: meta.promptId,
+          turnId: `turn-${meta.promptId}`,
+          position: prompts.length,
+        };
+    const event = {
+      sessionId: SESSION,
+      seq: ++seq,
+      at: Date.now(),
+      dir: "mux",
+      kind: meta.steer ? "user_message" : "queued",
+      msg,
+    };
+    ws.send(
+      JSON.stringify({
+        jsonrpc: "2.0",
+        method: "_acpmux/event",
+        params: event,
+      }),
+    );
+    // acpmux checks a queued prompt again when its turn comes (`check_dispatch`) and may refuse it.
+    if (text === "refused at its turn")
+      setTimeout(() => {
+        const error = { code: -32602, message: "web_control.refused: the chat's mode changed" };
+        ws.send(JSON.stringify({ jsonrpc: "2.0", id, error }));
+      }, 300);
+  }
+
+  let daemon: ReturnType<typeof Bun.serve> | undefined;
+  let vite: Awaited<ReturnType<typeof createServer>> | undefined;
+  let browser: Browser | undefined;
+  beforeAll(async () => {
+    daemon = Bun.serve({
+      port: 0,
+      hostname: "127.0.0.1",
+      fetch(request, server) {
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
+      },
+      websocket: {
+        message(ws, raw) {
+          const message = JSON.parse(String(raw)) as {
+            id?: number;
+            method: string;
+            params?: Record<string, any>;
+          };
+          if (message.method === "session/prompt") return prompted(ws, message.params ?? {}, message.id);
+          if (message.method === "session/cancel") cancels.push(message.params ?? {});
+          if (message.id !== undefined)
+            ws.send(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: message.id,
+                result: answer(message.method),
+              }),
+            );
+        },
+      },
+    });
+    vite = await createServer({
+      configFile: path.join(webviews, "vite.config.acpmux-pane.mjs"),
+      server: { port: 0, host: "127.0.0.1", strictPort: false },
+      logLevel: "error",
+    });
+    await vite.listen();
+    browser = await chromium.launch({ headless: true });
+  });
+  afterAll(async () => {
+    await browser?.close();
+    await vite?.close();
+    await daemon?.stop(true);
+  });
+
+  async function openChat(): Promise<Page> {
+    prompts.length = 0;
+    cancels.length = 0;
+    const page = await browser!.newPage({
+      viewport: { width: 900, height: 760 },
+    });
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
+    await page.locator(".acpmux-composer-prompt").waitFor();
+    await page.getByRole("button", { name: "Stop" }).waitFor();
+    return page;
+  }
+
+  const composerText = (page: Page) => page.locator(".acpmux-composer-prompt .ProseMirror").innerText();
+
+  describe("queue and steer while a turn runs", () => {
+    test("Enter queues each prompt behind the turn and frees the composer for the next", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("first follow-up");
+      await page.keyboard.press("Enter");
+      await page.locator(".acpmux-queued", { hasText: "first follow-up" }).waitFor();
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
+      );
+      await page.keyboard.type("second follow-up");
+      await page.keyboard.press("Enter");
+      await page.locator(".acpmux-queued", { hasText: "second follow-up" }).waitFor();
+      expect({
+        rows: await page.locator(".acpmux-queued").count(),
+        composer: (await composerText(page)).trim(),
+        steers: prompts.filter((p) => p._meta?.acpmux?.steer).length,
+        sent: prompts.length,
+      }).toEqual({ rows: 2, composer: "", steers: 0, sent: 2 });
+      await page.close();
+    });
+
+    test("⌘Enter interrupts an agent that cannot steer and sends now", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("use the new tokenizer");
+      const button = page.getByRole("button", { name: "Interrupt and send" });
+      await button.waitFor();
+      await page.keyboard.press("Meta+Enter");
+      await page.waitForFunction(
+        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
+      );
+      expect({
+        meta: prompts.map(
+          (p) =>
+            p._meta?.acpmux && {
+              steer: p._meta.acpmux.steer,
+              interrupt: p._meta.acpmux.interrupt,
+            },
+        ),
+        queued: await page.locator(".acpmux-queued").count(),
+      }).toEqual({ meta: [{ steer: true, interrupt: true }], queued: 0 });
+      await page.close();
+    });
+
+    test("a queued prompt refused when its turn comes is back in the transcript, with Retry", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      await page.keyboard.type("refused at its turn");
+      await page.keyboard.press("Enter");
+      const failed = page.locator(".cv-user__status--failed", { hasText: "the chat's mode changed" });
+      await failed.waitFor();
+      expect(await failed.getByRole("button", { name: "Retry" }).count()).toBe(1);
+      await page.close();
+    });
+
+    test("Esc on an empty composer stops the turn", async () => {
+      const page = await openChat();
+      await page.locator(".acpmux-composer-prompt").click();
+      // The send guard ignores a stop right after a send; nothing was sent here.
+      await page.keyboard.press("Escape");
+      const deadline = Date.now() + 5_000;
+      while (cancels.length === 0 && Date.now() < deadline) await page.waitForTimeout(50);
+      expect(cancels.map((c) => c.sessionId)).toEqual([SESSION]);
+      await page.close();
+    });
+  });
+});

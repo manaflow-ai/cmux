@@ -7,9 +7,6 @@ public nonisolated enum DockEdge: String, Hashable, Sendable, CaseIterable {
 
     /// Top and bottom: the dock is a horizontal band.
     public var isBand: Bool { self == .top || self == .bottom }
-
-    /// Left and top: the dock sits before the strip on its axis.
-    public var isLeading: Bool { self == .left || self == .top }
 }
 
 /// How a docked column shares the viewport with the scrolling strip.

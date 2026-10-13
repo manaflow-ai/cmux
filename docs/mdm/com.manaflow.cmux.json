@@ -58,6 +58,20 @@
       "title" : "Show Context Usage",
       "type" : "boolean"
     },
+    "agentPane.showDictation" : {
+      "default" : true,
+      "description" : "The microphone beside Send in every composer, including the New Tab page.",
+      "title" : "Show Dictation Button",
+      "type" : "boolean"
+    },
+    "agentPane.zoom" : {
+      "default" : 1,
+      "description" : "The display size for agent chat. Cmd-0 resets it.",
+      "maximum" : 2,
+      "minimum" : 0.5,
+      "title" : "Agent Chat Zoom",
+      "type" : "number"
+    },
     "agents.chats.discovery" : {
       "default" : true,
       "description" : "Find harness chat folders automatically. When off, only the listed folders are used.",
@@ -150,6 +164,23 @@
       "title" : "Warn Before Closing a Running Program",
       "type" : "boolean"
     },
+    "appearance.accent" : {
+      "default" : "neutral",
+      "description" : "The color of selection, focus and the Send button. Theme Color takes the theme's own hue, such as Rose Pine's iris.",
+      "enum" : [
+        "neutral",
+        "theme",
+        "art",
+        "red",
+        "green",
+        "yellow",
+        "blue",
+        "magenta",
+        "cyan"
+      ],
+      "title" : "Accent",
+      "type" : "string"
+    },
     "appearance.appTheme" : {
       "default" : "followTerminal",
       "description" : "Colors for cmux's own pages. Every bundled theme works here, and each color meets WCAG AA contrast.",
@@ -161,25 +192,365 @@
       "description" : "A public-domain painting behind the window material. Lower Opacity to reveal it. Attribution is linked above.",
       "enum" : [
         "none",
-        "wheat-field-with-cypresses",
-        "met-saint-catherine-436908",
-        "met-woman-man-casement-436896",
-        "met-women-picking-olives-436536",
-        "met-sunflowers-436524"
+        "david-death-of-marat",
+        "goya-saturn",
+        "velde-small-ship-storm",
+        "bosch-garden-right",
+        "bosch-ascent-blessed",
+        "goya-witches-flight",
+        "bocklin-self-portrait-death",
+        "caravaggio-medusa",
+        "martin-pandemonium",
+        "moran-burning-philadelphia",
+        "goya-burial-sardine",
+        "arbo-wild-hunt",
+        "caravaggio-david-goliath",
+        "van-gogh-skeleton-cigarette",
+        "altdorfer-battle-of-issus",
+        "gentileschi-judith",
+        "munch-madonna",
+        "bocklin-isle-of-the-dead",
+        "klee-fish-magic",
+        "friedrich-forest-moonlight",
+        "goya-witches-sabbath",
+        "bosch-garden-left",
+        "rembrandt-storm-galilee",
+        "cole-voyage-manhood",
+        "fuseli-nightmare-2",
+        "hiremy-hirschl-souls-of-acheron",
+        "munch-scream",
+        "klimt-judith",
+        "repin-ivan",
+        "millais-ophelia",
+        "bruegel-fall-rebel-angels",
+        "fuseli-nightmare",
+        "bundy-death-general",
+        "wright-vesuvius",
+        "gerome-botsaris",
+        "durer-knight-death-devil",
+        "martin-joshua",
+        "velde-gale",
+        "hogai-nio",
+        "klimt-death-and-life",
+        "klimt-medicine",
+        "bosch-garden-central",
+        "martin-great-day-wrath",
+        "bonheur-wounded-eagle",
+        "gerome-pollice-verso",
+        "cole-voyage-old-age",
+        "friedrich-abbey-oakwood",
+        "goya-sleep-of-reason",
+        "bosch-garden-fragment",
+        "bruegel-triumph-death",
+        "spilliaert-vertigo",
+        "rothaug-melpomene",
+        "schiele-death-and-the-maiden",
+        "aivazovsky-ship-stormy-seas",
+        "vereshchagin-apotheosis-war",
+        "ensor-skeleton-painter",
+        "cabanel-fallen-angel",
+        "spilliaert-woman-shoreline",
+        "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
+        "rembrandt-prodigal-son",
+        "velazquez-las-meninas",
+        "matejko-stanczyk",
+        "sargent-madame-x",
+        "millais-joan-of-arc",
+        "cot-storm",
+        "rembrandt-night-watch",
+        "vigee-lebrun-madame-grand",
+        "waterhouse-lady-shalott",
+        "draper-lament-icarus",
+        "fragonard-swing",
+        "rubens-st-francis-xavier",
+        "vermeer-pearl-earring",
+        "danielson-gambogi-self",
+        "beard-his-majesty",
+        "marc-foxes",
+        "degas-green-dancers",
+        "modigliani-nude-divan",
+        "raphael-sistine-madonna",
+        "bouguereau-virgin-lilies",
+        "wood-american-gothic",
+        "steinlen-chat-noir",
+        "degas-blue-dancers",
+        "botticelli-primavera",
+        "van-gogh-cafe-terrace",
+        "matisse-red-room",
+        "kandinsky-deepened-impulse",
+        "friedrich-wanderer",
+        "klimt-adele",
+        "mucha-job",
+        "van-gogh-starry-night",
+        "klimt-tree-of-life",
+        "klimt-the-kiss",
+        "van-gogh-starry-night-rhone",
+        "delacroix-liberty",
+        "van-gogh-sunflowers",
+        "klimt-mada-primavesi",
+        "schiele-kneeling-orange",
+        "van-gogh-sunflowers-munich",
+        "michelangelo-sistine-ceiling",
+        "mondrian-composition-red-plane",
+        "lemoyne-apotheosis-hercules",
+        "schiele-moa",
+        "aivazovsky-ninth-wave",
+        "popova-painterly-architectonic",
+        "bruegel-tower-babel",
+        "botticelli-birth-of-venus",
+        "kandinsky-yellow-red-blue",
+        "kandinsky-composition-viii",
+        "kramskoi-unknown-woman",
+        "michelangelo-creation-of-adam",
+        "hokusai-great-wave",
+        "holbein-ambassadors",
+        "brueghel-wooden-vessel",
+        "dahl-dresden-moonlight",
+        "bosschaert-wan-li-vase",
+        "cot-springtime",
+        "ruysch-flowers",
+        "van-gogh-flowering-plum",
+        "toulmouche-reluctant-bride",
+        "rosso-musical-angel",
+        "grimshaw-blackman-street",
+        "waterhouse-ophelia",
+        "biard-magdalena-bay",
+        "renoir-vase-roses",
+        "roerich-himalayas",
+        "velde-close-hauled",
+        "sohlberg-flower-meadow",
+        "dahl-cloud-study",
+        "friedrich-two-men-moon",
+        "monet-waterlily-pond",
+        "hesselbom-dusk",
+        "toulmouche-vanity",
+        "hiroshige-zoshigaya",
+        "monet-water-lilies",
+        "monet-water-lilies-1907",
+        "bierstadt-storm-rockies",
+        "korovin-place-opera",
+        "klimt-garden-sunflowers",
+        "redon-butterflies",
+        "aivazovsky-winter-landscape",
+        "aivazovsky-along-coast",
+        "grimshaw-silver-moonlight",
+        "monet-water-lilies-setting-sun",
+        "hiroshige-hota-coast",
+        "durer-praying-hands",
+        "cole-voyage-childhood",
+        "monet-impression-sunrise",
+        "monet-woman-parasol",
+        "velde-cannon-shot",
+        "cross-pink-cloud",
+        "laurence-mckinley",
+        "van-gogh-irises",
+        "kramskoi-christ-in-the-desert",
+        "turner-temeraire",
+        "leonardo-vitruvian-man",
+        "bruegel-hunters-snow",
+        "cole-voyage-youth",
+        "friedrich-monk-by-the-sea",
+        "van-gogh-wheat-field-cypresses",
+        "monet-cliff-pourville",
+        "van-gogh-almond-blossom",
+        "van-gogh-fishing-boats",
+        "hokusai-umezawa",
+        "whistler-falling-rocket",
+        "dore-fall-of-satan",
+        "dore-flood",
+        "dore-wolves-sheep",
+        "dore-leviathan",
+        "dore-paradise-lost-book-vi",
+        "dore-moses-tables",
+        "dore-empyrean",
+        "dore-raven"
       ],
       "title" : "Backdrop Art",
       "type" : "string"
     },
     "appearance.background" : {
       "default" : "none",
-      "description" : "Choose a bundled public-domain painting or a macOS system wallpaper behind the window material.",
+      "description" : "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
       "enum" : [
         "none",
-        "wheat-field-with-cypresses",
-        "met-saint-catherine-436908",
-        "met-woman-man-casement-436896",
-        "met-women-picking-olives-436536",
-        "met-sunflowers-436524"
+        "daily",
+        "david-death-of-marat",
+        "goya-saturn",
+        "velde-small-ship-storm",
+        "bosch-garden-right",
+        "bosch-ascent-blessed",
+        "goya-witches-flight",
+        "bocklin-self-portrait-death",
+        "caravaggio-medusa",
+        "martin-pandemonium",
+        "moran-burning-philadelphia",
+        "goya-burial-sardine",
+        "arbo-wild-hunt",
+        "caravaggio-david-goliath",
+        "van-gogh-skeleton-cigarette",
+        "altdorfer-battle-of-issus",
+        "gentileschi-judith",
+        "munch-madonna",
+        "bocklin-isle-of-the-dead",
+        "klee-fish-magic",
+        "friedrich-forest-moonlight",
+        "goya-witches-sabbath",
+        "bosch-garden-left",
+        "rembrandt-storm-galilee",
+        "cole-voyage-manhood",
+        "fuseli-nightmare-2",
+        "hiremy-hirschl-souls-of-acheron",
+        "munch-scream",
+        "klimt-judith",
+        "repin-ivan",
+        "millais-ophelia",
+        "bruegel-fall-rebel-angels",
+        "fuseli-nightmare",
+        "bundy-death-general",
+        "wright-vesuvius",
+        "gerome-botsaris",
+        "durer-knight-death-devil",
+        "martin-joshua",
+        "velde-gale",
+        "hogai-nio",
+        "klimt-death-and-life",
+        "klimt-medicine",
+        "bosch-garden-central",
+        "martin-great-day-wrath",
+        "bonheur-wounded-eagle",
+        "gerome-pollice-verso",
+        "cole-voyage-old-age",
+        "friedrich-abbey-oakwood",
+        "goya-sleep-of-reason",
+        "bosch-garden-fragment",
+        "bruegel-triumph-death",
+        "spilliaert-vertigo",
+        "rothaug-melpomene",
+        "schiele-death-and-the-maiden",
+        "aivazovsky-ship-stormy-seas",
+        "vereshchagin-apotheosis-war",
+        "ensor-skeleton-painter",
+        "cabanel-fallen-angel",
+        "spilliaert-woman-shoreline",
+        "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
+        "rembrandt-prodigal-son",
+        "velazquez-las-meninas",
+        "matejko-stanczyk",
+        "sargent-madame-x",
+        "millais-joan-of-arc",
+        "cot-storm",
+        "rembrandt-night-watch",
+        "vigee-lebrun-madame-grand",
+        "waterhouse-lady-shalott",
+        "draper-lament-icarus",
+        "fragonard-swing",
+        "rubens-st-francis-xavier",
+        "vermeer-pearl-earring",
+        "danielson-gambogi-self",
+        "beard-his-majesty",
+        "marc-foxes",
+        "degas-green-dancers",
+        "modigliani-nude-divan",
+        "raphael-sistine-madonna",
+        "bouguereau-virgin-lilies",
+        "wood-american-gothic",
+        "steinlen-chat-noir",
+        "degas-blue-dancers",
+        "botticelli-primavera",
+        "van-gogh-cafe-terrace",
+        "matisse-red-room",
+        "kandinsky-deepened-impulse",
+        "friedrich-wanderer",
+        "klimt-adele",
+        "mucha-job",
+        "van-gogh-starry-night",
+        "klimt-tree-of-life",
+        "klimt-the-kiss",
+        "van-gogh-starry-night-rhone",
+        "delacroix-liberty",
+        "van-gogh-sunflowers",
+        "klimt-mada-primavesi",
+        "schiele-kneeling-orange",
+        "van-gogh-sunflowers-munich",
+        "michelangelo-sistine-ceiling",
+        "mondrian-composition-red-plane",
+        "lemoyne-apotheosis-hercules",
+        "schiele-moa",
+        "aivazovsky-ninth-wave",
+        "popova-painterly-architectonic",
+        "bruegel-tower-babel",
+        "botticelli-birth-of-venus",
+        "kandinsky-yellow-red-blue",
+        "kandinsky-composition-viii",
+        "kramskoi-unknown-woman",
+        "michelangelo-creation-of-adam",
+        "hokusai-great-wave",
+        "holbein-ambassadors",
+        "brueghel-wooden-vessel",
+        "dahl-dresden-moonlight",
+        "bosschaert-wan-li-vase",
+        "cot-springtime",
+        "ruysch-flowers",
+        "van-gogh-flowering-plum",
+        "toulmouche-reluctant-bride",
+        "rosso-musical-angel",
+        "grimshaw-blackman-street",
+        "waterhouse-ophelia",
+        "biard-magdalena-bay",
+        "renoir-vase-roses",
+        "roerich-himalayas",
+        "velde-close-hauled",
+        "sohlberg-flower-meadow",
+        "dahl-cloud-study",
+        "friedrich-two-men-moon",
+        "monet-waterlily-pond",
+        "hesselbom-dusk",
+        "toulmouche-vanity",
+        "hiroshige-zoshigaya",
+        "monet-water-lilies",
+        "monet-water-lilies-1907",
+        "bierstadt-storm-rockies",
+        "korovin-place-opera",
+        "klimt-garden-sunflowers",
+        "redon-butterflies",
+        "aivazovsky-winter-landscape",
+        "aivazovsky-along-coast",
+        "grimshaw-silver-moonlight",
+        "monet-water-lilies-setting-sun",
+        "hiroshige-hota-coast",
+        "durer-praying-hands",
+        "cole-voyage-childhood",
+        "monet-impression-sunrise",
+        "monet-woman-parasol",
+        "velde-cannon-shot",
+        "cross-pink-cloud",
+        "laurence-mckinley",
+        "van-gogh-irises",
+        "kramskoi-christ-in-the-desert",
+        "turner-temeraire",
+        "leonardo-vitruvian-man",
+        "bruegel-hunters-snow",
+        "cole-voyage-youth",
+        "friedrich-monk-by-the-sea",
+        "van-gogh-wheat-field-cypresses",
+        "monet-cliff-pourville",
+        "van-gogh-almond-blossom",
+        "van-gogh-fishing-boats",
+        "hokusai-umezawa",
+        "whistler-falling-rocket",
+        "dore-fall-of-satan",
+        "dore-flood",
+        "dore-wolves-sheep",
+        "dore-leviathan",
+        "dore-paradise-lost-book-vi",
+        "dore-moses-tables",
+        "dore-empyrean",
+        "dore-raven",
+        "desktop"
       ],
       "title" : "Background",
       "type" : "string"
@@ -517,6 +888,17 @@
       "title" : "Theme",
       "type" : "string"
     },
+    "appearance.themeEdits" : {
+      "default" : {
+
+      },
+      "description" : "Your color changes to a theme, such as \"Rose Pine/background\": \"#1f1d2e\". The theme itself never changes; remove an entry to reset that color.",
+      "properties" : {
+
+      },
+      "title" : "Theme Edits",
+      "type" : "object"
+    },
     "browser.customSearchEngine.search" : {
       "default" : "",
       "description" : "Used when Search Engine is Custom. Put {searchTerms} where the typed text goes.",
@@ -565,6 +947,17 @@
         "type" : "string"
       },
       "title" : "Never Hibernate",
+      "type" : "array"
+    },
+    "browser.hostsToOpenInEmbeddedBrowser" : {
+      "default" : [
+
+      ],
+      "description" : "Only these hosts open in cmux, such as example.com or *.example.com. Empty opens every host in cmux.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hosts to Open in Embedded Browser",
       "type" : "array"
     },
     "browser.links.cmdClick" : {
@@ -664,6 +1057,30 @@
       "title" : "Search Suggestions",
       "type" : "boolean"
     },
+    "browser.openTerminalLinksInCmuxBrowser" : {
+      "default" : true,
+      "description" : "When off, links clicked in terminal output open in your default browser.",
+      "title" : "Open Terminal Links in cmux Browser",
+      "type" : "boolean"
+    },
+    "browser.passwords.allowExport" : {
+      "default" : false,
+      "description" : "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password.",
+      "title" : "Allow Password Export",
+      "type" : "boolean"
+    },
+    "browser.passwords.generate" : {
+      "default" : true,
+      "description" : "Offers a generated password when a site asks for a new one, and saves it.",
+      "title" : "Suggest Strong Passwords",
+      "type" : "boolean"
+    },
+    "browser.passwords.offerToSave" : {
+      "default" : true,
+      "description" : "A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask.",
+      "title" : "Offer to Save Passwords",
+      "type" : "boolean"
+    },
     "browser.remoteLocalhost" : {
       "default" : true,
       "description" : "browser.remoteLocalhost",
@@ -690,11 +1107,43 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "browser.urlsToAlwaysOpenExternally" : {
+      "default" : [
+
+      ],
+      "description" : "Terminal links that match open in your default browser. Text matches anywhere in the URL, * and ? are wildcards, and re: starts a regular expression.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "URLs to Always Open Externally",
+      "type" : "array"
+    },
+    "computerUse.driver" : {
+      "default" : "legacy",
+      "description" : "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately.",
+      "enum" : [
+        "legacy",
+        "upstream"
+      ],
+      "title" : "Computer Use Driver",
+      "type" : "string"
+    },
     "computerUse.enabled" : {
       "default" : false,
       "description" : "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them.",
       "title" : "Computer Use",
       "type" : "boolean"
+    },
+    "diff.colors" : {
+      "default" : "theme",
+      "description" : "diff.colors",
+      "enum" : [
+        "theme",
+        "muted",
+        "standard"
+      ],
+      "title" : "Diff Colors",
+      "type" : "string"
     },
     "diff.diffIndicators" : {
       "default" : "bars",
@@ -777,6 +1226,12 @@
       "description" : "Team enrollment token from the cmux dashboard. Signed-in users in a verified domain of the team join it; the token alone never grants membership.",
       "title" : "EnrollmentToken",
       "type" : "string"
+    },
+    "feed.agentPermissionPrompts" : {
+      "default" : false,
+      "description" : "Each request's tool and command summary goes to your own cmux feed, so your iPhone can answer it.",
+      "title" : "Send Agent Permission Requests to the Feed",
+      "type" : "boolean"
     },
     "feed.github.enabled" : {
       "default" : false,
@@ -865,6 +1320,30 @@
       "maximum" : 8,
       "minimum" : 0.5,
       "title" : "Width",
+      "type" : "number"
+    },
+    "history.closed.maxAgeDays" : {
+      "default" : 0,
+      "description" : "Each machine deletes closed items that are older. 0 keeps them however old they are.",
+      "maximum" : 3650,
+      "minimum" : 0,
+      "title" : "Keep Recently Closed Items For",
+      "type" : "number"
+    },
+    "history.closed.maxGroups" : {
+      "default" : 0,
+      "description" : "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all.",
+      "maximum" : 10000,
+      "minimum" : 0,
+      "title" : "Recently Closed Items to Keep",
+      "type" : "number"
+    },
+    "history.commandRetentionDays" : {
+      "default" : 30,
+      "description" : "Each machine deletes recorded commands that are older.",
+      "maximum" : 3650,
+      "minimum" : 1,
+      "title" : "Keep Terminal Commands For",
       "type" : "number"
     },
     "history.terminalCommands" : {
@@ -1124,6 +1603,12 @@
       "title" : "Pulse Duration",
       "type" : "number"
     },
+    "notifications.attention.moveToTop" : {
+      "default" : true,
+      "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+      "title" : "Move the Workspace to the Top",
+      "type" : "boolean"
+    },
     "notifications.attention.persist" : {
       "default" : true,
       "description" : "notifications.attention.persist",
@@ -1280,6 +1765,28 @@
       "minimum" : 1,
       "title" : "Timeout",
       "type" : "number"
+    },
+    "palette.aliases" : {
+      "default" : {
+
+      },
+      "description" : "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first.",
+      "properties" : {
+
+      },
+      "title" : "Command Aliases",
+      "type" : "object"
+    },
+    "palette.pins" : {
+      "default" : [
+
+      ],
+      "description" : "Commands shown first when the command palette opens, in this order, by action id.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pinned Commands",
+      "type" : "array"
     },
     "palette.scopes.commands.prefix" : {
       "default" : ">",
@@ -1475,6 +1982,16 @@
       "title" : "Command-9",
       "type" : "string"
     },
+    "sidebar.density" : {
+      "default" : "compact",
+      "description" : "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer.",
+      "enum" : [
+        "compact",
+        "expanded"
+      ],
+      "title" : "Sidebar Density",
+      "type" : "string"
+    },
     "sidebar.groupBy" : {
       "default" : "none",
       "description" : "sidebar.groupBy",
@@ -1491,8 +2008,14 @@
       "title" : "Group Workspaces by Computer",
       "type" : "boolean"
     },
+    "sidebar.minimal" : {
+      "default" : false,
+      "description" : "Workspace rows show only their icon, name and unread mark, and section titles become thin lines.",
+      "title" : "Minimal Mode",
+      "type" : "boolean"
+    },
     "sidebar.minimalMode" : {
-      "default" : "bottom",
+      "default" : "off",
       "description" : "Hides the chosen sections until the pointer is over the sidebar.",
       "enum" : [
         "off",
@@ -1500,7 +2023,7 @@
         "top",
         "both"
       ],
-      "title" : "Minimal Mode",
+      "title" : "Hide Bands Until Hover",
       "type" : "string"
     },
     "sidebar.numbering" : {
@@ -1538,10 +2061,22 @@
       "title" : "Show All Chats",
       "type" : "boolean"
     },
+    "sidebar.showProfileControl" : {
+      "default" : true,
+      "description" : "sidebar.showProfileControl",
+      "title" : "Show Profile Button",
+      "type" : "boolean"
+    },
     "sidebar.showProjects" : {
       "default" : true,
       "description" : "sidebar.showProjects",
       "title" : "Show Projects",
+      "type" : "boolean"
+    },
+    "sidebar.showSpaces" : {
+      "default" : true,
+      "description" : "sidebar.showSpaces",
+      "title" : "Show Spaces",
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
@@ -1629,6 +2164,16 @@
       "title" : "Last Activity",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.agent.log" : {
+      "description" : "sidebar.workspaceRow.agent.log",
+      "title" : "Log",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.agent.notification" : {
+      "description" : "sidebar.workspaceRow.agent.notification",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.agent.ports" : {
       "description" : "sidebar.workspaceRow.agent.ports",
       "title" : "Ports",
@@ -1653,6 +2198,7 @@
       "description" : "sidebar.workspaceRow.agent.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -1676,8 +2222,8 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.agentStatus" : {
-      "default" : false,
-      "description" : "The status line agents and hooks report.",
+      "default" : true,
+      "description" : "The status agents and hooks report, one line each.",
       "title" : "Agent Status",
       "type" : "boolean"
     },
@@ -1712,6 +2258,16 @@
       "title" : "Last Activity",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.browser.log" : {
+      "description" : "sidebar.workspaceRow.browser.log",
+      "title" : "Log",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.browser.notification" : {
+      "description" : "sidebar.workspaceRow.browser.notification",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.browser.ports" : {
       "description" : "sidebar.workspaceRow.browser.ports",
       "title" : "Ports",
@@ -1736,6 +2292,7 @@
       "description" : "sidebar.workspaceRow.browser.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -1776,6 +2333,12 @@
       "title" : "Last Activity",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.log" : {
+      "default" : true,
+      "description" : "The newest line agents and scripts log: cmux workspace log append <text>.",
+      "title" : "Log",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.mixed.agentStatus" : {
       "description" : "sidebar.workspaceRow.mixed.agentStatus",
       "title" : "Agent Status",
@@ -1799,6 +2362,16 @@
     "sidebar.workspaceRow.mixed.lastActivity" : {
       "description" : "sidebar.workspaceRow.mixed.lastActivity",
       "title" : "Last Activity",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.log" : {
+      "description" : "sidebar.workspaceRow.mixed.log",
+      "title" : "Log",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.mixed.notification" : {
+      "description" : "sidebar.workspaceRow.mixed.notification",
+      "title" : "Latest Notification",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.mixed.ports" : {
@@ -1825,6 +2398,7 @@
       "description" : "sidebar.workspaceRow.mixed.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -1847,6 +2421,12 @@
       "title" : "Agent Working",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.notification" : {
+      "default" : true,
+      "description" : "The text of the workspace's newest unread notification.",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.ports" : {
       "default" : false,
       "description" : "Set by a hook: cmux workspace status set ports <text>.",
@@ -1860,7 +2440,7 @@
       "type" : "boolean"
     },
     "sidebar.workspaceRow.progress" : {
-      "default" : false,
+      "default" : true,
       "description" : "A progress bar under the row and the busy mark of running work.",
       "title" : "Progress",
       "type" : "boolean"
@@ -1873,6 +2453,7 @@
     },
     "sidebar.workspaceRow.secondLineOrder" : {
       "default" : [
+        "notification",
         "directory",
         "branch",
         "process",
@@ -1883,6 +2464,7 @@
       "description" : "The order of the shown items under the workspace name.",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -1926,6 +2508,16 @@
       "title" : "Last Activity",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.terminal.log" : {
+      "description" : "sidebar.workspaceRow.terminal.log",
+      "title" : "Log",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.terminal.notification" : {
+      "description" : "sidebar.workspaceRow.terminal.notification",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.terminal.ports" : {
       "description" : "sidebar.workspaceRow.terminal.ports",
       "title" : "Ports",
@@ -1950,6 +2542,7 @@
       "description" : "sidebar.workspaceRow.terminal.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -2032,6 +2625,17 @@
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
     },
+    "tabs.hiddenButtons" : {
+      "default" : [
+
+      ],
+      "description" : "Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hidden Tab Bar Buttons",
+      "type" : "array"
+    },
     "tabs.newTabKind" : {
       "default" : "page",
       "description" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder.",
@@ -2044,6 +2648,16 @@
         "auto"
       ],
       "title" : "New Tab Opens",
+      "type" : "string"
+    },
+    "tabs.newTabPosition" : {
+      "default" : "end",
+      "description" : "Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.",
+      "enum" : [
+        "end",
+        "afterCurrent"
+      ],
+      "title" : "New Tab Position",
       "type" : "string"
     },
     "tabs.newTabTemplate" : {
@@ -2068,6 +2682,45 @@
         "always"
       ],
       "title" : "New Tab Button",
+      "type" : "string"
+    },
+    "tabs.swapCmdTAndCmdN" : {
+      "default" : false,
+      "description" : "When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused.",
+      "title" : "Swap Cmd-T and Cmd-N",
+      "type" : "boolean"
+    },
+    "tabs.tabBar.agent" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Agent Chats",
+      "type" : "string"
+    },
+    "tabs.tabBar.browser" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Browser Panes",
+      "type" : "string"
+    },
+    "tabs.tabBar.terminal" : {
+      "default" : "auto",
+      "description" : "Automatic shows the tab bar in terminal and browser panes, and hides it for an agent chat alone in its column. Show or hide one pane's tab bar from the command palette.",
+      "enum" : [
+        "auto",
+        "always",
+        "never"
+      ],
+      "title" : "Tab Bar in Terminal Panes",
       "type" : "string"
     },
     "tasks.layout" : {

@@ -488,6 +488,7 @@ mod tests {
             browser_frames_stalled: false,
             supports_clear_history_key_fallback: false,
             notification: None,
+            program_status: None,
         }
     }
 

@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxAgentQuestion
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The question card: one view for Home transcript rows, agent panes and the
 /// UI Gallery. It renders `AgentQuestionCardState` with the frames of
@@ -73,7 +74,7 @@ public final class AgentQuestionCardView: NSView {
         submitButton.action = #selector(submitPressed)
         addSubview(skipButton)
         addSubview(submitButton)
-        check.image = NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: nil)
+        check.image = NSImage.icon(.statusComplete, size: style.checkSize)
         addSubview(check)
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
@@ -184,7 +185,11 @@ public final class AgentQuestionCardView: NSView {
             row.configure(content, frames: frames, style: style)
             row.onClick = { [weak self] in self?.handle(.click(row: index)) }
         }
-        otherField.font = style.labelFont
+        if otherField.font != style.labelFont {
+            otherField.font = style.labelFont
+            // The placeholder carries its own font.
+            performWithTheme { otherField.applyThemedPlaceholder(strings.otherPlaceholder) }
+        }
         if otherField.stringValue != state.otherDrafts[item.id] ?? "" { otherField.stringValue = state.otherDrafts[item.id] ?? "" }
         let highlighted = state.highlightedRow(item)
         let shown = highlighted < item.options.count ? item.options[highlighted].preview : nil
@@ -262,6 +267,8 @@ public final class AgentQuestionCardView: NSView {
             chip.textColor = Palette.textSecondary
             meta.textColor = Palette.textTertiary
             prompt.textColor = Palette.textPrimary
+            otherField.textColor = Palette.textPrimary
+            otherField.applyThemedPlaceholder(strings.otherPlaceholder)
             previewBox.layer?.backgroundColor = Palette.windowBackground.cgColor
             previewBox.layer?.borderColor = Palette.separator.cgColor
             previewBox.layer?.borderWidth = 1

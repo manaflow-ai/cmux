@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextDaemon
 import CmuxNextWakeups
 
@@ -29,6 +30,12 @@ final class WindowRecordSaver {
     let geometryTimer = DemandTimer(owner: "WindowManager.geometry")
     /// Coalesced saves of the window records.
     var saves = WindowRecordSaves()
+    /// The daemon window records this install last put, by window id
+    /// (`window-records-v1`): written again only when they change.
+    private var mirrored: [String: JSONValue] = [:]
+    /// Whether this run read the daemon's records of this install once, so
+    /// records of windows that are gone (an earlier run) get deleted.
+    private var reconciled = false
     private var services: AppServices { manager.services }
 
     init(manager: WindowManager) {
@@ -67,7 +74,7 @@ final class WindowRecordSaver {
         saves.scheduled = true
         // Not part of any action's scope: a projection write keeps a fresh
         // mutation id (its CAS retries must not replay an earlier write).
-        DaemonCommandScope.$current.withValue(nil) {
+        DaemonCommandScope.$current.withValueInTask(nil) {
             // task-owner: one coalesced save per main-actor turn; drainSaves ends when no save is requested
             saves.drain = Task { @MainActor [weak self] in await self?.drainSaves() }
         }
@@ -113,10 +120,56 @@ final class WindowRecordSaver {
                 document.windows = records
                 document.prune(liveWorkspaces: live)
             }
+            await mirror(records)
             return nil
         } catch {
             services.daemon.logger.error("window state save failed: \(String(describing: error), privacy: .public)")
             return error
+        }
+    }
+
+    /// Mirrors each window into the daemon's window records
+    /// (`window-records-v1`, reopen-closed.md 4): which workspaces it lists
+    /// and whether it is open. Closed history names the window each group
+    /// left from them, and a window that closes becomes a `window` group.
+    /// Only those fields go there (a selection change writes nothing); the
+    /// window projection above stays the restore record. A failed write is
+    /// logged and tried again on the next save.
+    private func mirror(_ records: [WindowRecord]) async {
+        let daemon = services.daemon
+        guard daemon.supports(DaemonCapabilities.shared.windowRecords), let connection = daemon.connection,
+              let install = try? services.cloud.localDeviceID() else { return }
+        let registry = manager.registry.value
+        if !reconciled, let stored = try? await connection.state.windowRecordIDs(installID: install) {
+            reconciled = true
+            // Known as written, so the loop below deletes the ones no window wants.
+            for id in stored where mirrored[id] == nil { mirrored[id] = .null }
+        }
+        var wanted: [String: JSONValue] = [:]
+        for record in records {
+            var fields: [String: JSONValue] = ["id": .string(record.id), "open": .bool(registry.window(record.id)?.isOpen ?? true),
+                                               "workspace_keys": .array(record.workspaceKeys.map { .string($0.rawValue) })]
+            if let key = record.workspaceKey { fields["workspace_key"] = .string(key.rawValue) }
+            wanted[record.id] = .object(fields)
+        }
+        for (id, record) in wanted where mirrored[id] != record {
+            do {
+                try await connection.state.putWindowRecord(installID: install, windowID: id, record: record)
+                mirrored[id] = record
+            } catch {
+                daemon.logger.error("window_record.put failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+        for id in Set(mirrored.keys).subtracting(wanted.keys) {
+            do {
+                try await connection.state.deleteWindowRecord(installID: install, windowID: id)
+                mirrored[id] = nil
+            } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
+                mirrored[id] = nil
+            } catch {
+                // Kept: the next save tries the delete again.
+                daemon.logger.error("window_record.delete failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 
@@ -129,11 +182,24 @@ final class WindowRecordSaver {
             let order = controller?.window.flatMap { ordered.firstIndex(of: $0) }
                 ?? (value.recency.firstIndex(of: window.id) ?? 0) + ordered.count
             var record = value.record(window.id, state: states[window.id], order: order,
-                                      isFullScreen: controller?.window?.styleMask.contains(.fullScreen) ?? false,
+                                      isFullScreen: controller?.window?.styleMask.contains(.fullScreen) == true
+                                          || states[window.id]?.restoresFullScreen == true,
                                       selectedTabs: selectedTabs(window: window))
             record?.focusedPane = states[window.id].flatMap { $0.focus.state.pane ?? $0.savedFocusedPane }
+            record?.focusedPanes = focusedPanes(window: window)
             return record
         }
+    }
+
+    /// The pane last focused in each workspace the window lists: the focus
+    /// machine's memory, and the shown workspace's current pane.
+    private func focusedPanes(window: WindowRegistry.Window) -> [String: String] {
+        guard let state = manager.states[window.id] else { return [:] }
+        let focus = state.focus.state
+        var panes = focus.remembered
+        if let workspace = focus.topology.workspace, let pane = focus.pane { panes[workspace] = pane }
+        let listed = Set(window.workspaceIDs)
+        return panes.filter { listed.contains($0.key) }
     }
 
     /// Remembered tab per pane across the window's workspaces.

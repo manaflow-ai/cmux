@@ -23,7 +23,9 @@ enum WorkspaceStructureHandlers {
             // An icon argument (CLI, MCP, scripts) sets it; without one (palette, menu) the
             // picker opens and its pick takes the same path.
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
-                guard WorkspaceIconValue.isValid(icon) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon) }
+                guard WorkspaceIconValue.isValid(icon, assets: true) else {
+                    throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon)
+                }
                 return try changeIcon(to: icon, invocation, context)
             }
             // The target is fixed now: a pick applies to it even if focus moves meanwhile.
@@ -31,9 +33,11 @@ enum WorkspaceStructureHandlers {
             guard let anchor = context.services.iconPicker.anchor(workspace: workspace.id) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen)
             }
-            context.services.iconPicker.pick(current: workspace.icon, target: "workspace:\(workspace.id)", at: anchor) { result in
+            let assets = IconAssetStore.owner(context.services.machines.daemon(forWorkspace: workspace.id))
+            context.services.iconPicker.pick(current: workspace.icon, target: "workspace:\(workspace.id)", at: anchor,
+                                             assets: assets) { result in
                 switch result {
-                case .set(let icon) where WorkspaceIconValue.isValid(icon):
+                case .set(let icon) where WorkspaceIconValue.isValid(icon, assets: true):
                     try? IconHistory.workspace(context).change(workspace.id, from: workspace.icon, to: icon, origin: .user)
                 case .clear: try? IconHistory.workspace(context).change(workspace.id, from: workspace.icon, to: nil, origin: .user)
                 case .set, .cancel: break
@@ -94,7 +98,7 @@ enum WorkspaceStructureHandlers {
     /// The directory the new workspace's first terminal starts in: the first
     /// pane's first tab when it is a terminal.
     private static func firstLeafDirectory(_ blueprint: WorkspaceBlueprint) -> String? {
-        if case .terminal(let cwd)? = blueprint.screens.first?.columns.first?.root.tabs.first { return cwd }
+        if case .terminal(let cwd, _)? = blueprint.screens.first?.columns.first?.root.tabs.first { return cwd }
         return blueprint.firstDirectory
     }
 
@@ -129,6 +133,9 @@ enum WorkspaceStructureHandlers {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.mergeTargetRequired)
         }
         guard into !== source else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.mergeIntoItself) }
+        // Home keeps its tabs and takes no workspace's, as a drag merge refuses it (cx-zjtn.4).
+        guard !WorkspaceMerge.staysPut(kind: source.kind) else { throw ActionFailure.invalidTarget(RefusalStrings.homeKeepsItsTabs) }
+        guard !WorkspaceMerge.staysPut(kind: into.kind) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.mergeIntoHome) }
         let machines = context.services.machines
         guard machines.daemon(forWorkspace: source.id) === machines.daemon(forWorkspace: into.id) else {
             throw ActionFailure.invalidTarget(WorkspaceVerbStrings.otherMachine)
@@ -181,15 +188,17 @@ enum WorkspaceStructureHandlers {
     }
 }
 
-/// A workspace icon the daemon stores today: one emoji, or an SF Symbol name
-/// this Mac draws (``IconValue``; the daemon's `validate_presentation_icon`).
-/// Image and SVG assets wait for the daemon's blob store.
+/// An icon the daemon stores: one emoji, or an SF Symbol name this Mac draws
+/// (``IconValue``; the daemon's `validate_presentation_icon`). With `assets`
+/// (fields that take `icon-assets-v1` values, such as the workspace icon) also
+/// an image or SVG asset; the daemon refuses one it has not stored.
 enum WorkspaceIconValue {
-    static func isValid(_ value: String) -> Bool {
+    static func isValid(_ value: String, assets: Bool = false) -> Bool {
         switch IconValue(wire: value) {
         case .emoji?: true
         case .symbol(let name)?: NSImage(systemSymbolName: name, accessibilityDescription: nil) != nil
-        case .image?, .svg?, nil: false
+        case .image?, .svg?: assets
+        case nil: false
         }
     }
 }

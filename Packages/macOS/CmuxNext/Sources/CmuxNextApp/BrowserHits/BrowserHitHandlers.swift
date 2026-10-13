@@ -60,7 +60,8 @@ enum BrowserHitHandlers {
             let services = context.services
             let profile = Self.page(invocation, context).flatMap { services.cache.key(of: $0) }.flatMap { services.cache.tabModel($0) }
                 .map { services.browserProfiles.profileID(ofTab: $0) }
-            try BrowserHandlers.splitBrowser(from: pane, direction: .right, url: url, profile: profile, context: context)
+            try BrowserHandlers.splitBrowser(from: pane, direction: .right, url: url, profile: profile,
+                                             byPerson: invocation.origin == .user, context: context)
         })
     }
 

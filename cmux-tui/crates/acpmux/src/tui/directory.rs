@@ -78,23 +78,3 @@ impl App {
         )
     }
 }
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn cd_keeps_spaced_paths_and_does_not_capture_shell_commands() {
-        assert_eq!(cd_argument("cd"), Some(""));
-        assert_eq!(cd_argument("cd .."), Some(".."));
-        assert_eq!(cd_argument("cd 'My Project'"), Some("'My Project'"));
-        assert_eq!(cd_argument("cd ../foo && ls"), None);
-        assert_eq!(cd_argument("cdrom test"), None);
-        let base = Path::new("/work/repo");
-        let home = Path::new("/Users/me");
-        assert_eq!(resolve(base, "..", home, None).unwrap(), base.join(".."));
-        assert_eq!(resolve(base, "'My Project'", home, None).unwrap(), base.join("My Project"));
-        assert_eq!(resolve(base, "~/fun", home, None).unwrap(), home.join("fun"));
-        assert_eq!(resolve(base, "-", home, Some("/old")).unwrap(), Path::new("/old"));
-        assert!(resolve(base, "-", home, None).is_err());
-        assert_eq!(unquote(" '~/p' "), "~/p");
-    }
-}

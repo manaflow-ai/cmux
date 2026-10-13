@@ -5,7 +5,9 @@ import Foundation
 /// Localized refusal and failure reasons for action handlers. The control
 /// socket returns them as `unavailable: <reason>`; keyboard, menu, and
 /// palette runs log them. Keys live in Resources/Refusals.xcstrings (en, ja).
-/// Identifiers are format arguments, never translated. A daemon capability
+/// A raw object id (`tab_…`, `ws_…`, a pane or window id) is never shown:
+/// a reason about a missing object says so in words, and its `id`
+/// parameter is for call sites and logs only (ToastCopyTests). A daemon capability
 /// id (`profiles-v1`) is never shown: the capability gate's reasons say what
 /// the user can do instead (CapabilityRefusalTests scans every string).
 nonisolated enum RefusalStrings {
@@ -36,6 +38,8 @@ nonisolated enum RefusalStrings {
     }
     static var chromiumUnavailable: String { text("handlers.refusal.chromiumUnavailable", "Chromium is not available in this build.") }
     static var homeNotReady: String { text("handlers.refusal.homeNotReady", "Home is not ready yet.") }
+    /// A promote (new workspace, new window) of a Home tab (`TabPromotion`).
+    static var homeKeepsItsTabs: String { text("handlers.refusal.homeKeepsItsTabs", "Home's tabs stay in Home.") }
     /// The user's close of a permanent docked column (cmux-tui `dock-column-permanent`).
     static var columnStaysDocked: String { text("handlers.refusal.columnStaysDocked", "This column stays docked and can't be closed.") }
     /// The user's close the daemon refused for another reason.
@@ -96,10 +100,17 @@ nonisolated enum RefusalStrings {
     static var daemonUnavailable: String {
         text("handlers.refusal.daemonUnavailable", "cmux could not start its background service. Quit and reopen cmux to try again.")
     }
+    /// The local daemon is alive but has spent over 2 minutes restoring the
+    /// session's terminals (`server.restore_timeout`); cmux keeps trying.
+    static var daemonRestoreTimedOut: String {
+        text("handlers.refusal.daemonRestoreTimedOut",
+             "cmux is still restoring your terminals. This is taking longer than 2 minutes; cmux keeps trying.")
+    }
     /// A daemon error as a user-facing reason: a missing capability goes
     /// through the capability gate's text, never its id.
     static func describe(_ error: any Error) -> String {
         if case DaemonError.missingCapabilities(let names) = error { return needsDaemonCapability(names.first ?? "") }
+        if case DaemonError.sessionRestoreTimedOut = error { return daemonRestoreTimedOut }
         return String(describing: error)
     }
     /// The home session's spaces and workspace groups are not loaded yet.
@@ -120,19 +131,22 @@ nonisolated enum RefusalStrings {
     }
     static var notEnoughRoomToSplit: String { text("handlers.refusal.notEnoughRoomToSplit", "not enough room to split this pane") }
     static var focusedPaneHasNoTab: String { text("handlers.refusal.focusedPaneHasNoTab", "the focused pane has no tab") }
-    static func noTab(_ id: String) -> String { format("handlers.refusal.noTab", "no tab %@", id) }
-    static func noPaneID(_ id: String) -> String { format("handlers.refusal.noPaneID", "no pane %@", id) }
+    static func noTab(_ id: String) -> String { text("handlers.refusal.tabGone", "That tab is no longer open.") }
+    static func noPaneID(_ id: String) -> String { text("handlers.refusal.paneGone", "That pane is no longer open.") }
     static var workspaceArgumentRequired: String { text("handlers.refusal.workspaceArgumentRequired", "a workspace argument is required") }
-    static func noWorkspace(_ id: String) -> String { format("handlers.refusal.noWorkspace", "no workspace %@", id) }
-    static func paneHasNoWorkspaceView(_ id: String) -> String { format("handlers.refusal.paneHasNoWorkspaceView", "pane %@ has no workspace view", id) }
+    /// A workspace that is not open (closed, or never was). `id` is for call
+    /// sites and logs only: a toast or the socket never shows a raw id.
+    static func noWorkspace(_ id: String) -> String { text("handlers.refusal.workspaceGone", "That workspace is no longer open.") }
+    static func paneHasNoWorkspaceView(_ id: String) -> String { text("handlers.refusal.paneWorkspaceNotShown", "That pane's workspace isn't shown in any window.") }
     static var noWindowShowsWorkspace: String { text("handlers.refusal.noWindowShowsWorkspace", "no window shows a workspace") }
-    static func tabHasNoLiveContent(_ id: String) -> String { format("handlers.refusal.tabHasNoLiveContent", "tab %@ has no live content", id) }
+    static func tabHasNoLiveContent(_ id: String) -> String { text("handlers.refusal.tabNotLoaded", "That tab hasn't loaded yet.") }
     static var notATerminal: String { text("handlers.refusal.notATerminal", "the tab is not a terminal") }
+    static var tabNotDead: String { text("handlers.refusal.tabNotDead", "only a terminal tab whose shell ended can restart") }
     static var noWindowOpen: String { text("handlers.refusal.noWindowOpen", "no window is open") }
     static var noWindowForRename: String { text("handlers.refusal.noWindowForRename", "no window for the rename prompt") }
     static var indexRequired: String { text("handlers.refusal.indexRequired", "an index 1-9 is required") }
     static func screenCount(_ count: Int) -> String { format("handlers.refusal.screenCount", "the workspace has %lld screens", count) }
-    static func noScreen(_ id: String) -> String { format("handlers.refusal.noScreen", "no screen %@", id) }
+    static func noScreen(_ id: String) -> String { text("handlers.refusal.screenGone", "That screen is no longer open.") }
     static var workspaceHasNoScreen: String { text("handlers.refusal.workspaceHasNoScreen", "the workspace has no screen") }
     static var workspaceHasOneScreen: String { text("handlers.refusal.workspaceHasOneScreen", "the workspace has one screen") }
     static var paneArgumentRequired: String { text("handlers.refusal.paneArgumentRequired", "a pane argument is required") }
@@ -151,11 +165,12 @@ nonisolated enum RefusalStrings {
     static var noRecentlyClosedTab: String { text("handlers.refusal.noRecentlyClosedTab", "no recently closed tab") }
     static var noRecentlyClosedWorkspace: String { text("handlers.refusal.noRecentlyClosedWorkspace", "no recently closed workspace") }
     static var noRecentlyClosedItem: String { text("handlers.refusal.noRecentlyClosedItem", "nothing was closed recently") }
-    static func noClosedItem(_ id: String) -> String { format("handlers.refusal.noClosedItem", "no recently closed item %@", id) }
+    static func noClosedItem(_ id: String) -> String { text("handlers.refusal.closedItemGone", "That closed item can no longer be reopened.") }
     static var paneHasNoTabs: String { text("handlers.refusal.paneHasNoTabs", "the pane has no tabs") }
     static var tabArgumentRequired: String { text("handlers.refusal.tabArgumentRequired", "a tab argument is required") }
     static var tabAtEdge: String { text("handlers.refusal.tabAtEdge", "the tab is already at the edge") }
     static var screenHasNoOtherPane: String { text("handlers.refusal.screenHasNoOtherPane", "the screen has no other pane") }
+    static var noPaneWithNumber: String { text("handlers.refusal.noPaneWithNumber", "the screen has no pane with that number") }
     static func noPaneInDirectionOfTab(_ direction: String) -> String { format("handlers.refusal.noPaneInDirectionOfTab", "no pane %@ of the tab", direction) }
     static var sessionLocalCannotRename: String { text("handlers.refusal.sessionLocalCannotRename", "session-local tabs cannot be renamed") }
     static var sessionLocalHasNoName: String { text("handlers.refusal.sessionLocalHasNoName", "session-local tabs have no name") }
@@ -171,8 +186,8 @@ nonisolated enum RefusalStrings {
     static var wakeNotHibernated: String { text("handlers.refusal.wakeNotHibernated", "This tab is not hibernated.") }
     static var terminalCannotReload: String { text("handlers.refusal.terminalCannotReload", "terminal tabs cannot reload; use Reconnect Pane") }
     static var fullWidthTabUnported: String { text("handlers.refusal.fullWidthTabUnported", "needs full-width tab support in the cmux-next tab strip") }
-    static var audioMuteUnported: String { text("handlers.refusal.audioMuteUnported", "needs audio mute support in the cmux-next browser") }
-    static func noColumnShown(_ id: String) -> String { format("handlers.refusal.noColumnShown", "no column %@ is shown", id) }
+    static var audioMuteNeedsPage: String { text("handlers.refusal.audioMuteNeedsPage", "only a loaded browser tab can be muted") }
+    static func noColumnShown(_ id: String) -> String { text("handlers.refusal.columnNotShown", "That column isn't shown.") }
     static var addSecondColumnFirst: String { text("handlers.refusal.addSecondColumnFirst", "Add a second column first") }
     static var columnAlreadyHasWidth: String { text("handlers.refusal.columnAlreadyHasWidth", "the column already has that width") }
     static var columnTooNarrowToSplit: String { text("handlers.refusal.columnTooNarrowToSplit", "Not enough room to split this column") }
@@ -189,5 +204,5 @@ nonisolated enum RefusalStrings {
         format("handlers.refusal.moveColumnNotAvailable", "Moving a whole column is not available yet. This column has %lld panes; move them one at a time.", count)
     }
     static var columnAtEdge: String { text("handlers.refusal.columnAtEdge", "the column is already at the edge") }
-    static func paneHasNoDaemonHandle(_ id: String) -> String { format("handlers.refusal.paneHasNoDaemonHandle", "pane %@ has no daemon handle", id) }
+    static func paneHasNoDaemonHandle(_ id: String) -> String { text("handlers.refusal.paneNotReady", "That pane isn't ready yet.") }
 }

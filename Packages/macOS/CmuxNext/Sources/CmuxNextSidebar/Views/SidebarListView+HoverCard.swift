@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextDesign
+public import CmuxNextResources
 // The list's targets for the app's hover cards (WorkspaceHoverCardController,
 // HoverCardCoordinator): workspace rows, hit-tested by position.
 extension SidebarListView {
@@ -22,7 +23,7 @@ extension SidebarListView {
     /// have a card now: none during a drag or rename, or off the visible rows.
     func hoverCardWorkspace(at point: CGPoint) -> WorkspaceID? {
         guard drag == nil, !inlineRename.isActive, visibleRect.contains(point), !isHiddenOrHasHiddenAncestor,
-              case .workspace(let id)? = displayed.row(at: point.y)?.key, workspaces[id] != nil else { return nil }
+              case .workspace(let id)? = displayed.row(at: point.y)?.key, workspaces[id] != nil, !model.isPlaceholder(id) else { return nil }
         return id
     }
     /// The row's frame on screen, nil when it is not laid out.
@@ -33,6 +34,29 @@ extension SidebarListView {
 }
 
 extension SidebarView {
+    /// CPU and memory for the workspace hover card. Sampled only while a
+    /// card is pending or shown.
+    public var resourceSource: (any ResourceSampleSource)? {
+        get { list.hoverCard.resources.source }
+        set { list.hoverCard.resources.setSource(newValue) }
+    }
+
+    /// Shows workspace `id`'s hover card (CPU and memory) now, until the
+    /// next key press, click or scroll. False when its row is not shown.
+    @discardableResult
+    public func showHoverCard(for id: WorkspaceID) -> Bool {
+        list.showHoverCard(for: id)
+    }
+
+    /// The app's one hover card coordinator (the App injects it).
+    public var hoverCards: HoverCardCoordinator {
+        get { list.hoverCards }
+        set { list.hoverCards = newValue }
+    }
+
+    /// True while the workspace hover card samples resources.
+    public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
+
     /// Workspace `id`'s row on screen, scrolled into view first; nil when the
     /// row is not shown (the icon picker anchors its popover here).
     public func rowFrameOnScreen(for id: WorkspaceID) -> CGRect? {

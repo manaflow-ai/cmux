@@ -1,6 +1,530 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "handlers.browserPage.captureFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The page could not be captured (%@); show the tab and retry"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر التقاط الصفحة (%@)؛ اعرض علامة التبويب وأعد المحاولة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranicu nije moguće snimiti (%@); prikažite karticu i pokušajte ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden kunne ikke optages (%@); vis fanen, og prøv igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Seite konnte nicht aufgenommen werden (%@); zeige den Tab an und versuche es erneut"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo capturar la página (%@); muestra la pestaña y vuelve a intentarlo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible de capturer la page (%@) ; affichez l’onglet et réessayez"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile acquisire la pagina (%@); mostra la scheda e riprova"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ページをキャプチャできませんでした (%@)。タブを表示してからもう一度お試しください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចថតទំព័របានទេ (%@)។ បង្ហាញផ្ទាំង ហើយព្យាយាមម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "페이지를 캡처할 수 없습니다(%@). 탭을 표시한 후 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden kunne ikke tas opp (%@); vis fanen og prøv igjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można przechwycić strony (%@); pokaż kartę i spróbuj ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível capturar a página (%@); mostre a aba e tente novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось снять страницу (%@); покажите вкладку и повторите попытку"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถจับภาพหน้าได้ (%@) แสดงแท็บแล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sayfa yakalanamadı (%@); sekmeyi gösterip yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося зняти сторінку (%@); покажіть вкладку й повторіть спробу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể chụp trang (%@); hãy hiển thị tab rồi thử lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法捕获页面(%@);请显示该标签页后重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法擷取頁面(%@);請顯示該分頁後再試一次"
+          }
+        }
+      }
+    },
+    "handlers.browserPage.clipOutside": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The element is outside the captured viewport"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "العنصر خارج إطار العرض الملتقط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Element je izvan snimljenog prikaza"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elementet er uden for det optagne visningsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Element liegt außerhalb des aufgenommenen Anzeigebereichs"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El elemento está fuera del área visible capturada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’élément est en dehors de la zone d’affichage capturée"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’elemento è fuori dall’area visibile acquisita"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "要素がキャプチャした表示領域の外にあります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធាតុនៅក្រៅផ្ទៃបង្ហាញដែលបានថត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "요소가 캡처한 뷰포트 밖에 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elementet er utenfor det innfangede visningsområdet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Element znajduje się poza przechwyconym obszarem widoku"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O elemento está fora da área visível capturada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Элемент находится за пределами снятой области просмотра"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "องค์ประกอบอยู่นอกพื้นที่แสดงผลที่จับภาพไว้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öğe yakalanan görüntü alanının dışında"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Елемент поза межами знятої області перегляду"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Phần tử nằm ngoài khung nhìn đã chụp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "元素位于已捕获的视口之外"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "元素位於已擷取的檢視區之外"
+          }
+        }
+      }
+    },
+    "handlers.browserPage.encodeFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The screenshot could not be encoded as PNG"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر ترميز لقطة الشاشة بتنسيق PNG"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimak ekrana nije moguće kodirati kao PNG"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skærmbilledet kunne ikke kodes som PNG"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Bildschirmfoto konnte nicht als PNG codiert werden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo codificar la captura de pantalla como PNG"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible d’encoder la capture d’écran en PNG"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile codificare lo screenshot come PNG"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スクリーンショットを PNG にエンコードできませんでした"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចអ៊ិនកូដរូបថតអេក្រង់ជា PNG បានទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크린샷을 PNG로 인코딩할 수 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjermbildet kunne ikke kodes som PNG"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można zakodować zrzutu ekranu jako PNG"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível codificar a captura de tela como PNG"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось закодировать снимок экрана в PNG"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถเข้ารหัสภาพหน้าจอเป็น PNG ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran görüntüsü PNG olarak kodlanamadı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося закодувати знімок екрана у PNG"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể mã hóa ảnh chụp màn hình thành PNG"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法将截图编码为 PNG"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法將截圖編碼為 PNG"
+          }
+        }
+      }
+    },
+    "handlers.browserPage.saveFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The screenshot could not be saved: %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعذّر حفظ لقطة الشاشة: %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Snimak ekrana nije moguće sačuvati: %@"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skærmbilledet kunne ikke gemmes: %@"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das Bildschirmfoto konnte nicht gespeichert werden: %@"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No se pudo guardar la captura de pantalla: %@"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossible d’enregistrer la capture d’écran : %@"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Impossibile salvare lo screenshot: %@"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "スクリーンショットを保存できませんでした: %@"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចរក្សាទុករូបថតអេក្រង់បានទេ៖ %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "스크린샷을 저장할 수 없습니다: %@"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjermbildet kunne ikke lagres: %@"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można zapisać zrzutu ekranu: %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não foi possível salvar a captura de tela: %@"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не удалось сохранить снимок экрана: %@"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถบันทึกภาพหน้าจอได้: %@"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ekran görüntüsü kaydedilemedi: %@"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не вдалося зберегти знімок екрана: %@"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể lưu ảnh chụp màn hình: %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无法保存截图:%@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無法儲存截圖:%@"
+          }
+        }
+      }
+    },
     "handlers.misc.failed.invalidURL": {
       "extractionState": "manual",
       "localizations": {
@@ -1704,6 +2228,399 @@
         }
       }
     },
+    "handlers.misc.failed.archiveChatNeedsAgentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Archive Chat works in agent chats. Focus one first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل أرشفة الدردشة في دردشات الوكيل. ركّز على واحدة أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arhiviranje chata radi u chatovima s agentom. Prvo fokusirajte jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkivér chat virker i agentchats. Fokusér en først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Chat archivieren“ funktioniert in Agent-Chats. Fokussiere zuerst einen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivar chat funciona en chats de agente. Enfoca uno primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archiver la discussion fonctionne dans les discussions d’agent. Activez-en une d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archivia chat funziona nelle chat con agenti. Seleziona prima una chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットをアーカイブはエージェントチャットで使えます。先にチャットにフォーカスしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការទុកការជជែកក្នុងបណ្ណសារដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅 보관은 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arkiver chat fungerer i agentchatter. Fokuser én først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Archiwizacja czatu działa w czatach z agentem. Najpierw ustaw fokus na czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Arquivar conversa funciona em conversas com agentes. Foque uma primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Архивирование чата работает в чатах с агентом. Сначала выберите чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เก็บแชทเข้าคลังใช้ได้ในแชทเอเจนต์ โฟกัสแชทหนึ่งก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbeti arşivle, ajan sohbetlerinde çalışır. Önce birine odaklanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Архівування чату працює в чатах з агентом. Спершу виберіть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lưu trữ cuộc trò chuyện hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“归档聊天”适用于智能体聊天。请先聚焦一个聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「封存聊天」適用於代理聊天。請先聚焦一個聊天。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.copyCodeNeedsAgentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Copy Last Code Block works in agent chats. Focus one first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يعمل نسخ آخر كتلة تعليمات برمجية في دردشات الوكيل. ركّز على واحدة أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiranje posljednjeg bloka koda radi u chatovima s agentom. Prvo fokusirajte jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiér seneste kodeblok virker i agentchats. Fokusér en først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Letzten Codeblock kopieren“ funktioniert in Agent-Chats. Fokussiere zuerst einen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar el último bloque de código funciona en chats de agente. Enfoca uno primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copier le dernier bloc de code fonctionne dans les discussions d’agent. Activez-en une d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copia l'ultimo blocco di codice funziona nelle chat con agenti. Seleziona prima una chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "最後のコードブロックをコピーはエージェントチャットで使えます。先にチャットにフォーカスしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចម្លងប្លុកកូដចុងក្រោយដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "마지막 코드 블록 복사는 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopier siste kodeblokk fungerer i agentchatter. Fokuser én først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kopiowanie ostatniego bloku kodu działa w czatach z agentem. Najpierw ustaw fokus na czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Copiar o último bloco de código funciona em conversas com agentes. Foque uma primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копирование последнего блока кода работает в чатах с агентом. Сначала выберите чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คัดลอกบล็อกโค้ดล่าสุดใช้ได้ในแชทเอเจนต์ โฟกัสแชทหนึ่งก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Son kod bloğunu kopyala, ajan sohbetlerinde çalışır. Önce birine odaklanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Копіювання останнього блоку коду працює в чатах з агентом. Спершу виберіть чат."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sao chép khối mã cuối cùng hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“拷贝最后一个代码块”适用于智能体聊天。请先聚焦一个聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「拷貝最後一個程式碼區塊」適用於代理聊天。請先聚焦一個聊天。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.searchFilesNeedsAgentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Files… works in agent chats. Focus one first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل ميزة البحث في الملفات… في محادثات الوكلاء. ركّز على إحداها أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraži datoteke… radi u agentskim razgovorima. Prvo fokusirajte jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg i filer… virker i agentchats. Fokuser en først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Dateien durchsuchen…“ funktioniert in Agent-Chats. Fokussiere zuerst einen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar archivos… funciona en los chats de agente. Enfoca uno primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechercher des fichiers… fonctionne dans les chats d’agent. Activez-en un d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerca file… funziona nelle chat dell’agente. Mettine a fuoco una prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「ファイルを検索…」はエージェントチャットで使えます。先にチャットにフォーカスしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកឯកសារ… ដំណើរការក្នុងការជជែកភ្នាក់ងារ។ សូមផ្ដោតលើមួយជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일 검색…은 에이전트 채팅에서 작동합니다. 먼저 채팅에 포커스를 두세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk i filer… virker i agentchatter. Fokuser én først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szukaj plików… działa w czatach agenta. Najpierw ustaw fokus na jednym."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar arquivos… funciona em chats de agente. Foque um primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Поиск файлов…» работает в чатах агента. Сначала переключитесь на чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาไฟล์… ใช้ได้ในแชตเอเจนต์ โฟกัสแชตก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyalarda ara… ajan sohbetlerinde çalışır. Önce birine odaklanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Пошук файлів…» працює в чатах агента. Спершу перейдіть до чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm tệp… hoạt động trong cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "“搜索文件…”适用于智能体聊天。请先聚焦一个聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "「搜尋檔案…」適用於代理程式聊天。請先聚焦一個聊天。"
+          }
+        }
+      }
+    },
     "handlers.misc.unavailable.agentChat": {
       "extractionState": "manual",
       "localizations": {
@@ -2486,137 +3403,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "電腦操作整合尚未移植至 cmux-next。"
-          }
-        }
-      }
-    },
-    "handlers.misc.unavailable.linkTarget": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Link context menus do not pass a link to actions yet."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "リンクのコンテキストメニューはまだリンクを操作に渡しません。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "لا تمرّر قوائم سياق الروابط رابطًا إلى الإجراءات بعد."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Kontekstni meniji linkova još ne prosljeđuju link radnjama."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Genvejsmenuer til links sender endnu ikke et link til handlinger."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Link-Kontextmenüs übergeben noch keinen Link an Aktionen."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Los menús contextuales de enlaces aún no pasan el enlace a las acciones."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Les menus contextuels de lien ne transmettent pas encore le lien aux actions."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "I menu contestuali dei link non passano ancora un link alle azioni."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ម៉ឺនុយបរិបទតំណមិនទាន់បញ្ជូនតំណទៅសកម្មភាពនៅឡើយទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "링크 컨텍스트 메뉴는 아직 작업에 링크를 전달하지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Lenkekontekstmenyer sender ikke en lenke til handlinger ennå."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Menu kontekstowe linków nie przekazują jeszcze linku do akcji."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Os menus de contexto de links ainda não passam o link para as ações."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Контекстные меню ссылок пока не передают ссылку действиям."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "เมนูบริบทของลิงก์ยังไม่ส่งลิงก์ไปยังการกระทำ"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Bağlantı bağlam menüleri henüz eylemlere bağlantı iletmiyor."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Контекстні меню посилань ще не передають посилання діям."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Menu ngữ cảnh liên kết chưa truyền liên kết cho thao tác."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "链接上下文菜单尚不会将链接传给操作。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "連結的快顯選單尚未將連結傳遞給動作。"
           }
         }
       }
@@ -7655,138 +8441,6 @@
         }
       }
     },
-    "handlers.agent.addHarness.request": {
-      "comment": "Composer text of the chat Add Harness opens. Keep `cmux harness guide` exactly.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Integrate my harness into cmux. Run `cmux harness guide` and follow it."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "私のハーネスを cmux に統合してください。`cmux harness guide` を実行して、その手順に従ってください。"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ادمج أداة التشغيل الخاصة بي في cmux. شغّل `cmux harness guide` واتبع خطواته."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integriši moj harness u cmux. Pokreni `cmux harness guide` i slijedi upute."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integrer min harness i cmux. Kør `cmux harness guide` og følg den."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integriere meinen Harness in cmux. Führe `cmux harness guide` aus und folge der Anleitung."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integra mi harness en cmux. Ejecuta `cmux harness guide` y sigue sus pasos."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Intègre mon harness dans cmux. Lance `cmux harness guide` et suis ses étapes."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integra il mio harness in cmux. Esegui `cmux harness guide` e seguilo."
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "សូមបញ្ចូល harness របស់ខ្ញុំទៅក្នុង cmux។ ដំណើរការ `cmux harness guide` ហើយធ្វើតាមវា។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "내 하네스를 cmux에 통합해 줘. `cmux harness guide`를 실행하고 안내를 따라 줘."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integrer min harness i cmux. Kjør `cmux harness guide` og følg den."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zintegruj mój harness z cmux. Uruchom `cmux harness guide` i postępuj zgodnie z nim."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Integre meu harness ao cmux. Execute `cmux harness guide` e siga as instruções."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Интегрируй мой харнесс в cmux. Запусти `cmux harness guide` и следуй инструкциям."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ช่วยผสาน harness ของฉันเข้ากับ cmux เรียกใช้ `cmux harness guide` แล้วทำตามขั้นตอน"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Harness'imi cmux'a entegre et. `cmux harness guide` komutunu çalıştır ve adımlarını izle."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Інтегруй мій харнес у cmux. Запусти `cmux harness guide` і дотримуйся інструкцій."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Hãy tích hợp harness của tôi vào cmux. Chạy `cmux harness guide` và làm theo hướng dẫn."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "将我的 harness 集成到 cmux。运行 `cmux harness guide` 并按其步骤操作。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "將我的 harness 整合到 cmux。執行 `cmux harness guide` 並依照步驟操作。"
-          }
-        }
-      }
-    },
     "handlers.agent.harness.doctorFailed": {
       "comment": "Agent harness action refusals; keep commands and --arg text exactly",
       "extractionState": "manual",
@@ -8585,127 +9239,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Add Harness… opens a chat from the palette, the menu or the New Tab page. Automation runs cmux harness guide instead."
+            "value": "Add Harness… opens the Harnesses page from the palette or the menu. Automation runs cmux harness guide instead."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "「ハーネスを追加…」はパレット、メニュー、または新規タブページからチャットを開きます。自動化では代わりに cmux harness guide を実行してください。"
+            "value": "「ハーネスを追加…」はパレットまたはメニューからハーネスページを開きます。自動化では代わりに cmux harness guide を実行してください。"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "يفتح «إضافة أداة تشغيل…» محادثة من لوحة الأوامر أو القائمة أو صفحة علامة التبويب الجديدة. تشغّل الأتمتة cmux harness guide بدلًا من ذلك."
+            "value": "يفتح «إضافة أداة تشغيل…» صفحة أدوات التشغيل من لوحة الأوامر أو القائمة. تشغّل الأتمتة cmux harness guide بدلًا من ذلك."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj harness… otvara razgovor iz palete, menija ili stranice nove kartice. Automatizacija umjesto toga pokreće cmux harness guide."
+            "value": "Dodaj harness… otvara stranicu harnessa iz palete ili menija. Automatizacija umjesto toga pokreće cmux harness guide."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tilføj harness… åbner en chat fra paletten, menuen eller siden Ny fane. Automatisering kører cmux harness guide i stedet."
+            "value": "Tilføj harness… åbner siden Harnesses fra paletten eller menuen. Automatisering kører cmux harness guide i stedet."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "„Harness hinzufügen…“ öffnet einen Chat aus der Palette, dem Menü oder der Seite „Neuer Tab“. Automatisierung führt stattdessen cmux harness guide aus."
+            "value": "„Harness hinzufügen…“ öffnet die Seite „Harnesses“ aus der Palette oder dem Menü. Automatisierung führt stattdessen cmux harness guide aus."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Añadir harness… abre un chat desde la paleta, el menú o la página de nueva pestaña. La automatización ejecuta cmux harness guide en su lugar."
+            "value": "Añadir harness… abre la página de harnesses desde la paleta o el menú. La automatización ejecuta cmux harness guide en su lugar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajouter un harness… ouvre une discussion depuis la palette, le menu ou la page Nouvel onglet. L’automatisation lance plutôt cmux harness guide."
+            "value": "Ajouter un harness… ouvre la page des harnesses depuis la palette ou le menu. L’automatisation lance plutôt cmux harness guide."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aggiungi harness… apre una chat dalla palette, dal menu o dalla pagina Nuova scheda. L’automazione esegue invece cmux harness guide."
+            "value": "Aggiungi harness… apre la pagina degli harness dalla palette o dal menu. L’automazione esegue invece cmux harness guide."
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បន្ថែម harness… បើកការជជែកពីផ្ទាំងពាក្យបញ្ជា ម៉ឺនុយ ឬទំព័រផ្ទាំងថ្មី។ ស្វ័យប្រវត្តិកម្មដំណើរការ cmux harness guide ជំនួសវិញ។"
+            "value": "បន្ថែម harness… បើកទំព័រ harness ពីផ្ទាំងពាក្យបញ្ជា ឬម៉ឺនុយ។ ស្វ័យប្រវត្តិកម្មដំណើរការ cmux harness guide ជំនួសវិញ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "하네스 추가…는 팔레트, 메뉴 또는 새 탭 페이지에서 채팅을 엽니다. 자동화에서는 대신 cmux harness guide를 실행하세요."
+            "value": "하네스 추가…는 팔레트나 메뉴에서 하네스 페이지를 엽니다. 자동화에서는 대신 cmux harness guide를 실행하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Legg til harness… åpner en chat fra paletten, menyen eller siden Ny fane. Automatisering kjører cmux harness guide i stedet."
+            "value": "Legg til harness… åpner siden Harnesses fra paletten eller menyen. Automatisering kjører cmux harness guide i stedet."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Dodaj harness… otwiera czat z palety, menu lub strony nowej karty. Automatyzacja uruchamia zamiast tego cmux harness guide."
+            "value": "Dodaj harness… otwiera stronę harnessów z palety lub menu. Automatyzacja uruchamia zamiast tego cmux harness guide."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Adicionar harness… abre um chat pela paleta, pelo menu ou pela página de nova aba. A automação executa cmux harness guide em vez disso."
+            "value": "Adicionar harness… abre a página de harnesses pela paleta ou pelo menu. A automação executa cmux harness guide em vez disso."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Добавить харнесс…» открывает чат из палитры, меню или страницы новой вкладки. Автоматизация вместо этого запускает cmux harness guide."
+            "value": "«Добавить харнесс…» открывает страницу харнессов из палитры или меню. Автоматизация вместо этого запускает cmux harness guide."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เพิ่ม harness… จะเปิดแชตจากพาเลต เมนู หรือหน้าแท็บใหม่ ระบบอัตโนมัติให้เรียกใช้ cmux harness guide แทน"
+            "value": "เพิ่ม harness… จะเปิดหน้า Harnesses จากพาเลตหรือเมนู ระบบอัตโนมัติให้เรียกใช้ cmux harness guide แทน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Harness ekle… paletten, menüden veya Yeni Sekme sayfasından bir sohbet açar. Otomasyon bunun yerine cmux harness guide çalıştırır."
+            "value": "Harness ekle… paletten veya menüden Harness'ler sayfasını açar. Otomasyon bunun yerine cmux harness guide çalıştırır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "«Додати харнес…» відкриває чат із палітри, меню або сторінки нової вкладки. Автоматизація натомість запускає cmux harness guide."
+            "value": "«Додати харнес…» відкриває сторінку харнесів із палітри або меню. Автоматизація натомість запускає cmux harness guide."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Thêm harness… mở một cuộc trò chuyện từ bảng lệnh, menu hoặc trang Thẻ mới. Tự động hóa chạy cmux harness guide thay thế."
+            "value": "Thêm harness… mở trang Harness từ bảng lệnh hoặc menu. Tự động hóa chạy cmux harness guide thay thế."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "“添加 Harness…”从命令面板、菜单或新标签页打开聊天。自动化请改为运行 cmux harness guide。"
+            "value": "“添加 Harness…”从命令面板或菜单打开 Harness 页面。自动化请改为运行 cmux harness guide。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「新增 Harness…」會從命令面板、選單或新分頁頁面開啟聊天。自動化請改為執行 cmux harness guide。"
+            "value": "「新增 Harness…」會從命令面板或選單開啟 Harness 頁面。自動化請改為執行 cmux harness guide。"
           }
         }
       }
@@ -8968,6 +9622,530 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有可開啟此連結的 App"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.printUnavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This page can't be printed now."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このページは現在プリントできません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يمكن طباعة هذه الصفحة الآن."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova stranica se trenutno ne može štampati."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden kan ikke udskrives lige nu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Seite kann gerade nicht gedruckt werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esta página no se puede imprimir ahora."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette page ne peut pas être imprimée pour le moment."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Al momento non è possibile stampare questa pagina."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចបោះពុម្ពទំព័រនេះបានទេឥឡូវនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "지금은 이 페이지를 프린트할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Siden kan ikke skrives ut nå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie można teraz wydrukować tej strony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não é possível imprimir esta página agora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сейчас эту страницу нельзя напечатать."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่สามารถพิมพ์หน้านี้ได้ในขณะนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sayfa şu anda yazdırılamıyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Зараз цю сторінку неможливо надрукувати."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện không thể in trang này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前无法打印此页面。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "目前無法列印此頁面。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.gitWriteNeedsFocus": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit and push from the agent pane require focus. Use cmux git commit or cmux git push to run them headless."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントペインからのコミットとプッシュにはフォーカスが必要です。ヘッドレスで実行するには cmux git commit または cmux git push を使用してください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب الإيداع والدفع من جزء الوكيل التركيز. استخدم cmux git commit أو cmux git push لتشغيلهما دون واجهة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit i push iz okna agenta zahtijevaju fokus. Koristite cmux git commit ili cmux git push da ih pokrenete bez sučelja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit og push fra agentpanelet kræver fokus. Brug cmux git commit eller cmux git push for at køre dem uden brugerflade."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit und Push aus dem Agentenbereich erfordern den Fokus. Verwenden Sie cmux git commit oder cmux git push, um sie ohne Oberfläche auszuführen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Confirmar y enviar desde el panel del agente requiere el foco. Usa cmux git commit o cmux git push para ejecutarlos sin interfaz."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La validation et l’envoi depuis le panneau de l’agent nécessitent le focus. Utilisez cmux git commit ou cmux git push pour les exécuter sans interface."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit e push dal riquadro dell’agente richiedono il focus. Usa cmux git commit o cmux git push per eseguirli senza interfaccia."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit និង push ពីផ្ទាំងភ្នាក់ងារ ត្រូវការការផ្ដោត។ ប្រើ cmux git commit ឬ cmux git push ដើម្បីដំណើរការដោយគ្មានចំណុចប្រទាក់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 패널에서 커밋과 푸시를 하려면 포커스가 필요합니다. 인터페이스 없이 실행하려면 cmux git commit 또는 cmux git push를 사용하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit og push fra agentpanelet krever fokus. Bruk cmux git commit eller cmux git push for å kjøre dem uten grensesnitt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatwierdzanie i wypychanie z panelu agenta wymaga fokusu. Użyj cmux git commit lub cmux git push, aby uruchomić je bez interfejsu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit e push pelo painel do agente exigem foco. Use cmux git commit ou cmux git push para executá-los sem interface."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для коммита и push из панели агента нужен фокус. Используйте cmux git commit или cmux git push, чтобы выполнить их без интерфейса."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การคอมมิตและพุชจากแผงเอเจนต์ต้องมีโฟกัส ใช้ cmux git commit หรือ cmux git push เพื่อเรียกใช้โดยไม่มีอินเทอร์เฟซ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan bölmesinden commit ve push için odak gerekir. Arayüz olmadan çalıştırmak için cmux git commit veya cmux git push kullanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для коміту та push з панелі агента потрібен фокус. Використовуйте cmux git commit або cmux git push, щоб виконати їх без інтерфейсу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit và push từ khung tác tử cần tiêu điểm. Dùng cmux git commit hoặc cmux git push để chạy không cần giao diện."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从代理面板提交和推送需要焦点。使用 cmux git commit 或 cmux git push 以无界面方式运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從代理面板提交和推送需要焦點。使用 cmux git commit 或 cmux git push 以無介面方式執行。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.gitNeedsAgentChat": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل الإيداع والدفع في محادثات الوكيل. ركّز على محادثة أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commit i Push rade u agent chatovima. Prvo fokusirajte jedan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commit og Push virker i agentchats. Fokuser på en først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Committen und Pushen funktionieren in Agent-Chats. Fokussiere zuerst einen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commit and Push work in agent chats. Focus one first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Confirmar y Enviar funcionan en los chats de agente. Enfoca uno primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Valider et Pousser fonctionnent dans les discussions d’agent. Activez-en une d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commit e Push funzionano nelle chat degli agenti. Prima metti a fuoco una chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コミットとプッシュはエージェントチャットで使えます。先にチャットにフォーカスしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commit និង Push ដំណើរការក្នុងការជជែកជាមួយភ្នាក់ងារ។ សូមផ្ដោតលើការជជែកមួយជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "커밋과 푸시는 에이전트 채팅에서 사용할 수 있습니다. 먼저 채팅에 포커스를 두세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commit og Push fungerer i agentchatter. Fokuser på en først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zatwierdzanie i wypychanie działają w czatach agentów. Najpierw ustaw fokus na czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commit e Push funcionam em chats de agente. Foque em um primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коммит и пуш работают в чатах агентов. Сначала перейдите в чат."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คอมมิตและพุชใช้ได้ในแชทเอเจนต์ โฟกัสที่แชทก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commit ve Push, ajan sohbetlerinde çalışır. Önce birine odaklanın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Коміт і пуш працюють у чатах агентів. Спершу перейдіть до чату."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Commit và Push hoạt động trong các cuộc trò chuyện với tác tử. Hãy chọn một cuộc trò chuyện trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提交和推送可在代理聊天中使用。请先聚焦一个聊天。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "提交和推送可在代理聊天中使用。請先聚焦一個聊天。"
+          }
+        }
+      }
+    },
+    "handlers.misc.failed.noPrompt": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No agent has been given a prompt yet."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "まだどのエージェントにもプロンプトを送っていません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يتلقَّ أي وكيل طلبًا بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nijedan agent još nije dobio upit."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen agent har fået en prompt endnu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noch kein Agent hat einen Prompt erhalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ningún agente ha recibido un prompt todavía."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun agent n’a encore reçu de prompt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessun agente ha ancora ricevuto un prompt."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់មាន​ភ្នាក់ងារ​ណា​ទទួល​បាន​ប្រអប់​បញ្ចូល​នៅ​ឡើយ​ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 프롬프트를 받은 에이전트가 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen agent har fått en prompt ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Żaden agent nie otrzymał jeszcze promptu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum agente recebeu um prompt ainda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ни один агент ещё не получил запрос."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่มีเอเจนต์ใดได้รับพรอมต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Henüz hiçbir ajana istem verilmedi."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Жоден агент ще не отримав запит."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa có tác tử nào nhận được lời nhắc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "还没有向任何智能体发送过提示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "尚未向任何代理傳送過提示。"
           }
         }
       }

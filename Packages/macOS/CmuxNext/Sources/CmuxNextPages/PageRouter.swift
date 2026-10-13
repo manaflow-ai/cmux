@@ -17,6 +17,9 @@ public final class PageRouter {
     private var routes: [PageRoute]
     /// Runs one envelope in the page (`window.__cmuxPageReceive(<json>)`).
     public var send: ((JSONValue) -> Void)?
+    /// Runs at every ``close()`` (and so at ``reset()`` and rebind): the host drops envelopes it
+    /// has not delivered yet, which belong to the subscriptions that just ended.
+    public var didClose: (() -> Void)?
     private var subscriptions: [UInt64: PageSubscription] = [:]
     private var sequences: [UInt64: UInt64] = [:]
     private var nextSubscription: UInt64 = 1
@@ -45,8 +48,12 @@ public final class PageRouter {
     }
 
     /// The script that delivers `envelope` to the page.
+    /// One buffer: the envelope's JSON is appended in place, never built and copied.
     public nonisolated static func receiveScript(_ envelope: JSONValue) -> String {
-        "window.__cmuxPageReceive && window.__cmuxPageReceive(\(envelope.compactText));"
+        var script = "window.__cmuxPageReceive && window.__cmuxPageReceive("
+        envelope.appendCompactText(to: &script)
+        script += ");"
+        return script
     }
 
     // MARK: Page to host
@@ -107,11 +114,21 @@ public final class PageRouter {
     /// The window's title bar action (DESKTOP-FEEL): a double-click on a title bar the page draws.
     public var titleBarDoubleClick: (@MainActor () -> Void)?
 
+    /// A popup op (`cmux.app.popup.*`, cx-6k6cg) with its params: the page view's WebPopupHost.
+    public var popup: (@MainActor (String, [String: Any]) -> JSONValue)?
+
     private func call(_ op: String, params: JSONValue, opid: String?) async throws -> JSONValue {
         if op == PageNativeOp.titleBarDoubleClick {
             guard !closed else { throw PageError.closed }
             titleBarDoubleClick?()
             return .object([:])
+        }
+        if op == PageNativeOp.popupShow || op == PageNativeOp.popupUpdate || op == PageNativeOp.popupHide {
+            guard !closed else { throw PageError.closed }
+            guard case .object = params, let fields = params.foundationObject as? [String: Any] else {
+                throw PageError.invalidParams("params must be an object")
+            }
+            return popup?(op, fields) ?? .object(["shown": .bool(false)])
         }
         let (provider, params) = try admit(op, params: params)
         return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id, opid: opid,
@@ -130,7 +147,7 @@ public final class PageRouter {
     }
 
     private func subscribe(_ stream: String, filter: JSONValue) async throws -> UInt64 {
-        if stream == PageNativeOp.pageCommand || stream == PageNativeOp.pageConnection {
+        if stream == PageNativeOp.pageCommand || stream == PageNativeOp.pageConnection || stream == PageNativeOp.pagePopup {
             guard !closed else { throw PageError.closed }
             let sub = nextSubscription
             nextSubscription += 1
@@ -210,6 +227,11 @@ public final class PageRouter {
         return !subs.isEmpty
     }
 
+    /// Sends a popup event (`{type, id?}`) to the page's popup subscribers.
+    public func publishPopup(_ event: JSONValue) {
+        for sub in builtIn.filter({ $0.value == PageNativeOp.pagePopup }).keys.sorted() { deliver(sub: sub, event) }
+    }
+
     /// Records the owner link state and tells the page's connection subscribers when it changes.
     public func publishConnection(_ connected: Bool) {
         guard connected != self.connected else { return }
@@ -245,6 +267,7 @@ public final class PageRouter {
     /// The page went away (tab closed, reload): cancels every subscription and fails pending calls.
     public func close() {
         closed = true
+        didClose?()
         for subscription in subscriptions.values { subscription.cancel() }
         subscriptions.removeAll()
         builtIn.removeAll()

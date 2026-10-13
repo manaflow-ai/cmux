@@ -87,7 +87,7 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 // Another app's `cmux` at /usr/local/bin is never replaced
                 // silently: `--replace` replaces it, `--cmux_next` installs
                 // /usr/local/bin/cmux-next beside it; without either the app
-                // asks.
+                // installs cmux-next beside it and its toast offers Replace.
                 arguments: [
                     ActionArgument(name: "replace",
                                    title: String(localized: "argument.installCLI.replace", defaultValue: "Replace Another App's cmux", bundle: .module),
@@ -158,39 +158,6 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.palette.pro.upgrade", defaultValue: "Upgrade to cmux Pro", bundle: .module),
                 keywords: ["pro", "billing", "subscription"], category: .settings, symbol: "star.circle",
                 surfaces: [.palette, .menu], cliName: "settings upgrade-to-pro", mainMenu: .app
-            ),
-            ActionDescriptor(
-                id: "palette.welcomeChecklist",
-                title: String(localized: "action.palette.onboarding", defaultValue: "Onboarding…", bundle: .module),
-                keywords: ["onboarding", "getting started", "welcome", "import", "theme", "default browser", "tour"],
-                category: .settings, symbol: "sparkles",
-                surfaces: [.palette, .menu], cliName: "settings onboarding", mainMenu: .app
-            ),
-            ActionDescriptor(
-                id: "onboarding.continueSetup",
-                title: String(localized: "action.onboarding.continueSetup", defaultValue: "Continue Setup…", bundle: .module),
-                keywords: ["onboarding", "setup", "continue", "resume", "first run", "getting started"],
-                category: .settings, symbol: "arrow.forward.circle",
-                surfaces: [.palette, .menu], cliName: "settings continue-setup", mainMenu: .help
-            ),
-            ActionDescriptor(
-                id: "palette.importClassicSessions",
-                title: String(localized: "action.palette.importClassicSessions", defaultValue: "Import Classic cmux Sessions…", bundle: .module),
-                keywords: ["classic", "session", "workspace", "restore", "import"], category: .settings, symbol: "arrow.down.doc",
-                surfaces: [.palette, .menu], cliName: "settings import-classic-sessions"
-            ),
-            ActionDescriptor(
-                id: "importAndSync.show",
-                title: String(localized: "action.importAndSync.show", defaultValue: "Import and Sync…", bundle: .module),
-                keywords: ["import", "sync", "classic", "session", "workspace", "chat", "onboarding"], category: .settings,
-                symbol: "square.and.arrow.down", surfaces: [.palette],
-                surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
-            ),
-            ActionDescriptor(
-                id: "palette.onboardingGallery",
-                title: String(localized: "action.palette.onboardingGallery", defaultValue: "Onboarding Gallery", bundle: .module),
-                keywords: ["onboarding", "variants", "design", "gallery"], category: .settings, symbol: "square.grid.3x3",
-                surfaces: [.palette], cliName: "settings onboarding-gallery", isDebugOnly: true
             ),
             ActionDescriptor(
                 id: "sendFeedback",

@@ -2,13 +2,14 @@ import CmuxNextDaemon
 
 /// Running a pane's close commands (`PaneController.close`).
 extension DaemonService {
-    typealias CloseRun = (String, @Sendable (DaemonConnection) async throws -> Void)
+    typealias CloseRun = (String, DaemonCommandBody)
 
     /// One `close-tabs` command for several surfaces when the daemon has
     /// `batch-close-v1`, else `commands` (one per tab).
     func closeRuns(surfaces: [SurfaceID], commands: [CloseRun]) -> [CloseRun] {
         guard surfaces.count > 1, supports(DaemonCapabilities.shared.batchClose) else { return commands }
-        return [("close-tabs", { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) })]
+        let close: DaemonCommandBody = { @Sendable [surfaces] connection in _ = try await connection.closeTabs(surfaces, endTerminals: false) }
+        return [("close-tabs", preparingClose(of: surfaces, then: close))]
     }
 
     /// Runs `runs` in order (``runReportingTimeout(_:_:)`` each): whether

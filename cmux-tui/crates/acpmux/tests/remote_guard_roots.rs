@@ -3,6 +3,9 @@
 //! mode at start), and Web folders sit inside a root in the filesystem's own
 //! spelling.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import Observation
 
@@ -38,9 +39,16 @@ extension AppServices {
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: String?
-            for await state in Observations({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
+            var routerUser: String??
+            for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
                 guard let self else { return }
                 self.cloudContextDidChange()
+                // The local model relay follows the signed-in user (ModelRouterLease).
+                let user = state.0 ? state.2 : nil
+                if routerUser != .some(user) {
+                    routerUser = .some(user)
+                    self.modelRouter?.accountChanged(user)
+                }
                 // Phone access follows the account: start after sign-in,
                 // restart on a user or team switch, stop on sign-out.
                 let current = state.0 ? state.2.flatMap { user in state.3.map { "\(user)/\($0)" } } : nil

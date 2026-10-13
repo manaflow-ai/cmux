@@ -1,3 +1,4 @@
+import CmuxNextDesign
 import GhosttyNextKit
 
 /// The theme colors of the applied Ghostty config, as 8-bit sRGB values.
@@ -19,12 +20,20 @@ public nonisolated struct GhosttyThemeColors: Hashable, Sendable {
     /// API; those read as nil.
     public var selectionBackground: RGB?
     public var selectionForeground: RGB?
+    /// `cursor-color`, only when the config sets a plain color.
+    public var cursor: RGB?
     public var backgroundOpacity: Double
     /// Ghostty's encoding: 0 off, >0 blur radius, -1/-2 macOS glass.
     public var backgroundBlur: Int
 }
 
 extension GhosttyRuntime {
+    /// The theme `themeOverride` names for the current color scheme (a pair's variant); nil while
+    /// the Ghostty config's own theme applies, which has no name.
+    public static var themeName: String? {
+        themeOverride.flatMap(ThemeSpec.init).map { $0.name(isDark: colorSchemeIsDark) }
+    }
+
     /// Colors of the config currently applied to every surface. Nil when
     /// libghostty failed to load a config.
     public var themeColors: GhosttyThemeColors? {
@@ -50,9 +59,20 @@ extension GhosttyRuntime {
             palette: paletteColors,
             selectionBackground: Self.color(config, "selection-background"),
             selectionForeground: Self.color(config, "selection-foreground"),
+            cursor: Self.color(config, "cursor-color"),
             backgroundOpacity: backgroundOpacity,
             backgroundBlur: Int(blur)
         )
+    }
+
+    /// The colors of a config made of `text` (Ghostty config lines), for tests.
+    static func themeColors(configText text: String) -> GhosttyThemeColors? {
+        _ = shared // runs ghostty_init, which config_new needs
+        guard let config = ghostty_config_new() else { return nil }
+        defer { ghostty_config_free(config) }
+        text.withCString { ghostty_config_load_string(config, $0, UInt(text.utf8.count), "test") }
+        ghostty_config_finalize(config)
+        return themeColors(of: config, backgroundOpacity: 1)
     }
 
     private static func color(_ config: ghostty_config_t, _ key: String) -> GhosttyThemeColors.RGB? {

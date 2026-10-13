@@ -1,11 +1,10 @@
-/// Files the composer attaches to a prompt. Images go to the agent as ACP
-/// image blocks. A text file is written into the prompt's text, because the
-/// web view never learns a dropped file's path and the Claude adapter does not
-/// pass resource blocks yet; other files are refused.
+/// Files the composer attaches to a prompt. Images and PDFs go to the agent as
+/// ACP content blocks. A text file is written into the prompt's text because
+/// the web view never learns a dropped file's path; other files are refused.
 
 export type ComposerAttachment = {
   id: string;
-  kind: "image" | "text";
+  kind: "image" | "text" | "document";
   name: string;
   mimeType: string;
   size: number;
@@ -13,6 +12,8 @@ export type ComposerAttachment = {
   data?: string;
   /** A text file's contents. */
   text?: string;
+  /** The PDF page count when its catalog can be counted cheaply. */
+  pageCount?: number;
   /** A shell mode command's chip (shell/shellRuns.ts): its text is the run's output, filled when the prompt goes. */
   shellRun?: string;
   /** A location row move's chip (shell/chatMoves.ts); a newer move replaces it. */
@@ -21,14 +22,23 @@ export type ComposerAttachment = {
 
 export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported" | "imagesUnsupported" | "tooMany" };
 
-export type PromptBlock = { type: "text"; text: string } | { type: "image"; mimeType: string; data: string };
+export type PromptBlock =
+  | { type: "text"; text: string }
+  | { type: "image"; mimeType: string; data: string; name?: string }
+  | { type: "document"; mimeType: "application/pdf"; data: string; name?: string };
 
 /** Anthropic's per-image limit. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+/** Keep PDF prompts bounded while leaving room for the rest of the request. */
+export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
 /** A text file this large is already a lot of prompt. */
 export const MAX_TEXT_BYTES = 256 * 1024;
 export const MAX_ATTACHMENTS = 10;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+function isPdf(file: File): boolean {
+  return file.type === "application/pdf" || /\.pdf$/i.test(file.name);
+}
 
 /// Reads `files` for a composer that already holds `held` attachments.
 export async function readAttachments(
@@ -57,6 +67,19 @@ export async function readAttachments(
 export async function readAttachment(file: File, allowImages: boolean): Promise<ComposerAttachment | AttachmentError> {
   const name = file.name || "file";
   const id = crypto.randomUUID();
+  if (isPdf(file)) {
+    if (file.size > MAX_DOCUMENT_BYTES) return { name, reason: "tooLarge" };
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return {
+      id,
+      kind: "document",
+      name,
+      mimeType: "application/pdf",
+      size: file.size,
+      data: base64(bytes),
+      pageCount: pdfPageCount(bytes),
+    };
+  }
   if (IMAGE_TYPES.has(file.type)) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
     if (file.size > MAX_IMAGE_BYTES) return { name, reason: "tooLarge" };
@@ -106,7 +129,7 @@ export async function thumbnail(image: { mimeType: string; data: string }, size 
   }
 }
 
-function base64(bytes: Uint8Array): string {
+export function base64(bytes: Uint8Array): string {
   let binary = "";
   for (let at = 0; at < bytes.length; at += 0x8000) binary += String.fromCharCode(...bytes.subarray(at, at + 0x8000));
   return btoa(binary);
@@ -131,8 +154,21 @@ export function promptBlocks(text: string, attachments: ComposerAttachment[]): P
   if (body) blocks.push({ type: "text", text: body });
   for (const attachment of attachments)
     if (attachment.kind === "image" && attachment.data)
-      blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data });
+      blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
+    else if (attachment.kind === "document" && attachment.data)
+      blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
   return blocks;
+}
+
+/** Counts PDF page objects without parsing or rendering the document. */
+function pdfPageCount(bytes: Uint8Array): number | undefined {
+  try {
+    const source = new TextDecoder("latin1").decode(bytes);
+    const count = [...source.matchAll(/\/Type\s*\/Page(?:\s|\/|>)/g)].length;
+    return count > 0 ? count : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function longestBacktickRun(text: string): number {
@@ -155,4 +191,55 @@ export function filesFrom(transfer: DataTransfer | null): File[] {
 /// Whether a drag carries files, so the page takes the drop instead of navigating to it.
 export function dragHasFiles(transfer: DataTransfer | null): boolean {
   return Boolean(transfer && [...transfer.types].includes("Files"));
+}
+
+/** Installs the document-level file-drop contract used by the composer. */
+export function installFileDropLifecycle(
+  onDrop: (files: File[]) => void,
+  onActiveChange: (active: boolean) => void,
+  target: Document = document,
+  view: Window = window,
+): () => void {
+  let depth = 0;
+  const reset = () => {
+    depth = 0;
+    onActiveChange(false);
+  };
+  const enter = (event: DragEvent) => {
+    if (!dragHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    depth += 1;
+    onActiveChange(true);
+  };
+  const over = (event: DragEvent) => {
+    if (!dragHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    onActiveChange(true);
+  };
+  const leave = (event: DragEvent) => {
+    if (!dragHasFiles(event.dataTransfer)) return;
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) onActiveChange(false);
+  };
+  const drop = (event: DragEvent) => {
+    if (!dragHasFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    const files = filesFrom(event.dataTransfer);
+    reset();
+    onDrop(files);
+  };
+  target.addEventListener("dragenter", enter);
+  target.addEventListener("dragover", over);
+  target.addEventListener("dragleave", leave);
+  target.addEventListener("drop", drop);
+  target.addEventListener("dragend", reset);
+  view.addEventListener("blur", reset);
+  return () => {
+    target.removeEventListener("dragenter", enter);
+    target.removeEventListener("dragover", over);
+    target.removeEventListener("dragleave", leave);
+    target.removeEventListener("drop", drop);
+    target.removeEventListener("dragend", reset);
+    view.removeEventListener("blur", reset);
+  };
 }

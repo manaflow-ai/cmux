@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// `Row`: the standard sidebar row, laid out with the built-in sidebar
@@ -17,8 +18,7 @@ struct AppSceneRowView: View {
         let tint = colors.token(node.props["tint"]) ?? (node.flag("selected") ? colors.primary : colors.secondary)
         HStack(spacing: Metrics.space3) {
             if let symbol = node.string("symbol") {
-                Image(systemName: symbol)
-                    .font(.system(size: Metrics.smallIconSize - Metrics.space1))
+                Icon(symbol: symbol, size: Metrics.smallIconSize)
                     .foregroundStyle(tint)
                     .frame(width: iconBox, height: iconBox)
             }
@@ -41,8 +41,7 @@ struct AppSceneRowView: View {
                 Circle().fill(colors.primary).frame(width: Metrics.space2 + 2, height: Metrics.space2 + 2)
             }
             if let accessory = node.string("accessory") {
-                Image(systemName: accessory)
-                    .font(.system(size: Metrics.smallIconSize - Metrics.space2))
+                Icon(symbol: accessory, size: 12)
                     .foregroundStyle(colors.tertiary)
             }
         }
@@ -95,8 +94,7 @@ struct AppSceneEmptyState: View {
     var body: some View {
         VStack(spacing: Metrics.space2) {
             if let symbol = node.string("symbol") {
-                Image(systemName: symbol)
-                    .font(.system(size: Metrics.iconSize))
+                Icon(symbol: symbol, size: Metrics.iconSize)
                     .foregroundStyle(colors.tertiary)
             }
             Text(node.string("title") ?? "")

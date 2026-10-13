@@ -30,7 +30,7 @@ public enum ActionTargetTitles {
         if let title = action?.targetTitle?(invocation) { item.title = title }
         if let on = action?.targetState?(invocation) { item.state = on ? .on : .off }
         if let reason = ActionTargetReasons.reason(for: id, invocation: invocation, in: registry) {
-            item.subtitle = reason
+            if #available(macOS 14.4, *) { item.subtitle = reason }
             item.toolTip = reason
         }
     }
