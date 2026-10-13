@@ -43,6 +43,9 @@ struct WorkspaceSpawn: Sendable {
     /// The workspace's only tab shows this acpmux session of this Mac (a chat moved here by
     /// session.transfer.pull), with no terminal. Wins over `firstChat`.
     var firstSession: String?
+    /// The key hold of the Cmd-N that asked for this workspace (NewTabInputCoordinator): its first
+    /// New Tab page carries the token, so the keys typed since go to that page's field.
+    var inputToken: String?
 
     init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
          profile: ProfileID? = nil, newTabPage: Bool = false) {

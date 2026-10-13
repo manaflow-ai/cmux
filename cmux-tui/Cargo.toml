@@ -30,6 +30,7 @@ members = [
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
     "crates/cmux-browser-host",
+    "crates/cmux-git",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
@@ -88,6 +89,7 @@ default-members = [
     "crates/ghostty-vt",
     "crates/cmux-tui-cdp",
     "crates/cmux-browser-host",
+    "crates/cmux-git",
     "crates/cmux-tui-core",
     "crates/cmux-tui-cloud-conversations",
     "crates/cmux-tui-platform",
@@ -156,6 +158,7 @@ cmux-coderouter = { path = "crates/cmux-coderouter" }
 ghostty-vt-sys = { path = "crates/ghostty-vt-sys" }
 ghostty-vt = { path = "crates/ghostty-vt" }
 cmux-tui-core = { path = "crates/cmux-tui-core" }
+cmux-git = { path = "crates/cmux-git" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }

@@ -402,6 +402,16 @@ export function NewTabScreen(props: Props) {
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, []);
+  const focusFromRow = (event: React.MouseEvent<HTMLDivElement>) => {
+    const input = field.current;
+    if (!input || event.button !== 0 || event.target === input) return;
+    // Keep the press from moving focus to the row; a field that had no focus gets the caret at
+    // the end of its text, a focused one keeps its caret and selection.
+    event.preventDefault();
+    if (input.ownerDocument.activeElement === input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  };
   const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     touch();
     if (composing.current || event.nativeEvent.isComposing) return;
@@ -470,7 +480,10 @@ export function NewTabScreen(props: Props) {
           bar with the agent's model chip, the mic and Send, then the location row with the project
           the chat starts in (ComposerContext, the composer's own). */}
       <div ref={setBox} className="nt-box">
-        <div className="nt-input">
+        {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
+            browser's address bar does; the text itself keeps its own press (caret, selection).
+            Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
+        <div className="nt-input" onMouseDown={focusFromRow}>
           {shell ? (
             <span className="nt-shell-glyph" aria-hidden="true">
               !
