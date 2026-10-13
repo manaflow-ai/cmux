@@ -26,8 +26,11 @@ import UniformTypeIdentifiers
 /// area, `settled_ms` is the first frame from which it equals the last frame
 /// for good, `first_change_ms` the first that differs from before the key,
 /// and `content_intermediate` counts the frames equal to neither: a loading,
-/// partly drawn or reflowing page between the two tabs. `region: "workspace"`
-/// measures the whole workspace area instead of the focused pane's.
+/// partly drawn or reflowing page between the two tabs. The pane's strip is
+/// left out of those (its tabs slide on a close); `desync` counts the frames
+/// where one of the strip and the content shows the new tab and the other the
+/// old one. `region: "workspace"` measures the whole workspace area instead of
+/// the focused pane's.
 @MainActor
 enum DebugFrameStrip {
     nonisolated struct Frame: Sendable {
@@ -70,23 +73,34 @@ enum DebugFrameStrip {
         guard let first = frames.first, let last = frames.last, let before = frames.last(where: { $0.milliseconds < sentAt }) else {
             return .object(["error": .string("no frames"), "key": sent])
         }
-        let content = contentRect(controller, window: window, frame: first, workspace: params["region"]?.stringValue == "workspace")
+        let workspace = params["region"]?.stringValue == "workspace"
+        let content = contentRect(controller, window: window, frame: first, workspace: workspace)
+        // The pane's strip, apart: its own motion (a close's tabs sliding over) is not content.
+        let strip = workspace ? nil : controller.content?.focusedPane?.view.stripView
+            .flatMap { $0.isHiddenOrHasHiddenAncestor ? nil : rect(of: $0, window: window, frame: first) }
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var rows: [JSONValue] = []
-        var intermediate = 0, blank = 0, contentIntermediate = 0
+        var intermediate = 0, blank = 0, contentIntermediate = 0, desync = 0
         var settledAt: Double?, firstChange: Double?
         for (index, frame) in frames.enumerated() where frame.milliseconds >= before.milliseconds {
             let outsideBefore = difference(frame, before, excluding: content)
             let outsideFinal = difference(frame, last, excluding: content)
             let isIntermediate = outsideBefore > tolerance && outsideFinal > tolerance
-            let insideBefore = content.map { difference(frame, before, within: $0) } ?? 0
-            let insideFinal = content.map { difference(frame, last, within: $0) } ?? 0
+            let insideBefore = content.map { difference(frame, before, excluding: strip, within: $0) } ?? 0
+            let insideFinal = content.map { difference(frame, last, excluding: strip, within: $0) } ?? 0
+            let stripBefore = strip.map { difference(frame, before, within: $0) } ?? 0
+            let stripFinal = strip.map { difference(frame, last, within: $0) } ?? 0
+            // One of the strip and the content at the new tab, the other still at the old one (L4).
+            let isDesync = strip != nil
+                && ((stripFinal <= tolerance && stripBefore > tolerance && insideBefore <= tolerance && insideFinal > tolerance)
+                    || (insideFinal <= tolerance && insideBefore > tolerance && stripBefore <= tolerance && stripFinal > tolerance))
             // Flat, and neither the content from before the key nor the settled one (an empty terminal is flat too).
             let isBlank = content.map { flatness(frame, in: $0) > 0.995 && insideBefore > tolerance && insideFinal > tolerance } ?? false
             if isIntermediate { intermediate += 1 }
             if isBlank { blank += 1 }
             if frame.milliseconds > sentAt {
                 if insideBefore > tolerance && insideFinal > tolerance { contentIntermediate += 1 }
+                if isDesync { desync += 1 }
                 if firstChange == nil, insideBefore > tolerance { firstChange = frame.milliseconds - sentAt }
                 if insideFinal > tolerance { settledAt = nil } else if settledAt == nil { settledAt = frame.milliseconds - sentAt }
             }
@@ -95,14 +109,14 @@ enum DebugFrameStrip {
             rows.append(.object([
                 "ms": .number((frame.milliseconds - sentAt).rounded()), "file": .string(name),
                 "outside_vs_before": .number(outsideBefore), "outside_vs_final": .number(outsideFinal),
-                "intermediate": .bool(isIntermediate), "blank": .bool(isBlank),
+                "intermediate": .bool(isIntermediate), "blank": .bool(isBlank), "desync": .bool(isDesync),
             ]))
         }
         writeStrip(frames.filter { $0.milliseconds >= before.milliseconds }, to: (dir as NSString).appendingPathComponent("strip.png"))
         return .object([
             "key": sent, "dir": .string(dir), "frames": .array(rows), "intermediate": .number(Double(intermediate)),
             "blank": .number(Double(blank)), "frame_count": .number(Double(rows.count)),
-            "content_intermediate": .number(Double(contentIntermediate)),
+            "content_intermediate": .number(Double(contentIntermediate)), "desync": .number(Double(desync)),
             "settled_ms": settledAt.map { .number($0.rounded()) } ?? .null, "first_change_ms": firstChange.map { .number($0.rounded()) } ?? .null,
             "spans": .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) }),
             "mean_interval_ms": .number(frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0),
@@ -113,7 +127,12 @@ enum DebugFrameStrip {
     /// with `workspace`, the whole workspace area beside the sidebar (a sidebar item switch, `region: "workspace"`).
     private static func contentRect(_ controller: WindowController, window: NSWindow, frame: Frame, workspace: Bool) -> CGRect? {
         let view: NSView? = workspace ? controller.content?.layoutView : controller.content?.focusedPane?.view.contentHost
-        guard let host = view, host.window === window,
+        return view.flatMap { rect(of: $0, window: window, frame: frame) }
+    }
+
+    /// `host`'s bounds in `frame` pixels (top-left origin).
+    private static func rect(of host: NSView, window: NSWindow, frame: Frame) -> CGRect? {
+        guard host.window === window,
               let windowHeight = window.contentView?.superview?.bounds.height ?? window.contentView?.bounds.height
         else { return nil }
         let rect = host.convert(host.bounds, to: nil)

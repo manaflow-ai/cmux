@@ -10,8 +10,9 @@ On a running tagged build, read frame after frame (`debug.new_tab` frame_strip) 
   newtab   Command-T from a terminal tab: the New Tab page (first, in the launch workspace).
 
 Each step reports `settled_ms` (the key or action to the first frame that stays the final one, in the
-content area), `blank` (flat frames that are neither tab) and `content_intermediate` (frames that are
-neither the tab before nor the one after: loading, partly drawn or reflowing). Budgets: every step
+content area), `blank` (flat frames that are neither tab), `content_intermediate` (frames that are
+neither the tab before nor the one after: loading, partly drawn or reflowing; the strip's own motion is
+left out) and `desync` (the strip on one tab, the content on the other). Budgets: every step
 settles within --settle-ms, with no blank and no intermediate frame; --no-fail only reports.
 
 The app runs already (a capture slot: `capture-host launch`), with its debug socket; the script never
@@ -97,10 +98,11 @@ def strip(label, **params):
         return {"label": label, "error": reply["error"]}
     step = {"label": label, "settled_ms": reply.get("settled_ms"), "first_change_ms": reply.get("first_change_ms"),
             "blank": int(reply.get("blank", 0)), "content_intermediate": int(reply.get("content_intermediate", 0)),
-            "intermediate": int(reply.get("intermediate", 0)), "frames": reply.get("frame_count"),
+            "intermediate": int(reply.get("intermediate", 0)), "desync": int(reply.get("desync", 0)), "frames": reply.get("frame_count"),
             "interval_ms": round(reply.get("mean_interval_ms", 0), 1), "dir": reply.get("dir")}
     print(f"{label:28} settled {step['settled_ms']!s:>5} ms  first change {step['first_change_ms']!s:>5} ms  "
-          f"blank {step['blank']}  content-intermediate {step['content_intermediate']}  outside-intermediate {step['intermediate']}", flush=True)
+          f"blank {step['blank']}  content-intermediate {step['content_intermediate']}  desync {step['desync']}  "
+          f"outside-intermediate {step['intermediate']}", flush=True)
     time.sleep(0.4)  # test harness: let the tab settle before the next step
     return step
 
@@ -178,12 +180,15 @@ def main():
             failures.append(f"{step['label']}: {step['blank']} blank frames")
         if step["content_intermediate"]:
             failures.append(f"{step['label']}: {step['content_intermediate']} intermediate frames")
+        if step["desync"]:
+            failures.append(f"{step['label']}: {step['desync']} frames with the strip and the content on different tabs")
     for phase in ("pane", "sidebar", "close", "newtab"):
         settled = [s["settled_ms"] for s in steps if s["label"].startswith(phase) and s.get("settled_ms") is not None]
         if settled:
             print(f"{phase:8} settled p50 {statistics.median(settled):.0f} ms max {max(settled):.0f} ms  "
                   f"blank {sum(s['blank'] for s in steps if s['label'].startswith(phase))}  "
-                  f"intermediate {sum(s['content_intermediate'] for s in steps if s['label'].startswith(phase))}  ({len(settled)} steps)")
+                  f"intermediate {sum(s['content_intermediate'] for s in steps if s['label'].startswith(phase))}  "
+                  f"desync {sum(s['desync'] for s in steps if s['label'].startswith(phase))}  ({len(settled)} steps)")
     if opts.json:
         with open(opts.json, "w") as file:
             json.dump(steps, file, indent=1)
