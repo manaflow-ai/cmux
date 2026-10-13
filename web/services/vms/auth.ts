@@ -110,6 +110,12 @@ type VerifyRequestOptions = {
    * partial one would later deny a team the user really belongs to.
    */
   readonly forceCompleteTeamList?: boolean;
+  /**
+   * List every team when Stack can, without failing when it cannot: a broken
+   * or oversized page chain answers this request from the pages it got and is
+   * not stored as a snapshot. Polled reads refresh their snapshot this way.
+   */
+  readonly preferCompleteTeamList?: boolean;
   /** Publication management must recheck every membership and ignore stale team selection. */
   readonly requireFreshTeamMembership?: boolean;
 };
@@ -157,6 +163,7 @@ function nativeAuthCacheKey(
     options.allowDeletingAccount === true ? "1" : "0",
     options.listAllTeams === true ? "1" : "0",
     options.forceCompleteTeamList === true ? "1" : "0",
+    options.preferCompleteTeamList === true ? "1" : "0",
   ].join("\n");
   return createHash("sha256").update(material).digest("hex");
 }
@@ -754,14 +761,9 @@ export async function verifyPolledReadRequest(
   // A token that does not verify locally can never be answered from a
   // snapshot, so listing every team for one would only add Stack calls.
   if (!answer.refreshable) return await verifyRequest(request, fallback);
-  // Only a complete team list may be stored as a snapshot. The deadline-gated
-  // path stores it when every team was listed; the plain path when forced.
-  return await verifyRequest(request, {
-    ...fallback,
-    ...(options.subrouterAuthorizationSignal
-      ? { listAllTeams: true }
-      : { forceCompleteTeamList: true }),
-  });
+  // Refresh the snapshot: list every team when Stack can. A broken page
+  // chain still answers this request and is not stored.
+  return await verifyRequest(request, { ...fallback, preferCompleteTeamList: true });
 }
 
 type SnapshotAnswerOptions = {
@@ -799,19 +801,27 @@ async function answerFromIdentitySnapshot(
     return { kind: "miss", refreshable: false };
   }
   const userId = local.identity.userId;
-  const snapshot = await readIdentitySnapshot(
+  // The database must not spend the caller's Stack budget: a slow or failed
+  // read is a miss that keeps the route's own Stack lookup.
+  const snapshot = await withinSnapshotReadBudget(readIdentitySnapshot(
     userId,
     options.maxSnapshotAgeMs ?? identitySnapshotTtlMs(),
-  );
+  ));
+  if (snapshot === SNAPSHOT_READ_UNAVAILABLE) return { kind: "miss", refreshable: false };
   if (!snapshot) return { kind: "miss", refreshable: true };
   const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
   if (requestedTeamId && requestedTeamId !== userId && !snapshot.user.teamIds.includes(requestedTeamId)) {
-    return { kind: "miss", refreshable: true };
+    // A fresh snapshot without this team: Stack decides with the route's own
+    // targeted lookup. Relisting every team on each poll would not help, the
+    // membership webhook deletes the snapshot when the team list changes.
+    return { kind: "miss", refreshable: false };
   }
   // Stack's deletion metadata is not in the token, so the tombstone is
   // read directly rather than behind the usual metadata short-circuit.
   const isDeleted = options.isAccountDeleted ?? isAccountDeletionTombstoned;
-  if (await isDeleted(userId)) {
+  const deleted = await withinSnapshotReadBudget(isDeleted(userId));
+  if (deleted === SNAPSHOT_READ_UNAVAILABLE) return { kind: "miss", refreshable: false };
+  if (deleted) {
     await deleteIdentitySnapshot(userId);
     return { kind: "deleted" };
   }
@@ -823,6 +833,23 @@ async function answerFromIdentitySnapshot(
   // The snapshot row does not store the anonymous flag; the signed token
   // carries it, so a route that refuses anonymous users still can.
   return { kind: "user", user: { ...snapshot.user, isAnonymous: local.identity.isAnonymous } };
+}
+
+const SNAPSHOT_READ_BUDGET_MS = 750;
+const SNAPSHOT_READ_UNAVAILABLE: unique symbol = Symbol("snapshot read unavailable");
+
+/** The read's value, or `SNAPSHOT_READ_UNAVAILABLE` when it failed or took too long. */
+async function withinSnapshotReadBudget<T>(read: Promise<T>): Promise<T | typeof SNAPSHOT_READ_UNAVAILABLE> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof SNAPSHOT_READ_UNAVAILABLE>((resolve) => {
+    timer = setTimeout(() => resolve(SNAPSHOT_READ_UNAVAILABLE), SNAPSHOT_READ_BUDGET_MS);
+  });
+  try {
+    const settled = read.catch((): typeof SNAPSHOT_READ_UNAVAILABLE => SNAPSHOT_READ_UNAVAILABLE);
+    return await Promise.race([settled, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function locallyVerifiedAccessToken(
@@ -974,15 +1001,15 @@ async function resolveStackTeamMembership(
   // subrouter callers resolve only the requested and selected IDs so shared VM
   // authentication does not inherit an unbounded multi-page dependency.
   const needsListedTeams = options.forceCompleteTeamList === true ||
+    options.preferCompleteTeamList === true ||
     !selectedTeam ||
     teamIdsToLookup.length > 0;
   // Whether the branch taken below enumerates every team the user belongs to.
   // Only that case may be stored as an identity snapshot.
-  let completeTeamList = options.subrouterAuthorizationSignal === undefined
-    ? needsListedTeams && typeof user.listTeams === "function"
-    : options.listAllTeams === true;
+  let completeTeamList: boolean;
   let listedTeamRaw: readonly unknown[];
   if (options.subrouterAuthorizationSignal === undefined) {
+    completeTeamList = needsListedTeams && typeof user.listTeams === "function";
     if (!completeTeamList) {
       listedTeamRaw = [];
     } else if (options.forceCompleteTeamList === true) {
@@ -997,16 +1024,13 @@ async function resolveStackTeamMembership(
       listedTeamRaw = listed.teams;
       completeTeamList = listed.complete;
     }
-  } else if (options.listAllTeams === true) {
-    listedTeamRaw = await listAllStackTeams(user, options.subrouterAuthorizationSignal);
-  } else if (teamIdsToLookup.length > 0) {
-    listedTeamRaw = (await Promise.all(teamIdsToLookup.map((teamId) => findStackTeam(
-      user,
-      teamId,
-      options.subrouterAuthorizationSignal,
-    )))).flat();
   } else {
-    listedTeamRaw = [];
+    ({ teams: listedTeamRaw, complete: completeTeamList } = await listTeamsUnderDeadline(
+      user,
+      options,
+      options.subrouterAuthorizationSignal,
+      teamIdsToLookup,
+    ));
   }
   const listedTeams = listedTeamRaw
     .map(billingTeamFromUnknown)
@@ -1015,6 +1039,34 @@ async function resolveStackTeamMembership(
     ? listedTeams.find((team) => team.id === selectedTeam.id) ?? selectedTeam
     : selectedTeam;
   return { selectedTeam: resolvedSelectedTeam, listedTeams, completeTeamList };
+}
+
+/**
+ * Team listing for a deadline-gated (subrouter) caller. `complete` says
+ * whether the result enumerates every team, which only then may be stored as
+ * an identity snapshot.
+ */
+async function listTeamsUnderDeadline(
+  user: StackUserLike,
+  options: VerifyRequestOptions,
+  signal: AbortSignal,
+  teamIdsToLookup: readonly string[],
+): Promise<{ readonly teams: readonly unknown[]; readonly complete: boolean }> {
+  const lookup = async (teamIds: readonly string[]) =>
+    (await Promise.all(teamIds.map((teamId) => findStackTeam(user, teamId, signal)))).flat();
+  if (options.listAllTeams === true) {
+    return { teams: await listAllStackTeams(user, signal), complete: true };
+  }
+  if (options.preferCompleteTeamList === true) {
+    const listed = await listStackTeams(user, signal);
+    if (listed.complete) return listed;
+    // A partial walk must still find the teams this request names, as the
+    // targeted lookup would have.
+    const listedIds = new Set(listed.teams.map((team) => billingTeamFromUnknown(team)?.id));
+    const missing = teamIdsToLookup.filter((teamId) => !listedIds.has(teamId));
+    return { teams: [...listed.teams, ...await lookup(missing)], complete: false };
+  }
+  return { teams: await lookup(teamIdsToLookup), complete: false };
 }
 
 async function authedUserFromStackUser(
