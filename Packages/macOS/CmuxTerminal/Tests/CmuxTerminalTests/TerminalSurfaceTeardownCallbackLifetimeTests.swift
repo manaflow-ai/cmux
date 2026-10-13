@@ -112,6 +112,29 @@ import Testing
         )
     }
 
+    @Test func teardownRetiresNativeSurfaceBeforeDeferredFree() async throws {
+        let recorder = TeardownOrderRecorder()
+        let surface = makeSurface()
+        surface.installRuntimeSurfaceForTesting(fakeRuntimeSurface())
+        cmux_test_ghostty_surface_request_process_termination_reset()
+        TerminalSurface.runtimeSurfaceFreeOverrideForTesting = { _ in
+            #expect(
+                cmux_test_ghostty_surface_request_process_termination_call_count() == 1,
+                "native app routing must be retired before deferred free starts"
+            )
+            recorder.record(.nativeFree)
+        }
+        defer { TerminalSurface.runtimeSurfaceFreeOverrideForTesting = nil }
+
+        surface.teardownSurface()
+
+        #expect(
+            cmux_test_ghostty_surface_request_process_termination_call_count() == 1,
+            "teardown must retire the native surface synchronously"
+        )
+        #expect(await recorder.waitForEventCount(1), "timed out waiting for native free")
+    }
+
     @Test func teardownSurfaceKeepsTeeLeaseUntilNativeFree() async {
         let recorder = TeardownOrderRecorder()
         let surface = makeSurface()
