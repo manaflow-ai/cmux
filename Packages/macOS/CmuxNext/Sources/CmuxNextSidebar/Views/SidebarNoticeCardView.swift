@@ -34,6 +34,8 @@ final class SidebarNoticeCardView: NSView {
     let surface: OverlaySurfaceView
     /// The lines and buttons, flipped, over the surface.
     private let content = SidebarNoticeCardContent()
+    /// The notice whose `shownAction` was sent (once per notice id).
+    private var reportedShown: String?
 
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared) {
         surface = OverlaySurfaceView(interactive: true, cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
@@ -111,6 +113,21 @@ final class SidebarNoticeCardView: NSView {
         }
         needsLayout = true
         applyColors()
+        reportShownIfOnScreen()
+    }
+
+    /// Sends the notice's `shownAction` once it is on screen: in a visible
+    /// window and no hidden ancestor (a collapsed sidebar shows nothing).
+    private func reportShownIfOnScreen() {
+        guard let notice, let action = notice.shownAction, reportedShown != notice.id,
+              window?.isVisible == true, !isHiddenOrHasHiddenAncestor else { return }
+        reportedShown = notice.id
+        onAction?(notice.id, action)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        reportShownIfOnScreen()
     }
 
     /// Right-click (cx-2lm4): the card's buttons, then its x (Dismiss, or the x's menu), as menu items.
@@ -259,6 +276,8 @@ final class SidebarNoticeCardView: NSView {
         }
         shortcutLabel.frame = NSRect(x: x, y: rowY + (SidebarUpdateButton.height - line.caption) / 2,
                                      width: max(0, b.width - pad - x), height: line.caption)
+        // A window that shows after the card was filled lays it out: the hint is on screen now.
+        reportShownIfOnScreen()
     }
 
     private func applyColors() {
@@ -284,6 +303,7 @@ final class SidebarNoticeCardView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyColors()
+        reportShownIfOnScreen()
     }
 
     // MARK: Tests

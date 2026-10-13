@@ -158,7 +158,7 @@ enum SidebarCardFeed {
         return SidebarNoticeCard(id: tipPrefix + tip.id, eyebrow: UpdaterService.tipEyebrow, title: tip.title, detail: tip.benefit,
                                  actions: [SidebarNoticeCard.Action(id: tryActionID, title: UpdaterService.announcementActionTitle)],
                                  shortcut: registry?.shortcutDisplay(for: ActionID(rawValue: tip.action)), dismissLabel: UpdaterService.tipMenuLabel,
-                                 dismissMenu: UpdaterService.tipMenu.map { SidebarNoticeCard.Action(id: $0.id, title: $0.title) })
+                                 dismissMenu: UpdaterService.tipMenu.map { SidebarNoticeCard.Action(id: $0.id, title: $0.title) }, shownAction: UpdaterService.tipShownAction)
     }
 
     /// The update status as a notice: one model (``UpdateCard``), its icon,
