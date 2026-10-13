@@ -428,6 +428,55 @@ struct CloseTabConfirmationPolicyTests {
         var warnsBeforeClosingAgentSession: Bool = true
     }
 
+    @Test(arguments: [CloseTabCloseSource.shortcut, .tabCloseButton], [false, true])
+    func runningProcessOptInSkipsTabWarnings(source: CloseTabCloseSource, isAgentSession: Bool) {
+        let defaults = makeScratchDefaults()
+        defaults.set(true, forKey: "warnBeforeClosingTabXButton")
+        let store = CloseTabWarningStore(defaults: defaults)
+        #expect(store.shouldConfirmCloseIncludingSafety(
+            requiresConfirmation: true, source: source,
+            isAgentSession: isAgentSession, isRunningProcess: true
+        ))
+
+        defaults.set(true, forKey: "closeRunningTabsWithoutConfirmation")
+        #expect(store.warningKindsIncludingSafety(
+            requiresConfirmation: true, source: source,
+            isAgentSession: isAgentSession, isRunningProcess: true
+        ).isEmpty)
+        #expect(!store.shouldConfirmCloseIncludingSafety(
+            requiresConfirmation: true, source: source,
+            isAgentSession: isAgentSession, isRunningProcess: true
+        ))
+
+        defaults.set(false, forKey: "closeRunningTabsWithoutConfirmation")
+        #expect(store.shouldConfirmCloseIncludingSafety(
+            requiresConfirmation: true, source: source,
+            isAgentSession: isAgentSession, isRunningProcess: true
+        ))
+    }
+
+    @Test func runningProcessOptInPreservesOtherConfirmationReasons() {
+        let defaults = makeScratchDefaults()
+        defaults.set(true, forKey: "closeRunningTabsWithoutConfirmation")
+        defaults.set(false, forKey: "warnBeforeClosingTabShortcut")
+        defaults.set(true, forKey: "warnBeforeClosingTabXButton")
+        let store = CloseTabWarningStore(defaults: defaults)
+
+        // Unsaved content is not a running process, even with tab warnings off.
+        #expect(store.warningKindsIncludingSafety(
+            requiresConfirmation: true, source: .shortcut
+        ) == [.safety])
+        #expect(store.shouldConfirmCloseIncludingSafety(
+            requiresConfirmation: true, source: .shortcut
+        ))
+        // An idle terminal still follows the explicit X-button warning.
+        #expect(store.warningKindsIncludingSafety(
+            requiresConfirmation: false, source: .tabCloseButton, isRunningProcess: true
+        ) == [.tabCloseButton])
+        #expect(store.shouldConfirmWindowClose(anyPanelNeedsConfirmation: true))
+        #expect(store.warnsBeforeClosingWorkspace)
+    }
+
     @Test func shortcutWarnsOnlyForConfirmationRequiringTabsWithWarningOn() {
         let warningOn = FixedWarnings(warnsBeforeClosingTab: true, warnsBeforeClosingTabXButton: false)
         let warningOff = FixedWarnings(warnsBeforeClosingTab: false, warnsBeforeClosingTabXButton: false)

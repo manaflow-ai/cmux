@@ -72,7 +72,8 @@ extension CloseTabWarningReading {
     public func shouldConfirmCloseIncludingSafety(
         requiresConfirmation: Bool,
         source: CloseTabCloseSource,
-        isAgentSession: Bool = false
+        isAgentSession: Bool = false,
+        isRunningProcess: Bool = false
     ) -> Bool {
         (!isAgentSession && requiresConfirmation) || shouldConfirmClose(
             requiresConfirmation: requiresConfirmation,
@@ -84,7 +85,8 @@ extension CloseTabWarningReading {
     public func warningKindsIncludingSafety(
         requiresConfirmation: Bool,
         source: CloseTabCloseSource,
-        isAgentSession: Bool = false
+        isAgentSession: Bool = false,
+        isRunningProcess: Bool = false
     ) -> CloseWarningKinds {
         var kinds = warningKinds(
             requiresConfirmation: requiresConfirmation,
