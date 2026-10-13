@@ -34,6 +34,15 @@ import Testing
         #expect(abs(208 * MessagePressTiming.liftScale(for: CGSize(width: 208, height: 39)) - 234.5) < 1)
         #expect(abs(278 * MessagePressTiming.liftScale(for: CGSize(width: 278, height: 39)) - 303.5) < 1)
     }
+
+    @Test func smallLiftedBubblesStopAtMessagesMaximumScale() {
+        // iOS 26.5 Messages, menu open: "Got it" 69.7 -> 79.3-80 pt, "Thanks"
+        // 83.3 -> 96 pt, "I can do 7" 119.7 -> ~137 pt. The 26 pt growth
+        // (95.7, 109.3, 145.7 pt) would lift them far larger.
+        #expect(abs(69.67 * MessagePressTiming.liftScale(for: CGSize(width: 69.67, height: 40.33)) - 80) < 1)
+        #expect(abs(83.33 * MessagePressTiming.liftScale(for: CGSize(width: 83.33, height: 40.33)) - 96) < 1)
+        #expect(abs(119.67 * MessagePressTiming.liftScale(for: CGSize(width: 119.67, height: 40.33)) - 137) < 1.5)
+    }
 }
 
 /// Real-iPhone bug: lifting mid-hold on a photo, link or file sometimes
