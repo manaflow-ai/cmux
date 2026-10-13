@@ -14,6 +14,10 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
     /// How far the gap pushes following rows down (height plus spacing).
     /// Pass this to `DropResolver.baseY(forDisplayY:gapY:gapHeight:)`.
     public var gapShift: CGFloat
+    /// The spacing between consecutive rows. Hit testing gives it to the
+    /// rows on either side, so rows tile and the pointer is never between
+    /// two of them (Leo 2026-10-13: the hover flickered off in the gaps).
+    public var rowSpacing: CGFloat = 0
 
     public init(rows: [SidebarRow], totalHeight: CGFloat, gapY: CGFloat?, gapHeight: CGFloat, gapShift: CGFloat) {
         self.rows = rows
@@ -31,10 +35,17 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
     public func row(for key: SidebarRowKey) -> SidebarRow? { index[key].map { rows[$0] } }
 
-    /// Row whose frame contains `y`, or nil in a gap or padding.
+    /// Row whose hit area contains `y`, or nil in padding, a section or
+    /// group gap, or the drop gap. A row's hit area is its frame plus half
+    /// the `rowSpacing` to a neighbor on each side, so consecutive rows'
+    /// hit areas meet; the pill stays inset in the frame.
     public func row(at y: CGFloat) -> SidebarRow? {
         guard let i = lastIndex(startingAtOrBefore: y) else { return nil }
-        return y < rows[i].maxY ? rows[i] : nil
+        if y < rows[i].maxY { return rows[i] }
+        guard i + 1 < rows.count else { return nil }
+        let gap = rows[i + 1].y - rows[i].maxY
+        guard gap > 0, gap <= rowSpacing else { return nil }
+        return y < rows[i].maxY + gap / 2 ? rows[i] : rows[i + 1]
     }
 
     /// Index of the last row whose top is at or above `y` (rows are sorted
@@ -279,10 +290,12 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }
         y += m.bottomPadding
-        return SidebarLayout(
+        var layout = SidebarLayout(
             rows: rows, totalHeight: y, gapY: gapY,
             gapHeight: gapY == nil ? 0 : gapHeight,
             gapShift: gapY == nil ? 0 : gapHeight + m.rowSpacing
         )
+        layout.rowSpacing = m.rowSpacing
+        return layout
     }
 }
