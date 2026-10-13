@@ -25,6 +25,11 @@ extension UpdaterService {
         // "See What's New" on the Updated card: the React changelog page
         // for the releases this update crossed (`#/?from=&to=`).
         openChangelogSpan = { [weak services] from, to in services.map { ChangelogPageTab.open($0, from: from, to: to) } ?? false }
+        openReleaseNotesURL = { [weak services] url in
+            guard let services, url.scheme == "https" else { return false }
+            SidebarCardFeed.openUpdateLink(url, services: services)
+            return true
+        }
         // What's New after an update: bundled documents and this feed's digests.
         whatsNew.load()
         runAllowListedAction = { [weak services] id in

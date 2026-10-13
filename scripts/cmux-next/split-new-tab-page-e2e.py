@@ -9,8 +9,8 @@ The script attaches to an app already running (a capture slot's `capture-host la
 tagged build) through its debug socket. It opens workspaces and tabs with `action.run`, presses
 Cmd-D and Cmd-T as a person does (`debug.key`), counts panes and their tabs (`debug.tab_drag`
 `strips`), asks whether the focused tab is the New Tab page and reads its Open Tabs rows
-(`debug.new_tab` `field`), and clicks a row (`debug.new_tab` `open_tab`). It holds
-`tabs.newTabKind` at "page" for Cmd-T and restores it. It never launches or quits the app.
+(`debug.new_tab` `field`), and clicks a row (`debug.new_tab` `open_tab`). It never
+launches or quits the app.
 
 Usage: split-new-tab-page-e2e.py --socket /tmp/cmux-debug-<tag>[-capslot<N>].sock [--out DIR]
 Exit status 0 when every check passes.
@@ -107,15 +107,7 @@ def split():
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
-    kind = (rpc("settings.get", {"path": "tabs.newTabKind"}) or {}).get("value")
-    print("settings.set tabs.newTabKind page:", rpc("settings.set", {"path": "tabs.newTabKind", "value": "page"}), flush=True)
-    try:
-        checks()
-    finally:
-        if kind is None:
-            rpc("settings.unset", {"path": "tabs.newTabKind"})
-        else:
-            rpc("settings.set", {"path": "tabs.newTabKind", "value": kind})
+    checks()
 
 
 def checks():

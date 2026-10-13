@@ -26,6 +26,7 @@ import {
   scrollLeadRanges,
   visibleLayoutRange,
   type AcpmuxPermission,
+  type AcpmuxSecretAsk,
   type AcpmuxRow,
   type AcpmuxSnapshot,
   type QueueEdit,
@@ -35,7 +36,7 @@ import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
@@ -44,11 +45,9 @@ import type { AllChatsPage } from "./newtab/AllChatsList";
 import { newTabScreenActions } from "./newtab/screenActions";
 import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
-import { registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
+import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
-import { TemplateDots } from "./newtab/TemplateDots";
-import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
-import { playTemplateSwitch, templatePlaces } from "./newtab/templateMotion";
+import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
@@ -78,6 +77,7 @@ import { HomeLists } from "./HomeLists";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
+import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
 import { useToolCards } from "./toolCards/toolCardStore";
@@ -1786,6 +1786,10 @@ const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) 
     ...(sent.answers === undefined ? {} : { answers: sent.answers }),
   });
 
+/// Answers a secret card in the page (`chat.secret`): the value goes to acpmux only.
+const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) =>
+  void callNative("chat.secret", { secretId: ask.secretId, ...(value ? { value } : {}) }).catch(() => undefined);
+
 /// A permission ask: a question card when the request asks a question, else its option buttons.
 function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
   return permission.question ? (
@@ -2935,6 +2939,9 @@ function AcpmuxPane() {
         // Switch Model… (Ctrl-Cmd-M): the model picker opens on the path every opener uses, which
         // ends with the keyboard in its search field.
         if (name === "openModelPicker") openPicker(translate(PICKER_LABELS.model));
+        // Integrate a Harness… from the palette or the File menu on a New Tab page (cx-9fqw): the
+        // Harnesses page in place, as the page's own button shows it.
+        if (name === "showHarnesses") openHarnessesPage();
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();
@@ -3321,6 +3328,8 @@ function AcpmuxPane() {
           "chat.cancel": () => client.cancel(),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
+          "chat.secret": ({ secretId, value }) =>
+            client.secret(String(secretId), typeof value === "string" ? value : undefined),
           "chat.permission": ({ permissionId, optionId, answers }) =>
             client.permission(
               String(permissionId),
@@ -4131,7 +4140,7 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {(individualPermission || trustAsk.ask || toolCards.length > 0) && (
+      {(individualPermission || trustAsk.ask || snapshot.secret || toolCards.length > 0) && (
         <div className="acpmux-permission">
           <ToolCards
             cards={toolCards}
@@ -4152,6 +4161,14 @@ function AcpmuxPane() {
             />
           )}
           {individualPermission && <PermissionAsk permission={individualPermission} />}
+          {snapshot.secret && (
+            <SecretCard
+              key={snapshot.secret.secretId}
+              ask={snapshot.secret}
+              agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+              onAnswer={answerSecret(snapshot.secret)}
+            />
+          )}
         </div>
       )}
     </>
@@ -4541,32 +4558,6 @@ function AcpmuxPane() {
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
-          {showNewTab && newTab.templateSwitcher && !newTab.history && (
-            <TemplateDots
-              current={shownTemplate(newTab)}
-              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-              onPick={(template, fromKeys) =>
-                pickNewTabTemplate(template, {
-                  callNative,
-                  cwd: newTab.cwd,
-                  show: (next) => {
-                    // The parts both templates show slide to their new place (newtab/templateMotion.ts).
-                    const screen = document.querySelector<HTMLElement>(".nt-screen");
-                    const before = templatePlaces(screen);
-                    const dot = fromKeys ? document.activeElement : null;
-                    flushSync(() => setNewTab((current) => current && { ...current, template: next }));
-                    // A clicked dot took focus; the field gets it back (the screen listens for this
-                    // event), before the parts slide, so focusing never scrolls toward where they were.
-                    // The arrow keys keep focus on the dots, to switch on, even when the page they
-                    // show focused its field as it mounted (Classic, and the screen after it).
-                    if (dot instanceof HTMLElement) dot.focus({ preventScroll: true });
-                    else window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
-                    playTemplateSwitch(document.querySelector<HTMLElement>(".nt-screen"), before);
-                  },
-                })
-              }
-            />
-          )}
           {harnessesOpen ? (
             <HarnessesScreen
               catalog={pickerCatalog}

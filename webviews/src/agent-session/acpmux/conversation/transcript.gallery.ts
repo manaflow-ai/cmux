@@ -291,6 +291,7 @@ export default agentPaneEntry({
     "page:cmux.agent",
     "agent-session/acpmux/App.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
+    "agent-session/acpmux/SecretCard.tsx#SecretCard",
     "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
@@ -406,20 +407,12 @@ export default agentPaneEntry({
     "fork-any-turn": {
       note: "Play: a Claude chat offers Fork under every completed turn (cx-yqiv, Codex parity); an earlier turn's forks through that turn.",
       snapshot: forkTurns("claude"),
-      play: async (ctx) => {
-        const page = ctx.document.defaultView as unknown as {
-          cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
-        };
-        const forks = () => [
-          ...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]'),
-        ];
-        await ctx.focus({ selector: "[contenteditable='true']" });
-        await ctx.waitFor(() => forks().length === 2);
-        forks()[0]!.click();
-        await ctx.waitFor(() =>
-          page.cmuxGalleryLog.some(({ method, params }) => method === "chat.fork" && params?.throughSeq === 3),
-        );
-      },
+      play: forkEarlierTurn,
+    },
+    "fork-any-turn-codex": {
+      note: "Play: a Codex chat offers Fork under every completed turn too (cx-a7r); an earlier turn's forks through that turn.",
+      snapshot: forkTurns("codex"),
+      play: forkEarlierTurn,
     },
     "fork-latest-turn-only": {
       note: "Play: another agent forks only at a chat's end, so only the latest turn offers Fork.",
@@ -898,6 +891,27 @@ export default agentPaneEntry({
         },
       ),
     },
+    "secret-card": {
+      note: "Play: an agent asks for a secret (cx-ncc.42). The value is typed in the private field and Provide sends it to acpmux only; the card closes and the chat never shows the value.",
+      snapshot: chat([user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)], {
+        isWorking: true,
+        secret: { secretId: "gallery-secret", name: "STRIPE_API_KEY", reason: "Create the test webhook" },
+      }),
+      afterCall: {
+        "chat.secret": chat(
+          [user("Create the Stripe test webhook", 1), assistant("I need your Stripe key for that.", 0.9)],
+          {
+            isWorking: true,
+          },
+        ),
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-secret-card-field" });
+        await ctx.type("sk-test-51Hx9", { selector: ".acpmux-secret-card-field" });
+        await ctx.click({ role: "button", name: "Provide" });
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-secret-card"));
+      },
+    },
     queued: {
       note: "Prompts queued behind a running turn.",
       snapshot: chat([user(prompt, 2), assistant("Working on the policy type…", 1, { streaming: true })], {
@@ -1062,6 +1076,20 @@ export default agentPaneEntry({
 });
 
 /// Two completed turns of a chat whose agent family is `family` (cx-yqiv).
+/// Both turns offer Fork, and the earlier one's forks through that turn's summary (seq 3).
+async function forkEarlierTurn(ctx: PlayContext) {
+  const page = ctx.document.defaultView as unknown as {
+    cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
+  };
+  const forks = () => [...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]')];
+  await ctx.focus({ selector: "[contenteditable='true']" });
+  await ctx.waitFor(() => forks().length === 2);
+  forks()[0]!.click();
+  await ctx.waitFor(() =>
+    page.cmuxGalleryLog.some(({ method, params }) => method === "chat.fork" && params?.throughSeq === 3),
+  );
+}
+
 function forkTurns(family: string | undefined) {
   const snapshot = chat([
     user("Add retry with backoff to the uploader", 9, { seq: 1 }),

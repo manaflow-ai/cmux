@@ -38,6 +38,8 @@ pub const CONVERSATION_THREADS_CAPABILITY: &str = "conversation-threads-v1";
 /// `conversation-snapshot` and `conversation-history`, and with
 /// `cloud-conversations-v1` also `cloud-conversation-thread` (cx-59n8.6).
 pub const CONVERSATION_THREAD_READ_CAPABILITY: &str = "conversation-thread-v1";
+/// `link_preview` message parts on the local conversation owner.
+pub const LINK_PREVIEW_CAPABILITY: &str = "link-preview-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.

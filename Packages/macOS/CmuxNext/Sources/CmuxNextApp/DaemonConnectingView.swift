@@ -15,7 +15,7 @@ final class DaemonConnectingView: NSView {
     let mark = LaunchMarkView()
     private let titleLabel = NSTextField(labelWithString: "")
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
-    private let copyDetailsButton = NSButton(title: "", target: nil, action: nil)
+    private let copyDetailsButton = ThemedBezelButton(title: "", target: nil, action: nil)
     /// The failure's raw text, for Copy Details.
     private var failureDetails = ""
     /// Copy Details' write (tests read it instead of the clipboard).
@@ -48,7 +48,6 @@ final class DaemonConnectingView: NSView {
         detailLabel.isSelectable = true
         detailLabel.focusRingType = .none
         copyDetailsButton.title = Strings.daemonCopyDetails
-        copyDetailsButton.bezelStyle = .accessoryBarAction
         copyDetailsButton.controlSize = .small
         copyDetailsButton.target = self
         copyDetailsButton.action = #selector(copyDetails)

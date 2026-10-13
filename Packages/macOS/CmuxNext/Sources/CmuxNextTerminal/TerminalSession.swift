@@ -100,6 +100,7 @@ public final class TerminalSession {
     /// True once the current surface received a replay or output; a later
     /// replay then needs a fresh surface.
     private(set) var surfaceHasContent = false
+    let frameHold = TerminalFrameHold()
     /// READY snapshots restored in place, and surfaces swapped in for a
     /// later VT replay (diagnostics: a snapshot attach never swaps).
     private(set) var restoredSnapshots = 0
@@ -302,7 +303,9 @@ public final class TerminalSession {
         fresh.mirrorDemand = mirrorDemand
         surfaceView = fresh
         fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
+        fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
+        frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
         applyTheme(to: fresh, clearing: false)
         // Nothing was parsed into the fresh surface yet: no drain needed.
         if let canonicalGrid { fresh.applyAnnouncedGrid(canonicalGrid) }

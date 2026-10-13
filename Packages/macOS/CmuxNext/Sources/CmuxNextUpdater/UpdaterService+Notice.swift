@@ -66,6 +66,14 @@ extension UpdaterService {
     /// cancels it when the card changed to one that waits.
     func followCardExpiry() {
         let shown = card
+        #if DEBUG
+        // The update harness's timeline: what the user sees, as it changes.
+        let kind = shown?.kind ?? (readyCard == nil ? "none" : "ready")
+        if kind != markedCardKind {
+            markedCardKind = kind
+            UpdateHarness.mark("card." + kind)
+        }
+        #endif
         guard let after = shown?.presentation(version: identity.shortVersion, build: identity.build).dismissesAfter else {
             if expiringCard != nil {
                 expiringCard = nil

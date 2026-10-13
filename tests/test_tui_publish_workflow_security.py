@@ -2007,6 +2007,36 @@ def test_relay_attestations_survive_a_skipped_windows_build() -> None:
         assert "needs.package.result == 'success'" in section
 
 
+def test_windows_unit_tests_build_without_fat_lto() -> None:
+    # The Windows leg ends every tree publication. Its long-path unit tests compiled with the
+    # release profile's fat LTO in one codegen unit took 13 of 33 min (run 38259768770); the
+    # test binary needs optimization, not whole-program LTO (cx-3gstu).
+    jobs = _package_workflow_document()["jobs"]
+    assert isinstance(jobs, dict)
+    steps = jobs["build-windows"]["steps"]
+    step = next(s for s in steps if s.get("name") == "Test Windows long-path state handling")
+    assert step["env"]["CARGO_PROFILE_RELEASE_LTO"] == "off"
+    assert int(step["env"]["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"]) > 1
+    # The published binaries still build with the release profile as written.
+    build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU)")
+    assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
+
+
+def test_package_workflow_uses_no_shared_build_cache() -> None:
+    # Chief decision 2026-10-12 (#13742): the push-only Windows cargo cache was removed. A
+    # pull_request_target job runs pull request code in the base branch's cache scope and gets a
+    # runtime token that can write cache entries, so a cache that published binaries read is a
+    # supply-chain risk. No job of the package workflow may use actions/cache. A later cache needs
+    # a separate, write-protected scope that only release builds can write.
+    jobs = _package_workflow_document()["jobs"]
+    assert isinstance(jobs, dict)
+    for name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps", []) or []:
+            assert "actions/cache" not in str(step.get("uses", "")), name
+
+
 PACKAGE_BUILD_JOBS = (
     "build",
     # cloudflare-relay moved to its own lane; it checks out the pull request

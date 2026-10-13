@@ -1,4 +1,5 @@
 import { cleanAttachmentPart } from "./attachments.ts"
+import { cleanLinkPreviewPart } from "./link-preview.ts"
 import { validAddressId, validParticipantId } from "./ids.ts"
 import { validateQuestion } from "./question.ts"
 import { fail } from "./reject.ts"
@@ -171,6 +172,11 @@ export const validateParts = (parts: unknown, allowAttachments = false): Readonl
       })
     } else if (part.type === "question") {
       out.push(validateQuestion(part))
+    } else if (part.type === "link_preview") {
+      // Local and cloud heads alike (the Rust crate takes it); a cloud owner also checks the image's record.
+      const clean = cleanLinkPreviewPart(part)
+      if (!clean) return fail("invalid_parts")
+      out.push(clean)
     } else if (part.type === "attachment" && allowAttachments) {
       // Cloud heads only: a local head (the Rust crate) has no attachment parts.
       const clean = cleanAttachmentPart(part)
@@ -196,8 +202,12 @@ export const currentParticipant = (head: ConversationHead, id: string): Particip
 export const currentParticipants = (head: ConversationHead): ReadonlyArray<Participant> =>
   head.participants.filter((participant) => participant.left_at === undefined)
 
-/** Whether a message is a counted turn for the loop guard: text, or a question (an agent asking is a turn). */
-export const hasText = (parts: ReadonlyArray<Part>): boolean => parts.some((part) => part.type === "text" || part.type === "question")
+/**
+ * Whether a message is a counted turn for the loop guard: text, a question (an agent asking is a
+ * turn) or a link preview (a link-only message is a reply). Rust `Part::counts_as_turn`.
+ */
+export const hasText = (parts: ReadonlyArray<Part>): boolean =>
+  parts.some((part) => part.type === "text" || part.type === "question" || part.type === "link_preview")
 
 /**
  * A display name from an outside source (Stack, the caller): control

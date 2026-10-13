@@ -108,7 +108,11 @@
       "observability": { "enabled": true, "redact_query_string": true, "logs": { "enabled": true, "invocation_logs": false, "persist": true, "destinations": ["axiom-cmux-api-production"] } },
       "triggers": { "crons": ["23 */6 * * *"] },
       "workers_dev": true,
-      "vars": { "ENVIRONMENT": "production", "INFERENCE_ENABLED": "1", "INFERENCE_DAILY_CAP_USD": "20", "INFERENCE_FREE_DAILY_CAP_USD": "10", "CLOUD_API_ORIGIN": "https://cloud-api.cmux.dev", "CLOUD_NAME_PREFIX": "cmuxnp-prod-cld-", "WORKER_NAME": "cmux-api", "TEAM_VM_SLUG_PREFIX": "cmux-tvm-", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.com.cmux.app", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
+      // Inference (Lawrence, 2026-10-12): paid teams on, 20 USD per provider per UTC day; the free tier stays OFF
+      // (INFERENCE_FREE_ENABLED "0") until device attestation is live (cx-ds09i). Invite links open the production
+      // console (HOME_INVITE_ORIGIN, a plain var). Invites on (Lawrence, 2026-10-13): HOME_INVITES_SEND "on"; deploy-worker.sh
+      // refuses a production deploy until the HOME_INVITE_FROM secret exists (prod-promote.ts config).
+      "vars": { "ENVIRONMENT": "production", "HOME_INVITE_ORIGIN": "https://console.cmux.dev", "HOME_INVITES_SEND": "on", "INFERENCE_ENABLED": "1", "INFERENCE_FREE_ENABLED": "0", "INFERENCE_DAILY_CAP_USD": "20", "INFERENCE_FREE_DAILY_CAP_USD": "10", "CLOUD_API_ORIGIN": "https://cloud-api.cmux.dev", "CLOUD_NAME_PREFIX": "cmuxnp-prod-cld-", "WORKER_NAME": "cmux-api", "TEAM_VM_SLUG_PREFIX": "cmux-tvm-", "DASHBOARD_ORIGIN": "https://console.cmux.dev", "API_VERSION": "0.1.0", "IOS_APP_ID": "7WLXT3NR37.com.cmux.app", "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82" },
       "durable_objects": {
         "bindings": [
           { "name": "USER_DO", "class_name": "UserDO" },

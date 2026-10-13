@@ -200,9 +200,9 @@ The layout of the New Tab page. The dots at the bottom of the page switch it in 
 - `threads`: the field and the recent chats as a list.
 - `console`: a monospace field with a `>` prompt and the recent chats as lines.
 - `classic`: the Terminal, Browser and Agent switch.
-- `terminal`: no page. Cmd-T, the + button and a new workspace open a terminal. New Tab Page (`newTab.page`) and Focus Location Bar (Cmd-L) still show the page, so you can pick another template.
+- `terminal`: the `default` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
-The template applies when `tabs.newTabKind` is `page` (the default). Change it in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
 
 ## `app.forkConversationDefaultDestination`
 
