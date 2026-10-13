@@ -1141,6 +1141,12 @@ public final class BrowserReplSession: @unchecked Sendable {
     ) -> BrowserReplEgress {
         let method = call.method
         var answer = answer
+        // The page shapes a result: past the structure one call may pass,
+        // it is refused before masking parses it here and the runtime's
+        // JSON.parse there, neither of which stops midway.
+        if case .success(let json) = answer, let reason = JSONSerialization.browserReplCallStructureRefusal(json) {
+            answer = .failure(BrowserReplDriverError(code: "invalid", message: "\(method): its result is refused: \(reason)"))
+        }
         var reserved = Self.driverResultSize(answer)
         if let refusal = reserveDriverResult(bytes: reserved, replacing: 0, taskID: taskID) {
             answer = .failure(refusal.driverError(method))
@@ -2180,6 +2186,11 @@ public final class BrowserReplSession: @unchecked Sendable {
             }
             if let data, let reason = BrowserReplSecretStore.loadSourceRefusal(data) {
                 return .failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path) \(reason)"))
+            }
+            // UTF-8 now (loadSourceRefusal): past the structure one call may
+            // pass, the file is refused before the parse, which nothing stops.
+            if let data, let reason = JSONSerialization.browserReplCallStructureRefusal(String(decoding: data, as: UTF8.self)) {
+                return .failure(BrowserReplDriverError(code: "invalid", message: "secrets.load: \(path): \(reason)"))
             }
             guard let data, !isCancelled(), let object = try? JSONSerialization.jsonObject(with: data) else {
                 if isCancelled() { return .failure(BrowserReplBoundary.cancelled("secrets.load")) }
