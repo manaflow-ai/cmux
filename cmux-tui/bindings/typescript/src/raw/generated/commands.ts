@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff. */
+/* cmux-tui mux protocol 12, IR 35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58. */
 
 
 import type * as T from "./types.js";
@@ -2353,6 +2353,8 @@ export interface UpdateBookmarkRequest extends CmuxRequestBase {
   cmd: "update-bookmark";
   "bookmark": string;
   "favicon_key"?: (string) | null;
+  /** Folders only; null clears. Refused on a url node. */
+  "icon"?: (string) | null;
   "last_used_ms"?: (bigint) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
@@ -2423,6 +2425,7 @@ export interface UpdateScreenGroupRequest extends CmuxRequestBase {
   "collapsed"?: (boolean) | null;
   "color"?: (string) | null;
   "group": string;
+  "icon"?: (string) | null;
   "name"?: (string) | null;
 }
 export type UpdateScreenGroupResult = T.JsonValue;
@@ -2433,6 +2436,7 @@ export interface UpdateTabGroupRequest extends CmuxRequestBase {
   "collapsed"?: (boolean) | null;
   "color"?: (string) | null;
   "group": string;
+  "icon"?: (string) | null;
   "name"?: (string) | null;
 }
 export type UpdateTabGroupResult = T.TabGroupOutcome;

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff'
+IR_SHA256 = '35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58'
 
 
 @dataclass(frozen=True)
@@ -3217,6 +3217,7 @@ COMMANDS = {
         {
             'bookmark': CommandFieldMetadata(None, None),
             'favicon_key': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(12, 'bookmark-icon-v1'),
             'last_used_ms': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
@@ -3311,6 +3312,7 @@ COMMANDS = {
             'collapsed': CommandFieldMetadata(None, None),
             'color': CommandFieldMetadata(None, None),
             'group': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(12, 'screen-group-icon-v1'),
             'name': CommandFieldMetadata(None, None),
         },
     ),
@@ -3325,6 +3327,7 @@ COMMANDS = {
             'collapsed': CommandFieldMetadata(None, None),
             'color': CommandFieldMetadata(None, None),
             'group': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(12, 'tab-group-icon-v1'),
             'name': CommandFieldMetadata(None, None),
         },
     ),

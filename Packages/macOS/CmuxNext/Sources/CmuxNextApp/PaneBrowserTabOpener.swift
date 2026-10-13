@@ -56,7 +56,7 @@ struct PaneBrowserTabOpener {
         // chrome://history and chrome://bookmarks open cmux's pages; chrome://settings opens Settings
         // and no tab (false, so a New Tab page that asked stays in place).
         if child == nil, let typed = target {
-            guard let routed = services.routedChromiumPage(typed, focus: !background) else { return false }
+            guard let routed = ChromiumPageRouter.routed(typed, services: services, focus: !background) else { return false }
             target = routed
         }
         if child == nil, then == nil, let url = target, services.viewers.openMarkdownHandoff(url, in: controller, focus: !background) {

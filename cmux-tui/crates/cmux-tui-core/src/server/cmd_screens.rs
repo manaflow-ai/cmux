@@ -90,9 +90,10 @@ pub(super) fn update_screen_group(
     name: Option<String>,
     color: Option<String>,
     collapsed: Option<bool>,
+    icon: Option<Option<String>>,
 ) -> anyhow::Result<Value> {
     Ok(screen_group_outcome_json(
-        &mux.update_screen_group_as(&actor, &group, name, color, collapsed)?,
+        &mux.update_screen_group_as(&actor, &group, name, color, collapsed, icon)?,
     ))
 }
 
@@ -169,6 +170,7 @@ pub(super) fn list_saved_screen_groups(mux: &Arc<Mux>) -> anyhow::Result<Value> 
                 "name": saved.name,
                 "color": saved.color,
                 "profile_id": saved.profile_id,
+                "icon": saved.icon,
                 "members": saved.members,
                 "updated_at_ms": saved.updated_at_ms,
                 "open_group": open,

@@ -97,11 +97,19 @@ fn public_member(member: &Value) -> Value {
 pub(crate) fn public_item(record: &Value) -> Value {
     let members = record["members"].as_array().cloned().unwrap_or_default();
     let first = members.first().map(public_member).unwrap_or_else(|| json!({}));
+    // A deleted space is named by the space, not its first workspace (cx-ncc.44).
+    let room = &record["room"]["profile"][0]["name"];
     let mut item = json!({
         "id": record["id"],
         "kind": record["kind"],
         // A window group has no member: its name is the window's workspace.
-        "name": if first["name"].is_null() { record["name"].clone() } else { first["name"].clone() },
+        "name": if room.is_string() {
+            room.clone()
+        } else if first["name"].is_null() {
+            record["name"].clone()
+        } else {
+            first["name"].clone()
+        },
         "workspace_id": first["workspace_id"],
         "pane_id": first["pane_id"],
         "index": first["index"].as_u64().unwrap_or(0),
@@ -111,9 +119,12 @@ pub(crate) fn public_item(record: &Value) -> Value {
         "member_count": members.len(),
         "members": members.iter().map(public_member).collect::<Vec<_>>(),
     });
-    // An ungrouped tab group (no member) sits in its workspace. No pane:
-    // the app would take it for a closed tab of that pane.
-    if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
+    // An ungrouped tab or screen group (no member) sits in its workspace.
+    // No pane: the app would take it for a closed tab of that pane.
+    let ungrouped = ["tab_group", "screen_group"]
+        .into_iter()
+        .find_map(|field| record.get(field).filter(|group| group.is_object()));
+    if let Some(group) = ungrouped {
         item["workspace_id"] = group["workspace_id"].clone();
     }
     // A deleted personal workspace group names the group it forms again.

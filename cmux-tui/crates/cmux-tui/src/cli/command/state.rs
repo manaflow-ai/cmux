@@ -557,10 +557,11 @@ pub(super) fn parse_tab_group(
                 "update" => {
                     insert_optional_string(&mut params.fields, flags, "name", "name");
                     group_color(&mut params, flags)?;
+                    nullable(&mut params, flags, "icon", "icon")?;
                     group_collapse(flags, &mut params.fields)?;
                     if params.fields.len() == 1 {
                         return Err(UsageError::new(
-                            "tab group update needs --name, --color, --collapse or --expand",
+                            "tab group update needs --name, --color, --icon, --collapse or --expand",
                         ));
                     }
                     Op::TabGroupUpdate
@@ -734,10 +735,11 @@ pub(super) fn parse_screen_group(
                 "update" => {
                     insert_optional_string(&mut params.fields, flags, "name", "name");
                     group_color(&mut params, flags)?;
+                    nullable(&mut params, flags, "icon", "icon")?;
                     group_collapse(flags, &mut params.fields)?;
                     if params.fields.len() == 1 {
                         return Err(UsageError::new(
-                            "screen group update needs --name, --color, --collapse or --expand",
+                            "screen group update needs --name, --color, --icon, --collapse or --expand",
                         ));
                     }
                     Op::ScreenGroupUpdate

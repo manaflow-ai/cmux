@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff. */
+/* cmux-tui mux protocol 12, IR 35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff" as const;
+export const SDK_IR_SHA256 = "35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3003,7 +3003,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "bookmarks-v1",
-    "fields": {},
+    "fields": {
+      "icon": {
+        "since": 12,
+        "capability": "bookmark-icon-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -3063,7 +3068,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "screen-groups-v1",
-    "fields": {},
+    "fields": {
+      "icon": {
+        "since": 12,
+        "capability": "screen-group-icon-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -3073,7 +3083,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "tab-groups-v1",
-    "fields": {},
+    "fields": {
+      "icon": {
+        "since": 12,
+        "capability": "tab-group-icon-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -4103,6 +4118,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "favicon_key": {
         "nullable": false,
         "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "icon": {
+        "capability": "bookmark-icon-v1",
+        "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -23737,6 +23763,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "icon": {
+          "capability": "bookmark-icon-v1",
+          "default": null,
+          "description": "Folders only; null clears. Refused on a url node.",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "last_used_ms": {
           "default": null,
           "nullable": true,
@@ -24109,6 +24147,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "icon": {
+          "capability": "screen-group-icon-v1",
+          "constraints": [
+            "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "name": {
           "default": null,
           "nullable": true,
@@ -24151,6 +24203,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "group": {
           "nullable": false,
           "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "icon": {
+          "capability": "tab-group-icon-v1",
+          "constraints": [
+            "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
           "type": {
             "kind": "scalar",
             "name": "string"

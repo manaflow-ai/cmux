@@ -231,7 +231,11 @@ fn strip_state_write(
     let touched_tabs = touched_tabs.into_iter().collect::<Vec<_>>();
     Box::new(move |transaction, result, changes| {
         if let Some(archive) = &ungrouped {
-            crate::state::closed_history_store::record_ungrouped_tab_group(transaction, archive)?;
+            crate::state::closed_history_store::record_ungrouped_group(
+                transaction,
+                "tab_group",
+                archive,
+            )?;
         }
         write_tab_groups(transaction, &groups)?;
         for (tab, pinned, url) in &pins {
