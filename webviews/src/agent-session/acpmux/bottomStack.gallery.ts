@@ -9,9 +9,9 @@ const permission: AcpmuxPermission = {
   title: "Run the checks",
   pending: true,
   options: [
-    { id: "once", name: "Allow", allow: true },
-    { id: "chat", name: "Allow for this session", allow: true },
-    { id: "deny", name: "Reject", allow: false },
+    { id: "allow_once", name: "Allow", kind: "allow_once", allow: true },
+    { id: "allow_chat", name: "Allow for this session", kind: "allow_chat", allow: true },
+    { id: "deny", name: "Reject", kind: "deny", allow: false },
   ],
 };
 const queue = [{ id: "correction", prompt: "Correction from the coordinator: keep the bottom stack in one column." }];
@@ -88,6 +88,8 @@ const trustThenPermission: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   if (ctx.document.querySelectorAll(".acpmux-permission-card").length !== 1)
     throw new Error("More than one tool permission card");
+  ctx.find({ role: "button", name: "Allow once" });
+  ctx.find({ role: "button", name: "Allow for this chat" });
   geometry(ctx);
   await ctx.click({ role: "button", name: "Undo" });
   await checkTrust(ctx);
