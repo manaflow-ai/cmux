@@ -17,21 +17,21 @@ import os
 /// the next launch restores as after a normal quit. It never waits on the
 /// main thread, and `_exit` runs no atexit handler or C++ destructor that
 /// could wait on the blocked Chromium thread.
-nonisolated final class QuitDeadline: Sendable {
+public nonisolated final class QuitDeadline: Sendable {
     /// The engines' close wait (3 s, `CEFEngine.shutdown`) and Chromium's
     /// own 10 s shutdown watchdog, with room for a loaded machine.
-    static let engineStopLimit: Duration = .seconds(15)
+    public static let engineStopLimit: Duration = .seconds(15)
 
     private let armed = Atomic<Bool>(false)
     private let end: @Sendable () -> Void
 
     /// `end` runs on the deadline thread; the app's ends the process.
-    init(end: @escaping @Sendable () -> Void = { _exit(0) }) {
+    public init(end: @escaping @Sendable () -> Void = { _exit(0) }) {
         self.end = end
     }
 
     /// Starts the deadline once; a later call keeps the first.
-    func arm(after limit: Duration) {
+    public func arm(after limit: Duration) {
         guard armed.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         let end = end
         let seconds = Double(limit.components.seconds) + Double(limit.components.attoseconds) / 1e18

@@ -155,7 +155,7 @@ public final class MainThreadWatchdog: Sendable {
 
     /// A decided quit is ending: from now on a hang is still reported, but
     /// never fails the debug assertion. The quit's own deadline bounds it
-    /// (the App's `QuitDeadline`), so a debug build ends as a release one does.
+    /// (`QuitDeadline`), so a debug build ends as a release one does.
     public func endHangAssertions() {
         assertionsEnded.store(true, ordering: .releasing)
     }
