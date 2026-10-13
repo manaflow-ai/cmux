@@ -26,6 +26,8 @@ TAG, ROUNDS = sys.argv[1], int(sys.argv[2])
 DIAG = len(sys.argv) > 3 and sys.argv[3] == "diag"
 CTL = f"/tmp/cmux-debug-{TAG}.sock"
 CASES = ["resolve", "fail", "workspace", "window", "click", "vanish"]
+if len(sys.argv) > 4:
+    CASES = sys.argv[4].split(",")
 
 
 def rpc(method, params=None, timeout=30):
@@ -136,10 +138,14 @@ for rnd in range(ROUNDS):
         elif case == "window":
             key(WIN_B, "return")
         elif case == "click":
-            # Click once the new pane shows (a click before it lands on the pane that has focus anyway).
-            for _ in range(40):
-                if set(panes(WS_A)) - before: break
+            # Click once the new pane has focus (a click before that lands on the pane that has
+            # focus anyway, and the new pane takes focus after it, as it should).
+            for _ in range(60):
+                win = next(w for w in topology()["windows"] if w["key"] == WIN_A)
+                if win.get("focused_pane") in set(panes(WS_A)) - before: break
                 time.sleep(0.05)
+            # The split layout lays out after the focus state: the pane's center must be the new one.
+            time.sleep(0.3)
             rpc("debug.mouse", {"window": WIN_A, "pane": original_pane})
             expect = original_surface
         time.sleep(0.3)
