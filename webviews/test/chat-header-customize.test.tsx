@@ -100,7 +100,7 @@ test("the right-click menu moves, switches, hides and shows the quick actions", 
   expect(hideBrowser?.disabled).toBe(true);
   rightClick("Browser");
   pick("Reset Buttons");
-  // The default keeps the most-used three; Split Down, Changes and Preview are in the chat menu.
-  expect(lists.at(-1)).toBe("terminal:toggle browser:toggle newTab:toggle");
+  // The default keeps the most-used four; New tab, Files and Split Down are in the chat menu.
+  expect(lists.at(-1)).toBe("changes:toggle preview:toggle terminal:toggle browser:toggle");
   act(() => configureQuickActions({}));
 });

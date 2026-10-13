@@ -1,10 +1,11 @@
 // The chat header's top right: the quick actions (quickActions.ts: which show, in which order, and
-// whether each toggles or opens; by default Terminal and Browser, which split the pane in the chat's
-// folder and toggle, as in T3 Chat and ChatGPT, and [+] New tab, which becomes Hide tabs in place); the summary (Sources) button, whose popover also
-// opens the last turn's changes; and the "..." chat menu, which starts with the quick actions not shown
-// as buttons (Split Down, Changes, Preview; each while it applies). Before them, the chat branch's pull request
-// with its checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control renders from the first frame
-// at its final size; data fills in place.
+// whether each toggles or opens; by default Changes and Preview, each while it applies, then Terminal
+// and Browser, which split the pane in the chat's folder and toggle, as in T3 Chat and ChatGPT); the
+// summary (Sources) button, whose popover also opens the last turn's changes; and the "..." chat menu,
+// which starts with the quick actions not shown as buttons ([+] New tab, which reads Hide tabs in place,
+// Files and Split Down; each while it applies). Before them, the chat branch's pull request with its
+// checks (cx-tcwj, Codex desktop's PR chip; PullRequestChip.tsx), when the App found one. Every control
+// renders from the first frame at its final size; data fills in place.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -165,14 +166,6 @@ export function ChatHeaderTools({
   // The quick actions without a button, at the top of "...": each while it would show as a button.
   const shownIds = new Set(actions.map((action) => action.id));
   const folded: ChatMenuItem[] = [];
-  if (tabTools && onSplitDown && !shownIds.has("splitDown"))
-    folded.push({
-      key: "quick-splitDown",
-      label: t("header.splitDown"),
-      icon: "pane.split.down",
-      shortcutAction: HEADER_ACTIONS.splitDown,
-      onSelect: () => onSplitDown("toggle"),
-    });
   if (tabTools && onChanges && !shownIds.has("changes") && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
     folded.push({
       key: "quick-changes",
@@ -187,6 +180,28 @@ export function ChatHeaderTools({
       label: t("header.preview"),
       icon: "media.play",
       onSelect: () => onPreview(previewUrl, "toggle"),
+    });
+  if (tabTools && onSideTabs && !shownIds.has("newTab"))
+    folded.push({
+      key: "quick-newTab",
+      label: t(sideTabs ? "header.hideTabs" : "header.newTab"),
+      icon: sideTabs ? "tunable.sidebar" : "action.add",
+      onSelect: onSideTabs,
+    });
+  if (tabTools && onFiles && !shownIds.has("files"))
+    folded.push({
+      key: "quick-files",
+      label: t("header.files"),
+      icon: "folder",
+      onSelect: () => onFiles("toggle"),
+    });
+  if (tabTools && onSplitDown && !shownIds.has("splitDown"))
+    folded.push({
+      key: "quick-splitDown",
+      label: t("header.splitDown"),
+      icon: "pane.split.down",
+      shortcutAction: HEADER_ACTIONS.splitDown,
+      onSelect: () => onSplitDown("toggle"),
     });
   const rows = () => menuGroups(folded, menu());
   const buttons = tabTools && (
@@ -354,7 +369,7 @@ const QUICK_ACTION_NAMES: Record<QuickActionId, StringKey> = {
 /// The header's right-click menu (cx-00n1, Claude Code desktop's toolbar customization): for the
 /// right-clicked button, Move Left/Right and whether a click toggles its panel or opens another
 /// ([+] New tab always toggles); then every quick action, checked while shown; then Reset. The last
-/// button always shown (Terminal, Browser, New tab) cannot be hidden: the menu opens on the buttons.
+/// button always shown (Terminal, Browser, Split Down, New tab) cannot be hidden: the menu opens on the buttons.
 function customizeItems(
   list: readonly QuickAction[],
   target: QuickActionId | undefined,
