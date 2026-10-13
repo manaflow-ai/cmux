@@ -130,7 +130,20 @@ struct SidebarPanel: View {
             .foregroundStyle(.primary)
             .contentShape(.rect)
         }
+        .accessibilityLabel(hostMenuLabel)
+        .accessibilityHint(String(localized: "Switch Mac or add one"))
         .accessibilityIdentifier("sidebar.hostMenu")
+    }
+
+    private var hostMenuLabel: String {
+        guard let connection = app.connection else { return String(localized: "No Mac") }
+        let status: String = switch connection.phase {
+        case .connected: String(localized: "connected")
+        case .connecting: String(localized: "connecting")
+        case .reconnecting: String(localized: "reconnecting")
+        case .offline: String(localized: "offline")
+        }
+        return "\(connection.host.name), \(status)"
     }
 
     private func statusColor(_ phase: HostConnection.Phase) -> Color {

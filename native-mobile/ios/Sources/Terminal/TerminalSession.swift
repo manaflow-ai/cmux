@@ -44,6 +44,8 @@ final class TerminalSession {
     }
 
     var isTUI: Bool { modes.isTUI }
+    /// Attached (or attaching) to the Mac; a detached session can be dropped.
+    var isAttached: Bool { reader != nil }
 
     /// Attaches with the grid that fits the phone (first call), afterwards
     /// asks the Mac to resize.

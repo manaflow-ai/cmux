@@ -78,3 +78,17 @@ struct TabTitleTests {
         #expect(tab(title: "aziz@mac:~/code/cmux", cwd: "/Users/aziz/code/cmux").displayTitle == "cmux")
     }
 }
+
+struct TerminalSessionCacheTests {
+    @Test func keepsTheMostRecent() {
+        #expect(TerminalSessionCache.evictions(recent: [1, 2, 3, 4, 5, 6], keep: 4) { _ in false } == [1, 2])
+    }
+
+    @Test func neverDropsAnAttachedSession() {
+        #expect(TerminalSessionCache.evictions(recent: [1, 2, 3, 4, 5, 6], keep: 4) { $0 == 1 } == [2])
+    }
+
+    @Test func underTheLimitKeepsAll() {
+        #expect(TerminalSessionCache.evictions(recent: [1, 2], keep: 4) { _ in false }.isEmpty)
+    }
+}

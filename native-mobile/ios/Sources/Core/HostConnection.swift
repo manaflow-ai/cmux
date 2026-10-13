@@ -32,11 +32,30 @@ final class HostConnection {
     /// One terminal session per surface, shared by every screen that shows it.
     private var terminalSessions: [Int: TerminalSession] = [:]
 
+    /// Surfaces by last use, newest last.
+    @ObservationIgnored private var recentSurfaces: [Int] = []
+    /// Detached sessions kept beyond this many are dropped with their
+    /// Ghostty surface (visiting many terminals grew memory without bound).
+    static let keptSessions = 4
+
     func terminalSession(for surface: Int) -> TerminalSession {
+        recentSurfaces.removeAll { $0 == surface }
+        recentSurfaces.append(surface)
         if let existing = terminalSessions[surface] { return existing }
         let session = TerminalSession(surfaceID: surface, connection: self)
         terminalSessions[surface] = session
+        evictSessions()
         return session
+    }
+
+    private func evictSessions() {
+        let evict = TerminalSessionCache.evictions(recent: recentSurfaces, keep: Self.keptSessions) { surface in
+            terminalSessions[surface]?.isAttached ?? false
+        }
+        for surface in evict {
+            terminalSessions.removeValue(forKey: surface)
+            recentSurfaces.removeAll { $0 == surface }
+        }
     }
 
     /// Fires on daemon notifications (the feed listens).
@@ -286,5 +305,14 @@ final class HostConnection {
         let id = UUID().uuidString
         UserDefaults.standard.set(id, forKey: "deviceID")
         return id
+    }
+}
+
+/// Which terminal sessions to drop: the oldest beyond `keep`, never one
+/// still attached.
+enum TerminalSessionCache {
+    static func evictions(recent: [Int], keep: Int, isAttached: (Int) -> Bool) -> [Int] {
+        guard recent.count > keep else { return [] }
+        return recent.dropLast(keep).filter { !isAttached($0) }
     }
 }

@@ -206,29 +206,35 @@ final class GhosttySurfaceView: UIView {
         requestFrame()
     }
 
-    /// VoiceOver reads the last lines of the terminal (only computed when
-    /// VoiceOver asks).
+    /// VoiceOver reads what is on screen (only computed when VoiceOver asks).
     override var accessibilityValue: String? {
         get {
-            let lines = readAllText().split(separator: "\n", omittingEmptySubsequences: false)
+            let lines = readText(GHOSTTY_POINT_VIEWPORT).split(separator: "\n", omittingEmptySubsequences: false)
                 .map { $0.trimmingCharacters(in: .whitespaces) }
-            let recent = lines.suffix(30).filter { !$0.isEmpty }
-            return recent.isEmpty ? String(localized: "Empty") : recent.joined(separator: "\n")
+                .filter { !$0.isEmpty }
+            return lines.isEmpty ? String(localized: "Empty") : lines.joined(separator: "\n")
         }
         set {}
     }
 
     /// Text of the whole screen and scrollback (for copy and file references).
-    func readAllText() -> String {
+    func readAllText() -> String { readText(GHOSTTY_POINT_SCREEN) }
+
+    /// Reads a region without touching the selection. (Select-all + read
+    /// selection left the whole terminal highlighted whenever VoiceOver or
+    /// Copy All Text read it.)
+    private func readText(_ tag: ghostty_point_tag_e) -> String {
         guard let surface else { return "" }
-        let action = "select_all"
-        _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
+        let selection = ghostty_selection_s(
+            top_left: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+            bottom_right: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
+            rectangle: false
+        )
         var text = ghostty_text_s()
+        guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
         defer { ghostty_surface_free_text(surface, &text) }
-        guard ghostty_surface_read_selection(surface, &text), let pointer = text.text else { return "" }
-        let result = String(cString: pointer)
-        _ = "clear_selection".withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
-        return result
+        guard let pointer = text.text, text.text_len > 0 else { return "" }
+        return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
     }
 
     private func requestFrame() {
