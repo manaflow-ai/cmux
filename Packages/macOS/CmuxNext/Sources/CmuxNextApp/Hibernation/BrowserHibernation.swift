@@ -178,7 +178,7 @@ final class BrowserHibernation {
                 cache.trace(key, "hibernate probe dropped (stale)")
                 return
             }
-            if let exemption = probe.exemption {
+            if let exemption = probe.exemption(pressure: self.pressure) {
                 self.exemptions[key] = exemption
                 return
             }
@@ -297,12 +297,21 @@ final class BrowserHibernation {
 struct PageProbe {
     var playingMedia = false
     var editedForm = false
+    /// Camera, microphone or screen capture the page started (`BrowserPageBusy`).
+    var capturing = false
+    /// A running Web Audio context. It may be silent (a chat app's notification sounds, a
+    /// game), unlike a playing element, so critical memory pressure overrides it.
+    var webAudio = false
 
-    var exemption: HibernationPlanner.Exemption? {
-        playingMedia ? .audio : editedForm ? .formInput : nil
+    func exemption(pressure: MemoryPressureLevel) -> HibernationPlanner.Exemption? {
+        if capturing { return .capturing }
+        if playingMedia { return .audio }
+        if editedForm { return .formInput }
+        return webAudio && pressure != .critical ? .webAudio : nil
     }
 
-    /// Unmuted media playing, or form fields whose value differs from the
+    /// Unmuted media playing, a running Web Audio context, a live camera,
+    /// microphone or screen capture, or form fields whose value differs from the
     /// page's default (form interaction). A page that does not
     /// answer within the deadline is treated as busy and kept.
     static let script = """
@@ -320,14 +329,15 @@ struct PageProbe {
 
     static func run(_ tab: any BrowserTab) async -> PageProbe {
         do {
-            let value = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
-                try await tab.evaluate(script, world: .isolated)
+            let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
+                (try await tab.evaluate(script, world: .isolated), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
                   let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return PageProbe(playingMedia: true) }
             // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
             let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
-            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: object["form"] ?? true)
+            return PageProbe(playingMedia: muted || (object["media"] ?? true), editedForm: object["form"] ?? true,
+                             capturing: busy.capturing, webAudio: busy.audio)
         } catch {
             return PageProbe(playingMedia: true)
         }

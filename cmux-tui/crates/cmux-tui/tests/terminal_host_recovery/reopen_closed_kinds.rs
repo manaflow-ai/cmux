@@ -803,7 +803,20 @@ fn a_closed_browser_reopens_on_its_url() {
     );
 }
 
+#[cfg(target_os = "linux")]
+impl RecoveryHarness {
+    /// A harness whose daemon runs with `env` added.
+    fn start_with_env(name: &str, env: &[(&str, &str)]) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.extra_env =
+            env.iter().map(|(key, value)| ((*key).to_string(), (*value).to_string())).collect();
+        harness.restart();
+        harness
+    }
+}
+
 /// The key of the workspace named `name`, once the tree lists it.
+#[cfg(target_os = "linux")]
 fn workspace_key(app: &mut AppConnection, name: &str) -> Option<String> {
     app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
         .as_array()

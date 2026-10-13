@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67";
+pub const ir_sha256 = "374ade89328236fb2b081d417dec69578ac6c1efb7e4c3dd7bdb14bcdd60fa06";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7777,6 +7777,27 @@ pub fn setScreenPinned(client: anytype, request: SetScreenPinnedRequest) !wire.D
     );
 }
 
+pub const SetSessionIconRequest = struct {
+    /// An icon value sets the session's (machine's) icon; null clears it.
+    icon: wire.Nullable([]const u8),
+    session_id: []const u8,
+};
+
+pub const SetSessionIconResult = JsonValue;
+
+pub fn setSessionIcon(client: anytype, request: SetSessionIconRequest) !wire.Decoded(SetSessionIconResult) {
+    return client.callTyped(
+        SetSessionIconResult,
+        .{
+            .name = "set-session-icon",
+            .authority = "control",
+            .since = 12,
+            .capability = "session-icon-v1",
+        },
+        request,
+    );
+}
+
 pub const SetSizeCountsRequest = struct {
     client: wire.Field(u64) = .absent,
     counts: wire.Field(bool) = .absent,
@@ -10198,7 +10219,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 253;
+pub const command_count: usize = 254;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10407,6 +10428,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "set-row-heights", .authority = "control", .since = 12, .capability = "rows-v1", .stream = null },
     .{ .name = "set-screen-metadata", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
     .{ .name = "set-screen-pinned", .authority = "control", .since = 12, .capability = "screen-metadata-v1", .stream = null },
+    .{ .name = "set-session-icon", .authority = "control", .since = 12, .capability = "session-icon-v1", .stream = null },
     .{ .name = "set-size-counts", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-size-policy", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "set-split-ratio", .authority = "control", .since = 8, .capability = null, .stream = null },
