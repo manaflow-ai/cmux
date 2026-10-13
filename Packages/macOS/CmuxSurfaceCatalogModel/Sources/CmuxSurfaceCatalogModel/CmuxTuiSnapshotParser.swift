@@ -1875,8 +1875,11 @@ public struct CmuxTuiSnapshotParser: Sendable {
     public static let displayPorts: Set<Int> = Set(Array(5901...5916) + Array(6901...6916))
 
     /// Guest display ports for a deployment whose primary noVNC listener is
-    /// advertised by the Cloud service. The RFB listener keeps the image's
-    /// existing 1000-port offset; callers without metadata use ``displayPorts``.
+    /// advertised by the Cloud service. The RFB listener keeps the shipped
+    /// desktop-image's 1000-port offset; callers without metadata use
+    /// ``displayPorts``. The offset is an image compatibility contract, not a
+    /// provider default: a future image that changes it must advertise the
+    /// related RFB/display ports before clients can support it.
     public static func displayPorts(forDesktopPort desktopPort: Int) -> Set<Int> {
         guard (1...65_535).contains(desktopPort) else { return displayPorts }
         let rfbStart = max(desktopPort - 1_000, 1)
