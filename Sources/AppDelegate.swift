@@ -3852,7 +3852,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     && !isRunningUnderXCTestCached,
                 environment: environment
             )
-            let result = await preparation.run()
+            let result = await Task.detached(priority: .utility) {
+                await preparation.run()
+            }.value
             self.applyStartupSessionPreparationResult(result)
         }
     }
