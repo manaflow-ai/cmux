@@ -99,8 +99,6 @@ extension SidebarBridge {
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:
             services.registry.perform("space.new", invocation: ActionInvocation())
-        case .openHistory:
-            if let pane = services.windows.controller(for: state.id)?.focusedPane { AgentHistoryPage.open(in: pane) }
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
@@ -110,7 +108,7 @@ extension SidebarBridge {
             sendPinned(ids, pinned)
         case .activateItem(let id, let opensWorkspace):
             activateLayoutItem(id, opensWorkspace: opensWorkspace)
-        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .noticeAction, .dismissNotice, .openWhatsNew, .shareCmux, .dismissUpdated:
+        case .installUpdate, .setAutomaticUpdates, .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .shareCmux, .dismissUpdated:
             SidebarCardFeed.handle(intent, services: services)
         case .layout(let op):
             applyLayoutOp(op)

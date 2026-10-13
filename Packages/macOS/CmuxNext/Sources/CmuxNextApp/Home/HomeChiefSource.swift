@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import Foundation
 
 /// Which conversation Home's Chief tab shows (G6, brains/DESIGN-cmux-lawrence.md
