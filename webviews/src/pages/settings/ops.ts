@@ -101,7 +101,7 @@ export type HostLists = {
   settings_file?: string | null;
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
-  /** The iPhone host (Accounts): the toggle, its status and the connected phones; every text localized by the host. */
+  /** Settings > Mobile: the iPhone host's status, space and connected phones; every text localized by the host. */
   iphone?: IPhoneHostState | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Art carries its
@@ -112,23 +112,27 @@ export type HostLists = {
   derived?: Record<string, number>;
 };
 
-/** The iPhone card (Accounts): the app runs the cnx phone host while `allowed` and signed in. */
+/**
+ * The Mobile page's iPhone card: the cnx phone host the app runs while the schema row
+ * `mobile.allowIPhoneConnections` is on and an account is signed in. Every text is localized by
+ * the host.
+ */
 export type IPhoneHostState = {
   title: string;
   allowed: boolean;
-  /** False while the toggle cannot change (nobody signed in, or no host in this build). */
-  enabled: boolean;
-  allow_title: string;
-  allow_help: string;
   status_title: string;
   status: string;
   /** `off`, `unavailable`, `connecting`, `online` or `waiting`. */
   phase: string;
+  space_title: string;
+  /** The team the Mac is listed in (or the personal space); null while signed out. */
+  space: string | null;
   how_title: string;
   how: string;
   phones_title: string;
   phones_empty: string;
-  phones: Array<{ id: string; title: string; subtitle: string }>;
+  /** `transport` (`webrtc`, `wireguard`) and `path` (`direct`, `relay`, `turn`) are read-only facts. */
+  phones: Array<{ id: string; title: string; subtitle: string; transport: string; path: string }>;
 };
 
 /** `ComputerUseSetup.Phase` in the app. */
@@ -308,8 +312,6 @@ export type SettingsOps = {
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
-  /** Native: turn the iPhone host on or off (Accounts > iPhone); the person's gesture only. */
-  "cmux.settings.iphone.set": [{ allowed: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */

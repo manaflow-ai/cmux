@@ -341,12 +341,6 @@ export class SettingsStore {
     void this.request("cmux.settings.file.reveal", {});
   }
 
-  /** Accounts > iPhone: allow or stop iPhone connections, then re-read the host lists. */
-  async setIPhoneAllowed(allowed: boolean): Promise<void> {
-    await this.request("cmux.settings.iphone.set", { allowed });
-    await this.refreshHost();
-  }
-
   /** One Accounts gesture; answers the failure text of a Keychain save, else null. */
   async runAccounts(run: AccountsRun): Promise<string | null> {
     const reply = await this.request("cmux.settings.accounts.run", run);

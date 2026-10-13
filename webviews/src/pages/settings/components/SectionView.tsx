@@ -8,7 +8,7 @@ import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
-import { IPhoneCard } from "./IPhoneCard";
+import { MobileCard } from "./MobileCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
@@ -28,16 +28,12 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   spaces: () => <SpacesSection />,
   browserProfiles: () => <BrowserProfiles />,
   machines: () => <MachinesSection title={machinesTitle()} />,
-  accounts: () => (
-    <>
-      <AccountsSection />
-      <IPhoneCard />
-    </>
-  ),
+  accounts: () => <AccountsSection />,
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,
   backdrops: (focus, workspace) => <Backdrops focus={focus} workspace={workspace} />,
+  mobile: () => <MobileCard />,
 };
 
 /** One category: its title, the cards before its groups, the groups, the cards after, actions. */

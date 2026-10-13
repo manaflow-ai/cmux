@@ -2,26 +2,26 @@ import CmuxNextMobile
 import CmuxNextSettings
 import Foundation
 
-/// The iPhone card of the Settings page (`iphone` in `cmux.settings.host.lists`), every text localized here.
+/// The Mobile page's iPhone card (`iphone` in `cmux.settings.host.lists`), every text localized
+/// here. The switch above it is the schema row `mobile.allowIPhoneConnections`.
 extension IPhoneHostService {
     var pageJSON: JSONValue {
         let phones = allowed ? state.phones : []
         return [
-            "title": .string(IPhoneHostStrings.title),
+            "title": .string(IPhoneHostStrings.connectionTitle),
             "allowed": .bool(allowed),
-            "enabled": .bool(dependencies?.executable != nil && (account != nil || allowed)),
-            "allow_title": .string(IPhoneHostStrings.allowTitle),
-            "allow_help": .string(IPhoneHostStrings.allowHelp),
             "status_title": .string(IPhoneHostStrings.statusTitle),
             "status": .string(statusText),
             "phase": .string(phaseName),
+            "space_title": .string(IPhoneHostStrings.spaceTitle),
+            "space": account.map { .string($0.teamName ?? IPhoneHostStrings.personalSpace) } ?? .null,
             "how_title": .string(IPhoneHostStrings.howTitle),
             "how": .string(IPhoneHostStrings.how),
             "phones_title": .string(IPhoneHostStrings.phonesTitle),
             "phones_empty": .string(IPhoneHostStrings.phonesEmpty),
             "phones": .array(phones.map { phone in
                 ["id": .string(phone.sessionID), "title": .string(IPhoneHostStrings.phone(String(phone.phoneDeviceID.prefix(4)))),
-                 "subtitle": .string(Self.subtitle(phone))]
+                 "subtitle": .string(Self.subtitle(phone)), "transport": .string(phone.transport), "path": .string(phone.path)]
             }),
         ]
     }
@@ -37,7 +37,7 @@ extension IPhoneHostService {
         }
     }
 
-    /// One line: the phase, then what matters in it (phones, the space, or why it waits).
+    /// One line: the phase, then what matters in it (the phone count, or why it waits).
     private var statusText: String {
         guard allowed else { return account == nil ? IPhoneHostStrings.signedOut : IPhoneHostStrings.off }
         switch state.phase {
@@ -45,9 +45,7 @@ extension IPhoneHostService {
         case .unavailable(let reason): return reason
         case .connecting: return IPhoneHostStrings.connecting
         case .online:
-            let space = account?.teamName ?? IPhoneHostStrings.personalSpace
-            return [IPhoneHostStrings.online, IPhoneHostStrings.phonesConnected(state.phones.count),
-                    IPhoneHostStrings.space(space)].joined(separator: " · ")
+            return [IPhoneHostStrings.online, IPhoneHostStrings.phonesConnected(state.phones.count)].joined(separator: " · ")
         case .waiting(let reason):
             return reason.isEmpty ? IPhoneHostStrings.reconnecting : "\(IPhoneHostStrings.reconnecting) (\(reason))"
         }

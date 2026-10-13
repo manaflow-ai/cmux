@@ -1,10 +1,11 @@
+import CmuxNextCompat
 import CmuxNextMobile
 import Foundation
 import Observation
 import os
 
-/// Settings > Accounts > iPhone: runs the bundled `cnx-hostd` (the cmux cnx
-/// phone host, cnx-ios/PROTOCOL.md) while "Allow iPhone Connections" is on
+/// Settings > Mobile: runs the bundled `cnx-hostd` (the cmux cnx phone host,
+/// cnx-ios/PROTOCOL.md) while `mobile.allowIPhoneConnections` (cmux.json) is on
 /// and an account is signed in, so the phone app reaches this Mac's own
 /// daemon and acpmux with no separate host to start. ``CnxHostSupervisor``
 /// owns the process; this model follows the toggle and the account and
@@ -39,24 +40,21 @@ final class IPhoneHostService {
         var computerName: @Sendable () async -> String
     }
 
-    static let allowedKey = "cmux.next.iphone.allowConnections"
-
-    private(set) var allowed: Bool
+    /// `mobile.allowIPhoneConnections`, as the settings file has it.
+    private(set) var allowed = false
     private(set) var account: Account?
     private(set) var state = CnxHostState()
     @ObservationIgnored var dependencies: Dependencies?
-    @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let supervisor = CnxHostSupervisor()
     /// The one reconcile in flight; each waits for the previous one.
     @ObservationIgnored private var applying: Task<Void, Never>?
     @ObservationIgnored private var watching: Task<Void, Never>?
+    @ObservationIgnored private var following: Task<Void, Never>?
     /// What hostd runs for now (account and toggle), so a repeated update does not restart it.
     @ObservationIgnored private var running: Account?
     @ObservationIgnored private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.iphone")
 
-    init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        allowed = defaults.bool(forKey: Self.allowedKey)
+    init() {
         let states = supervisor.states
         // task-owner: lives as long as the app; follows the supervisor's state stream
         watching = Task { [weak self] in
@@ -73,17 +71,28 @@ final class IPhoneHostService {
         reconcile()
     }
 
-    /// The person turned the toggle on or off.
-    func setAllowed(_ allowed: Bool) {
+    /// Follows the setting: every writer (the Settings page, `cmux settings`, an
+    /// edit of cmux.json) reaches the host through the settings file.
+    func follow(allowed read: @escaping @MainActor @Sendable () -> Bool) {
+        following?.cancel()
+        // task-owner: lives as long as the app; re-reads the setting on each settings change
+        following = Task { [weak self] in
+            for await value in ObservationStream(read) {
+                self?.setAllowed(value)
+            }
+        }
+    }
+
+    private func setAllowed(_ allowed: Bool) {
         guard allowed != self.allowed else { return }
         self.allowed = allowed
-        defaults.set(allowed, forKey: Self.allowedKey)
         reconcile()
     }
 
     /// App quit: hostd ends with the app (closing its stdin ends it too).
     func stop() {
         running = nil
+        following?.cancel()
         applying?.cancel()
         let supervisor = supervisor
         // task-owner: teardown hop; the supervisor's stop is idempotent

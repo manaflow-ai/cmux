@@ -1,16 +1,11 @@
 import Foundation
 
-/// User-facing text of Settings > Accounts > iPhone. Keys live in Resources/IPhone.xcstrings.
+/// User-facing text of Settings > Mobile (the iPhone card). Keys live in Resources/IPhone.xcstrings.
 enum IPhoneHostStrings {
-    static var title: String { String(localized: "iphone.title", defaultValue: "iPhone", table: "IPhone", bundle: .module) }
-    static var allowTitle: String {
-        String(localized: "iphone.allow.title", defaultValue: "Allow iPhone Connections", table: "IPhone", bundle: .module)
+    static var connectionTitle: String {
+        String(localized: "iphone.connection.title", defaultValue: "Connection", table: "IPhone", bundle: .module)
     }
-    static var allowHelp: String {
-        String(localized: "iphone.allow.help",
-               defaultValue: "Lets the cmux cnx app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in.",
-               table: "IPhone", bundle: .module)
-    }
+    static var spaceTitle: String { String(localized: "iphone.space.title", defaultValue: "Space", table: "IPhone", bundle: .module) }
     static var statusTitle: String { String(localized: "iphone.status.title", defaultValue: "Status", table: "IPhone", bundle: .module) }
     static var off: String { String(localized: "iphone.status.off", defaultValue: "Off", table: "IPhone", bundle: .module) }
     static var signedOut: String {
@@ -26,9 +21,6 @@ enum IPhoneHostStrings {
     }
     static func phonesConnected(_ count: Int) -> String {
         String(format: String(localized: "iphone.status.phones", defaultValue: "Phones connected: %d", table: "IPhone", bundle: .module), count)
-    }
-    static func space(_ name: String) -> String {
-        String(format: String(localized: "iphone.status.space", defaultValue: "Space: %@", table: "IPhone", bundle: .module), name)
     }
     static var personalSpace: String { String(localized: "iphone.space.personal", defaultValue: "Personal", table: "IPhone", bundle: .module) }
     static var howTitle: String { String(localized: "iphone.how.title", defaultValue: "How to Connect", table: "IPhone", bundle: .module) }

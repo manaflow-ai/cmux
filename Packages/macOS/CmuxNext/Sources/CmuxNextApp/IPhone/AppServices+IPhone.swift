@@ -1,6 +1,7 @@
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextMobile
+import CmuxNextSettings
 import Foundation
 
 extension AppServices {
@@ -31,6 +32,7 @@ extension AppServices {
             .appendingPathComponent(namespace, isDirectory: true)
             .appendingPathComponent("cnx-host", isDirectory: true)
         guard let base else { return }
+        iphone.follow { [weak self] in self?.settings?.snapshot.mobile.allowIPhoneConnections ?? false }
         iphone.dependencies = IPhoneHostService.Dependencies(
             executable: executable,
             baseURL: base,

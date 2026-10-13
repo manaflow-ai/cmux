@@ -27,6 +27,7 @@ test("the categories are the approved ones, in order", () => {
     "keyboard",
     "privacy",
     "accounts",
+    "mobile",
     "advanced",
     "experimental",
   ]);
