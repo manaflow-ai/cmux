@@ -75,7 +75,7 @@ struct BonsplitPaneHostEnvironmentCrashRegressionTests {
         // This is the deterministic equivalent of the terminal refresh that
         // reaches a detached pane host during AppKit's drag run loop.
         splitView.removeFromSuperview()
-        controller.focusPane(firstPane)
+        controller.createTab(title: "Refresh while detached")
         hostingView.layoutSubtreeIfNeeded()
         RunLoop.current.run(until: Date().addingTimeInterval(0.05))
 
