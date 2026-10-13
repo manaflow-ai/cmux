@@ -1317,6 +1317,10 @@ interface CmuxGlobal {
     update: CmuxOp<{ machine?: string; session?: string; tab_group: Cmux.StateId; name?: string; color?: Cmux.GroupColor; collapsed?: boolean; icon?: string | null; expected_revision?: string }, Cmux.MutationResult<Cmux.TabGroupSnapshot>>
   }
   team: {
+    ai_limit: {
+      /** `team.ai_limit.get` (read, scope `team:read`): The monthly AI spending limit each member of the team has (USD per person per UTC month) and whether it is the default. Members who use the team, and billing members. Shows no one's spend. */
+      get: CmuxOp<Record<string, never>, { team: string; user_monthly_limit_usd: unknown; is_default: boolean }>
+    }
     device: {
       /** `team.device.compliance` (read, scope `team:read`): Per managed device: the last status report and whether it is compliant (applied the current policy version, no MDM conflicts). Owners and admins; readable by a customer dashboard through an admin's session or install token. */
       compliance: CmuxOp<Record<string, never>, { team: Cmux.TeamId; policy_version: number; devices: Array<{ device: Cmux.ManagedDevice; status: Cmux.DeviceStatus | null; compliant: boolean; reasons: Array<string> }>; revision: string }>

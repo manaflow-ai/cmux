@@ -1409,6 +1409,10 @@
       "scope": "team_vm:read",
       "class": "read"
     },
+    "team.ai_limit.get": {
+      "scope": "team:read",
+      "class": "read"
+    },
     "team.device.compliance": {
       "scope": "team:read",
       "class": "read"

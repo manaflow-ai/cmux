@@ -2906,6 +2906,15 @@ export interface CloudOps {
       readonly accepted_at: number
     }
   }
+  /** The monthly AI spending limit each member of the team has (USD per person per UTC month) and whether it is the default. Members who use the team, and billing members. Shows no one's spend. */
+  readonly "team.ai_limit.get": {
+    readonly params: Readonly<Record<string, never>>
+    readonly result: {
+      readonly team: string
+      readonly user_monthly_limit_usd: number | "Infinity" | "-Infinity" | "NaN"
+      readonly is_default: boolean
+    }
+  }
   /** Set the monthly AI spending limit for each member of the team (USD per person per UTC month; null = the default of 200). Owners, admins and billing members, in a person's session only. Recorded in the billing audit. */
   readonly "team.ai_limit.set": {
     readonly params: {
@@ -3384,6 +3393,7 @@ export const cloudOpMeta = {
   "team_vm.ssh_cert.revoke": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "team_vm.status": { class: "read", owner: "cloud:TeamVmDO", risk: "read" },
   "team_vm.taint.accept": { class: "mutation", owner: "cloud:TeamDO", risk: "destructive" },
+  "team.ai_limit.get": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.ai_limit.set": { class: "mutation", owner: "cloud:TeamDO", risk: "money" },
   "team.audit.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },
   "team.device.compliance": { class: "read", owner: "cloud:TeamDO", risk: "read" },

@@ -50860,6 +50860,126 @@
         "$defs": {}
       }
     },
+    "team.ai_limit.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "team",
+      "ancestors": [
+        "team"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {},
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "team": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "user_monthly_limit_usd": {
+            "required": true,
+            "type": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
+          },
+          "is_default": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          }
+        }
+      },
+      "errors": [
+        "auth.forbidden",
+        "auth.unauthenticated"
+      ],
+      "owner": "cloud:TeamDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "team ai-limit get",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "never",
+        "group": "team"
+      },
+      "docs": "The monthly AI spending limit each member of the team has (USD per person per UTC month) and whether it is the default. Members who use the team, and billing members. Shows no one's spend.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "not": {
+          "type": "null"
+        },
+        "$defs": {}
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "team": {
+            "type": "string"
+          },
+          "user_monthly_limit_usd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": [
+                  "Infinity",
+                  "-Infinity",
+                  "NaN"
+                ]
+              }
+            ]
+          },
+          "is_default": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "team",
+          "user_monthly_limit_usd",
+          "is_default"
+        ],
+        "additionalProperties": true,
+        "$defs": {}
+      }
+    },
     "team.ai_limit.set": {
       "class": "mutation",
       "idempotency": "required",

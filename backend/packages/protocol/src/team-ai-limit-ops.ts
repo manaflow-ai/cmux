@@ -26,4 +26,19 @@ export const TeamAiLimitSet = def({
   mcp: { expose: "never", group: "team" }
 })
 
-export const teamAiLimitOps = [TeamAiLimitSet] as const
+export const TeamAiLimitGet = def({
+  name: "team.ai_limit.get",
+  owner: "cloud:TeamDO",
+  class: "read",
+  risk: "read",
+  target: "team",
+  principals: ["session", "install"],
+  params: Schema.Struct({}),
+  result: Schema.Struct({ team: Schema.String, user_monthly_limit_usd: Schema.Number, is_default: Schema.Boolean }),
+  errors: ["auth.unauthenticated", "auth.forbidden"],
+  docs: "The monthly AI spending limit each member of the team has (USD per person per UTC month) and whether it is the default. Members who use the team, and billing members. Shows no one's spend.",
+  cli: { path: "team ai-limit get", visible: true },
+  mcp: { expose: "never", group: "team" }
+})
+
+export const teamAiLimitOps = [TeamAiLimitSet, TeamAiLimitGet] as const

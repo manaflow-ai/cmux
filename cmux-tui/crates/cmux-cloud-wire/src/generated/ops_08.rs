@@ -5,6 +5,37 @@
 use super::*;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamDirectoryResult {
+    pub team: TeamId,
+    pub members: Vec<TeamMember>,
+    pub hosts: Vec<Host>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.directory declares.
+    TeamDirectoryError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Create a device enrollment token (owners and admins). The caller generates the token, sends only its SHA-256, and shows the token once.
+    TeamEnrollmentTokenCreateOp {
+        name: "team.enrollment_token.create",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "mutate-shared",
+        principals: [Session],
+        params: TeamEnrollmentTokenCreateParams,
+        result: EnrollmentToken,
+        error: TeamEnrollmentTokenCreateError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TeamEnrollmentTokenCreateParams {
     pub label: String,
     pub token_hash: EnrollmentTokenHash,
@@ -860,46 +891,5 @@ wire_errors! {
     TeamVmSshCaError {
         AuthForbidden = "auth.forbidden",
         AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Replace the team SSH CA key (owners and admins, in a person's session). Without `compromised`, certificates from the old key stay valid until they expire (at most 60 minutes).
-    TeamVmSshCaRotateOp {
-        name: "team_vm.ssh_ca.rotate",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "destructive",
-        principals: [Session],
-        params: TeamVmSshCaRotateParams,
-        result: TeamVmSshCaRotateResult,
-        error: TeamVmSshCaRotateError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCaRotateParams {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub compromised: Option<bool>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCaRotateResult {
-    pub generation: i64,
-    pub ca_public_key: String,
-    pub previous_trusted_until: Option<i64>,
-}
-
-wire_errors! {
-    /// The error codes team_vm.ssh_ca.rotate declares.
-    TeamVmSshCaRotateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
-        ValidationInvalid = "validation.invalid",
     }
 }

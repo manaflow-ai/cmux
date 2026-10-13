@@ -579,6 +579,39 @@ wire_errors! {
 }
 
 wire_op! {
+    /// The monthly AI spending limit each member of the team has (USD per person per UTC month) and whether it is the default. Members who use the team, and billing members. Shows no one's spend.
+    TeamAiLimitGetOp {
+        name: "team.ai_limit.get",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:TeamDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: TeamAiLimitGetParams,
+        result: TeamAiLimitGetResult,
+        error: TeamAiLimitGetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitGetParams {}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitGetResult {
+    pub team: String,
+    pub user_monthly_limit_usd: WireNumber,
+    pub is_default: bool,
+}
+
+wire_errors! {
+    /// The error codes team.ai_limit.get declares.
+    TeamAiLimitGetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
     /// Set the monthly AI spending limit for each member of the team (USD per person per UTC month; null = the default of 200). Owners, admins and billing members, in a person's session only. Recorded in the billing audit.
     TeamAiLimitSetOp {
         name: "team.ai_limit.set",
@@ -867,35 +900,4 @@ wire_op! {
 pub struct TeamDirectoryParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub team: Option<TeamId>,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamDirectoryResult {
-    pub team: TeamId,
-    pub members: Vec<TeamMember>,
-    pub hosts: Vec<Host>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes team.directory declares.
-    TeamDirectoryError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Create a device enrollment token (owners and admins). The caller generates the token, sends only its SHA-256, and shows the token once.
-    TeamEnrollmentTokenCreateOp {
-        name: "team.enrollment_token.create",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "mutate-shared",
-        principals: [Session],
-        params: TeamEnrollmentTokenCreateParams,
-        result: EnrollmentToken,
-        error: TeamEnrollmentTokenCreateError,
-    }
 }
