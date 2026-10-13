@@ -173,12 +173,15 @@ enum SidebarCardFeed {
 
     /// The staged update card (UPDATE-CARD; nil while checking or downloading).
     static func updateCard(_ updater: UpdaterService) -> SidebarUpdateCard? {
-        guard let card = updater.readyCard else { return nil }
+        updater.readyCard.map { updateCard($0) }
+    }
+
+    /// The sidebar's card for the updater's staged `card`.
+    static func updateCard(_ card: UpdateReadyCard) -> SidebarUpdateCard {
         let notes = card.notes
         let changes = notes.changes.map { SidebarUpdateCard.Change(title: $0.title, author: $0.author, linkTitle: $0.prLabel, url: $0.url) }
         return SidebarUpdateCard(
-            title: card.title, detail: card.detail, lines: card.lines, seeAllTitle: card.seeAllTitle,
-            buttonTitle: card.buttonTitle, isEnabled: !card.isInstalling,
+            title: card.title, detail: card.detail, buttonTitle: card.buttonTitle, isEnabled: !card.isInstalling,
             automaticUpdatesTitle: card.automaticUpdatesTitle, automaticUpdates: card.automaticUpdates,
             notes: SidebarUpdateCard.Notes(headline: notes.headline, keepsRunning: notes.keepsRunning,
                                            whatsChangedTitle: notes.whatsChangedTitle, changes: changes,

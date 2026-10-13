@@ -84,8 +84,7 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
-.wn-pop-title { font-weight: 600; }
-.wn-pop-sub { margin-top: 1px; color: var(--page-text-3); font-size: var(--text-caption); line-height: var(--text-caption--line-height); }
+.wn-pop-title { font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .wn-pop-list { list-style: none; margin: 10px 0 0; padding: 0; }
 .wn-pop-list li { display: grid; grid-template-columns: 14px 1fr; gap: 8px; padding: 5px 0; }
 .wn-pop-n { color: var(--page-text-3); font-size: var(--text-caption); line-height: var(--text-body--line-height); font-variant-numeric: tabular-nums; }

@@ -3,12 +3,12 @@
 //  - UpdatedCard (after an update, the sidebar's bottom card slot): the tip card's shape, a quiet
 //    eyebrow with the new version, the update's lead change as its headline, how many more
 //    changes came with it, one button, and Share as quiet text.
-//  - UpdateReadyHighlights (hovering the staged "Restart to Update" card): the top three changes
-//    numbered, each a title and one line, and "See all changes".
+//  - UpdateReadyHighlights (hovering the staged "Restart to Update" card): only what the card lacks
+//    (Leo 2026-10-13; the card has Update Ready, the short version and the date): the full build,
+//    the top three changes numbered, each a title and one line, and "See all changes", once.
 // Data: UpdateHighlights (updateHighlights.ts); the host mounts these and wires the actions.
 import { useId } from "react";
 import type { Strings } from "../shared/i18n";
-import { formatReleaseDate } from "./model";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
 
 export function UpdatedCard({
@@ -70,9 +70,8 @@ export function UpdateReadyHighlights({
   return (
     <section className="wn-pop" aria-labelledby={titleId}>
       <div className="wn-pop-title" id={titleId}>
-        {strings.format("updates.popover.ready", data.version)}
+        {data.version}
       </div>
-      {data.date && <div className="wn-pop-sub">{formatReleaseDate(data.date, strings.language)}</div>}
       {data.items.length > 0 && (
         <ol className="wn-pop-list">
           {data.items.map((item, index) => (

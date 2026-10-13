@@ -106,11 +106,11 @@ export default componentEntry<Props>({
       },
     },
     popover: {
-      note: "Popover A: the staged update's top three changes, numbered; +N more; See all changes.",
+      note: "Popover A, only what the Update Ready card lacks (Leo 2026-10-13): the full build, the top three changes numbered, +N more, See all changes once.",
       props: { surface: "popover", data: base },
     },
     "popover-titles-only": {
-      note: "Summary-line source: titles without a second line, no date.",
+      note: "Summary-line source: titles without a second line.",
       props: {
         surface: "popover",
         data: {
@@ -123,7 +123,7 @@ export default componentEntry<Props>({
       },
     },
     "popover-empty": {
-      note: "No highlights (source none): the title and See all changes only.",
+      note: "No highlights (source none): the full build and See all changes only.",
       props: { surface: "popover", data: { ...base, source: "none", items: [], moreCount: 0 } },
     },
   },

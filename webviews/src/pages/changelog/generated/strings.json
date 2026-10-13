@@ -26,7 +26,6 @@
     "updates.card.seeWhatsNew": "See What's New",
     "updates.card.share": "Share cmux",
     "updates.card.updatedTo": "Updated to %@",
-    "updates.popover.ready": "%@ is ready",
     "updates.popover.seeAll": "See all changes"
   },
   "ar": {
@@ -56,7 +55,6 @@
     "updates.card.seeWhatsNew": "اطّلع على الجديد",
     "updates.card.share": "مشاركة cmux",
     "updates.card.updatedTo": "تم التحديث إلى %@",
-    "updates.popover.ready": "%@ جاهز",
     "updates.popover.seeAll": "عرض كل التغييرات"
   },
   "bs": {
@@ -86,7 +84,6 @@
     "updates.card.seeWhatsNew": "Pogledajte novosti",
     "updates.card.share": "Podijeli cmux",
     "updates.card.updatedTo": "Ažurirano na %@",
-    "updates.popover.ready": "%@ je spreman",
     "updates.popover.seeAll": "Pogledajte sve promjene"
   },
   "da": {
@@ -116,7 +113,6 @@
     "updates.card.seeWhatsNew": "Se nyheder",
     "updates.card.share": "Del cmux",
     "updates.card.updatedTo": "Opdateret til %@",
-    "updates.popover.ready": "%@ er klar",
     "updates.popover.seeAll": "Se alle ændringer"
   },
   "de": {
@@ -146,7 +142,6 @@
     "updates.card.seeWhatsNew": "Neuerungen ansehen",
     "updates.card.share": "cmux teilen",
     "updates.card.updatedTo": "Aktualisiert auf %@",
-    "updates.popover.ready": "%@ ist bereit",
     "updates.popover.seeAll": "Alle Änderungen ansehen"
   },
   "es": {
@@ -176,7 +171,6 @@
     "updates.card.seeWhatsNew": "Ver novedades",
     "updates.card.share": "Compartir cmux",
     "updates.card.updatedTo": "Actualizado a %@",
-    "updates.popover.ready": "%@ está listo",
     "updates.popover.seeAll": "Ver todos los cambios"
   },
   "fr": {
@@ -206,7 +200,6 @@
     "updates.card.seeWhatsNew": "Voir les nouveautés",
     "updates.card.share": "Partager cmux",
     "updates.card.updatedTo": "Mis à jour vers %@",
-    "updates.popover.ready": "%@ est prêt",
     "updates.popover.seeAll": "Voir toutes les modifications"
   },
   "it": {
@@ -236,7 +229,6 @@
     "updates.card.seeWhatsNew": "Scopri le novità",
     "updates.card.share": "Condividi cmux",
     "updates.card.updatedTo": "Aggiornato a %@",
-    "updates.popover.ready": "%@ è pronto",
     "updates.popover.seeAll": "Vedi tutte le modifiche"
   },
   "ja": {
@@ -266,7 +258,6 @@
     "updates.card.seeWhatsNew": "新機能を見る",
     "updates.card.share": "cmux を共有",
     "updates.card.updatedTo": "%@ にアップデートしました",
-    "updates.popover.ready": "%@ の準備ができました",
     "updates.popover.seeAll": "すべての変更を見る"
   },
   "km": {
@@ -296,7 +287,6 @@
     "updates.card.seeWhatsNew": "មើលអ្វីដែលថ្មី",
     "updates.card.share": "ចែករំលែក cmux",
     "updates.card.updatedTo": "បានធ្វើបច្ចុប្បន្នភាពទៅ %@",
-    "updates.popover.ready": "%@ រួចរាល់ហើយ",
     "updates.popover.seeAll": "មើលការផ្លាស់ប្ដូរទាំងអស់"
   },
   "ko": {
@@ -326,7 +316,6 @@
     "updates.card.seeWhatsNew": "새로운 기능 보기",
     "updates.card.share": "cmux 공유",
     "updates.card.updatedTo": "%@(으)로 업데이트됨",
-    "updates.popover.ready": "%@ 준비 완료",
     "updates.popover.seeAll": "모든 변경 사항 보기"
   },
   "nb": {
@@ -356,7 +345,6 @@
     "updates.card.seeWhatsNew": "Se hva som er nytt",
     "updates.card.share": "Del cmux",
     "updates.card.updatedTo": "Oppdatert til %@",
-    "updates.popover.ready": "%@ er klar",
     "updates.popover.seeAll": "Se alle endringer"
   },
   "pl": {
@@ -386,7 +374,6 @@
     "updates.card.seeWhatsNew": "Zobacz nowości",
     "updates.card.share": "Udostępnij cmux",
     "updates.card.updatedTo": "Zaktualizowano do %@",
-    "updates.popover.ready": "%@ jest gotowy",
     "updates.popover.seeAll": "Zobacz wszystkie zmiany"
   },
   "pt-BR": {
@@ -416,7 +403,6 @@
     "updates.card.seeWhatsNew": "Ver novidades",
     "updates.card.share": "Compartilhar cmux",
     "updates.card.updatedTo": "Atualizado para %@",
-    "updates.popover.ready": "%@ está pronto",
     "updates.popover.seeAll": "Ver todas as alterações"
   },
   "ru": {
@@ -446,7 +432,6 @@
     "updates.card.seeWhatsNew": "Что нового",
     "updates.card.share": "Поделиться cmux",
     "updates.card.updatedTo": "Обновлено до %@",
-    "updates.popover.ready": "Версия %@ готова",
     "updates.popover.seeAll": "Все изменения"
   },
   "th": {
@@ -476,7 +461,6 @@
     "updates.card.seeWhatsNew": "ดูสิ่งใหม่",
     "updates.card.share": "แชร์ cmux",
     "updates.card.updatedTo": "อัปเดตเป็น %@ แล้ว",
-    "updates.popover.ready": "%@ พร้อมแล้ว",
     "updates.popover.seeAll": "ดูการเปลี่ยนแปลงทั้งหมด"
   },
   "tr": {
@@ -506,7 +490,6 @@
     "updates.card.seeWhatsNew": "Yenilikleri gör",
     "updates.card.share": "cmux'u paylaş",
     "updates.card.updatedTo": "%@ sürümüne güncellendi",
-    "updates.popover.ready": "%@ hazır",
     "updates.popover.seeAll": "Tüm değişiklikleri gör"
   },
   "uk": {
@@ -536,7 +519,6 @@
     "updates.card.seeWhatsNew": "Що нового",
     "updates.card.share": "Поділитися cmux",
     "updates.card.updatedTo": "Оновлено до %@",
-    "updates.popover.ready": "Версія %@ готова",
     "updates.popover.seeAll": "Усі зміни"
   },
   "vi": {
@@ -566,7 +548,6 @@
     "updates.card.seeWhatsNew": "Xem tính năng mới",
     "updates.card.share": "Chia sẻ cmux",
     "updates.card.updatedTo": "Đã cập nhật lên %@",
-    "updates.popover.ready": "%@ đã sẵn sàng",
     "updates.popover.seeAll": "Xem tất cả thay đổi"
   },
   "zh-Hans": {
@@ -596,7 +577,6 @@
     "updates.card.seeWhatsNew": "查看新功能",
     "updates.card.share": "分享 cmux",
     "updates.card.updatedTo": "已更新到 %@",
-    "updates.popover.ready": "%@ 已就绪",
     "updates.popover.seeAll": "查看所有更改"
   },
   "zh-Hant": {
@@ -626,7 +606,6 @@
     "updates.card.seeWhatsNew": "查看新功能",
     "updates.card.share": "分享 cmux",
     "updates.card.updatedTo": "已更新至 %@",
-    "updates.popover.ready": "%@ 已就緒",
     "updates.popover.seeAll": "查看所有變更"
   }
 }
