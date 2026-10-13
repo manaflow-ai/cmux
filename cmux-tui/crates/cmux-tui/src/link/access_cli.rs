@@ -391,13 +391,14 @@ pub(super) fn run(args: &[String]) -> i32 {
 
 /// The `machine_outdated` line when the machine's cmux-tui is too old for
 /// what `action` needs there ([`super::machine_gate`]). `request` runs on the
-/// machine itself and is never gated.
+/// machine itself and is never gated, and neither is `revoke`: a revoke
+/// always ends the grants on this Mac, whatever the machine runs.
 fn outdated_line(action: &str, socket: Option<&Path>) -> Option<Value> {
     let needed = match action {
         "triage" | "answer" => {
             cmux_tui_core::server::agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY
         }
-        "grant" | "sync" | "revoke" | "upload" => cmux_tui_core::fs_ops::FS_CAPABILITY,
+        "grant" | "sync" | "upload" => cmux_tui_core::fs_ops::FS_CAPABILITY,
         _ => return None,
     };
     super::machine_gate::outdated(socket?, &[needed]).map(|outdated| outdated.line())

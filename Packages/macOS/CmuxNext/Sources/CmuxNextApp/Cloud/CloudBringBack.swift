@@ -230,7 +230,9 @@ struct CloudBringBack {
         case "move_unresolved", CloudMoveCLI.badAnswer: return Failure(message: CloudBringBackStrings.unresolved, retry: retry)
         case "move_in_progress": return Failure(message: CloudMoveStrings.inProgress, retry: retry)
         case "source_unreachable", "target_unreachable": return Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
-        case CloudMoveStrings.outdatedCode: return Failure(message: CloudBringBackStrings.outdatedMachine(machine), retry: retry)
+        // This Mac's own daemon (the target) is never the machine to update.
+        case CloudMoveStrings.outdatedCode where answer.side != "target":
+            return Failure(message: CloudBringBackStrings.outdatedMachine(machine), retry: retry)
         default: return Failure(message: CloudBringBackStrings.failed(answer.error ?? answer.errorCode ?? ""))
         }
     }

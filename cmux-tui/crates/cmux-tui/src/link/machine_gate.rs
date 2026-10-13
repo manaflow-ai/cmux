@@ -14,17 +14,17 @@
 //! `identify` does not answer: the gate only names a cause, it never decides
 //! access, so anything it cannot read leaves the verb's own error.
 
-use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::io::{BufRead as _, BufReader, Write as _};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
 /// The error code of a machine whose cmux-tui is too old for a verb.
 pub(super) const OUTDATED: &str = "machine_outdated";
-/// How long the `identify` may take.
-const IDENTIFY_TIMEOUT: Duration = Duration::from_secs(15);
+/// How long the whole `identify` may take, however the daemon trickles it.
+const IDENTIFY_BUDGET: Duration = Duration::from_secs(5);
 /// Most bytes of one answer line.
 const MAX_ANSWER_BYTES: u64 = 1 << 20;
 /// Most lines for other requests (events) skipped before giving up.
@@ -78,17 +78,13 @@ pub(super) fn outdated(socket: &Path, needed: &[&str]) -> Option<Outdated> {
 
 /// `identify`'s `data`, or None when the daemon does not answer it.
 fn identify(socket: &Path) -> Option<Value> {
+    let deadline = Instant::now() + IDENTIFY_BUDGET;
     let stream = UnixStream::connect(socket).ok()?;
-    stream.set_read_timeout(Some(IDENTIFY_TIMEOUT)).ok()?;
-    stream.set_write_timeout(Some(IDENTIFY_TIMEOUT)).ok()?;
+    stream.set_write_timeout(Some(IDENTIFY_BUDGET)).ok()?;
     let mut reader = BufReader::new(stream);
     reader.get_mut().write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").ok()?;
     for _ in 0..=MAX_OTHER_ANSWERS {
-        let mut line = Vec::new();
-        let read = (&mut reader).take(MAX_ANSWER_BYTES + 1).read_until(b'\n', &mut line).ok()?;
-        if read == 0 || line.last() != Some(&b'\n') {
-            return None;
-        }
+        let line = read_line(&mut reader, deadline)?;
         let answer: Value = serde_json::from_slice(&line).ok()?;
         if answer["id"] != json!(1) {
             continue;
@@ -96,4 +92,31 @@ fn identify(socket: &Path) -> Option<Value> {
         return (answer["ok"] == json!(true)).then(|| answer["data"].clone());
     }
     None
+}
+
+/// One answer line, newline included; None past `deadline`, at EOF or past
+/// [`MAX_ANSWER_BYTES`].
+fn read_line(reader: &mut BufReader<UnixStream>, deadline: Instant) -> Option<Vec<u8>> {
+    let mut line = Vec::new();
+    loop {
+        let left =
+            deadline.checked_duration_since(Instant::now()).filter(|left| !left.is_zero())?;
+        reader.get_ref().set_read_timeout(Some(left)).ok()?;
+        let available = reader.fill_buf().ok()?;
+        if available.is_empty() {
+            return None;
+        }
+        let (taken, done) = match available.iter().position(|byte| *byte == b'\n') {
+            Some(end) => (end + 1, true),
+            None => (available.len(), false),
+        };
+        line.extend_from_slice(&available[..taken]);
+        reader.consume(taken);
+        if line.len() as u64 > MAX_ANSWER_BYTES + 1 {
+            return None;
+        }
+        if done {
+            return Some(line);
+        }
+    }
 }

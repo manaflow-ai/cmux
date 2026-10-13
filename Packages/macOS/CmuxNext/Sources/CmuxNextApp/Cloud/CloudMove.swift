@@ -285,7 +285,8 @@ struct CloudMove {
         case "move_in_progress": Failure(message: CloudMoveStrings.inProgress, retry: retry)
         case "agent_session.team_vm_blocked": Failure(message: CloudMoveStrings.teamMachine(machine))
         case "agent_session.host_unverified": Failure(message: CloudMoveStrings.unknownMachine(machine))
-        case CloudMoveStrings.outdatedCode: Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry)
+        // This Mac's own daemon (the source) is never the machine to update.
+        case CloudMoveStrings.outdatedCode where answer.side != "source": Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry)
         case "source_unreachable", "target_unreachable": Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
         default: Failure(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""))
         }

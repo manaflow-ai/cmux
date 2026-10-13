@@ -48,7 +48,8 @@
 //! Output: one JSON line on stdout, `{"ok":true,"session_id":...,
 //! "transfer_id":...,"bytes":N,"resolved":bool}` (exit 0), or
 //! `{"ok":false,"error":...,"error_code":...,"transfer_id"?:...,
-//! "retry_after_seconds"?:N}` (exit 1); bad usage exits 64.
+//! "retry_after_seconds"?:N,"side"?:"source"|"target"}` (exit 1); bad usage
+//! exits 64. `side` names the daemon a `machine_outdated` is about.
 
 mod daemon;
 mod record;
@@ -91,6 +92,8 @@ struct Failed {
     transfer_id: Option<String>,
     /// When a rerun may find the chat free (the source's lease).
     retry_after_seconds: Option<u64>,
+    /// The daemon the failure is about, when it is one side's.
+    side: Option<&'static str>,
 }
 
 impl Failed {
@@ -100,6 +103,7 @@ impl Failed {
             error: error.into(),
             transfer_id: None,
             retry_after_seconds: None,
+            side: None,
         }
     }
 
@@ -161,6 +165,9 @@ pub(super) fn run(args: &[String]) -> i32 {
             }
             if let Some(seconds) = failed.retry_after_seconds {
                 line["retry_after_seconds"] = json!(seconds);
+            }
+            if let Some(side) = failed.side {
+                line["side"] = json!(side);
             }
             println!("{line}");
             1
@@ -243,10 +250,16 @@ fn resolve(args: &Args, records: &Records, mut record: Record) -> Result<Option<
 fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
     // Before the chat freezes: a daemon too old for the move says so
     // (`machine_outdated`) instead of failing the receive or the begin.
-    for socket in [&args.to, &args.from] {
+    // `side` says which: the app names a machine only when it is the machine.
+    for (side, socket) in [("target", &args.to), ("source", &args.from)] {
         let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CAPABILITY;
         if let Some(outdated) = super::machine_gate::outdated(socket, &[capability]) {
-            return Err(Failed::new(super::machine_gate::OUTDATED, outdated.message()));
+            let mut failed = Failed::new(
+                super::machine_gate::OUTDATED,
+                format!("the {side} daemon: {}", outdated.message()),
+            );
+            failed.side = Some(side);
+            return Err(failed);
         }
     }
     let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;

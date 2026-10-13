@@ -13405,7 +13405,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ exécute une ancienne version de cmux qui ne peut pas encore recevoir cette conversation. Mettez la machine à jour pour la déplacer."
+            "value": "%@ exécute une ancienne version de cmux qui ne peut pas encore recevoir cette discussion. Mettez la machine à jour pour la déplacer."
           }
         },
         "it": {
@@ -13483,13 +13483,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 运行的 cmux 版本较旧，暂时无法接收此聊天。请更新该机器以移动聊天。"
+            "value": "%@ 运行的 cmux 版本较旧，暂时无法接收此对话。请更新该机器以移动对话。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 執行的 cmux 版本較舊，暫時無法接收此聊天。請更新該機器以移動聊天。"
+            "value": "%@ 執行的 cmux 版本較舊，暫時無法接收此對話。請更新該機器以移動對話。"
           }
         }
       }
@@ -14715,7 +14715,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ exécute une ancienne version de cmux qui ne peut pas encore rendre cette conversation. Mettez la machine à jour pour la récupérer."
+            "value": "%@ exécute une ancienne version de cmux qui ne peut pas encore rendre cette discussion. Mettez la machine à jour pour la récupérer."
           }
         },
         "it": {
@@ -14793,13 +14793,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 运行的 cmux 版本较旧，暂时无法交回此聊天。请更新该机器以取回聊天。"
+            "value": "%@ 运行的 cmux 版本较旧，暂时无法交回此对话。请更新该机器以取回对话。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@ 執行的 cmux 版本較舊，暫時無法交回此聊天。請更新該機器以取回聊天。"
+            "value": "%@ 執行的 cmux 版本較舊，暫時無法交回此對話。請更新該機器以取回對話。"
           }
         }
       }
