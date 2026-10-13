@@ -319,8 +319,12 @@ refuse_dirty_source() {
 artifacts_runs_state() {
   local sha="$1" url body
   url="${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/actions/workflows/cmux-tui-artifacts.yml/runs?head_sha=$sha&per_page=20"
-  body="$(curl -fsSL --connect-timeout 10 --max-time 30 \
-    -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+  # manaflow-ai/cmux is public: without GH_TOKEN (a fleet host) the read is unauthenticated,
+  # 60 an hour per address, and the wait checks at most every CMUX_TUI_TREE_RUN_CHECK_SECONDS.
+  local auth=()
+  [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
+  body="$(curl -fsSL --connect-timeout 10 --max-time 30 ${auth[@]+"${auth[@]}"} \
+    -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" "$url" 2>/dev/null)" || { echo unknown; return 0; }
   python3 -c '
 import json, sys
@@ -369,9 +373,11 @@ github_token() {
 
 # github_api <method> <repository path> [json body]: one REST call with GH_TOKEN.
 github_api() {
-  local method="$1" path="$2" body="${3:-}"
-  curl -fsSL --connect-timeout 10 --max-time 30 -X "$method" \
-    -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+  local method="$1" path="$2" body="${3:-}" auth=()
+  # A GET works without a token (public repository); a write needs GH_TOKEN.
+  [[ -n "${GH_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer $GH_TOKEN")
+  curl -fsSL --connect-timeout 10 --max-time 30 -X "$method" ${auth[@]+"${auth[@]}"} \
+    -H "Accept: application/vnd.github+json" \
     -H "X-GitHub-Api-Version: 2022-11-28" ${body:+-d "$body"} \
     "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY:-manaflow-ai/cmux}/$path"
 }
@@ -550,7 +556,7 @@ report_tree_miss() {
 # key that was found and published to its sha256.
 wait_for_tree() {
   local key="$1" out="$2" legacy="${3:-}" sha_url legacy_url wait_seconds poll_seconds started elapsed
-  local publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}" check_seconds next_check=0 ended_checks=0 state=""
+  local publisher="${CMUX_TUI_TREE_PUBLISHER_SHA:-}" check_seconds next_check=0 ended_checks=0 state="" active_cap extended=false
   sha_url="$BASE/tree/$key/$(tree_asset).sha256"
   legacy_url=""
   [[ -n "$legacy" && "$legacy" != "$key" ]] && legacy_url="$BASE/tree/$legacy/$(tree_asset).sha256"
@@ -558,11 +564,22 @@ wait_for_tree() {
   wait_seconds="${CMUX_TUI_TREE_WAIT_SECONDS:-2700}"
   poll_seconds="${CMUX_TUI_TREE_POLL_SECONDS:-30}"
   check_seconds="${CMUX_TUI_TREE_RUN_CHECK_SECONDS:-300}"
-  [[ "$wait_seconds" =~ ^[0-9]+$ && "$poll_seconds" =~ ^[1-9][0-9]*$ && "$check_seconds" =~ ^[1-9][0-9]*$ ]] || {
-    echo "error: CMUX_TUI_TREE_WAIT_SECONDS, CMUX_TUI_TREE_POLL_SECONDS and CMUX_TUI_TREE_RUN_CHECK_SECONDS must be whole seconds" >&2; exit 2; }
+  # While the publisher's own artifacts run is still queued or running, the wait goes on past
+  # CMUX_TUI_TREE_WAIT_SECONDS up to this cap (2026-10-13: a side-branch run sat 70 min behind the
+  # branch's previous run in its concurrency group and a fleet build gave up at 45 min, 36 min
+  # before the tree was published).
+  active_cap="${CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS:-7200}"
+  [[ "$wait_seconds" =~ ^[0-9]+$ && "$poll_seconds" =~ ^[1-9][0-9]*$ && "$check_seconds" =~ ^[1-9][0-9]*$ && "$active_cap" =~ ^[0-9]+$ ]] || {
+    echo "error: CMUX_TUI_TREE_WAIT_SECONDS, CMUX_TUI_TREE_POLL_SECONDS, CMUX_TUI_TREE_RUN_CHECK_SECONDS and CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
+  # The checkout itself is the publisher when it has this tree: its push run publishes the key, so
+  # its run state decides (fail fast when it ended without publishing, wait on while it is active).
+  # Not for a pull request: its merge commit has no runs of its own.
+  if [[ -z "$publisher" && "${GITHUB_EVENT_NAME:-}" != pull_request* && "$(tree_key HEAD 2>/dev/null)" == "$key" ]]; then
+    publisher="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
+  fi
   if [[ -n "$publisher" ]]; then
-    if [[ ! "$publisher" =~ ^[0-9a-f]{40}$ || -z "${GH_TOKEN:-}" ]]; then
-      echo "note: run check off (CMUX_TUI_TREE_PUBLISHER_SHA needs a 40-hex sha and GH_TOKEN)" >&2
+    if [[ ! "$publisher" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "note: run check off (the publisher must be a 40-hex sha)" >&2
       publisher=""
     elif [[ "$(tree_key "$publisher" 2>/dev/null)" != "$key" ]]; then
       echo "note: run check off: $publisher does not have tree $key" >&2
@@ -606,7 +623,11 @@ wait_for_tree() {
       state="$(artifacts_runs_state "$publisher")"
       case "$state" in
         active|unknown) ended_checks=0 ;;
-        *) ended_checks=$(( ended_checks + 1 )) ;;
+        *)
+          # Another commit's active run for the same tree will publish it (a merge train tip, a
+          # same-key build): that counts as active, not as a run that ended without publishing.
+          if [[ -n "$(active_publisher_for_key "$key")" ]]; then state=active; ended_checks=0
+          else ended_checks=$(( ended_checks + 1 )); fi ;;
       esac
       echo "cmux-tui artifacts runs for $publisher: $state" >&2
       # Two checks in a row: a failed publish requeues its run, and a new
@@ -621,7 +642,12 @@ wait_for_tree() {
         fail_unpublishable_tree "$key" "$publisher" "$state" "$elapsed"
       fi
     fi
-    if (( elapsed >= wait_seconds )); then
+    if (( elapsed >= wait_seconds )) && [[ "$state" == active ]] && (( elapsed < active_cap )); then
+      if [[ "$extended" == false ]]; then
+        extended=true
+        echo "note: the cmux-tui artifacts run for ${publisher:0:12} is still queued or running; waiting on, up to ${active_cap}s in all" >&2
+      fi
+    elif (( elapsed >= wait_seconds )); then
       {
         echo "error: cmux-tui for this checkout's tree $key is not published after $((elapsed / 60)) min ($sha_url)."
         echo "  The cmux-tui artifacts workflow publishes a tree after its build and cmux_next_ daemon tests pass"
