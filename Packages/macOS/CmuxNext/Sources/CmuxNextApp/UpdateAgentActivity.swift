@@ -36,6 +36,8 @@ final class UpdateAgentActivity {
         guard refreshTask == nil,
               refreshedAt.map({ now.timeIntervalSince($0) >= 1 }) ?? true else { return }
         refreshedAt = now
+        // Do not reuse a previous answer while a new socket census is in flight.
+        chiefInTurn = nil
         let environment = environment
         refreshTask = Task { [weak self] in
             let census = await AcpmuxQuit.census(environment, deadline: .seconds(1))
