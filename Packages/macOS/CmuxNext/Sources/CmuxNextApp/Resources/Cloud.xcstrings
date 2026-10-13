@@ -13363,6 +13363,137 @@
         }
       }
     },
+    "cloud.move.outdatedMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ runs an older cmux that can't take this chat. Update the machine, then Retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل %@ إصدارًا أقدم من cmux لا يمكنه استقبال هذه المحادثة. حدّث الجهاز، ثم اختر إعادة المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ koristi stariji cmux koji ne može preuzeti ovaj chat. Ažuriraj mašinu, pa odaberi Pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kører en ældre cmux, der ikke kan modtage denne chat. Opdater maskinen, og vælg derefter Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf %@ läuft ein älteres cmux, das diesen Chat nicht übernehmen kann. Aktualisiere die Maschine und wähle dann „Erneut versuchen“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ejecuta una versión anterior de cmux que no puede recibir este chat. Actualiza la máquina y luego elige Reintentar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ exécute une ancienne version de cmux qui ne peut pas recevoir cette conversation. Mettez la machine à jour, puis choisissez Réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ esegue una versione precedente di cmux che non può ricevere questa chat. Aggiorna la macchina, poi scegli Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の cmux は古いため、このチャットを受け取れません。マシンを更新してから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ កំពុងដំណើរការ cmux ចាស់ ដែលមិនអាចទទួលការជជែកនេះបានទេ។ សូមធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីន រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 실행 중인 cmux가 오래되어 이 채팅을 받을 수 없습니다. 머신을 업데이트한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kjører en eldre cmux som ikke kan ta imot denne chatten. Oppdater maskinen, og velg deretter Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ma starszą wersję cmux, która nie może przejąć tego czatu. Zaktualizuj maszynę, a potem wybierz Ponów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ executa uma versão mais antiga do cmux que não pode receber este chat. Atualize a máquina e depois escolha Tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %@ работает старая версия cmux, которая не может принять этот чат. Обновите машину, затем нажмите «Повторить»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ใช้ cmux รุ่นเก่าที่รับแชทนี้ไม่ได้ อัปเดตเครื่องก่อน แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bu sohbeti alamayan eski bir cmux sürümü çalıştırıyor. Makineyi güncelleyin, ardından Yeniden Dene'yi seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %@ працює старіша версія cmux, яка не може прийняти цей чат. Оновіть машину, а потім натисніть «Повторити»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đang chạy cmux phiên bản cũ nên không thể nhận cuộc trò chuyện này. Hãy cập nhật máy, rồi chọn Thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 运行的 cmux 版本较旧，无法接收此聊天。请更新该机器，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 執行的 cmux 版本較舊，無法接收此聊天。請更新該機器，然後重試。"
+          }
+        }
+      }
+    },
     "cloud.move.unreachable": {
       "extractionState": "manual",
       "localizations": {
@@ -14538,6 +14669,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "無法從 %1$@ 將資料夾複製回來：%2$@"
+          }
+        }
+      }
+    },
+    "cloud.bringBack.outdatedMachine": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ runs an older cmux that can't give this chat back. Update the machine, then Retry."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يشغّل %@ إصدارًا أقدم من cmux لا يمكنه إعادة هذه المحادثة. حدّث الجهاز، ثم اختر إعادة المحاولة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ koristi stariji cmux koji ne može vratiti ovaj chat. Ažuriraj mašinu, pa odaberi Pokušaj ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kører en ældre cmux, der ikke kan sende denne chat tilbage. Opdater maskinen, og vælg derefter Prøv igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Auf %@ läuft ein älteres cmux, das diesen Chat nicht zurückgeben kann. Aktualisiere die Maschine und wähle dann „Erneut versuchen“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ejecuta una versión anterior de cmux que no puede devolver este chat. Actualiza la máquina y luego elige Reintentar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ exécute une ancienne version de cmux qui ne peut pas rendre cette conversation. Mettez la machine à jour, puis choisissez Réessayer."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ esegue una versione precedente di cmux che non può restituire questa chat. Aggiorna la macchina, poi scegli Riprova."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ の cmux は古いため、このチャットを戻せません。マシンを更新してから再試行してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ កំពុងដំណើរការ cmux ចាស់ ដែលមិនអាចប្រគល់ការជជែកនេះមកវិញបានទេ។ សូមធ្វើបច្ចុប្បន្នភាពម៉ាស៊ីន រួចព្យាយាមម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@에서 실행 중인 cmux가 오래되어 이 채팅을 돌려보낼 수 없습니다. 머신을 업데이트한 다음 다시 시도하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ kjører en eldre cmux som ikke kan gi tilbake denne chatten. Oppdater maskinen, og velg deretter Prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ma starszą wersję cmux, która nie może oddać tego czatu. Zaktualizuj maszynę, a potem wybierz Ponów."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ executa uma versão mais antiga do cmux que não pode devolver este chat. Atualize a máquina e depois escolha Tentar novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %@ работает старая версия cmux, которая не может вернуть этот чат. Обновите машину, затем нажмите «Повторить»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ ใช้ cmux รุ่นเก่าที่ส่งแชทนี้กลับไม่ได้ อัปเดตเครื่องก่อน แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ bu sohbeti geri veremeyen eski bir cmux sürümü çalıştırıyor. Makineyi güncelleyin, ardından Yeniden Dene'yi seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "На %@ працює старіша версія cmux, яка не може повернути цей чат. Оновіть машину, а потім натисніть «Повторити»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ đang chạy cmux phiên bản cũ nên không thể trả lại cuộc trò chuyện này. Hãy cập nhật máy, rồi chọn Thử lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 运行的 cmux 版本较旧，无法交回此聊天。请更新该机器，然后重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 執行的 cmux 版本較舊，無法交回此聊天。請更新該機器，然後重試。"
           }
         }
       }

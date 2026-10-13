@@ -174,6 +174,20 @@ struct CloudBringBackTests {
         }
     }
 
+    /// A machine whose cmux-tui is too old for the bring back (cx-rppd.13) is named as one in plain
+    /// words, not with the CLI's error, and nothing moves: the machine's tab stays and Retry runs
+    /// the bring back again on that machine once it is updated.
+    @Test func anOutdatedMachineIsNamedAndTheChatStaysOnIt() async throws {
+        try await Self.withRoundTrip("outdated") { trip in
+            let error = try #require(await trip.bringBack(), "the bring back did not report the older machine")
+            #expect(error.message == CloudBringBackStrings.outdatedMachine("Move VM"), "\(error.message)")
+            #expect(trip.calls().count == 3, "the chat moved from an older machine: \(trip.calls())")
+            #expect(trip.machineChat() != nil, "the machine's tab closed though the chat did not move")
+            #expect(trip.localChat() == nil)
+            #expect(trip.services.cloud.bringBackRetries[trip.machineKey] == .move(machineID: "vm-move"))
+        }
+    }
+
     /// The Mac's guard refuses a chat that approves everything: the machine's tab stays, the
     /// message names the setting in plain words, and "Ask first, then bring back" is offered.
     @Test func aGuardRefusalKeepsTheMachineTabWithAClearMessage() async throws {
@@ -475,6 +489,7 @@ struct CloudBringBackTests {
             "link sync pull")
                 case '\(mode)' in
                 conflict) echo '{"ok":false,"error":"notes.txt changed both here and on the machine","error_code":"sync_conflict","conflicts":["notes.txt"]}'; exit 1 ;;
+                outdated) echo '{"ok":false,"error":"the machine runs an older cmux-tui (0000old) without fs-v1; update the machine","error_code":"machine_outdated","missing":["fs-v1"],"machine_build":"0000old"}'; exit 1 ;;
                 pullTimeout) exec sleep 30 ;;
                 *) touch '\(pulled)'; echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4,"fast_forwarded":true,"head":null}' ;;
                 esac ;;

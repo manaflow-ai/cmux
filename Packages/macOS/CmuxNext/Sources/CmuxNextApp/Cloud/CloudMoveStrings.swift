@@ -53,6 +53,13 @@ enum CloudMoveStrings {
         String(format: String(localized: "cloud.move.teamMachine", defaultValue: "%@ is a team machine. Chats move only to a machine you own.",
                               table: "Cloud", bundle: .module), machine)
     }
+    /// The machine's cmux-tui is too old for the move (`machine_outdated`, cx-rppd.13).
+    static func outdatedMachine(_ machine: String) -> String {
+        String(format: String(localized: "cloud.move.outdatedMachine", defaultValue: "%@ runs an older cmux that can't take this chat. Update the machine, then Retry.",
+                              table: "Cloud", bundle: .module), machine)
+    }
+    /// What a link CLI answers when the machine's cmux-tui is too old for it (cmux-tui `link/machine_gate.rs`).
+    static let outdatedCode = "machine_outdated"
     static func unknownMachine(_ machine: String) -> String {
         String(format: String(localized: "cloud.move.unknownMachine", defaultValue: "cmux can't confirm who owns %@, so the chat stays on this Mac.",
                               table: "Cloud", bundle: .module), machine)
