@@ -30,6 +30,20 @@ struct ScaledContent<Content: View>: View {
     }
 }
 
+/// The card's close button: a 22 pt circle with a light 9.5 pt cross,
+/// 4 pt from the card's top and trailing edges (measured). The zoom draws
+/// the same glyph on the moving card.
+struct CardCloseGlyph: View {
+    @Environment(\.tabsKitTheme) private var theme
+    var body: some View {
+        Image(systemName: "xmark")
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(theme.colors.cardCloseGlyph)
+            .frame(width: theme.metrics.cardClose, height: theme.metrics.cardClose)
+            .background(theme.colors.cardCloseFill, in: .circle)
+    }
+}
+
 /// One tab card: the card content with rounded corners, close button, title row.
 struct TabCard<Content: View>: View {
     var title: String
@@ -39,7 +53,13 @@ struct TabCard<Content: View>: View {
     var height: CGFloat
     var radius: CGFloat
     var showsClose: Bool
-    var detailsOpacity: Double
+    /// Close buttons and title rows (`CardChrome`).
+    var closeOpacity: Double
+    var titleOpacity: Double
+    var titleOffset: CGFloat = 0
+    /// The zoom draws this card's content and close button; its title row
+    /// stays here and fades in with the others.
+    var contentHidden = false
     var onClose: () -> Void
     @ViewBuilder var content: Content
 
@@ -55,21 +75,17 @@ struct TabCard<Content: View>: View {
                 .overlay(alignment: .topTrailing) {
                     if showsClose {
                         Button(action: onClose) {
-                            // Measured: 22 pt circle, 4 pt from the card's top and
-                            // right edges, a light 9.5 pt cross.
-                            Image(systemName: "xmark")
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(theme.colors.cardCloseGlyph)
-                                .frame(width: m.cardClose, height: m.cardClose)
-                                .background(theme.colors.cardCloseFill, in: .circle)
+                            CardCloseGlyph()
                                 .padding(4)
                                 .contentShape(.rect)
                         }
                         .buttonStyle(.plain)
-                        .opacity(detailsOpacity)
+                        .opacity(closeOpacity)
+                        .allowsHitTesting(closeOpacity > 0.5)
                         .accessibilityLabel("Close \(title)")
                     }
                 }
+                .opacity(contentHidden ? 0 : 1)
             HStack(spacing: 6) {
                 Image(systemName: systemImage).font(.system(size: 14))
                     .foregroundStyle(theme.colors.secondaryLabel)
@@ -81,7 +97,8 @@ struct TabCard<Content: View>: View {
             }
             .frame(width: width, height: m.titleRow)
             .padding(.top, 2)
-            .opacity(detailsOpacity)
+            .offset(y: titleOffset)
+            .opacity(titleOpacity)
         }
         .frame(width: width, alignment: .top)
         .accessibilityElement(children: .combine)
@@ -96,7 +113,7 @@ struct TabOverview<Source: TabsDataSource>: View {
     var layout: OverviewLayout
     /// 0 while the page is full screen, 1 with the grid at rest.
     var shown: Double
-    var detailsOpacity: Double
+    var chrome: CardChrome
     /// Card hidden while the zooming page stands in for it.
     var hiddenTabId: String?
     /// Cards take taps (the grid is settled).
@@ -129,11 +146,11 @@ struct TabOverview<Source: TabsDataSource>: View {
                     ForEach(Array(tabs.enumerated()), id: \.element.id) { index, tab in
                         let r = layout.card(index)
                         TabCard(title: tab.title, systemImage: tab.systemImage, pageSize: layout.size, width: r.width, height: r.height,
-                                radius: layout.cardRadius, showsClose: true, detailsOpacity: detailsOpacity,
-                                onClose: { onClose(tab.id) }) {
+                                radius: layout.cardRadius, showsClose: true, closeOpacity: chrome.closeOpacity,
+                                titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset,
+                                contentHidden: tab.id == hiddenTabId, onClose: { onClose(tab.id) }) {
                             source.card(for: tab)
                         }
-                        .opacity(tab.id == hiddenTabId ? 0 : 1)
                         .contentShape(.rect)
                         .onTapGesture { onSelect(tab.id) }
                         .offset(x: r.minX, y: r.minY)
@@ -142,7 +159,8 @@ struct TabOverview<Source: TabsDataSource>: View {
                     if let pending {
                         let r = layout.card(tabs.count)
                         TabCard(title: pending.title, systemImage: pending.systemImage, pageSize: layout.size, width: r.width, height: r.height,
-                                radius: layout.cardRadius, showsClose: false, detailsOpacity: detailsOpacity, onClose: {}) {
+                                radius: layout.cardRadius, showsClose: false, closeOpacity: chrome.closeOpacity,
+                                titleOpacity: chrome.titleOpacity, titleOffset: chrome.titleOffset, onClose: {}) {
                             theme.colors.pageBackground
                         }
                         .offset(x: r.minX, y: r.minY)

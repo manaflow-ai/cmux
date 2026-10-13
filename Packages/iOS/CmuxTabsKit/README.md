@@ -33,6 +33,12 @@ transport or models.
   pinch can grab it. Before zooming in, the grid scrolls so the card is fully
   on screen. Your content is laid out at full size inside the moving rect; it
   is never re-laid out or rebuilt.
+- **Close buttons and titles.** They arrive and leave as in Safari (measured
+  on device recordings): the zooming card's close button rides its corner at
+  full size and fades in with the zoom's progress (0.76 to 0.96); every title
+  row and the other close buttons wait for 0.96, then fade in on their own
+  clock (titles `1 − e^(−t/58 ms)` while rising 2 pt, close buttons
+  `1 − e^(−(t−16 ms)/45 ms)`); leaving the grid hides them within two frames.
 - **Pinch.** Pinch in on a page to go to the grid; pinch out on a card to
   open it. Tracking is 1:1 with rubber banding, and release keeps the finger
   velocity.
@@ -224,6 +230,7 @@ cover:
   velocity discontinuity.
 - The grid layout and the scroll-into-view rule.
 - The back | forward state.
+- The close-button and title timing against the measured Safari values.
 
 For the UI on a simulator, run
 `xcodebuild test -scheme CmuxTabsKit -destination 'platform=iOS Simulator,…'`.
