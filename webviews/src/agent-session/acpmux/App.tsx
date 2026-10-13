@@ -35,7 +35,7 @@ import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
 import { pageHostClient, startHostEvents } from "./pageHost";
-import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
+import { NewTabPage, newTabHost, type NewTabHost, type TabKind } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { NewTabScreen, type NewTabScreenActions } from "./newtab/NewTabScreen";
@@ -46,9 +46,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
-import { TemplateDots } from "./newtab/TemplateDots";
-import { pickNewTabTemplate, screenTemplate, shownTemplate } from "./newtab/templates";
-import { playTemplateSwitch, templatePlaces } from "./newtab/templateMotion";
+import { screenTemplate, shownTemplate } from "./newtab/templates";
 import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
@@ -4544,32 +4542,6 @@ function AcpmuxPane() {
     <ShortcutsContext.Provider value={shortcuts}>
       <section className="acpmux-shell" aria-label={composerSnapshot.summary?.title || t("header.agentChat")}>
         <div className="acpmux-main" data-new-chat={freshView && !showNewTab ? "" : undefined}>
-          {showNewTab && newTab.templateSwitcher && !newTab.history && (
-            <TemplateDots
-              current={shownTemplate(newTab)}
-              onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
-              onPick={(template, fromKeys) =>
-                pickNewTabTemplate(template, {
-                  callNative,
-                  cwd: newTab.cwd,
-                  show: (next) => {
-                    // The parts both templates show slide to their new place (newtab/templateMotion.ts).
-                    const screen = document.querySelector<HTMLElement>(".nt-screen");
-                    const before = templatePlaces(screen);
-                    const dot = fromKeys ? document.activeElement : null;
-                    flushSync(() => setNewTab((current) => current && { ...current, template: next }));
-                    // A clicked dot took focus; the field gets it back (the screen listens for this
-                    // event), before the parts slide, so focusing never scrolls toward where they were.
-                    // The arrow keys keep focus on the dots, to switch on, even when the page they
-                    // show focused its field as it mounted (Classic, and the screen after it).
-                    if (dot instanceof HTMLElement) dot.focus({ preventScroll: true });
-                    else window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT));
-                    playTemplateSwitch(document.querySelector<HTMLElement>(".nt-screen"), before);
-                  },
-                })
-              }
-            />
-          )}
           {harnessesOpen ? (
             <HarnessesScreen
               catalog={pickerCatalog}

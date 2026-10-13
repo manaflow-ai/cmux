@@ -15,6 +15,7 @@ public final class SetPersonalWorkspaceRequest implements WireValue {
     private final Field<String> browserProfileId;
     private final Field<String> group;
     private final Field<UInt64> index;
+    private final Field<Boolean> remoteLocalhost;
     private final String sessionId;
     private final Field<String> theme;
     private final String workspaceKey;
@@ -23,6 +24,7 @@ public final class SetPersonalWorkspaceRequest implements WireValue {
         this.browserProfileId = builder.browserProfileId;
         this.group = builder.group;
         this.index = builder.index;
+        this.remoteLocalhost = builder.remoteLocalhost;
         if (!builder.sessionIdSet) throw new IllegalArgumentException("session_id is required");
         this.sessionId = Wire.nonNull(builder.sessionId, "session_id");
         this.theme = builder.theme;
@@ -35,6 +37,7 @@ public final class SetPersonalWorkspaceRequest implements WireValue {
     public Field<String> browserProfileId() { return browserProfileId; }
     public Field<String> group() { return group; }
     public Field<UInt64> index() { return index; }
+    public Field<Boolean> remoteLocalhost() { return remoteLocalhost; }
     public String sessionId() { return sessionId; }
     public Field<String> theme() { return theme; }
     public String workspaceKey() { return workspaceKey; }
@@ -54,6 +57,10 @@ public final class SetPersonalWorkspaceRequest implements WireValue {
         if (!Wire.isMissing(rawIndex)) {
             builder.index(rawIndex == null ? null : Wire.uint64(rawIndex, "SetPersonalWorkspaceRequest.index"));
         }
+        Object rawRemoteLocalhost = Wire.optional(object, "remote_localhost");
+        if (!Wire.isMissing(rawRemoteLocalhost)) {
+            builder.remoteLocalhost(rawRemoteLocalhost == null ? null : Wire.bool(rawRemoteLocalhost, "SetPersonalWorkspaceRequest.remote_localhost"));
+        }
         Object rawSessionId = Wire.required(object, "session_id");
         builder.sessionId(Wire.string(rawSessionId, "SetPersonalWorkspaceRequest.session_id"));
         Object rawTheme = Wire.optional(object, "theme");
@@ -71,6 +78,7 @@ public final class SetPersonalWorkspaceRequest implements WireValue {
         Wire.put(object, "browser_profile_id", browserProfileId);
         Wire.put(object, "group", group);
         Wire.put(object, "index", index);
+        Wire.put(object, "remote_localhost", remoteLocalhost);
         Wire.put(object, "session_id", sessionId);
         Wire.put(object, "theme", theme);
         Wire.put(object, "workspace_key", workspaceKey);
@@ -80,11 +88,11 @@ public final class SetPersonalWorkspaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof SetPersonalWorkspaceRequest that)) return false;
-        return Objects.equals(browserProfileId, that.browserProfileId) && Objects.equals(group, that.group) && Objects.equals(index, that.index) && Objects.equals(sessionId, that.sessionId) && Objects.equals(theme, that.theme) && Objects.equals(workspaceKey, that.workspaceKey);
+        return Objects.equals(browserProfileId, that.browserProfileId) && Objects.equals(group, that.group) && Objects.equals(index, that.index) && Objects.equals(remoteLocalhost, that.remoteLocalhost) && Objects.equals(sessionId, that.sessionId) && Objects.equals(theme, that.theme) && Objects.equals(workspaceKey, that.workspaceKey);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(browserProfileId, group, index, sessionId, theme, workspaceKey); }
+    public int hashCode() { return Objects.hash(browserProfileId, group, index, remoteLocalhost, sessionId, theme, workspaceKey); }
 
     @Override
     public String toString() { return "SetPersonalWorkspaceRequest" + toWire(); }
@@ -93,6 +101,7 @@ public final class SetPersonalWorkspaceRequest implements WireValue {
         private Field<String> browserProfileId = Field.omitted();
         private Field<String> group = Field.omitted();
         private Field<UInt64> index = Field.omitted();
+        private Field<Boolean> remoteLocalhost = Field.omitted();
         private String sessionId;
         private boolean sessionIdSet;
         private Field<String> theme = Field.omitted();
@@ -109,6 +118,10 @@ public final class SetPersonalWorkspaceRequest implements WireValue {
         }
         public Builder index(UInt64 value) {
             this.index = Field.ofNullable(value);
+            return this;
+        }
+        public Builder remoteLocalhost(Boolean value) {
+            this.remoteLocalhost = Field.ofNullable(value);
             return this;
         }
         public Builder sessionId(String value) {
