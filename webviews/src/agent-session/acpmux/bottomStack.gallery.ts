@@ -82,22 +82,39 @@ const checkTrust: Play = async (ctx) => {
   if (ctx.document.querySelector(".acpmux-permission-card"))
     throw new Error("Tool permission is visible before folder trust");
 };
+async function samplePinned(ctx: PlayContext, frames = 8) {
+  const scroller = ctx.find({ selector: ".acpmux-scroll" }) as HTMLElement;
+  const view = ctx.document.defaultView;
+  if (!view) return;
+  for (let index = 0; index < frames; index += 1) {
+    await new Promise<void>((resolve) => view.requestAnimationFrame(() => resolve()));
+    const latest = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    if (Math.abs(scroller.scrollTop - latest) > 1)
+      throw new Error(`Follow-bottom moved during stack update (${scroller.scrollTop} vs ${latest})`);
+  }
+}
 const trustThenPermission: Play = async (ctx) => {
   await checkTrust(ctx);
   await ctx.click({ role: "button", name: "Trust" });
+  await samplePinned(ctx);
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   if (ctx.document.querySelectorAll(".acpmux-permission-card").length !== 1)
     throw new Error("More than one tool permission card");
+  ctx.find({ role: "button", name: "Allow for this chat" });
   ctx.find({ role: "button", name: "Allow once" });
   ctx.find({ role: "button", name: "Allow for this chat" });
   geometry(ctx);
-  await ctx.click({ role: "button", name: "Undo" });
+  await ctx.click({ role: "button", name: "Allow for this chat" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
+  await ctx.click({ role: "menuitem", name: "Undo" });
   await checkTrust(ctx);
 };
 const trusted: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-trust-ask"));
   await ctx.click({ role: "button", name: "Trust" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
+  ctx.find({ role: "button", name: "Allow for this chat" });
+  if (ctx.document.querySelector(".acpmux-trust-ask")) throw new Error("Granted trust still renders in transcript");
   geometry(ctx);
 };
 export default agentPaneEntry({

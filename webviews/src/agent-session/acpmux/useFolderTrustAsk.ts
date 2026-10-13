@@ -27,6 +27,7 @@ export function useFolderTrustAsk(
   canAnswer = true,
 ) {
   const [ask, setAsk] = useState<FolderTrustAsk>();
+  const [trusted, setTrusted] = useState(false);
   const [reading, setReading] = useState(false);
   /// Bumped by `recheck` (acpmux refused a prompt the pane did not hold): read the folder again.
   const [reads, setReads] = useState(0);
@@ -44,6 +45,7 @@ export function useFolderTrustAsk(
 
   useEffect(() => {
     setAsk(undefined);
+    setTrusted(false);
     decidedAt.current = undefined;
     setReading(Boolean(cwd));
     if (!cwd) return;
@@ -55,6 +57,7 @@ export function useFolderTrustAsk(
       const level = trust && sessionTrust(trust, family);
       if (level === "unknown") setAsk({ cwd, state: canAnswer ? "ask" : "remote" });
       else if (level === "untrusted") setAsk({ cwd, state: "decided", level });
+      else if (level === "trusted") setTrusted(true);
     });
     return () => {
       live = false;
@@ -81,6 +84,7 @@ export function useFolderTrustAsk(
         await source.set(asked.cwd, level);
         if (!stillHere()) return;
         decidedAt.current = level === "unknown" ? undefined : prompts;
+        setTrusted(level === "trusted");
         setAsk(level === "unknown" ? { cwd: asked.cwd, state: "ask" } : { cwd: asked.cwd, state: "decided", level });
         // The prompt acpmux refused goes now that the folder is trusted; another answer keeps it.
         const held = resend.current;
@@ -107,6 +111,7 @@ export function useFolderTrustAsk(
 
   return {
     ask,
+    trusted,
     blocked,
     trust: () => void save("trusted"),
     distrust: () => void save("untrusted"),

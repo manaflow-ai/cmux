@@ -87,7 +87,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
     deny: useShortcut(SHORTCUT_ACTIONS.permissionDeny),
   } satisfies Record<PermissionDecision, string | undefined>;
   const retryShortcut = useShortcut(SHORTCUT_ACTIONS.permissionRetry);
-  const revokeShortcut = useShortcut(SHORTCUT_ACTIONS.permissionRevoke);
   const refreshShortcut = useShortcut(SHORTCUT_ACTIONS.permissionRefresh);
   const expandShortcut = useShortcut(SHORTCUT_ACTIONS.permissionExpand);
   const [expandSignal, setExpandSignal] = useState(0);
@@ -144,7 +143,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
   if (!state.supported) return null;
   const pending = state.groups.filter((group) => group.state === "pending" || group.state === "collecting");
   const receipt = pending.length === 0 && working && answered !== ended ? last : undefined;
-  if (!pending.length && !receipt && !state.chatAllowance && !state.error) return null;
+  if (!pending.length && !receipt && !state.error) return null;
   const disabled = state.busy || state.loading || state.ready === false || !!state.uncertain;
   return (
     <section
@@ -155,14 +154,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       <div className="acpmux-permission-coverage" title={t("permission.coverageDetail")}>
         {t("permission.coverage")}
       </div>
-      {state.chatAllowance && (
-        <div className="acpmux-permission-allowance">
-          <span>{t("permission.chatAllowed")}</span>
-          <button disabled={disabled} onClick={onRevoke}>
-            {withShortcut(t("permission.revoke"), revokeShortcut)}
-          </button>
-        </div>
-      )}
       {pending.map((group) => (
         <PermissionCardFrame title={t("permission.title")} key={group.groupId}>
           <p className="acpmux-permission-scope">

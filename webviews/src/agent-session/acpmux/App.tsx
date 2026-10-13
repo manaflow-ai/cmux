@@ -93,6 +93,7 @@ import type { QuestionReply } from "./question/model";
 import { agentName } from "./agents";
 import { type Translate, translate, useT } from "./i18n";
 import { useFolderTrustAsk } from "./useFolderTrustAsk";
+import { PermissionStatus } from "./PermissionStatus";
 import { heldPrompts } from "./heldPrompt";
 import { FILE_SEARCH_LIMIT, type FileSearchSource } from "./fileSearchModel";
 import type { DiffFindHandle } from "./changes/diffFind";
@@ -1042,6 +1043,14 @@ export function VirtualTranscript({
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
   /// so a reply growing below or a session switch updates it without a scroll.
   const [following, setFollowing] = useState(true);
+  // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
+  // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
+  // stack changes height.
+  const followingRef = useRef(true);
+  const follow = (next: boolean) => {
+    followingRef.current = next;
+    setFollowing(next);
+  };
   const settle = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [height, setHeight] = useState(600);
   const ref = useRef<HTMLDivElement>(null);
@@ -1502,7 +1511,7 @@ export function VirtualTranscript({
       clearTimeout(settle.current);
       settle.current = undefined;
       setScroll({ top: 0, delta: 0 });
-      setFollowing(true);
+      follow(true);
     }
     const old = switched ? null : previousLayout.current;
     const oldRows = previousRows.current;
@@ -1518,8 +1527,9 @@ export function VirtualTranscript({
       // then; a shorter viewport alone would otherwise read as scrolled up.
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
       const top = clamped ? scrolledTo.current.top : live;
-      const atLatest =
-        clamped || unmoved
+      const atLatest = followingRef.current
+        ? true
+        : clamped || unmoved
           ? scrolledTo.current.atLatest
           : top >= old.totalHeight - node.clientHeight - 1 ||
             (scrolledTo.current.atLatest && strayFrom(top, old.totalHeight - node.clientHeight));
@@ -1560,7 +1570,7 @@ export function VirtualTranscript({
       node.scrollTop = top;
       followTrace.set(top);
       setScroll({ top, delta: 0 });
-      setFollowing(top >= latest - 1);
+      follow(top >= latest - 1);
       didOpenAtLatest.current = true;
     }
     previousLayout.current = layout;
@@ -1709,6 +1719,19 @@ export function VirtualTranscript({
     if (event.currentTarget.clientHeight === 0) return;
     const node = event.currentTarget;
     const next = node.scrollTop;
+    const programmatic = performance.now() - readerAt.current > READER_SCROLL_MS;
+    // ResizeObserver/layout work can emit a scroll event after the stack below the transcript
+    // changes. While the reader is following, keep the viewport at the new end and do not let
+    // that synthetic event clear the follow state. A real wheel/touch/key event marks itself first.
+    if (followingRef.current && programmatic) {
+      const latest = Math.max(0, layout.totalHeight - node.clientHeight);
+      if (Math.abs(next - latest) > 0.5) node.scrollTop = latest;
+      scrolledTo.current = { top: latest, atLatest: true };
+      followTrace.set(latest);
+      follow(true);
+      setScroll((current) => ({ top: latest, delta: latest - current.top }));
+      return;
+    }
     const was = scrolledTo.current;
     scrolledTo.current = scrollPosition(node, layout.totalHeight);
     const latest = Math.max(0, layout.totalHeight - node.clientHeight);
@@ -1733,7 +1756,7 @@ export function VirtualTranscript({
     acpmuxPerf.timed("flush.scroll", () =>
       flushSync(() => {
         setScroll((current) => ({ top: next, delta: next - current.top }));
-        setFollowing(scrolledTo.current.atLatest);
+        follow(scrolledTo.current.atLatest);
       }),
     );
     if (onAnchor) {
@@ -4282,67 +4305,81 @@ function AcpmuxPane() {
   const trustPending = Boolean(trustAsk.blocked);
   const hasPermissionGroups = Boolean(
     snapshot.permissionGroups?.supported &&
-    (snapshot.permissionGroups.groups.length > 0 ||
-      snapshot.permissionGroups.chatAllowance ||
-      snapshot.permissionGroups.error),
+      (snapshot.permissionGroups.groups.length > 0 ||
+        snapshot.permissionGroups.error),
   );
   const hasBottomAsk = Boolean(
-    trustAsk.ask ||
-    (!trustPending && (hasPermissionGroups || individualPermission || snapshot.secret || toolCards.length > 0)),
+    (trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted")) ||
+      (!trustPending &&
+        (hasPermissionGroups || individualPermission || snapshot.secret || toolCards.length > 0)),
   );
-  const asks = hasBottomAsk ? (
-    <div className="acpmux-permission acpmux-asks-stack">
-      {trustAsk.ask && (
-        <TrustAsk
-          ask={trustAsk.ask}
-          agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-          onTrust={trustAsk.trust}
-          onDistrust={trustAsk.distrust}
-          onUndo={trustAsk.undo}
-        />
-      )}
-      {!trustPending && hasPermissionGroups && snapshot.permissionGroups && (
-        <PermissionPanel
-          state={snapshot.permissionGroups}
-          working={snapshot.isWorking}
-          onRespond={(groupId, revision, decision) => {
-            void callNative("chat.permission_group.respond", { groupId, revision, decision });
-          }}
-          onRetry={() => {
-            void callNative("chat.permission_group.retry", {});
-          }}
-          onRevoke={() => {
-            void callNative("chat.permission_chat.revoke", {});
-          }}
-          onRefresh={() => {
-            void callNative("chat.permission_groups.refresh", {});
-          }}
-        />
-      )}
-      {!trustPending && (individualPermission || snapshot.secret || toolCards.length > 0) && (
-        <>
-          <ToolCards
-            cards={toolCards}
-            onAnswer={(id, action, value) =>
-              void callNative(
-                "chat.toolCard.respond",
-                value === undefined ? { id, action } : { id, action, value },
-              ).catch(() => undefined)
-            }
+  const asks = (
+    hasBottomAsk ? (
+      <div className="acpmux-permission acpmux-asks-stack">
+        {trustAsk.ask && (trustAsk.ask.state !== "decided" || trustAsk.ask.level === "untrusted") && (
+          <TrustAsk
+            ask={trustAsk.ask}
+            agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+            onTrust={trustAsk.trust}
+            onDistrust={trustAsk.distrust}
+            onUndo={trustAsk.undo}
           />
-          {individualPermission && <PermissionAsk permission={individualPermission} />}
-          {snapshot.secret && (
-            <SecretCard
-              key={snapshot.secret.secretId}
-              ask={snapshot.secret}
-              agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-              onAnswer={answerSecret(snapshot.secret)}
+        )}
+        {!trustPending && hasPermissionGroups && snapshot.permissionGroups && (
+          <PermissionPanel
+            state={snapshot.permissionGroups}
+            working={snapshot.isWorking}
+            onRespond={(groupId, revision, decision) => {
+              void callNative("chat.permission_group.respond", { groupId, revision, decision });
+            }}
+            onRetry={() => {
+              void callNative("chat.permission_group.retry", {});
+            }}
+            onRevoke={() => {
+              void callNative("chat.permission_chat.revoke", {});
+            }}
+            onRefresh={() => {
+              void callNative("chat.permission_groups.refresh", {});
+            }}
+          />
+        )}
+        {!trustPending && (individualPermission || snapshot.secret || toolCards.length > 0) && (
+          <>
+            <ToolCards
+              cards={toolCards}
+              onAnswer={(id, action, value) =>
+                void callNative(
+                  "chat.toolCard.respond",
+                  value === undefined ? { id, action } : { id, action, value },
+                ).catch(() => undefined)
+              }
             />
-          )}
-        </>
-      )}
-    </div>
-  ) : null;
+            {individualPermission && <PermissionAsk permission={individualPermission} />}
+            {snapshot.secret && (
+              <SecretCard
+                key={snapshot.secret.secretId}
+                ask={snapshot.secret}
+                agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+                onAnswer={answerSecret(snapshot.secret)}
+              />
+            )}
+          </>
+        )}
+      </div>
+    ) : null
+  );
+  const permissionStatus = (
+    <PermissionStatus
+      trusted={trustAsk.trusted}
+      chatAllowed={snapshot.permissionGroups?.chatAllowance === true}
+      onUndoTrust={trustAsk.undo}
+      onRevoke={
+        snapshot.permissionGroups?.chatAllowance
+          ? () => void callNative("chat.permission_chat.revoke", {})
+          : undefined
+      }
+    />
+  );
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
   const block =
@@ -4491,6 +4528,7 @@ function AcpmuxPane() {
           snapshot={composerSnapshot}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           chips={ComposerChips}
+          permissionStatus={permissionStatus}
           draft={draft}
           onUnsentDraft={quick ? undefined : postUnsentDraft}
           onCmuxCommand={(command, args) => {
