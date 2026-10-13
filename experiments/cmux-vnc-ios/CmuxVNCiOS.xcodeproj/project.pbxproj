@@ -19,6 +19,7 @@
 		BCD401C9770E76EF2FF5C7B5 /* RemoteScreenViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BAA2524031412BF3038399 /* RemoteScreenViewController.swift */; };
 		DAFDB8F94A293A9DFA7EDE96 /* HostStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763951F27B0C01E5C5523742 /* HostStore.swift */; };
 		E7EAC332991CE8DC79002A0D /* RemoteSessionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 803C7C441B1619C66EE1E9AB /* RemoteSessionView.swift */; };
+		FE965FE907CE2621BEE1602D /* Snapshotter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 789676ADCF30DB0BD93352BC /* Snapshotter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -27,6 +28,7 @@
 		516E107D77ED1D54537104D0 /* RemoteSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSession.swift; sourceTree = "<group>"; };
 		62BAA2524031412BF3038399 /* RemoteScreenViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteScreenViewController.swift; sourceTree = "<group>"; };
 		763951F27B0C01E5C5523742 /* HostStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HostStore.swift; sourceTree = "<group>"; };
+		789676ADCF30DB0BD93352BC /* Snapshotter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Snapshotter.swift; sourceTree = "<group>"; };
 		803C7C441B1619C66EE1E9AB /* RemoteSessionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteSessionView.swift; sourceTree = "<group>"; };
 		AA99D8A346AB019C11A4A22A /* ConnectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionsView.swift; sourceTree = "<group>"; };
 		B429AE6EE4AA26D818EA95CA /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -102,6 +104,7 @@
 				E34218DA8A55EF28C184DB10 /* Autopilot.swift */,
 				763951F27B0C01E5C5523742 /* HostStore.swift */,
 				516E107D77ED1D54537104D0 /* RemoteSession.swift */,
+				789676ADCF30DB0BD93352BC /* Snapshotter.swift */,
 			);
 			path = Model;
 			sourceTree = "<group>";
@@ -208,6 +211,7 @@
 				BCD401C9770E76EF2FF5C7B5 /* RemoteScreenViewController.swift in Sources */,
 				0C245512448B1DAA5C94B60A /* RemoteSession.swift in Sources */,
 				E7EAC332991CE8DC79002A0D /* RemoteSessionView.swift in Sources */,
+				FE965FE907CE2621BEE1602D /* Snapshotter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -148,7 +148,9 @@ final class DemoConnection: @unchecked Sendable {
     private var input: [UInt8] = []
     private var challenge: [UInt8] = []
     private var encodings: Set<Int32> = []
-    private var pending: CGRect = .null
+    /// Damage since the last update: separate rectangles, so distant changes
+    /// (the status window and the moving tile) are not sent as one big union.
+    private var pending: [CGRect] = []
     private var requested = false
     private var cursorSent = false
     private var buttons: UInt8 = 0
@@ -186,8 +188,22 @@ final class DemoConnection: @unchecked Sendable {
     }
 
     func invalidate(_ rect: CGRect) {
-        pending = pending.union(rect)
+        add(rect)
         flush()
+    }
+
+    private func add(_ rect: CGRect) {
+        let bounds = CGRect(x: 0, y: 0, width: scene.width, height: scene.height)
+        var merged = rect.intersection(bounds).integral
+        guard !merged.isNull, !merged.isEmpty else { return }
+        // Fold in every rectangle it touches, then keep the list short.
+        pending.removeAll { other in
+            guard other.intersects(merged.insetBy(dx: -8, dy: -8)) else { return false }
+            merged = merged.union(other)
+            return true
+        }
+        pending.append(merged)
+        if pending.count > 8 { pending = [pending.reduce(CGRect.null) { $0.union($1) }] }
     }
 
     private func receive() {
@@ -272,7 +288,7 @@ final class DemoConnection: @unchecked Sendable {
                     })
                 case 3:
                     guard let bytes = take(10) else { return }
-                    if bytes[1] == 0 { pending = CGRect(x: 0, y: 0, width: scene.width, height: scene.height) }
+                    if bytes[1] == 0 { pending = [CGRect(x: 0, y: 0, width: scene.width, height: scene.height)] }
                     requested = true
                     flush()
                 case 4:
@@ -311,17 +327,17 @@ final class DemoConnection: @unchecked Sendable {
     private func flush() {
         guard phase == .normal, requested else { return }
         let wantsCursor = encodings.contains(RFBEncoding.cursor.rawValue) && !cursorSent
-        let clip = pending.intersection(CGRect(x: 0, y: 0, width: scene.width, height: scene.height)).integral
-        guard wantsCursor || (!clip.isNull && !clip.isEmpty) else { return }
+        guard wantsCursor || !pending.isEmpty else { return }
         requested = false
-        pending = .null
+        let damage = pending
+        pending = []
         var rects: [[UInt8]] = []
         if wantsCursor {
             cursorSent = true
             rects.append(DemoCursor().rectangle())
         }
-        if !clip.isNull, !clip.isEmpty {
-            rects.append(encode(x: Int(clip.minX), y: Int(clip.minY), width: Int(clip.width), height: Int(clip.height)))
+        for rect in damage {
+            rects.append(encode(x: Int(rect.minX), y: Int(rect.minY), width: Int(rect.width), height: Int(rect.height)))
         }
         var bytes = DemoBytes()
         bytes.append([0, 0])

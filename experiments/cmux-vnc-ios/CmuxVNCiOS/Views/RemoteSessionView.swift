@@ -19,6 +19,8 @@ struct RemoteSessionView: View {
             stateCard
         }
         .background(.black)
+        // Remote screens sit on black: dark chrome keeps the bar and stats legible.
+        .preferredColorScheme(.dark)
         .statusBarHidden(!chromeVisible)
         .persistentSystemOverlays(.hidden)
         .onDisappear { session.close() }

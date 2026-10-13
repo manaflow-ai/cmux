@@ -21,6 +21,8 @@ final class DemoScene {
     private var lastKey = "none"
     private var frameCount = 0
     private var lastStroke: CGPoint?
+    /// The paint layer as an image, rebuilt only after a stroke.
+    private var painted: CGImage?
     var clients = 0
     var animate: Bool
 
@@ -100,6 +102,7 @@ final class DemoScene {
         paint.move(to: from)
         paint.addLine(to: point)
         paint.strokePath()
+        painted = nil
         let dirty = CGRect(x: min(from.x, point.x) - 6, y: min(from.y, point.y) - 6,
                            width: abs(from.x - point.x) + 12, height: abs(from.y - point.y) + 12).integral
         render(dirty)
@@ -114,7 +117,8 @@ final class DemoScene {
         output.saveGState()
         output.clip(to: clip)
         if let backdrop { drawImage(backdrop, in: full) }
-        if let painted = paint.makeImage() { drawImage(painted, in: full) }
+        if painted == nil { painted = paint.makeImage() }
+        if let painted { drawImage(painted, in: full) }
         output.setFillColor(CGColor(red: 0.33, green: 0.55, blue: 1, alpha: 1))
         output.fill(tile)
         output.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 0.9))

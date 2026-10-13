@@ -39,3 +39,14 @@ targets:
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "cmux VNC connects to screen sharing on computers in your local network and tailnet."
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         CODE_SIGN_STYLE: Automatic
+schemes:
+  CmuxVNCiOS:
+    build:
+      targets:
+        CmuxVNCiOS: all
+    # Run optimized: the RFB decoders and the demo server are hot loops, and
+    # SwiftPM packages build unoptimized in Debug.
+    run:
+      config: Release
+    profile:
+      config: Release

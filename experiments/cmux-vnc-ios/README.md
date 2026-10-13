@@ -30,6 +30,7 @@ The home-screen name is **cmux VNC**.
 cd experiments/cmux-vnc-ios
 xcodegen generate          # after adding or removing files
 xcodebuild -project CmuxVNCiOS.xcodeproj -scheme CmuxVNCiOS \
+  -configuration Release \
   -destination 'platform=iOS Simulator,name=iPhone 17' build
 ```
 
