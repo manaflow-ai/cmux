@@ -41,7 +41,10 @@ await requireBrowserLane("history-closed-rows.test.ts", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 1000, height: 640 } });
     await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=pages.history&variant=closed-remove-clear`);
-    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
+    // A cold dev server compiles the gallery on the first request; give it longer than the default.
+    await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
+      timeout: 90_000,
+    });
     const report = await page.evaluate(() =>
       JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
     );
