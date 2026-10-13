@@ -204,14 +204,15 @@ describe("the checked-in catalog", () => {
   });
 
   // cx-jqkx: each aliased Claude family's newest model carries the alias Claude Code resolves to it
-  // (Claude Code 2.1.295: opus, sonnet, haiku -> 5.5, each checked with `claude -p --model`). Fable's
-  // alias comes from Claude Code's own model report; adding it here needs a catalog_overrides update.
+  // (Claude Code 2.1.295: opus, sonnet, haiku -> 5.5 and fable -> Fable 5.1, each checked with
+  // `claude -p --model`; fable added by cx-uxeb).
   test("Claude Code offers each family's newest model under its alias", () => {
     const claude = harness(bundledSnapshot(), "claude");
     const aliased = Object.fromEntries(
       claude.models.flatMap((model) => (model.aliases ?? []).map((alias) => [alias, model.id])),
     );
     expect(aliased).toEqual({
+      fable: "claude-fable-5-1",
       opus: "claude-opus-5-5",
       sonnet: "claude-sonnet-5-5",
       haiku: "claude-haiku-5-5",

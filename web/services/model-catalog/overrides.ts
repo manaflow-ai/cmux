@@ -82,7 +82,7 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     defaultModel: "claude-sonnet-5",
     shortNamePrefix: "Claude ",
     familyNames: { "claude-fable": "Fable", "claude-opus": "Opus", "claude-sonnet": "Sonnet", "claude-haiku": "Haiku" },
-    familyAliases: { "claude-opus": "opus", "claude-sonnet": "sonnet", "claude-haiku": "haiku" },
+    familyAliases: { "claude-fable": "fable", "claude-opus": "opus", "claude-sonnet": "sonnet", "claude-haiku": "haiku" },
   },
   {
     id: "codex", docsUrl: "https://developers.openai.com/codex/cli",
@@ -127,7 +127,7 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
   },
   {
     // Gemini CLI takes a Gemini API model id (`--model`). Last in the list so a database seeded
-    // before it keeps every other harness's position (cx-miuo, migration 20261013040000).
+    // before it keeps every other harness's position (cx-miuo, migration 20261013040000_model_catalog_gemini_fable).
     id: "gemini", docsUrl: "https://github.com/google-gemini/gemini-cli",
     name: "Gemini CLI",
     brand: "gemini",
