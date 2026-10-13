@@ -32,6 +32,10 @@ final class CloudMoveAsks {
 
     private var asks: [String: Ask] = [:]
     private var unfinishedOffer: Task<Void, Never>?
+    /// Tabs whose card is the launch offer of an unfinished move: their Dismiss is remembered.
+    private var offered: Set<String> = []
+    private var dismissedMemory: [String: String] = [:]
+    static let dismissedKey = "cmux.cloud.moveUnfinishedDismissed"
     /// Where "Always" folders are kept (``CloudMoveSetup/ledger``); nil keeps them in memory.
     var defaults: @MainActor () -> UserDefaults? = { nil }
     private var memory: Set<String> = []
@@ -84,9 +88,16 @@ final class CloudMoveAsks {
         unfinishedOffer = Task { @MainActor [weak self, weak services] in
             for await loaded in ObservationStream({ [weak services] in services?.daemon.store.isLoaded ?? true }) where loaded {
                 guard let self, let services else { return }
-                for tab in services.cloud.moveRetries.tabs where asks[tab] == nil && services.locateTab(tab) != nil {
+                let retries = services.cloud.moveRetries
+                for tab in retries.tabs where asks[tab] == nil && services.locateTab(tab)?.0.agentSession != nil {
+                    guard let retry = retries[tab], dismissed()[tab] != Self.fingerprint(retry) else { continue }
+                    let text = switch retry {
+                    case .show: CloudMoveStrings.unfinishedShow
+                    case .move, .askFirst: CloudMoveStrings.unfinishedMove
+                    }
                     asks[tab] = Ask(folder: "", always: false)
-                    show(tab, .failed, CloudMoveStrings.unresolved, [.retry, .dismiss], services: services)
+                    offered.insert(tab)
+                    show(tab, .failed, text, [.retry, .dismiss], services: services)
                 }
                 return
             }
@@ -95,6 +106,7 @@ final class CloudMoveAsks {
 
     /// A move of chat tab `tab` started (a card's Move, or a person's palette, menu or CLI run).
     func moveStarted(_ tab: String, services: AppServices) {
+        offered.remove(tab) // a card from here on is this move's, no longer the launch offer
         guard let ask = asks[tab] else { return }
         let text = ask.always ? CloudMoveAskStrings.movingAlways(Self.name(ask.folder)) : CloudMoveStrings.moving
         show(tab, .working, text, ask.always ? [.askFirst] : [], services: services)
@@ -135,6 +147,8 @@ final class CloudMoveAsks {
             asks[tab]?.always = false
             show(tab, .working, CloudMoveStrings.moving, [], services: services)
         case .notNow, .dismiss:
+            // A launch offer the person dismissed stays dismissed for that same retry (a later stop asks again).
+            if offered.contains(tab), let retry = services.cloud.moveRetries[tab] { rememberDismissed(tab, Self.fingerprint(retry)) }
             close(tab, services: services)
         }
     }
@@ -151,6 +165,7 @@ final class CloudMoveAsks {
 
     private func close(_ tab: String, services: AppServices) {
         asks[tab] = nil
+        offered.remove(tab)
         services.cloud.toolCards.set([], owner: Self.owner, tab: tab) { _, _, _ in }
     }
 
@@ -177,6 +192,24 @@ final class CloudMoveAsks {
     }
 
     // MARK: "Always" folders
+
+    private static func fingerprint(_ retry: CloudMoveRetries.Retry) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
+        return (try? encoder.encode(retry)).map { String(decoding: $0, as: UTF8.self) } ?? ""
+    }
+
+    private func dismissed() -> [String: String] {
+        guard let defaults = defaults() else { return dismissedMemory }
+        return defaults.dictionary(forKey: Self.dismissedKey) as? [String: String] ?? [:]
+    }
+
+    private func rememberDismissed(_ tab: String, _ fingerprint: String) {
+        var all = dismissed()
+        all[tab] = fingerprint
+        guard let defaults = defaults() else { return dismissedMemory = all }
+        defaults.set(all, forKey: Self.dismissedKey)
+    }
 
     private func alwaysFolders() -> Set<String> {
         guard let defaults = defaults() else { return memory }

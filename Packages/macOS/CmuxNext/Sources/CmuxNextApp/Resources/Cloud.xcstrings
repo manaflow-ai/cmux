@@ -19781,6 +19781,268 @@
           }
         }
       }
+    },
+    "cloud.move.unfinishedMove": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Moving this chat to Cloud didn't finish. Retry to finish it, or dismiss to keep it here."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يكتمل نقل هذه المحادثة إلى Cloud. أعد المحاولة لإكماله، أو تجاهل لإبقائها هنا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Premještanje ovog razgovora u Cloud nije završeno. Pokušaj ponovo da ga završiš ili odbaci da ga zadržiš ovdje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flytningen af denne chat til Cloud blev ikke fuldført. Prøv igen for at fuldføre den, eller afvis for at beholde den her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Das Verschieben dieses Chats in die Cloud wurde nicht abgeschlossen. Versuche es erneut, um es abzuschließen, oder verwirf es, um den Chat hier zu behalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se terminó de mover este chat a Cloud. Vuelve a intentarlo para terminar, o descártalo para mantenerlo aquí."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le déplacement de cette conversation vers Cloud n'est pas terminé. Réessayez pour le terminer, ou ignorez pour la garder ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo spostamento di questa chat in Cloud non è stato completato. Riprova per completarlo oppure ignora per tenerla qui."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットの Cloud への移動は完了しませんでした。再試行して完了するか、閉じてここに残してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការផ្លាស់ទីការជជែកនេះទៅ Cloud មិនបានបញ្ចប់ទេ។ ព្យាយាមម្ដងទៀតដើម្បីបញ្ចប់ ឬបោះបង់ដើម្បីទុកវានៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅을 Cloud로 옮기는 작업이 완료되지 않았습니다. 다시 시도하여 완료하거나, 닫아서 여기에 유지하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flyttingen av denne chatten til Cloud ble ikke fullført. Prøv på nytt for å fullføre, eller avvis for å beholde den her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przenoszenie tego czatu do Cloud nie zostało ukończone. Spróbuj ponownie, aby je dokończyć, lub odrzuć, aby zostawić czat tutaj."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A transferência deste chat para o Cloud não terminou. Tente novamente para concluí-la ou descarte para mantê-lo aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенос этого чата в Cloud не завершён. Повторите, чтобы завершить, или отклоните, чтобы оставить чат здесь."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การย้ายแชทนี้ไปยัง Cloud ยังไม่เสร็จ ลองอีกครั้งเพื่อให้เสร็จ หรือปิดเพื่อเก็บไว้ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbetin Cloud'a taşınması tamamlanmadı. Tamamlamak için yeniden deneyin veya burada tutmak için kapatın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перенесення цього чату в Cloud не завершено. Повторіть, щоб завершити, або відхиліть, щоб залишити чат тут."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Việc chuyển cuộc trò chuyện này lên Cloud chưa hoàn tất. Thử lại để hoàn tất, hoặc bỏ qua để giữ nó ở đây."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话移至 Cloud 的操作未完成。请重试以完成，或关闭以将其保留在这里。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話移至 Cloud 的操作未完成。請重試以完成，或關閉以將其保留在這裡。"
+          }
+        }
+      }
+    },
+    "cloud.move.unfinishedShow": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat moved to Cloud, but its tab there didn't open. Retry to open it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نُقلت هذه المحادثة إلى Cloud، لكن علامة تبويبها هناك لم تُفتح. أعد المحاولة لفتحها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj razgovor je premješten u Cloud, ali se njegova kartica tamo nije otvorila. Pokušaj ponovo da je otvoriš."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat blev flyttet til Cloud, men dens fane der blev ikke åbnet. Prøv igen for at åbne den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat wurde in die Cloud verschoben, aber sein Tab dort wurde nicht geöffnet. Versuche es erneut, um ihn zu öffnen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat se movió a Cloud, pero su pestaña allí no se abrió. Vuelve a intentarlo para abrirla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette conversation a été déplacée vers Cloud, mais son onglet ne s'y est pas ouvert. Réessayez pour l'ouvrir."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat è stata spostata in Cloud, ma la sua scheda lì non si è aperta. Riprova per aprirla."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは Cloud に移動しましたが、移動先のタブが開きませんでした。再試行して開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះបានផ្លាស់ទីទៅ Cloud ប៉ុន្តែផ្ទាំងរបស់វានៅទីនោះមិនបានបើកទេ។ ព្យាយាមម្ដងទៀតដើម្បីបើកវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅은 Cloud로 옮겨졌지만 그곳의 탭이 열리지 않았습니다. 다시 시도하여 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten ble flyttet til Cloud, men fanen der ble ikke åpnet. Prøv på nytt for å åpne den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat został przeniesiony do Cloud, ale jego karta tam się nie otworzyła. Spróbuj ponownie, aby ją otworzyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat foi transferido para o Cloud, mas a aba dele lá não abriu. Tente novamente para abri-la."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат перенесён в Cloud, но его вкладка там не открылась. Повторите, чтобы открыть её."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้ย้ายไปยัง Cloud แล้ว แต่แท็บของแชทที่นั่นไม่ได้เปิด ลองอีกครั้งเพื่อเปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet Cloud'a taşındı ancak oradaki sekmesi açılmadı. Açmak için yeniden deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат перенесено в Cloud, але його вкладка там не відкрилася. Повторіть, щоб відкрити її."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này đã được chuyển lên Cloud, nhưng tab của nó ở đó chưa mở. Thử lại để mở."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此对话已移至 Cloud，但它在那里的标签页未打开。请重试以打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此對話已移至 Cloud，但它在那裡的分頁未開啟。請重試以開啟。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
