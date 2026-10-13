@@ -75,13 +75,15 @@ export const withoutMemberLimit = (state: TeamState, user: string): { state: Tea
 }
 
 /**
- * The limit a code run's member gets (TeamDO.aiUserLimit): 0 for someone who is not a member now, so a
- * removed member's automations stop at the next start or step (review P3). Runs from before
+ * The limit a code run's member gets (TeamDO.aiUserLimit): 0 for someone who is not a member now or
+ * whose role holds no team.resources, so a removed or demoted member's automations stop at the next
+ * start or step (review P3). Runs from before
  * attribution count as UNATTRIBUTED_USER and get the team default.
  */
 export const codeRunLimit = (state: TeamState | undefined, rows: RowsWithScan | undefined, user: string): number => {
   if (user === "unattributed") return memberLimit(state, user).limit_usd
-  return state && memberOf(state, rows, user) ? memberLimit(state, user).limit_usd : 0
+  // A member whose role no longer uses the team (guest, billing only) gets 0 too (review P3).
+  return state && roleHas(memberOf(state, rows, user)?.role, "team.resources") ? memberLimit(state, user).limit_usd : 0
 }
 
 const PAGE = 200

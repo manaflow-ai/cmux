@@ -226,9 +226,11 @@ export class WrappedStep extends RpcTarget {
     const hash = Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("")
     let r: RecordResult
     try {
+      // The member's limit is read again at every step boundary, so a removed, demoted or lowered member stops at the next step (review P3).
+      const limitUsd = await this.#env.TEAM_DO.get(this.#env.TEAM_DO.idFromName(this.#run.team)).aiUserLimit(this.#run.team, this.#run.user)
       r = await record(this.#env, this.#run.team, [
         { key: `step:${this.#run.run}:${kind}:${hash}#${n}`, meter: "automation.steps", quantity: 1, source: "step", observed_at: Date.now(), run: this.#run.run, automation: this.#run.automation, step: name, commit: this.#run.ref.commit, user: this.#run.user }
-      ], memberLimit(this.#run))
+      ], { user: this.#run.user, limitMicros: userLimitMicros(limitUsd) })
     } catch (e) {
       const message = `usage meter unavailable: ${e instanceof Error ? e.message : String(e)}`
       if (inStep) throw new Error(message)

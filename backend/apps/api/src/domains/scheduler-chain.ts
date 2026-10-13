@@ -1,6 +1,6 @@
 import type { Principal, Reject, RowReader } from "@cmux/ownership"
 import type { Automation, Run } from "@cmux/protocol"
-import { keptRuns, runRowOf } from "./scheduler-rows.ts"
+import { automationRowOf, keptRuns, runRowOf } from "./scheduler-rows.ts"
 import type { SchedulerState } from "./scheduler.ts"
 
 /**
@@ -24,7 +24,7 @@ export const MAX_TREE_RUNS = 25
  * any run reached that way still belongs to a tree, and every tree is capped.
  */
 export const automationTrigger = (
-  state: Pick<SchedulerState, "automation_trees">,
+  state: Pick<SchedulerState, "automation_trees" | "charged_to">,
   rows: RowReader | undefined,
   p: Principal,
   target: Automation
@@ -51,6 +51,7 @@ export const automationTrigger = (
   if (used >= MAX_TREE_RUNS) return { ok: false, code: "automation.fanout", message: `one run and the runs it starts may start at most ${MAX_TREE_RUNS} runs` }
   trees[root] = used + 1
   // The child run is charged to whoever pays for the parent (cx-ds09i review P2).
-  const paying = (parent as { charged_user?: unknown }).charged_user
+  // A parent row from before charged_user: the parent automation's payer, then its creator (review P3).
+  const paying = (parent as { charged_user?: unknown }).charged_user ?? state.charged_to?.[parent.automation] ?? automationRowOf(rows, parent.automation)?.created_by
   return { trigger: { id: null, type: "automation", parent_run: parent.id, root_run: root, depth }, trees, ...(typeof paying === "string" ? { charged_user: paying } : {}) }
 }
