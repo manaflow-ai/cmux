@@ -487,6 +487,19 @@ export default agentPaneEntry({
           throw new Error("mark unread went to the host bridge");
       },
     },
+    "harness-health-acpmux": {
+      note: "Play: the chat's agent CLI health (cx-ny85) is read from acpmux on the pane's own connection (cx-jlzsf), never the host.",
+      ready: { transport: "mock" },
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      checks: mockDaemonFrames,
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] };
+        await chatMenuReady(ctx);
+        await ctx.waitFor(() => page.cmuxGalleryLog.some(({ method }) => method === "acpmux _acpmux/harness/health"));
+        if (page.cmuxGalleryLog.some(({ method }) => method === "harness.health"))
+          throw new Error("harness health went to the host bridge");
+      },
+    },
     "thought-row": {
       note: "Play: a long thought is one closed Thought row titled by its first line (cx-ncc.73, Codex parity); a click opens the full text.",
       snapshot: chat(
