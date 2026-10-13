@@ -52,15 +52,20 @@ final class LaggingCreateExecutor: ControlActionExecutor {
         #expect(reply["created"] == ["tab-new"], "\(reply)")
     }
 
-    /// The wait ends before the request's own deadline (2 s by default): a
-    /// created tab that never shows is left out, and the run still reports it ran.
+    /// The wait takes at most half of what is left of the request's own
+    /// deadline (2 s by default), so the reply has the rest to go out on a
+    /// loaded machine (cx-6ynqg): a created tab that never shows is left out,
+    /// and the run still reports it ran, with a quarter of the deadline to spare.
     @Test func aCreatedTabThatNeverShowsStillAnswersRanBeforeTheDeadline() async throws {
         let executor = LaggingCreateExecutor(appears: false)
         let router = ControlRouter(identity: testIdentity(), executor: executor)
         router.snapshots.publish { $0 = BrowserOpenSplitTests.snapshot() }
         executor.router.withLock { $0 = router }
+        let started = ContinuousClock.now
         let reply = try await router.handle(ControlRequest(id: "1", method: "action.run", params: ["action": "openBrowser"])).get()
+        let took = ContinuousClock.now - started
         #expect(reply["ran"] == true)
         #expect(reply["created"] == [], "\(reply)")
+        #expect(took < .milliseconds(1500), "the reply left \(.seconds(2) - took) of its 2 s deadline")
     }
 }

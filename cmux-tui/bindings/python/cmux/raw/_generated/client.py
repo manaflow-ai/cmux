@@ -633,6 +633,9 @@ class GeneratedClientMixin:
     def set_screen_pinned(self, screen: Id, pinned: bool) -> JsonValue:
         return self._invoke_command('set-screen-pinned', SetScreenPinnedRequest(screen=screen, pinned=pinned))
 
+    def set_session_icon(self, icon: Union[str, None], session_id: str) -> JsonValue:
+        return self._invoke_command('set-session-icon', SetSessionIconRequest(icon=icon, session_id=session_id))
+
     def set_size_counts(self, surface: Id, *, client: Union[int, None, MissingType] = MISSING, counts: Union[bool, None, MissingType] = MISSING, lease: Union[str, None, MissingType] = MISSING, participant: Union[str, None, MissingType] = MISSING, view: Union[str, None, MissingType] = MISSING) -> SetSizeCountsResult:
         return self._invoke_command('set-size-counts', SetSizeCountsRequest(surface=surface, client=client, counts=counts, lease=lease, participant=participant, view=view))
 
@@ -979,6 +982,7 @@ GeneratedClientMixin.set_ratio.__cmux_command__ = COMMANDS['set-ratio']
 GeneratedClientMixin.set_row_heights.__cmux_command__ = COMMANDS['set-row-heights']
 GeneratedClientMixin.set_screen_metadata.__cmux_command__ = COMMANDS['set-screen-metadata']
 GeneratedClientMixin.set_screen_pinned.__cmux_command__ = COMMANDS['set-screen-pinned']
+GeneratedClientMixin.set_session_icon.__cmux_command__ = COMMANDS['set-session-icon']
 GeneratedClientMixin.set_size_counts.__cmux_command__ = COMMANDS['set-size-counts']
 GeneratedClientMixin.set_size_policy.__cmux_command__ = COMMANDS['set-size-policy']
 GeneratedClientMixin.set_split_ratio.__cmux_command__ = COMMANDS['set-split-ratio']

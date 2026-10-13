@@ -52,7 +52,13 @@ import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
-import { createPaneQueryClient, followHarnessChanges, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
+import {
+  createPaneQueryClient,
+  followHarnessChanges,
+  useHarnessCatalog,
+  useHarnessesListed,
+  type HarnessCatalogSource,
+} from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
@@ -2434,6 +2440,8 @@ function AcpmuxPane() {
   const pickerCatalog = pickerState.catalog;
   // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
+  // acpmux answered with its harnesses: only then does an empty catalog mean none is installed.
+  const harnessesListed = useHarnessesListed();
   // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
@@ -2750,6 +2758,8 @@ function AcpmuxPane() {
   const rowsRef = useRef<readonly AcpmuxRow[]>([]);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
+  /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
+  const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   /// The composer's prompt, which dictation writes into.
@@ -3546,7 +3556,7 @@ function AcpmuxPane() {
         };
         // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
         setMessageMenuSource((rowId) =>
-          snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId) : undefined,
+          snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId, opensSideChat.current) : undefined,
         );
         // The harness switch runs on this client; one waiting on a connection runs now.
         switchPort = {
@@ -3777,6 +3787,7 @@ function AcpmuxPane() {
     (throughSeq) => ignoreFailure(callNative("chat.side", { throughSeq })),
     t,
   );
+  opensSideChat.current = sideChat !== undefined;
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     const copy = copyRow({ link, rows: snapshot.rows }, (text) => ignoreFailure(copyText(text)), t);
@@ -4596,6 +4607,8 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
+              harnessesListed={harnessesListed}
+              {...(newTab.harnessHintDismissed ? { harnessHintDismissed: true } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse").then(
