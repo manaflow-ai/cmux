@@ -13,16 +13,17 @@ import { userIdFor } from "../src/domains/user.ts"
 const ns = (testEnv as unknown as { CLOUD_DO: DurableObjectNamespace }).CLOUD_DO
 
 describe("Stack team webhook re-review fixes (cx-3bi.43)", { timeout: 60_000 }, () => {
-  it("P2: a team.deleted that Stack does not confirm yet changes nothing, is not recorded, and its re-check deletes the team later", async () => {
+  it("P2: a team.deleted that Stack does not confirm yet changes nothing, and its re-check deletes the team later", async () => {
     const t = await mirroredTeam()
     const id = `msg_${crypto.randomUUID().replace(/-/g, "")}`
     const first = await deliver("team.deleted", { id: t.stackTeam }, { id })
     expect(first.status).toBe(200)
     expect(first.body).toMatchObject({ ok: true, outcome: "team_delete_pending" })
     expect((await teamState(t.team)).team?.deleted_at).toBeUndefined()
-    // Not recorded: the same delivery again is processed, not a duplicate.
+    // Kept (cx-f5tk4): the same delivery again is a duplicate; the pending re-check row finishes the delete.
     const again = await deliver("team.deleted", { id: t.stackTeam }, { id })
-    expect(again.body.duplicate).toBeUndefined()
+    expect(again.body.duplicate).toBe(true)
+    expect((await inDO(teamStub(t.team), async (_i, st) => st.storage.sql.exec<{ type: string }>(`SELECT type FROM stack_team_recheck`).toArray())).map((r) => r.type)).toContain("team.deleted")
     // Stack finishes the deletion; the re-check keeps the team.deleted type and tombstones.
     t.w.teams.delete(t.stackTeam)
     await inDO(teamStub(t.team), async (_i, st) => st.storage.sql.exec(`UPDATE stack_team_recheck SET due_at = 0`))
