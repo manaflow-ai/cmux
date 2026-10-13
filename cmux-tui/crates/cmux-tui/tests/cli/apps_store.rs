@@ -23,6 +23,8 @@ struct Apps {
     dir: PathBuf,
     socket: PathBuf,
     session: String,
+    /// The daemon's `XDG_RUNTIME_DIR`; `None` runs it with none.
+    runtime: Option<PathBuf>,
 }
 
 impl Apps {
@@ -41,7 +43,7 @@ impl Apps {
             out = dir.join("resolved.jsonl").display(),
         );
         write_script(&dir.join("app-host"), &host);
-        Self { socket: dir.join("mux.sock"), session: format!("as-{name}"), dir }
+        Self { socket: dir.join("mux.sock"), session: format!("as-{name}"), dir, runtime: None }
     }
 
     fn command(&self, action: &str) -> Command {
@@ -54,11 +56,14 @@ impl Apps {
             .env("CMUX_APP_HOST_BIN", self.dir.join("app-host"))
             .env("CMUX_APP_SERVER_DIR", self.dir.join("servers"))
             .env("CMUX_APPS_FIRST_PARTY_DIR", self.dir.join("first-party"))
-            .env("CMUX_APPS_DIRS", self.dir.join("bundled"))
-            // A daemon with no login session (cx-9mmyz: rbx, containers, cron)
-            // has no runtime dir, and its `<state>/apps-tmp/<ns>` is too long
-            // for a socket path: app servers must still get a socket folder.
-            .env_remove("XDG_RUNTIME_DIR");
+            .env("CMUX_APPS_DIRS", self.dir.join("bundled"));
+        // By default a daemon with no login session (cx-9mmyz: rbx, containers,
+        // cron) has no runtime dir, and its `<state>/apps-tmp/<ns>` is too long
+        // for a socket path: app servers must still get a socket folder.
+        match &self.runtime {
+            Some(runtime) => command.env("XDG_RUNTIME_DIR", runtime),
+            None => command.env_remove("XDG_RUNTIME_DIR"),
+        };
         command
     }
 
@@ -325,6 +330,42 @@ fn host_link_get_answers_from_the_link_registration() {
         .unwrap();
     });
     assert_eq!(reply["value"]["hub_socket"], json!(hub), "{reply}");
+}
+
+/// With a runtime dir (a login session), a state path too long for a socket
+/// puts the app's socket folder under `$XDG_RUNTIME_DIR/cmux-apps`, a 0700
+/// folder; without one it goes under `/tmp/cmux-apps-<uid>` (cx-9mmyz).
+#[cfg(target_os = "linux")]
+#[test]
+fn app_socket_folder_uses_the_runtime_dir_else_a_per_user_tmp_folder() {
+    let mut apps = Apps::new("rundir");
+    let runtime = apps.dir.join("run");
+    std::fs::create_dir(&runtime).unwrap();
+    std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700)).unwrap();
+    apps.runtime = Some(runtime.clone());
+    write_probe_app(&apps);
+    apps.start();
+    ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+    let reply = apps.lines("link.jsonl", 1).swap_remove(0);
+    assert_eq!(reply["t"], json!("host.result"), "{reply}");
+    let socket_dir = PathBuf::from(reply["value"]["socket_dir"].as_str().unwrap());
+    assert_eq!(socket_dir.parent(), Some(runtime.join("cmux-apps").as_path()), "{reply}");
+    let meta = std::fs::symlink_metadata(&socket_dir).unwrap();
+    assert_eq!(meta.permissions().mode() & 0o777, 0o700, "{}", socket_dir.display());
+
+    let apps = Apps::new("notmp");
+    write_probe_app(&apps);
+    apps.start();
+    ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+    let reply = apps.lines("link.jsonl", 1).swap_remove(0);
+    assert_eq!(reply["t"], json!("host.result"), "{reply}");
+    let socket_dir = PathBuf::from(reply["value"]["socket_dir"].as_str().unwrap());
+    // SAFETY: geteuid has no preconditions.
+    let uid = unsafe { libc::geteuid() };
+    let parent = PathBuf::from(format!("/tmp/cmux-apps-{uid}"));
+    assert_eq!(socket_dir.parent(), Some(parent.as_path()), "{reply}");
+    let meta = std::fs::symlink_metadata(&parent).unwrap();
+    assert_eq!(meta.permissions().mode() & 0o777, 0o700, "{}", parent.display());
 }
 
 /// A registration that names a live process which does not serve the

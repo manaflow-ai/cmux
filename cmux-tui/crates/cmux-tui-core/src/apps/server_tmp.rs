@@ -148,7 +148,8 @@ fn shared_tmp(path: &Path) -> Result<(), String> {
     }
     // SAFETY: geteuid has no preconditions.
     let uid = unsafe { libc::geteuid() };
-    let sticky = meta.mode() & libc::S_ISVTX as u32 != 0;
+    // S_ISVTX; mode_t is u16 on some BSDs, so the bit is spelled out.
+    let sticky = meta.mode() & 0o1000 != 0;
     if (meta.uid() != 0 && meta.uid() != uid) || (meta.mode() & 0o022 != 0 && !sticky) {
         return Err(format!(
             "no runtime dir, and {} is not safe for a per-user folder (owner {}, mode {:o})",
