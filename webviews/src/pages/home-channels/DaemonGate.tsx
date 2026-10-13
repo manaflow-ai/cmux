@@ -14,11 +14,7 @@ type Phase =
   | { kind: "pairing"; code: string }
   | { kind: "ready"; daemon: DaemonSocket };
 
-export function DaemonGate({
-  url,
-  strings,
-  children,
-}: {
+export function DaemonGate({ url, strings, children }: {
   url: string;
   strings: Strings;
   children: (daemon: DaemonSocket) => ReactNode;
