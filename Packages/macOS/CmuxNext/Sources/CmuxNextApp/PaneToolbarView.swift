@@ -28,6 +28,8 @@ final class PaneToolbarView: NSView {
     private(set) var hasMore = false
     private(set) var buttons: [TitlebarBandButton] = []
     let moreButton = TitlebarBandButton(symbol: "ellipsis")
+    /// Hover over the pane's top-right corner reveals "…".
+    private(set) lazy var reveal = HoverReveal(region: self)
 
     override init(frame: NSRect) {
         super.init(frame: frame)

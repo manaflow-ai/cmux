@@ -43,6 +43,11 @@ final class PaneToolbar {
         view.moreMenu = { [weak self] in self?.moreMenu() }
     }
 
+    /// A bar whose "…" also offers `newTabMenu` (what opens in the pane).
+    convenience init(registry: @escaping () -> ActionRegistry?, newTabMenu: @escaping () -> NSMenu?) {
+        self.init(registry: registry, writeHidden: { _ in })
+    }
+
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
