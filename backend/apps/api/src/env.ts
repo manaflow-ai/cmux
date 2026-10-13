@@ -202,6 +202,8 @@ export interface Env {
   readonly HOME_INVITE_ALLOWED_INVITERS?: string
   /** Send switch, fail-closed: only "on" sends invites; unset or any other value sends nothing. */
   readonly HOME_INVITES_SEND?: string
+  /** Text channel switch, fail-closed: only "on" sends invite texts through SendBlue (home-text.ts). */
+  readonly HOME_INVITES_TEXT?: string
   /** Invite email sender, for example "cmux <invites@cmux.dev>" (the domain verified in Resend); unset = no email sends. */
   readonly HOME_INVITE_FROM?: string
   /** This Worker's name from wrangler.jsonc vars (cmux-api in production); with ENVIRONMENT it decides production behavior. */

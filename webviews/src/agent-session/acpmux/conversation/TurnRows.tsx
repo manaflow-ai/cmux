@@ -218,6 +218,7 @@ function TurnFailure({
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const kind = failureKind(message, route);
   const sentence = failureCopy(t, message, route);
   // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
@@ -228,8 +229,17 @@ function TurnFailure({
     <div className="cv-turn-note" data-failure-kind={kind}>
       <span className="text-fg">{sentence}</span>
       {message && sentence !== message && (
-        <details className="mt-0.5">
-          <summary className="cursor-pointer text-detail text-dim">{t("turn.failure.details")}</summary>
+        <details className="mt-0.5" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
+          {/* The chat's chevron, as on Worked for, not the browser's triangle. */}
+          <summary className="cv-turn-note__summary">
+            {t("turn.failure.details")}
+            <ChevronRight
+              size={12}
+              strokeWidth={1.2}
+              aria-hidden="true"
+              className={`cv-rotor${detailsOpen ? " is-open" : ""}`}
+            />
+          </summary>
           <span className="mt-1 block font-mono text-detail whitespace-pre-wrap text-dim select-text">{message}</span>
         </details>
       )}

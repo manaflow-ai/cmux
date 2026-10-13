@@ -257,7 +257,7 @@ final class AppControl {
             .async("debug.palette.entries") { [weak services] call in
                 try await DebugPaletteEntries.write(call.params, services: services)
             },
-            .mainActor("debug.mouse") { [weak services] call in
+            .mainActor("debug.omnibar_mouse") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugOmnibar.mouse(call.params, services: services))
             },
