@@ -44,20 +44,11 @@ nonisolated enum CEFClipShape {
         }
     }
 
-    /// Radius of a window's own corners: AppKit's value when it reports one
-    /// (`_cornerRadius`, private, read only when present), else the macOS 26
-    /// titled-window default. Zero in fullscreen and for borderless windows.
+    /// Radius of a window's own corners (`NSWindow.frameCornerRadius`).
     @MainActor
     static func windowCornerRadius(_ window: NSWindow) -> CGFloat {
-        if window.styleMask.contains(.fullScreen) || !window.styleMask.contains(.titled) { return 0 }
-        let selector = NSSelectorFromString("_cornerRadius")
-        if window.responds(to: selector), let value = window.value(forKey: "_cornerRadius") as? NSNumber {
-            return CGFloat(value.doubleValue)
-        }
-        return fallbackWindowCornerRadius
+        window.frameCornerRadius
     }
-
-    static let fallbackWindowCornerRadius: CGFloat = 16
 
     /// Rounded clips around `view`: every ancestor whose layer clips with a
     /// corner radius (the layout's pane clip), then the window's corners.
