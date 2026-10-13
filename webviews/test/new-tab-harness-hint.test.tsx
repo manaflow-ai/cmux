@@ -1,7 +1,9 @@
 // Integrate a harness on the New Tab page (Leo 2026-10-12): it must not show every time. With any
-// harness installed the page never offers it; with none, one quiet line under the field says so up
-// front, with Integrate a harness and a dismiss, and a dismissal sticks for every later page. Add
-// Harness stays reachable from the picker's +, Settings and the palette.
+// harness installed (acpmux lists it, even one it cannot run now) the page never offers it; with
+// none, once acpmux has answered, one quiet line under the field says so with Integrate a harness
+// and a dismiss. The dismissal goes to the app (`newTab.dismissHarnessHint`), which hands it back
+// to every later page, also after a relaunch. Add Harness stays reachable from the picker's +,
+// Settings and the palette.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -62,10 +64,9 @@ afterAll(() => {
 
 const noop = () => {};
 
-async function page(
-  catalog: AcpmuxSnapshot["catalog"],
-  options: { checking?: boolean; onAddHarness?: () => void } = {},
-) {
+type Options = { listed?: boolean; dismissed?: boolean; onAddHarness?: () => void; onDismiss?: () => void };
+
+async function page(catalog: AcpmuxSnapshot["catalog"], options: Options = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -83,7 +84,9 @@ async function page(
         onOpenSession={noop}
         onShowAll={noop}
         onAddHarness={options.onAddHarness ?? noop}
-        {...(options.checking ? { checkingHarnesses: true } : {})}
+        onDismissHarnessHint={options.onDismiss ?? noop}
+        harnessesListed={options.listed ?? true}
+        {...(options.dismissed ? { harnessHintDismissed: true } : {})}
       />,
     ),
   );
@@ -98,16 +101,21 @@ test("with a harness installed, the page never offers Integrate a harness", asyn
   expect(host.querySelector(".nt-add-harness")).toBeNull();
 });
 
-test("while the harnesses are still being listed, nothing is offered yet", async () => {
-  globalThis.localStorage.clear();
-  await page([], { checking: true });
+test("a harness acpmux lists but cannot run now still counts as installed", async () => {
+  const [first] = noChat().catalog;
+  await page([{ ...first!, unavailable: "opencode 0.3.1 is too old" }]);
   expect(hint()).toBeNull();
 });
 
-test("with none installed, one quiet line offers a harness up front, and a dismissal sticks", async () => {
-  globalThis.localStorage.clear();
+test("until acpmux has listed its harnesses, nothing is offered yet", async () => {
+  await page([], { listed: false });
+  expect(hint()).toBeNull();
+});
+
+test("with none installed, one quiet line offers a harness, and its dismissal goes to the app", async () => {
   let added = 0;
-  await page([], { onAddHarness: () => added++ });
+  let dismissed = 0;
+  await page([], { onAddHarness: () => added++, onDismiss: () => dismissed++ });
   const line = hint();
   expect(line).not.toBeNull();
   // One line: the words, Integrate a harness and a dismiss; no card.
@@ -117,8 +125,9 @@ test("with none installed, one quiet line offers a harness up front, and a dismi
   expect(added).toBe(1);
 
   await act(async () => line!.querySelector<HTMLButtonElement>("[data-dismiss-hint]")!.click());
+  expect(dismissed).toBe(1);
   expect(hint()).toBeNull();
-  // The next New Tab page stays quiet.
-  await page([]);
+  // The app hands the dismissal to the next New Tab page, which stays quiet.
+  await page([], { dismissed: true });
   expect(hint()).toBeNull();
 });
