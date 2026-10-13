@@ -110,9 +110,6 @@ final class MessageActionOverlay: UIView {
 
     /// Geometry and timing measured from iOS 26.3 Messages (see the parity notes in the PR).
     enum Metrics {
-        /// iOS 26.5: the lifted bubble and the menu keep 20 pt from the
-        /// screen edge (menu 170...420 on a 440 pt screen).
-        static let screenInset: CGFloat = 20
         static let barHeight: CGFloat = 64
         static let barCell: CGFloat = 49
         static let barPadding: CGFloat = 7.6
@@ -236,8 +233,9 @@ final class MessageActionOverlay: UIView {
         let neutralVeil: Bool
         if #available(iOS 27, *) { neutralVeil = mode == .menu } else { neutralVeil = false }
         dim.backgroundColor = UIColor {
-            // iOS 27 Messages: a neutral veil, white -> 204 and black stays 0.
-            if neutralVeil { return UIColor.black.withAlphaComponent(0.2) }
+            // iOS 27 Messages: a neutral veil, white -> 204 and black stays 0;
+            // deeper in dark.
+            if neutralVeil { return UIColor.black.withAlphaComponent(MessageMenuGeometry.neutralVeilAlpha(dark: $0.userInterfaceStyle == .dark)) }
             return $0.userInterfaceStyle == .dark
                 ? (detail ? UIColor.black.withAlphaComponent(0.5)
                     : light ? UIColor(red: 0.08, green: 0.08, blue: 0.16, alpha: 0.08)
@@ -368,7 +366,7 @@ final class MessageActionOverlay: UIView {
                 content.addSubview(glyph)
                 content.addSubview(avatar)
             }
-            let width = min(CGFloat(reactors.count) * column.width, bounds.width - Metrics.screenInset * 2)
+            let width = min(CGFloat(reactors.count) * column.width, bounds.width - screenInset * 2)
             detailCard.bounds = CGRect(x: 0, y: 0, width: width, height: column.height)
             content.frame = detailCard.bounds
             content.contentSize = CGSize(width: CGFloat(reactors.count) * column.width, height: column.height)
@@ -414,6 +412,12 @@ final class MessageActionOverlay: UIView {
         return CGSize(width: Metrics.menuWidth, height: height)
     }
 
+    /// The lifted bubble and the menu keep the system's minimum side margin
+    /// (`MessageMenuGeometry`): 16 pt on a 402 pt iPhone, 20 pt on a 440 pt one.
+    private var screenInset: CGFloat {
+        window?.rootViewController?.systemMinimumLayoutMargins.leading ?? CGFloat(MessageMenuGeometry.defaultScreenInset)
+    }
+
     private var barContentWidth: CGFloat {
         CGFloat(reactionButtons.count) * Metrics.barCell + Metrics.barPadding * 2
     }
@@ -422,8 +426,8 @@ final class MessageActionOverlay: UIView {
     /// the screen inset the way Messages keeps a lifted bubble on screen.
     private func liftedFrame(for rest: CGRect) -> (center: CGPoint, frame: CGRect) {
         let size = CGSize(width: rest.width * previewScale, height: rest.height * previewScale)
-        let lo = Metrics.screenInset + size.width / 2
-        let hi = bounds.width - Metrics.screenInset - size.width / 2
+        let lo = screenInset + size.width / 2
+        let hi = bounds.width - screenInset - size.width / 2
         let x = lo <= hi ? min(max(rest.midX, lo), hi) : rest.midX
         let center = CGPoint(x: x, y: rest.midY)
         return (center, CGRect(x: center.x - size.width / 2, y: center.y - size.height / 2, width: size.width, height: size.height))
@@ -496,8 +500,8 @@ final class MessageActionOverlay: UIView {
             )
         }
         let menuY = min(preview.maxY + Metrics.menuGap, bounds.height - safe.bottom - menuSize.height - 8)
-        let menuX = isOutgoing ? preview.maxX - menuSize.width : preview.minX
-        menu.frame = CGRect(x: min(max(Metrics.screenInset, menuX), bounds.width - Metrics.screenInset - menuSize.width), y: menuY, width: menuSize.width, height: menuSize.height)
+        let menuX = MessageMenuGeometry.menuX(previewMinX: preview.minX, previewMaxX: preview.maxX, isOutgoing: isOutgoing, width: bounds.width, menuWidth: menuSize.width, inset: screenInset)
+        menu.frame = CGRect(x: menuX, y: menuY, width: menuSize.width, height: menuSize.height)
         menuStack.frame = menu.bounds.insetBy(dx: 0, dy: Metrics.menuVerticalInset)
     }
 

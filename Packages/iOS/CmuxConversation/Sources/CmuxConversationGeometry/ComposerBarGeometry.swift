@@ -61,6 +61,17 @@ public enum ComposerBarGeometry {
     /// shown at 22 pt): five capsules 2 pt wide on a 4 pt pitch, 4, 8, 16,
     /// 8 and 4 pt tall, centered in a 22 pt square.
     public static let recordGlyphSide: CGFloat = 22
+
+    /// The record glyph sits on the "+" row: centered 20 pt above the
+    /// field's bottom (the plus's center) and 21 pt in from its end, on the
+    /// pixel grid (Messages 27: field 516.7...557, glyph 526...548).
+    public static func recordGlyphFrame(fieldBottom: CGFloat, fieldTrailing: CGFloat, scale: CGFloat) -> CGRect {
+        let scale = max(1, scale)
+        let side = recordGlyphSide
+        let minY = ((fieldBottom - plusDiameter / 2 - side / 2) * scale).rounded() / scale
+        let minX = ((fieldTrailing - 21 - side / 2) * scale).rounded() / scale
+        return CGRect(x: minX, y: minY, width: side, height: side)
+    }
     public static let recordGlyphBars: [CGRect] = [4, 8, 16, 8, 4].enumerated().map { index, height in
         CGRect(x: 2 + 4 * CGFloat(index), y: (recordGlyphSide - height) / 2, width: 2, height: height)
     }
@@ -116,4 +127,20 @@ public enum ComposerBarGeometry {
         return ((value * scale) - 1e-6).rounded(.up) / scale
     }
 
+}
+
+/// New Message's To: add button, as Messages draws it (ContactsUI's
+/// CNComposeRecipientActionButton, iOS 26.5 and 27.0): SF Symbols'
+/// `plus.circle.fill` at the Title 1 text style (32.67 pt at Large), label
+/// over secondarySystemFill, centered 25.35 pt from the capsule's trailing
+/// edge and 16 pt above the last line's bottom.
+public enum ComposeRecipientAddGeometry {
+    public static let symbolName = "plus.circle.fill"
+    public static let textStyleName = "title1"
+    public static let centerFromTrailing: CGFloat = 9 + 32.7 / 2
+    public static let centerAboveLineBottom: CGFloat = 16
+
+    public static func frame(fieldWidth: CGFloat, lineBottom: CGFloat, side: CGFloat) -> CGRect {
+        CGRect(x: fieldWidth - centerFromTrailing - side / 2, y: lineBottom - centerAboveLineBottom - side / 2, width: side, height: side)
+    }
 }

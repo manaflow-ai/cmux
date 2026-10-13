@@ -148,8 +148,9 @@ public enum PhotoDrawerGeometry {
     /// over the system picker.
     public static let grabberStripHeight: CGFloat = 20
 
-    /// The picker's selection limit ("Select up to 50 items").
-    public static let selectionLimit = 50
+    /// The picker's selection limit: "Select up to 50 items." in Messages
+    /// 27, "Select up to 20 items." in Messages 26.5.
+    public static func selectionLimit(iOS27: Bool) -> Int { iOS27 ? 50 : 20 }
 
     /// The composer's bottom constraint (below the safe area's bottom,
     /// `safeBottom`) for a sheet whose top is at `sheetTop`: its field rides
