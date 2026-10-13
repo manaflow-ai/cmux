@@ -58,8 +58,9 @@ struct AgentPanePostedClickTests {
     /// While the person types, a click another process posts on Allow must not spend the typing's
     /// gesture: an allow needs the person's own click (or permission shortcut) from just now.
     @Test func aTypingGestureNeverAnswersAPermissionAndAnOldClickExpires() {
-        var clock: TimeInterval = 100
-        let gestures = AgentPaneUserGestures(now: { clock })
+        final class Clock { var now: TimeInterval = 100 }
+        let clock = Clock()
+        let gestures = AgentPaneUserGestures(now: { clock.now })
         gestures.record(click: false)
         #expect(!AcpmuxPaneMethods.answerAllowed("_acpmux/permission_respond", gestures),
                 "a keystroke's gesture answered a permission prompt")
@@ -67,7 +68,7 @@ struct AgentPanePostedClickTests {
         #expect(AcpmuxPaneMethods.answerAllowed("session/prompt", gestures), "a send still uses the typing gesture")
         gestures.record(click: true)
         #expect(AcpmuxPaneMethods.answerAllowed("_acpmux/permission_respond", gestures), "the person's click did not answer")
-        clock += AgentPaneUserGestures.answerWindow + 0.5
+        clock.now += AgentPaneUserGestures.answerWindow + 0.5
         #expect(!AcpmuxPaneMethods.answerAllowed("_acpmux/permission_respond", gestures), "an old click still answered")
     }
 }
