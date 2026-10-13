@@ -63,6 +63,8 @@ final class DiffViewModel {
     func load() async {
         generation += 1
         let token = generation
+        resolver?.cancel()
+        resolver = nil
         if files.isEmpty { phase = .loading }
         do {
             let payload = try await loader()
@@ -87,7 +89,8 @@ final class DiffViewModel {
             expandedGaps = [:]
             contents = [:]
             phase = .loaded
-            await resolveTrailingGaps(token: token)
+            // In the background: a refresh doesn't wait for these reads.
+            resolver = Task { [weak self] in await self?.resolveTrailingGaps(token: token) }
         } catch is CancellationError {
             return
         } catch {
@@ -135,39 +138,51 @@ final class DiffViewModel {
             return !DiffRenderer.reachesEndOfFile(file, last: last)
         }
         for file in ambiguous.prefix(Self.trailingGapReads) {
-            guard token == generation, contents[file.index] == nil,
-                  let text = try? await contextLoader(file.path), token == generation else { continue }
-            contents[file.index] = await Task.detached { DiffRenderer.contentLines(text) }.value
-            await rerender(file)
+            guard !Task.isCancelled, token == generation else { return }
+            // An expand of this file reads it too; let that one win.
+            guard contents[file.index] == nil, !expanding.contains(file.index),
+                  let text = try? await contextLoader(file.path) else { continue }
+            let lines = await Task.detached { DiffRenderer.contentLines(text) }.value
+            guard !Task.isCancelled, token == generation, contents[file.index] == nil else { return }
+            contents[file.index] = lines
+            await rerender(file, token: token)
         }
     }
 
     static let trailingGapReads = 12
+    private var resolver: Task<Void, Never>?
 
     /// Expands the hidden lines before hunk `gap` (or after the last hunk).
     func expand(_ file: DiffFile, gap: Int) async {
         guard let contextLoader, !expanding.contains(file.index) else { return }
+        let token = generation
         expanding.insert(file.index)
         defer { expanding.remove(file.index) }
         if contents[file.index] == nil {
             do {
                 let text = try await contextLoader(file.path)
-                contents[file.index] = await Task.detached { DiffRenderer.contentLines(text) }.value
+                let lines = await Task.detached { DiffRenderer.contentLines(text) }.value
+                // A reload since then may have put another file at this index.
+                guard token == generation else { return }
+                contents[file.index] = lines
             } catch {
                 return
             }
         }
         expandedGaps[file.index, default: []].insert(gap)
-        await rerender(file)
+        await rerender(file, token: token)
     }
 
-    private func rerender(_ file: DiffFile) async {
+    /// `token`: the load this render belongs to; a newer load drops it.
+    private func rerender(_ file: DiffFile, token: Int? = nil) async {
+        let token = token ?? generation
         let lines = contents[file.index]
         let gaps = expandedGaps[file.index] ?? []
         let canExpand = contextLoader != nil
         let result = await Task.detached(priority: .userInitiated) {
             DiffRenderer.render(file, contents: lines, expanded: gaps, canExpand: canExpand)
         }.value
+        guard token == generation else { return }
         rendered[file.index] = result
     }
 }

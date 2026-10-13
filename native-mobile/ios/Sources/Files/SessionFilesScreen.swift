@@ -34,6 +34,11 @@ struct SessionFilesScreen: View {
 
     var body: some View {
         tabContent
+            // Browse starts in the working directory; the title menu climbs
+            // to its parents, like a pushed folder's (Files app pattern).
+            // Only the tab content carries it: an empty menu still shows a
+            // chevron, and switching tabs replaces this content anyway.
+            .modifier(BrowseParentsMenu(path: tab == .browse ? cwd : nil))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(Theme.background)
             .safeAreaBar(edge: .top) {
@@ -50,9 +55,6 @@ struct SessionFilesScreen: View {
             .navigationDestination(for: FilesDestination.self) { destination in
                 destinationView(destination)
             }
-            // Browse starts in the working directory; the title menu climbs
-            // to its parents, like a pushed folder's (Files app pattern).
-            .modifier(BrowseParentsMenu(path: tab == .browse ? cwd : nil))
             .sheet(item: $safariURL) { item in
                 SafariView(url: item.url).ignoresSafeArea()
             }

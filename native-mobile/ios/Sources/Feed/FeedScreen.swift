@@ -385,7 +385,7 @@ struct FeedPostView: View {
     }
 
     private var canSendReply: Bool {
-        !replyText.trimmingCharacters(in: .whitespaces).isEmpty && !sending
+        !replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !sending
     }
 
     private func sendReply() {
@@ -431,7 +431,7 @@ struct FeedPostView: View {
             }
             .buttonStyle(.plain)
             .disabled(!canSendReply)
-            .opacity(replyText.trimmingCharacters(in: .whitespaces).isEmpty ? 0.4 : 1)
+            .opacity(replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.4 : 1)
             .accessibilityIdentifier("feed.replySend")
         }
         .overlay(alignment: .bottomLeading) {

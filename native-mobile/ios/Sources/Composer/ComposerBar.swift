@@ -110,7 +110,9 @@ struct ComposerBar: View {
                 // line): Return sends like ChatGPT and Claude on iPad, Shift-
                 // Return adds a line, and an empty field presses Enter.
                 .onKeyPress(.return, phases: .down) { press in
-                    guard !press.modifiers.contains(.shift), !model.isSending else { return .ignored }
+                    guard !press.modifiers.contains(.shift) else { return .ignored }
+                    // Mid-upload, Return does nothing (not a newline in the draft).
+                    guard !model.isSending else { return .handled }
                     if model.canSend {
                         model.startSend(to: session, services: services)
                     } else {

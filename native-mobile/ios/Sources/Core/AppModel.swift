@@ -116,7 +116,10 @@ final class AppModel {
                 hostsLoaded = true
                 hostsError = nil
                 UserDefaults.standard.set(try? JSONEncoder().encode(loaded), forKey: "cachedHosts")
-                if connection == nil, let host = loaded.launchHost(selectedID: selectedHostID) {
+                // The cached list's online flags can be stale: an automatic
+                // pick that isn't connected moves to a Mac that is online now.
+                if let host = loaded.autoSwitch(selectedID: selectedHostID, currentID: connection?.host.id,
+                                                currentConnected: connection?.phase == .connected) {
                     connect(host, remember: false)
                 }
                 return
@@ -171,7 +174,8 @@ final class AppModel {
         guard let host = connection?.host else { return }
         connection?.stop()
         connection = nil
-        connect(host)
+        // Recovery is not a choice: keep whatever the user picked (or didn't).
+        connect(host, remember: false)
     }
 
     /// `remember: false` for automatic picks, so only a Mac the user chose
@@ -241,5 +245,14 @@ extension [APIClient.Host] {
     /// listed first would otherwise sit on "Reconnecting…".
     func launchHost(selectedID: String?) -> APIClient.Host? {
         first { $0.id == selectedID } ?? first { $0.online == true } ?? first
+    }
+
+    /// After a fresh list: the Mac to switch to, or nil to stay. A Mac the
+    /// user picked, or one that is connected, stays.
+    func autoSwitch(selectedID: String?, currentID: String?, currentConnected: Bool) -> APIClient.Host? {
+        guard let currentID else { return launchHost(selectedID: selectedID) }
+        if currentConnected || contains(where: { $0.id == selectedID }) { return nil }
+        guard let best = launchHost(selectedID: nil), best.id != currentID else { return nil }
+        return best
     }
 }

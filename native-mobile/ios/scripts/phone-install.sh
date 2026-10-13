@@ -29,7 +29,10 @@ rsync -az --delete --exclude .build "$ROOT/native-mobile/" "$HOST:cmux-native-az
 rsync -az --delete "$ROOT/Packages/Shared/CmuxGhosttyKit/" "$HOST:cmux-native-aziz/work/Packages/Shared/CmuxGhosttyKit/"
 ssh "$HOST" 'set -e; cd ~/cmux-native-aziz/work/native-mobile/ios
   xcodebuild -project CmuxNative.xcodeproj -scheme CmuxNative -configuration Release -destination generic/platform=iOS \
-    -derivedDataPath ~/cmux-native-aziz/dd-ios-dev CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)" | tail -5
+    -derivedDataPath ~/cmux-native-aziz/dd-ios-dev CODE_SIGNING_ALLOWED=NO build > /tmp/cmux-native-release.log 2>&1 || true
+  grep -E "error:|BUILD (SUCCEEDED|FAILED)" /tmp/cmux-native-release.log | tail -5
+  # A failed build must not ship the previous app.
+  grep -q "BUILD SUCCEEDED" /tmp/cmux-native-release.log
   cd ~/cmux-native-aziz/dd-ios-dev/Build/Products/Release-iphoneos && rm -f /tmp/CmuxNative-unsigned.zip && ditto -c -k --keepParent CmuxNative.app /tmp/CmuxNative-unsigned.zip'
 scp -q "$HOST:/tmp/CmuxNative-unsigned.zip" "$WORK/app.zip"
 ditto -x -k "$WORK/app.zip" "$WORK"

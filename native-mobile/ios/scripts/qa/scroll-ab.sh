@@ -9,7 +9,7 @@ HOST="${CMUX_NATIVE_BUILD_HOST:-mini-cmux12s-mac-mini}"
 SIM="${CMUX_NATIVE_SIM_ID:?set CMUX_NATIVE_SIM_ID}"
 AXE="${CMUX_NATIVE_AXE:-~/cmux-native-aziz/axe/axe}"
 ssh "$HOST" "U=$SIM; A=$AXE; xcrun simctl launch --terminate-running-process \$U dev.cmux.next.native.dev -push.prePromptAnswered YES -terminal.scrollSync $MODE >/dev/null
-  until \$A describe-ui --udid \$U 2>/dev/null | grep -q composer.text; do sleep 1; done
+  for i in \$(seq 1 60); do \$A describe-ui --udid \$U 2>/dev/null | grep -q composer.text && break; [ \$i = 60 ] && { echo 'no terminal open after 60s' >&2; exit 1; }; sleep 1; done
   rm -f /tmp/cmux-native-ab.mp4; xcrun simctl io \$U recordVideo --codec h264 --force /tmp/cmux-native-ab.mp4 >/dev/null 2>&1 & R=\$!; sleep 2
   \$A swipe --start-x 200 --start-y 250 --end-x 200 --end-y 650 --duration 0.25 --udid \$U >/dev/null; sleep 1.5
   \$A swipe --start-x 200 --start-y 300 --end-x 200 --end-y 500 --duration 0.6 --udid \$U >/dev/null; sleep 1.5
