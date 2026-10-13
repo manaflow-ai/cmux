@@ -41,7 +41,8 @@ os.makedirs(opts.out, exist_ok=True)
 if not opts.socket and not opts.tag:
     parser.error("--tag or --socket is required")
 SOCKET = opts.socket or f"/tmp/cmux-debug-{opts.tag}.sock"
-URL = "data:text/html,<title>omnibar</title><p>omnibar pointer check</p>"
+URL = "https://example.com/"
+URL2 = "https://example.org/"
 failures = []
 
 
@@ -223,11 +224,11 @@ try:
     if bar and page:
         mouse("move", center(bar))
         wait_for(lambda: pointer().get("bar_hovering"), "bar hover before the switch", 5)
-        print("second tab", rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": URL + "2"}, "focus": True}), flush=True)
-        wait_for(lambda: (omnibar().get("text") or "").endswith("2"), "the second tab shows", 30)
+        print("second tab", rpc("action.run", {"action": "openBrowser.webkit", "args": {"url": URL2}, "focus": True}), flush=True)
+        wait_for(lambda: "example.org" in (omnibar().get("text") or ""), "the second tab shows", 30)
         mouse("move", page)
         rpc("action.run", {"action": "prevSurface", "focus": True})
-        wait_for(lambda: not (omnibar().get("text") or "").endswith("2"), "the first tab shows again", 30)
+        wait_for(lambda: "example.com" in (omnibar().get("text") or ""), "the first tab shows again", 30)
         check(not pointer().get("bar_hovering") and not pointer().get("hovered_buttons"),
               f"no hover left on the tab shown again: {pointer()}")
 
