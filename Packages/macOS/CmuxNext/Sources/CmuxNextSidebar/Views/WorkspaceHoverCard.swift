@@ -14,9 +14,11 @@ import CmuxNextWakeups
 /// card hides; nothing is sampled while no card is pending or shown.
 final class WorkspaceHoverCardController: HoverCardSource {
     let resources = ResourceCardSampler(source: nil)
-    /// Hover time before the first card: none, the card shows on the first
-    /// hit (Leo 2026-10-08); moving down the list slides it over.
-    var delay: Duration = .zero
+    /// Hover time before a card shows: a native-tooltip dwell (Leo
+    /// 2026-10-13), so a sweep down the list shows none and leaving a row
+    /// cancels its pending card. Once a card shows, moving down the list
+    /// slides it over.
+    var delay: Duration { .milliseconds(Int((MotionTunables.hoverCardDwell.value * 1_000).rounded())) }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
     var coordinator: HoverCardCoordinator {
