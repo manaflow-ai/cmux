@@ -54,6 +54,7 @@ public struct Metrics {
     public static var sidebarHeaderHeight: CGFloat { MetricTunables.sidebarHeaderHeight.value }
 
     public static var tabHeight: CGFloat { MetricTunables.tabHeight.value }
+    public static var controlHeight: CGFloat { MetricTunables.controlHeight.value }
     public static var tabMaxWidth: CGFloat { MetricTunables.tabMaxWidth.value }
     /// Icon-only width (pinned tabs and fully shrunk tabs).
     public static var tabMinWidth: CGFloat { MetricTunables.tabMinWidth.value }

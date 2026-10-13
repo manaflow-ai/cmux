@@ -47,6 +47,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page is agent history (Show Agent History, `agentHistory.show`, cx-zlnl), every chat on this
     /// device with nothing to type; nil is the New Tab page.
     public var history: Bool?
+    /// true: Integrate a harness was dismissed for good (`newTab.remember` `harnessHint: "dismissed"`); nil offers it
+    /// when no harness is installed.
+    public var harnessHintDismissed: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],

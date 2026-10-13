@@ -327,9 +327,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// nil (Catalyst, iOS, captures): every width change runs it at once, as before.
     var widthFrameScheduler: ((@escaping () -> Void) -> Void)?
     /// A width pass ran in this display frame (cleared by the next frame's tick).
-    private var widthPassInFrame = false
+    private(set) var widthPassInFrame = false
     /// Main-thread seconds of this display frame's width passes (cleared by the next frame's tick).
-    private var widthPassCostInFrame: CFTimeInterval = 0
+    /// Counted only while a frame is open (`widthPassInFrame`): a pass that opens no frame (the
+    /// first layout after launch, a pass without a scheduler) scheduled no tick to clear it, and its
+    /// cost made the first live-resize frame defer its second width change (hq-6d review of 2c240f5).
+    /// Read by the self-test.
+    private(set) var widthPassCostInFrame: CFTimeInterval = 0
     /// A later width change in a frame still runs its pass at once while the frame's passes (with
     /// the layout, restore and bitmap reflow each caused) took less than this; only a frame whose passes cost more defers the next one to the next tick.
     /// Live resize of the Instinct window (cx-3cb resize-pace, drained takes 2026-10-12, main
@@ -380,6 +384,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 if widthChanged, !captureMode, let schedule = widthFrameScheduler {
                     if !widthPassInFrame {
                         widthPassInFrame = true
+                        widthPassCostInFrame = 0
                         schedule { [weak self] in self?.widthTick() }
                     }
                 }
@@ -391,7 +396,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         restore(anchor)
         RowCell.flushReflow()
         // The frame's pass cost: the pass and the layout, restore and bitmap reflow it caused.
-        if let t0 = passStart { widthPassCostInFrame += CACurrentMediaTime() - t0; passStart = nil }
+        if let t0 = passStart { if widthPassInFrame { widthPassCostInFrame += CACurrentMediaTime() - t0 }; passStart = nil }
         // The fills follow the new height (cells made later get it in decorate).
         let span = fillSpan
         for case let cell as RowCell in collection.visibleCells { cell.fillSpan = span }
