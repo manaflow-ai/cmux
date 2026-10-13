@@ -17,18 +17,27 @@ struct CloudPrivateRouteSelectionTests {
             deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker
         ))
         #expect(!CloudMachineLinkManager.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: "stored-device"))
-        #expect(CloudMachineLinkManager.browserProxyCanPrepareRoute(
+        #expect(CloudMachineLinkManager.canPrepareFirstAttachRoute(
             deviceFingerprint: nil,
             privateAddresses: ["10.0.0.7"]
         ))
-        #expect(!CloudMachineLinkManager.browserProxyCanPrepareRoute(
+        #expect(!CloudMachineLinkManager.canPrepareFirstAttachRoute(
             deviceFingerprint: nil,
             privateAddresses: []
         ))
-        #expect(!CloudMachineLinkManager.browserProxyCanPrepareRoute(
+        #expect(!CloudMachineLinkManager.canPrepareFirstAttachRoute(
             deviceFingerprint: "stored-device",
             privateAddresses: ["10.0.0.7"]
         ))
+    }
+
+    @Test("A legacy create receipt seeds its fallback route after trust admission")
+    func legacyCreateReceiptSeedsRouteAfterTrustAdmission() async {
+        let links = manager()
+        await links.setPrivateAddresses(["10.0.0.7"], for: "vm-test")
+        await links.markTrustedCarrier(machineID: "vm-test")
+
+        #expect(await links.privateRoute(for: "vm-test") == "ws://10.0.0.7:1337/v1/link")
     }
 
     private final class RefreshState: @unchecked Sendable {
