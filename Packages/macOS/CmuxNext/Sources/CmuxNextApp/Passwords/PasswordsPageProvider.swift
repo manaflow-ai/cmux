@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextBrowserImport
 import CmuxNextCompat
 import CmuxNextPages
 import CmuxNextSettings
@@ -127,6 +128,10 @@ final class PasswordsPageProvider: PageProvider {
                 "passwords": .bool(capabilities.passwords), "passkeys": .bool(capabilities.passkeys),
                 "exceptions": .bool(capabilities.exceptions), "export": .bool(capabilities.export),
                 "exportOff": .bool(!allowExport()),
+                // Import from Browser… reads other browsers' data; a build that compiles those reads
+                // out (CMUX_NO_BROWSER_DATA_IMPORT) ships no sources, and the page hides that button
+                // (Import from Another Browser… stays). cx-d0d.65.
+                "browserImport": .bool(!BrowserSourceRegistry.shared.browsers.isEmpty),
             ],
         ]
     }
