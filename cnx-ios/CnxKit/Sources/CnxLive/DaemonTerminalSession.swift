@@ -240,7 +240,16 @@ public final class DaemonTerminalSession: TerminalSession {
                     log.error("\(cmd, privacy: .public) failed: \(error, privacy: .public)")
                 }
             } catch {
+                // The channel failed under the request (a dead link): keep the
+                // keystrokes for the reattach instead of dropping them.
                 lastError = LinkController.reason(error)
+                if self.client === client {
+                    self.client = nil
+                    attached = false
+                }
+                outbox.insert(next, at: 0)
+                draining = false
+                return
             }
             draining = false
             drain()

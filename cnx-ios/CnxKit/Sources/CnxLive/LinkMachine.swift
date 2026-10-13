@@ -1,3 +1,4 @@
+import struct CnxModel.MacDevice
 import CnxTransport
 import Foundation
 
@@ -176,5 +177,21 @@ extension LinkPathKind {
         case .relay: "relay"
         case .turn: "TURN"
         }
+    }
+}
+
+extension LinkMachine {
+    /// The Mac to dial: the remembered one, else the one already linked, else
+    /// any, each online first. When the linked Mac goes offline and no other
+    /// is online, the target stays on it: "cnx mini is offline", then a redial
+    /// when it is back. (Falling back to the list's first Mac named a Mac
+    /// last seen hours ago in the offline banner.)
+    public static func target(in macs: [MacDevice], remembered: String?, current: String?) -> MacDevice? {
+        macs.first { $0.id == remembered && $0.isOnline }
+            ?? macs.first { $0.id == current && $0.isOnline }
+            ?? macs.first(where: \.isOnline)
+            ?? macs.first { $0.id == remembered }
+            ?? macs.first { $0.id == current }
+            ?? macs.first
     }
 }

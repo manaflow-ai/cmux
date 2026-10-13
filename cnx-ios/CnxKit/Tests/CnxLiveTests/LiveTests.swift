@@ -618,3 +618,45 @@ final class Seen: @unchecked Sendable {
     func append(_ value: Bool) { lock.withLock { stored.append(value) } }
     var values: [Bool] { lock.withLock { stored } }
 }
+
+@Suite struct MacTargetTests {
+    let e2e = MacDevice(id: "e2e", name: "cnx e2e mini", isOnline: false)
+    let stale = MacDevice(id: "stale", name: "cmux mini", isOnline: false)
+
+    /// The linked Mac went offline and no other is online: keep it (the
+    /// banner names it), not the first Mac of the list.
+    @Test func keepsTheLinkedMacWhenItGoesOffline() {
+        #expect(LinkMachine.target(in: [stale, e2e], remembered: nil, current: "e2e")?.id == "e2e")
+    }
+
+    @Test func prefersOnlineThenRememberedThenLinked() {
+        var online = stale
+        online.isOnline = true
+        #expect(LinkMachine.target(in: [online, e2e], remembered: nil, current: "e2e")?.id == "stale")
+        #expect(LinkMachine.target(in: [stale, e2e], remembered: "stale", current: "e2e")?.id == "stale")
+        #expect(LinkMachine.target(in: [stale, e2e], remembered: nil, current: nil)?.id == "stale")
+        #expect(LinkMachine.target(in: [], remembered: nil, current: nil) == nil)
+    }
+}
+
+@Suite struct ProbeRaceTests {
+    /// A ping that ignores cancellation (the FFI ping on a link the Mac
+    /// already dropped) must not hold the probe past its timeout.
+    @Test func timeoutWinsOverAnUncancellablePing() async {
+        let start = ContinuousClock.now
+        let result = await LinkController.race(timeout: .milliseconds(50), clock: ContinuousClock()) {
+            await withCheckedContinuation { continuation in
+                DispatchQueue.global().asyncAfter(deadline: .now() + 2) { continuation.resume() }
+            }
+            return 7
+        }
+        #expect(ContinuousClock.now - start < .seconds(1))
+        guard case .failure(let error) = result else { Issue.record("expected a timeout"); return }
+        #expect((error as? LinkError)?.code == "timeout")
+    }
+
+    @Test func pingWinsWhenItAnswers() async {
+        let result = await LinkController.race(timeout: .seconds(5), clock: ContinuousClock()) { 3 }
+        #expect((try? result.get()) == 3)
+    }
+}

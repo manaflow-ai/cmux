@@ -218,10 +218,10 @@ public final class LiveCoordinator {
     private func retarget() {
         guard let team = store.activeTeam, registeredTeamID == team.id else { return }
         let remembered = UserDefaults.standard.string(forKey: "cnx.live.mac.\(team.id)")
-        let mac = team.macs.first { $0.id == remembered && $0.isOnline } ?? team.macs.first(where: \.isOnline)
-            ?? team.macs.first { $0.id == remembered } ?? team.macs.first
+        let mac = LinkMachine.target(in: team.macs, remembered: remembered, current: link.target?.macID)
         link.send(.target(mac.map { LinkMachine.Target(macID: $0.id, name: $0.name, isOnline: $0.isOnline) }))
     }
+
 
     public func select(macID: String) {
         guard let team = store.activeTeam else { return }
@@ -319,6 +319,7 @@ public final class LiveCoordinator {
 
     /// App foreground: probe or redial the link and the presence socket.
     public func foreground() {
+        log.info("foreground: \(String(describing: self.link.phase), privacy: .public)")
         presence?.kick()
         if discoveryTask != nil { startDiscovery() }
         link.send(.foreground)
