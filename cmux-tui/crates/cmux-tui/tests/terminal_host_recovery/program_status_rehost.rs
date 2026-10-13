@@ -70,8 +70,10 @@ fn program_status_records_survive_a_host_replacement_then_a_daemon_restart() {
 }
 
 /// cx-6so.36.11: the reconnect to the replacement host replays its screen
-/// into the daemon's mirror. A prompt mark in that replay must not end the
-/// records the program reported after it: the program still waits.
+/// into the daemon's mirror, through the parser that feeds the live records.
+/// The screen held a prompt mark (OSC 133;A) before the program's report;
+/// the replay must not end the record: the program still waits. (The VT
+/// replay carries no OSC 133 marks today; this keeps it so.)
 #[test]
 fn a_prompt_mark_in_the_reconnect_replay_keeps_a_waiting_programs_record() {
     let _exclusive = exclusive_process_test();
