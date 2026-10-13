@@ -433,15 +433,18 @@ jobs:
           echo "owner_run_id=$owner_run_id" >> "$GITHUB_OUTPUT"
           echo "tree_ready=$tree_ready" >> "$GITHUB_OUTPUT"
 
-          # A cmux-tui-pin-* push also repairs a tree's Windows daemon
-          # (pin-cmux-tui.sh names it), so it skips only a true duplicate:
-          # 222 pin builds took 25,215 minutes on 2026-10-12 (cx-urd.26).
+          # A cmux-tui-pin-* push also repairs a tree's Windows daemon and
+          # publishes its commit's own binaries for cmux-tui.pin
+          # (pin-cmux-tui.sh), so it skips only a true duplicate: 222 pin
+          # builds took 25,215 minutes on 2026-10-12 (cx-urd.26).
           pin_duplicate=false
           if [[ "$tree_ready" == true && "$REF" == refs/heads/cmux-tui-pin-* ]] &&
               curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 -o /dev/null \
-                "https://files.cmux.com/cmux-tui/tree/$published_key/completion-windows.json?preflight=$RUN_ID" 2>/dev/null; then
+                "https://files.cmux.com/cmux-tui/tree/$published_key/completion-windows.json?preflight=$RUN_ID" 2>/dev/null &&
+              curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 -o /dev/null \
+                "https://files.cmux.com/cmux-tui/$SHA/manifest.json?preflight=$RUN_ID" 2>/dev/null; then
             pin_duplicate=true
-            echo "Tree $published_key is published with its Windows daemon; this pin push builds nothing (dispatch to republish)."
+            echo "Tree $published_key, its Windows daemon and commit $SHA's binaries are published; this pin push builds nothing (dispatch to republish)."
           fi
 
           # Main still needs commit-addressed artifacts and latest/ updates.
