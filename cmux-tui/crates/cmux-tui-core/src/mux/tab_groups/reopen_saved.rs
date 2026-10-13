@@ -96,6 +96,7 @@ impl Mux {
             .context("reopened group missing")?;
         let link = saved_id.to_string();
         let room = saved.room;
+        let icon = saved.icon;
         let linked = group.clone();
         self.commit_tab_strip_change(
             StripRequest::local(actor, "tab.group.save"),
@@ -104,6 +105,7 @@ impl Mux {
                 let group = linked;
                 if let Some(record) = edit.groups.groups.get_mut(&group) {
                     record.saved_id = Some(link.clone());
+                    record.icon = icon;
                 }
                 if let Some(mut record) = mux.saved_record_for(state, &edit.groups, &group) {
                     record.room = room;

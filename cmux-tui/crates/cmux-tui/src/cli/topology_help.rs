@@ -28,7 +28,7 @@ USAGE
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
-    [--icon <emoji or SF Symbol name>|--clear-icon] [--pinned true|false]
+    [--icon <icon>|--clear-icon] [--pinned true|false]
     [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
   cmux workspace group <group> delete
   cmux workspace group <group> move --index <n>
@@ -48,7 +48,8 @@ workspaces, and each group's workspaces where the group shows. The app's
 snapshot.get windows[].workspaces lists the order each window shows. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
-icon (one emoji or an SF Symbol name); --clear-icon removes it. --pinned true
+icon (one emoji, an SF Symbol name, or a stored image:sha256-<hex> or
+svg:sha256-<hex> asset); --clear-icon removes it. --pinned true
 saves a group so it stays when its workspaces close; false unpins it.
 
 SELECTORS
@@ -97,7 +98,8 @@ USAGE
   cmux tab group list [--pane <pane_…>]
   cmux tab group create --tabs <tab_…,...> [--name <value>] [--color <color>]
   cmux tab group <group> show|ungroup|close
-  cmux tab group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
+  cmux tab group <group> update [--name <value>] [--color <color>]
+    [--icon <icon>|--clear-icon] [--collapse|--expand]
   cmux tab group <group> add --tabs <tab_…,...> [--index <n>]
   cmux tab group remove --tabs <tab_…,...>
   cmux tab group <group> move [--pane <pane_…>] [--index <n>]
@@ -113,7 +115,8 @@ USAGE
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact
 name. Group colors: grey, blue, red, yellow, green, pink, purple, cyan, orange,
-or a custom #RRGGBB.
+or a custom #RRGGBB. A group icon is one emoji, an SF Symbol name, or a stored
+image:sha256-<hex> or svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact

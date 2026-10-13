@@ -366,6 +366,7 @@ impl Mux {
                 archive["name"].as_str().map(str::to_string),
                 archive["color"].as_str().map(str::to_string),
                 id.clone(),
+                archive["icon"].as_str().map(str::to_string),
             )?;
         }
         let outcome = self.tab_group_outcome(&id);

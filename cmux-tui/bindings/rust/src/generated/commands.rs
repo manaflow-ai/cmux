@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff.
+// cmux-tui mux protocol 12, IR e171857910d090c4b08a6ba35a4542510f7ff9fb14155b8ebecc662d497b6c4c.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3456,6 +3456,8 @@ pub struct UpdateScreenGroupRequest {
     pub color: Optional<String>,
     pub group: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
 }
 
@@ -3470,6 +3472,8 @@ pub struct UpdateTabGroupRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub color: Optional<String>,
     pub group: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
 }
@@ -4943,10 +4947,18 @@ impl CmuxClient {
     }
 
     pub fn update_screen_group(&mut self, request: UpdateScreenGroupRequest) -> Result<UpdateScreenGroupResult> {
+        if !request.icon.is_missing() {
+            self.require_protocol_field("update-screen-group", 12)?;
+            self.require_capability_field("update-screen-group", "screen-group-icon-v1")?;
+        }
         self.execute(&UPDATE_SCREEN_GROUP_METADATA, &request)
     }
 
     pub fn update_tab_group(&mut self, request: UpdateTabGroupRequest) -> Result<UpdateTabGroupResult> {
+        if !request.icon.is_missing() {
+            self.require_protocol_field("update-tab-group", 12)?;
+            self.require_capability_field("update-tab-group", "tab-group-icon-v1")?;
+        }
         self.execute(&UPDATE_TAB_GROUP_METADATA, &request)
     }
 

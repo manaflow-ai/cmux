@@ -320,7 +320,7 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed"])?;
+            require_any(fields, &["name", "color", "collapsed", "icon"])?;
             let group = string(fields, "tab_group").unwrap_or_default();
             let commit = mux
                 .tab_group_update(
@@ -329,6 +329,7 @@ pub(crate) fn dispatch(
                     string(fields, "name"),
                     string(fields, "color"),
                     fields.get("collapsed").and_then(Value::as_bool),
+                    nullable_string(fields, "icon"),
                 )
                 .map_err(state_error)?;
             patch_result(mux, commit)
@@ -941,12 +942,13 @@ fn screen_change(
             screens: strings(fields, "screens"),
         },
         Op::ScreenGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed"])?;
+            require_any(fields, &["name", "color", "collapsed", "icon"])?;
             ScreenChange::GroupUpdate {
                 group: string(fields, "screen_group").unwrap_or_default(),
                 name: string(fields, "name"),
                 color: string(fields, "color"),
                 collapsed: fields.get("collapsed").and_then(Value::as_bool),
+                icon: nullable_string(fields, "icon"),
             }
         }
         Op::ScreenGroupUngroup => {

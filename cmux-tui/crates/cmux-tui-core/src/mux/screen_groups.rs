@@ -486,6 +486,7 @@ impl Mux {
                     color,
                     collapsed: false,
                     saved_id: None,
+                    icon: None,
                 },
             );
             Ok(())
@@ -497,7 +498,9 @@ impl Mux {
         Ok((id, commit))
     }
 
-    /// Rename, recolor, or collapse a group. A linked saved record follows.
+    /// Rename, recolor, collapse, or set or clear the icon of a group
+    /// (`icon`: `None` keeps it, `Some(None)` clears it). A linked saved
+    /// record follows.
     pub fn update_screen_group_as(
         &self,
         actor: &Actor,
@@ -505,19 +508,15 @@ impl Mux {
         name: Option<String>,
         color: Option<String>,
         collapsed: Option<bool>,
+        icon: Option<Option<String>>,
     ) -> anyhow::Result<ScreenGroupOutcome> {
-        if let Some(name) = &name {
-            validate_tab_group_name(name)?;
-        }
-        if let Some(color) = &color {
-            validate_tab_group_color(color)?;
-        }
         self.update_screen_group_request(
             StripRequest::local_screens(actor, "screen.group.update"),
             group,
             name,
             color,
             collapsed,
+            icon,
         )?;
         Ok(self.screen_group_outcome(group))
     }
@@ -529,12 +528,18 @@ impl Mux {
         name: Option<String>,
         color: Option<String>,
         collapsed: Option<bool>,
+        icon: Option<Option<String>>,
     ) -> anyhow::Result<StateCommit> {
         if let Some(name) = &name {
             validate_tab_group_name(name)?;
         }
         if let Some(color) = &color {
             validate_tab_group_color(color)?;
+        }
+        // The shared icon string; an asset must be stored (checked again in
+        // the writing transaction, so no sweep runs in between).
+        if let Some(Some(icon)) = &icon {
+            self.with_icon_registry(|registry| registry.require_icon_asset(icon))?;
         }
         let (saved, commit) = self.commit_screen_rows(request, |_, edit| {
             edit.result = ScreenResult::Group(group.to_string());
@@ -551,6 +556,9 @@ impl Mux {
             }
             if let Some(collapsed) = collapsed {
                 record.collapsed = collapsed;
+            }
+            if let Some(icon) = icon {
+                record.icon = icon;
             }
             Ok(record.saved_id.clone())
         })?;

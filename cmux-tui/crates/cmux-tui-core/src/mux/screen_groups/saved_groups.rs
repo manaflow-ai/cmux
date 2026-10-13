@@ -1,5 +1,5 @@
-//! Saved screen groups: session-wide records of a group's name, color and
-//! members that outlive their screens; save, unsave, delete and reopen.
+//! Saved screen groups: session-wide records of a group's name, color, icon
+//! and members that outlive their screens; save, unsave, delete and reopen.
 
 use super::*;
 
@@ -51,6 +51,7 @@ impl Mux {
             profile_id,
             members: self.saved_members(&outcome.members),
             updated_at_ms: crate::workspace_registry::unix_epoch_ms()?,
+            icon: record.icon,
         };
         let mut registry = self.workspace_registry.lock().unwrap();
         registry.put_saved_screen_group(&saved)?;
@@ -100,8 +101,9 @@ impl Mux {
     }
 
     /// Reopen a saved group into `workspace`: one new screen per member, in
-    /// the member's directory, with its name, color, and icon, grouped and
-    /// linked to the saved record. An open group is returned as it is.
+    /// the member's directory, with its name, color, and icon, grouped (with
+    /// the saved group's icon) and linked to the saved record. An open group
+    /// is returned as it is.
     pub fn reopen_saved_screen_group_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -151,6 +153,7 @@ impl Mux {
         self.commit_screen_metadata(actor, |_, screens| {
             if let Some(live) = screens.groups.get_mut(&group) {
                 live.saved_id = Some(saved.to_string());
+                live.icon = record.icon;
             }
             Ok(())
         })?;

@@ -228,11 +228,22 @@ session's active workspace.
 `closed.reopen` with neither `closed` nor `window` skips window items: only
 an app can show a window again, and it names its window.
 `workspace-group-icon-v1` gives a personal group an icon:
-`workspace_group.update {icon}` sets it to the shared icon string (one emoji
-or an SF Symbol name, the rule every icon field uses) and `icon: null` clears
-it; anything else refuses with `validation.invalid`. `WorkspaceGroupSnapshot.icon`
-and the raw `list-personal` groups report it (null: no icon, and clients draw
-their default group glyph). Older daemons omit the field.
+`workspace_group.update {icon}` sets it to the shared icon string (one emoji,
+an SF Symbol name, or a stored `image:sha256-<hex>` or `svg:sha256-<hex>`
+asset, the rule every icon field uses) and `icon: null` clears it; anything
+else, or an asset the daemon does not store, refuses with `validation.invalid`.
+`WorkspaceGroupSnapshot.icon` and the raw `list-personal` groups report it
+(null: no icon, and clients draw their default group glyph). Older daemons
+omit the field.
+`screen-group-icon-v1` and `tab-group-icon-v1` give screen groups and tab
+groups the same icon: `screen_group.update {icon}` and `tab_group.update
+{icon}` set it to the shared icon string and `icon: null` clears it, with the
+same refusals. `ScreenGroupSnapshot.icon`, `TabGroupSnapshot.icon` and the
+`state_upsert` changes on `session.events` report it. A saved group keeps its
+live group's icon (`SavedTabGroupSnapshot.icon`, the raw saved screen
+groups), and reopening a saved group, or the closed record of an ungrouped
+tab group, restores it. The blob sweep keeps every asset a group or saved
+group names. Older daemons omit the fields.
 `workspace-group-pin-v1` pins (saves) a personal group:
 `workspace_group.update {pinned: true}` pins it and `false` unpins it;
 `WorkspaceGroupSnapshot.pinned` and the raw `list-personal` groups report it.
