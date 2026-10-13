@@ -34,6 +34,8 @@ export class CloudHome {
   private listed = false;
   /** The one inbox list in flight (concurrent page reloads share it). */
   private listing: Promise<void> | null = null;
+  /** Bumped by `reset`: a list that a reset overtook does not count as listed. */
+  private epoch = 0;
   /** Every cloud id this connection saw: routing survives a relist (`owns`). */
   private readonly known = new Set<string>();
   private readonly hydrating = new Set<string>();
@@ -93,6 +95,7 @@ export class CloudHome {
   }
 
   private async list(): Promise<void> {
+    const epoch = this.epoch;
     const status = await this.daemon.request<Json>("cloud-session-status").catch(() => ({}) as Json);
     if (status.state !== "active" || typeof status.participant !== "string") {
       // Signed out (or a daemon without the person's lease): no cloud rows.
@@ -103,14 +106,14 @@ export class CloudHome {
     }
     if (status.participant !== this.participant) this.heads.clear();
     this.participant = status.participant;
+    // Subscribed before the list, so no inbox change falls between them.
+    void this.daemon.request("cloud-inbox-subscribe").catch(() => undefined);
     const list = await this.daemon.request<{ entries?: Json[] }>("cloud-inbox-list").catch(() => null);
     if (!list) return;
     const entries = (list.entries ?? []).map((entry) => this.localize(entry)).filter(listed);
     this.entries = new Map(entries.map((entry) => [String(entry.conversation), entry]));
     for (const id of this.entries.keys()) this.known.add(id);
-    this.listed = true;
-    // Live inbox changes (new conversations, previews, unread) arrive as `cloud-inbox-changed`.
-    void this.daemon.request("cloud-inbox-subscribe").catch(() => undefined);
+    this.listed = epoch === this.epoch;
     this.hydrate([...this.entries.keys()].filter((id) => !this.heads.has(id)));
   }
 
@@ -167,6 +170,11 @@ export class CloudHome {
     stale?: string;
     inboxStale?: boolean;
   } | null {
+    // A new lease (the app signed in or switched accounts), or the owner reset the inbox.
+    if (event.event === "cloud-inbox-reset") {
+      this.reset();
+      return { inboxStale: true };
+    }
     // Before the first list this connection does not know the person: nothing to map yet.
     if (!this.participant) return null;
     switch (event.event) {
@@ -213,9 +221,6 @@ export class CloudHome {
         }
         return { conversations, removed };
       }
-      case "cloud-inbox-reset":
-        this.listed = false;
-        return { inboxStale: true };
       case "cloud-subscription-state":
         // The inbox socket closed for good (the owner refused it): list again on the next read.
         if (event.scope === "inbox" && event.state === "closed") this.listed = false;
@@ -232,6 +237,7 @@ export class CloudHome {
    * the known ids, so events and ops meanwhile still map and route. */
   reset(): void {
     this.listed = false;
+    this.epoch++;
   }
 
   private subscribe(id: string): void {

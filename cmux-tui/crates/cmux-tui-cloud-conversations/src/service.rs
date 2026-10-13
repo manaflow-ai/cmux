@@ -274,6 +274,12 @@ impl CloudConversations {
                 )?;
             }
             let session = CloudSession::new(params, lease.generation + 1)?;
+            // A new app lease (sign-in, account switch), not a renewal of the same one:
+            // the person's other clients (a page) list the inbox again.
+            let fresh = by_app
+                && !(lease.app_held
+                    && lease.session.as_ref().is_some_and(|old| old.account == session.account));
+            let fresh_account = fresh.then(|| session.account.clone());
             lease.generation = session.generation;
             lease.expiring_sent = false;
             lease.expired_sent = false;
@@ -284,9 +290,13 @@ impl CloudConversations {
             });
             lease.session = Some(session);
             lease.app_held = by_app;
-            reply
+            (reply, fresh_account)
         };
+        let (reply, fresh_account) = reply;
         self.inner.notify();
+        if let Some(account) = fresh_account {
+            self.inner.emit(CloudEvent::InboxReset { seq: 0, account });
+        }
         Ok(reply)
     }
 

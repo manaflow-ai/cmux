@@ -7,8 +7,13 @@ import Foundation
 public struct PageCredentialRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var credential: String
-        /// Seconds the credential lives (8 h).
+        /// Seconds the single-use credential stays valid for its handshake.
         public var expiresIn: UInt64
+
+        enum CodingKeys: String, CodingKey {
+            case credential
+            case expiresIn = "expires_in"
+        }
     }
 
     public static let command = "page-credential"
