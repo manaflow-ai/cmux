@@ -30,6 +30,9 @@ extension TerminalController {
         var methods: [String] = [
             "system.ping",
             "system.capabilities",
+            "coderouter.handoff.begin",
+            "coderouter.handoff.complete",
+            "coderouter.handoff.arm",
             "system.identify",
             "system.tree",
             "sidebar.custom.open",
