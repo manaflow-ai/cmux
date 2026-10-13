@@ -145,6 +145,7 @@ export function PermissionCard({
     allowOnceShortcut,
     allowChatShortcut,
     denyShortcut,
+    shortcutLabels,
   ]);
 
   return (
