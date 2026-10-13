@@ -47,10 +47,11 @@ nonisolated enum AcpmuxPaneMethods {
         // the value goes to acpmux, which keeps it in memory and gives the agent a one-use ref. The
         // transport never logs a frame, so the value stays out of the host's logs.
         "_acpmux/secret_submit",
-        // The chat menu's Archive / Unarchive (the `archived` tag) and Mark as Unread of a session in
-        // the pane's scope (direct.ts archive, markUnread; cx-jlzsf). The app's tab close stays a
-        // host call (`pane.action closeTab`).
-        "_acpmux/tag", "_acpmux/markUnread",
+        // The chat menu's Archive / Unarchive and Mark as Unread of a session in the pane's scope
+        // (direct.ts archive, markUnread; cx-jlzsf). `_acpmux/archive` sets or removes only the
+        // `archived` tag: never `_acpmux/tag`, which may set any tag (the handoff target among
+        // them). The app's tab close stays a host call (`pane.action closeTab`).
+        "_acpmux/archive", "_acpmux/markUnread",
     ]
 
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
@@ -187,7 +188,7 @@ nonisolated enum AcpmuxPaneMethods {
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
-        "_acpmux/secret_submit", "_acpmux/tag", "_acpmux/markUnread",
+        "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread",
     ]
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):

@@ -80,7 +80,7 @@ extension AgentPaneModel {
 
     /// `pane.action` runs a listed action on a chat (never the New Tab page); `pane.tabState`
     /// reads the header's state. Archive and Mark as Unread are the page's own acpmux requests
-    /// (`_acpmux/tag`, `_acpmux/markUnread`, cx-jlzsf); Archive then closes the tab with `pane.action`.
+    /// (`_acpmux/archive`, `_acpmux/markUnread`, cx-jlzsf); Archive then closes the tab with `pane.action`.
     func respondToHeader(_ request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         case .paneAction(Self.sideTabsAction, _, _):

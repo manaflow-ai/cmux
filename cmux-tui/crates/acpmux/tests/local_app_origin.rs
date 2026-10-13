@@ -255,32 +255,35 @@ async fn the_pane_archives_and_marks_a_chat_unread_over_its_own_connection() {
             .unwrap_or_else(|| panic!("no summary for {id}: {reply}"))
     };
 
-    // Archive: the `archived` tag (its value is when, in milliseconds); Unarchive removes it.
-    let archived = call(
-        &mut app,
-        4,
-        "_acpmux/tag",
-        json!({"sessionId": id, "set": {"archived": "1760000000000"}}),
-    )
-    .await;
-    assert_eq!(archived["result"]["tags"]["archived"], json!("1760000000000"), "{archived}");
+    // Archive: acpmux sets the `archived` tag to when (milliseconds); Unarchive removes it.
+    let before =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis();
+    let archived =
+        call(&mut app, 4, "_acpmux/archive", json!({"sessionId": id, "archived": true})).await;
+    let when =
+        archived["result"]["tags"]["archived"].as_str().unwrap_or_else(|| panic!("{archived}"));
+    assert!(when.parse::<u128>().is_ok_and(|ms| ms >= before), "{archived}");
     let unread = call(&mut app, 5, "_acpmux/markUnread", json!({"sessionId": id})).await;
     assert!(unread.get("error").is_none(), "{unread}");
     let seen = call(&mut app, 6, "_acpmux/watch", json!({})).await;
     assert_eq!(summary(&seen)["unread"], json!(true), "{seen}");
-    assert_eq!(summary(&seen)["tags"]["archived"], json!("1760000000000"), "{seen}");
+    assert!(summary(&seen)["tags"]["archived"].is_string(), "{seen}");
 
     // The same requests from a plain browser tab on the listener (no Swift in between).
     let (mut tab, init) = hello(&d, None, None).await;
     assert_eq!(origin_of(&init), "remote", "{init}");
     let restored =
-        call(&mut tab, 2, "_acpmux/tag", json!({"sessionId": id, "remove": ["archived"]})).await;
+        call(&mut tab, 2, "_acpmux/archive", json!({"sessionId": id, "archived": false})).await;
     assert!(restored["result"]["tags"].get("archived").is_none(), "{restored}");
     let again = call(&mut tab, 3, "_acpmux/markUnread", json!({"sessionId": id})).await;
     assert!(again.get("error").is_none(), "{again}");
     let seen = call(&mut tab, 4, "_acpmux/watch", json!({})).await;
     assert!(summary(&seen)["tags"].get("archived").is_none(), "{seen}");
     assert_eq!(summary(&seen)["unread"], json!(true), "{seen}");
+    // Only true or false: the request never names another tag.
+    let odd =
+        call(&mut tab, 6, "_acpmux/archive", json!({"sessionId": id, "archived": "yes"})).await;
+    assert!(odd.get("error").is_some(), "{odd}");
     // An unknown chat is an error, never a silent success the menu would show as done.
     let missing =
         call(&mut tab, 5, "_acpmux/markUnread", json!({"sessionId": "no-such-chat"})).await;

@@ -363,6 +363,11 @@ export class MockAcpmuxSocket {
 
   private async answer(method: string, params: Record<string, any>): Promise<unknown> {
     const target = String(params.sessionId ?? sessionId);
+    // The gallery's call log (gallery/frame/main.ts) also lists the requests the page sent here.
+    (globalThis as { cmuxGalleryLog?: { method: string; params?: unknown }[] }).cmuxGalleryLog?.push({
+      method: `acpmux ${method}`,
+      params,
+    });
     if (Object.values(HANDOFF_OPS).includes(method as any)) return this.handoffs.answer(method, params);
     switch (method) {
       // The mock serves forks, so the pane's fork action can be tried before acpmux ships it.
@@ -413,12 +418,12 @@ export class MockAcpmuxSocket {
           events: this.events.filter((event) => event.sessionId === target),
         };
       }
-      case "_acpmux/tag": {
+      case "_acpmux/archive": {
         const entry = this.sessions.find((session) => session.sessionId === target);
         if (!entry) throw Object.assign(new Error("no such session"), { code: -32001 });
-        const tags: Record<string, string> = { ...(entry.tags ?? {}) };
-        for (const [key, value] of Object.entries((params.set ?? {}) as Record<string, unknown>)) tags[key] = String(value);
-        for (const key of Array.isArray(params.remove) ? params.remove : []) delete tags[String(key)];
+        const tags: Record<string, string> = { ...(entry.tags && !Array.isArray(entry.tags) ? entry.tags : {}) };
+        if (params.archived === true) tags.archived = String(Date.now());
+        else delete tags.archived;
         this.touch(target, { tags, archived: undefined }, false);
         return this.sessions.find((session) => session.sessionId === target);
       }

@@ -1,6 +1,6 @@
-// The chat menu's Archive row: archiving tags the chat `archived` in acpmux and closes its tab
-// (the pane tags it over its acpmux connection, then asks the app to close the tab); an archived
-// chat opened from search offers Unarchive.
+// The chat menu's Archive row: the pane asks acpmux to archive the chat (`_acpmux/archive`, the
+// `archived` tag) over its own connection, then asks the app to close the tab; an archived chat
+// opened from search offers Unarchive.
 import { type Translate, translate } from "../i18n";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 
