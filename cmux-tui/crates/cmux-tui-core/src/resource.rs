@@ -150,6 +150,8 @@ pub enum ResourceOperation {
     ConversationDraft,
     #[serde(rename = "conversation.events")]
     ConversationEvents,
+    #[serde(rename = "git.branches")]
+    GitBranches,
     #[serde(rename = "git.commit")]
     GitCommit,
     #[serde(rename = "git.diff")]
@@ -434,6 +436,16 @@ pub enum ResourceOperation {
     ProjectRemove,
     #[serde(rename = "project.sync")]
     ProjectSync,
+    #[serde(rename = "browser.devices.list")]
+    BrowserDevicesList,
+    #[serde(rename = "browser.devices.add_custom")]
+    BrowserDevicesAddCustom,
+    #[serde(rename = "browser.devices.remove_custom")]
+    BrowserDevicesRemoveCustom,
+    #[serde(rename = "browser.tab.emulate")]
+    BrowserTabEmulate,
+    #[serde(rename = "browser.tab.emulate.clear")]
+    BrowserTabEmulateClear,
     #[serde(rename = "palette_usage.get")]
     PaletteUsageGet,
     #[serde(rename = "palette_usage.record")]

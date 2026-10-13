@@ -7,10 +7,11 @@
 //! - [`Mirror`]: a read-only copy of the session tree with typed deltas,
 //!   plus the personal workspace groups and sidebar order and the session's
 //!   tab groups.
-//! - [`DaemonEvent::BookmarksChanged`], [`DaemonEvent::PersonalChanged`] and
-//!   [`DaemonEvent::HistoryChanged`]: `bookmarks-changed`, `personal-changed`
-//!   and `history-changed` from a protocol-12 `subscribe` stream, when the
-//!   daemon has `bookmarks-v1`, `profiles-v1` or `history-v1`.
+//! - [`DaemonEvent::BookmarksChanged`], [`DaemonEvent::PersonalChanged`],
+//!   [`DaemonEvent::HistoryChanged`] and [`DaemonEvent::KeybindingsChanged`]:
+//!   `bookmarks-changed`, `personal-changed`, `history-changed` and
+//!   `keybindings-changed` from a protocol-12 `subscribe` stream, when the
+//!   daemon has `bookmarks-v1`, `profiles-v1`, `history-v1` or `keybindings-v1`.
 //! - [`install_key`] and [`AppConnection`]: the app's install key (cmux-next's
 //!   file and format), handed to a daemon the launcher starts, and a
 //!   connection that proves the app with `client-hello`, so its requests
@@ -33,16 +34,17 @@
 //! the event stream) happens on it; the caller's thread never blocks except
 //! in [`DaemonClient::stop`] / `Drop`, which wait for the worker to exit
 //! (bounded by the request and ensure deadlines). While connected to a daemon
-//! with `bookmarks-v1`, `profiles-v1` or `history-v1` (and
-//! `DaemonConfig::bookmark_events`, `personal_events` or `history_events`),
-//! the worker owns a second thread, `cmux-daemon-client-subscribe`, that
-//! reads the `bookmarks-changed`, `personal-changed` and `history-changed`
-//! stream; the worker closes and joins it before it reports the
+//! with `bookmarks-v1`, `profiles-v1`, `history-v1` or `keybindings-v1` (and
+//! `DaemonConfig::bookmark_events`, `personal_events`, `history_events` or
+//! `keybinding_events`), the worker owns a second thread,
+//! `cmux-daemon-client-subscribe`, that reads the `bookmarks-changed`,
+//! `personal-changed`, `history-changed` and `keybindings-changed` stream; the worker closes and joins it before it reports the
 //! connection's `Disconnected`. The worker reads (or creates) the install key
 //! file once, before its first connect.
 //!
 //! The event callback runs **on the worker thread** (or, for
-//! `BookmarksChanged`, `PersonalChanged` and `HistoryChanged`, on its
+//! `BookmarksChanged`, `PersonalChanged`, `HistoryChanged` and
+//! `KeybindingsChanged`, on its
 //! subscribe thread), sequentially, never concurrently, once per
 //! [`DaemonEvent`] in order, with a borrow of the mirror as of that event.
 //! The worker holds the mirror lock while the
@@ -80,7 +82,7 @@ pub use attach::{
 };
 pub use client::{
     BOOKMARKS_CAPABILITY, ConnectionInfo, DEFAULT_SESSION, DaemonClient, DaemonConfig, DaemonEvent,
-    HISTORY_CAPABILITY,
+    HISTORY_CAPABILITY, KEYBINDINGS_CAPABILITY,
 };
 /// The cmux Rust SDK this crate is built on (re-exported so callers use the
 /// same IDs and snapshot types).

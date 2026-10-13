@@ -3664,6 +3664,9 @@ mod all_sessions_scope;
 #[path = "cli/app_workspaces.rs"]
 mod app_workspaces;
 #[cfg(unix)]
+#[path = "cli/browser_devices.rs"]
+mod browser_devices;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[path = "cli/closed_delete.rs"]
@@ -3682,6 +3685,8 @@ mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/git_branches.rs"]
+mod git_branches;
 #[path = "cli/git_write.rs"]
 mod git_write;
 #[path = "cli/icon_assets.rs"]
@@ -3709,6 +3714,9 @@ mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
+#[cfg(unix)]
+#[path = "cli/ws_conversations.rs"]
+mod ws_conversations;
 use state_helpers::*;
 
 #[cfg(unix)]
