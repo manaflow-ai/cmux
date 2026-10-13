@@ -152,8 +152,17 @@ enum ConversationTheme {
     /// the caption line spacing above Large (between runs 14 pt at XL, 19.33
     /// at AX1).
     static func transcriptSpace(_ base: CGFloat) -> CGFloat {
+        ConversationTranscriptMetrics.space(base, captionLineSpacing: captionLineSpacing, scale: displayScale)
+    }
+
+    /// The caption 2 line spacing transcript spaces follow, without the
+    /// growth iOS adds for tall-script preferred languages
+    /// (`ConversationTranscriptMetrics.captionLineSpacing`): a system font
+    /// of the same size has the plain line height.
+    static var captionLineSpacing: CGFloat {
         let font = captionFont
-        return ConversationTranscriptMetrics.space(base, captionLineSpacing: font.lineHeight + font.leading, scale: displayScale)
+        let plain = UIFont.systemFont(ofSize: font.pointSize).lineHeight
+        return ConversationTranscriptMetrics.captionLineSpacing(lineHeight: font.lineHeight, leading: font.leading, languageNeutralLineHeight: plain)
     }
 
     /// Body-to-body gap between bubbles in a run (`balloonContiguousSpace`).
@@ -183,6 +192,11 @@ enum ConversationTheme {
     /// from the bubble's leading edge.
     static var senderNameFont: UIFont { cachedFont(FontRequest(name: "sender")) { .preferredFont(forTextStyle: .caption2) } }
     static let senderNameInset: CGFloat = 14
+    /// The name's line box and the bubble's offset under the name's top
+    /// (`ConversationTranscriptMetrics.senderNameLine`).
+    static var senderNameLine: (height: CGFloat, bubbleOffset: CGFloat) {
+        ConversationTranscriptMetrics.senderNameLine(lineHeight: senderNameFont.lineHeight, captionLineSpacing: captionLineSpacing, scale: displayScale)
+    }
     /// "Delivered"/"Read": caption 2 semibold (11 pt, 13.33 pt tall at Large;
     /// Messages scales it: 20.3 pt tall at XXXL, 48 at AX5), 6 pt under the
     /// body and 20 pt in from its trailing edge.

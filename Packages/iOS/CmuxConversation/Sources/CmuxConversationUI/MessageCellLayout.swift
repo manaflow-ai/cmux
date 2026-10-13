@@ -394,9 +394,9 @@ extension MessageCellLayout {
 
         var senderNameFrame: CGRect?
         if model.showsSenderName, model.senderName != nil {
-            let nameHeight = ceil(t.senderNameFont.lineHeight)
-            senderNameFrame = CGRect(x: incomingBodyLeading + t.senderNameInset, y: y, width: maxBubbleWidth, height: nameHeight)
-            y += nameHeight + 3
+            let name = t.senderNameLine
+            senderNameFrame = CGRect(x: incomingBodyLeading + t.senderNameInset, y: y, width: maxBubbleWidth, height: name.height)
+            y += name.bubbleOffset
         }
 
         if hasReactions { y += t.reactionRowGrowth }
@@ -521,10 +521,14 @@ extension MessageCellLayout {
                 : CGPoint(x: firstBody.maxX, y: firstBody.minY)
         }
 
+        // Same rule as the row's tail reservation below.
+        let tailedImage = bubbleFrame == nil && emojiFrame == nil && linkCardFrame == nil && (!imageFrames.isEmpty || !fileFrames.isEmpty)
+        let drawsTail = model.showsTail && (bubbleFrame != nil || linkCardFrame != nil || tailedImage)
+
         var avatarFrame: CGRect?
         if model.showsAvatar {
-            let bodyBottom = primary.maxY
-            avatarFrame = CGRect(x: margin, y: bodyBottom - t.avatarSize, width: t.avatarSize, height: t.avatarSize)
+            let top = ConversationTranscriptMetrics.avatarMinY(bodyBottom: primary.maxY, tailDrop: drawsTail ? t.tailDrop : nil, avatarSize: t.avatarSize)
+            avatarFrame = CGRect(x: margin, y: top, width: t.avatarSize, height: t.avatarSize)
         }
 
         var failedBadgeFrame: CGRect?
@@ -604,9 +608,8 @@ extension MessageCellLayout {
         // The tail hangs below the body; reserve it in the row and the lifted preview.
         // A photo-only row (no text bubble, no emoji) tails its last photo; the
         // tail hangs below the full-height photo (Messages), so reserve it.
-        let tailedImage = bubbleFrame == nil && emojiFrame == nil && linkCardFrame == nil && (!imageFrames.isEmpty || !fileFrames.isEmpty)
         var tailOverhang: CGFloat = 0
-        if model.showsTail, bubbleFrame != nil || linkCardFrame != nil || tailedImage {
+        if drawsTail {
             let tailBottom = primary.maxY + t.tailDrop
             tailOverhang = max(0, tailBottom - y)
             y = max(y, tailBottom)
