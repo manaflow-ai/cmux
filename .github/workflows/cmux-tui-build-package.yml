@@ -722,6 +722,12 @@ jobs:
       - name: Test Windows long-path state handling
         working-directory: cmux-tui
         shell: bash
+        env:
+          # The test binary needs release optimization, not fat LTO in one codegen unit: with the
+          # release profile as is, compiling these cmux-tui-core unit tests took 13 of the job's
+          # 33 min (run 38259768770, 2026-10-12) and the Windows leg ends every tree publication.
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: |
           cargo test --release --locked --target x86_64-pc-windows-gnu \
             -p cmux-tui-core --lib normalize_long_windows

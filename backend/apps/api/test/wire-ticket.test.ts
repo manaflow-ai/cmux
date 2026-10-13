@@ -151,10 +151,13 @@ describe("wire credentials outside Sec-WebSocket-Protocol (cx-dgsp)", () => {
 
   it("one person mints at most 60 tickets a minute", async () => {
     const a = await person("limit")
+    // The limit is a fixed 60 s window, and the run may cross one window edge: 121 mints span at
+    // most two windows of 60 each, so at least one is refused, and never one of the first 60.
     const statuses: Array<number> = []
-    for (let i = 0; i < 61; i++) statuses.push((await mint(a.token)).status)
+    for (let i = 0; i < 121; i++) statuses.push((await mint(a.token)).status)
     expect(statuses.slice(0, 60).every((s) => s === 200)).toBe(true)
-    expect(statuses[60]).toBe(429)
+    expect(statuses.every((s) => s === 200 || s === 429)).toBe(true)
+    expect(statuses.filter((s) => s === 429).length).toBeGreaterThan(0)
     // Another person is not limited by the first.
     expect((await mint((await person("limit-other")).token)).status).toBe(200)
   })

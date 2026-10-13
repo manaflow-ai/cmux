@@ -19,7 +19,8 @@ struct PasswordManagerRouteTests {
             let invocation = ActionInvocation(arguments: ["url": .string(address)])
             #expect(services.registry.perform("openBrowser", invocation: invocation))
             // A store page tab, or an app-only one while the daemon cannot hold page tabs yet.
-            try await Self.until { services.pages.window(showing: .passwords, windows: services.windows.controllers) != nil }
+            try await Self.until({ services.pages.window(showing: .passwords, windows: services.windows.controllers) != nil },
+                                 report: { WindowStateReport.describe(services, page: .passwords) })
             #expect(!Self.tabs(services).contains { $0.url?.contains("password") == true && $0.page == nil },
                     "Chromium's password manager opened in a browser tab")
         }
@@ -30,10 +31,12 @@ struct PasswordManagerRouteTests {
     }
 
     /// Polls `condition` (the store follows the daemon's events) up to a deadline.
-    static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(20)) async throws {
+    /// A timeout is reported at the caller's line, with `report`.
+    static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(20),
+                      report: () -> String = { "" }, sourceLocation: SourceLocation = #_sourceLocation) async throws {
         let deadline = ContinuousClock.now + timeout
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
-        try #require(condition(), "timed out")
+        try #require(condition(), "timed out: \(report())", sourceLocation: sourceLocation)
     }
 
     /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
