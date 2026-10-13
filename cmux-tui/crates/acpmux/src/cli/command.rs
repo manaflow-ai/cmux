@@ -236,6 +236,10 @@ pub enum Command {
     /// server for one agent session (agent_tools.rs registers it; not for people).
     #[command(hide = true)]
     SecretMcp,
+    /// The agent's offer_session tool: an MCP stdio server for one agent
+    /// session (agent_tools.rs registers it; not for people).
+    #[command(hide = true)]
+    OfferMcp,
     // Old spellings, kept working but hidden from help.
     #[command(hide = true)]
     Tail {

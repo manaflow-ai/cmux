@@ -38,6 +38,7 @@ pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
 pub mod native;
+pub mod offer_mcp;
 pub mod peer;
 #[cfg(not(unix))]
 mod platform;

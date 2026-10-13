@@ -35,6 +35,7 @@ mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub(crate) use route_switch::route_error;
+mod offers;
 mod secrets;
 mod seen;
 mod session;
@@ -277,6 +278,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// Chats agents offered the person, still open (`offers.rs`).
+    pub(super) offers: offers::Offers,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
 }
@@ -330,6 +333,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            offers: Default::default(),
             secrets: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
