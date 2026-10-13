@@ -16,7 +16,10 @@ public struct Team: Identifiable, Hashable, Sendable {
 
     /// Up to `limit` dots for the sidebar row, online Macs first, then the overflow count.
     public func macDots(limit: Int = 5) -> (dots: [Bool], overflow: Int) {
-        let ordered = macs.sorted { $0.isOnline && !$1.isOnline }
+        // Online first; stable by name within each group.
+        let ordered = macs.sorted {
+            $0.isOnline != $1.isOnline ? $0.isOnline : $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
         let dots = ordered.prefix(limit).map(\.isOnline)
         return (Array(dots), max(0, macs.count - limit))
     }
@@ -42,10 +45,10 @@ public struct TeamAppearance: Hashable, Sendable, Codable {
         self.init(colorHex: palette[Int(hash % UInt64(palette.count))])
     }
 
-    /// Hues spaced for discernibility in dark and light mode.
+    /// The 13 team colors (SPEC 3.4), stored as their dark-mode `#RRGGBB`.
     public static let palette: [String] = [
-        "#FF6B5E", "#FF9F0A", "#FFD60A", "#32D74B", "#30D5C8",
-        "#64D2FF", "#5E8BFF", "#BF5AF2", "#FF5AAA", "#AC8E68",
+        "#FF453A", "#FF9F0A", "#FFD60A", "#30D158", "#63E6E2", "#40CBE0", "#64D2FF",
+        "#0A84FF", "#5E5CE6", "#BF5AF2", "#FF375F", "#AC8E68", "#8E8E93",
     ]
 }
 

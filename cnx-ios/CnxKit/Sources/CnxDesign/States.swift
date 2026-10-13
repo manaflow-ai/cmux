@@ -1,0 +1,348 @@
+#if os(iOS)
+import SwiftUI
+
+private let theme = CnxTheme.standard
+
+/// One empty or list-level failure state (SPEC 7.2, 7.3): symbol 28, title,
+/// message, inline primary capsule, optional text CTA. Vertically centered.
+public struct EmptyState: View {
+    let symbol: String
+    let title: LocalizedStringKey
+    let message: LocalizedStringKey?
+    let primaryTitle: LocalizedStringKey?
+    let isPrimaryLoading: Bool
+    let primary: (() -> Void)?
+    let secondaryTitle: LocalizedStringKey?
+    let secondary: (() -> Void)?
+
+    public init(
+        symbol: String,
+        title: LocalizedStringKey,
+        message: LocalizedStringKey? = nil,
+        primaryTitle: LocalizedStringKey? = nil,
+        isPrimaryLoading: Bool = false,
+        primary: (() -> Void)? = nil,
+        secondaryTitle: LocalizedStringKey? = nil,
+        secondary: (() -> Void)? = nil
+    ) {
+        self.symbol = symbol
+        self.title = title
+        self.message = message
+        self.primaryTitle = primaryTitle
+        self.isPrimaryLoading = isPrimaryLoading
+        self.primary = primary
+        self.secondaryTitle = secondaryTitle
+        self.secondary = secondary
+    }
+
+    public var body: some View {
+        VStack(spacing: 0) {
+            Image(systemName: symbol)
+                .font(.system(size: 28, weight: .regular))
+                .foregroundStyle(theme.colors.label)
+                .accessibilityHidden(true)
+            Text(title)
+                .font(theme.type.emptyTitle)
+                .foregroundStyle(theme.colors.label)
+                .multilineTextAlignment(.center)
+                .padding(.top, 16)
+            if let message {
+                Text(message)
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 6)
+            }
+            if let primaryTitle, let primary {
+                PrimaryCapsule(primaryTitle, size: .inline, isLoading: isPrimaryLoading, action: primary)
+                    .padding(.top, 20)
+            }
+            if let secondaryTitle, let secondary {
+                TextCTA(secondaryTitle, action: secondary)
+                    .padding(.top, primaryTitle == nil ? 20 : 12)
+            }
+        }
+        .frame(maxWidth: 300)
+        .padding(.horizontal, theme.metrics.sideMargin)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The shimmer sweep (SPEC 7.1): a 30% band moving left to right every 1.6 s.
+/// Static under Reduce Motion.
+public struct ShimmerModifier: ViewModifier {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var phase: CGFloat = -0.3
+
+    public init() {}
+
+    public func body(content: Content) -> some View {
+        content.overlay {
+            if !reduceMotion {
+                GeometryReader { proxy in
+                    LinearGradient(
+                        colors: [.clear, theme.colors.shimmerBand.color, .clear],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: proxy.size.width * 0.3)
+                    .offset(x: phase * proxy.size.width)
+                }
+                .mask(content)
+                .onAppear {
+                    withAnimation(.linear(duration: theme.motion.shimmerPeriod).repeatForever(autoreverses: false)) {
+                        phase = 1.0
+                    }
+                }
+                .allowsHitTesting(false)
+            }
+        }
+    }
+}
+
+extension View {
+    /// Applies the skeleton shimmer.
+    public func cnxShimmer() -> some View { modifier(ShimmerModifier()) }
+}
+
+/// Skeleton rows matching list row geometry (title 60% x 14, subtitle 40% x 11),
+/// shown only after 250 ms. Six rows max.
+public struct SkeletonList: View {
+    let rows: Int
+    let leadingSquare: CGFloat?
+    @State private var isVisible = false
+
+    public init(rows: Int = 6, leadingSquare: CGFloat? = nil) {
+        self.rows = min(rows, 6)
+        self.leadingSquare = leadingSquare
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(0..<rows, id: \.self) { _ in
+                HStack(spacing: 12) {
+                    if let leadingSquare {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(theme.colors.surfaceRaised)
+                            .frame(width: leadingSquare, height: leadingSquare)
+                    }
+                    GeometryReader { proxy in
+                        VStack(alignment: .leading, spacing: 8) {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(theme.colors.surfaceRaised)
+                                .frame(width: proxy.size.width * 0.6, height: 14)
+                            RoundedRectangle(cornerRadius: 5.5, style: .continuous)
+                                .fill(theme.colors.surfaceRaised)
+                                .frame(width: proxy.size.width * 0.4, height: 11)
+                        }
+                        .frame(maxHeight: .infinity, alignment: .center)
+                    }
+                }
+                .frame(height: 60)
+                .padding(.horizontal, theme.metrics.sideMargin)
+            }
+        }
+        .cnxShimmer()
+        .opacity(isVisible ? 1 : 0)
+        .task {
+            try? await Task.sleep(for: theme.motion.skeletonDelay)
+            withAnimation(theme.motion.snap.animation) { isVisible = true }
+        }
+        .accessibilityElement()
+        .accessibilityLabel(Text("Loading"))
+    }
+}
+
+/// Inline failure card (SPEC 7.3): `bg` with a 1 pt `separator` stroke, radius
+/// 20, symbol + title + body, then a large primary capsule.
+public struct FailureCard: View {
+    let symbol: String
+    let title: LocalizedStringKey
+    let message: LocalizedStringKey
+    let actionTitle: LocalizedStringKey
+    let isLoading: Bool
+    let action: () -> Void
+
+    public init(symbol: String = "exclamationmark.triangle", title: LocalizedStringKey, message: LocalizedStringKey, actionTitle: LocalizedStringKey = "Retry", isLoading: Bool = false, action: @escaping () -> Void) {
+        self.symbol = symbol
+        self.title = title
+        self.message = message
+        self.actionTitle = actionTitle
+        self.isLoading = isLoading
+        self.action = action
+    }
+
+    public var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.system(size: 17))
+                Text(title).font(theme.type.emptyTitle)
+            }
+            .foregroundStyle(theme.colors.label)
+            Text(message).font(theme.type.rowSubtitle).foregroundStyle(theme.colors.label2)
+            PrimaryCapsule(actionTitle, isLoading: isLoading, action: action)
+                .padding(.top, 4)
+        }
+        .padding(16)
+        .background(theme.colors.bg, in: .rect(cornerRadius: theme.metrics.cardRadius, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: theme.metrics.cardRadius, style: .continuous)
+                .strokeBorder(theme.colors.separator, lineWidth: 1)
+        }
+    }
+}
+
+/// The global connection banner states (SPEC 7.4).
+public struct ConnectionBannerState: Sendable, Hashable {
+    public let symbol: String?
+    public let showsSpinner: Bool
+    public let text: String
+
+    public static func reconnecting(to mac: String) -> Self { Self(symbol: nil, showsSpinner: true, text: "Reconnecting to \(mac)…") }
+    public static let offline = Self(symbol: "wifi.slash", showsSpinner: false, text: "You're offline")
+    public static func macOffline(_ mac: String) -> Self { Self(symbol: "moon.zzz", showsSpinner: false, text: "\(mac) is offline") }
+    public static let connected = Self(symbol: "checkmark", showsSpinner: false, text: "Connected")
+}
+
+/// Glass capsule banner, 36 pt tall, `footnote` semibold. Use `.cnxBanner(_:)`
+/// to place it under the toolbar with the `snappy` enter/exit.
+public struct ConnectionBanner: View {
+    let state: ConnectionBannerState
+
+    public init(_ state: ConnectionBannerState) {
+        self.state = state
+    }
+
+    public var body: some View {
+        HStack(spacing: 8) {
+            if state.showsSpinner {
+                ProgressView().controlSize(.small)
+            } else if let symbol = state.symbol {
+                Image(systemName: symbol)
+            }
+            Text(state.text)
+        }
+        .font(theme.type.meta.weight(.semibold))
+        .foregroundStyle(theme.colors.label)
+        .padding(.horizontal, 14)
+        .frame(height: 36)
+        .glassEffect(.regular, in: .capsule)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
+/// A transient toast (SPEC 7.4): glass capsule, optional symbol, 3 s.
+public struct CnxToast: Sendable, Hashable, Identifiable {
+    public let id = UUID()
+    public let symbol: String?
+    public let text: String
+
+    public init(symbol: String? = nil, text: String) {
+        self.symbol = symbol
+        self.text = text
+    }
+}
+
+extension View {
+    /// Shows `state` as a banner under the top safe area, entering from y - 12.
+    public func cnxBanner(_ state: ConnectionBannerState?) -> some View {
+        overlay(alignment: .top) {
+            ZStack {
+                if let state {
+                    ConnectionBanner(state)
+                        .padding(.top, 8)
+                        .transition(.opacity.combined(with: .offset(y: -12)))
+                }
+            }
+            .animation(theme.motion.snappy.animation, value: state)
+        }
+    }
+
+    /// Shows a toast under the top safe area for 3 s. One at a time; newest replaces.
+    public func cnxToast(_ toast: Binding<CnxToast?>) -> some View {
+        overlay(alignment: .top) {
+            ZStack {
+                if let value = toast.wrappedValue {
+                    HStack(spacing: 8) {
+                        if let symbol = value.symbol { Image(systemName: symbol) }
+                        Text(value.text)
+                    }
+                    .font(theme.type.meta.weight(.semibold))
+                    .foregroundStyle(theme.colors.label)
+                    .padding(.horizontal, 14)
+                    .frame(height: 36)
+                    .glassEffect(.regular, in: .capsule)
+                    .padding(.top, 8)
+                    .transition(.opacity.combined(with: .offset(y: -12)))
+                    .id(value.id)
+                    .task(id: value.id) {
+                        try? await Task.sleep(for: .seconds(3))
+                        if toast.wrappedValue?.id == value.id { toast.wrappedValue = nil }
+                    }
+                    .gesture(DragGesture(minimumDistance: 8).onEnded { drag in
+                        if drag.translation.height < 0 { toast.wrappedValue = nil }
+                    })
+                }
+            }
+            .animation(theme.motion.snappy.animation, value: toast.wrappedValue)
+        }
+    }
+}
+
+/// An 8 pt presence/status dot (SPEC 4.2).
+public struct StatusDot: View {
+    /// Dot state.
+    public struct State: Sendable, Hashable {
+        public let id: Int
+        public static let online = State(id: 0)
+        public static let offline = State(id: 1)
+        public static let busy = State(id: 2)
+        public static let error = State(id: 3)
+    }
+
+    let state: State
+    var size: CGFloat
+
+    public init(_ state: State, size: CGFloat = 8) {
+        self.state = state
+        self.size = size
+    }
+
+    public var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .animation(theme.motion.snap.animation, value: state)
+    }
+
+    private var color: CnxColorToken {
+        switch state {
+        case .online: theme.colors.success
+        case .busy: theme.colors.warning
+        case .error: theme.colors.danger
+        default: theme.colors.offline
+        }
+    }
+}
+
+/// Horizontal shake (SPEC 2.7 `shake`). Increment `trigger` to play.
+public struct ShakeEffect: GeometryEffect {
+    public var animatableData: CGFloat
+
+    public init(trigger: Int) {
+        animatableData = CGFloat(trigger)
+    }
+
+    public func effectValue(size: CGSize) -> ProjectionTransform {
+        let offsets = CnxTheme.standard.motion.shakeOffsets
+        let t = animatableData - animatableData.rounded(.down)
+        guard t > 0 else { return ProjectionTransform(.identity) }
+        let position = t * CGFloat(offsets.count - 1)
+        let i = Int(position)
+        let frac = position - CGFloat(i)
+        let a = offsets[i], b = offsets[min(i + 1, offsets.count - 1)]
+        return ProjectionTransform(CGAffineTransform(translationX: a + (b - a) * frac, y: 0))
+    }
+}
+#endif

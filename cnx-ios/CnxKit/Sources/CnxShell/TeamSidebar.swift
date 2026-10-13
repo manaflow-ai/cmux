@@ -1,162 +1,173 @@
 #if os(iOS)
+import CnxAuth
 import CnxDesign
 import CnxModel
+import CnxSettings
 import SwiftUI
 
-/// The hamburger sidebar. It only switches Stack Auth teams and invites people.
+private let theme = CnxTheme.standard
+
+/// The drawer's content (SPEC 3.3, with the product override): a "cmux" header
+/// with a `+` menu (Create team, Join with invite link), the team list with
+/// avatars and Mac presence dots, and "Invite to team". Team switching only.
 struct TeamSidebar: View {
     let store: AppStore
-    let isOpen: Bool
-    let dismiss: () -> Void
-    @State private var editingTeam: Team?
+    let shell: ShellModel
+    let sidebar: SidebarModel
+    @State private var creatingTeam = false
+    @State private var joiningTeam = false
+    @State private var newTeamName = ""
+    @State private var inviteLink = ""
+    @State private var confirmsLeave: Team?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Teams")
-                .font(.title2.weight(.bold))
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
+            header
             ScrollView {
-                VStack(spacing: 2) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Teams")
+                        .font(theme.type.meta)
+                        .foregroundStyle(theme.colors.label2)
+                        .padding(.horizontal, theme.metrics.sideMargin)
+                        .padding(.top, 24)
+                        .padding(.bottom, 6)
                     ForEach(store.teams) { team in
-                        TeamRow(team: team, isActive: team.id == store.activeTeamID)
-                            .contentShape(.rect)
-                            .onTapGesture {
-                                store.selectTeam(team.id)
-                                dismiss()
-                            }
-                            .contextMenu {
-                                Button("Color and Emoji", systemImage: "paintpalette") { editingTeam = team }
-                            }
+                        row(team)
                     }
+                    if store.teams.isEmpty {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("No teams yet. Create one to share Macs and workspaces.")
+                                .font(theme.type.rowSubtitle)
+                                .foregroundStyle(theme.colors.label2)
+                            PrimaryCapsule("Create team", systemImage: "plus", size: .inline) { creatingTeam = true }
+                        }
+                        .padding(.horizontal, theme.metrics.sideMargin)
+                        .padding(.vertical, 8)
+                    }
+                    inviteRow
+                        .padding(.top, 4)
                 }
-                .padding(.horizontal, 8)
             }
             .scrollBounceBehavior(.basedOnSize)
-            Divider().padding(.horizontal, 20)
-            Button {
-                // Wired to POST /v1/teams/:id/invites once the backend link lands.
+            .scrollIndicators(.hidden)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .background(theme.colors.bg.color.ignoresSafeArea())
+        .alert("Create team", isPresented: $creatingTeam) {
+            TextField("Team name", text: $newTeamName)
+            Button("Cancel", role: .cancel) { newTeamName = "" }
+            Button("Create") { shell.createTeam(named: newTeamName); newTeamName = "" }
+        } message: {
+            Text("Teams share Macs and workspaces.")
+        }
+        .alert("Join with invite link", isPresented: $joiningTeam) {
+            TextField("Invite link", text: $inviteLink)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.URL)
+            Button("Cancel", role: .cancel) { inviteLink = "" }
+            Button("Join") { shell.joinTeam(inviteLink: inviteLink); inviteLink = "" }
+        }
+        .alert(item: $confirmsLeave) { team in
+            Alert(
+                title: Text("Leave \(team.name)?"),
+                message: Text("You'll lose access to this team's Macs and workspaces."),
+                primaryButton: .destructive(Text("Leave")) { shell.toast = CnxToast(symbol: "exclamationmark.circle", text: "Leaving teams isn't available yet") },
+                secondaryButton: .cancel()
+            )
+        }
+    }
+
+    private var header: some View {
+        HStack {
+            Text(verbatim: "cmux")
+                .font(theme.type.sidebarTitle)
+                .foregroundStyle(theme.colors.label)
+                .accessibilityAddTraits(.isHeader)
+            Spacer()
+            Menu {
+                Button("Create team", systemImage: "person.2.badge.plus") { creatingTeam = true }
+                Button("Join with invite link", systemImage: "link") { joiningTeam = true }
             } label: {
-                Label("Invite to team", systemImage: "person.badge.plus")
-                    .font(.body.weight(.medium))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 14)
-                    .contentShape(.rect)
+                Image(systemName: "plus")
+                    .font(.system(size: theme.metrics.glassSymbol, weight: .regular))
+                    .foregroundStyle(theme.colors.label)
+                    .frame(width: 44, height: 44)
+                    .contentShape(.circle)
             }
-            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .accessibilityLabel("Add team")
         }
-        .safeAreaPadding(.vertical)
-        .frame(maxHeight: .infinity, alignment: .top)
-        .sheet(item: $editingTeam) { team in
-            TeamAppearanceEditor(team: team) { store.setAppearance($0, for: team.id) }
-                .presentationDetents([.medium])
-        }
-        .accessibilityHidden(!isOpen)
-    }
-}
-
-/// A team row: avatar, name, and the Macs-online dots.
-struct TeamRow: View {
-    let team: Team
-    let isActive: Bool
-
-    var body: some View {
-        HStack(spacing: 12) {
-            TeamAvatar(name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji, size: 34)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(team.name).font(.body.weight(isActive ? .semibold : .regular))
-                MacDots(team: team)
-            }
-            Spacer(minLength: 0)
-            if isActive {
-                Image(systemName: "checkmark").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background {
-            if isActive {
-                RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.primary.opacity(0.08))
-            }
-        }
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(isActive ? .isSelected : [])
-    }
-}
-
-/// Up to five dots (green online, gray offline) and "+N" for more Macs.
-struct MacDots: View {
-    let team: Team
-
-    var body: some View {
-        let (dots, overflow) = team.macDots()
-        HStack(spacing: 4) {
-            ForEach(Array(dots.enumerated()), id: \.offset) { _, online in
-                Circle()
-                    .fill(online ? CnxTheme.standard.palette.online : CnxTheme.standard.palette.offline)
-                    .frame(width: 7, height: 7)
-            }
-            if overflow > 0 {
-                Text("+\(overflow)").font(.caption2.weight(.medium)).foregroundStyle(.secondary)
-            }
-            if dots.isEmpty {
-                Text("No Macs").font(.caption).foregroundStyle(.secondary)
-            }
-        }
-        .accessibilityElement()
-        .accessibilityLabel(Text("\(team.macs.filter(\.isOnline).count) of \(team.macs.count) Macs online"))
-    }
-}
-
-/// Pick a team color, or overlay an emoji.
-struct TeamAppearanceEditor: View {
-    let team: Team
-    let onChange: (TeamAppearance) -> Void
-    @State private var appearance: TeamAppearance
-    @Environment(\.dismiss) private var dismiss
-
-    init(team: Team, onChange: @escaping (TeamAppearance) -> Void) {
-        self.team = team
-        self.onChange = onChange
-        _appearance = State(initialValue: team.appearance)
+        .padding(.horizontal, theme.metrics.sideMargin)
+        .padding(.top, 0)
     }
 
-    var body: some View {
-        NavigationStack {
-            VStack(spacing: 24) {
-                TeamAvatar(name: team.name, colorHex: appearance.colorHex, emoji: appearance.emoji, size: 72)
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 14) {
-                    ForEach(TeamAppearance.palette, id: \.self) { hex in
-                        Circle()
-                            .fill(Color(hex: hex))
-                            .frame(width: 40, height: 40)
-                            .overlay { if hex == appearance.colorHex { Circle().stroke(.primary, lineWidth: 2.5).padding(-4) } }
-                            .onTapGesture { appearance.colorHex = hex }
-                            .accessibilityLabel(Text(hex))
+    private func row(_ team: Team) -> some View {
+        let presence = team.macDots(limit: theme.metrics.macDotLimit)
+        let selected = team.id == store.activeTeamID
+        return Button {
+            shell.switchTeam(to: team.id)
+        } label: {
+            SidebarTeamRow(
+                name: team.name,
+                colorHex: team.appearance.colorHex,
+                emoji: team.appearance.emoji,
+                dots: presence.dots,
+                overflow: presence.overflow,
+                onlineCount: team.macs.filter(\.isOnline).count,
+                isSelected: selected
+            )
+            .animation(theme.motion.snap.animation, value: selected)
+        }
+        .buttonStyle(SidebarRowStyle())
+        .padding(.horizontal, theme.metrics.selectedRowInset)
+        .contextMenu {
+            Button("Change color and emoji", systemImage: "paintpalette") { shell.editingTeam = team }
+            Button("Invite to team", systemImage: "person.badge.plus") { shell.invite(to: team) }
+            Button("Copy team name", systemImage: "doc.on.doc") {
+                UIPasteboard.general.string = team.name
+                theme.haptics.copy()
+            }
+            Divider()
+            Button("Leave team", systemImage: "rectangle.portrait.and.arrow.right", role: .destructive) { confirmsLeave = team }
+        }
+    }
+
+    private var inviteRow: some View {
+        Button {
+            if let team = store.activeTeam { shell.invite(to: team) }
+        } label: {
+            HStack(spacing: 14) {
+                ZStack {
+                    if shell.isFetchingInvite {
+                        ProgressView()
+                    } else {
+                        Image(systemName: "person.badge.plus").font(.system(size: 17))
                     }
                 }
-                TextField("Emoji (optional)", text: Binding(
-                    get: { appearance.emoji ?? "" },
-                    set: { appearance.emoji = $0.isEmpty ? nil : String($0.suffix(1)) }
-                ))
-                .multilineTextAlignment(.center)
-                .font(.title2)
+                .frame(width: theme.metrics.teamAvatar)
+                Text("Invite to team").font(theme.type.rowTitle)
+                Spacer()
             }
-            .padding(24)
-            .navigationTitle(team.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done", systemImage: "checkmark") {
-                        onChange(appearance)
-                        dismiss()
-                    }
-                }
-            }
+            .foregroundStyle(theme.colors.label)
+            .padding(.horizontal, theme.metrics.sideMargin - theme.metrics.selectedRowInset)
+            .frame(height: theme.metrics.sidebarRowPitch)
+            .contentShape(.rect)
         }
-        .sensoryFeedback(.selection, trigger: appearance)
+        .buttonStyle(SidebarRowStyle())
+        .padding(.horizontal, theme.metrics.selectedRowInset)
+        .disabled(store.activeTeam == nil)
+    }
+}
+
+/// Pressed rows get `fillPressed` behind them.
+private struct SidebarRowStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background {
+                RoundedRectangle(cornerRadius: theme.metrics.selectedRowRadius, style: .continuous)
+                    .fill(theme.colors.fillPressed)
+                    .opacity(configuration.isPressed ? 1 : 0)
+            }
     }
 }
 #endif

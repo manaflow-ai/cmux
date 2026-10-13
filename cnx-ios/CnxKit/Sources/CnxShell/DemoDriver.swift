@@ -1,0 +1,167 @@
+#if os(iOS) && DEBUG
+import CnxDesign
+import CnxModel
+import QuartzCore
+import SwiftUI
+import UIKit
+
+/// DEBUG-only scripted choreography for simulator recordings (`-cnx-demo <name>`).
+/// Drawer drags feed synthetic finger positions, one per display frame, into
+/// the container's real tracking path (`beginTracking` / `track` /
+/// `endTracking`), so the recorded motion is the production pan code minus the
+/// recognizer. The pauses below pace the recording; they are not synchronization.
+@MainActor
+struct DemoDriver {
+    let shell: ShellModel
+
+    func run(_ name: String) async {
+        try? await Task.sleep(for: .seconds(1.2))
+        switch name {
+        case "drawer": await drawer()
+        case "settings": await settings()
+        case "states": await states()
+        case "editor": await editor()
+        case "rubber": await rubber()
+        default: break
+        }
+    }
+
+    private func pause(_ seconds: Double) async {
+        try? await Task.sleep(for: .seconds(seconds))
+    }
+
+    /// A finger drag of `distance` points over `duration`, released with the
+    /// finger's last-frame velocity (or `release`). Slow drags ease in and out;
+    /// flicks accelerate and lift off while still moving, like a real swipe.
+    private func drag(_ distance: CGFloat, duration: Double, release: CGFloat? = nil, flick: Bool = false) async {
+        let sidebar = shell.sidebar
+        sidebar.beginTracking()
+        let frames = FrameClock()
+        let start = await frames.next()
+        var last: (t: Double, x: CGFloat) = (0, 0)
+        var velocity: CGFloat = 0
+        while true {
+            let t = min((await frames.next() - start) / duration, 1)
+            let x = flick ? distance * CGFloat(t * t) : distance * CGFloat(t * t * (3 - 2 * t))
+            let elapsed = t * duration
+            if elapsed > last.t { velocity = (x - last.x) / CGFloat(elapsed - last.t) }
+            last = (elapsed, x)
+            sidebar.track(translationX: x)
+            if t >= 1 { break }
+        }
+        frames.stop()
+        sidebar.endTracking(velocityX: release ?? velocity)
+    }
+
+    private func drawer() async {
+        // Slow interactive open, released past the threshold with little velocity.
+        await drag(240, duration: 0.7, release: 120)
+        await pause(1.6)
+        // Fast flick closed.
+        await drag(-110, duration: 0.12, flick: true)
+        await pause(1.2)
+        // Toolbar button open.
+        shell.sidebar.open()
+        await pause(1.4)
+        // Switch team: highlight moves, drawer closes, content crossfades.
+        if let next = shell.store.teams.first(where: { $0.id != shell.store.activeTeamID }) {
+            shell.switchTeam(to: next.id)
+        }
+        await pause(1.6)
+        // Partial drag that does not reach the threshold springs back closed.
+        await drag(90, duration: 0.5, release: 0)
+        await pause(1.2)
+        // Open on a fast short flick (velocity wins over distance).
+        await drag(70, duration: 0.1, flick: true)
+        await pause(1.4)
+        // Close by tapping the card.
+        shell.sidebar.close()
+        await pause(1.2)
+    }
+
+    private func rubber() async {
+        shell.sidebar.open()
+        await pause(1.0)
+        await drag(150, duration: 0.6, release: 0)
+        await pause(1.2)
+        shell.sidebar.close()
+        await pause(1.0)
+    }
+
+    private func settings() async {
+        shell.tab = .settings
+        await pause(1.5)
+        shell.settingsScrollTarget = "bottom"
+        await pause(2.0)
+        shell.settingsPath = [.pairedMacs]
+        await pause(1.5)
+        shell.settingsPath = []
+        await pause(1.0)
+        shell.settingsScrollTarget = "top"
+        await pause(1.5)
+    }
+
+    private func states() async {
+        shell.tab = .workspaces
+        await pause(1.0)
+        shell.store.teamDataState = .loading
+        await pause(2.0)
+        shell.store.teamDataState = .failed
+        await pause(2.0)
+        shell.store.teamDataState = .loaded
+        await pause(1.0)
+        shell.store.isOffline = true
+        await pause(2.0)
+        shell.store.isOffline = false
+        await pause(0.8)
+        if let index = shell.store.teams.firstIndex(where: { $0.id == shell.store.activeTeamID }) {
+            let macs = shell.store.teams[index].macs
+            shell.store.teams[index].macs = macs.map { MacDevice(id: $0.id, name: $0.name, isOnline: false) }
+            await pause(2.0)
+            shell.store.teams[index].macs = []
+            await pause(2.0)
+            shell.store.teams[index].macs = macs
+        }
+        await pause(1.0)
+        shell.toast = CnxToast(symbol: "checkmark", text: "Paired with cmux mini 2")
+        await pause(2.0)
+    }
+
+    private func editor() async {
+        shell.sidebar.open()
+        await pause(1.2)
+        shell.editingTeam = shell.store.activeTeam
+        await pause(3.0)
+    }
+}
+
+/// Awaits display frames.
+@MainActor
+private final class FrameClock: NSObject {
+    private var link: CADisplayLink?
+    private var waiter: CheckedContinuation<Double, Never>?
+
+    func next() async -> Double {
+        await withCheckedContinuation { continuation in
+            waiter = continuation
+            if link == nil {
+                let link = CADisplayLink(target: self, selector: #selector(tick(_:)))
+                link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+                link.add(to: .main, forMode: .common)
+                self.link = link
+            }
+        }
+    }
+
+    @objc private func tick(_ link: CADisplayLink) {
+        guard let waiter else { return }
+        self.waiter = nil
+        waiter.resume(returning: link.targetTimestamp)
+    }
+
+    func stop() {
+        link?.invalidate()
+        link = nil
+    }
+}
+#endif

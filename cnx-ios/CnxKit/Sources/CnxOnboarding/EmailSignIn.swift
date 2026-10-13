@@ -1,0 +1,181 @@
+#if os(iOS)
+import CnxAuth
+import CnxDesign
+import SwiftUI
+
+private let theme = CnxTheme.standard
+
+/// Email code sign-in (SPEC 5.4): large sheet, "Email" step then "Code" step
+/// pushed inside the sheet.
+struct EmailSignInSheet: View {
+    let auth: CnxAuthModel
+    @State private var email: String
+    @State private var path: [String]
+    @State private var isSending = false
+    @State private var error: String?
+    @FocusState private var emailFocused: Bool
+    @Environment(\.dismiss) private var dismiss
+
+    init(auth: CnxAuthModel, initialEmail: String?) {
+        self.auth = auth
+        _email = State(initialValue: initialEmail ?? "")
+        _path = State(initialValue: initialEmail.map { $0.isEmpty ? [] : [$0] } ?? [])
+    }
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Continue with email")
+                    .font(theme.type.sheetTitle)
+                    .foregroundStyle(theme.colors.label)
+                Text("We'll send you a 6-digit code.")
+                    .font(theme.type.rowSubtitle)
+                    .foregroundStyle(theme.colors.label2)
+                    .padding(.top, 6)
+                TextField("Email", text: $email, prompt: Text(verbatim: "name@example.com").foregroundStyle(theme.colors.label3))
+                    .textContentType(.emailAddress)
+                    .keyboardType(.emailAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .submitLabel(.continue)
+                    .focused($emailFocused)
+                    .font(theme.type.body)
+                    .cnxInputField()
+                    .padding(.top, 20)
+                    .onSubmit(send)
+                if let error {
+                    Text(error).font(theme.type.meta).foregroundStyle(theme.colors.danger).padding(.top, 10)
+                }
+                Spacer(minLength: 0)
+                PrimaryCapsule("Send code", isLoading: isSending, action: send)
+                    .disabled(!isValidEmail)
+                    .padding(.bottom, 8)
+            }
+            .padding(.horizontal, theme.metrics.sideMargin)
+            .padding(.top, 8)
+            .background(theme.colors.sheet.color.ignoresSafeArea())
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Close", systemImage: "xmark") { dismiss() }
+                }
+            }
+            .navigationDestination(for: String.self) { address in
+                EmailCodeStep(auth: auth, email: address) { path.removeAll() }
+            }
+            .defaultFocus($emailFocused, true)
+            .onAppear { emailFocused = true }
+        }
+        .presentationDetents([.large])
+        .tint(theme.colors.label.color)
+    }
+
+    private var isValidEmail: Bool {
+        let trimmed = email.trimmingCharacters(in: .whitespaces)
+        #if DEBUG
+        if trimmed == "42" { return true }
+        #endif
+        let parts = trimmed.split(separator: "@")
+        return parts.count == 2 && parts[1].contains(".") && !parts[0].isEmpty && !trimmed.contains(" ")
+    }
+
+    private func send() {
+        guard isValidEmail, !isSending else { return }
+        let address = email.trimmingCharacters(in: .whitespaces)
+        isSending = true
+        error = nil
+        Task {
+            defer { isSending = false }
+            do {
+                try await auth.sendCode(to: address)
+                if !auth.isSignedIn { path.append(address) }
+            } catch {
+                self.error = CnxAuthModel.message(for: error)
+                theme.haptics.error()
+            }
+        }
+    }
+}
+
+/// Six boxes over a hidden one-time-code field; auto-submits on the sixth
+/// digit; invalid codes shake and clear; resend has a 30 s countdown.
+struct EmailCodeStep: View {
+    let auth: CnxAuthModel
+    let email: String
+    let useDifferentEmail: () -> Void
+    @State private var code = ""
+    @State private var isVerifying = false
+    @State private var shakes = 0
+    @State private var error: String?
+    @State private var resendAvailableAt = Date().addingTimeInterval(30)
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Check your email")
+                .font(theme.type.sheetTitle)
+                .foregroundStyle(theme.colors.label)
+            Text("Enter the code we sent to \(email).")
+                .font(theme.type.rowSubtitle)
+                .foregroundStyle(theme.colors.label2)
+                .padding(.top, 6)
+            CodeBoxes(text: $code)
+                .modifier(ShakeEffect(trigger: shakes))
+                .animation(.linear(duration: theme.motion.shakeDuration), value: shakes)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 24)
+                .disabled(isVerifying)
+                .overlay { if isVerifying { ProgressView().offset(y: 52) } }
+            if let error {
+                Text(error).font(theme.type.meta).foregroundStyle(theme.colors.danger)
+                    .frame(maxWidth: .infinity).padding(.top, 14)
+            }
+            TimelineView(.periodic(from: .now, by: 1)) { context in
+                let remaining = max(0, Int(resendAvailableAt.timeIntervalSince(context.date).rounded(.up)))
+                HStack {
+                    Spacer()
+                    TextCTA(remaining > 0 ? "Resend in 0:\(String(format: "%02d", remaining))" : "Resend code") { resend() }
+                        .disabled(remaining > 0)
+                        .opacity(remaining > 0 ? 0.4 : 1)
+                    Spacer()
+                }
+            }
+            .padding(.top, 20)
+            HStack {
+                Spacer()
+                TextCTA("Use a different email", action: useDifferentEmail)
+                Spacer()
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, theme.metrics.sideMargin)
+        .padding(.top, 8)
+        .background(theme.colors.sheet.color.ignoresSafeArea())
+        .navigationBarBackButtonHidden(false)
+        .onChange(of: code) { _, value in
+            if value.count == 6 { verify(value) }
+        }
+    }
+
+    private func verify(_ value: String) {
+        guard !isVerifying else { return }
+        isVerifying = true
+        error = nil
+        Task {
+            defer { isVerifying = false }
+            do {
+                try await auth.verifyCode(value)
+                theme.haptics.success()
+            } catch {
+                self.error = CnxAuthModel.message(for: error) ?? "That code didn't work. Try again."
+                theme.haptics.error()
+                shakes += 1
+                code = ""
+            }
+        }
+    }
+
+    private func resend() {
+        resendAvailableAt = Date().addingTimeInterval(30)
+        Task { try? await auth.sendCode(to: email) }
+    }
+}
+#endif

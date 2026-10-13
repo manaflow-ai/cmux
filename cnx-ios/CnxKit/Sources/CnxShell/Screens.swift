@@ -4,46 +4,62 @@ import CnxDesign
 import CnxModel
 import SwiftUI
 
-/// Leading toolbar item every root tab shares: the hamburger that opens the team sidebar.
+private let theme = CnxTheme.standard
+
+/// Leading toolbar item every root tab shares: the glass `line.3.horizontal`
+/// circle that opens the team sidebar.
 struct SidebarToolbarItem: ToolbarContent {
-    let openSidebar: () -> Void
-    @Environment(AppStore.self) private var store
+    let sidebar: SidebarModel
 
     var body: some ToolbarContent {
         ToolbarItem(placement: .topBarLeading) {
-            Button(action: openSidebar) {
-                if let team = store.activeTeam {
-                    TeamAvatar(name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji, size: 26)
-                } else {
-                    Image(systemName: "line.3.horizontal")
-                }
-            }
-            .accessibilityLabel("Teams")
+            Button("Teams", systemImage: "line.3.horizontal") { sidebar.open() }
+                .accessibilityLabel("Teams")
+        }
+    }
+}
+
+/// Centered toolbar title in `screenTitle`.
+struct ScreenTitle: ToolbarContent {
+    let title: LocalizedStringKey
+
+    var body: some ToolbarContent {
+        ToolbarItem(placement: .principal) {
+            Text(title).font(theme.type.screenTitle).foregroundStyle(theme.colors.label)
         }
     }
 }
 
 struct HomeScreen: View {
-    let openSidebar: () -> Void
-    @Environment(AppStore.self) private var store
+    let shell: ShellModel
 
     var body: some View {
-        NavigationStack {
-            List {
-                ConversationRow(title: "Chief", preview: "Two agents need you. The transport PR is ready for review.", time: "now", isChief: true)
-                ForEach(store.workspaces) { ws in
-                    if let tab = ws.tabs.first(where: { $0.kind == .agent }) {
-                        NavigationLink(value: AgentChatDestination(workspaceID: ws.id, tabID: tab.id)) {
-                            ConversationRow(title: "\(tab.title) · \(ws.title)", preview: tab.subtitle ?? "", time: ws.lastActivityAt.formatted(.relative(presentation: .numeric)), isChief: false)
+        @Bindable var shell = shell
+        NavigationStack(path: $shell.homePath) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    ForEach(shell.store.activeWorkspaces) { ws in
+                        if let tab = ws.tabs.first(where: { $0.kind == .agent }) {
+                            NavigationLink(value: AgentChatDestination(workspaceID: ws.id, tabID: tab.id)) {
+                                ConversationRow(title: "\(tab.title) · \(ws.title)", preview: tab.subtitle ?? "", date: ws.lastActivityAt)
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
+                .padding(.top, 8)
             }
-            .listStyle(.plain)
             .agentChatDestinations()
-            .navigationTitle("Home")
+            .overlay {
+                if shell.store.activeWorkspaces.isEmpty {
+                    EmptyState(symbol: "sparkles", title: "Ask Chief", message: "Chief runs your agents across every Mac in this team.")
+                }
+            }
+            .background(theme.colors.bg.color.ignoresSafeArea())
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                SidebarToolbarItem(openSidebar: openSidebar)
+                SidebarToolbarItem(sidebar: shell.sidebar)
+                ScreenTitle(title: "Chief")
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("New conversation", systemImage: "square.and.pencil") {}
                 }
@@ -55,59 +71,128 @@ struct HomeScreen: View {
 struct ConversationRow: View {
     let title: String
     let preview: String
-    let time: String
-    let isChief: Bool
+    let date: Date
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Circle()
-                .fill(isChief ? AnyShapeStyle(Color.primary.gradient) : AnyShapeStyle(Color.secondary.opacity(0.35).gradient))
-                .frame(width: 44, height: 44)
-                .overlay {
-                    Image(systemName: isChief ? "sparkles" : "sparkle")
-                        .foregroundStyle(isChief ? Color(uiColor: .systemBackground) : .primary)
-                }
+            Image(systemName: "sparkle")
+                .font(.system(size: 17))
+                .foregroundStyle(theme.colors.label)
+                .frame(width: 40, height: 40)
+                .background(theme.colors.surfaceRaised, in: .circle)
             VStack(alignment: .leading, spacing: 2) {
                 HStack {
-                    Text(title).font(.body.weight(.semibold)).lineLimit(1)
+                    Text(title).font(theme.type.rowTitle.weight(.semibold)).lineLimit(1)
                     Spacer()
-                    Text(time).font(.subheadline).foregroundStyle(.secondary)
+                    Text(date, format: .relative(presentation: .numeric)).font(theme.type.meta).foregroundStyle(theme.colors.label2)
                 }
-                Text(preview).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+                Text(preview).font(theme.type.rowSubtitle).foregroundStyle(theme.colors.label2).lineLimit(2)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.horizontal, theme.metrics.sideMargin)
+        .padding(.vertical, 10)
     }
 }
 
 struct WorkspacesScreen: View {
-    let openSidebar: () -> Void
-    @Environment(AppStore.self) private var store
+    let shell: ShellModel
+    @State private var showsOffline = false
+    @State private var isRetrying = false
+
+    private var store: AppStore { shell.store }
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(store.activeTeam?.macs ?? []) { mac in
-                    let items = store.workspaces.filter { $0.macID == mac.id }
-                    if !items.isEmpty {
-                        Section {
-                            ForEach(items) { ws in
-                                NavigationLink(value: ws) { WorkspaceRow(workspace: ws) }
-                            }
-                        } header: {
-                            HStack(spacing: 6) {
-                                Circle().fill(mac.isOnline ? CnxTheme.standard.palette.online : CnxTheme.standard.palette.offline).frame(width: 7, height: 7)
-                                Text(mac.name)
-                            }
-                        }
-                    }
+        @Bindable var shell = shell
+        NavigationStack(path: $shell.workspacesPath) {
+            content
+                .background(theme.colors.bg.color.ignoresSafeArea())
+                .navigationBarTitleDisplayMode(.inline)
+                .navigationDestination(for: Workspace.self) { ws in
+                    WorkspaceDetailPlaceholder(workspace: ws, store: store)
                 }
+                .toolbar {
+                    SidebarToolbarItem(sidebar: shell.sidebar)
+                    ScreenTitle(title: "Workspaces")
+                }
+                .cnxBanner(store.isOffline ? .offline : nil)
+        }
+    }
+
+    @ViewBuilder private var content: some View {
+        let macs = store.activeTeam?.macs ?? []
+        switch store.teamDataState {
+        case .loading:
+            ScrollView { SkeletonList(rows: 6).padding(.top, 8) }
+                .scrollDisabled(true)
+        case .failed:
+            EmptyState(
+                symbol: "cloud",
+                title: "Couldn't load workspaces",
+                message: "Check your connection and try again.",
+                primaryTitle: "Retry",
+                isPrimaryLoading: isRetrying,
+                primary: retry
+            )
+        case .loaded:
+            if macs.isEmpty {
+                EmptyState(
+                    symbol: "desktopcomputer",
+                    title: "Connect your Mac",
+                    message: "Open cmux on your Mac and choose Pair iPhone to get a code.",
+                    primaryTitle: "Scan QR code", primary: {},
+                    secondaryTitle: "Enter code manually", secondary: {}
+                )
+            } else if !macs.contains(where: \.isOnline) && !showsOffline {
+                EmptyState(
+                    symbol: "moon.zzz",
+                    title: "Your Macs are asleep",
+                    message: "Wake a Mac or open cmux on it to see its workspaces.",
+                    secondaryTitle: "Show offline Macs", secondary: { showsOffline = true }
+                )
+            } else {
+                list(macs: macs)
             }
-            .navigationTitle("Workspaces")
-            .navigationDestination(for: Workspace.self) { ws in
-                WorkspaceDetailPlaceholder(workspace: ws)
+        }
+    }
+
+    private func list(macs: [MacDevice]) -> some View {
+        List {
+            ForEach(macs) { mac in
+                let items = store.workspaces.filter { $0.macID == mac.id }
+                Section {
+                    if items.isEmpty {
+                        Text(mac.isOnline ? "No workspaces" : "Offline")
+                            .font(theme.type.rowSubtitle)
+                            .foregroundStyle(theme.colors.label2)
+                    }
+                    ForEach(items) { ws in
+                        NavigationLink(value: ws) { WorkspaceRow(workspace: ws) }
+                            .listRowBackground(theme.colors.bg.color)
+                    }
+                } header: {
+                    HStack(spacing: 8) {
+                        StatusDot(mac.isOnline ? .online : .offline, size: 7)
+                        Text(mac.name)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityLabel(Text("\(mac.name), \(mac.isOnline ? "online" : "offline")"))
+                }
+                .listRowBackground(theme.colors.bg.color)
             }
-            .toolbar { SidebarToolbarItem(openSidebar: openSidebar) }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .refreshable {}
+    }
+
+    private func retry() {
+        isRetrying = true
+        Task {
+            // Mock source: the next team snapshot is local, so the retry resolves
+            // on the next main-actor turn.
+            await Task.yield()
+            store.teamDataState = .loaded
+            isRetrying = false
         }
     }
 }
@@ -117,31 +202,32 @@ struct WorkspaceRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text(workspace.title).font(.body.weight(.semibold))
+            HStack(spacing: 8) {
+                Text(workspace.title).font(theme.type.rowTitle.weight(.semibold)).lineLimit(1)
                 if workspace.needsAttention {
-                    Circle().fill(CnxTheme.standard.palette.attention).frame(width: 8, height: 8)
+                    StatusDot(.busy)
                         .accessibilityLabel("Needs attention")
                 }
                 Spacer()
                 Text(workspace.lastActivityAt, format: .relative(presentation: .numeric))
-                    .font(.subheadline).foregroundStyle(.secondary)
+                    .font(theme.type.meta).foregroundStyle(theme.colors.label2)
             }
             HStack(spacing: 6) {
                 if let branch = workspace.branch {
                     Label(branch, systemImage: "arrow.triangle.branch").labelStyle(.titleAndIcon)
                 }
-                Text("\(workspace.tabs.count) tabs")
+                Text(workspace.tabs.count == 1 ? "1 tab" : "\(workspace.tabs.count) tabs")
             }
-            .font(.footnote).foregroundStyle(.secondary)
+            .font(theme.type.meta).foregroundStyle(theme.colors.label2)
         }
+        .frame(minHeight: 44)
     }
 }
 
 /// Stand-in until CmuxTabsKit hosts the real tab content.
 struct WorkspaceDetailPlaceholder: View {
     let workspace: Workspace
-    @Environment(AppStore.self) private var store
+    let store: AppStore
 
     var body: some View {
         let tab = store.openingTab(for: workspace)
@@ -153,35 +239,11 @@ struct WorkspaceDetailPlaceholder: View {
     }
 
     private func placeholder(_ tab: WorkspaceTab?) -> some View {
-        ContentUnavailableView(tab?.title ?? workspace.title, systemImage: tab?.systemImage ?? "square.stack", description: Text(tab?.subtitle ?? ""))
+        EmptyState(symbol: tab?.systemImage ?? "square.stack", title: LocalizedStringKey(tab?.title ?? workspace.title), message: LocalizedStringKey(tab?.subtitle ?? ""))
+            .background(theme.colors.bg.color.ignoresSafeArea())
             .navigationTitle(workspace.title)
             .navigationBarTitleDisplayMode(.inline)
     }
 }
 
-struct SettingsScreen: View {
-    @Environment(AppStore.self) private var store
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section("Account") {
-                    Label("Signed in", systemImage: "person.crop.circle")
-                }
-                Section("Connection") {
-                    Picker(selection: .constant(0)) {
-                        Text("WebRTC").tag(0)
-                        Text("WireGuard").tag(1)
-                    } label: {
-                        Label("Transport", systemImage: "point.3.connected.trianglepath.dotted")
-                    }
-                }
-                Section {
-                    Button("Log out", role: .destructive) {}
-                }
-            }
-            .navigationTitle("Settings")
-        }
-    }
-}
 #endif

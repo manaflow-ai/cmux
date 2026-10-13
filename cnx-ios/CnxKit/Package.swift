@@ -16,9 +16,16 @@ let package = Package(
         .library(name: "CnxDiff", targets: ["CnxDiff"]),
         .library(name: "CnxAgentChat", targets: ["CnxAgentChat"]),
         .library(name: "CnxFeed", targets: ["CnxFeed"]),
+        .library(name: "CnxAuth", targets: ["CnxAuth"]),
+        .library(name: "CnxOnboarding", targets: ["CnxOnboarding"]),
+        .library(name: "CnxSettings", targets: ["CnxSettings"]),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxAgentQuestion"),
+        // Shared Stack Auth runtime (used as-is; do not modify from here).
+        .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
+        .package(path: "../../Packages/Shared/CMUXAuthCore"),
+        .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
     ],
     targets: [
         .target(name: "CnxDesign"),
@@ -46,7 +53,28 @@ let package = Package(
             "CnxDesign", "CnxModel", "CnxMarkdown", "CnxAgentChat",
             .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
         ]),
-        .target(name: "CnxShell", dependencies: ["CnxDesign", "CnxModel", "CnxAgentChat", "CnxFeed", "CnxTransport"]),
+        .target(
+            name: "CnxAuth",
+            dependencies: [
+                "CnxModel",
+                .product(name: "CmuxAuthRuntime", package: "CmuxAuthRuntime"),
+                .product(name: "CMUXAuthCore", package: "CMUXAuthCore"),
+                .product(name: "StackAuth", package: "stack-auth-swift-sdk-prerelease"),
+            ]
+        ),
+        .target(
+            name: "CnxOnboarding",
+            dependencies: ["CnxDesign", "CnxModel", "CnxAuth"],
+            resources: [.process("Resources")]
+        ),
+        .target(name: "CnxSettings", dependencies: ["CnxDesign", "CnxModel", "CnxAuth"]),
+        .target(
+            name: "CnxShell",
+            dependencies: [
+                "CnxDesign", "CnxModel", "CnxAuth", "CnxOnboarding", "CnxSettings",
+                "CnxAgentChat", "CnxFeed", "CnxTransport",
+            ]
+        ),
         .testTarget(name: "CnxModelTests", dependencies: ["CnxModel"]),
         .testTarget(name: "CnxTransportTests", dependencies: ["CnxTransport"]),
         .testTarget(name: "CnxAgentChatTests", dependencies: ["CnxAgentChat", "CnxDiff", "CnxMarkdown"]),
