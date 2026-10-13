@@ -625,12 +625,7 @@
               "browser.customSearchEngine.suggest",
               "browser.omnibar.inlineAutocomplete",
               "browser.omnibar.maxRows",
-              "browser.omnibar.calculator",
-              "browser.omnibar.glass",
-              "browser.omnibar.glassTint",
-              "browser.omnibar.glassTintStrength",
-              "browser.omnibar.cornerRadius",
-              "browser.omnibar.shadow"
+              "browser.omnibar.calculator"
             ],
             "title" : {
               "key" : "settings.group.addressBar",
@@ -1901,114 +1896,6 @@
       "title" : {
         "key" : "settings.tabs.barOrder",
         "text" : "Tab Bar and Browser Toolbar"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        [
-
-        ],
-        [
-          "toggleSplitZoom",
-          "agentPane.searchChats",
-          "file.open",
-          "openDiffViewer",
-          "splitDown",
-          "splitRight"
-        ]
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.splitRight",
-            "text" : "Split Right"
-          },
-          "value" : "splitRight"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.splitDown",
-            "text" : "Split Down"
-          },
-          "value" : "splitDown"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.diffViewer",
-            "text" : "Diff Viewer"
-          },
-          "value" : "openDiffViewer"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.openFile",
-            "text" : "Open File"
-          },
-          "value" : "file.open"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.searchChats",
-            "text" : "Search Agent Chats"
-          },
-          "value" : "agentPane.searchChats"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.paneZoom",
-            "text" : "Pane Zoom"
-          },
-          "value" : "toggleSplitZoom"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : [
-
-      ],
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.toolbarButtons.help",
-        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.toolbarButtons",
-      "keywords" : [
-        "toolbar",
-        "split",
-        "buttons",
-        "pin",
-        "more"
-      ],
-      "kind" : "string_list",
-      "ordered" : true,
-      "page_hidden" : true,
-      "path" : [
-        "tabs",
-        "toolbarButtons"
-      ],
-      "refuses" : [
-        "splitRight",
-        [
-          "__not_a_choice__"
-        ],
-        [
-          1
-        ]
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.toolbarButtons",
-        "text" : "Tab Bar Buttons"
       },
       "validation" : "portable"
     },
@@ -9939,15 +9826,18 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "borders",
-      "default_label" : null,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.choice.default",
+        "text" : "Default"
+      },
       "group" : {
         "key" : "settings.group.panes",
         "text" : "Panes"
       },
       "help" : {
         "key" : "settings.layout.paneSeparation.help",
-        "text" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them."
+        "text" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.paneSeparation",
@@ -14075,13 +13965,14 @@
       },
       "help" : {
         "key" : "settings.sidebar.cards.tips.help",
-        "text" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."
+        "text" : "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.cards.tips",
       "keywords" : [
         "sidebar",
         "tips",
+        "hints",
         "did you know",
         "cards",
         "learn",
@@ -14102,11 +13993,11 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.sidebar.cards.tips.summary",
-        "text" : "A daily tip about a feature you haven't used"
+        "text" : "A daily hint about a feature you haven't used"
       },
       "title" : {
         "key" : "settings.sidebar.cards.tips",
-        "text" : "Show Tips"
+        "text" : "Show Hints"
       },
       "validation" : "portable"
     },
@@ -19262,331 +19153,6 @@
     },
     {
       "accepts" : [
-        "regular",
-        "clear",
-        "off"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.glass",
-            "text" : "Glass"
-          },
-          "value" : "regular"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.glassClear",
-            "text" : "Clear Glass"
-          },
-          "value" : "clear"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.off",
-            "text" : "Off"
-          },
-          "value" : "off"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "regular",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.addressBar",
-        "text" : "Address Bar"
-      },
-      "help" : {
-        "key" : "settings.browser.omnibar.glass.help",
-        "text" : "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.omnibar.glass",
-      "keywords" : [
-        "glass",
-        "liquid glass",
-        "material",
-        "omnibox",
-        "address bar",
-        "blur"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "omnibar",
-        "glass"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.omnibar.glass",
-        "text" : "Address Bar Glass"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "background",
-        "accent",
-        "none"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.themeBackground",
-            "text" : "Theme Background"
-          },
-          "value" : "background"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.themeAccent",
-            "text" : "Theme Accent"
-          },
-          "value" : "accent"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.none",
-            "text" : "None"
-          },
-          "value" : "none"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "background",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.addressBar",
-        "text" : "Address Bar"
-      },
-      "help" : {
-        "key" : "settings.browser.omnibar.glassTint.help",
-        "text" : "The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.omnibar.glassTint",
-      "keywords" : [
-        "tint",
-        "color",
-        "glass",
-        "theme",
-        "address bar"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "omnibar",
-        "glassTint"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.omnibar.glassTint",
-        "text" : "Glass Tint"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        0,
-        1,
-        0.5
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : 0.35,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.addressBar",
-        "text" : "Address Bar"
-      },
-      "help" : null,
-      "kept_on_reset_all" : false,
-      "key" : "browser.omnibar.glassTintStrength",
-      "keywords" : [
-        "tint",
-        "opacity",
-        "glass",
-        "address bar"
-      ],
-      "kind" : "number",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "omnibar",
-        "glassTintStrength"
-      ],
-      "range" : {
-        "max" : 1,
-        "min" : 0,
-        "placeholder" : 0,
-        "step" : 0.05,
-        "unit" : "fraction"
-      },
-      "refuses" : [
-        -1,
-        2,
-        "1"
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.omnibar.glassTintStrength",
-        "text" : "Tint Strength"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "theme",
-        "capsule",
-        0,
-        16,
-        8
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.matchTheme",
-            "text" : "Match Theme"
-          },
-          "value" : "theme"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.capsule",
-            "text" : "Capsule"
-          },
-          "value" : "capsule"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "theme",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.addressBar",
-        "text" : "Address Bar"
-      },
-      "help" : {
-        "key" : "settings.browser.omnibar.cornerRadius.help",
-        "text" : "Match Theme uses the standard bar radius. Capsule rounds the ends fully."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.omnibar.cornerRadius",
-      "keywords" : [
-        "corner",
-        "radius",
-        "rounded",
-        "capsule",
-        "pill",
-        "address bar"
-      ],
-      "kind" : "choice_or_number",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "omnibar",
-        "cornerRadius"
-      ],
-      "range" : {
-        "max" : 16,
-        "min" : 0,
-        "placeholder" : 8,
-        "step" : 1,
-        "unit" : "points"
-      },
-      "refuses" : [
-        "__not_a_choice__",
-        true,
-        -16,
-        32,
-        "1"
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.omnibar.cornerRadius",
-        "text" : "Address Bar Corners"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        true,
-        false
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : false,
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.addressBar",
-        "text" : "Address Bar"
-      },
-      "help" : {
-        "key" : "settings.browser.omnibar.shadow.help",
-        "text" : "A soft shadow under the glass address bar."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.omnibar.shadow",
-      "keywords" : [
-        "shadow",
-        "glass",
-        "address bar"
-      ],
-      "kind" : "toggle",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "omnibar",
-        "shadow"
-      ],
-      "refuses" : [
-        "true",
-        1,
-        null
-      ],
-      "section" : "browser",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.omnibar.shadow",
-        "text" : "Address Bar Shadow"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "backgroundTab",
         "foregroundTab",
         "newWindow",
@@ -23292,7 +22858,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "bd6881e3d5e75a4aa493328355a867ff1ea70e310a3138449b7c9d0fa2333140",
+  "schema_hash" : "c8a59e1df1cd0cffca454b1b810dd52a89a5641de75950564a3c08b0ecd4d2dc",
   "sections" : [
     {
       "id" : "general",
