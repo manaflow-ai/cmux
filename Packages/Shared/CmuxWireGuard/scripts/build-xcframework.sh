@@ -24,9 +24,24 @@ if [[ "${1:-}" == "--if-stale" && -d "$out" ]]; then
   fi
 fi
 
+# Hosts without Go (fleet minis) use a pinned, checksum-verified toolchain
+# cached under ~/.cache/cmux.
+GO_PIN=go1.25.2
+GO_SHA_arm64=d1ade1b480e51b6269b6e65856c602aed047e1f0d32fffef7eebbd7faa8d7687
+GO_SHA_amd64=95493abb01da81638ab5083ff3f97e8f923cb42a64c2e16728e3cf5b0cd3fc5a
 if [[ -z "$go_bin" ]]; then
-  echo "build-xcframework: Go is required (set GO=/path/to/go)" >&2
-  exit 1
+  arch="$(uname -m)"; [[ "$arch" == "x86_64" ]] && arch=amd64
+  sha_var="GO_SHA_$arch"
+  cache="$HOME/.cache/cmux/go/$GO_PIN-$arch"
+  if [[ ! -x "$cache/go/bin/go" ]]; then
+    tarball="$(mktemp -t cmux-go)"
+    curl -fsSL "https://go.dev/dl/$GO_PIN.darwin-$arch.tar.gz" -o "$tarball"
+    echo "${!sha_var}  $tarball" | shasum -a 256 -c - >/dev/null
+    rm -rf "$cache" && mkdir -p "$cache"
+    tar -xzf "$tarball" -C "$cache"
+    rm -f "$tarball"
+  fi
+  go_bin="$cache/go/bin/go"
 fi
 
 work="$(mktemp -d)"

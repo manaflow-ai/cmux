@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import CmuxWireGuard
 import CmuxWireGuardPairing
 import Foundation
@@ -15,6 +16,10 @@ extension WireGuardPhoneHost {
               pending.invitation.bootstrapAddress == address else {
             return
         }
+        // A bootstrap peer gets 10 s to send its request.
+        let deadline = DemandTimer(owner: "mobile.wireguard.enrollment")
+        deadline.schedule(after: .seconds(10)) { stream.close() }
+        defer { deadline.cancel() }
         guard let line = await readLine(stream),
               let request = try? JSONLine().decode(EnrollmentRequest.self, from: line) else {
             try? await stream.write(JSONLine().encode(EnrollmentResponse(error: "Malformed pairing request.")))

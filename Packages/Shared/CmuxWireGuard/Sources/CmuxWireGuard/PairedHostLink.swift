@@ -92,8 +92,10 @@ public struct WireGuardPairingClient: Sendable {
         var winner: String?
         for (index, candidate) in invitation.endpoints.enumerated() {
             if index > 0 { try tunnel.setEndpoint(candidate, for: invitation.hostKey) }
+            // Generous: the first LAN packet raises iOS's Local Network prompt,
+            // and WireGuard retries its handshake every 5 s until it is answered.
             if let opened = try? await tunnel.connect(host: invitation.hostAddress, port: plan.enrollmentPort,
-                                                      timeout: .seconds(4)) {
+                                                      timeout: .seconds(12)) {
                 stream = opened
                 winner = candidate
                 break
