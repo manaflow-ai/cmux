@@ -146,10 +146,8 @@ extension SidebarView {
         guard region.frame.size != NSSize(width: width, height: height) else { return }
         let grew = region.frame.height != height
         region.frame = NSRect(x: 0, y: 0, width: width, height: height)
-        if grew {
-            scroll.contentView.scroll(to: .zero)
-            scroll.reflectScrolledClipView(scroll.contentView)
-        }
+        // At once, even in a layout that animates the band's frame (cx-y2uf5).
+        if grew { Motion.withoutAnimation { scroll.contentView.scroll(to: .zero); scroll.reflectScrolledClipView(scroll.contentView) } }
     }
 
     /// The hairline under the band above (the quiet and lines looks);
@@ -158,7 +156,7 @@ extension SidebarView {
     private func layoutBandLine(aboveY: CGFloat, look: SectionsLookVariant, showsAbove: Bool) {
         let width = Metrics.dividerThickness
         CATransaction.begin()
-        CATransaction.setDisableActions(true)
+        CATransaction.setDisableActions(!NSAnimationContext.current.allowsImplicitAnimation) // with a band resizing (cx-y2uf5)
         aboveLine.frame = NSRect(x: 0, y: aboveY - width, width: bounds.width, height: width)
         aboveLine.isHidden = !(look.drawsBandLines && showsAbove)
         performWithTheme { aboveLine.backgroundColor = Palette.separator.cgColor }

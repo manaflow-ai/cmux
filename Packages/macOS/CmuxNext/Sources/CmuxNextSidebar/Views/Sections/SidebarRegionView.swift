@@ -32,7 +32,8 @@ final class SidebarRegionView: NSView {
     var onDropToList: ((LayoutItemID) -> Void)?
     var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)?
     /// The region's height changed outside its host's layout (a drag's
-    /// preview, a landed drop): the host lays its bands out again.
+    /// preview, a landed drop): the host lays its bands out again, at once,
+    /// so an animated change resizes them in its animation.
     var onHeightChange: (() -> Void)?
     /// The view of an app section (`SectionContent.app`), from the sidebar's provider.
     var appView: ((LayoutSection) -> NSView?)?
@@ -110,8 +111,13 @@ final class SidebarRegionView: NSView {
         let shown = displayed(content)
         let height = layoutResult.height
         layoutResult = Self.layout(shown, width: width)
-        if layoutResult.height != height { onHeightChange?() }
-        guard animated else { return apply(shown) }
+        let resized = layoutResult.height != height
+        guard animated else {
+            if resized { onHeightChange?() }
+            return apply(shown)
+        }
+        // The band, and the list beside it, resize with the rows' spring, not before it (cx-y2uf5).
+        if resized { Motion.animateTimed(.move, in: self) { onHeightChange?() } }
         Motion.animate(.move, in: self, {
             self.animatesFrames = true
             self.apply(shown)

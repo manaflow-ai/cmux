@@ -150,15 +150,18 @@ public final class ScrollEdgeFadeView: NSView {
         observeDocument(scrollView.documentView)
         let next = Self.hiddenEdges(of: scrollView)
         let fade = min(Metrics.scrollEdgeFade / max(layer.bounds.height, 1), CGFloat(ChromeTunables.scrollFadeMaxFraction.value))
-        Motion.transaction(nil) {
-            if layer.mask !== fadeMask { layer.mask = fadeMask }
-            fadeMask.frame = layer.bounds
-            // Gradient location 0 is the list's top on screen.
-            let top: CGFloat = Self.rendersTopDown(layer) ? 0 : 1
-            fadeMask.startPoint = CGPoint(x: 0.5, y: top)
-            fadeMask.endPoint = CGPoint(x: 0.5, y: 1 - top)
-            fadeMask.locations = [0, fade, 1 - fade, 1].map { NSNumber(value: Double($0)) }
-        }
+        // The mask follows the view's bounds: in a layout that animates them (a band resizing
+        // with its rows, cx-y2uf5) it animates with them, else it never animates.
+        CATransaction.begin()
+        CATransaction.setDisableActions(!NSAnimationContext.current.allowsImplicitAnimation)
+        if layer.mask !== fadeMask { layer.mask = fadeMask }
+        fadeMask.frame = layer.bounds
+        // Gradient location 0 is the list's top on screen.
+        let top: CGFloat = Self.rendersTopDown(layer) ? 0 : 1
+        fadeMask.startPoint = CGPoint(x: 0.5, y: top)
+        fadeMask.endPoint = CGPoint(x: 0.5, y: 1 - top)
+        fadeMask.locations = [0, fade, 1 - fade, 1].map { NSNumber(value: Double($0)) }
+        CATransaction.commit()
         guard next != edges else { return }
         edges = next
         // The band's opacity fades; geometry above never animates.

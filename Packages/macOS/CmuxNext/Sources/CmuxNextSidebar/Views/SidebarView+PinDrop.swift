@@ -12,7 +12,12 @@ import AppKit
         sidebar.aboveRegion.onDropToList = { [weak sidebar] id in sidebar?.model.send(.layout(.itemRemove(id))) }
         // A drop's preview or landing changed a band's height: the bands lay
         // out again, so no gap stays above the list (cx-odqn).
-        for region in sidebar.bandRegions { region.onHeightChange = { [weak sidebar] in sidebar?.needsLayout = true } }
+        for region in sidebar.bandRegions {
+            region.onHeightChange = { [weak sidebar] in
+                sidebar?.needsLayout = true
+                sidebar?.layoutSubtreeIfNeeded()
+            }
+        }
     }
 
     /// The top section under `windowPoint` that would take a workspace row,
