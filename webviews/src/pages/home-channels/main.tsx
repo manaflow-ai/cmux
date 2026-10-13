@@ -47,7 +47,11 @@ function defaultClient(): PageClient | null {
 }
 
 /** The page on a cmux instance's daemon: connect (credential or pairing), then the real Home. */
-export function mountDaemonHomeChannelsPage(root: HTMLElement, source: DaemonSource, client: PageClient | null = null): void {
+export function mountDaemonHomeChannelsPage(
+  root: HTMLElement,
+  source: DaemonSource,
+  client: PageClient | null = null,
+): void {
   const strings = createStrings(table);
   document.title = strings.t("page.title");
   createRoot(root).render(

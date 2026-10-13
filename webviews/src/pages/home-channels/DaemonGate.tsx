@@ -89,7 +89,8 @@ export function DaemonGate({
         if (error.code === "auth_rejected" && source.kind === "url") {
           sessionStorage.removeItem(storageKey(url));
           setPhase({ kind: "form", error: error.message });
-        } else if (error.code === "auth_rejected" || error.code === "unreachable" || source.kind === "host") retry(error.message);
+        } else if (error.code === "auth_rejected" || error.code === "unreachable" || source.kind === "host")
+          retry(error.message);
         else setPhase({ kind: "form", error: error.message });
       });
   };
@@ -141,7 +142,9 @@ export function DaemonGate({
       {url && <p className="hc-gate-endpoint">{url}</p>}
       {phase.kind === "pairing" && <p className="hc-gate-code">{format("connect.pairingCode", phase.code)}</p>}
       {phase.kind === "connecting" && <p>{t("connect.connecting")}</p>}
-      {phase.kind === "connecting" && phase.note && <p className="hc-gate-error">{format("connect.failed", phase.note)}</p>}
+      {phase.kind === "connecting" && phase.note && (
+        <p className="hc-gate-error">{format("connect.failed", phase.note)}</p>
+      )}
       {phase.kind === "form" && (
         <form
           onSubmit={(event) => {
@@ -187,7 +190,15 @@ export function DaemonGate({
 }
 
 /** One control of the connected instance: its workspace count and a new workspace. */
-export function InstanceBar({ daemon, strings, pageUrl }: { daemon: DaemonSocket; strings: Strings; pageUrl?: string }) {
+export function InstanceBar({
+  daemon,
+  strings,
+  pageUrl,
+}: {
+  daemon: DaemonSocket;
+  strings: Strings;
+  pageUrl?: string;
+}) {
   const { t, format } = strings;
   const [count, setCount] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
