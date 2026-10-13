@@ -77,7 +77,7 @@ fn primary_local_ip() -> Option<IpAddr> {
 
 /// Host and server-reflexive endpoints of `socket`.
 async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Vec<String> {
-    if options.force_relay {
+    if options.relay_only {
         return Vec::new();
     }
     let port = match socket.local_addr() {
@@ -137,7 +137,7 @@ type RelaySend = Box<dyn Fn(&[u8]) + Send>;
 
 /// The peer's endpoints this side may use.
 fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> {
-    if options.force_relay {
+    if options.relay_only {
         return Vec::new();
     }
     endpoints

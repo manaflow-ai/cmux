@@ -57,6 +57,17 @@ import Testing
         #expect(machine.handle(.transport(.webRTC)) == [.close, .dial(generation: 4, macID: "m1", transport: .webRTC)])
     }
 
+    @Test func relayOnlyChangeRedials() {
+        var machine = LinkMachine(transport: .webRTC)
+        _ = machine.handle(.target(mac))
+        _ = machine.handle(.dialSucceeded(generation: 1, path: .direct))
+        #expect(machine.handle(.relayOnly(false)) == [])
+        #expect(machine.handle(.relayOnly(true)) == [.close, .dial(generation: 2, macID: "m1", transport: .webRTC)])
+        #expect(machine.relayOnly)
+        #expect(machine.handle(.dialSucceeded(generation: 2, path: .turn)) == [])
+        #expect(machine.phase.statusLine(macName: "Studio") == "Connected · WebRTC TURN")
+    }
+
     @Test func dropReconnectsAndForegroundProbes() {
         var machine = LinkMachine(transport: .wireGuard)
         _ = machine.handle(.target(mac))
@@ -81,7 +92,9 @@ import Testing
 
 struct MockDialer: MacLinkDialer {
     let fail: Bool
+    var dialed: (@Sendable (LinkEndpoint) -> Void)?
     func dial(_ endpoint: LinkEndpoint, transport: CnxTransport.TransportKind, accessToken: String) async throws -> any MacLink {
+        dialed?(endpoint)
         if fail { throw LinkError(code: "timeout", message: "") }
         return MockMacLink(transport: transport)
     }
@@ -98,6 +111,18 @@ struct MockDialer: MacLinkDialer {
         for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
         #expect(controller.phase.isConnected)
         #expect(handed != nil)
+    }
+
+    @Test func relayOnlyReachesTheDialer() async throws {
+        let seen = Seen()
+        let dialer = MockDialer(fail: false, dialed: { endpoint in seen.append(endpoint.relayOnly) })
+        let controller = LinkController(transport: .webRTC, relayOnly: true, dialer: dialer, accessToken: { _ in "t" })
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
+        controller.send(.relayOnly(false))
+        for _ in 0..<200 where !(controller.phase.isConnected && seen.values.count == 2) { await Task.yield() }
+        #expect(seen.values == [true, false])
     }
 
     @Test func dialFailureWaitsWithReadableReason() async throws {
@@ -533,4 +558,11 @@ final class ScriptedSource: AgentSessionSource {
         let draft = AcpmuxSessionSource.handoffDraft(record, target: targets[0])
         #expect(draft?.id == "h1" && draft?.revision == 2 && draft?.capsule == "ctx" && draft?.coverage.first?.status == .summarized)
     }
+}
+
+final class Seen: @unchecked Sendable {
+    private let lock = NSLock()
+    private var stored: [Bool] = []
+    func append(_ value: Bool) { lock.withLock { stored.append(value) } }
+    var values: [Bool] { lock.withLock { stored } }
 }

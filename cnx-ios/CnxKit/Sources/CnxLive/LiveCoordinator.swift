@@ -55,6 +55,7 @@ public final class LiveCoordinator {
         userID: String,
         deviceName: String,
         transport: CnxTransport.TransportKind,
+        relayOnly: Bool = false,
         dialer: any MacLinkDialer,
         feedStore: FeedStore = .shared,
         clock: any Clock<Duration> = ContinuousClock()
@@ -67,7 +68,7 @@ public final class LiveCoordinator {
         self.clock = clock
         workspaces = WorkspaceSync(deviceID: identity.link, deviceName: deviceName)
         let apiForLink = api
-        link = LinkController(transport: transport, dialer: dialer, clock: clock,
+        link = LinkController(transport: transport, relayOnly: relayOnly, dialer: dialer, clock: clock,
                               accessToken: { try await apiForLink.accessToken($0) })
         feed = LiveFeed(store: feedStore, hub: nil, place: { _ in nil })
         link.endpoint = { [weak self] macID in
@@ -212,6 +213,11 @@ public final class LiveCoordinator {
 
     public func setTransport(_ transport: CnxTransport.TransportKind) {
         link.send(.transport(transport))
+    }
+
+    /// Debug relay-only mode (Settings → Developer); a change redials.
+    public func setRelayOnly(_ relayOnly: Bool) {
+        link.send(.relayOnly(relayOnly))
     }
 
     /// App foreground: probe or redial the link and the presence socket.

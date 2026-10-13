@@ -126,3 +126,8 @@ refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or
 
 The app exposes Settings → Connection → Transport: `WebRTC` or `WireGuard`.
 Both produce the same `Link`; switching tears the link down and redials.
+
+Debug builds add Settings → Developer → "Relay only (simulate distant
+network)". It is a phone-side dial policy with no wire change: WebRTC gathers
+only TURN relay candidates (path `turn`), and WireGuard sends empty
+`endpoints` and ignores the Mac's (path `relay`). Changing it redials.

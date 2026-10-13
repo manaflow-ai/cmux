@@ -35,11 +35,12 @@ public final class LinkController {
 
     public init(
         transport: TransportKind,
+        relayOnly: Bool = false,
         dialer: any MacLinkDialer,
         clock: any Clock<Duration> = ContinuousClock(),
         accessToken: @escaping @Sendable (_ forceRefresh: Bool) async throws -> String
     ) {
-        machine = LinkMachine(transport: transport)
+        machine = LinkMachine(transport: transport, relayOnly: relayOnly)
         self.dialer = dialer
         self.clock = clock
         self.accessToken = accessToken
@@ -47,6 +48,7 @@ public final class LinkController {
 
     public var target: LinkMachine.Target? { machine.target }
     public var transport: TransportKind { machine.transport }
+    public var relayOnly: Bool { machine.relayOnly }
 
     public func send(_ event: LinkMachine.Event) {
         let effects = machine.handle(event)
@@ -74,10 +76,12 @@ public final class LinkController {
         case .dial(let generation, let macID, let transport):
             dialTask?.cancel()
             retryTask?.cancel()
-            guard let endpoint = endpoint(macID) else {
+            guard var endpoint = endpoint(macID) else {
                 send(.dialFailed(generation: generation, reason: "not registered yet"))
                 return
             }
+            endpoint.relayOnly = machine.relayOnly
+            log.info("dial \(transport.rawValue, privacy: .public) relayOnly=\(endpoint.relayOnly, privacy: .public)")
             let dialer = dialer
             let accessToken = accessToken
             let forceRefresh = refreshTokenNextDial

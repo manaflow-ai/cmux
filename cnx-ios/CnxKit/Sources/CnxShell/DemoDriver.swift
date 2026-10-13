@@ -25,7 +25,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "live", "workspace-new", "connect-mac"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "live", "workspace-new", "connect-mac", "relay-only"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -49,6 +49,7 @@ struct DemoDriver {
         case "live": await live()
         case "workspace-new": await workspaceNew()
         case "connect-mac": await connectMac()
+        case "relay-only": await relayOnly()
         default: break
         }
     }
@@ -104,6 +105,26 @@ struct DemoDriver {
         // Close by tapping the card.
         shell.sidebar.close()
         await pause(1.2)
+    }
+
+    /// Live link with the default dial, then Settings → Developer → Relay
+    /// only switched on (as a tap would, through the same `UserDefaults` key
+    /// the toggle is bound to), then back to Workspaces, where the Mac's
+    /// status line shows the TURN or relay path.
+    private func relayOnly() async {
+        UserDefaults.standard.set(false, forKey: DeveloperOptions.relayOnlyKey)
+        shell.tab = .workspaces
+        await pause(14)
+        demoLog.info("demo: settings developer")
+        shell.tab = .settings
+        await pause(1.0)
+        shell.settingsScrollTarget = "bottom"
+        await pause(2.0)
+        demoLog.info("demo: relay only on")
+        UserDefaults.standard.set(true, forKey: DeveloperOptions.relayOnlyKey)
+        await pause(3.0)
+        shell.tab = .workspaces
+        demoLog.info("demo: workspaces")
     }
 
     private func rubber() async {

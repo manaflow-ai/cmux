@@ -1,4 +1,97 @@
-# cnx link connectivity (2026-10-12)
+# cnx link connectivity
+
+## Relay only: simulated distant network (2026-10-13)
+
+Every Mac reachable from the office sits behind the same NAT, so a distant
+phone is simulated by forcing relayed paths. Relay only is a phone-side dial
+option (`ConnectOptions.relayOnly` in the FFI, `cnx-dial --relay-only`,
+Settings → Developer → "Relay only (simulate distant network)" in DEBUG and
+Demo builds). WebRTC uses ICE transport policy `relay`, so only TURN
+candidates from `/v1/ice` are used. WireGuard sends no endpoints and ignores
+the Mac's, so it stays on the Worker's relay frames. The Mac needs no change.
+
+Setup:
+- Client: `cnx-dial` (release, branch `feat-cnx-ios-relay`) on Aziz's MacBook.
+- Mac: `cnx-hostd` from the same branch on `mini-cmuxs-mac-mini-2`, started
+  with `scripts/host/run-host.sh` under `~/cnx-ios-e2e/relay` (user-local,
+  removed afterwards). It ran a real cmux-tui session daemon with the
+  workspaces `cnx-demo` and `notes`, and acpmux.
+- Service: dev Worker v0.3.0. `/v1/ice` now returns Cloudflare TURN (6 TURN
+  URLs, ttl 14400) plus STUN.
+- Account: the dev test account from 1Password. Tokens stayed in 0600 files,
+  the mini got the refresh token over ssh stdin, and every token file was
+  deleted afterwards.
+- Both sides used Tailscale exclusion (`--exclude-cgnat`,
+  `CNX_EXCLUDE_CGNAT=1`). `cnx-dial` ran 50 pings, a 10 MiB echo, and
+  `daemon` `identify` (answered by cmux-tui, protocol 12) plus `run`, which
+  was refused `forbidden`.
+
+### cnx-dial, personal space
+
+| Mode | Transport | Path | Signaling | Connect (total) | RTT min / median / p95 / max | 10 MiB echo | `identify` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Relay only | WebRTC | `turn` | 3972 ms | 16.0 s | 14.2 / 28.3 / 82.6 / 253 ms | 6.4 s, 13.1 Mbit/s each way | ok |
+| Relay only, rerun | WebRTC | `turn` | 597 ms | 3.1 s | 13.6 / 14.8 / 17.7 / 22.9 ms | 0.88 s, 94.9 Mbit/s each way | not run |
+| Relay only | WireGuard | `relay` | 744 ms | 1.6 s | 237 / 239 / 245 / 247 ms | 16.7 s, 5.0 Mbit/s each way (3 of 4 runs passed; another took 19.3 s, 4.3 Mbit/s; one closed with `keepalive timed out`) | ok |
+| Default | WebRTC | `direct` (same LAN) | 1188 ms | 4.8 s | 0.5 / 1.1 / 5.2 / 5.7 ms | 3.6 s, 23.6 Mbit/s each way | ok |
+| Default | WireGuard | `relay` (one-way UDP, see below) | 518 ms | 1.2 s | 235 / 237 / 245 / 289 ms | failed 3 of 3 (`keepalive timed out`); 4 MiB took 8.2 s, 4.1 Mbit/s | ok |
+
+### App (simulator `cnx-relay-ios26`, iOS 26.5, headless)
+
+The app signed in with the same account. That account has one Stack team,
+so the app used the team and not the personal space; `cnx-hostd` was
+restarted in that team for these runs. `verify/record-live.sh <udid> <dir> 75
+relay-only <transport>` ran the DEBUG demo `relay-only`. It starts with
+relay only off. After 14 s it opens Settings → Developer, switches Relay
+only on through the toggle's `UserDefaults` key, and returns to Workspaces.
+Evidence is git-ignored, in `verify/evidence/2026-10-13/relay/{webrtc,wireguard}`
+(`live.mp4`, `app.log`, stills).
+
+| Transport | Before (relay only off) | After switching relay only on | Workspaces |
+| --- | --- | --- | --- |
+| WebRTC | `Connected · WebRTC direct · 1 ms` (2.5 s after the dial) | Redialed with `relayOnly=true`: `Connected · WebRTC TURN · 14 ms` 4.5 s later; RTT 14 to 43 ms afterwards | `cnx-demo` and `notes` listed under "cmux mini 2 · Online" before and after |
+| WireGuard | `Connected · WireGuard relay · 324 ms` (2.0 s) | Redialed: `Connected · WireGuard relay · 297 ms` 1.9 s later; RTT 288 to 374 ms afterwards | same |
+
+CnxLiveTests (31 tests, including `relayOnlyChangeRedials` and
+`relayOnlyReachesTheDialer`) pass on `cnx-relay-ios26`. The Rust tests
+`wireguard_relay_only_stays_on_the_relay` and
+`webrtc_relay_only_without_turn_fails_fast` (cnx-ffi) cover the core.
+
+### Findings
+
+1. **TURN works.** Relay-only WebRTC connected over TURN every time and has
+   the best RTT of the relayed paths (about 15 ms; Cloudflare's anycast TURN
+   is nearby). The first connect took 16 s: signaling alone took 4 s while
+   Stack was slow (below), and ICE took 12 s. The rerun connected in 3.1 s.
+2. **The Worker relay is far away today.** Its RTT was about 240 ms in the
+   personal space and 290 to 370 ms in the Stack team, against 27 ms on
+   2026-10-12. A TeamHub Durable Object stays where it was first created, so
+   these hubs (a new account) likely live in a distant region. That is a
+   realistic distant path, but it caps WireGuard at about 5 Mbit/s.
+3. **WireGuard bulk transfer over the relay is fragile.** A 10 MiB echo
+   sometimes ends with `keepalive timed out` (relay only: 1 of 4 runs).
+   Without relay only it failed 3 of 3. Here UDP works only from the phone
+   to the Mac, so the phone sends over the LAN and the Mac answers through
+   the 240 ms relay. Small transfers and the app's daemon traffic were fine.
+   The relay drops binary frames above 4000/s without notice, and smoltcp's
+   retransmissions may then starve the 10 s keepalive. Not yet confirmed.
+4. **Stack was rate-limiting during this run.** Password sign-in and token
+   refresh returned 429 several times. Worker calls with a valid token
+   intermittently returned 401 after about 6 s, consistent with the
+   Worker's JWKS fetch from Stack timing out. `cnx-hostd` recovered by
+   itself after about 5 minutes of backoff, and `cnx-dial` was retried.
+5. Every `cnx-dial` run registers a new phone device. The backend has no
+   delete route, so those registrations remain.
+
+To rerun (tokens in 0600 files, never printed):
+
+```bash
+cnx-dial --base-url https://cnx-ios-api-dev.debussy.workers.dev --token-file <token> \
+  --team <team> --mac <mac device id> --exclude-cgnat --daemon --pings 50 \
+  --transport webrtc --relay-only     # or --transport wireguard; drop --relay-only to compare
+```
+
+## Earlier runs (2026-10-12)
 
 Client: `cnx-dial` (release) on Aziz's MacBook (macOS 27.0.1).
 Mac: `cnx-hostd` (release) on `mini-cmuxs-mac-mini-2` (macOS 27.0.1), built
@@ -6,7 +99,7 @@ from `feat-cnx-ios-rust` under `~/cnx-ios-e2e`, started over SSH as `cmux`.
 Both runs used `--exclude-cgnat` / `CNX_EXCLUDE_CGNAT=1`, so neither side
 offered or used a Tailscale (100.64.0.0/10) address.
 
-## Live backend run (Worker v0.3.0, personal space)
+### Live backend run (Worker v0.3.0, personal space)
 
 Credentials: password sign-in with the DEBUG dev credential from
 `CmuxAuthRuntime`. Tokens were kept in 0600 files and never printed; the
@@ -28,7 +121,7 @@ Why no direct path: both hosts share one NAT, and the mini's sshd-launched
 the Mac. WireGuard detects this (no `0xff` marker comes back) and stays on
 the relay. WebRTC has no TURN to fall back on.
 
-## Distant run: not done
+### Distant run: not done
 
 - No Freestyle API key on this Mac: `~/.secrets/freestyle-beta.env` is
   missing, and no other `.env` holds one.
@@ -54,7 +147,7 @@ cnx-dial --base-url https://cnx-ios-api-dev.debussy.workers.dev --token-file <to
   --team <team> --mac <mac device id> --exclude-cgnat --daemon [--force-relay]
 ```
 
-## Fake backend run (real network, no Stack credentials)
+### Fake backend run (real network, no Stack credentials)
 
 Signaling and relay frames went through `cnx-fake-backend` on this Mac,
 reached by the mini over Tailscale (signaling only). STUN was Cloudflare's.
