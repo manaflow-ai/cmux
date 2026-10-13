@@ -1,0 +1,14 @@
+.empty-state-gallery-host {
+  position: relative;
+  min-height: 430px;
+  overflow: hidden;
+  background: var(--cmux-background, Canvas);
+}
+
+.empty-state-gallery-receipt {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  color: color-mix(in srgb, CanvasText 58%, transparent);
+  font: 11px/1.3 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
