@@ -1,6 +1,243 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.freeModel": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI Models"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نماذج الذكاء الاصطناعي"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "KI-Modelle"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelos de IA"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèles d’IA"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI モデル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 모델"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "AI 模型"
+          }
+        }
+      }
+    },
+    "settings.freeModel.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free AI Model Without Sign-In"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نموذج ذكاء اصطناعي مجاني دون تسجيل الدخول"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kostenloses KI-Modell ohne Anmeldung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo de IA gratuito sin iniciar sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèle d’IA gratuit sans connexion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン不要の無料 AI モデル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인 없이 무료 AI 모델"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "免登录的免费 AI 模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "免登入的免費 AI 模型"
+          }
+        }
+      }
+    },
+    "settings.freeModel.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتيح للوكلاء استخدام نموذج الذكاء الاصطناعي المجاني من cmux أثناء تسجيل خروجك. في أول مرة يستخدمه فيها وكيل، يثبت cmux لخدمة السحابة أن هذا جهاز Mac حقيقي. سجّل الدخول للحصول على مزيد من النماذج وحدود أعلى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten können das kostenlose cmux-KI-Modell nutzen, während du abgemeldet bist. Wenn ein Agent es zum ersten Mal nutzt, weist cmux dem Cloud-Dienst nach, dass dies ein echter Mac ist. Melde dich an, um mehr Modelle und höhere Limits zu erhalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permite que los agentes usen el modelo de IA gratuito de cmux mientras no has iniciado sesión. La primera vez que un agente lo usa, cmux demuestra al servicio en la nube que este es un Mac real. Inicia sesión para obtener más modelos y límites más altos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permet aux agents d’utiliser le modèle d’IA gratuit de cmux lorsque vous n’êtes pas connecté. La première fois qu’un agent l’utilise, cmux prouve au service Cloud qu’il s’agit d’un vrai Mac. Connectez-vous pour plus de modèles et des limites plus élevées."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト中でもエージェントが cmux の無料 AI モデルを使えるようにします。エージェントが初めて使うとき、cmux はこの Mac が本物の Mac であることをクラウドサービスに証明します。サインインすると、より多くのモデルとより高い上限を使えます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃 상태에서도 에이전트가 cmux 무료 AI 모델을 사용할 수 있습니다. 에이전트가 처음 사용할 때 cmux가 클라우드 서비스에 이 Mac이 실제 Mac임을 증명합니다. 로그인하면 더 많은 모델과 더 높은 한도를 사용할 수 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "让代理在你未登录时使用 cmux 免费 AI 模型。代理第一次使用时，cmux 会向云服务证明这是一台真正的 Mac。登录即可使用更多模型和更高的额度。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "讓代理在你未登入時使用 cmux 免費 AI 模型。代理第一次使用時，cmux 會向雲端服務證明這是一台真正的 Mac。登入即可使用更多模型和更高的額度。"
+          }
+        }
+      }
+    },
+    "settings.freeModel.enabled.summary": {
+      "comment": "Settings row summary: one short line under the setting's title.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Free AI model while signed out"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نموذج ذكاء اصطناعي مجاني أثناء تسجيل الخروج"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kostenloses KI-Modell im abgemeldeten Zustand"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modelo de IA gratuito sin sesión iniciada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modèle d’IA gratuit hors connexion"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト中の無料 AI モデル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃 상태의 무료 AI 모델"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未登录时的免费 AI 模型"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未登入時的免費 AI 模型"
+          }
+        }
+      }
+    },
     "settings.group.passwords": {
       "extractionState": "manual",
       "localizations": {
