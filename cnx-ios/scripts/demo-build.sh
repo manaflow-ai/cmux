@@ -109,6 +109,7 @@ common=(-project CnxApp.xcodeproj -scheme CnxApp -configuration "$config"
         'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CNX_DEMO'
         # -O fails to link (SwiftUI opaque type descriptor for .task(id:)); -Osize links.
         SWIFT_OPTIMIZATION_LEVEL=-Osize
+        MARKETING_VERSION="${CNX_MARKETING_VERSION:-0.1.0}"
         CURRENT_PROJECT_VERSION="$(git -C "$repo" rev-list --count "$sha")")
 xcb() { local logf=$1; shift; xcodebuild "$@" > "$logf" 2>&1 || { grep -E "error:|BUILD FAILED" "$logf" | sort -u | head -20; return 1; }; }
 
@@ -118,8 +119,8 @@ xcb "$work/logs/ios-simulator.log" "${common[@]}" -destination 'generic/platform
 sim_app="$work/dd-sim/Build/Products/$config-iphonesimulator/CnxApp.app"
 mkdir -p "$out/ios-simulator"
 ditto -c -k --keepParent "$sim_app" "$out/ios-simulator/cnx-$tag-sim.app.zip"
-app_version=$(plutil -extract CFBundleShortVersionString raw "$sim_app/Info.plist")
-app_build=$(plutil -extract CFBundleVersion raw "$sim_app/Info.plist")
+app_version=$(plutil -extract CFBundleShortVersionString raw "$sim_app/Info.plist" 2>/dev/null || echo "?")
+app_build=$(plutil -extract CFBundleVersion raw "$sim_app/Info.plist" 2>/dev/null || echo "?")
 
 # A development profile for the bundle (or the team wildcard) whose
 # certificate is in this keychain. Prints "<uuid> <cert sha1>".
