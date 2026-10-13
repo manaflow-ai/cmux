@@ -2491,7 +2491,7 @@
 			<key>pfm_default</key>
 			<string>same</string>
 			<key>pfm_description</key>
-			<string>Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker, as before.</string>
+			<string>Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane.</string>
 			<key>pfm_name</key>
 			<string>appearance.sidebarSurface</string>
 			<key>pfm_range_list</key>

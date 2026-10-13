@@ -665,7 +665,7 @@
     },
     "appearance.sidebarSurface" : {
       "default" : "same",
-      "description" : "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker, as before.",
+      "description" : "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane.",
       "enum" : [
         "same",
         "separate"

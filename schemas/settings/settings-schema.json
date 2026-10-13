@@ -13208,7 +13208,7 @@
       },
       "help" : {
         "key" : "settings.sidebar.surface.help",
-        "text" : "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker, as before."
+        "text" : "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane."
       },
       "kept_on_reset_all" : false,
       "key" : "appearance.sidebarSurface",
@@ -22876,7 +22876,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "cbdbc82fae407b37da355fd2c10d7e8ca6e7e36e24292d72d75e19655f4a2fac",
+  "schema_hash" : "1ccb51f8228c78b440c36f49ae4de2b5c685465b4ccca14d5ee947946b3b7a44",
   "sections" : [
     {
       "id" : "general",
