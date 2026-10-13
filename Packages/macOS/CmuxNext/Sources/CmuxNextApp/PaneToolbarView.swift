@@ -37,6 +37,7 @@ final class PaneToolbarView: NSView {
         moreButton.setAccessibilityLabel(PaneToolbarStrings.more)
         moreButton.themedToolTip = PaneToolbarStrings.more
         moreButton.menuProvider = { [weak self] in self?.showMenu() }
+        moreButton.pressMenu = { [weak self] in self?.moreMenu?() }
         addSubview(moreButton)
     }
 
