@@ -29,3 +29,6 @@ export function stackApiBaseURL(): string {
   }
   return parsedBaseURL.toString().replace(/\/+$/u, "");
 }
+
+/** Origin that Stack access tokens name as their issuer. */
+export const stackTokenIssuerBaseURL = stackApiBaseURL;
