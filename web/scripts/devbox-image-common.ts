@@ -958,6 +958,8 @@ export type DevboxManifestEntry = {
   defaultForLocalDev?: boolean;
   kind?: DevboxImageKind;
   defaultForKind?: boolean;
+  /** A test image (services/vms/images/resolver.ts): never a default, requestable only by allowlisted users. */
+  restricted?: boolean;
   /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
   size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
@@ -1266,7 +1268,15 @@ export function promoteImageManifestEntry(
 export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
   const problems: string[] = [];
   const defaults = new Map<string, DevboxManifestEntry[]>();
+  const restrictedById = new Map<string, boolean>();
   for (const entry of manifest.images) {
+    if (entry.restricted === true && entry.defaultForKind) problems.push(`${entry.version}: a restricted test image cannot be a default`);
+    const twinKey = `${entry.provider}/${entry.imageId}`;
+    const restricted = entry.restricted === true;
+    if (restrictedById.has(twinKey) && restrictedById.get(twinKey) !== restricted) {
+      problems.push(`${entry.imageId}: every entry for one image must agree on restricted`);
+    }
+    restrictedById.set(twinKey, restricted);
     for (const field of ["provider", "version", "imageId", "envVar", "builtAt", "validationStatus"] as const) {
       if (!entry[field]) problems.push(`${entry.version ?? entry.imageId ?? "?"}: missing ${field}`);
     }

@@ -652012,6 +652012,1343 @@
           }
         }
       }
+    },
+    "cli.coderouter.handoff.notAuthenticated": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die CodeRouter-Übergabe erfordert ein angemeldetes cmux-Konto. Führen Sie `cmux auth login` aus und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le transfert vers CodeRouter nécessite un compte cmux connecté. Exécutez `cmux auth login`, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب تسليم CodeRouter حساب cmux مسجّل الدخول. شغّل `cmux auth login` ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El traspaso a CodeRouter requiere una cuenta de cmux con la sesión iniciada. Ejecuta `cmux auth login` y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要已登入的 cmux 帳號。請執行 `cmux auth login`，然後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要已登录的 cmux 帐户。请运行 `cmux auth login`，然后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "CodeRouter 인계에는 로그인된 cmux 계정이 필요합니다. `cmux auth login`을 실행한 후 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CodeRouter の引き継ぎには cmux アカウントへのサインインが必要です。`cmux auth login` を実行してから再試行してください。" } }
+      }
+    },
+    "cli.coderouter.handoff.teamRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "CodeRouter handoff requires a selected cmux team. Select a team in cmux, then retry." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Für die CodeRouter-Übergabe muss ein cmux-Team ausgewählt sein. Wählen Sie in cmux ein Team aus und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le transfert vers CodeRouter nécessite qu’une équipe cmux soit sélectionnée. Sélectionnez une équipe dans cmux, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "يتطلب تسليم CodeRouter تحديد فريق cmux. حدّد فريقًا في cmux ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El traspaso a CodeRouter requiere seleccionar un equipo de cmux. Selecciona un equipo en cmux y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要選取 cmux 團隊。請在 cmux 中選取團隊，然後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "CodeRouter 交接需要选择 cmux 团队。请在 cmux 中选择团队，然后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "CodeRouter 인계에는 cmux 팀을 선택해야 합니다. cmux에서 팀을 선택한 후 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "CodeRouter の引き継ぎには cmux チームの選択が必要です。cmux でチームを選択してから、もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.sessionChanged": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux account or team changed during the handoff. Try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Das cmux-Konto oder -Team wurde während der Übergabe geändert. Versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le compte ou l’équipe cmux a changé pendant le transfert. Réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "تم تغيير حساب cmux أو فريقه أثناء التسليم. أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La cuenta o el equipo de cmux cambió durante el traspaso. Vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "交接期間 cmux 帳號或團隊已變更。請重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "交接期间 cmux 帐户或团队已更改。请重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "인계 중에 cmux 계정 또는 팀이 변경되었습니다. 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "引き継ぎ中に cmux アカウントまたはチームが変更されました。もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.expired": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux handoff lease expired. Try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die cmux-Übergabe-Lease ist abgelaufen. Versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le bail de transfert cmux a expiré. Réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "انتهت صلاحية عقد تسليم cmux. أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La concesión del traspaso de cmux expiró. Vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux 交接租約已過期。請重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux 交接租约已过期。请重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 인계 임대가 만료되었습니다. 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux の引き継ぎリースの有効期限が切れました。もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux service is not available. Check your connection and try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der cmux-Dienst ist nicht verfügbar. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le service cmux n’est pas disponible. Vérifiez votre connexion, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "خدمة cmux غير متاحة. تحقّق من اتصالك ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El servicio de cmux no está disponible. Comprueba tu conexión y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux 服務無法使用。請檢查連線後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux 服务不可用。请检查连接后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 서비스를 사용할 수 없습니다. 연결을 확인한 후 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux サービスを利用できません。接続を確認して、もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.unsupported": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The installed CodeRouter CLI does not support secure cmux handoff. Update CodeRouter and try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Die installierte CodeRouter-CLI unterstützt keine sichere cmux-Übergabe. Aktualisieren Sie CodeRouter und versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "La CLI CodeRouter installée ne prend pas en charge le transfert cmux sécurisé. Mettez CodeRouter à jour, puis réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "لا يدعم CodeRouter CLI المثبّت تسليم cmux الآمن. حدّث CodeRouter ثم أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "La CLI de CodeRouter instalada no admite el traspaso seguro de cmux. Actualiza CodeRouter y vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "已安裝的 CodeRouter CLI 不支援安全的 cmux 交接。請更新 CodeRouter 後重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "已安装的 CodeRouter CLI 不支持安全的 cmux 交接。请更新 CodeRouter 后重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "설치된 CodeRouter CLI는 보안 cmux 인계를 지원하지 않습니다. CodeRouter를 업데이트한 후 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "インストールされている CodeRouter CLI は安全な cmux 引き継ぎに対応していません。CodeRouter を更新してから、もう一度お試しください。" } }
+      }
+    },
+    "cli.coderouter.handoff.failed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "The cmux service rejected the CodeRouter handoff. Try again." } },
+        "de": { "stringUnit": { "state": "translated", "value": "Der cmux-Dienst hat die CodeRouter-Übergabe abgelehnt. Versuchen Sie es erneut." } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Le service cmux a refusé le transfert vers CodeRouter. Réessayez." } },
+        "ar": { "stringUnit": { "state": "translated", "value": "رفضت خدمة cmux تسليم CodeRouter. أعد المحاولة." } },
+        "es": { "stringUnit": { "state": "translated", "value": "El servicio de cmux rechazó el traspaso a CodeRouter. Vuelve a intentarlo." } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "cmux 服務拒絕了 CodeRouter 交接。請重試。" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "cmux 服务拒绝了 CodeRouter 交接。请重试。" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "cmux 서비스가 CodeRouter 인계를 거부했습니다. 다시 시도하세요." } },
+        "ja": { "stringUnit": { "state": "translated", "value": "cmux サービスが CodeRouter の引き継ぎを拒否しました。もう一度お試しください。" } }
+      }
+    },
+    "fileExplorer.error.alreadyExists": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An item with that name already exists."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يوجد عنصر بهذا الاسم بالفعل."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Objekt mit diesem Namen existiert bereits."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ya existe un elemento con ese nombre."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un élément portant ce nom existe déjà."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "その名前の項目はすでに存在します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "같은 이름의 항목이 이미 있습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已存在同名项目。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已有同名的項目。"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.permissionDenied": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You don't have permission to change this folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ليس لديك إذن بتغيير هذا المجلد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Du hast keine Berechtigung, diesen Ordner zu ändern."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No tienes permiso para modificar esta carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous n’avez pas l’autorisation de modifier ce dossier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このフォルダを変更する権限がありません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 폴더를 변경할 권한이 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你没有更改此文件夹的权限。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "你沒有更改此檔案夾的權限。"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.invalidName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a single file or folder name."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل اسم ملف أو مجلد واحدًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geben Sie einen einzelnen Datei- oder Ordnernamen ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce un único nombre de archivo o carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un seul nom de fichier ou de dossier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル名またはフォルダ名を1つ入力してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 또는 폴더 이름 하나를 입력하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入单个文件或文件夹名称。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入單一檔案或資料夾名稱。"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.mutationFailed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unable to update this file or folder."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذر تحديث هذا الملف أو المجلد."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei oder dieser Ordner konnte nicht geändert werden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se puede actualizar este archivo o carpeta."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de modifier ce fichier ou ce dossier."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルまたはフォルダを更新できません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일 또는 폴더를 업데이트할 수 없습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法更新此文件或文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法更新此檔案或資料夾。"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.delete": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حذف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Löschen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eliminar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "削除"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "삭제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.newFile": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New File"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملف جديد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Datei"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau fichier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 파일"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增檔案"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.newFolder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Folder"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجلد جديد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau dossier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規フォルダ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 폴더"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增資料夾"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.rename": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تسمية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umbenennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 변경"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重命名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新命名"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.delete.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This item and its contents will be deleted."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيتم حذف هذا العنصر ومحتوياته."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Element und sein Inhalt werden gelöscht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se eliminarán este elemento y su contenido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cet élément et son contenu seront supprimés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この項目とその内容を削除します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 항목과 내용이 삭제됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此项目及其内容将被删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此項目及其內容將被刪除。"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.duplicate": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicate"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكرار"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplizieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplicar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dupliquer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "복제"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "创建副本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "複製"
+          }
+        }
+      }
+    },
+    "fileExplorer.contextMenu.moveToTrash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Move to Trash"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "نقل إلى سلة المهملات"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In den Papierkorb legen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trasladar a la papelera"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Placer dans la corbeille"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ゴミ箱に入れる"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "휴지통으로 이동"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "移到废纸篓"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "丟到垃圾桶"
+          }
+        }
+      }
+    },
+    "fileExplorer.duplicate.copyName": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ copy"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ نسخة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ Kopie"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ copia"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ copie"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のコピー"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 복사본"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 副本"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ 拷貝"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.delete.multipleTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete the selected items?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حذف العناصر المحددة؟"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgewählte Objekte löschen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar los elementos seleccionados?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer les éléments sélectionnés ?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "選択した項目を削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "선택한 항목을 삭제할까요?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除所选项目？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除所選項目？"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.delete.multipleMessage": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "These items and their contents will be deleted."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سيتم حذف هذه العناصر ومحتوياتها."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Objekte und ihre Inhalte werden gelöscht."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se eliminarán estos elementos y su contenido."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ces éléments et leur contenu seront supprimés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "これらの項目とその内容が削除されます。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 항목들과 그 내용이 삭제됩니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这些项目及其内容将被删除。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "這些項目及其內容將被刪除。"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.delete.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete “%@”?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حذف « %@ »؟"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "„%@“ löschen?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Eliminar «%@»?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Supprimer « %@ » ?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "「%@」を削除しますか？"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“%@”을(를) 삭제할까요?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除“%@”？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刪除「%@」？"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.name.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enter a name for this item."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدخل اسمًا لهذا العنصر."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Geben Sie einen Namen für dieses Element ein."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Introduce un nombre para este elemento."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Saisissez un nom pour cet élément."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この項目の名前を入力してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 항목의 이름을 입력하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请输入此项目的名称。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請輸入此項目的名稱。"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.name.placeholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاسم"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bezeichnung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名称"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名稱"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.rename.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rename"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إعادة تسمية"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Umbenennen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiar nombre"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Renommer"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "名前を変更"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이름 변경"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重命名"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新命名"
+          }
+        }
+      }
+    },
+    "fileExplorer.error.mutationTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "File operation failed"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فشلت عملية الملف"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dateivorgang fehlgeschlagen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Error en la operación de archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Échec de l’opération sur le fichier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイル操作に失敗しました"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 작업 실패"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件操作失败"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "檔案操作失敗"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.newFile.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New File"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ملف جديد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neue Datei"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nuevo archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau fichier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規ファイル"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 파일"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增檔案"
+          }
+        }
+      }
+    },
+    "fileExplorer.dialog.newFolder.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Folder"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "مجلد جديد"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Neuer Ordner"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nueva carpeta"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nouveau dossier"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新規フォルダ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "새 폴더"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建文件夹"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新增資料夾"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
