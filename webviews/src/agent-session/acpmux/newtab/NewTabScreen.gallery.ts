@@ -94,7 +94,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/ChatCards.tsx",
     "agent-session/acpmux/NewTabPage.tsx#AgentMark",
     "agent-session/acpmux/NewTabPage.tsx#FolderIcon",
-    "agent-session/acpmux/newtab/TemplateDots.tsx#TemplateDots",
     "agent-session/acpmux/newtab/AllChatsList.tsx#AllChatsList",
     "agent-session/acpmux/newtab/OpenTabsList.tsx#OpenTabsList",
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
@@ -343,6 +342,64 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-popover"));
       },
     },
+    "typed-red-duplicates": {
+      note: 'Leo 10-13 (photo): "red" with Reddit open on a `?solution=…` challenge address and visited twice. One Reddit row, the open tab (Switch to tab) with a clean title and a short host; then the other open tab, the visited page, the web search and Ask, on a solid surface over the page.',
+      ready: newTab({
+        omnibar: {
+          tabs: [
+            {
+              id: "tab-reddit",
+              kind: "browser",
+              title: "Reddit - The heart of the internet",
+              detail: `reddit.com/?solution=${"eb7139b868b8d71e".repeat(2)}&js_challenge=1`,
+              workspace: "workspace-1",
+              icon: SITE_ICON,
+            },
+            { id: "tab-redis", kind: "browser", title: "Redis docs", detail: "redis.io/docs", workspace: "notes" },
+          ],
+          workspaces: [],
+          folders: [CWD],
+          commands: [],
+          history: [
+            {
+              url: `https://www.reddit.com/?solution=${"eb7139b868b8d71e".repeat(2)}&js_challenge=1`,
+              title: "Reddit - The heart of the internet",
+              icon: SITE_ICON,
+            },
+            { url: "https://www.reddit.com/", title: "Reddit", icon: SITE_ICON },
+            { url: "https://www.redblobgames.com/", title: "Red Blob Games", icon: OTHER_SITE_ICON },
+          ],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The suggestions float above the page sections." },
+        layoutShiftMax: { value: 0.02, reason: "Only the popover's rows reorder while typing; the page stays put." },
+      },
+      play: async (ctx) => {
+        await ctx.type("red", { selector: ".nt-field" });
+        await ctx.waitFor(() => {
+          const titles = [...ctx.document.querySelectorAll(".nt-row-title")].map((node) => node.textContent);
+          const first = ctx.document.querySelector('.nt-row[data-type="tab"] .nt-row-title');
+          return titles.filter((title) => title?.startsWith("Reddit")).length === 1 && first?.textContent === "Reddit";
+        });
+      },
+    },
+    "typed-dismissed": {
+      note: "Leo 10-13: a press outside the composer closes the suggestions; the typed text stays.",
+      ready: newTab(),
+      snapshot: noChat(manySessions(3)),
+      play: async (ctx) => {
+        await ctx.type("reddit", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-popover"));
+        await ctx.click({ selector: ".nt-screen" });
+        await ctx.waitFor(
+          () =>
+            !ctx.document.querySelector(".nt-popover") &&
+            ctx.document.querySelector<HTMLInputElement>(".nt-field")?.value === "reddit",
+        );
+      },
+    },
     "typed-address": {
       note: "An address: open it first (highlighted), then a web search and Ask.",
       ready: newTab(),
@@ -434,8 +491,8 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(6)),
     },
     "template-classic": {
-      note: "Classic template: the Terminal | Browser | Agent page, with the template dots.",
-      ready: newTab({ template: "classic", templateSwitcher: true }),
+      note: "Classic template: the Terminal | Browser | Agent page.",
+      ready: newTab({ template: "classic" }),
       snapshot: noChat(manySessions(4)),
     },
     projects: {
@@ -447,46 +504,14 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".nt-all-group"));
       },
     },
-    "switcher-off": {
-      note: "With Debug Settings newTab.templateSwitcher off (it is on by default, cx-l1jv): no dots.",
-      ready: newTab(),
+    "no-template-dots": {
+      note: "New Tab shows no template dots and no default-kind toggle: the template is set in Settings, and a terminal opens only when picked (Leo 2026-10-12). The host payload is what it sent before, dots on.",
+      ready: newTab({ template: "classic", templateSwitcher: true, defaultKind: "terminal" }),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.querySelector(".nt-screen"));
-        if (ctx.document.querySelector(".nt-templates"))
-          throw new Error("the template dots show with the switcher off");
-      },
-    },
-    "switcher-on": {
-      note: "The template dots, drawn like the space dots: a dot switches the page in place and the chip slides to it (cx-l1jv).",
-      ready: newTab({ templateSwitcher: true }),
-      snapshot: noChat(manySessions(6)),
-      play: async (ctx) => {
-        await ctx.click({ selector: '.nt-template-dot[data-template="threads"]' });
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-template="threads"]'));
-      },
-    },
-    "switcher-keys": {
-      note: "The arrow keys switch templates from a focused dot and keep focus there, through Classic; arrowing onto Terminal only focuses it (cx-l1jv).",
-      ready: newTab({ templateSwitcher: true }),
-      snapshot: noChat(manySessions(6)),
-      play: async (ctx) => {
-        const onDot = (template: string) =>
-          ctx.document.activeElement?.matches(`.nt-template-input[value="${template}"]`);
-        await ctx.focus({ role: "radio", name: "Default" });
-        for (const template of ["composer", "threads", "console"]) {
-          await ctx.press("ArrowRight");
-          await ctx.waitFor(() => ctx.document.querySelector(`.nt-screen[data-template="${template}"]`));
-          if (!onDot(template)) throw new Error(`switching to ${template} with the keys moved focus off the dots`);
-        }
-        // Classic is another page, which focuses its field as it mounts: focus stays on the dots.
-        await ctx.press("ArrowRight");
-        await ctx.waitFor(() => !ctx.document.querySelector(".nt-screen") && onDot("classic"));
-        // Terminal would turn the page into a terminal: the keys only focus it.
-        await ctx.press("ArrowRight");
-        await ctx.waitFor(() => onDot("terminal"));
-        if (!ctx.document.querySelector('.nt-template-input[value="classic"]:checked'))
-          throw new Error("arrowing onto Terminal switched the page");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-newtab"));
+        if (ctx.document.querySelector('.nt-templates, input[name="nt-template"], .acpmux-newtab-default'))
+          throw new Error("the New Tab page still shows template dots or the default-kind toggle");
       },
     },
   }),
