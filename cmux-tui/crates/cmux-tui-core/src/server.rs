@@ -93,6 +93,8 @@ use crate::{
     ViewportWidthError, WorkspaceId, WorkspaceMutation, ZoomMode,
 };
 #[cfg(test)]
+use crate::{Rgb, TerminalColors};
+#[cfg(test)]
 use ghostty_vt::KeyInput;
 
 pub const ATTACH_INITIAL_SIZE_CAPABILITY: &str = "attach-initial-size";
