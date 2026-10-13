@@ -53,6 +53,8 @@ describe("received invitations", () => {
 
   test("listing makes one contact-channel read and one read per team, never a by-id user read", async () => {
     const stack = standardTeam();
+    // Two members plus two pending invitations need the Team plan.
+    stack.teams.get(TEAM_ID)!.metadata = { cmuxPlan: "team" };
     stack.setVerifiedEmails(OUTSIDER_ID, ["outsider@example.com", "second@example.com"]);
     const store = new MemoryInviteStore();
     const mailer = new MemoryInviteMailer();
