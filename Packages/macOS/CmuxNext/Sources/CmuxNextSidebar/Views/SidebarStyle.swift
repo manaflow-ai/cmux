@@ -22,9 +22,9 @@ enum SidebarStyle {
     static var wellGlyphSize: CGFloat { Swift.max(.iconFloor, iconBox - Metrics.space2) }
     static var controlSize: CGFloat { Metrics.iconSize + Metrics.space2 }
     static var toolbarButtonSize: CGFloat { Metrics.sidebarHeaderHeight }
-    static var indicatorSize: CGFloat { Metrics.smallIconSize - Metrics.space1 }
+    static var indicatorSize: CGFloat { Metrics.statusMarkSize }
     /// A workspace row's status mark (the shared indicator, or the agent mark in its place): as
-    /// tall as the unread badge beside it (Leo 2026-10-13).
+    /// tall as the unread badge beside it (Leo 2026-10-13); both read `Metrics.statusMarkSize`.
     static var statusGlyphSize: CGFloat { badgeHeight }
     static var dotSize: CGFloat { Metrics.space3 }
     /// A window rail button's glyph box and glyph (the Codex rail's 15pt
@@ -34,7 +34,8 @@ enum SidebarStyle {
     static var railTileCornerRadius: CGFloat { Metrics.itemCornerRadius + Metrics.space1 }
     /// The glyph well of a large sidebar-top tile (the tiles arrangement).
     static var favoriteWell: CGFloat { Metrics.sidebarRowHeight + Metrics.space1 }
-    static var badgeHeight: CGFloat { Metrics.iconSize }
+    /// As tall as the status glyph beside it (`Metrics.statusMarkSize`).
+    static var badgeHeight: CGFloat { Metrics.statusMarkSize }
     static var searchHeight: CGFloat { Metrics.sidebarRowHeight }
     /// The profile control (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2): a
     /// 16 pt avatar circle at the compact density (the icon box), a small
@@ -78,7 +79,12 @@ enum SidebarStyle {
     /// The group header's color dot, on the line's x (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }
-    static var badgeFont: NSFont { Typography.shortcut }
+    /// The count: tabular digits in the system face (a monospaced face read
+    /// boxy and cramped, Leo 2026-10-13), at the shortcut size.
+    static var badgeFont: NSFont { .monospacedDigitSystemFont(ofSize: Typography.shortcut.pointSize, weight: .medium) }
+    /// How far an AppKit label cell draws its text inside its frame: a label
+    /// sits this much before the edge its text aligns to.
+    static var labelCellPadding: CGFloat { Metrics.space1 }
     /// A user-chosen SF Symbol at the title's point size, where symbols match the text beside them.
     static var glyphConfig: NSImage.SymbolConfiguration { .init(pointSize: titleFont.pointSize, weight: .regular) }
     /// A header's disclosure chevron, filling its `Metrics.smallIconSize` box.
