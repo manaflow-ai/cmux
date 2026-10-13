@@ -329,6 +329,7 @@
     "setting.browser.toolbar.menu": true,
     "setting.browser.toolbar.profile": true,
     "setting.browser.toolbar.reload": true,
+    "setting.browser.toolbarButtons": ["media", "zoom", "downloads"],
     "setting.browser.urlsToAlwaysOpenExternally": [],
     "setting.computerUse.driver": "legacy",
     "setting.computerUse.enabled": false,
