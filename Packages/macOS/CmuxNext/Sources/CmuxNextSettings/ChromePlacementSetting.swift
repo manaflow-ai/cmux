@@ -26,6 +26,7 @@ public nonisolated struct ChromePlacementSetting {
         snapshot.tabBarPosition = choice(root, tabBarPositionPath, fallback: .top, &snapshot.diagnostics)
         snapshot.tabBarOrder = choice(root, tabBarOrderPath, fallback: .aboveToolbar, &snapshot.diagnostics)
         _ = PaneToolbarSetting.parse(root, diagnostics: &snapshot.diagnostics) // the app reads the file's value (PaneToolbar)
+        _ = SidebarSurfaceSetting.parse(root, diagnostics: &snapshot.diagnostics) // applied from the root (`applySidebarSurface`)
     }
 
     private static func choice<Value: RawRepresentable & CaseIterable>(
@@ -117,5 +118,6 @@ extension SettingsApplier {
         if design.spacesVisibility != snapshot.spacesVisibility { design.spacesVisibility = snapshot.spacesVisibility }
         if design.tabBarPosition != snapshot.tabBarPosition { design.tabBarPosition = snapshot.tabBarPosition }
         if design.tabBarOrder != snapshot.tabBarOrder { design.tabBarOrder = snapshot.tabBarOrder }
+        applySidebarSurface(snapshot, to: design)
     }
 }
