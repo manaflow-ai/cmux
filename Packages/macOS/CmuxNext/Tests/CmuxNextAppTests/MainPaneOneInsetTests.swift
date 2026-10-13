@@ -44,6 +44,30 @@ import Testing
         #expect(PaneChromeGeometry.contentRect(forCell: cell, style: style) == cell)
     }
 
+    /// Dividers are only the default for a cmux.json that says nothing about pane chrome: a pane
+    /// corner radius, border color or border width describes a bordered pane, so it keeps borders
+    /// (dividers would round flush panes and drop the color and width).
+    @Test func aPaneLookSettingWithoutASeparationKeepsBorders() {
+        let looks = [PaneChromeOverrides(cornerRadius: 4), PaneChromeOverrides(borderColor: ThemeRGB(hex: 0x336699)),
+                     PaneChromeOverrides(borderWidth: 2)]
+        for look in looks {
+            #expect(PaneSeparation.resolve(look, unset: .dividers) == .borders, "\(look)")
+        }
+        #expect(PaneSeparation.resolve(PaneChromeOverrides(), unset: .dividers) == .dividers)
+    }
+
+    /// A column gap the style carries is honored under every separation: the default inside the
+    /// main pane is no gap, but an `appearance.metrics.columnGap` the user set still applies.
+    @Test func aColumnGapIsHonoredUnderDividers() {
+        for separation in [PaneSeparation.dividers, .none] {
+            var style = LayoutStyle()
+            style.paneSeparation = separation
+            style.panePadding = 0
+            style.columnGap = 10
+            #expect(style.stripGap == 10, "\(separation)")
+        }
+    }
+
     @Test func theSidebarsRowInsetIsTheOnlyGapBesideIt() throws {
         let (window, root) = root(sidebarHidden: false)
         defer { window.close() }
