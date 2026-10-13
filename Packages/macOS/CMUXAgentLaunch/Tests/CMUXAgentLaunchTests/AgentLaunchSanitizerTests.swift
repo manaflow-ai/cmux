@@ -426,7 +426,7 @@ struct AgentLaunchSanitizerTests {
                 ["agy", "-i", "--prompt", "summarize"],
                 launcher: "antigravity",
                 fallbackKind: "antigravity"
-            ) == nil
+            ) == ["agy"]
         )
         #expect(
             AgentLaunchSanitizer.sanitizedLaunchArguments(
