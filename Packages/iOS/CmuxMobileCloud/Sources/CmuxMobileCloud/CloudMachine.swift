@@ -135,6 +135,10 @@ public struct CloudResourcePool: Sendable, Equatable {
     public var usedVcpus: Int
     /// Memory held by provisioning and running machines, in MB.
     public var usedMemoryMb: Int
+    /// Smallest server-advertised machine shape, when both dimensions are known.
+    public var minimumVcpus: Int?
+    /// Smallest server-advertised machine shape, when both dimensions are known.
+    public var minimumMemoryMb: Int?
 
     /// Creates a pool readout.
     /// - Parameters:
@@ -142,11 +146,22 @@ public struct CloudResourcePool: Sendable, Equatable {
     ///   - poolMemoryMb: Memory the plan shares, in MB.
     ///   - usedVcpus: vCPUs in use.
     ///   - usedMemoryMb: Memory in use, in MB.
-    public init(poolVcpus: Int, poolMemoryMb: Int, usedVcpus: Int, usedMemoryMb: Int) {
+    ///   - minimumVcpus: Server-advertised smallest shape, when known.
+    ///   - minimumMemoryMb: Server-advertised smallest shape, when known.
+    public init(
+        poolVcpus: Int,
+        poolMemoryMb: Int,
+        usedVcpus: Int,
+        usedMemoryMb: Int,
+        minimumVcpus: Int? = nil,
+        minimumMemoryMb: Int? = nil
+    ) {
         self.poolVcpus = poolVcpus
         self.poolMemoryMb = poolMemoryMb
         self.usedVcpus = usedVcpus
         self.usedMemoryMb = usedMemoryMb
+        self.minimumVcpus = minimumVcpus
+        self.minimumMemoryMb = minimumMemoryMb
     }
 
     /// vCPUs a new or resumed machine can still take.
@@ -173,8 +188,16 @@ public struct CloudMachineLimits: Sendable, Equatable {
     public var maxActiveMachines: Int?
     public var activeMachineCount: Int?
     public var planID: String?
+    /// Server-advertised entitlement classification; nil for older responses.
+    public var isPaidPlan: Bool?
     public var memoryOptionsMb: [Int]
+    /// Memory used when a create omits an explicit size. Server-authoritative.
+    public var defaultMemoryMb: Int?
+    /// vCPUs per advertised memory size, keyed by memory in MB.
+    public var vcpusByMemoryMb: [String: Int]?
     public var maxDiskMb: Int?
+    public var maxMemoryMb: Int?
+    public var maxVcpus: Int?
     public var lockedMemoryOptionsMb: [Int]?
     public var memoryUpgradePlanID: String?
     public var memoryUpgradePlansByMb: [String: String]?
@@ -192,8 +215,13 @@ public struct CloudMachineLimits: Sendable, Equatable {
         maxActiveMachines: Int? = nil,
         activeMachineCount: Int? = nil,
         planID: String? = nil,
+        isPaidPlan: Bool? = nil,
         memoryOptionsMb: [Int] = [],
+        defaultMemoryMb: Int? = nil,
+        vcpusByMemoryMb: [String: Int]? = nil,
         maxDiskMb: Int? = nil,
+        maxMemoryMb: Int? = nil,
+        maxVcpus: Int? = nil,
         lockedMemoryOptionsMb: [Int]? = nil,
         memoryUpgradePlanID: String? = nil,
         memoryUpgradePlansByMb: [String: String]? = nil,
@@ -204,8 +232,13 @@ public struct CloudMachineLimits: Sendable, Equatable {
         self.maxActiveMachines = maxActiveMachines
         self.activeMachineCount = activeMachineCount
         self.planID = planID
+        self.isPaidPlan = isPaidPlan
         self.memoryOptionsMb = memoryOptionsMb
+        self.defaultMemoryMb = defaultMemoryMb
+        self.vcpusByMemoryMb = vcpusByMemoryMb
         self.maxDiskMb = maxDiskMb
+        self.maxMemoryMb = maxMemoryMb
+        self.maxVcpus = maxVcpus
         self.lockedMemoryOptionsMb = lockedMemoryOptionsMb
         self.memoryUpgradePlanID = memoryUpgradePlanID
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb

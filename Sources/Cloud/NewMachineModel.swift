@@ -10,35 +10,19 @@ struct MachineSizeOption: Equatable, Sendable {
     let diskMb: Int
     let vcpus: Int
 
-    /// Creates a legacy ladder option for compatibility with direct callers that
-    /// predate server-owned size metadata.
-    init?(memoryMb: Int) {
-        guard let resolved = CloudMachineSizeResolver().resolve(memoryMb: memoryMb, useLegacyLadderFallback: true) else {
-            return nil
-        }
-        self.init(resolved)
+    /// A size is displayable only when the server supplied every resource in
+    /// its capability contract. Clients do not reconstruct values from a
+    /// historical memory ladder.
+    init?(memoryMb: Int, servedVcpus: Int?, servedDiskMb: Int?) {
+        guard memoryMb > 0, let vcpus = servedVcpus, vcpus > 0,
+              let disk = servedDiskMb, disk > 0 else { return nil }
+        self.init(memoryMb: memoryMb, diskMb: disk, vcpus: vcpus)
     }
 
-    /// `servedVcpus` and `servedDiskMb` are the server's per-size metadata entries for this
-    /// size. Unknown server sizes remain selectable; their disk uses the
-    /// server's max-disk ceiling when no per-size value is available. The
-    /// legacy ladders must be explicitly enabled only when both server maps
-    /// are absent; a missing entry in either map is not an old response.
-    init?(memoryMb: Int, servedVcpus: Int?, servedDiskMb: Int?, fallbackDiskMb: Int?, useLegacyLadderFallback: Bool) {
-        guard let resolved = CloudMachineSizeResolver().resolve(
-            memoryMb: memoryMb,
-            servedVcpus: servedVcpus,
-            servedDiskMb: servedDiskMb,
-            fallbackDiskMb: fallbackDiskMb,
-            useLegacyLadderFallback: useLegacyLadderFallback
-        ) else { return nil }
-        self.init(resolved)
-    }
-
-    private init(_ resolved: CloudMachineSizeOption) {
-        memoryMb = resolved.memoryMb
-        diskMb = resolved.diskMb
-        vcpus = resolved.vcpus
+    private init(memoryMb: Int, diskMb: Int, vcpus: Int) {
+        self.memoryMb = memoryMb
+        self.diskMb = diskMb
+        self.vcpus = vcpus
     }
 
     /// The localized RAM value shown as the selected picker title.
@@ -139,65 +123,14 @@ final class NewMachineModel {
     /// stays up and says so.
     typealias Submit = @MainActor (MachineCreateRequest) -> Bool
 
-    /// The base-image sizes the backend exposes, in ascending memory order.
-    /// Each row is a validated Freestyle snapshot: 4/16, 8/32, 16/64,
-    /// 24/96, 32/128, or 64/128 GB of memory/disk; the rows above 16 GB are
-    /// Max only.
-    /// The server's list trims this set for plan limits. Every machine draws
-    /// its vCPUs and memory from the plan's shared pool. The 128 MiB BusyBox
-    /// image is intentionally not a coding-machine option because it has no
-    /// baked dev tools.
-    nonisolated static let memoryOptionsMb: [Int] = [4096, 8192, 16384, 24576, 32768, 65536]
-    static let planMachineMemoryMb = 8192
-    /// The pre-ladder backend default. It is used only when the server omits
-    /// `limits.memoryOptionsMb`, so the client does not send an unsupported
-    /// `--size` flag during a rolling upgrade.
-    static let legacyPlanMachineMemoryMb = 20480
-    /// The plan that sells the ladder's 64 GB row and the larger pool
-    /// (`MEMORY_UPGRADE_PLAN_ID` on the server).
-    nonisolated static let maxPlanId = "max"
-    /// The largest machine Pro, Team, and Founder's Edition may start
-    /// (16 GB / 8 vCPU, the `lg` row).
-    nonisolated static let standardPlanMaxMemoryMb = 16384
-    /// The largest machine a free or unknown plan may start, where an operator
-    /// opens free provisioning (`PLAN_MAX_MEMORY_MB` on the server).
-    nonisolated static let freePlanMaxMemoryMb = 8192
-    /// Mirrors `maxMemoryMbForPlan` without its env overrides: Max gets the
-    /// whole ladder (64 GB), Pro, Team, and Founder's Edition stop at 16 GB,
-    /// Go at 4 GB, and a free or unknown plan at 8 GB.
-    /// The server's `limits.lockedMemoryOptionsMb` wins whenever it is sent;
-    /// this mirror only covers a control plane that predates that field.
-    nonisolated static func maxMemoryMb(planId: String?) -> Int {
-        switch normalizedPlanId(planId) {
-        case "go":
-            return 4096
-        case maxPlanId:
-            return memoryOptionsMb.max() ?? standardPlanMaxMemoryMb
-        case "pro", "team", "founders":
-            return standardPlanMaxMemoryMb
-        default:
-            return freePlanMaxMemoryMb
-        }
-    }
-    /// Mirrors `defaultMemoryMbForPlan`: the provider sizing profile, never above the max.
-    static func defaultMemoryMb(planId: String?) -> Int {
-        min(planMachineMemoryMb, maxMemoryMb(planId: planId))
-    }
-    /// Mirrors `lockedMemoryOptionsMbForPlan`: the ladder rows above the plan's ceiling.
-    nonisolated static func mirroredLockedMemoryOptionsMb(planId: String?) -> [Int] {
-        let ceiling = maxMemoryMb(planId: planId)
-        return memoryOptionsMb.filter { $0 > ceiling }
-    }
+    /// Size and plan policy is served by `/api/vm`; this model intentionally
+    /// contains no product ladder or plan ceiling constants.
     nonisolated static func normalizedPlanId(_ planId: String?) -> String {
         (planId ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     }
     /// The plan name shown next to a locked size ("Requires Max").
     nonisolated static func planDisplayName(_ planId: String) -> String {
         switch normalizedPlanId(planId) {
-        case maxPlanId:
-            return String(localized: "machines.new.plan.name.max", defaultValue: "Max")
-        case "pro":
-            return String(localized: "machines.new.plan.name.pro", defaultValue: "Pro")
         default:
             return planId.trimmingCharacters(in: .whitespacesAndNewlines).capitalized
         }
@@ -208,7 +141,7 @@ final class NewMachineModel {
     private(set) var sourceMachines: [VMSummary]
     var baseImage: BaseImage
     /// Sizes the plan may start, in ascending order: the server's
-    /// `memoryOptionsMb` minus anything it (or the mirror) locks.
+    /// `memoryOptionsMb` minus the sizes explicitly locked by the server.
     private(set) var availableMemoryOptionsMb: [Int]
     /// Ladder sizes the plan cannot start; shown as disabled rows with the
     /// plan that unlocks them, never hidden.
@@ -220,6 +153,10 @@ final class NewMachineModel {
     private(set) var vcpusByMemoryMb: [String: Int]?
     /// The server's disk per size; nil from an older control plane.
     private(set) var diskByMemoryMb: [String: Int]?
+    /// The server's default create memory; nil from an older control plane.
+    private(set) var defaultMemoryMb: Int?
+    /// The server's maximum vCPU capability, used only for resize displays.
+    private(set) var maxVcpus: Int?
     /// Plan disk ceiling used to label a newly advertised size until the
     /// server supplies a per-size disk value.
     private(set) var maxDiskMb: Int?
@@ -231,7 +168,7 @@ final class NewMachineModel {
     /// A terminal plan-read failure keeps the sheet open so it can retry in place.
     private(set) var planLoadError: String?
     var onPlanRetry: (@MainActor () -> Void)?
-    var selectedUpgradePlanId = "max"
+    var selectedUpgradePlanId = ""
     var showsMaxUpgrade = false
     private var storedMemoryMb: Int
     /// The selected size. A locked size never sticks: setting one snaps to
@@ -305,9 +242,7 @@ final class NewMachineModel {
 
     func upgradePlan(for memoryMb: Int) -> String? {
         if let memoryUpgradePlansByMb { return memoryUpgradePlansByMb[String(memoryMb)] }
-        guard memoryUpgradePlanId != nil else { return nil }
-        if Self.normalizedPlanId(plan?.planId) == "go", memoryMb <= Self.standardPlanMaxMemoryMb { return "pro" }
-        return Self.maxPlanId
+        return memoryUpgradePlanId
     }
 
     func selectSize(_ memoryMb: Int) {
@@ -344,6 +279,8 @@ final class NewMachineModel {
             memoryUpgradePlansByMb: limits.memoryUpgradePlansByMb,
             vcpusByMemoryMb: limits.vcpusByMemoryMb,
             diskByMemoryMb: limits.diskByMemoryMb,
+            defaultMemoryMb: limits.defaultMemoryMb,
+            maxVcpus: limits.maxVcpus,
             maxDiskMb: limits.maxDiskMb,
             sourceMachines: sourceMachines,
             baseImage: baseImage,
@@ -359,6 +296,8 @@ final class NewMachineModel {
         memoryUpgradePlansByMb = updated.memoryUpgradePlansByMb
         vcpusByMemoryMb = updated.vcpusByMemoryMb
         diskByMemoryMb = updated.diskByMemoryMb
+        defaultMemoryMb = updated.defaultMemoryMb
+        maxVcpus = updated.maxVcpus
         maxDiskMb = updated.maxDiskMb
         hasNoAllowedMemoryOptions = updated.hasNoAllowedMemoryOptions
         planIsLoading = false
@@ -377,11 +316,9 @@ final class NewMachineModel {
         planLoadError = nil
     }
 
-    /// `memoryOptionsMb`, `lockedMemoryOptionsMb` and `memoryUpgradePlanId`
-    /// are the server's `limits` fields. A nil `lockedMemoryOptionsMb` means
-    /// the control plane predates the field, so the client mirror decides
-    /// which ladder rows are locked; a nil upgrade plan with locked rows
-    /// falls back to Max the same way.
+    /// All size, resource, default, and upgrade values come from the server's
+    /// capability contract. Missing capability metadata leaves size creation
+    /// disabled and omits `--size` for rolling-upgrade compatibility.
     init(
         mode: Mode,
         plan: MachinePlanSnapshot?,
@@ -391,6 +328,8 @@ final class NewMachineModel {
         memoryUpgradePlansByMb: [String: String]? = nil,
         vcpusByMemoryMb: [String: Int]? = nil,
         diskByMemoryMb: [String: Int]? = nil,
+        defaultMemoryMb: Int? = nil,
+        maxVcpus: Int? = nil,
         maxDiskMb: Int? = nil,
         sourceMachines: [VMSummary] = [],
         baseImage: BaseImage = .defaultImage,
@@ -404,6 +343,8 @@ final class NewMachineModel {
         self.memoryUpgradePlansByMb = memoryUpgradePlansByMb
         self.vcpusByMemoryMb = vcpusByMemoryMb
         self.diskByMemoryMb = diskByMemoryMb
+        self.defaultMemoryMb = defaultMemoryMb
+        self.maxVcpus = maxVcpus
         self.maxDiskMb = maxDiskMb
         self.mode = mode
         self.sourceMachines = sourceMachines.filter { !$0.id.isEmpty && $0.status != "destroyed" }
@@ -413,28 +354,26 @@ final class NewMachineModel {
         self.planLoadError = nil
         let serverOptions = Set(memoryOptionsMb.filter { memoryMb in
             guard memoryMb > 0 else { return false }
-            guard let diskByMemoryMb else { return true }
-            // Missing metadata is compatible with a newly deployed server
-            // size; only an explicitly invalid value removes the row.
-            return diskByMemoryMb[String(memoryMb)].map { $0 > 0 } ?? true
+            guard let diskByMemoryMb, let vcpusByMemoryMb else { return true }
+            return diskByMemoryMb[String(memoryMb)].map { $0 > 0 } ?? false
+                && vcpusByMemoryMb[String(memoryMb)].map { $0 > 0 } ?? false
         }).sorted()
         let locked: [Int]
         if serverOptions.isEmpty {
-            // An empty list means an older control plane did not advertise the
-            // ladder. Preserve its 20 GiB default and omit --size entirely; with
-            // no size control there is nothing to lock either.
+            // An empty list means an older control plane did not advertise size
+            // capabilities. Omit --size and let that server apply its default.
             locked = []
         } else if let lockedMemoryOptionsMb {
             locked = Set(lockedMemoryOptionsMb.filter { memoryMb in
                 guard memoryMb > 0 else { return false }
-                guard let diskByMemoryMb else { return true }
-                return diskByMemoryMb[String(memoryMb)].map { $0 > 0 } ?? true
+                guard let diskByMemoryMb, let vcpusByMemoryMb else { return true }
+                return diskByMemoryMb[String(memoryMb)].map { $0 > 0 } ?? false
+                    && vcpusByMemoryMb[String(memoryMb)].map { $0 > 0 } ?? false
             }).sorted()
         } else {
-            // Older control planes do not send lock metadata. Preserve the
-            // compatibility ladder for those responses; newer responses use
-            // the server's explicit locks above.
-            locked = Self.mirroredLockedMemoryOptionsMb(planId: plan?.planId)
+            // No lock metadata means the old API did not advertise upgrade
+            // capabilities. Do not infer a plan or resurrect a client ladder.
+            locked = []
         }
         let allowed = serverOptions.filter { !locked.contains($0) }
         self.availableMemoryOptionsMb = allowed
@@ -445,15 +384,11 @@ final class NewMachineModel {
         } else if let memoryUpgradePlanId, !Self.normalizedPlanId(memoryUpgradePlanId).isEmpty {
             self.memoryUpgradePlanId = Self.normalizedPlanId(memoryUpgradePlanId)
         } else {
-            self.memoryUpgradePlanId = Self.normalizedPlanId(plan?.planId) == Self.maxPlanId
-                ? nil
-                : Self.maxPlanId
+            self.memoryUpgradePlanId = nil
         }
         self.submit = submit
         self.selectionWindowID = selectionWindowID
-        self.storedMemoryMb = serverOptions.isEmpty
-            ? Self.legacyPlanMachineMemoryMb
-            : Self.defaultMemoryMb(planId: plan?.planId, options: allowed)
+        self.storedMemoryMb = allowed.contains(defaultMemoryMb ?? 0) ? (defaultMemoryMb ?? 0) : 0
     }
 
     /// The size a selection lands on: `requested` itself unless the plan locks
@@ -472,21 +407,18 @@ final class NewMachineModel {
     /// Displays row shown) as what it is.
     static let machineKind: VMMachineKind = VMMachineKind.defaultKind
 
-    /// `options` is the allowed list (already trimmed of locked sizes); the
-    /// plan ceiling still applies for callers that pass the raw ladder.
-    static func defaultMemoryMb(planId: String?, options: [Int] = memoryOptionsMb) -> Int {
-        let allowed = options.filter { $0 <= maxMemoryMb(planId: planId) }.sorted()
-        if allowed.contains(planMachineMemoryMb) { return planMachineMemoryMb }
-        return allowed.first ?? planMachineMemoryMb
-    }
-
     var isBaseSetup: Bool {
         if case .base = mode { return true }
         return false
     }
 
-    /// Base is sized by the backend; only `vm new` takes `--size`.
-    var supportsSize: Bool { mode == .newMachine && (planIsLoading || !availableMemoryOptionsMb.isEmpty) }
+    /// Base is sized by the backend; only `vm new` takes `--size`. A size is
+    /// usable only when all per-size resource maps were advertised.
+    var supportsSize: Bool {
+        mode == .newMachine && (planIsLoading ||
+            (!availableMemoryOptionsMb.isEmpty && defaultMemoryMb != nil
+                && vcpusByMemoryMb != nil && diskByMemoryMb != nil))
+    }
     var supportsBaseImage: Bool { mode == .newMachine }
     var isFork: Bool {
         if case .machine = baseImage { return true }
@@ -525,14 +457,12 @@ final class NewMachineModel {
 
     var selectedSize: MachineSizeOption? { sizeOption(memoryMb: memoryMb) }
 
-    /// A ladder size labeled with the server's vCPUs when it sent them.
+    /// A size labeled with the server's advertised resources.
     func sizeOption(memoryMb: Int) -> MachineSizeOption? {
         MachineSizeOption(
             memoryMb: memoryMb,
             servedVcpus: vcpusByMemoryMb?[String(memoryMb)],
-            servedDiskMb: diskByMemoryMb?[String(memoryMb)],
-            fallbackDiskMb: maxDiskMb,
-            useLegacyLadderFallback: diskByMemoryMb == nil && vcpusByMemoryMb == nil
+            servedDiskMb: diskByMemoryMb?[String(memoryMb)]
         )
     }
 
@@ -551,14 +481,12 @@ final class NewMachineModel {
         return ListFormatter.localizedString(byJoining: planIDs.map(Self.planDisplayName))
     }
 
-    /// The highest plan represented by the locked rows, used by the summary
-    /// action so a mixed Go ladder always offers the complete upgrade.
+    /// The last server-ordered upgrade target represented by the locked rows.
     var highestLockedMemoryUpgradePlanId: String? {
-        lockedMemoryOptions.compactMap { upgradePlan(for: $0) }
-            .max { lhs, rhs in (lhs == "max" ? 2 : 1) < (rhs == "max" ? 2 : 1) }
+        lockedMemoryOptions.compactMap { upgradePlan(for: $0) }.last
     }
 
-    /// "32 GB RAM · 128 GB disk · Requires Max" for a locked row.
+    /// A server-advertised size with its server-advertised upgrade target.
     func lockedSizeMenuTitle(_ size: MachineSizeOption) -> String {
         guard let target = upgradePlan(for: size.memoryMb) else { return size.menuTitle }
         let memoryUpgradePlanName = Self.planDisplayName(target)
@@ -566,7 +494,7 @@ final class NewMachineModel {
         return String(format: format, size.menuTitle, memoryUpgradePlanName)
     }
 
-    /// "24 GB, 32 GB, and 64 GB machines need cmux Max."; nil when nothing is locked
+    /// Lists server-locked sizes and their server-advertised upgrade plans.
     /// or no plan sells the locked sizes.
     var lockedSizesNoteText: String? {
         guard supportsSize, !lockedMemoryOptions.isEmpty, let memoryUpgradePlanNames = lockedMemoryUpgradePlanNames else { return nil }
@@ -576,7 +504,7 @@ final class NewMachineModel {
         return String(format: format, joined, memoryUpgradePlanNames)
     }
 
-    /// "Upgrade to Max"; nil when nothing is locked.
+    /// Upgrade action title; nil when nothing is locked.
     var memoryUpgradeButtonTitle: String? {
         guard lockedSizesNoteText != nil, let memoryUpgradePlanNames = lockedMemoryUpgradePlanNames else { return nil }
         let format = String(localized: "machines.new.size.locked.upgrade", defaultValue: "Upgrade to %@")
@@ -617,7 +545,7 @@ final class NewMachineModel {
               let shortfall = pool.shortfall(vcpus: size.vcpus, memoryMb: size.memoryMb) else { return nil }
         return CloudVMResourcePool.shortfallText(
             shortfall,
-            offersUpgrade: Self.normalizedPlanId(plan?.planId) != Self.maxPlanId
+            offersUpgrade: memoryUpgradePlanId != nil
         )
     }
 

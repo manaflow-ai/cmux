@@ -54,7 +54,7 @@ public struct CloudVMResizePlan: Equatable, Sendable {
 
 /// A malformed or incomplete server response that cannot safely be used for a resize.
 public enum CloudVMResizePlanError: Error, Equatable, Sendable {
-    /// The server returned only part of the shared-pool capacity readout.
+    /// The server omitted or partially populated the capability or shared-pool readout.
     case incompleteCapacityData
 }
 
@@ -82,8 +82,7 @@ public struct CloudVMResizePlanValidator: Sendable {
     /// Creates a stateless resize evaluator.
     public init() {}
 
-    /// Decodes server plan limits, applying conservative fallbacks for older
-    /// control-plane responses that omit explicit resize ceilings.
+    /// Decodes the resize capabilities advertised by the control plane.
     ///
     /// - Parameter rawLimits: The decoded `vm.list` `limits` object.
     /// - Throws: ``CloudVMResizePlanError/incompleteCapacityData`` when a
@@ -93,41 +92,16 @@ public struct CloudVMResizePlanValidator: Sendable {
         let planID = (rawLimits["planId"] as? String)
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
             .flatMap { $0.isEmpty ? nil : $0 }
-            ?? "free"
-        let maxMemoryFromLadder = (rawLimits["memoryOptionsMb"] as? [Any])?
-            .compactMap(positiveLimit)
-            .max()
-        // Older control planes sometimes published the whole ladder as
-        // `memoryOptionsMb` (or a stale 32 GiB Pro ceiling). Never let that
-        // compatibility path expand a plan beyond the current product tier.
-        let productMemoryCeiling: Int
-        switch planID {
-        case "max":
-            productMemoryCeiling = 64 * 1_024
-        case "go":
-            productMemoryCeiling = 4 * 1_024
-        case "pro", "team", "founders", "founders-edition":
-            productMemoryCeiling = 16 * 1_024
-        default:
-            // A missing or unknown plan must fail closed to the free tier;
-            // treating it as Pro would let a stale/malformed list response
-            // preflight sizes the server will reject for that account.
-            productMemoryCeiling = 8 * 1_024
+            ?? "server"
+        // These ceilings are a versioned capability contract. Plan ids and
+        // historical ladders are descriptive metadata only; they must never
+        // be used to recreate a product policy in the client. Older control
+        // planes that omit a field disable resize preflight until upgraded.
+        guard let maxMemoryMb = positiveLimit(rawLimits["maxMemoryMb"]),
+              let maxVcpus = positiveLimit(rawLimits["maxVcpus"]),
+              let maxDiskMb = positiveLimit(rawLimits["maxDiskMb"]) else {
+            throw CloudVMResizePlanError.incompleteCapacityData
         }
-        let advertisedMemoryMb = positiveLimit(rawLimits["maxMemoryMb"])
-            ?? maxMemoryFromLadder
-            ?? productMemoryCeiling
-        let maxMemoryMb = min(advertisedMemoryMb, productMemoryCeiling)
-        let advertisedVcpus = positiveLimit(rawLimits["maxVcpus"])
-            ?? max(1, maxMemoryMb / 2_048)
-        let maxVcpus = min(advertisedVcpus, max(1, maxMemoryMb / 2_048))
-        let productDiskCeiling = planID == "max"
-            ? 256 * 1_024
-            : planID == "go" ? 16 * 1_024 : 128 * 1_024
-        let maxDiskMb = min(
-            positiveLimit(rawLimits["maxDiskMb"]) ?? productDiskCeiling,
-            productDiskCeiling
-        )
         let resourcePool = try resourcePool(from: rawLimits)
         return CloudVMResizePlan(
             id: planID,
@@ -246,27 +220,64 @@ public struct CloudVMResizePlanValidator: Sendable {
     private func resourcePool(from limits: [String: Any]) throws -> CloudVMResourcePool? {
         let rawPoolVcpus = limits["poolVcpus"]
         let rawPoolMemoryMb = limits["poolMemoryMb"]
-        let hasPoolFields = [
-            rawPoolVcpus,
-            rawPoolMemoryMb,
-            limits["usedVcpus"],
-            limits["usedMemoryMb"],
-        ].contains { raw in
+        let rawMinimumVcpus = limits["minimumVcpus"]
+        let rawMinimumMemoryMb = limits["minimumMemoryMb"]
+        let hasPoolCapacityKeys = rawPoolVcpus != nil || rawPoolMemoryMb != nil
+        let explicitlyHasNoPool = rawPoolVcpus is NSNull && rawPoolMemoryMb is NSNull
+        let hasPoolUsageFields = [limits["usedVcpus"], limits["usedMemoryMb"]].contains { raw in
             guard let raw else { return false }
             return !(raw is NSNull)
         }
-        guard hasPoolFields else { return nil }
+        let hasMinimumFields = [rawMinimumVcpus, rawMinimumMemoryMb].contains { raw in
+            guard let raw else { return false }
+            return !(raw is NSNull)
+        }
+        if explicitlyHasNoPool {
+            // Go/free responses explicitly send null pool capacity while they
+            // may still include legacy usage counters. Those counters do not
+            // describe a pool and must not turn a no-pool plan into an error.
+            if hasMinimumFields { throw CloudVMResizePlanError.incompleteCapacityData }
+            return nil
+        }
+        if !hasPoolCapacityKeys {
+            // Usage without capacity is a partial pool response. A completely
+            // absent pool remains the older no-pool compatibility boundary.
+            if hasPoolUsageFields || hasMinimumFields {
+                throw CloudVMResizePlanError.incompleteCapacityData
+            }
+            return nil
+        }
+        if rawPoolVcpus is NSNull || rawPoolMemoryMb is NSNull {
+            // A minimum shape without a complete pool is malformed metadata;
+            // do not silently turn it into a no-pool response.
+            throw CloudVMResizePlanError.incompleteCapacityData
+        }
         guard let poolVcpus = positiveLimit(rawPoolVcpus),
               let poolMemoryMb = positiveLimit(rawPoolMemoryMb),
               let usedVcpus = nonNegativeLimit(limits["usedVcpus"]),
               let usedMemoryMb = nonNegativeLimit(limits["usedMemoryMb"]) else {
             throw CloudVMResizePlanError.incompleteCapacityData
         }
+        let minimumVcpus: Int?
+        let minimumMemoryMb: Int?
+        if hasMinimumFields {
+            guard let parsedVcpus = positiveLimit(rawMinimumVcpus),
+                  let parsedMemoryMb = positiveLimit(rawMinimumMemoryMb) else {
+                throw CloudVMResizePlanError.incompleteCapacityData
+            }
+            minimumVcpus = parsedVcpus
+            minimumMemoryMb = parsedMemoryMb
+        } else {
+            minimumVcpus = nil
+            minimumMemoryMb = nil
+        }
         return CloudVMResourcePool(
             poolVcpus: poolVcpus,
             poolMemoryMb: poolMemoryMb,
             usedVcpus: usedVcpus,
-            usedMemoryMb: usedMemoryMb
+            usedMemoryMb: usedMemoryMb,
+            minimumVcpus: minimumVcpus,
+            minimumMemoryMb: minimumMemoryMb
         )
     }
 

@@ -139,10 +139,14 @@ public struct BillingPlanClient: Sendable {
         // The default endpoint returns both personal and active-team plans.
         // A paid team grants Cloud access even when the personal subscription
         // is free, which is the normal path for team-owned machines.
+        // Modern billing responses explicitly classify the entitlement. The
+        // plan-id list is retained only for old deployments that omitted that
+        // boolean; it is a stable billing compatibility contract and is not
+        // used for Cloud VM resource sizing.
         let paidPlanIDs = ["go", "pro", "max", "team", "founders"]
-        let isPro = decoded.isPro == true
-            || paidPlanIDs.contains(decoded.planId?.lowercased() ?? "")
+        let legacyIsPro = paidPlanIDs.contains(decoded.planId?.lowercased() ?? "")
             || paidPlanIDs.contains(decoded.teamPlanId?.lowercased() ?? "")
+        let isPro = decoded.isPro ?? legacyIsPro
         let canManageBilling = decoded.billingManagement == "stripe"
             || decoded.teamBillingManagement == "stripe"
         // `planId` is "pro" for a Max or Go subscriber; the exact personal

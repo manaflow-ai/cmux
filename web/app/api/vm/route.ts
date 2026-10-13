@@ -249,6 +249,15 @@ export async function GET(request: Request): Promise<Response> {
         ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
+      const advertisedMemoryOptions = listEntitlements
+        ? memoryOptionsMbForPlan(listEntitlements.planId, process.env)
+        : [];
+      const minimumMemoryMb = listEntitlements?.resourcePool
+        ? advertisedMemoryOptions[0] ?? null
+        : null;
+      const minimumVcpus = minimumMemoryMb === null
+        ? null
+        : vcpusByMemoryMb([minimumMemoryMb])[String(minimumMemoryMb)] ?? null;
       const limits = listEntitlements
         ? {
           maxActiveVms: listEntitlements.maxActiveVms,
@@ -260,6 +269,9 @@ export async function GET(request: Request): Promise<Response> {
           usedVcpus: activeEntries.reduce((sum, entry) => sum + poolShare(entry).vcpus, 0),
           usedMemoryMb: activeEntries.reduce((sum, entry) => sum + poolShare(entry).memoryMb, 0),
           planId: listEntitlements.planId,
+          // Entitlement classification is server-owned; planId remains for
+          // display and billing compatibility only.
+          isPaidPlan: isPaidVmPlan(listEntitlements.planId),
           freeAccessWindowDays,
           ...(listEntitlements.planId === "go" ? {
             vmHoursIncluded: 40,
@@ -281,12 +293,20 @@ export async function GET(request: Request): Promise<Response> {
             null,
           ),
           memoryOptionsMb: memoryOptionsMbForPlan(listEntitlements.planId, process.env),
+          // The default is part of the same server-owned create contract as
+          // the accepted sizes. Clients must not infer it from a plan id or
+          // from a historical ladder row.
+          defaultMemoryMb: defaultMemoryMbForPlan(listEntitlements.planId, process.env),
           // Resize ceilings are part of the same plan contract as the create
           // ladder. Native clients use these values to avoid offering a
           // provider-valid size that the caller's plan cannot use.
           maxDiskMb: maxDiskMbForPlan(listEntitlements.planId, process.env),
           maxMemoryMb: maxMemoryMbForPlan(listEntitlements.planId, process.env),
           maxVcpus: maxVcpusForPlan(listEntitlements.planId, process.env),
+          // The smallest shape is an informational server capability. Clients
+          // must not recreate the historical 2 vCPU / 4 GiB exhaustion rule.
+          minimumMemoryMb,
+          minimumVcpus,
           // Ladder sizes the plan does not include, and the plan that sells
           // them, so a "new machine" dialog shows them locked with an upgrade
           // instead of hiding that larger machines exist.

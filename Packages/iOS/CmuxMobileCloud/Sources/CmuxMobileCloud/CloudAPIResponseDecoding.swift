@@ -58,8 +58,13 @@ public struct CloudAPIResponseDecoding: Sendable {
                 maxActiveMachines: Self.int(limits["maxActiveVms"]),
                 activeMachineCount: Self.int(limits["activeVmCount"]),
                 planID: limits["planId"] as? String,
+                isPaidPlan: limits["isPaidPlan"] as? Bool,
                 memoryOptionsMb: Self.intArray(limits["memoryOptionsMb"]),
+                defaultMemoryMb: Self.positiveInt(limits["defaultMemoryMb"]),
+                vcpusByMemoryMb: Self.positiveIntMap(limits["vcpusByMemoryMb"]),
                 maxDiskMb: Self.positiveInt(limits["maxDiskMb"]),
+                maxMemoryMb: Self.positiveInt(limits["maxMemoryMb"]),
+                maxVcpus: Self.positiveInt(limits["maxVcpus"]),
                 lockedMemoryOptionsMb: Self.optionalIntArray(limits["lockedMemoryOptionsMb"]),
                 memoryUpgradePlanID: limits["memoryUpgradePlanId"] as? String,
                 memoryUpgradePlansByMb: limits["memoryUpgradePlansByMb"] as? [String: String],
@@ -205,11 +210,16 @@ public struct CloudAPIResponseDecoding: Sendable {
     private static func resourcePool(_ limits: [String: Any]) -> CloudResourcePool? {
         guard let poolVcpus = int(limits["poolVcpus"]), poolVcpus > 0,
               let poolMemoryMb = int(limits["poolMemoryMb"]), poolMemoryMb > 0 else { return nil }
+        let minimumVcpus = Self.positiveInt(limits["minimumVcpus"])
+        let minimumMemoryMb = Self.positiveInt(limits["minimumMemoryMb"])
+        guard (minimumVcpus == nil) == (minimumMemoryMb == nil) else { return nil }
         return CloudResourcePool(
             poolVcpus: poolVcpus,
             poolMemoryMb: poolMemoryMb,
             usedVcpus: max(0, int(limits["usedVcpus"]) ?? 0),
-            usedMemoryMb: max(0, int(limits["usedMemoryMb"]) ?? 0)
+            usedMemoryMb: max(0, int(limits["usedMemoryMb"]) ?? 0),
+            minimumVcpus: minimumVcpus,
+            minimumMemoryMb: minimumMemoryMb
         )
     }
 

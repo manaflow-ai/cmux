@@ -103,11 +103,34 @@ struct NewMachineSheet: View {
             titleVisibility: .visible
         ) {
             Button(String(localized: "machines.new.max.checkout", defaultValue: "Continue to checkout")) {
-                ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: model.selectedUpgradePlanId == "pro" ? .pro : .max)
+                switch NewMachineModel.normalizedPlanId(model.selectedUpgradePlanId) {
+                case "go":
+                    ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: .go)
+                case "pro":
+                    ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: .pro)
+                case "max":
+                    ProUpgradePresenter.presentCheckout(source: .newMachineSheetMaxUpgrade, plan: .max)
+                default:
+                    // A newer server plan is a valid capability, but this
+                    // binary cannot construct its billing URL. Show the
+                    // server-owned plan catalog instead of guessing Max.
+                    ProUpgradePresenter.presentBillingPortal()
+                }
             }
         } message: {
-            Text(model.selectedUpgradePlanId == "pro" ? String(localized: "pricing.native.pro.price", defaultValue: "$50") : String(localized: "pricing.native.max.price", defaultValue: "$200"))
+            Text(supportedPlanPrice(model.selectedUpgradePlanId))
             + Text(String(localized: "pricing.native.period.month", defaultValue: "/month"))
+        }
+    }
+
+    /// Stable native checkout copy for the three currently sold products.
+    /// Entitlement, upgrade target, and resource limits remain server-owned.
+    private func supportedPlanPrice(_ planID: String) -> String {
+        switch NewMachineModel.normalizedPlanId(planID) {
+        case "go": return String(localized: "pricing.native.go.price", defaultValue: "$20")
+        case "pro": return String(localized: "pricing.native.pro.price", defaultValue: "$50")
+        case "max": return String(localized: "pricing.native.max.price", defaultValue: "$200")
+        default: return String(localized: "pricing.native.contact.price", defaultValue: "See plans")
         }
     }
 
@@ -720,7 +743,8 @@ struct NewMachineSheet: View {
             }
             if let note = model.lockedSizesNoteText, let upgradeTitle = model.memoryUpgradeButtonTitle {
                 Button(upgradeTitle) {
-                    model.selectedUpgradePlanId = model.highestLockedMemoryUpgradePlanId ?? model.memoryUpgradePlanId ?? "max"
+                    guard let planID = model.highestLockedMemoryUpgradePlanId ?? model.memoryUpgradePlanId else { return }
+                    model.selectedUpgradePlanId = planID
                     model.showsMaxUpgrade = true
                 }
                 .buttonStyle(.link)

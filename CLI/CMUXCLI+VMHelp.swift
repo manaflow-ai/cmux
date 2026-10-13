@@ -36,19 +36,18 @@ extension CMUXCLI {
         }
     }
 
-    /// Parse a Freestyle grow-only disk allocation expressed in GiB.
-    ///
-    /// - Parameter raw: A whole-number size with an optional `G`, `GB`, or `GiB` suffix.
-    /// - Returns: The validated size in MiB, or `nil` when it is outside the provider contract.
+    /// Parse a grow-only disk allocation expressed in whole GiB. The server
+    /// owns the provider ladder and plan ceiling; the CLI validates syntax only.
     static func parseCloudVMDiskMb(_ raw: String) -> Int? {
-        guard let gib = parseCloudVMGiB(raw), (4...256).contains(gib), gib % 4 == 0 else { return nil }
-        return gib * 1024
+        guard let gib = parseCloudVMGiB(raw), gib > 0 else { return nil }
+        return gib.multipliedReportingOverflow(by: 1024).overflow ? nil : gib * 1024
     }
 
-    /// Parse a Freestyle memory allocation expressed in whole GiB.
+    /// Parse a memory allocation expressed in whole GiB. The server owns the
+    /// accepted sizes and plan ceiling; the CLI validates syntax only.
     static func parseCloudVMMemoryMb(_ raw: String) -> Int? {
-        guard let gib = parseCloudVMGiB(raw), (4...64).contains(gib) else { return nil }
-        return gib * 1024
+        guard let gib = parseCloudVMGiB(raw), gib > 0 else { return nil }
+        return gib.multipliedReportingOverflow(by: 1024).overflow ? nil : gib * 1024
     }
 
     /// Builds the typed resize limits from the server's list response.
@@ -153,17 +152,10 @@ extension CMUXCLI {
         let maximumText = cloudVMResizeValue(resource, requested: maximum)
         let resourceName = cloudVMResizeResourceLabel(resource)
         let planName = cloudVMResizePlanName(planID)
-        let upgrade: String
-        if planID.lowercased() == "max" {
-            upgrade = String(localized: "cli.vm.resize.chooseSmaller", defaultValue: "Choose a smaller size.")
-        } else if (planID.lowercased() == "go" || planID.lowercased() == "free") &&
-                    ((resource == .memory && requested <= 16 * 1_024) ||
-                     (resource == .vcpus && requested <= 8) ||
-                     (resource == .disk && requested <= 128 * 1_024)) {
-            upgrade = String(localized: "cli.vm.resize.upgradePro", defaultValue: "Upgrade to cmux Pro to use this size.")
-        } else {
-            upgrade = String(localized: "cli.vm.resize.upgradeMax", defaultValue: "Upgrade to cmux Max to use larger sizes.")
-        }
+        let upgrade = String(
+            localized: "cli.vm.resize.serverPlanLimit",
+            defaultValue: "Choose a size within the server-advertised capability or change your plan."
+        )
         let message = String(
             format: String(
                 localized: "cli.vm.resize.planLimit",
@@ -176,17 +168,8 @@ extension CMUXCLI {
 
     /// Returns the localized display name for a normalized plan identifier.
     private static func cloudVMResizePlanName(_ planID: String) -> String {
-        let localizedName: String
-        switch planID.lowercased() {
-        case "pro": localizedName = String(localized: "pricing.native.plan.pro", defaultValue: "Pro")
-        case "max": localizedName = String(localized: "pricing.native.plan.max", defaultValue: "Max")
-        case "team": localizedName = String(localized: "pricing.native.plan.team", defaultValue: "Team")
-        case "founders", "founders-edition": localizedName = String(localized: "cli.vm.resize.planName.founders", defaultValue: "Founder's Edition")
-        case "go": localizedName = String(localized: "pricing.native.plan.go", defaultValue: "Go")
-        case "free": localizedName = String(localized: "pricing.native.plan.free", defaultValue: "Free")
-        default: return planID
-        }
-        return "cmux \(localizedName)"
+        let normalized = planID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return normalized.isEmpty ? "server" : normalized
     }
 
     /// Builds the localized error for a target above the shared compute pool.
@@ -223,7 +206,8 @@ extension CMUXCLI {
           cmux vm resize <id> [--cpu <vCPUs>] [--memory <GiB>] [--disk <GiB>]
 
         Grow an existing Cloud VM in place. Specify at least one resource:
-        CPU: 1–32 vCPUs. Memory: 4–64 GiB in whole GiB. Disk: 4–256 GiB in 4 GiB steps.
+        CPU, memory, and disk use whole units. The server advertises the current
+        resource capability and plan limits, then validates the request again.
         Memory and disk accept G, GB, or GiB suffixes. Shrinking is not supported.
         The CLI checks your plan's limits before the request; the server enforces them again
         and returns the provider-confirmed resources.
@@ -327,12 +311,12 @@ extension CMUXCLI {
             throw CLIError(message: Self.vmResizeUsage)
         }
         let diskMb = diskOpt.flatMap(Self.parseCloudVMDiskMb)
-        let cpu = cpuOpt.flatMap(Int.init).flatMap { (1...32).contains($0) ? $0 : nil }
+        let cpu = cpuOpt.flatMap(Int.init).flatMap { $0 > 0 ? $0 : nil }
         let memoryMb = memoryOpt.flatMap(Self.parseCloudVMMemoryMb)
         if (diskOpt != nil && diskMb == nil) || (cpuOpt != nil && cpu == nil) || (memoryOpt != nil && memoryMb == nil) {
             throw CLIError(message: String(
                 localized: "cli.vm.resize.invalidDisk",
-                defaultValue: "vm resize: use CPU 1–32, memory 4–64 GiB in whole GiB, and disk 4–256 GiB in 4 GiB steps."
+                defaultValue: "vm resize: use positive whole units for CPU, memory, and disk; the server validates current limits."
             ))
         }
         let listResponse: [String: Any]
@@ -434,12 +418,12 @@ extension CMUXCLI {
     static var vmNewUsage: String {
         String(localized: "cli.vm.new.usage", defaultValue: """
         Usage:
-          cmux vm new [--size <4g|8g|16g|24g|32g|64g>] [--agent-updates <latest|image>]
+          cmux vm new [--size <whole-GiB|MB>] [--agent-updates <latest|image>]
                       [--name <label>] [--provider <provider>] [--image <image-id>]
                       [--workspace <workspace-id>] [--network <full|allowlist|none>]
                       [--focus|--no-focus] [--detach|-d]
 
-        Create a Cloud VM. Pro supports sizes through 16g; 24g, 32g, and 64g require Max.
+        Create a Cloud VM. The server advertises current sizes and plan limits.
         The server enforces plan limits and shared CPU and memory pools.
         `--detach` creates the machine without opening its workspace.
         """)

@@ -173,17 +173,16 @@ public struct CloudSectionView: View {
 
 /// The Cloud equivalent of the Mac New Machine sheet.
 ///
-/// The backend remains the source of truth for team, provider, image, and
-/// billing checks. The phone shows the same size ladder and sends the selected
-/// memory profile when the user confirms.
+/// The backend remains the source of truth for team, provider, image, billing,
+/// and resource capabilities. The phone shows only the sizes in that contract.
 struct CloudCreateMachineSheet: View {
     let controller: CloudSessionController
     let availableKinds: Set<CloudMachineKind>?
     let limits: CloudMachineLimits?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     /// App Store billing; when present, upgrade actions open the in-app plans
-    /// sheet. Without it the locked sizes stay as plain text: the App Store
-    /// build never links to a web purchase page (App Review Guideline 3.1.1).
+    /// sheet instead of the web pricing page.
     @Environment(BillingModel.self) private var billing: BillingModel?
     @State private var selectedMemoryMb: Int
     @State private var isPlansSheetPresented = false
@@ -212,6 +211,7 @@ struct CloudCreateMachineSheet: View {
                     .fixedSize(horizontal: false, vertical: true)
                 }
 
+                if hasServerSizeContract {
                 Section {
                     Menu {
                         ForEach(availableMemoryOptions, id: \.self) { memoryMb in
@@ -221,11 +221,10 @@ struct CloudCreateMachineSheet: View {
                         }
                         ForEach(lockedMemoryOptions, id: \.self) { memoryMb in
                             Button {
-                                openPlans()
+                                openUpgradePage(planID: upgradePlanID(for: memoryMb))
                             } label: {
                                 Label(lockedSizeMenuTitle(memoryMb), systemImage: "lock.fill")
                             }
-                            .disabled(billing == nil)
                             .accessibilityIdentifier("CloudCreateMachineLockedSize.\(memoryMb)")
                         }
                     } label: {
@@ -247,9 +246,9 @@ struct CloudCreateMachineSheet: View {
                                 .foregroundStyle(.secondary)
                                 .fixedSize(horizontal: false, vertical: true)
                             Spacer(minLength: 0)
-                            if billing != nil, let upgradeActionTitle {
+                            if let upgradeActionTitle {
                                 Button(upgradeActionTitle) {
-                                    openPlans()
+                                    openUpgradePage(planID: highestLockedMemoryUpgradePlanID)
                                 }
                                 .controlSize(.small)
                                 .buttonStyle(.bordered)
@@ -268,6 +267,7 @@ struct CloudCreateMachineSheet: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                     }
+                }
                 }
 
                 if machineUsageText != nil || poolUsageText != nil {
@@ -293,7 +293,7 @@ struct CloudCreateMachineSheet: View {
                         Task {
                             let created = await controller.createMachine(options: .init(
                                 kind: machineKind,
-                                memoryMb: selectedMemoryMb
+                                memoryMb: hasServerSizeContract ? selectedMemoryMb : nil
                             ))
                             if created != nil { dismiss() }
                         }
@@ -306,7 +306,7 @@ struct CloudCreateMachineSheet: View {
                             }
                         }
                     }
-                    .disabled(controller.isCreatingMachine || availableMemoryOptions.isEmpty)
+                    .disabled(controller.isCreatingMachine || (hasServerSizeContract && availableMemoryOptions.isEmpty))
                     .accessibilityIdentifier("CloudCreateMachineSubmit")
 
                     if let failure = controller.lastCreateFailure {
@@ -359,7 +359,19 @@ struct CloudCreateMachineSheet: View {
         }
     }
 
-    private static let fallbackMemoryMb = 8192
+    private static let pricingURL = URL(string: "https://cmux.com/pricing")!
+
+    /// A size picker is valid only when the server sent accepted memory
+    /// values and both per-size resource maps. Older deployments remain
+    /// creatable with no `memoryMb`, letting the control plane apply its own
+    /// default instead of reviving a client ladder.
+    private var hasServerSizeContract: Bool {
+        guard let limits else { return false }
+        return !limits.memoryOptionsMb.isEmpty
+            && limits.defaultMemoryMb.map { limits.memoryOptionsMb.contains($0) } == true
+            && limits.diskByMemoryMb != nil
+            && limits.vcpusByMemoryMb != nil
+    }
 
     private var machineKind: CloudMachineKind {
         if let availableKinds, !availableKinds.contains(.desktop) {
@@ -369,13 +381,16 @@ struct CloudCreateMachineSheet: View {
     }
 
     private var availableMemoryOptions: [Int] {
-        let options = limits?.memoryOptionsMb ?? []
-        let validOptions = options.filter { Self.diskMb(for: $0, limits: limits) != nil }.sorted()
-        return validOptions.isEmpty ? [Self.fallbackMemoryMb] : validOptions
+        guard hasServerSizeContract else { return [] }
+        return (limits?.memoryOptionsMb ?? []).filter { memoryMb in
+            Self.diskMb(for: memoryMb, limits: limits) != nil
+                && (limits?.vcpusByMemoryMb?[String(memoryMb)] ?? 0) > 0
+        }.sorted()
     }
 
     private var lockedMemoryOptions: [Int] {
-        (limits?.lockedMemoryOptionsMb ?? [])
+        guard hasServerSizeContract else { return [] }
+        return (limits?.lockedMemoryOptionsMb ?? [])
             .filter { Self.diskMb(for: $0, limits: limits) != nil }
             .sorted()
     }
@@ -409,11 +424,12 @@ struct CloudCreateMachineSheet: View {
         return ListFormatter.localizedString(byJoining: names)
     }
 
+    private var highestLockedMemoryUpgradePlanID: String? {
+        lockedMemoryUpgradePlanIDs.last
+    }
+
     private var upgradeActionTitle: String? {
         guard let planNames = lockedMemoryUpgradePlanNames else { return nil }
-        if lockedMemoryUpgradePlanIDs == ["max"] {
-            return L10n.string("mobile.cloud.create.size.upgrade", defaultValue: "Upgrade to Max")
-        }
         return String(
             format: L10n.string(
                 "mobile.cloud.create.size.upgradeFormat",
@@ -515,52 +531,35 @@ struct CloudCreateMachineSheet: View {
     }
 
     private static func defaultMemoryMb(for limits: CloudMachineLimits?) -> Int {
-        let available = (limits?.memoryOptionsMb ?? [])
-            .filter { memoryMb in
-                guard let diskByMemoryMb = limits?.diskByMemoryMb else {
-                    guard limits?.vcpusByMemoryMb == nil else {
-                        return limits?.maxDiskMb != nil || memoryMb > 0
-                    }
-                    return legacyDiskMb(for: memoryMb) != nil || limits?.maxDiskMb != nil || memoryMb > 0
-                }
-                return diskByMemoryMb[String(memoryMb)].map { $0 > 0 } ?? true
-            }
-            .sorted()
-        return available.contains(fallbackMemoryMb) ? fallbackMemoryMb : (available.first ?? fallbackMemoryMb)
+        guard let limits,
+              let defaultMemoryMb = limits.defaultMemoryMb,
+              limits.memoryOptionsMb.contains(defaultMemoryMb) else { return 0 }
+        return defaultMemoryMb
     }
 
     static func diskMb(for memoryMb: Int, limits: CloudMachineLimits?) -> Int? {
         guard memoryMb > 0 else { return nil }
-        guard let diskByMemoryMb = limits?.diskByMemoryMb else {
-            if limits?.vcpusByMemoryMb != nil {
-                return limits?.maxDiskMb ?? memoryMb
-            }
-            return legacyDiskMb(for: memoryMb) ?? limits?.maxDiskMb ?? memoryMb
-        }
-        if let served = diskByMemoryMb[String(memoryMb)] {
-            return served > 0 ? served : nil
-        }
-        return limits?.maxDiskMb ?? memoryMb
+        guard let served = limits?.diskByMemoryMb?[String(memoryMb)] else { return nil }
+        return served > 0 ? served : nil
     }
 
-    /// Compatibility fallback for control planes that predate `diskByMemoryMb`.
-    private static func legacyDiskMb(for memoryMb: Int) -> Int? {
-        switch memoryMb {
-        case 4096: return 16384
-        case 8192: return 32768
-        case 16384: return 65536
-        case 24576: return 98304
-        case 32768: return 131072
-        case 65536: return 131072
-        default: return nil
-        }
+    private func diskMb(for memoryMb: Int) -> Int? {
+        Self.diskMb(for: memoryMb, limits: limits)
     }
 
-    /// Opens the in-app plans sheet. Plans are sold only in app (App Review
-    /// Guideline 3.1.1), so without a billing model this does nothing.
-    private func openPlans() {
-        guard billing != nil else { return }
-        isPlansSheetPresented = true
+    private func openUpgradePage(planID: String?) {
+        // App Store builds sell plans in app (Guideline 3.1.1); the web
+        // pricing page remains only for hosts without a billing model.
+        if billing != nil {
+            isPlansSheetPresented = true
+            return
+        }
+        guard let planID, var components = URLComponents(url: Self.pricingURL, resolvingAgainstBaseURL: false) else {
+            openURL(Self.pricingURL)
+            return
+        }
+        components.queryItems = [URLQueryItem(name: "plan", value: planID)]
+        openURL(components.url ?? Self.pricingURL)
     }
 }
 

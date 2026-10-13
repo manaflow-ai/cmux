@@ -176,6 +176,8 @@ import Testing
             "activeVmCount": 3,
             "planId": "pro",
             "memoryOptionsMb": [4096, 8192, 16384, 24576],
+            "defaultMemoryMb": 8192,
+            "vcpusByMemoryMb": {"4096": 2, "8192": 4, "16384": 8, "24576": 12},
             "maxDiskMb": 131072,
             "diskByMemoryMb": {"4096": 24576, "8192": 49152, "16384": 98304, "24576": 131072},
             "vcpusByMemoryMb": {"4096": 4, "8192": 8, "16384": 16, "24576": 24},
@@ -191,6 +193,8 @@ import Testing
             activeMachineCount: 3,
             planID: "pro",
             memoryOptionsMb: [4096, 8192, 16384, 24576],
+            defaultMemoryMb: 8192,
+            vcpusByMemoryMb: ["4096": 2, "8192": 4, "16384": 8, "24576": 12],
             maxDiskMb: 131072,
             lockedMemoryOptionsMb: [32768, 65536],
             memoryUpgradePlanID: "max",
@@ -213,13 +217,22 @@ import Testing
             "poolVcpus": 20,
             "poolMemoryMb": 40960,
             "usedVcpus": 16,
-            "usedMemoryMb": 32768
+            "usedMemoryMb": 32768,
+            "minimumVcpus": 2,
+            "minimumMemoryMb": 4096
           }
         }
         """.utf8))
 
         let pool = try #require(catalog.limits?.resourcePool)
-        #expect(pool == CloudResourcePool(poolVcpus: 20, poolMemoryMb: 40960, usedVcpus: 16, usedMemoryMb: 32768))
+        #expect(pool == CloudResourcePool(
+            poolVcpus: 20,
+            poolMemoryMb: 40960,
+            usedVcpus: 16,
+            usedMemoryMb: 32768,
+            minimumVcpus: 2,
+            minimumMemoryMb: 4096
+        ))
         #expect(pool.freeVcpus == 4)
         #expect(pool.freeMemoryMb == 8192)
         #expect(pool.fits(vcpus: 4, memoryMb: 8192))
@@ -236,6 +249,23 @@ import Testing
     func plansWithoutAPoolDecodeNoPool(_ body: String) throws {
         let catalog = try decoding.catalog(from: Data(body.utf8))
         #expect(catalog.limits != nil)
+        #expect(catalog.limits?.resourcePool == nil)
+    }
+
+    @Test
+    func partialServerMinimumShapeDoesNotDecodeAsAPool() throws {
+        let catalog = try decoding.catalog(from: Data("""
+        {
+          "vms": [],
+          "limits": {
+            "poolVcpus": 20,
+            "poolMemoryMb": 40960,
+            "usedVcpus": 16,
+            "usedMemoryMb": 32768,
+            "minimumVcpus": 2
+          }
+        }
+        """.utf8))
         #expect(catalog.limits?.resourcePool == nil)
     }
 

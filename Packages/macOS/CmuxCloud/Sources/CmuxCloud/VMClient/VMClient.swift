@@ -138,8 +138,15 @@ public func defaultCloudVMAction(status: Int, errorCode: String, response: [Stri
         )
     case "vm_memory_requires_plan":
         let details = response["details"] as? [String: Any]
-        let planId = cloudVMString(response["upgradePlanId"]) ?? cloudVMString(details?["upgradePlanId"]) ?? "max"
-        let plan: CheckoutPlan = planId == CheckoutPlan.pro.rawValue ? .pro : .max
+        // The server must name the upgrade target. A missing or newer plan id
+        // is not permission to guess Max and create a client-owned billing
+        // ceiling; leave the caller with the safe smaller-size action.
+        guard let planID = cloudVMString(response["upgradePlanId"]) ?? cloudVMString(details?["upgradePlanId"]) else {
+            return String(localized: "cloudVM.error.memoryRequiresPlan.unknownAction", defaultValue: "Choose a smaller machine size or check the server-advertised plan capabilities.")
+        }
+        guard let plan = CheckoutPlan(rawValue: planID.lowercased()), plan == .pro || plan == .max else {
+            return String(localized: "cloudVM.error.memoryRequiresPlan.unknownAction", defaultValue: "Choose a smaller machine size or check the server-advertised plan capabilities.")
+        }
         let checkout = CheckoutAttribution.checkoutURL(source: .vmMemoryRequiresPlanError, plan: plan)
         if plan == .pro {
             return String(format: String(
@@ -441,8 +448,10 @@ public struct VMPlanLimits: Sendable {
         maxActiveVms: Int? = nil,
         planId: String,
         freeAccessWindowDays: Int,
+        isPaidPlan: Bool? = nil,
         freeAccessExpiresAt: Int64? = nil,
         memoryOptionsMb: [Int] = [],
+        defaultMemoryMb: Int? = nil,
         maxDiskMb: Int? = nil,
         maxMemoryMb: Int? = nil,
         maxVcpus: Int? = nil,
@@ -457,9 +466,11 @@ public struct VMPlanLimits: Sendable {
     ) {
         self.maxActiveVms = maxActiveVms
         self.planId = planId
+        self.isPaidPlan = isPaidPlan
         self.freeAccessWindowDays = freeAccessWindowDays
         self.freeAccessExpiresAt = freeAccessExpiresAt
         self.memoryOptionsMb = memoryOptionsMb
+        self.defaultMemoryMb = defaultMemoryMb
         self.maxDiskMb = maxDiskMb
         self.maxMemoryMb = maxMemoryMb
         self.maxVcpus = maxVcpus
@@ -476,6 +487,9 @@ public struct VMPlanLimits: Sendable {
     /// Active-machine ceiling; nil when the plan has no cap (every paid plan).
     public let maxActiveVms: Int?
     public let planId: String
+    /// Server-advertised entitlement classification. Nil is the migration
+    /// boundary for control planes that predate this field.
+    public var isPaidPlan: Bool? = nil
     /// Days a free-plan machine stays reachable after creation; 0 = no window.
     public let freeAccessWindowDays: Int
     /// The earliest free-access expiry across the caller's machines (epoch ms);
@@ -483,6 +497,8 @@ public struct VMPlanLimits: Sendable {
     public var freeAccessExpiresAt: Int64?
     /// Memory sizes the server accepts for new machines, in MB.
     public var memoryOptionsMb: [Int] = []
+    /// Memory used when a create omits an explicit size. Server-authoritative.
+    public var defaultMemoryMb: Int? = nil
     /// Maximum disk size accepted by the caller's current plan.
     public var maxDiskMb: Int? = nil
     /// Maximum memory size accepted by the caller's current plan.

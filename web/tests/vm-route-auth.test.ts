@@ -939,7 +939,13 @@ describe("VM REST auth", () => {
     expect(response.status).toBe(200);
     const payload = await response.json() as {
       vms: Array<{ id: string; kind: string }>;
-      limits: { imageKinds: Array<{ kind: string; image: string }> };
+      limits: {
+        imageKinds: Array<{ kind: string; image: string }>;
+        defaultMemoryMb: number;
+        memoryOptionsMb: number[];
+        minimumMemoryMb: number | null;
+        minimumVcpus: number | null;
+      };
     };
     // Neither stored image is a manifest desktop image, so both echo kind "base".
     expect(payload.vms).toMatchObject([{ id: "devbox", kind: "base" }, { id: "base", kind: "base" }]);
@@ -952,6 +958,10 @@ describe("VM REST auth", () => {
       listVmImageKinds(defaultProviderId(), process.env, { memoryMb: defaultMemoryMbForPlan("pro", process.env) }),
     );
     expect(payload.limits.imageKinds.map((entry) => entry.kind)).toEqual(["desktop", "base"]);
+    expect(payload.limits.defaultMemoryMb).toBe(defaultMemoryMbForPlan("pro", process.env));
+    expect(payload.limits.memoryOptionsMb).toContain(payload.limits.defaultMemoryMb);
+    expect(payload.limits.minimumMemoryMb).toBe(4096);
+    expect(payload.limits.minimumVcpus).toBe(2);
     for (const entry of payload.limits.imageKinds) {
       expect(["desktop", "base"]).toContain(entry.kind);
       expect(typeof entry.image).toBe("string");
