@@ -96,6 +96,9 @@ pub(crate) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
     add_group_column(transaction, "icon", "TEXT")?;
     add_group_column(transaction, "pinned", "INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))")?;
     add_workspace_remote_localhost(transaction)?;
+    // `session-icon-v1`: a session's (machine's) icon, the shared icon
+    // string. Added before the open-time blob sweep reads it.
+    super::mutation_ledger::add_nullable_column(transaction, "sessions", "icon")?;
     Ok(())
 }
 
@@ -220,6 +223,11 @@ pub struct PersonalSession {
     pub last_seen_ms: Option<u64>,
     pub capabilities: Option<Value>,
     pub migrated: bool,
+    /// The icon the sidebar shows for this session's machine
+    /// (`session-icon-v1`): one emoji, an SF Symbol name or a stored image or
+    /// SVG (`require_icon_asset`). Set only by `set-session-icon`;
+    /// `put-session` keeps it.
+    pub icon: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -451,7 +459,7 @@ pub(crate) fn personal_revision(connection: &Connection) -> anyhow::Result<u64> 
 pub(crate) fn read_sessions(connection: &Connection) -> anyhow::Result<Vec<PersonalSession>> {
     let mut statement = connection.prepare(
         "SELECT session_id, machine_name, session_name, transport_json, last_seen_ms,
-                capabilities_json, migrated
+                capabilities_json, migrated, icon
          FROM sessions ORDER BY session_id",
     )?;
     let rows = statement.query_map([], |row| {
@@ -463,12 +471,21 @@ pub(crate) fn read_sessions(connection: &Connection) -> anyhow::Result<Vec<Perso
             row.get::<_, Option<i64>>(4)?,
             row.get::<_, Option<String>>(5)?,
             row.get::<_, i64>(6)?,
+            row.get::<_, Option<String>>(7)?,
         ))
     })?;
     let mut sessions = Vec::new();
     for row in rows {
-        let (session_id, machine_name, session_name, transport, last_seen, capabilities, migrated) =
-            row?;
+        let (
+            session_id,
+            machine_name,
+            session_name,
+            transport,
+            last_seen,
+            capabilities,
+            migrated,
+            icon,
+        ) = row?;
         sessions.push(PersonalSession {
             session_id,
             machine_name,
@@ -478,6 +495,7 @@ pub(crate) fn read_sessions(connection: &Connection) -> anyhow::Result<Vec<Perso
             last_seen_ms: last_seen.map(u64::try_from).transpose()?,
             capabilities: parse_json(capabilities)?,
             migrated: migrated != 0,
+            icon,
         });
     }
     Ok(sessions)

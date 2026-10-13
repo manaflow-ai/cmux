@@ -26,6 +26,8 @@ struct HibernationPlanner {
         case audio, formInput = "form_input"
         /// A running Web Audio context; not under critical memory pressure.
         case webAudio = "web_audio"
+        /// An agent chat whose agent works or waits on the person (AgentPageHibernation).
+        case agentBusy = "agent_busy"
     }
 
     struct Plan: Equatable {
