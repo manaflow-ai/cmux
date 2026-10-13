@@ -52,7 +52,11 @@ enum SidebarContextMenus {
 
     /// A machine header's menu: its own (an SSH or Cloud machine's; this
     /// Mac's and a paired server's are the sidebar's), with what every
-    /// machine offers (`machineSection`: its icon) after the first group.
+    /// machine offers (`machineSection`: its icon) after the first group,
+    /// or at the end of its Options folder when the top level is full.
+    /// The most top-level rows a right-click menu shows (ActionSurfaceParityTests).
+    static let topLevelLimit = 12
+
     static func machineMenu(_ machine: String, services: AppServices) -> NSMenu {
         let registry = services.registry, machines = services.machines
         let target = ActionTargetRef(kind: .machine, id: machine)
@@ -67,6 +71,12 @@ enum SidebarContextMenus {
         let items = shared.items
         shared.removeAllItems()
         guard !items.isEmpty else { return menu }
+        if menu.items.filter({ !$0.isSeparatorItem }).count >= Self.topLevelLimit,
+           let options = menu.items.first(where: { $0.title == MenuFolder.options.title })?.submenu {
+            options.addItem(.separator())
+            for item in items { options.addItem(item) }
+            return menu
+        }
         var at = menu.items.firstIndex(where: \.isSeparatorItem) ?? menu.items.count
         if at > 0 {
             menu.insertItem(.separator(), at: at)
