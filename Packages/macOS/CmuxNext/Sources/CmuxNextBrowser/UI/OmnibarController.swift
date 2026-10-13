@@ -42,9 +42,22 @@ import Foundation
     /// Reduces `input`. Returns whether it was handled (keys: false lets
     /// the field editor run its default). An input sent while a step runs
     /// is queued and reports false.
+    #if DEBUG
+    /// The newest inputs and the state each left (`debug.omnibar` `pointer.omnibar_trace`):
+    /// names the input behind a wrong phase in a live check (cx-d0d.87).
+    private(set) var trace: [String] = []
+    private func note(_ line: String) {
+        trace.append(line)
+        if trace.count > 40 { trace.removeFirst() }
+    }
+    #endif
+
     @discardableResult
     func send(_ input: OmnibarInput) -> Bool {
         guard !isRunning else {
+            #if DEBUG
+            note("queued (applying \(isApplying)): \(input)")
+            #endif
             queue.append(input)
             return false
         }
@@ -62,6 +75,10 @@ import Foundation
     @discardableResult
     private func step(_ input: OmnibarInput) -> Bool {
         let transition = OmnibarReducer.reduce(state, input, resolver: resolver())
+        #if DEBUG
+        let next = transition.state
+        note("\(input) -> \(next.phase) elided \(next.elided) \(next.fieldText.debugDescription) \(next.edit.selection)")
+        #endif
         state = transition.state
         gate.begin(state.generation)
         isApplying = true
