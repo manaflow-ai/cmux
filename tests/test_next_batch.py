@@ -519,6 +519,8 @@ class MiniRetry(unittest.TestCase):
         self.assertEqual(len(attempts), 1)
 
 
+# land() reads the clock for staleness; the fixtures commit at NOW, so the clock stays there.
+@mock.patch.object(nb, "now", lambda: NOW)
 class FormatBeforeLanding(unittest.TestCase):
     """Formatting never blocks a landing: the queue runs the web formatter on
     the PR's head on a runner and pushes the fix to the PR's branch."""
@@ -636,6 +638,8 @@ class FormatBeforeLanding(unittest.TestCase):
         self.assertEqual([text for _, text in landed], ["landed", "landed"])
 
 
+# land() reads the clock for staleness; the fixtures commit at NOW, so the clock stays there.
+@mock.patch.object(nb, "now", lambda: NOW)
 class NotifyOwners(unittest.TestCase):
     """Until landing is allowed, serve posts a receipt and the owner lands."""
 
