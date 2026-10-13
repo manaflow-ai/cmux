@@ -306,6 +306,10 @@ const LEGACY_RESOURCE_RECONCILE_PROVIDER_TIMEOUT = "2 seconds";
 // Provider stats are advisory on request paths. A stalled provider must not
 // keep a snapshot or fork HTTP request open indefinitely.
 const FOREGROUND_PROVIDER_STATS_TIMEOUT = "2 seconds";
+/** A pause retry must not wait on a provider status read that has stopped answering. */
+export const PAUSE_STATE_PROBE_TIMEOUT_MS = 5_000;
+/** A provider pause is an out-of-band lifecycle operation; bound its foreground wait. */
+export const PAUSE_OPERATION_TIMEOUT_MS = 30_000;
 const RESIZE_PENDING_RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const RESIZE_UNCONFIRMED_RECOVERY_AFTER_MS = 30 * 60 * 1000;
 const PREVIEW_ENDPOINT_LEASE_TTL_MS = 12 * 60 * 60 * 1000;
@@ -2232,7 +2236,17 @@ export function pauseVm(input: {
     // powered-off machine is recorded as parked without a pause the provider
     // would refuse, and only a running machine is paused now.
     const probed = providers.getPauseState
-      ? yield* providers.getPauseState(vm.provider, providerVmId).pipe(Effect.either)
+      ? yield* providers.getPauseState(vm.provider, providerVmId).pipe(
+        Effect.timeoutFail({
+          duration: PAUSE_STATE_PROBE_TIMEOUT_MS,
+          onTimeout: () => new VmOperationDeadlineError({
+            operation: "pause",
+            mutating: true,
+            waitedMs: PAUSE_STATE_PROBE_TIMEOUT_MS,
+          }),
+        }),
+        Effect.either,
+      )
       : null;
     if (probed?._tag === "Left" || (probed?._tag === "Right" && probed.right === "in_progress")) {
       return yield* Effect.fail(new VmOperationDeadlineError({ operation: "pause", mutating: true, waitedMs: 0 }));
@@ -2244,7 +2258,16 @@ export function pauseVm(input: {
     }
     if (observed !== "paused" && observed !== "stopped") {
       if (vm.billingPlanId === "go") yield* setRuntimeBudget(providers, vm, providerVmId, 0);
-      yield* pause(vm.provider, providerVmId);
+      yield* pause(vm.provider, providerVmId).pipe(
+        Effect.timeoutFail({
+          duration: PAUSE_OPERATION_TIMEOUT_MS,
+          onTimeout: () => new VmOperationDeadlineError({
+            operation: "pause",
+            mutating: true,
+            waitedMs: PAUSE_OPERATION_TIMEOUT_MS,
+          }),
+        }),
+      );
     }
     const recorded = yield* repo.markProviderObservedStatus({ id: vm.id, providerVmId, status: "paused" });
     if (!recorded) {
@@ -4389,23 +4412,36 @@ export function getVmStats(input: {
       Effect.flatMap((stats) => {
         const now = Date.now();
         const reported = applyVmResourceUsage(stats, vm.providerMetadata, input.providerVmId, now);
+        const withGuestHealth = (value: VMStats): VMStats => {
+          if (value.state !== "awake") return value;
+          const healthNow = Date.now();
+          const sampledAt = value.resourceSampledAt;
+          const guestSampleFresh = sampledAt !== undefined
+            && sampledAt <= healthNow
+            && healthNow - sampledAt <= VM_RESOURCE_USAGE_MAX_AGE_MS;
+          // A provider lifecycle state only says that the allocation exists.
+          // Without a recent guest sample we cannot claim that the guest is
+          // awake; reporting `unknown` prevents the UI and CLI from showing a
+          // healthy machine with empty utilization after the guest wedges.
+          return guestSampleFresh ? value : { ...value, state: "unknown" };
+        };
         // The private development backend cannot receive production-edge reports.
         // Production keeps the push path. Never probe non-awake machines, and
         // prefer an existing fresh report over another guest round trip.
         const fresh = reported.resourceSampledAt !== undefined
           && reported.resourceSampledAt <= now
           && now - reported.resourceSampledAt <= VM_RESOURCE_USAGE_MAX_AGE_MS;
-        if (stats.state !== "awake" || fresh || !shouldReadVmResourceStatsDirectly() || !providers.getResourceStats) {
-          return Effect.succeed(reported);
-        }
-        return providers.getResourceStats(vm.provider, input.providerVmId).pipe(
-          Effect.map((sample) => sample ? applyVmResourceUsage(stats, {
-            [VM_RESOURCE_USAGE_KEY]: {
-              ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
-            },
-          }, input.providerVmId, Date.now()) : reported),
-          Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.fail(error) : Effect.succeed(reported)),
-        );
+        const resourceRead = stats.state !== "awake" || fresh || !shouldReadVmResourceStatsDirectly() || !providers.getResourceStats
+          ? Effect.succeed(reported)
+          : providers.getResourceStats(vm.provider, input.providerVmId).pipe(
+            Effect.map((sample) => sample ? applyVmResourceUsage(stats, {
+              [VM_RESOURCE_USAGE_KEY]: {
+                ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
+              },
+            }, input.providerVmId, Date.now()) : reported),
+            Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.fail(error) : Effect.succeed(reported)),
+          );
+        return resourceRead.pipe(Effect.map(withGuestHealth));
       }),
       Effect.mapError((error): VmWorkflowError => error),
       Effect.catchAll((error) => {
