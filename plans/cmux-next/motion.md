@@ -21,6 +21,19 @@ would do it, spring curves", "proper physics". Design:
   oscillator (under-, critically and over-damped), exact at any frame rate,
   retargetable with its velocity. `SpringParameters(duration:bounce:)` is
   SwiftUI's `Spring(duration:bounce:)`.
+- One source (hq-1d D2, Lawrence: "decouple from swift app as much as
+  possible"): the tokens live in the spec's design-tokens.json `motion`
+  (springs, fades, loops, speed, settle thresholds, the structural set, the
+  bounce and the per-kind defaults). cmux-tui/crates/cmux-motion reads them
+  at build time (build.rs) and owns the closed-form step
+  (`SpringValue::solve`, `advance_spring`), the structural bounce rule
+  (`MotionPolicy::spring`) and the switches (`AnimationSwitches`,
+  `set_animation_switches`); cmux-app-ffi exposes them to macOS as
+  `cmux_motion_*` (include/cmux_motion_ffi.h). Until the app's FFI pin
+  carries that ABI, the Swift `SpringValue` keeps the same solution and
+  `scripts/cmux-next/motion-parity.py` compares its paths with
+  cmux-motion's (`debug.motion {action: "trajectory"}` vs the
+  `motion_trajectories` example).
 - One clock: `MotionClock` is the one chrome animation client of a window's
   `FrameScheduler`. The tab strips, the layout (panes, dividers, columns,
   screens, drop zones) step on it with the same `dt` and it goes idle with
@@ -108,9 +121,9 @@ nxmot (MacBook Pro, 120 Hz).
 
 | Token | Response / damping | Visible end | Rest | Used by |
 | --- | --- | --- | --- | --- |
-| `move` | 0.20 / 0.90 | 192 ms | 250 ms | tab reflow and reorder, sidebar row moves, inserts (a row grows in its own slot) and removals (it shrinks in place), all on this one spring (cx-bqm6), pane and divider frames (ratio, equalize, zoom), sidebar drag gap |
-| `appear` | 0.18 / 0.90 | 175 ms | 225 ms | palette scale-in (from `Motion.panelOpenScale` 0.97 about the panel center), tab grow-in, tab group expand, sidebar show (timed equivalent), browser toolbar show, ghost card/inline morph |
-| `disappear` | 0.15 / 0.90 | 142 ms | 200 ms | tab close (width to 0), group collapse, sidebar hide (timed equivalent), browser toolbar hide |
+| `move` | 0.15 / 1.00 | 183 ms | 258 ms | tab reflow and reorder, sidebar row moves, inserts (a row grows in its own slot) and removals (it shrinks in place), all on this one spring (cx-bqm6), pane and divider frames (ratio, equalize, zoom), sidebar drag gap |
+| `appear` | 0.135 / 1.00 | 167 ms | 233 ms | palette scale-in (from `Motion.panelOpenScale` 0.97 about the panel center), tab grow-in, tab group expand, sidebar show (timed equivalent), browser toolbar show, ghost card/inline morph |
+| `disappear` | 0.11 / 1.00 | 133 ms | 200 ms | tab close (width to 0), group collapse, sidebar hide (timed equivalent), browser toolbar hide |
 | `settle` | 0.22 / 0.85 | 175 ms | 342 ms | release after drag: tab drop, drag ghost landing, sidebar row drop (carries pointer velocity; 0.8 pt overshoot on 200 pt) |
 | `scroll` | 0.22 / 0.90 | 208 ms | 267 ms | tab strip reveal, strip column reveal, wheel notch, trackpad fling snap |
 | `screen` | 0.22 / 0.90 | 208 ms | 267 ms | screen switch slide |
@@ -156,16 +169,18 @@ not change. Loops keep their period (they show state, not transitions).
 
 ## Why these values
 
-- Damping 0.9, not 1. A critically damped spring spends its last third
-  crawling through sub-pixel distances: at response 0.22 it covers 95% in
-  167 ms but reaches its last visible pixel at 269 ms. Damping 0.9
-  overshoots 0.05% (0.1 pt on 200 pt, invisible after pixel snapping) and
-  ends visibly at 200 ms. Apple's own `.snappy` and UIKit's default
-  interactive spring are under-damped for the same reason.
+- Structural springs (`move`, `appear`, `disappear`) are critically damped
+  (hq-1d D1, 2026-10-13): a tab, row or pane never passes its target, as
+  Apple's default `Spring(duration:bounce: 0)`. The long sub-pixel tail of
+  critical damping is paid with a shorter response instead of a lower
+  damping: `move` 0.15 s ends visibly at 183 ms (120 Hz), inside the 200 ms
+  budget the GPUI motion tests hold (225 ms tolerance). `ui.animations.bounce`
+  "subtle" (0.15, damping 0.85) is opt-in. Release, scroll and overlay
+  springs keep 0.85 to 0.9.
 - Response 0.15 to 0.22 s. Apple's system defaults (`.smooth` / `.snappy`
   at 0.5 s perceptual duration, NSAnimationContext 0.25 s) suit consumer
   apps; a tab strip is used hundreds of times an hour. Our `move` ends
-  visibly at 192 ms, with a spring's continuity: an interrupted move
+  visibly at 183 ms, with a spring's continuity: an interrupted move
   retargets instead of restarting.
 - `scroll` is a spring with stiffness 800 (response 0.222 s) and 0.9
   damping; damping 1 leaves a slow sub-pixel tail.
