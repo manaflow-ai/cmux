@@ -341,9 +341,17 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         _ = try? await hub?.request("_acpmux/handoff_discard", .object(["handoffId": .string(draft.id)]))
     }
 
+    /// Relative references resolve against the session's folder as acpmux
+    /// reports it (absolute); the summary's is the workspace's, abbreviated
+    /// with `~` for display, which can't be resolved on the phone.
+    var baseDirectory: String {
+        if let cwd = hub?.sessions[sessionID]?.cwd, cwd.hasPrefix("/") { return cwd }
+        return summary.cwd
+    }
+
     public var artifactSource: any ArtifactSource {
         let hub = hub
-        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: summary.cwd) {
+        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: baseDirectory) {
             await MainActor.run { hub?.macLink }
         }
     }

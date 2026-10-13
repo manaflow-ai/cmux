@@ -65,6 +65,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var surfaceRows = 0
     /// Rows a TUI gets: between the toolbar and the composer, keyboard down.
     private var tuiRows = 0
+    /// A Mac terminal's primary screen on the bottom rows of the surface.
+    private var rowShift = TerminalRowShift()
     private var gridColumns = 0
     private var cell = CGSize.zero
     /// Ghostty's scrollbar: total rows, viewport top row, visible rows.
@@ -409,7 +411,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         model.ingest(event)
         switch event {
         case .output(let data):
-            surface.feed(data)
+            if let remote = model.session.remoteRows {
+                let offset = max(0, surface.grid.rows - remote)
+                surface.feed(rowShift.filter(data, offset: offset, remoteRows: remote))
+            } else {
+                surface.feed(data)
+            }
         case .alternateScreen(let on):
             applyMode(tui: on)
         default:
@@ -422,18 +429,25 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         case .scrollbar(let total, let offset, let visible):
             scrollbar = (total, offset, visible)
             updateDocument()
-            if placesFromReport, !model.isTUI {
-                place(atRow: offset)
-                // The document did not change size, so updateDocument did not
-                // ask for the visible rows; ask now.
-                updateViewport(visibleMinY: scrollView.contentOffset.y)
-            }
+            #if DEBUG
+            if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm scrollbar %@", debugState) }
+            #endif
+            if placesFromReport, !model.isTUI { place(atRow: offset) }
+            // Whatever moved Ghostty's viewport (a request, a cursor probe
+            // restoring an older row), it must cover the visible rows; a
+            // report that leaves them uncovered asks again. Without this, a
+            // reattach replay left the probe's restore at row 0 while the
+            // screen showed the bottom: a blank page.
+            updateViewport(visibleMinY: scrollView.contentOffset.y)
         case .cellSize:
             view.setNeedsLayout()
         case .bell:
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .outputProcessed:
             outputSinceProbe = true
+            #if DEBUG
+            if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm processed %@", debugState) }
+            #endif
             if refreshAfterTUI, !model.isTUI {
                 // The switch back from the alternate screen is processed by
                 // now: ask for the primary screen's viewport and its report.
@@ -558,10 +572,20 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             || current > maxTop
         guard needsNew else { return }
         let top = min(max(0, visibleTop - margin), maxTop)
-        guard top != current, top != viewportTop else { return }
-        recentTops.append(viewportTop)
-        if recentTops.count > 6 { recentTops.removeFirst() }
-        viewportTop = top
+        guard top != current else { return }
+        // Ghostty reports a viewport other than the one last asked for (a
+        // cursor probe or a reset moved it): ask again rather than wait for a
+        // report that will not come, which left the visible rows blank.
+        if top != viewportTop {
+            recentTops.append(viewportTop)
+            if recentTops.count > 6 { recentTops.removeFirst() }
+            viewportTop = top
+        } else if scrollbar.total == 0 {
+            return
+        }
+        #if DEBUG
+        if CommandLine.arguments.contains("-CnxTermLog") { NSLog("cnxterm request %d (current %d visibleTop %d)", top, current, visibleTop) }
+        #endif
         surface.scroll(toRow: top)
     }
 
@@ -645,6 +669,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     private func applyMode(tui: Bool) {
         presentedRows = nil
+        // Moving the surface to another superview resigns first responder:
+        // typing into vim, then `:q`, used to drop the keyboard's input on the
+        // floor (the composer still said "Typing into terminal").
+        let hadFocus = surface.isFirstResponder
+        defer {
+            if hadFocus, !surface.isFirstResponder { surface.becomeFirstResponder() }
+        }
         if tui {
             scrollView.isScrollEnabled = false
             scrollView.topEdgeEffect.style = .hard
@@ -666,7 +697,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             placesFromReport = true
             refreshAfterTUI = true
             // Direct typing outlives the TUI only while the terminal keeps focus.
-            if !surface.isFirstResponder { model.directTyping = false }
+            if !hadFocus { model.directTyping = false }
             documentRows = 0
             updateDocument()
             scrollView.contentOffset.y = maxOffsetY

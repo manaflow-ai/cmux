@@ -31,6 +31,15 @@ public protocol TerminalSession: AnyObject {
     func resize(columns: Int, rows: Int)
     /// Stops delivering events.
     func stop()
+    /// Rows of the remote screen this session mirrors (nil: a local session).
+    var remoteRows: Int? { get }
+}
+
+extension TerminalSession {
+    /// Rows of the remote screen this session mirrors, when it mirrors one
+    /// (a terminal on the Mac). The screen then maps the remote primary
+    /// screen onto the bottom of its taller surface (``TerminalRowShift``).
+    public var remoteRows: Int? { nil }
 }
 
 /// Follows DEC private modes 47, 1047 and 1049 in a byte stream, across chunk

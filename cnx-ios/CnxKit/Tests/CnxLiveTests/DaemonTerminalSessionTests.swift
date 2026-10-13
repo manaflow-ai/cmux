@@ -57,7 +57,9 @@ final class FakeTerminalDaemon: @unchecked Sendable {
             if case .output(let data) = event { return String(decoding: data, as: UTF8.self) }
             return nil
         }.joined()
-        #expect(output == "hello\r\n$ \u{1B}[?1049hTUI")  // surface 8 ignored
+        // A reset first (the mirror starts clean and places the Mac's screen), then the replay; surface 8 ignored.
+        #expect(output == "\u{1B}chello\r\n$ \u{1B}[?1049hTUI")
+        #expect(session.remoteRows == 24)
         #expect(session.isAlternateScreen)
 
         session.send(Data("ls\r".utf8))

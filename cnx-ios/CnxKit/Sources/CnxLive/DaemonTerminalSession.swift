@@ -27,6 +27,9 @@ public final class DaemonTerminalSession: TerminalSession {
     public let surface: Int
     public private(set) var programName: String
     public private(set) var isAlternateScreen = false
+    /// The Mac terminal's rows (`vt-state`, `resized`), else the size asked for.
+    public var remoteRows: Int? { reportedRows ?? lastSize?.rows ?? 24 }
+    private var reportedRows: Int?
     /// The last attach or send failure (shown nowhere yet; logged).
     public private(set) var lastError: String?
 
@@ -48,8 +51,6 @@ public final class DaemonTerminalSession: TerminalSession {
     private var lastSize: (columns: Int, rows: Int)?
     private var attached = false
     private var attaching = false
-    /// The mirror has content from an earlier attach: reset it before a replay.
-    private var hasAttachedBefore = false
     /// The daemon said the surface is gone (`detached`): never reattach.
     private var ended = false
     /// Attached to the surface now.
@@ -119,17 +120,16 @@ public final class DaemonTerminalSession: TerminalSession {
                 self?.channelEnded(client)
             }
             _ = try? await client.request("identify")
-            if hasAttachedBefore {
-                // The replay that follows rebuilds the screen and scrollback.
-                detector = AlternateScreenDetector()
-                setAlternate(false)
-                handler?(.output(Data("\u{1B}c".utf8)))
-            }
+            // The replay that follows rebuilds the screen and scrollback. The
+            // reset also tells the screen where the Mac's screen starts in its
+            // taller mirror (TerminalRowShift).
+            detector = AlternateScreenDetector()
+            setAlternate(false)
+            handler?(.output(Data("\u{1B}c".utf8)))
             let reply = try await client.request("attach-surface", params: ["surface": surface])
             if let error = Self.error(in: reply) { throw LinkError(code: "attach", message: error) }
             guard self.client === client else { return }
             attached = true
-            hasAttachedBefore = true
             lastError = nil
             pendingSize = nil
             if let size = lastSize {
@@ -162,11 +162,13 @@ public final class DaemonTerminalSession: TerminalSession {
         if let id = object["surface"] as? Int, id != surface { return }
         switch event {
         case "vt-state":
+            if let rows = object["rows"] as? Int, rows > 0 { reportedRows = rows }
             emit(base64: object["data"] as? String)
             emit(base64: object["pending"] as? String)
         case "output":
             emit(base64: object["data"] as? String)
         case "resized":
+            if let rows = object["rows"] as? Int, rows > 0 { reportedRows = rows }
             // The authoritative mirror changed size: start over from the replay.
             detector = AlternateScreenDetector()
             setAlternate(false)
