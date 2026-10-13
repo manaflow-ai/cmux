@@ -165,6 +165,8 @@ extension SettingsSchema {
         .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
 
     private static let refusedTable: [String: AgentRefusal] = [
+        // What leaves the machine: a device proof to the Cloud service (cx-ds09i).
+        "freeModel.enabled": .privacy,
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agents.chats.enabled": .privacy,
