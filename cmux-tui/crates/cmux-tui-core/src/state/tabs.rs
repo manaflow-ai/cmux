@@ -14,6 +14,10 @@ use crate::state::tab_state_store::{
     TabStateUpdate, delete_saved_tab_group, saved_tab_group, tab_group_ids, tab_group_snapshot,
 };
 
+/// Advertises `icon` on `tab_group.update`, `TabGroupSnapshot`,
+/// `SavedTabGroupSnapshot` and the raw `update-tab-group` and tab group runs.
+pub(crate) const TAB_GROUP_ICON_CAPABILITY: &str = "tab-group-icon-v1";
+
 /// Resolve public tab ids against a locked state, in request order.
 pub(crate) fn resolve_tabs(state: &State, tabs: &[String]) -> anyhow::Result<Vec<SurfaceId>> {
     tabs.iter()
@@ -173,6 +177,7 @@ impl Mux {
             name,
             color,
             crate::workspace_registry::new_tab_group_id(),
+            None,
         )
     }
 

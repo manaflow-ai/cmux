@@ -29086,6 +29086,11 @@ Result<Json> Codec<UpdateScreenGroupRequest>::encode(const UpdateScreenGroupRequ
     auto encoded_group = encode_value(value.group);
     if (!encoded_group) return std::move(encoded_group).error();
     object.emplace("group", std::move(encoded_group).value());
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     if (!value.name.is_absent()) {
         auto encoded = encode_value(value.name);
         if (!encoded) return std::move(encoded).error();
@@ -29127,6 +29132,16 @@ Result<UpdateScreenGroupRequest> Codec<UpdateScreenGroupRequest>::decode(const J
         if (!decoded) return std::move(decoded).error();
         result.group = std::move(decoded).value();
     }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_name = value.find("name");
     if (field_name) {
         if (field_name->is_null()) {
@@ -29156,6 +29171,11 @@ Result<Json> Codec<UpdateTabGroupRequest>::encode(const UpdateTabGroupRequest& v
     auto encoded_group = encode_value(value.group);
     if (!encoded_group) return std::move(encoded_group).error();
     object.emplace("group", std::move(encoded_group).value());
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     if (!value.name.is_absent()) {
         auto encoded = encode_value(value.name);
         if (!encoded) return std::move(encoded).error();
@@ -29196,6 +29216,16 @@ Result<UpdateTabGroupRequest> Codec<UpdateTabGroupRequest>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_group);
         if (!decoded) return std::move(decoded).error();
         result.group = std::move(decoded).value();
+    }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_name = value.find("name");
     if (field_name) {
@@ -36986,6 +37016,12 @@ constexpr std::array<CommandFieldRequirement, 2> kCommand221FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand237FieldRequirements{{
     {"icon", 12U, "bookmark-icon-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand243FieldRequirements{{
+    {"icon", 12U, "screen-group-icon-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand244FieldRequirements{{
+    {"icon", 12U, "tab-group-icon-v1"},
+}};
 constexpr std::array<CommandMetadata, 253> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -37230,8 +37266,8 @@ constexpr std::array<CommandMetadata, 253> kCommands{{
     {"update-personal-group", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand243FieldRequirements)},
+    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand244FieldRequirements)},
     {"update-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-claim", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},

@@ -741,11 +741,11 @@ class GeneratedClientMixin:
     def update_remote_terminal_tab(self, surface: Id, *, session_name: Union[str, None, MissingType] = MISSING, snapshot: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-remote-terminal-tab', UpdateRemoteTerminalTabRequest(surface=surface, session_name=session_name, snapshot=snapshot, title=title))
 
-    def update_screen_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('update-screen-group', UpdateScreenGroupRequest(group=group, collapsed=collapsed, color=color, name=name))
+    def update_screen_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('update-screen-group', UpdateScreenGroupRequest(group=group, collapsed=collapsed, color=color, icon=icon, name=name))
 
-    def update_tab_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> TabGroupOutcome:
-        return self._invoke_command('update-tab-group', UpdateTabGroupRequest(group=group, collapsed=collapsed, color=color, name=name))
+    def update_tab_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> TabGroupOutcome:
+        return self._invoke_command('update-tab-group', UpdateTabGroupRequest(group=group, collapsed=collapsed, color=color, icon=icon, name=name))
 
     def update_workspace_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-workspace-group', UpdateWorkspaceGroupRequest(group=group, collapsed=collapsed, color=color, name=name))

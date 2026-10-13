@@ -253,8 +253,8 @@ public final class Commands {
     public static final CommandMetadata UPDATE_PERSONAL_GROUP = new CommandMetadata("update-personal-group", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UPDATE_PROFILE = new CommandMetadata("update-profile", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UPDATE_REMOTE_TERMINAL_TAB = new CommandMetadata("update-remote-terminal-tab", Authority.CONTROL, 12, "remote-terminal-tabs-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata UPDATE_SCREEN_GROUP = new CommandMetadata("update-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
-    public static final CommandMetadata UPDATE_TAB_GROUP = new CommandMetadata("update-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata UPDATE_SCREEN_GROUP = new CommandMetadata("update-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.ofEntries(Map.entry("icon", 12L)), Map.ofEntries(Map.entry("icon", "screen-group-icon-v1")));
+    public static final CommandMetadata UPDATE_TAB_GROUP = new CommandMetadata("update-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.ofEntries(Map.entry("icon", 12L)), Map.ofEntries(Map.entry("icon", "tab-group-icon-v1")));
     public static final CommandMetadata UPDATE_WORKSPACE_GROUP = new CommandMetadata("update-workspace-group", Authority.CONTROL, 12, "workspace-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata URL_OPEN = new CommandMetadata("url-open", Authority.LOCAL_ADMIN, 12, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata URL_OPEN_CLAIM = new CommandMetadata("url-open-claim", Authority.FRONTEND, 12, null, StreamKind.NONE, Map.of(), Map.of());

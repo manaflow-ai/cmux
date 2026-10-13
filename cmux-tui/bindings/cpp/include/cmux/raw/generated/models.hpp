@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "ecdf8e30a9c364d93374a8043682ee6b5eb5dfc59d599d6b568fd576c23cbd31";
+inline constexpr std::string_view kProtocolIrSha256 = "35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -5107,6 +5107,7 @@ struct UpdateScreenGroupRequest {
     Field<bool> collapsed{};
     Field<std::string> color{};
     std::string group{};
+    Field<std::string> icon{};
     Field<std::string> name{};
     friend bool operator==(const UpdateScreenGroupRequest&, const UpdateScreenGroupRequest&) = default;
 };
@@ -5115,6 +5116,7 @@ struct UpdateTabGroupRequest {
     Field<bool> collapsed{};
     Field<std::string> color{};
     std::string group{};
+    Field<std::string> icon{};
     Field<std::string> name{};
     friend bool operator==(const UpdateTabGroupRequest&, const UpdateTabGroupRequest&) = default;
 };
