@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa";
+pub const ir_sha256 = "e80b517cb44304433691e88f906ee727d150fb68080082f6ab48caf2890d54d3";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7645,6 +7645,7 @@ pub const SetPersonalWorkspaceRequest = struct {
     browser_profile_id: wire.Field([]const u8) = .absent,
     group: wire.Field([]const u8) = .absent,
     index: wire.Field(u64) = .absent,
+    remote_localhost: wire.Field(bool) = .absent,
     session_id: []const u8,
     theme: wire.Field([]const u8) = .absent,
     workspace_key: []const u8,
@@ -7660,6 +7661,9 @@ pub fn setPersonalWorkspace(client: anytype, request: SetPersonalWorkspaceReques
             .authority = "control",
             .since = 12,
             .capability = "profiles-v1",
+            .fields = &.{
+                .{ .name = "remote_localhost", .since = 12, .capability = "personal-remote-localhost-v1" },
+            },
         },
         request,
     );
