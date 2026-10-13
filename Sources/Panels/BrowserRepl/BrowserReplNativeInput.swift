@@ -268,6 +268,46 @@ enum BrowserReplNativeInput {
         }
     }
 
+    /// Like ``waitForPendingMouseEvents(_:)``, for at most `timeout` on
+    /// `clock`. Returns whether WebKit answered; a page that keeps its web
+    /// process busy (a script that never yields) delays the answer without
+    /// bound.
+    static func waitForPendingMouseEvents<C: Clock>(
+        _ webView: WKWebView,
+        timeout: Duration,
+        clock: C
+    ) async -> Bool where C.Duration == Duration {
+        let selector = NSSelectorFromString("_doAfterProcessingAllPendingMouseEvents:")
+        guard webView.responds(to: selector) else {
+            await roundTrip(webView)
+            return true
+        }
+        let gate = BrowserReplOnce()
+        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+            gate.continuation = continuation
+            typealias Action = @convention(block) () -> Void
+            typealias Function = @convention(c) (AnyObject, Selector, Action) -> Void
+            let function = unsafeBitCast(webView.method(for: selector), to: Function.self)
+            let action: Action = { MainActor.assumeIsolated { gate.finish(true) } }
+            function(webView, selector, action)
+            gate.timer = Task { @MainActor in
+                guard (try? await clock.sleep(for: timeout)) != nil else { return }
+                gate.finish(false)
+            }
+        }
+    }
+
+    /// Stops `webView`'s web content process (WebKit's
+    /// `_killWebContentProcess`), so nothing it was still doing reaches the
+    /// app; the tab then shows WebKit's crash and cmux reloads it as after
+    /// any crash. Returns `false` when this WebKit has no way to stop it.
+    static func stopWebContentProcess(_ webView: WKWebView) -> Bool {
+        let selector = NSSelectorFromString("_killWebContentProcess")
+        guard webView.responds(to: selector) else { return false }
+        webView.perform(selector)
+        return true
+    }
+
     /// Waits until the web process has applied WebKit's pending activity
     /// state (window key, visibility, first-responder focus). WebKit runs the
     /// block at once when no update is scheduled. Without the SPI, one

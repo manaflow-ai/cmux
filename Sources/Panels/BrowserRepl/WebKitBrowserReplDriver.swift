@@ -1494,6 +1494,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         return nil
     }
 
+    /// How long an automated drag's mouse move may wait for the page to
+    /// handle it while the app's one drag pasteboard window is open: the
+    /// window's own bound (``BrowserReplDragPasteboardRedirect/openDragWindow(_:timeout:clock:)``).
+    static let dragEventBound: Duration = .seconds(5)
+
     /// `tab.keep`: the tab stays open after the session ends.
     @MainActor
     private func keepTab(_ params: [String: Any]) throws -> Any? {
@@ -1503,6 +1508,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         if BrowserReplTabAttachments.typedSecrets.holdsValues(inTab: panel.id.uuidString) {
             throw Self.error("invalid", "page.keep(): this tab holds a secret or sign-in value that was typed into it, so it closes when the session ends (its domain policy, which keeps the page from sending the value off its domains, ends then too)")
         }
+        guard openedTargetIDs.contains(panel.id) else { return nil }
+        openedTargetIDs.removeAll { $0 == panel.id }
+        keptTargetIDs.append(panel.id)
+        return nil
+    }
 
     /// `session.name`: labels the tabs this session opened, now and later,
     /// as `<name> · <page title>`. A title the user set still wins, and the
@@ -2572,7 +2582,21 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
             }
             defer { capture?.closePasteboardWindow() }
             try send()
-            await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
+            // The pasteboard window is the whole app's: while it is open no
+            // other tab's automated drag moves. A page that never lets
+            // WebKit finish this event would hold it forever, so past the
+            // window's bound the page's web content process is stopped
+            // (nothing it does later can write a drag pasteboard) and the
+            // window closes. Without a way to stop it, the wait goes on.
+            if capture != nil, !(await BrowserReplNativeInput.waitForPendingMouseEvents(webView, timeout: Self.dragEventBound, clock: ContinuousClock())) {
+                if BrowserReplNativeInput.stopWebContentProcess(webView) {
+                    attachment.discardDrag()
+                    throw Self.error("timeout", "The page did not handle the drag's mouse move within \(Self.dragEventBound.components.seconds) s, so its web content process was stopped (the tab recovers as after a crash); the drag did not move")
+                }
+                await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
+            } else if capture == nil {
+                await BrowserReplNativeInput.waitForPendingMouseEvents(webView)
+            }
             try await startDropIfDragBegan(webView: webView, window: window, location: location, attachment: attachment)
         case .leftMouseUp:
             if attachment.drag?.drop == nil {
