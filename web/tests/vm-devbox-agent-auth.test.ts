@@ -58,7 +58,8 @@ function machine(): Machine {
       "#!/bin/sh",
       `printf '%s\\n' "$*" >> ${JSON.stringify(calls)}`,
       'case "$*" in',
-      `  */opencode/config*) printf '%s' ${JSON.stringify(OPENCODE_CATALOG)} ;;`,
+      // The catalog fetch asks for the status line (curl -w '\n%{http_code}').
+      `  */opencode/config*) printf '%s\\n200' ${JSON.stringify(OPENCODE_CATALOG)} ;;`,
       '  *) [ -n "${FAKE_ACCESS-}" ] || exit 7; printf \'%s\' "$FAKE_ACCESS" ;;',
       "esac",
       "",
