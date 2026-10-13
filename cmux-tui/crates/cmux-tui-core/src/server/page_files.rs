@@ -204,15 +204,29 @@ fn plain(status: u16, reason: &str) -> Vec<u8> {
     .into_bytes()
 }
 
+/// Page bundle folders relative to the parent of the binary's directory:
+/// the portable install layout (Linux, Windows), then the macOS app, whose
+/// binary is `Contents/Resources/bin/cmux-tui` and whose pages are in the
+/// CmuxNextPages resource bundle. The app-bundle entry lets an owner that the
+/// CLI or an agent starts from the bundled binary (no `CMUX_TUI_PAGES_DIR`)
+/// serve the same pages (cx-hnmbt.7).
+const PAGE_BUNDLE_LAYOUTS: [&str; 2] =
+    ["share/cmux-tui/pages", "CmuxNext_CmuxNextPages.bundle/Contents/Resources/pages"];
+
 /// The page bundle directory: `CMUX_TUI_PAGES_DIR` (a host that bundles the
-/// pages, such as the cmux app, sets it), else `share/cmux-tui/pages` next to
-/// the binary's directory (the portable install layout on Linux and
-/// Windows), else none (every page request is a 404).
+/// pages, such as the cmux app, sets it), else the first of
+/// [`PAGE_BUNDLE_LAYOUTS`] next to the binary's directory (as invoked, then
+/// with symlinks resolved), else none (every page request is a 404).
 pub fn page_bundle_dir() -> Option<PathBuf> {
     if let Some(dir) = std::env::var_os("CMUX_TUI_PAGES_DIR").filter(|value| !value.is_empty()) {
         return Some(PathBuf::from(dir));
     }
     let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?.parent()?.join("share/cmux-tui/pages");
-    dir.is_dir().then_some(dir)
+    let resolved = std::fs::canonicalize(&exe).ok();
+    [Some(exe), resolved]
+        .into_iter()
+        .flatten()
+        .filter_map(|exe| exe.parent()?.parent().map(PathBuf::from))
+        .flat_map(|root| PAGE_BUNDLE_LAYOUTS.map(|layout| root.join(layout)))
+        .find(|dir| dir.is_dir())
 }

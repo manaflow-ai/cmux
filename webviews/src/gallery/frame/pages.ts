@@ -4,7 +4,7 @@
 // and the code font (`appearance`), and for markdown the `markdown` settings (font family, size).
 import { HostError, installMockHost, type HostOp } from "../../../test/latency/mock-host";
 import type { PageClient } from "../../pages/shared/pageClient";
-import { AppsOps } from "../../pages/apps/types";
+import { AppsOps, OPEN_ACTION } from "../../pages/apps/types";
 import { sampleApps, MockAppsProvider } from "../../pages/apps/mockProvider";
 import { CloudOps, ACTION_RUN as CLOUD_ACTION_RUN, PAGE_COMMAND as CLOUD_PAGE_COMMAND } from "../../pages/cloud/ops";
 import { MockCloudProvider } from "../../pages/cloud/mockProvider";
@@ -273,12 +273,12 @@ function clickLater(selector: string): void {
 export async function mountAppsPage(state: AppsPageVariant, _context: StageContext): Promise<void> {
   const provider = new MockAppsProvider(JSON.parse(JSON.stringify(state.data)) as ReturnType<typeof sampleApps>);
   const host = installMockHost(
-    pageOps(provider, [...Object.values(AppsOps), "cmux.page.connection", "cmux.page.command"], {
+    pageOps(provider, [...Object.values(AppsOps), OPEN_ACTION.op, "cmux.page.connection", "cmux.page.command"], {
       mode: state.mode === "normal" ? undefined : state.mode,
       firstOperation: AppsOps.catalogList,
       error: state.error,
     }),
-    [AppsOps.watch, AppsOps.logs, "cmux.page.connection", "cmux.page.command"],
+    [AppsOps.watch, "cmux.page.connection", "cmux.page.command"],
   );
   host.delayMs = 0;
   if (state.hash) location.hash = state.hash;

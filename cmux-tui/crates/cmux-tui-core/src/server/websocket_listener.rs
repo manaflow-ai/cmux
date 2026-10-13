@@ -220,6 +220,17 @@ fn check_websocket_handshake(
     policy.check(&values("host"), &values("origin"))
 }
 
+/// The page id of an accepted handshake's Origin, when it is one Origin
+/// that names a cmux page.
+fn handshake_page(request: &tungstenite::handshake::server::Request) -> Option<String> {
+    let mut origins = request.headers().get_all("origin").iter();
+    let origin = origins.next()?.to_str().ok()?;
+    if origins.next().is_some() {
+        return None;
+    }
+    crate::request_origin::page_router_table::page_from_origin(origin)
+}
+
 // The handshake callback's error type is tungstenite's HTTP response.
 #[allow(clippy::result_large_err)]
 fn handle_websocket_connection_with_permit(
@@ -251,10 +262,16 @@ fn handle_websocket_connection_with_permit(
         .max_write_buffer_size(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES)
         .max_message_size(Some(WEBSOCKET_AUTH_MAX_BYTES))
         .max_frame_size(Some(WEBSOCKET_AUTH_MAX_BYTES));
+    // The page a host's page Origin names (`cmux-page://cmux.<page>`,
+    // page-router-v1): the web view sets it, page script cannot.
+    let page = std::cell::Cell::new(None::<String>);
     let callback = |request: &tungstenite::handshake::server::Request,
                     response: tungstenite::handshake::server::Response| {
         match check_websocket_handshake(&rules.policy, request) {
-            Ok(()) => Ok(response),
+            Ok(()) => {
+                page.set(handshake_page(request));
+                Ok(response)
+            }
             Err(refusal) => {
                 let mut denied = tungstenite::handshake::server::ErrorResponse::new(Some(
                     refusal.reason().to_owned(),
@@ -268,12 +285,12 @@ fn handle_websocket_connection_with_permit(
         return;
     };
 
-    if !authenticate_websocket(&mux, &mut websocket, peer, token) {
+    let Some(person) = authenticate_websocket(&mux, &mut websocket, peer, token) else {
         let frame = CloseFrame { code: CloseCode::Policy, reason: "authentication failed".into() };
         let _ = websocket.close(Some(frame));
         let _ = websocket.flush();
         return;
-    }
+    };
     websocket.set_config(|config| {
         config.max_message_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
         config.max_frame_size = Some(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES);
@@ -315,6 +332,12 @@ fn handle_websocket_connection_with_permit(
         return;
     };
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
+    if person {
+        mux.control_clients.mark_person(client);
+    }
+    if let Some(page) = page.take() {
+        origin_gate::set_page(&mux, client, page);
+    }
     let mut hello = client_hello::HelloGate::new(ClientTransport::WebSocket);
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(
         mux.surface_operation_admission.clone(),
@@ -362,25 +385,30 @@ fn handle_websocket_connection_with_permit(
     drop(connection_permit);
 }
 
+/// `Some(person)` once authenticated: `person` is true for a pairing-store
+/// credential (a human-approved pairing, or the verified app's
+/// `page-credential`), false for the static or file token (any same-user
+/// process can read the file, so it never carries the person's Cloud lease).
 fn authenticate_websocket(
     mux: &Arc<Mux>,
     websocket: &mut WebSocket<SynchronizedTcpStream>,
     peer: SocketAddr,
     configured_token: Option<&str>,
-) -> bool {
-    let Ok(Message::Text(text)) = websocket.read() else { return false };
+) -> Option<bool> {
+    let Ok(Message::Text(text)) = websocket.read() else { return None };
     let mut text = text.to_string();
     if let Some(mut provided) = auth_token(&text) {
-        let authenticated = configured_token
-            .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.as_bytes()))
-            || mux.authenticate_pairing_credential(&provided);
+        let paired = mux.authenticate_pairing_credential(&provided);
+        let authenticated = paired
+            || configured_token
+                .is_some_and(|expected| constant_time_eq(provided.as_bytes(), expected.as_bytes()));
         zeroize_string(&mut provided);
         zeroize_string(&mut text);
-        return authenticated;
+        return authenticated.then_some(paired);
     }
     if !pairing_request(&text) {
         zeroize_string(&mut text);
-        return false;
+        return None;
     }
     zeroize_string(&mut text);
 
@@ -392,7 +420,7 @@ fn authenticate_websocket(
                     .to_string()
                     .into(),
             ));
-            return false;
+            return None;
         }
     };
     if websocket
@@ -409,16 +437,17 @@ fn authenticate_websocket(
         .is_err()
     {
         mux.cancel_pairing(challenge.id);
-        return false;
+        return None;
     }
 
     match decision.recv_timeout(Duration::from_secs(challenge.expires_in)) {
         Ok(PairingDecision::Approved { credential }) => websocket
             .send(Message::Text(json!({"paired": {"credential": credential}}).to_string().into()))
-            .is_ok(),
+            .is_ok()
+            .then_some(true),
         Ok(PairingDecision::Denied) | Err(_) => {
             mux.cancel_pairing(challenge.id);
-            false
+            None
         }
     }
 }

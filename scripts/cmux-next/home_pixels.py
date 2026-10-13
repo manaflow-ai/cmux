@@ -88,9 +88,11 @@ def _edge(px, w, h, samples, contrast_min=24):
 
 def flat_span(a, b, height_pt, scale):
     """The flat part of a balloon's top or bottom edge between device px a and b: the middle 40 %, and never within
-    a corner's reach of either end (15 pt, or half the height: a 1-line text ends in half circles, MessagesLab 267d218
-    RowDraw.circularEnds; the curves have partial pixels by design). Empty when no flat part is left."""
-    reach = (min(15, height_pt / 2) + 1) * scale
+    a corner's reach of either end (22.9 pt for a continuous corner, or half the height: a 1-line text ends in half
+    circles, MessagesLab 267d218 RowDraw.circularEnds; the curves have partial pixels by design). Empty when no flat part is left."""
+    # A 1-line text ends in half circles (half the height); a taller balloon's continuous corner reaches
+    # 1.528665 x 15 = 22.9 pt along its side (UIKit's continuous corner; MessagesLab Shapes.swift).
+    reach = ((height_pt / 2 if height_pt < 2 * 15 * 1.528665 else 15 * 1.528665) + 1) * scale
     lo, hi = max(a + (b - a) * 0.3, a + reach), min(a + (b - a) * 0.7, b - reach)
     return range(int(lo), int(hi)) if hi > lo else range(0)
 
@@ -171,7 +173,7 @@ def check_rows(check, name, report, path, keys=None, min_rows=3):
     rows = [r for r in report["rows"] if r["kind"] == "text" and (keys is None or r["key"] in keys)
             and r["y"] >= 64 and r["y"] + r["height"] <= wh - 90]
     check(f"{name}: at least {min_rows} text rows to measure", len(rows) >= min_rows, report["rows"][:12])
-    bad_place, bad_edges, off_edges, unmeasured = [], [], [], []
+    bad_place, bad_edges, off_edges, unmeasured, checked = [], [], [], [], 0
     for r in rows:
         side = (r["x"] + r["width"] if r["outgoing"] else r["x"]) * scale
         top = (wh - r["y"] - r["height"]) * scale
@@ -200,6 +202,7 @@ def check_rows(check, name, report, path, keys=None, min_rows=3):
             expected["right"] = (br, fr, range(int(c - 1), int(c + 2)), 3)
         line = []
         for edge, (want, frame_at, span, need) in expected.items():
+            checked += 1
             got, n = edge_position(px, w, h, edge, round(want), span, min_lines=need)
             if got is None:
                 unmeasured.append({r["key"]: edge, "lines": n})
@@ -223,7 +226,7 @@ def check_rows(check, name, report, path, keys=None, min_rows=3):
     check(f"{name}: every text row's anchored side (incoming left, outgoing right) and top are on whole device pixels",
           not bad_place, bad_place)
     check(f"{name}: every checked edge was measured (top, bottom and a tall row's anchored side; 8 lines each or more)",
-          bool(rows) and not unmeasured, unmeasured)
+          bool(rows) and checked > 0 and not unmeasured, {"unmeasured": unmeasured, "checked": checked})
     check(f"{name}: every balloon edge is where the app draws it (within 0.12 device px, nearer the balloon than its frame)",
           not off_edges, off_edges)
     check(f"{name}: no straight edge of an incoming balloon has partial pixels (at most 10 % of its lines)", not bad_edges, bad_edges)

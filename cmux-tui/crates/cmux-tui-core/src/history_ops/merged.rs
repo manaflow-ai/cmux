@@ -98,6 +98,11 @@ impl HistoryHost {
             state.commands.apply(&commands);
             changed.push(HistoryKind::Command);
         }
+        // Closed items live in the closed-history store; a record that
+        // changed one only marks the kind (an open History page re-reads).
+        if records.iter().any(|(kind, _)| *kind == HistoryKind::Closed) {
+            changed.push(HistoryKind::Closed);
+        }
         state.cursor = scanned;
         changed
     }
