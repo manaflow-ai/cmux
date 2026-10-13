@@ -70,6 +70,7 @@ final class AgentPageHibernation {
             record.session = tabs.existingView(key)?.model.sessionId ?? tabs.session(of: key)
             return AgentTurnStateStore.shared.state(for: record)
         }
+        turnsWatched = { AgentTurnStateStore.shared.watching }
         displace = { [weak services] key in services?.cache.presenter(of: key)?.surfaceWasDisplaced(key) }
         let cache = services.cache
         cache.presentationChanges.subscribe("agent-page-hibernation") { [weak self, weak cache] in
@@ -79,11 +80,12 @@ final class AgentPageHibernation {
         followTurns(AgentTurnStateStore.shared)
     }
 
-    /// A turn that ends makes its hidden page due again (a busy page has no deadline).
+    /// A turn that ends, or the watch coming back, makes its hidden page due again (a busy page
+    /// has no deadline).
     func followTurns(_ turns: AgentTurnStateStore) {
         turnObservation?.cancel()
         turnObservation = Task { [weak self] in
-            for await _ in ObservationStream({ turns.states }) {
+            for await _ in ObservationStream({ (turns.states, turns.watching) }) {
                 self?.replan()
             }
         }
@@ -165,6 +167,8 @@ final class AgentPageHibernation {
         if !setting.isEnabled { return .disabled }
         guard let tabs = store(), Self.canRelease(key, in: tabs, onScreen: onScreen) else { return .unsupported }
         if isPinned(key), !setting.includesPinnedTabs { return .pinned }
+        // No watch, no known turn: a chat that looks idle may be working.
+        if !turnsWatched() { return .agentBusy }
         if let turn = turnState(key), turn == .working || turn == .needsInput { return .agentBusy }
         return nil
     }
@@ -185,10 +189,13 @@ final class AgentPageHibernation {
         view.window != nil && !view.isHiddenOrHasHiddenAncestor
     }
 
-    /// Keeps the page's frame, then lets the page go if it is still the same hidden page.
+    /// Keeps the page's frame and what it holds that acpmux does not, then lets the page go if it
+    /// is still the same hidden page.
     private func release(_ key: String) {
         guard let tabs = store(), let view = tabs.existingView(key), releasing.insert(key).inserted else { return }
+        let readWake = wakeState
         Task { @MainActor [weak self] in
+            let wake = await readWake(view)
             let frame = await Self.frame(view)
             guard let self else { return }
             releasing.remove(key)
@@ -204,6 +211,7 @@ final class AgentPageHibernation {
             // The tab keeps its session and every other state: the next show builds the page again.
             let stored = tabs.resolve(key)
             if let session = view.model.sessionId { tabs.sessions[stored] = session }
+            tabs.wakeStates[stored] = wake
             tabs.views[stored] = nil
             tabs.retirer.retire(view)
             tabs.stopCustomizationWhenUnused()

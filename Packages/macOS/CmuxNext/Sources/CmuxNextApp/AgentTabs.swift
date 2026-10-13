@@ -321,6 +321,7 @@ final class AgentTabStore {
             allowsTabConversion: local
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
+        model.pendingWake = wakeStates.removeValue(forKey: key)
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {
