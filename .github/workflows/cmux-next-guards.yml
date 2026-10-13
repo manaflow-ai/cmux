@@ -39,7 +39,7 @@ jobs:
       linux_guard_source: ${{ 'false' }}
 
   vt-link-graph:
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
       - name: Checkout
@@ -56,10 +56,50 @@ jobs:
       - name: package-notices.json covers vt-link-graph.json
         run: python3 cmux-tui/dist/scripts/package_notices.py check-data
 
+  # The nightly-next build generates the Rust third-party notices from the
+  # tree (scripts/cmux-next/generate-third-party-notices.sh --tui-source tree).
+  # A new path crate it cannot map failed the nightly publish (run 38359624385,
+  # cmux-git, 2026-10-13) hours after the landing. This runs the same generation
+  # when a pull request or push changes a Rust manifest or the notices tooling,
+  # so such a change is red at its own landing.
+  rust-notices-tree:
+    name: cmux-next Rust notices generate
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Changed notice inputs
+        id: inputs
+        env:
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BASE_SHA" =~ ^0+$ ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          changed="$(git diff --name-only "$BASE_SHA" HEAD)"
+          pattern='(^|/)Cargo\.(toml|lock)$|^cmux-tui/build-support/notices/|^scripts/cmux-next/generate-third-party-notices\.sh$|^scripts/cmux-next/notices/|^Packages/macOS/CmuxNext/Package\.resolved$|^scripts/build-cmux-cua\.sh$'
+          if grep -qE "$pattern" <<<"$changed"; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "run=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Generate the Rust notices from this tree (as the nightly does)
+        if: steps.inputs.outputs.run == 'true'
+        env:
+          CMUX_NOTICES_ALLOW_CARGO: "1"
+          CMUX_NOTICES_CACHE: ${{ runner.temp }}/cmux-notices
+        run: |
+          ./scripts/cmux-next/generate-third-party-notices.sh --tui-source tree \
+            --cargo-trees "$RUNNER_TEMP/cmux-notices-cargo-trees" --write-cargo-trees
+
   # The CmuxNextApp size cap (code-quality.md SW14) for pull requests into
-  # feat-cmux-next and pushes to it. cmux-next.yml's checks job skips both
-  # (cx-g34i), so only safe-push ran the cap and GitHub merges grew the App past
-  # it. This workflow has no path filter, so the check can be a required one.
+  # feat-cmux-next and pushes to it. cmux-next.yml's checks job skips pushes to
+  # feat-cmux-next and runs on pull requests only for its path filter, so GitHub
+  # merges grew the App past the cap. This workflow has no path filter, so the
+  # check can be a required one.
   # Only the size cap runs here: the god-file checks stay warn-only. A pull
   # request fails on what it grows (its merge commit's first parent is the
   # base); a push fails on what it grew over the previous tip (event.before), so
@@ -93,3 +133,34 @@ jobs:
             echo "::warning::no previous tip to compare with; checking the plain cap"
           fi
           scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
+
+  # A red size cap on a pull request into feat-cmux-next gets the same "red: <check>" comment as a
+  # red web check (chief 2026-10-12): ci.yml calls this workflow after `web`; both callers update
+  # one comment, recomputed from all check runs of the head commit.
+  pr-red-checks:
+    needs: [app-size]
+    if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}
+    permissions:
+      checks: read
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/pr-red-checks-comment.yml
+
+  # The defaults guard's tests, and schemas/defaults/cmux-next.json matching the
+  # action and settings exports, in seconds; cmux-next-defaults-guard.yml judges
+  # the changes and the approval.
+  defaults-snapshot:
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: The defaults guard judges changes and approvals
+        run: python3 tests/test_defaults_guard.py
+
+      - name: The defaults snapshot matches the exports
+        run: python3 scripts/ci/defaults_guard.py check-fresh

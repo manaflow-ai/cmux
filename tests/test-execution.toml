@@ -1283,3 +1283,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_pr_merge_tree.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_defaults_guard.py"
+lane = "linux-guard"

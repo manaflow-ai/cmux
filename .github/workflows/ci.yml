@@ -1475,8 +1475,8 @@ jobs:
           PY
 
   # A red web check on a pull request into feat-cmux-next gets one "red: <check>" comment (the
-  # checks stay advisory there; chief 2026-10-12). cmux-next.yml calls the same workflow after its
-  # app-size check; both update one comment.
+  # checks stay advisory there; chief 2026-10-12). cmux-next-guards.yml calls the same workflow
+  # after its app-size job (the CmuxNextApp size cap); both update one comment.
   pr-red-checks:
     needs: [web]
     if: ${{ always() && !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'feat-cmux-next' }}

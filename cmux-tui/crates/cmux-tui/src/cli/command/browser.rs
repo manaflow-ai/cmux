@@ -15,6 +15,28 @@ pub(super) fn parse_browser(
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
         ["list"] => request(ResourceOperation::BrowserList, selectors, flags, Map::new()),
+        // browser-devices-v1: Chrome's device toolbar list and custom devices.
+        ["devices", "list"] => {
+            request(ResourceOperation::BrowserDevicesList, selectors, flags, Map::new())
+        }
+        ["devices", "add"] => {
+            let device = super::parse_json_flag(flags, "device-json")?;
+            request(
+                ResourceOperation::BrowserDevicesAddCustom,
+                selectors,
+                flags,
+                map_with("device", device),
+            )
+        }
+        ["devices", "remove"] => {
+            let title = flags.required("title")?;
+            request(
+                ResourceOperation::BrowserDevicesRemoveCustom,
+                selectors,
+                flags,
+                map_with("title", Value::String(title)),
+            )
+        }
         ["open"] | ["open", _] => parse_browser_open(words, selectors, flags),
         [selector, "show"] => {
             selectors.insert("browser", "browser", selector)?;

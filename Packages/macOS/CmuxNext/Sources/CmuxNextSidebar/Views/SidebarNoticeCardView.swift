@@ -34,6 +34,10 @@ final class SidebarNoticeCardView: NSView {
     let surface: OverlaySurfaceView
     /// The lines and buttons, flipped, over the surface.
     private let content = SidebarNoticeCardContent()
+    /// The notice whose `shownAction` was sent (once per notice id), and its
+    /// `hiddenAction` (sent when that notice leaves the card).
+    private var reportedShown: (id: String, hiddenAction: String?)?
+    private var occlusionObserver: NSObjectProtocol?
 
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared) {
         surface = OverlaySurfaceView(interactive: true, cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
@@ -76,6 +80,11 @@ final class SidebarNoticeCardView: NSView {
         guard notice != self.notice else { return }
         let previous = self.notice
         self.notice = notice
+        if let shown = reportedShown, shown.id != notice?.id {
+            // The notice it reported left the card (another card took the slot, or none).
+            reportedShown = nil
+            if let hidden = shown.hiddenAction { onAction?(shown.id, hidden) }
+        }
         isHidden = notice == nil
         guard let notice else {
             spinner.spin(false)
@@ -111,6 +120,22 @@ final class SidebarNoticeCardView: NSView {
         }
         needsLayout = true
         applyColors()
+        reportShownIfOnScreen()
+    }
+
+    /// Sends the notice's `shownAction` once it is on screen: a window that is
+    /// not covered, minimized or hidden, no hidden ancestor (a collapsed
+    /// sidebar shows nothing) and a real size.
+    private func reportShownIfOnScreen() {
+        guard let notice, let action = notice.shownAction, reportedShown?.id != notice.id,
+              window?.occlusionState.contains(.visible) == true, !isHiddenOrHasHiddenAncestor, !bounds.isEmpty else { return }
+        reportedShown = (notice.id, notice.hiddenAction)
+        onAction?(notice.id, action)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        reportShownIfOnScreen()
     }
 
     /// Right-click (cx-2lm4): the card's buttons, then its x (Dismiss, or the x's menu), as menu items.
@@ -259,6 +284,8 @@ final class SidebarNoticeCardView: NSView {
         }
         shortcutLabel.frame = NSRect(x: x, y: rowY + (SidebarUpdateButton.height - line.caption) / 2,
                                      width: max(0, b.width - pad - x), height: line.caption)
+        // A window that shows after the card was filled lays it out: the hint is on screen now.
+        reportShownIfOnScreen()
     }
 
     private func applyColors() {
@@ -284,6 +311,14 @@ final class SidebarNoticeCardView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyColors()
+        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
+        occlusionObserver = window.map { window in
+            // A window that comes into view (unhidden app, restored, another window moved away) shows the card now.
+            NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.reportShownIfOnScreen() } // main-proof: observer on queue: .main
+            }
+        }
+        reportShownIfOnScreen()
     }
 
     // MARK: Tests

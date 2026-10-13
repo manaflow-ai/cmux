@@ -8,10 +8,17 @@ if [ "$#" -ne 1 ]; then
 fi
 
 package_path="$1"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [[ "${CMUX_CI_REQUIRED_MACOS_SDK_MAJOR:-}" == "export-settings" ]]; then
-  set -x
-  CMUX_UPDATE_MDM_SCHEMA=1 swift test --package-path "$package_path" --filter ManagedPreferencesManifestTests
-  CMUX_UPDATE_ACTION_SURFACES=1 swift test --package-path "$package_path" --filter SettingsSchemaExportTests
+  source "$script_dir/swift-test-debug-info.sh"
+  # SwiftPM copies raw catalogs but can retain old compiled tables on warm
+  # slots. Refresh them after building and before either exporter reads them.
+  swift build ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --build-tests
+  bin_path="$(swift build ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --show-bin-path)"
+  compile_catalogs="${CMUX_COMPILE_STRING_CATALOGS:-$script_dir/../cmux-next/compile-string-catalogs.sh}"
+  (cd "$package_path" && CMUX_SWIFT_BIN_PATH="$bin_path" "$compile_catalogs")
+  CMUX_UPDATE_MDM_SCHEMA=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter ManagedPreferencesManifestTests
+  CMUX_UPDATE_ACTION_SURFACES=1 swift test ${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"} --package-path "$package_path" --skip-build --filter SettingsSchemaExportTests
   for file in docs/mdm/com.manaflow.cmux.json docs/mdm/com.manaflow.cmux.plist docs/mdm/managed-preferences.md schemas/settings/settings-schema.json; do
     echo "BEGIN_ARTIFACT:$file"
     base64 < "$file" | tr -d "\n"
@@ -79,7 +86,6 @@ if [ -n "${CMUX_SWIFT_TEST_SHARD:-}" ]; then
   fi
   shard_index="${BASH_REMATCH[1]}" shard_count="${BASH_REMATCH[2]}"
 fi
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # CMUX_SWIFT_TEST_DEBUG_INFO (dwarf|none): every swift call below passes the
 # same debug-info option, so the suites reuse the list build.
 # shellcheck source=scripts/ci/swift-test-debug-info.sh

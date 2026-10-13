@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import pathlib
@@ -77,6 +78,106 @@ def overlapped_in_order(lines: list[str], first: str, second: str) -> bool:
         keys.index(("start", first)) < keys.index(("end", second))
         and keys.index(("start", second)) < keys.index(("end", first))
     )
+
+
+class SettingsExportCatalogTests(unittest.TestCase):
+    """Exercise both export commands against a warm SwiftPM resource bundle."""
+
+    def run_export(self, root: pathlib.Path, entrypoint: str, *, fail_compile: bool = False):
+        package = root / "Packages/macOS/CmuxNext"
+        bundle = package / ".build/debug/Settings.bundle"
+        bundle.mkdir(parents=True)
+        (bundle / "Localizable.xcstrings").write_text("Show Tips")
+        (bundle / "Localizable.strings").write_text("Show Tips")
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        fake_swift = bin_dir / "swift"
+        fake_swift.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, pathlib, sys\n"
+            "args = sys.argv[1:]\n"
+            "bundle = pathlib.Path(os.environ['EXPORT_TEST_BUNDLE'])\n"
+            "if '--show-bin-path' in args:\n"
+            "    print(bundle.parent)\n"
+            "    sys.exit(0)\n"
+            "if '--skip-build' not in args:\n"
+            "    # SwiftPM copies the raw catalog but leaves compiled tables alone.\n"
+            "    (bundle / 'Localizable.xcstrings').write_text('Show Hints')\n"
+            "if args[0] == 'build' or args[:2] == ['test', 'list']:\n"
+            "    sys.exit(0)\n"
+            "suite = args[args.index('--filter') + 1]\n"
+            "if suite == 'ManagedPreferencesManifestTests':\n"
+            "    assert os.environ.get('CMUX_UPDATE_MDM_SCHEMA') == '1'\n"
+            "    files = ['docs/mdm/com.manaflow.cmux.json', 'docs/mdm/com.manaflow.cmux.plist', 'docs/mdm/managed-preferences.md']\n"
+            "else:\n"
+            "    assert suite == 'SettingsSchemaExportTests'\n"
+            "    assert os.environ.get('CMUX_UPDATE_ACTION_SURFACES') == '1'\n"
+            "    files = ['schemas/settings/settings-schema.json']\n"
+            "for file in files:\n"
+            "    target = pathlib.Path(file)\n"
+            "    target.parent.mkdir(parents=True, exist_ok=True)\n"
+            "    target.write_text((bundle / 'Localizable.strings').read_text())\n"
+            "print('Test run with 1 test passed after 0.001 seconds.')\n"
+        )
+        fake_swift.chmod(0o755)
+        fake_xcrun = bin_dir / "xcrun"
+        fake_xcrun.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, pathlib, sys\n"
+            "assert sys.argv[1:3] == ['xcstringstool', 'compile']\n"
+            "if os.environ.get('EXPORT_TEST_FAIL_COMPILE') == '1':\n"
+            "    sys.exit(42)\n"
+            "catalog = pathlib.Path(sys.argv[3])\n"
+            "catalog.with_suffix('.strings').write_text(catalog.read_text())\n"
+        )
+        fake_xcrun.chmod(0o755)
+        command = [str(ROOT / entrypoint)]
+        if entrypoint == "scripts/ci/run-swift-testing-suites.sh":
+            command.append(str(package))
+        return subprocess.run(
+            command,
+            cwd=root,
+            env={
+                **os.environ,
+                "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                "DEVELOPER_DIR": str(root / "Xcode"),
+                "CMUX_CI_REQUIRED_MACOS_SDK_MAJOR": "export-settings",
+                "EXPORT_TEST_BUNDLE": str(bundle),
+                "EXPORT_TEST_FAIL_COMPILE": "1" if fail_compile else "0",
+            },
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=30,
+        )
+
+    def test_warm_export_uses_current_catalog(self) -> None:
+        for entrypoint in (
+            "scripts/ci/run-swift-testing-suites.sh",
+            "scripts/measure/export-settings-artifacts.sh",
+        ):
+            with self.subTest(entrypoint=entrypoint), tempfile.TemporaryDirectory() as temp:
+                result = self.run_export(pathlib.Path(temp), entrypoint)
+                self.assertEqual(result.returncode, 0, result.stdout)
+                lines = result.stdout.splitlines()
+                artifacts = [
+                    base64.b64decode(lines[index + 1]).decode()
+                    for index, line in enumerate(lines)
+                    if line.startswith("BEGIN_ARTIFACT:")
+                ]
+                self.assertEqual(artifacts, ["Show Hints"] * 4, result.stdout)
+
+    def test_catalog_failure_prevents_export(self) -> None:
+        for entrypoint in (
+            "scripts/ci/run-swift-testing-suites.sh",
+            "scripts/measure/export-settings-artifacts.sh",
+        ):
+            with self.subTest(entrypoint=entrypoint), tempfile.TemporaryDirectory() as temp:
+                root = pathlib.Path(temp)
+                result = self.run_export(root, entrypoint, fail_compile=True)
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+                self.assertNotIn("BEGIN_ARTIFACT:", result.stdout)
+                self.assertFalse((root / "docs/mdm/com.manaflow.cmux.json").exists())
 
 
 class SwiftTestingSuiteTimeoutTests(unittest.TestCase):

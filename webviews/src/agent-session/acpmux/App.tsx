@@ -184,7 +184,14 @@ import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
-import { SubagentGroupHeader, SubagentListRow, SubagentNavContext, SubagentOfRow } from "./subagents/SubagentGroup";
+import { knownMark } from "../shared/AgentMark";
+import {
+  SubagentGroupHeader,
+  SubagentHarnessContext,
+  SubagentListRow,
+  SubagentNavContext,
+  SubagentOfRow,
+} from "./subagents/SubagentGroup";
 import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { MoveRow } from "./shell/MoveRow";
@@ -3727,13 +3734,25 @@ function AcpmuxPane() {
       ),
     );
   const archived = snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived);
+  // Archive and Mark as Unread are acpmux requests on the pane's own connection (cx-jlzsf); only
+  // closing an archived chat's tab is the host's (a tab is the window's).
+  const openClient = async () => {
+    const client = directClient.current;
+    if (!client) throw new Error(translate("error.notOpen"));
+    return client;
+  };
+  const archiveChat = async (archived: boolean) => {
+    await (await openClient()).archive(archived);
+    // Quick Chat's panel has no tab to close.
+    if (archived && !quick) await callNative("pane.action", { id: "closeTab" });
+  };
   const archive = archiveRow(
     {
       sessionId: snapshot.sessionId,
       archived,
       local: localCwd !== undefined,
     },
-    (archived) => ignoreFailure(callNative("chat.archive", { archived })),
+    (archived) => ignoreFailure(archiveChat(archived)),
     t,
   );
   archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
@@ -3744,7 +3763,7 @@ function AcpmuxPane() {
       local: localCwd !== undefined,
       unread: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.unread === true),
     },
-    () => ignoreFailure(callNative("chat.markUnread")),
+    () => ignoreFailure(openClient().then((client) => client.markUnread())),
     t,
   );
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
@@ -4086,41 +4105,45 @@ function AcpmuxPane() {
               <SessionEditsContext.Provider value={editRows}>
                 <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                   <SubagentNavContext.Provider value={setSubagentView}>
-                    <ChatFindScope
-                      rows={childRows ?? sourceRows}
-                      shown={childRows ? undefined : transcriptRows}
-                      openFold={openFold}
-                      findRef={findRef}
+                    <SubagentHarnessContext.Provider
+                      value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                     >
-                      {(find) => (
-                        <VirtualTranscript
-                          rows={transcriptRows}
-                          working={snapshot.isWorking}
-                          // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                          jumpButton={!quick}
-                          focusComposer={() => composerHandle.current?.focus()}
-                          find={quick ? undefined : find}
-                          sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                          canLoadOlder={!childRows && snapshot.canLoadOlder}
-                          openAt={
-                            !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                              ? scrollAnchor
-                              : undefined
-                          }
-                          onAnchor={
-                            quick || childRows || !shownSessionId
-                              ? undefined
-                              : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                          }
-                          expanded={expanded}
-                          registry={registry}
-                          githubRepository={githubRepository}
-                          // The Quick Composer has no room for the changes view; its file rows stay plain.
-                          onOpenDiff={quick ? undefined : openDiff}
-                          onToggleActivity={toggleActivity}
-                        />
-                      )}
-                    </ChatFindScope>
+                      <ChatFindScope
+                        rows={childRows ?? sourceRows}
+                        shown={childRows ? undefined : transcriptRows}
+                        openFold={openFold}
+                        findRef={findRef}
+                      >
+                        {(find) => (
+                          <VirtualTranscript
+                            rows={transcriptRows}
+                            working={snapshot.isWorking}
+                            // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                            jumpButton={!quick}
+                            focusComposer={() => composerHandle.current?.focus()}
+                            find={quick ? undefined : find}
+                            sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                            canLoadOlder={!childRows && snapshot.canLoadOlder}
+                            openAt={
+                              !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                ? scrollAnchor
+                                : undefined
+                            }
+                            onAnchor={
+                              quick || childRows || !shownSessionId
+                                ? undefined
+                                : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                            }
+                            expanded={expanded}
+                            registry={registry}
+                            githubRepository={githubRepository}
+                            // The Quick Composer has no room for the changes view; its file rows stay plain.
+                            onOpenDiff={quick ? undefined : openDiff}
+                            onToggleActivity={toggleActivity}
+                          />
+                        )}
+                      </ChatFindScope>
+                    </SubagentHarnessContext.Provider>
                   </SubagentNavContext.Provider>
                 </SessionCwdContext.Provider>
               </SessionEditsContext.Provider>

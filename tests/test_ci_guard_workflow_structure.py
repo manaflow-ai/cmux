@@ -75,7 +75,8 @@ def test_agent_chat_uses_a_pinned_local_compiler_and_runs_tests_once() -> None:
     chat_steps = [step for step in steps if step.get("working-directory") == "agent-chat"]
     assert [step["name"] for step in chat_steps] == [
         "Type-check agent-chat",
-        "Run agent-chat unit tests",
+        # 8822e0897f27 (cx-034r) deleted the agent-chat unit tests; the step runs the behavior tests.
+        "Run agent-chat tests",
     ]
     assert all(step["if"] == "${{ matrix.group == 'preflight-agent-chat' }}" for step in chat_steps)
     assert chat_steps[0]["run"].splitlines() == [
