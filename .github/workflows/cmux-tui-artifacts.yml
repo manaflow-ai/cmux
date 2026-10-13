@@ -904,8 +904,9 @@ jobs:
           merge-multiple: true
 
       # The Windows build artifact (cmux-tui-x86_64-pc-windows-gnu) carries
-      # the hook and both relays too. Only the daemon is published, and in
-      # its own prefix (see the build job).
+      # the hook and both relays too. Only the daemon and its per-terminal
+      # host (cmux-tui-host, cx-1vlzr: the daemon spawns it beside itself)
+      # are published, and in their own prefix (see the build job).
       - name: Move the Windows daemon to its own prefix
         id: windows
         run: |
@@ -918,6 +919,13 @@ jobs:
           echo "present=true" >> "$GITHUB_OUTPUT"
           mkdir -p assets/cmux-tui-windows
           mv assets/cmux-tui/cmux-tui-x86_64-pc-windows-gnu.exe assets/cmux-tui-windows/
+          # The same build always makes the host: a daemon without it falls
+          # back to the slow re-exec of itself (cx-1vlzr), so require it.
+          if [[ ! -f assets/cmux-tui/cmux-tui-host-x86_64-pc-windows-gnu.exe ]]; then
+            echo "::error title=no Windows terminal host::the Windows build made cmux-tui-x86_64-pc-windows-gnu.exe but no cmux-tui-host-x86_64-pc-windows-gnu.exe"
+            exit 1
+          fi
+          mv assets/cmux-tui/cmux-tui-host-x86_64-pc-windows-gnu.exe assets/cmux-tui-windows/
           # The rest of the Windows build: the hook and both relays.
           rm -f assets/cmux-tui/*-x86_64-pc-windows-gnu.exe
           ls assets/cmux-tui assets/cmux-tui-windows
@@ -1174,6 +1182,7 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
             --artifact-directory assets/cmux-tui
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1181,6 +1190,7 @@ jobs:
               --expected-commit "$GITHUB_SHA" \
               --require-provenance \
               --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --require-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
               --artifact-directory assets/cmux-tui-windows
           fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1388,6 +1398,7 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1395,6 +1406,7 @@ jobs:
               --expected-commit "$GITHUB_SHA" \
               --require-provenance \
               --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --require-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
           fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1485,6 +1497,7 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1492,6 +1505,7 @@ jobs:
               --expected-commit "$GITHUB_SHA" \
               --require-provenance \
               --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --require-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
           fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1528,6 +1542,7 @@ jobs:
               --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+              --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui/latest"
             python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/cmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
@@ -1806,6 +1821,11 @@ jobs:
               echo "::warning title=no Windows daemon::this run built no $asset; the tree keeps an earlier Windows build or none"
             fi
           done
+          for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
+            if [[ -f "assets/windows/$asset" ]]; then
+              cp "assets/windows/$asset" "assets/tree/$asset"
+            fi
+          done
           rm -rf assets/windows
 
       - name: Publish the complete tree with the trusted helper
@@ -1904,6 +1924,13 @@ jobs:
             # Published bytes even for this commit (see the companions above).
             for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
               fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
+            done
+            # Optional (cx-1vlzr host): only when that commit's manifest
+            # attests it; a Windows build from before it has none.
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
+              if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) else 1)' tree/windows-manifest.json "$asset"; then
+                fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
+              fi
             done
             windows_args=(--windows-manifest-file tree/windows-manifest.json --windows-source-commit "$windows_commit")
           else
