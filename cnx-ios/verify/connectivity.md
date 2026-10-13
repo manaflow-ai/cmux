@@ -6,38 +6,43 @@ from `feat-cnx-ios-rust` under `~/cnx-ios-e2e`, started over SSH as `cmux`.
 Both runs used `--exclude-cgnat` / `CNX_EXCLUDE_CGNAT=1`, so neither side
 offered or used a Tailscale (100.64.0.0/10) address.
 
-## Live backend run: blocked on a team
+## Live backend run (Worker v0.3.0, personal space)
 
-The dev Worker is up (`/v1/health` reports `0.2.0`). A Stack dev-project
-token now works without 1Password: password sign-in with the DEBUG dev
-credential checked into `CmuxAuthRuntime` (`AuthCoordinator.swift`)
-succeeds. The tokens went to 0600 files and were never printed. Two
-problems remain:
+Credentials: password sign-in with the DEBUG dev credential from
+`CmuxAuthRuntime`. Tokens were kept in 0600 files and never printed; the
+mini got the refresh token over ssh stdin, and every token file was deleted
+afterwards. Team `personal-<sub>`. `cnx-hostd` registered the mini and
+`cnx-dial` registered a phone device in that space. `/v1/ice` returns STUN
+only (the TURN secrets are empty). Both sides used Tailscale exclusion.
+`daemon` ran against `cnx-stub-tui`: `identify` was answered and `run`
+refused (`forbidden`) on every successful link.
 
-- The account belongs to no team, and `POST /api/v1/teams` with its access
-  token returns 403 "Client team creation is disabled for this project". The
-  Worker admits devices and signaling only for team members, so
-  `POST /v1/devices` returns 403 and no dial is possible.
-- `GET /v1/ice` returns only `stun:stun.cloudflare.com:3478`, with no TURN
-  servers (the TURN secrets are empty).
+| Transport | Path | Signaling | Connect (total) | RTT min/median/max | 10 MiB echo |
+| --- | --- | --- | --- | --- | --- |
+| WebRTC (STUN only) | none: ICE timed out (25 s) | n/a | n/a | n/a | n/a |
+| WireGuard | relay through the Worker | 377 ms | 568 ms | 21 / 27 / 124 ms | 13.1 s, 6.4 Mbit/s each way |
+| WireGuard, forced relay | relay through the Worker | 350 ms | 545 ms | 21 / 26 / 72 ms | 11.8 s, 7.1 Mbit/s each way |
 
-Any one of these unblocks it:
+Why no direct path: both hosts share one NAT, and the mini's sshd-launched
+`cnx-hostd` cannot send UDP to the LAN, so UDP works only from the phone to
+the Mac. WireGuard detects this (no `0xff` marker comes back) and stays on
+the relay. WebRTC has no TURN to fall back on.
 
-- Add the dev account to a dev-project team in the Stack dashboard.
-- Enable client team creation on the dev project.
-- Provide `STACK_SECRET_SERVER_KEY` (server-side team creation).
+## Distant run: not done
 
-### Distant run (Freestyle VM): not attempted
+- No Freestyle API key on this Mac: `~/.secrets/freestyle-beta.env` is
+  missing, and no other `.env` holds one.
+- The Blacksmith CLI is not installed.
+- Every reachable fallback host shares the same public IP (104.184.154.177):
+  Aziz's other MacBook and all `mini-cmux*` hosts.
+- AWS Macs (via `cmux-lawrence`) are on another network but were not
+  approved for this, so I did not use them.
 
-Freestyle VMs are IPv6-only, and the mini has no global IPv6 (only ULA
-`fd06::/64`; `curl -6` fails). No direct UDP path, WebRTC or WireGuard, can
-exist between them. The only possible path is the real Worker's WireGuard
-relay frames, or a dual-stack TURN server. Both are blocked as above, so I
-did not lease a VM. Once a team exists: WireGuard from the VM should connect
-over the relay (`cnx-dial` sends no endpoints when STUN over IPv4 fails).
-WebRTC from the VM needs TURN.
+Expected once a VM exists: WireGuard over the Worker relay works from an
+IPv6-only VM, since `cnx-dial` then sends no endpoints. WebRTC needs TURN,
+because the mini has no global IPv6.
 
-To run it once a token exists (a 0600 file, never printed):
+To rerun (tokens in 0600 files, never printed; the team is `personal-<sub>` or a Stack team):
 
 ```bash
 # Mac (over ssh; token piped on stdin into ~/cnx-ios-e2e/token, mode 0600)

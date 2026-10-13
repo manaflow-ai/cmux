@@ -81,6 +81,16 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     let api = ApiClient::new(&args.base_url, &args.token);
     let ice_servers = api.ice().await.map(|c| c.ice_servers).unwrap_or_default();
     let device = uuid::Uuid::new_v4().to_string();
+    // The backend admits a signaling socket only for a registered device.
+    api.register_device(&cnx_link::api::DeviceRegistration {
+        device_id: device.clone(),
+        kind: "phone".into(),
+        name: "cnx-dial".into(),
+        team_id: args.team.clone(),
+        wg_public_key: None,
+    })
+    .await
+    .context("POST /v1/devices")?;
     let started = Instant::now();
     let signaling = SignalingClient::connect(&args.base_url, &args.token, &args.team, &device).await?;
     let signaled = started.elapsed();
