@@ -58,4 +58,18 @@ public enum ConversationTapbackGeometry {
         guard mirrored else { return outlineCircles }
         return outlineCircles.map { CGRect(x: platterSize.width - $0.maxX, y: $0.minY, width: $0.width, height: $0.height) }
     }
+
+    /// How far outside its platter a tap still counts as on the badge.
+    public static let badgeTapSlop: CGFloat = 6
+
+    /// The row whose badge a tap at `point` lands on, given each row's badge
+    /// frame (nil without one) in the same space. Badges ride above their own
+    /// row, over the row before it, so the row under the finger isn't
+    /// necessarily the badge's; the later row wins where badges overlap, as
+    /// it draws on top.
+    public static func badgeOwner(at point: CGPoint, badges: [CGRect?]) -> Int? {
+        badges.indices.reversed().first { index in
+            badges[index].map { $0.insetBy(dx: -badgeTapSlop, dy: -badgeTapSlop).contains(point) } ?? false
+        }
+    }
 }
