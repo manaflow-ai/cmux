@@ -519,3 +519,20 @@ async fn vertex_from_the_login_shell_keeps_its_regions() {
     assert_eq!(v["cloudMlRegion"], Value::Null, "{v}");
     assert_eq!(v["vertexRegions"], json!([]), "{v}");
 }
+
+/// A profile's own Bedrock switch (any local client can add a profile)
+/// unlocks only the non-secret AWS names; the AWS keys need the person's
+/// own switch in the login shell or the daemon's environment.
+#[tokio::test]
+async fn a_profile_bedrock_switch_gets_no_aws_secret() {
+    let dir = scratch(
+        "awsprof",
+        "export AWS_PROFILE=work\nexport AWS_REGION=us-west-2\nexport AWS_ACCESS_KEY_ID=AKIALOGIN\nexport AWS_SECRET_ACCESS_KEY=login-secret\nexport AWS_SESSION_TOKEN=login-session\n",
+    );
+    let harnesses = json!({"claude": claude(json!({"CLAUDE_CODE_USE_BEDROCK": "1"}))});
+    let d = start(&dir, harnesses, &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    let v = found(&reply);
+    assert_eq!(v["auth"], json!(["bedrock"]), "{v}");
+    assert_eq!(v["awsKeys"], json!(["AWS_PROFILE", "AWS_REGION"]), "{v}");
+}
