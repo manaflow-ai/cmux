@@ -82,11 +82,11 @@ enum DebugFrameStrip {
         var rows: [JSONValue] = []
         var intermediate = 0, blank = 0, contentIntermediate = 0, desync = 0
         var settledAt: Double?, firstChange: Double?
-        let start = frames.firstIndex { $0.milliseconds >= before.milliseconds } ?? frames.endIndex
+        let shown = frames.firstIndex { $0.milliseconds >= before.milliseconds } ?? frames.endIndex
         // Off the main actor: six comparisons a frame stalled it past the watchdog in a Debug build.
-        let measures = await measure(Array(frames[start...]), before: before, last: last, content: content, strip: strip)
+        let measures = await measure(Array(frames[shown...]), before: before, last: last, content: content, strip: strip)
         for (offset, m) in measures.enumerated() {
-            let index = start + offset, frame = frames[index]
+            let index = shown + offset, frame = frames[index]
             let (outsideBefore, outsideFinal) = (m.outsideBefore, m.outsideFinal)
             let isIntermediate = outsideBefore > tolerance && outsideFinal > tolerance
             let (insideBefore, insideFinal, stripBefore, stripFinal) = (m.insideBefore, m.insideFinal, m.stripBefore, m.stripFinal)
