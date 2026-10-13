@@ -104,7 +104,8 @@ export function ComposerContext({
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;
-  const moves = started && onMove !== undefined && !busy;
+  const movable = started && onMove !== undefined;
+  const moves = movable && !busy;
   const branch = summary?.branch;
   // A started chat's Choose folder…: the host's folder panel, then the move (dogfood 09).
   const browseMove = onBrowseFolder
@@ -117,7 +118,9 @@ export function ComposerContext({
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <div className="acpmux-location-leading">
-        {readOnly && !moves && !currentFolder ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
+        {/* A movable chat keeps its folder control while a turn runs (off, not gone), so the row
+            never loses and regains it with each turn (cx-ncc.58). */}
+        {readOnly && !movable && !currentFolder ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
           <FolderMenu
             label={t(CONTEXT_LABELS.folder)}
             menu="Location"
