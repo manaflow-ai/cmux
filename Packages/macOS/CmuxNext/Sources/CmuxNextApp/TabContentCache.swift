@@ -214,7 +214,7 @@ final class TabContentCache {
         if defersRestoredPages, !startedDeferred.contains(key), !browserTabs.wasOpenedHere(tab) {
             return deferred(tab, url: url)
         }
-        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(browser(for: key, url: url), tab) }
+        guard tab.browserEngine == BrowserEngineTag.cef.rawValue else { return tracked(BrowserHistoryStarts.page(tab, url: url, cache: self) ?? browser(for: key, url: url), tab) }
         if let reason = browserTabs.cefUnavailable() { return fallBack(tab, url: url, reason: reason) }
         guard pendingBrowsers.insert(key).inserted else { return nil }
         Task {
@@ -298,7 +298,7 @@ final class TabContentCache {
     private func fallBack(_ tab: TabModel, url: URL?, reason: CEFUnavailableReason) -> BrowserEntry {
         let fallbacks = browserTabs.fallbacks
         fallbacks.record(reason, source: .recordedTab, machine: browserTabs.daemon(for: tab).machineID, surface: tab.surface)
-        return tracked(browser(for: tab.id, url: url), tab)
+        return tracked(BrowserHistoryStarts.page(tab, url: url, cache: self) ?? browser(for: tab.id, url: url), tab)
     }
 
     /// Starts the record write-back and shows a pending fallback notice.

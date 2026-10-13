@@ -85,6 +85,8 @@ final class BrowserTabService {
     private(set) var historyWriters: [String: BrowserHistoryWriter] = [:]
     /// Stored-history reads in flight, by tab id (cancelled with the page).
     private var historyFetches: [String: Task<Void, Never>] = [:]
+    /// Restored pages that start once their saved history is read.
+    let historyStarts = BrowserHistoryStarts()
     /// True for a pane of an incognito window (the App sets it).
     var isIncognitoPane: @MainActor (PaneModel) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
@@ -346,6 +348,7 @@ final class BrowserTabService {
             // The page may have been released or replaced while the daemon
             // answered: its record writer is then gone.
             guard let self, let record, self.writers[id] === record, self.historyWriters[id] == nil else { return }
+            self.historyStarts.start(id, saved: saved)
             // The saved page is the one the tab reopened at, and the user
             // has not gone elsewhere while the daemon answered.
             if !restored, let saved, let session = BrowserHistoryWriter.session(saved),
@@ -353,10 +356,13 @@ final class BrowserTabService {
                restoring.state.url.map({ $0.absoluteString == recordURL }) ?? true {
                 restoring.restoreSession(session.entries, current: session.current)
             }
-            self.historyWriters[id] = BrowserHistoryWriter(page: restoring, recorded: saved, delay: self.writeBackDelay,
-                                                           sleep: self.sleep) { [weak self] history in
+            self.historyWriters[id] = BrowserHistoryWriter(page: restoring, recorded: saved, keepsEngineState: daemon.isLocal
+                                                           && !OffTheRecordProfiles.shared.isOffTheRecord(page.profileID),
+                                                           delay: self.writeBackDelay, sleep: self.sleep) { [weak self] history in
                 guard let tab = self?.tabModel(id) else { return false }
-                return await storeHistory(daemonForTab(tab), tab.surface, history)
+                // Engine state stays on this Mac, also for a tab that moved to another machine.
+                let daemon = daemonForTab(tab)
+                return await storeHistory(daemon, tab.surface, daemon.isLocal ? history : history.with(engineState: nil))
             }
         }
     }

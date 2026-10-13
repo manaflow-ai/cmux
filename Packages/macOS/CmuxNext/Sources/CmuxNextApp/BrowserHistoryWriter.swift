@@ -24,14 +24,24 @@ final class BrowserHistoryWriter {
     private let delay: Duration
     private let sleep: BrowserRecordWriter.Sleep
     private let send: Send
+    /// Whether the page engine's own history goes with the entries (this
+    /// Mac's daemon only: it holds form data and every entry's state).
+    private let keepsEngineState: Bool
+    /// The page showed a password field: its engine state is never saved again (WebKit leaves
+    /// password values out of the form state it keeps; this keeps such pages out entirely).
+    private var showedPasswordField = false
+    /// Whether the last write carried engine state (`debug.browser.page_status`).
+    private(set) var savedEngineState = false
     private var observation: Task<Void, Never>?
     private var pending: Task<Void, Never>?
     private var leaving: Task<Void, Never>?
     private var resignObserver: (any NSObjectProtocol)?
 
-    init(page: Page, recorded: FrontendBrowserHistory?, delay: Duration, sleep: @escaping BrowserRecordWriter.Sleep, send: @escaping Send) {
+    init(page: Page, recorded: FrontendBrowserHistory?, keepsEngineState: Bool = false, delay: Duration,
+         sleep: @escaping BrowserRecordWriter.Sleep, send: @escaping Send) {
         self.page = page
         self.recorded = recorded
+        self.keepsEngineState = keepsEngineState
         self.delay = delay
         self.sleep = sleep
         self.send = send
@@ -95,7 +105,20 @@ final class BrowserHistoryWriter {
     }
 
     private func write(_ session: BrowserSavedSession) async {
-        guard let history = Self.history(session), history != recorded else { return }
+        guard var history = Self.history(session) else { return }
+        if keepsEngineState, let page {
+            if !showedPasswordField, case .bool(true)? = try? await page.evaluate(Self.hasPasswordField, world: .isolated) {
+                showedPasswordField = true
+            }
+            // Only state taken from the page the entries were saved at (the page may have moved on).
+            let list = (page as? any BrowserBackForwardListing)?.navigationList()?.entries.compactMap(\.url) ?? []
+            if !showedPasswordField, let shown = page.state.url, shown == session.entries[session.current].url,
+               Self.keepsFileAccess(list + session.entries.map(\.url), shown: shown) {
+                history = history.with(engineState: Self.engineState(of: page))
+            }
+        }
+        savedEngineState = history.engineState != nil
+        guard history != recorded else { return }
         if await send(history) { recorded = history }
     }
 
@@ -104,6 +127,41 @@ final class BrowserHistoryWriter {
         FrontendBrowserHistory(entries: session.entries.map { entry in
             FrontendBrowserHistory.Entry(url: entry.url.absoluteString, title: entry.title, scrollY: entry.scrollY)
         }, index: session.current).bounded()
+    }
+
+    static let hasPasswordField = "!!document.querySelector('input[type=password]')"
+
+    /// Whether WebKit's own history over `urls` restores without wider file access than a load
+    /// of `shown` grants: no local files, or only local files in `shown`'s folder. WebKit reads a
+    /// restored local entry with access to every file unless its process already reads that
+    /// folder, which `BrowserHistoryStarts` grants by loading `shown` first.
+    static func keepsFileAccess(_ urls: [URL], shown: URL) -> Bool {
+        guard urls.contains(where: \.isFileURL) else { return true }
+        guard shown.isFileURL else { return false }
+        let folder = shown.standardizedFileURL.deletingLastPathComponent().path
+        let prefix = folder.hasSuffix("/") ? folder : folder + "/"
+        return urls.allSatisfy { $0.isFileURL && $0.standardizedFileURL.path.hasPrefix(prefix) }
+    }
+
+    /// The page engine's own history as the daemon stores it.
+    static func engineState(of page: any BrowserTab) -> FrontendBrowserHistory.EngineState? {
+        switch (page as? any BrowserHibernationSource)?.hibernationState() {
+        case .webKit(let data)?: data.isEmpty ? nil : .init(engine: "webkit", data: data.base64EncodedString())
+        case .chromium(let state)?: state.isEmpty ? nil : .init(engine: "chromium", data: state)
+        case nil: nil
+        }
+    }
+
+    /// `history`'s engine state as a page restores it, when it was saved
+    /// at `url` (its current entry), for a page in `engine`.
+    static func restoreState(_ history: FrontendBrowserHistory?, at url: URL?, engine: BrowserEngineKind) -> BrowserRestoreState? {
+        guard let history, let state = history.engineState, let url,
+              history.entries.indices.contains(history.index), history.entries[history.index].url == url.absoluteString else { return nil }
+        switch (engine, state.engine) {
+        case (.webkit, "webkit"): return Data(base64Encoded: state.data).map(BrowserRestoreState.webKit)
+        case (.cef, "chromium"): return .chromium(state.data)
+        default: return nil
+        }
     }
 
     /// The saved entries of `history` (nil when it has none to restore).

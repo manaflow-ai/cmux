@@ -72,6 +72,14 @@ class BrowserRestoredSession {
         applyAvailability()
     }
 
+    /// Scrolls the shown page to `y` once its document loads: a page whose
+    /// engine restored its own history, which may keep an older position
+    /// for the page shown than the one saved at quit.
+    func scrollOnLoad(to y: Double) {
+        guard y > 0, let tab, !tab.isClosed else { return }
+        if case .finished = tab.state.phase { restoreScroll(y) } else { pendingScrollY = y }
+    }
+
     /// `native` is the run of saved entries that ends or contains `current`:
     /// the saved entries before its first become Back entries before the
     /// engine's own. A list that does not match the saved one adds nothing.
@@ -211,20 +219,25 @@ class BrowserRestoredSession {
     }
 
     /// Scrolls to `y` once the page is tall enough (up to 3 s while it lays
-    /// out), and stops as soon as the user scrolls or types.
+    /// out), then holds it for 1.5 s (an engine restoring its own history
+    /// can put back an older position after the load), and stops as soon as
+    /// the user scrolls, clicks or types.
     private func restoreScroll(_ y: Double) {
         let script = """
         (function (y) {
-          var moved = false, tries = 0;
+          var moved = false, tries = 0, held = 0;
           var stop = function () { moved = true; };
           addEventListener('wheel', stop, { once: true, passive: true });
           addEventListener('keydown', stop, { once: true });
+          addEventListener('mousedown', stop, { once: true });
           addEventListener('touchstart', stop, { once: true, passive: true });
           (function step() {
             if (moved) return;
             var room = document.documentElement.scrollHeight - innerHeight;
-            scrollTo(0, Math.min(y, Math.max(room, 0)));
-            if (room < y && tries++ < 30) setTimeout(step, 100);
+            var target = Math.min(y, Math.max(room, 0));
+            if (Math.abs(scrollY - target) > 1) scrollTo(0, target);
+            if (room < y && tries++ < 30) return setTimeout(step, 100);
+            if (held++ < 15) setTimeout(step, 100);
           })();
           return true;
         })(\(y))
