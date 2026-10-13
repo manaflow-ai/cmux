@@ -48,6 +48,7 @@ struct DirectoryBrowserView: View {
                         FileEntryRow(entry: entry)
                     }
                     .listRowBackground(Color.clear)
+                    .listSectionSeparator(.hidden, edges: .top)
                     .contextMenu {
                         Button(String(localized: "Copy Path"), systemImage: "doc.on.doc") {
                             UIPasteboard.general.string = entry.path

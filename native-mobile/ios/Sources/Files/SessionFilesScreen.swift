@@ -50,6 +50,9 @@ struct SessionFilesScreen: View {
             .navigationDestination(for: FilesDestination.self) { destination in
                 destinationView(destination)
             }
+            // Browse starts in the working directory; the title menu climbs
+            // to its parents, like a pushed folder's (Files app pattern).
+            .modifier(BrowseParentsMenu(path: tab == .browse ? cwd : nil))
             .sheet(item: $safariURL) { item in
                 SafariView(url: item.url).ignoresSafeArea()
             }
@@ -150,6 +153,18 @@ private struct PushedDirectoryScreen: View {
             .toolbarTitleMenu {
                 DirectoryBreadcrumbs(path: path)
             }
+    }
+}
+
+private struct BrowseParentsMenu: ViewModifier {
+    let path: String?
+
+    func body(content: Content) -> some View {
+        if let path, !DirectoryBreadcrumbs.ancestors(of: path).isEmpty {
+            content.toolbarTitleMenu { DirectoryBreadcrumbs(path: path) }
+        } else {
+            content
+        }
     }
 }
 

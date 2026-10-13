@@ -115,6 +115,10 @@ enum FilePreviewKind: String, Sendable, Hashable {
 
 /// SF Symbol for a file or reference by kind/extension.
 enum FileSymbol {
+    /// Text that reads as a document, not source: logs, notes, tables.
+    static let proseExtensions: Set<String> = ["txt", "log", "csv", "tsv", "rtf"]
+    static let proseNames: Set<String> = ["readme", "license", "changelog", "authors", "notice"]
+
     static func symbol(path: String, isDirectory: Bool = false, isURL: Bool = false) -> String {
         if isURL { return "link" }
         if isDirectory { return "folder" }
@@ -126,7 +130,10 @@ enum FileSymbol {
         case .html: return "globe"
         case .markdown: return "doc.plaintext"
         case .json: return "curlybraces"
-        case .text: return "chevron.left.forwardslash.chevron.right"
+        case .text:
+            let name = (path as NSString).lastPathComponent.lowercased()
+            let ext = (name as NSString).pathExtension
+            return proseExtensions.contains(ext) || proseNames.contains(name) ? "doc.text" : "chevron.left.forwardslash.chevron.right"
         case .other: return "doc"
         }
     }
