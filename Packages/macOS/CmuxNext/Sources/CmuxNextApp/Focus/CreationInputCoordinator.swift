@@ -293,12 +293,13 @@ extension CreationInputCoordinator {
     enum TerminalReadiness { case ready, waiting, none }
 
     /// The terminal that has focus in `window` now: `ready` when its view is the first responder,
-    /// `waiting` while it is not yet (a remount or a workspace swap in progress), `none` when focus
-    /// is on no terminal that can take keys (a page, the sidebar, a terminal not attached).
+    /// `waiting` while it or its view is not there yet (a remount or a workspace swap in progress),
+    /// `none` when focus is on no terminal (a page, the sidebar, a field).
     static func focusedTerminal(_ controller: WindowController, window: NSWindow) -> TerminalReadiness {
-        guard case .terminal(let pane, let tab) = controller.focus.state.resolved,
-              let paneController = controller.content?.paneController(key: pane), paneController.currentTabKey == tab,
-              case .terminal(let entry)? = paneController.currentContent else { return .none }
+        guard case .terminal(let pane, let tab) = controller.focus.state.resolved else { return .none }
+        // A terminal whose view is not mounted yet (a remount, a swap in progress) is still coming.
+        guard let paneController = controller.content?.paneController(key: pane), paneController.currentTabKey == tab,
+              case .terminal(let entry)? = paneController.currentContent else { return .waiting }
         guard let responder = window.firstResponder as? NSView else { return .waiting }
         return responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view) ? .ready : .waiting
     }

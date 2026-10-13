@@ -23,6 +23,7 @@ The expected terminal's screen is read over the daemon socket. Exit 1 when any r
 import json, socket, subprocess, sys, time
 
 TAG, ROUNDS = sys.argv[1], int(sys.argv[2])
+DIAG = len(sys.argv) > 3 and sys.argv[3] == "diag"
 CTL = f"/tmp/cmux-debug-{TAG}.sock"
 CASES = ["resolve", "fail", "workspace", "window", "click", "vanish"]
 
@@ -99,6 +100,13 @@ if WS_A not in in_a or WS_B not in in_a:
     raise SystemExit(f"setup: workspaces not in window A: {WS_A} {WS_B} {in_a}")
 
 
+def focused_surface(window_key):
+    """The selected tab's surface of the focused pane of `window_key` (in its shown workspace)."""
+    win = next(w for w in topology()["windows"] if w["key"] == window_key)
+    pane = panes(win["workspace"]).get(win.get("focused_pane"))
+    return pane["tabs"][0]["surface"] if pane else None
+
+
 def first_surface(ws):
     pane = sorted(panes(ws).values(), key=lambda p: p["id"])[0]
     return pane["id"], pane["tabs"][0]["surface"]
@@ -111,6 +119,7 @@ for rnd in range(ROUNDS):
         marker = f"h{n}{case}"
         original_pane, original_surface = first_surface(WS_A)
         before = set(panes(WS_A))
+        rpc("debug.journal", {"marker": marker, "last": 0})
         if case == "vanish":
             rpc("debug.creation_hold", {"vanish_next": True})
         else:
@@ -122,10 +131,15 @@ for rnd in range(ROUNDS):
         held = sum(int(v) for v in rpc("debug.creation_hold")["held"].values())
         if case == "workspace":
             run_action("workspace.selectLastUsed")
-            expect = first_surface(WS_B)[1]
+            time.sleep(0.5)
+            expect = focused_surface(WIN_A)
         elif case == "window":
             key(WIN_B, "return")
         elif case == "click":
+            # Click once the new pane shows (a click before it lands on the pane that has focus anyway).
+            for _ in range(40):
+                if set(panes(WS_A)) - before: break
+                time.sleep(0.05)
             rpc("debug.mouse", {"window": WIN_A, "pane": original_pane})
             expect = original_surface
         time.sleep(0.3)
@@ -146,11 +160,16 @@ for rnd in range(ROUNDS):
                "ok": (case == "vanish" or held == len("echo " + marker) + 1) and lines.count(marker) == 1
                      and (case in ("resolve", "fail") or held_after_end == 0),
                "tail": lines[-3:]}
+        if not row["ok"] and DIAG:
+            entries = rpc("debug.journal", {"last": 300})["entries"]
+            idx = next((i for i, e in enumerate(entries) if marker in json.dumps(e)), 0)
+            row["journal"] = [json.dumps(e)[:160] for e in entries[idx:]][:80]
         rows.append(row)
         print(json.dumps(row), flush=True)
         # Back to a two-pane-free workspace A in window A.
-        if case == "workspace":
+        if next(w for w in topology()["windows"] if w["key"] == WIN_A)["workspace"] != WS_A:
             run_action("workspace.selectLastUsed")
+            time.sleep(0.5)
         for pane_id in set(panes(WS_A)) - {original_pane}:
             for tab in panes(WS_A)[pane_id]["tabs"]:
                 run_action("closeTab", target=f"tab:{tab['id']}")
