@@ -50,6 +50,8 @@ FIRST_PARTY_GPL = {
     "cmux-rd-proto",
     "cmux-layout-reducer",
     "cmux-layout-reducer-ffi",
+    "cmux-focus-core",
+    "cmux-tasks-core",
     "cmux-remote-browser",
 }
 
