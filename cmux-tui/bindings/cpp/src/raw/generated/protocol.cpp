@@ -15033,6 +15033,11 @@ Result<Json> Codec<CloseWorkspaceRequest>::encode(const CloseWorkspaceRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("expected_revision", std::move(encoded).value());
     }
+    if (value.if_empty) {
+        auto encoded = encode_value(*value.if_empty);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("if_empty", std::move(encoded).value());
+    }
     if (!value.key.is_absent()) {
         auto encoded = encode_value(value.key);
         if (!encoded) return std::move(encoded).error();
@@ -15093,6 +15098,12 @@ Result<CloseWorkspaceRequest> Codec<CloseWorkspaceRequest>::decode(const Json& v
             if (!decoded) return std::move(decoded).error();
             result.expected_revision = Field<std::uint64_t>(std::move(decoded).value());
         }
+    }
+    const Json* field_if_empty = value.find("if_empty");
+    if (field_if_empty) {
+        auto decoded = decode_value<bool>(*field_if_empty);
+        if (!decoded) return std::move(decoded).error();
+        result.if_empty = std::move(decoded).value();
     }
     const Json* field_key = value.find("key");
     if (field_key) {
@@ -36930,10 +36941,11 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand29FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand30FieldRequirements{{
     {"reason", 0U, "close-reason-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 7> kCommand32FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 8> kCommand32FieldRequirements{{
     {"end_terminals", 12U, "batch-close-v1"},
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
+    {"if_empty", 0U, "close-workspace-if-empty-v1"},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},

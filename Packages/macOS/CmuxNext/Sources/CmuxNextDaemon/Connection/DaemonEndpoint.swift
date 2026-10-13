@@ -102,6 +102,9 @@ public struct DaemonCapabilities: Sendable {
     public let batchClose = "batch-close-v1"
     /// `reason` on `close-tabs` (`session_end`: not recorded in closed history).
     public let closeReason = "close-reason-v1"
+    /// `if_empty` on `close-workspace`: the daemon closes the workspace only
+    /// when it has no tab at commit time (`workspace_not_empty` otherwise).
+    public let closeWorkspaceIfEmpty = "close-workspace-if-empty-v1"
     /// `browser-host-provider`: the verified app's credentials for the daemon's browser host.
     public let browserHostProvider = "browser-host-provider-v1"
     /// `activate` on `new-frontend-browser-tab`: a background tab keeps the pane's active tab.
@@ -323,7 +326,7 @@ public struct DaemonCapabilities: Sendable {
     /// with `DaemonIdentity.supports`, for remote and older daemons.
     public var optional: [String] { [workspaceGroups, workspaceMetadata, tabMetadata, frontendBrowserTabs, tabDrag,
                                             notificationAck, tabGroups, savedTabGroups, terminalEnv, terminalPlacementEnv,
-                                            terminalReap, terminalReaperActive, batchClose, closeReason, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
+                                            terminalReap, terminalReaperActive, batchClose, closeReason, closeWorkspaceIfEmpty, browserHostProvider, frontendBrowserActivate, frontendBrowserInsertAfter, loopbackForward, browserRuntime, screenMetadata, screenGroups, profiles,
                                             terminalPendingSequence, personalTerminals, browserProfiles, notificationSource,
                                             terminalShellArgs, terminalFrontendShellIntegration, launchSnapshot, bookmarks, bookmarkIcon, history, workspacePin, notificationMarkUnread,
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, rows, tabColumnRespawn, endTerminalsKeepLayout, stateResources,

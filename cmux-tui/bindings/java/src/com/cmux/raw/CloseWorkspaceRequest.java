@@ -15,6 +15,8 @@ public final class CloseWorkspaceRequest implements WireValue {
     private final Field<Boolean> endTerminals;
     private final Field<String> expectedGeneration;
     private final Field<UInt64> expectedRevision;
+    /** Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change. */
+    private final Field<Boolean> ifEmpty;
     private final Field<String> key;
     private final Field<String> mutationId;
     private final Field<String> origin;
@@ -26,6 +28,7 @@ public final class CloseWorkspaceRequest implements WireValue {
         this.endTerminals = builder.endTerminals;
         this.expectedGeneration = builder.expectedGeneration;
         this.expectedRevision = builder.expectedRevision;
+        this.ifEmpty = builder.ifEmpty;
         this.key = builder.key;
         this.mutationId = builder.mutationId;
         this.origin = builder.origin;
@@ -38,6 +41,7 @@ public final class CloseWorkspaceRequest implements WireValue {
     public Field<Boolean> endTerminals() { return endTerminals; }
     public Field<String> expectedGeneration() { return expectedGeneration; }
     public Field<UInt64> expectedRevision() { return expectedRevision; }
+    public Field<Boolean> ifEmpty() { return ifEmpty; }
     public Field<String> key() { return key; }
     public Field<String> mutationId() { return mutationId; }
     public Field<String> origin() { return origin; }
@@ -58,6 +62,10 @@ public final class CloseWorkspaceRequest implements WireValue {
         Object rawExpectedRevision = Wire.optional(object, "expected_revision", "expected_terminal_revision");
         if (!Wire.isMissing(rawExpectedRevision)) {
             builder.expectedRevision(rawExpectedRevision == null ? null : Wire.uint64(rawExpectedRevision, "CloseWorkspaceRequest.expected_revision"));
+        }
+        Object rawIfEmpty = Wire.optional(object, "if_empty");
+        if (!Wire.isMissing(rawIfEmpty)) {
+            builder.ifEmpty(Wire.bool(rawIfEmpty, "CloseWorkspaceRequest.if_empty"));
         }
         Object rawKey = Wire.optional(object, "key");
         if (!Wire.isMissing(rawKey)) {
@@ -88,6 +96,7 @@ public final class CloseWorkspaceRequest implements WireValue {
         Wire.put(object, "end_terminals", endTerminals);
         Wire.put(object, "expected_generation", expectedGeneration);
         Wire.put(object, "expected_revision", expectedRevision);
+        Wire.put(object, "if_empty", ifEmpty);
         Wire.put(object, "key", key);
         Wire.put(object, "mutation_id", mutationId);
         Wire.put(object, "origin", origin);
@@ -99,11 +108,11 @@ public final class CloseWorkspaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloseWorkspaceRequest that)) return false;
-        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(reason, that.reason) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(ifEmpty, that.ifEmpty) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(reason, that.reason) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(endTerminals, expectedGeneration, expectedRevision, key, mutationId, origin, reason, workspace); }
+    public int hashCode() { return Objects.hash(endTerminals, expectedGeneration, expectedRevision, ifEmpty, key, mutationId, origin, reason, workspace); }
 
     @Override
     public String toString() { return "CloseWorkspaceRequest" + toWire(); }
@@ -112,6 +121,7 @@ public final class CloseWorkspaceRequest implements WireValue {
         private Field<Boolean> endTerminals = Field.omitted();
         private Field<String> expectedGeneration = Field.omitted();
         private Field<UInt64> expectedRevision = Field.omitted();
+        private Field<Boolean> ifEmpty = Field.omitted();
         private Field<String> key = Field.omitted();
         private Field<String> mutationId = Field.omitted();
         private Field<String> origin = Field.omitted();
@@ -128,6 +138,10 @@ public final class CloseWorkspaceRequest implements WireValue {
         }
         public Builder expectedRevision(UInt64 value) {
             this.expectedRevision = Field.ofNullable(value);
+            return this;
+        }
+        public Builder ifEmpty(Boolean value) {
+            this.ifEmpty = Field.of(value);
             return this;
         }
         public Builder key(String value) {

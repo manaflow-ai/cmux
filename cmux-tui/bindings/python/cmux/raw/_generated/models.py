@@ -2294,6 +2294,7 @@ class CloseWorkspaceRequest:
     origin: Union[str, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     end_terminals: Union[bool, MissingType] = field(default=MISSING)
+    if_empty: Union[bool, MissingType] = field(default=MISSING)
     reason: Union[CloseReason, None, MissingType] = field(default=MISSING)
 
 

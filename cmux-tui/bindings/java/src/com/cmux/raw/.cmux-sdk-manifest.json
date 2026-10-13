@@ -422,8 +422,8 @@
     },
     {
       "path": "CloseWorkspaceRequest.java",
-      "sha256": "d34169fc9f369c318881253db32ba2d9367a5bd47c3f446f0026e93d20a4cfc3",
-      "size": 7164
+      "sha256": "d83603257b3cc4bcccc4481a15bf9da37f7941d255fee7258c3a4fe1a3751f76",
+      "size": 7899
     },
     {
       "path": "CloudConversationChangedEvent.java",
@@ -557,8 +557,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "c7f2dd71413592ea07571866a331ebcdb785ef0693a4e64eccfc34d2cb27a5d6",
-      "size": 68976
+      "sha256": "7673c974d9f236383bde63379fbb6df855154c1c329ec683df1ba2bccff5207a",
+      "size": 69030
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1772,7 +1772,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "f395d701186bd2d33ed66977111e025312fca58c40409a2fdb7cf460122e7f1c",
+      "sha256": "54b740cb1c39ce7d27351bf0a2be0a6265a24505ab754e33a328e112ac185e2e",
       "size": 6393
     },
     {
@@ -3017,7 +3017,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815",
+  "ir_sha256": "71a6b5b8704985d93db02e82f066a95bdd6f125952078e689e15340064526ba1",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

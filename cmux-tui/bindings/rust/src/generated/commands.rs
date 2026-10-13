@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815.
+// cmux-tui mux protocol 12, IR 71a6b5b8704985d93db02e82f066a95bdd6f125952078e689e15340064526ba1.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -479,6 +479,9 @@ pub struct CloseWorkspaceRequest {
     pub expected_generation: Optional<String>,
     #[serde(alias = "expected_terminal_revision", default, skip_serializing_if = "Optional::is_missing")]
     pub expected_revision: Optional<u64>,
+    /// Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub if_empty: Option<bool>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub key: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3777,6 +3780,9 @@ impl CmuxClient {
         }
         if !request.expected_revision.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;
+        }
+        if request.if_empty.is_some() {
+            self.require_capability_field("close-workspace", "close-workspace-if-empty-v1")?;
         }
         if !request.key.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;

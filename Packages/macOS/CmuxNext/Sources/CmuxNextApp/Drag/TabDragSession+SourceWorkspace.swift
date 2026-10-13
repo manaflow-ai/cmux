@@ -34,8 +34,17 @@ extension TabDragSession {
             repair.endClosing(key)
             return
         }
-        // No terminal to end: every tab moved out.
-        daemon.send("close-workspace") { connection in try await WorkspaceClose.close(key, terminals: [], on: connection) }
+        // No terminal to end: every tab moved out. The daemon closes it only
+        // if it is still empty when the close commits: a tab another client
+        // opened there since the move keeps it (cx-nsiyx), and repairs apply
+        // again.
+        daemon.send("close-workspace") { connection in
+            do {
+                try await WorkspaceClose.close(key, terminals: [], on: connection, ifEmpty: true)
+            } catch DaemonError.command(_, _, let code?, _, _) where code == WorkspaceClose.notEmptyCode {
+                await MainActor.run { repair.endClosing(key) }
+            }
+        }
     }
 
     /// `moveWorkspaceToNewWindow` / `moveWorkspace`: no tab moves; the

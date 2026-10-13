@@ -105,6 +105,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| super::cloud_conversations::error_code(error))
         .or_else(|| super::new_screen::error_code(error))
         .or_else(|| crate::state::home_error_code(error))
+        .or_else(|| crate::mux::workspace_not_empty_code(error))
         .or_else(|| crate::state::frontend_browser_keys::error_code(error))
         .or_else(|| super::renderer_grant::error_code(error))
         .or_else(|| super::browser_host_command::error_code(error))

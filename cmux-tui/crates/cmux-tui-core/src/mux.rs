@@ -302,6 +302,7 @@ mod terminal_sizing;
 mod terminal_work;
 mod topology_result;
 mod tree_close;
+mod workspace_close_guard;
 mod workspace_create;
 mod workspace_identity;
 mod workspace_move;
@@ -328,6 +329,7 @@ pub use presentation::{
 };
 pub(crate) use resource_content::ResourceEffectProjection;
 pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget, CloseReason, RoomClose};
+pub(crate) use workspace_close_guard::workspace_not_empty_code;
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{

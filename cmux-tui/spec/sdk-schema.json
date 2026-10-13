@@ -13126,6 +13126,17 @@
       "capability": "close-reason-v1",
       "description": "With end_terminals: the close is not recorded in the closed history (session_end)."
      },
+     "if_empty": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "capability": "close-workspace-if-empty-v1",
+      "description": "Close only when the workspace has no tab at commit time; otherwise workspace_not_empty and no change."
+     },
      "origin": {
       "type": {
        "kind": "scalar",
