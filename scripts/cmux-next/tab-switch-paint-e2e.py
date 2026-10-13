@@ -151,6 +151,9 @@ def main():
         run("tab new")
         tabs = wait(lambda: (lambda t: t if len(t) >= 4 else None)(focused_pane_tabs()), 30) or []
         print(f"pane tabs: {[(t.get('kind'), t.get('title')) for t in tabs]}", flush=True)
+        surfaces = rpc("debug.surfaces") or {}
+        print(f"warm terminals: capacity {surfaces.get('warm_terminal_capacity')} live {surfaces.get('live_terminals')} "
+              f"pressure {(surfaces.get('hibernation') or {}).get('pressure')}", flush=True)
         time.sleep(2.0)  # test harness: pages load
         if "pane" in phases:
             for lap in (1, 2):

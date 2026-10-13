@@ -76,7 +76,7 @@ enum DebugFrameStrip {
         let workspace = params["region"]?.stringValue == "workspace"
         let content = contentRect(controller, window: window, frame: first, workspace: workspace)
         // The pane's strip, apart: its own motion (a close's tabs sliding over) is not content.
-        let strip = workspace ? nil : controller.content?.focusedPane?.view.stripView
+        let strip = workspace ? nil : (controller.content?.focusedPane?.view.stripView)
             .flatMap { $0.isHiddenOrHasHiddenAncestor ? nil : rect(of: $0, window: window, frame: first) }
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var rows: [JSONValue] = []
