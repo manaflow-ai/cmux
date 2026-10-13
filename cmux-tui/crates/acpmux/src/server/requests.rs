@@ -844,6 +844,7 @@ async fn dispatch_request(
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
             Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
         }
+        method::MUX_STATS => super::stats::handle(hub, conn.origin, &params).await,
         method::MUX_DRAFT_GET | method::MUX_DRAFT_SET | method::MUX_ASK => {
             composer::handle(hub, conn, m, &params).await
         }
