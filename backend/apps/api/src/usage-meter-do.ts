@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import { ceilingUsd, MONEY_METERS, recordMicros, METERS, summarize, usageDomain, utcMonth, type MeterCounter, type UsageState } from "./domains/usage.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
+import { addUserSpend, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleUser, userSpentMicros, type UserReserve } from "./usage-user.ts"
 
 /** How long a record key is remembered for dedupe (longer than any run's retry window that records it twice). */
 export const USAGE_KEY_RETENTION_MS = 35 * 24 * 3600_000
@@ -58,6 +59,29 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
         ctx.storage.sql.exec(`UPDATE usage_month SET usd_micros = CAST(ROUND(quantity * 1000000) AS INTEGER) WHERE meter = 'model.spend_usd'`)
       })
     }
+    ensureUserTables(ctx.storage.sql)
+  }
+
+  /** Model router (inference/route.ts): reserve `maxMicros` of the member's monthly limit before the upstream call (usage-user.ts). */
+  async reserveUser(entity: string, user: string, id: string, maxMicros: number, limitMicros: number): Promise<UserReserve> {
+    this.bind(entity)
+    const now = Date.now()
+    const r = reserveUser(this.ctx.storage, utcMonth(now), user, id, maxMicros, limitMicros, now)
+    if (r.ok) this.scheduleAlarm()
+    return r
+  }
+
+  /** The call ended (`actualMicros`) or never reached a provider (null: the reservation is dropped). */
+  async settleUser(entity: string, id: string, actualMicros: number | null): Promise<void> {
+    this.bind(entity)
+    settleUser(this.ctx.storage, id, actualMicros)
+  }
+
+  /** A metered automation step boundary: may this member's run go on under `limitMicros` this month? */
+  async userAllowed(entity: string, user: string, limitMicros: number): Promise<{ allowed: boolean; spent_usd: number }> {
+    this.bind(entity)
+    const { spent, open } = userSpentMicros(this.ctx.storage.sql, utcMonth(Date.now()), user)
+    return { allowed: spent + open < limitMicros, spent_usd: Math.round(spent) / 1_000_000 }
   }
 
   private ceiling() {
@@ -126,6 +150,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
           continue
         }
         recorded++
+        // A record that names its member (an automation run's owner) counts against their monthly limit too.
+        if (v.user) addUserSpend(sql, month, v.user, recordCostMicros(v.meter, v.quantity))
         sql.exec(
           `INSERT INTO usage_month (month, meter, quantity, usd_micros) VALUES (?, ?, ?, ?) ON CONFLICT (month, meter) DO UPDATE SET quantity = quantity + excluded.quantity, usd_micros = usd_micros + excluded.usd_micros`,
           month, v.meter, v.quantity, recordMicros(v.meter, v.quantity)
@@ -178,11 +204,14 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   protected override nextWakeAt(): number | null {
     const row = this.ctx.storage.sql.exec<{ at: number | null }>(`SELECT MIN(recorded_at) AS at FROM usage_ledger`).toArray()[0]
     // One hour of slack: one wake prunes a batch of keys, not one wake per key.
-    return row?.at === null || row?.at === undefined ? null : Number(row.at) + USAGE_KEY_RETENTION_MS + 3600_000
+    const keys = row?.at === null || row?.at === undefined ? null : Number(row.at) + USAGE_KEY_RETENTION_MS + 3600_000
+    const reservations = nextUserWake(this.ctx.storage.sql)
+    return keys === null ? reservations : reservations === null ? keys : Math.min(keys, reservations)
   }
 
-  /** Dedupe keys leave after their retention; monthly counters stay. */
+  /** Dedupe keys leave after their retention; monthly counters stay; stale member reservations are charged. */
   protected override async onWake(now: number): Promise<void> {
     this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
+    expireUserReservations(this.ctx.storage, now, utcMonth(now))
   }
 }

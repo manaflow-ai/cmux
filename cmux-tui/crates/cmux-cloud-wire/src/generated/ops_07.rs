@@ -579,6 +579,42 @@ wire_errors! {
 }
 
 wire_op! {
+    /// Set the monthly AI spending limit for each member of the team (USD per person per UTC month; null = the default of 200). Owners, admins and billing members, in a person's session only. Recorded in the billing audit.
+    TeamAiLimitSetOp {
+        name: "team.ai_limit.set",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "money",
+        principals: [Session],
+        params: TeamAiLimitSetParams,
+        result: TeamAiLimitSetResult,
+        error: TeamAiLimitSetError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitSetParams {
+    pub user_monthly_limit_usd: Option<WireNumber>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamAiLimitSetResult {
+    pub user_monthly_limit_usd: Option<WireNumber>,
+}
+
+wire_errors! {
+    /// The error codes team.ai_limit.set declares.
+    TeamAiLimitSetError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
     /// Read the team's audit records, newest first (owners and admins: all; billing: billing records only).
     TeamAuditListOp {
         name: "team.audit.list",
@@ -863,43 +899,3 @@ wire_op! {
         error: TeamEnrollmentTokenCreateError,
     }
 }
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamEnrollmentTokenCreateParams {
-    pub label: String,
-    pub token_hash: EnrollmentTokenHash,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub allowed_domains: Option<Vec<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<i64>,
-}
-
-wire_errors! {
-    /// The error codes team.enrollment_token.create declares.
-    TeamEnrollmentTokenCreateError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        PolicyInvalid = "policy.invalid",
-        RevisionConflict = "revision.conflict",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// List enrollment tokens and managed devices (owners and admins).
-    TeamEnrollmentTokenListOp {
-        name: "team.enrollment_token.list",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:TeamDO",
-        risk: "read",
-        principals: [Session],
-        params: TeamEnrollmentTokenListParams,
-        result: TeamEnrollmentTokenListResult,
-        error: TeamEnrollmentTokenListError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamEnrollmentTokenListParams {}

@@ -44,7 +44,9 @@ export const UsageRecord = Schema.Struct({
   automation: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64))),
   step: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(256))),
   attempt: Schema.optionalKey(Schema.Int),
-  commit: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64)))
+  commit: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64))),
+  /** The member this cost counts against (an automation run's owner; cx-ds09i per-user monthly limit). */
+  user: Schema.optionalKey(Schema.String.check(Schema.isMaxLength(64)))
 }).annotate({ identifier: "UsageRecord" })
 export type UsageRecord = typeof UsageRecord.Type
 

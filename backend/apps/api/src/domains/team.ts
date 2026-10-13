@@ -4,6 +4,7 @@ import { admit, decodeParams, reject } from "./common.ts"
 import { personalTeamIdFor } from "./user.ts"
 import { hostByInstall, hostDelete, hostOf, hostUpsert, memberLeftItems, memberOf, memberUpsert, roleOf, TABLE_HOST, TABLE_MEMBER, teamIndexItem, type LegacyTeamMaps } from "./team-members.ts"
 import { appendAudit, type AuditState } from "./team-audit.ts"
+import { AI_LIMIT_OP, mayManageBilling, reduceAiLimitSet } from "./team-ai-limit.ts"
 import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
 import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"
@@ -30,6 +31,8 @@ export interface TeamState extends EnrollmentState, AuditState, IntegrationSyncS
   readonly server_revocations?: Readonly<Record<string, ServerRevocation>>
   /** Removed members (user -> removal time) whose SSH certificates and hosts TeamDO still has to settle (team-member-cleanup.ts). */
   readonly member_cleanup?: Readonly<Record<string, number>>
+  /** Per-user monthly AI spending limit in USD (team-ai-limit.ts); absent or null = the deployment default. */
+  readonly ai_user_monthly_limit_usd?: number | null
 }
 
 /**
@@ -72,7 +75,8 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
       const member = memberOf(state, rows, principal.user)
       if (!member) return { code: "auth.forbidden", message: "not a member of this team" }
       // Every person op here uses the team (admin ops check team.manage in the reducer too); guests and billing hold no team.resources grant (spec H12).
-      if (!roleHas(member.role, "team.resources")) return { code: "auth.forbidden", message: `the ${member.role} role has no access to this team's resources` }
+      // The AI spending limit is a billing setting: the billing role may change it (team-ai-limit.ts).
+      if (!roleHas(member.role, "team.resources") && !(op === AI_LIMIT_OP && mayManageBilling(member.role))) return { code: "auth.forbidden", message: `the ${member.role} role has no access to this team's resources` }
     }
     // The grant lives in UserDO. The Worker asks UserDO on every install call
     // (revocation and grant) and passes the grant's classes; none means refuse.
@@ -259,6 +263,8 @@ export const teamDomain: Domain<TeamState> = withAuditRows<TeamState>({
         if (!roleHas(role, "team.manage")) return reject("auth.forbidden", "only team owners and admins may change SSO connections")
         return withAudit(op === "sso.connection.create" ? reduceConnectionCreate(state, params, ctx) : reduceConnectionDisable(state, params, ctx), state.team.id, ctx, op)
       }
+      case AI_LIMIT_OP:
+        return reduceAiLimitSet(state, params, ctx)
       case "sso.connection.set_secret":
       case "sso.connection.activate":
       case "domain.verify":
