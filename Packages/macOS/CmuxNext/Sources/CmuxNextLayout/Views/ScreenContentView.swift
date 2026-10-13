@@ -32,7 +32,7 @@ final class ScreenContentView: NSView {
     private var heldFrames: [PaneID: CGRect] = [:]
     /// A divider released with this pointer velocity (pt/s along its axis): the next layout's
     /// spring starts from it (`SplitMotion.seed`).
-    var releasedDivider: (kind: DividerHandleView.Kind, velocity: CGFloat)?
+    var releasedDivider: (kind: DividerHandleView.Kind, velocity: CGFloat, time: CFTimeInterval)?
     /// A zoom's other panes, left where they showed under the zoomed pane as it grows over them,
     /// and released once it settles (`releaseCovered`); an unzoom before then takes them back.
     private(set) var covered: Set<PaneID> = []
@@ -151,7 +151,9 @@ final class ScreenContentView: NSView {
         func shift(_ geometry: ScreenGeometry, _ pane: PaneID) -> CGFloat { geometry.scrolls(pane: pane) ? geometry.viewShift(offset: offset) : 0 }
         let drift = carried ? before.viewShift(offset: offset) - baseGeometry.viewShift(offset: offset) : 0
         (carriedShown, carriedDividers) = ([:], [:])
-        let animateFrames = animate && (!structural || carried)
+        // A release seeds only the layout it made (`releasedDivider` from this gesture, not a stale one).
+        if let released = releasedDivider, CACurrentMediaTime() - released.time > 0.5 { releasedDivider = nil }
+        let animateFrames = animate && (!structural || carried) && (releasedDivider == nil || splits)
         // Under the zoomed pane, which every pane coming back waits beneath.
         let revealAnchor = revealing ? paneFrames.keys.compactMap { context.hosts[$0] }.first { $0.superview === self } : nil
         if structural { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }

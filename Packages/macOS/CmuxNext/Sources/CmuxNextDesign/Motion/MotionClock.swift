@@ -25,24 +25,27 @@ public final class MotionClock {
 
     private var entries: [ObjectIdentifier: Entry] = [:]
     private var order: [ObjectIdentifier] = []
-    private lazy var client = FrameClient(owner: "Motion.clock", scheduler: { [weak self] in self?.scheduler ?? .app }) { [weak self] tick in
+    private lazy var client = FrameClient(owner: "Motion.clock", scheduler: { [weak self] in
+        self?.window.map(FrameScheduler.forWindow) ?? .app
+    }) { [weak self] tick in
         self?.tick(tick.elapsed) ?? false
     }
-    private let scheduler: FrameScheduler
+    /// The window whose scheduler the clock ticks on (nil: the app clock).
+    private weak var window: NSWindow?
     /// Frames delivered while something moved (debug).
     public private(set) var frames: UInt64 = 0
 
-    init(scheduler: FrameScheduler) {
-        self.scheduler = scheduler
+    init(window: NSWindow?) {
+        self.window = window
     }
 
     private static var associationKey: UInt8 = 0
-    private static let app = MotionClock(scheduler: .app)
+    private static let app = MotionClock(window: nil)
 
     /// `window`'s clock, created on first use and kept by the window.
     public static func forWindow(_ window: NSWindow) -> MotionClock {
         if let clock = objc_getAssociatedObject(window, &associationKey) as? MotionClock { return clock }
-        let clock = MotionClock(scheduler: FrameScheduler.forWindow(window))
+        let clock = MotionClock(window: window)
         objc_setAssociatedObject(window, &associationKey, clock, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         return clock
     }
@@ -56,9 +59,14 @@ public final class MotionClock {
     /// `debug.motion` span (first frame to rest). No effect while running.
     public func run(_ animator: some MotionAnimating, trace: String) {
         let id = ObjectIdentifier(animator)
+        // A scheduler that dropped the client (its window closed) left stale entries behind.
+        if !client.isActive, !entries.isEmpty {
+            entries.removeAll()
+            order.removeAll()
+        }
         guard entries[id] == nil else { return }
         entries[id] = Entry(animator: animator, trace: trace)
-        order.append(id)
+        if !order.contains(id) { order.append(id) }
         MotionTrace.begin(trace)
         client.activate()
     }

@@ -101,7 +101,12 @@ extension NewTabPage {
         }
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
         // The new tab shows in the page's cell from its first frame: one step, not grow, slide and shrink.
-        if !keep { pane.view.stripView.expectReplacement(of: StripTabID(key)) }
+        let opens = switch request.kind {
+        case .agent: false
+        case .terminal where request.run: command(request.text) != nil
+        default: true
+        }
+        if !keep, opens { pane.view.stripView.expectReplacement(of: StripTabID(key)) }
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the

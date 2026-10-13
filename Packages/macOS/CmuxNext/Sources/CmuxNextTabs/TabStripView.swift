@@ -85,7 +85,7 @@ public final class TabStripView: NSView {
     /// with the window's other chrome springs.
     weak var motionClock: MotionClock?
     /// A New Tab page whose replacement this strip waits for (`expectReplacement(of:)`).
-    var replacing: TabID?
+    var replacing: (page: TabID, since: CFTimeInterval)?
     /// Newcomers shown in the cell of the page they replace, until the page leaves the model.
     var adopted: [TabID: TabID] = [:]
     var isAnimating: Bool { motionClock?.isRunning(self) ?? false }

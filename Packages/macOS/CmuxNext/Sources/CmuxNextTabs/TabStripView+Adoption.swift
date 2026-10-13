@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 
 // A tab that takes another's place (DESIGN P2, P5): what a New Tab page
 // turns into (a terminal, a browser) is made beside the page and the page
@@ -8,16 +9,20 @@ import AppKit
 extension TabStripView {
     /// The next tab this strip has not shown takes `page`'s place.
     public func expectReplacement(of page: TabID) {
-        replacing = page
+        replacing = (page, CACurrentMediaTime())
     }
+
+    /// How long a page waits for its replacement: an open that failed must not let a later
+    /// unrelated tab take the page's cell.
+    static let replacementWindow: CFTimeInterval = 2
 
     /// Applies pending and current adoptions to the display order: each
     /// newcomer shows at its page's index and the page is gone. Returns the
     /// newcomers adopted in this sync, with the page whose geometry they take.
     func adoptReplacements(_ ordered: inout [TabItem]) -> [TabID: TabID] {
         var fresh: [TabID: TabID] = [:]
-        if let page = replacing {
-            if !ordered.contains(where: { $0.id == page }) {
+        if let (page, since) = replacing {
+            if !ordered.contains(where: { $0.id == page }) || CACurrentMediaTime() - since > Self.replacementWindow {
                 replacing = nil
             } else if let newcomer = ordered.last(where: { cells[$0.id] == nil && $0.id != page }) {
                 replacing = nil
