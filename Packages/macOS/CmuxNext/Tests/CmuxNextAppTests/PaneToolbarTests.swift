@@ -49,7 +49,7 @@ struct PaneToolbarTests {
 
     @Test func aTerminalPaneHasOnlyMoreWithWhatOpensThenSplitsAndItsActions() {
         let bar = Bar()
-        bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: [])
+        bar.toolbar.update(target: "surface:7", kind: .terminal)
         #expect(bar.controls == ["More"])
         #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Split Right", "Split Down", "Open Diff Viewer", "Open File…", "Toggle Pane Zoom"])
 
@@ -60,14 +60,14 @@ struct PaneToolbarTests {
 
     @Test func eachPaneKindOffersItsOwnActionsAndAChatHasNoMore() {
         let bar = Bar()
-        bar.toolbar.update(target: "surface:1", kind: .newTab, hidden: [])
+        bar.toolbar.update(target: "surface:1", kind: .newTab)
         #expect(bar.controls == ["More"])
         #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Split Right", "Split Down", "Open Diff Viewer", "Open File…",
                              "Search Agent Chats", "Toggle Pane Zoom"])
-        bar.toolbar.update(target: "surface:2", kind: .browser, hidden: [])
+        bar.toolbar.update(target: "surface:2", kind: .browser)
         #expect(bar.controls == ["More"])
         #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Split Right", "Split Down", "Toggle Pane Zoom"])
-        bar.toolbar.update(target: "surface:3", kind: nil, hidden: [])
+        bar.toolbar.update(target: "surface:3", kind: nil)
         #expect(bar.controls.isEmpty)
         #expect(bar.view.intrinsicContentSize.width == 0)
     }
@@ -75,33 +75,26 @@ struct PaneToolbarTests {
     /// "…" waits for the pointer in the pane's corner; a zoomed pane shows it lit without hover.
     @Test func moreShowsOnHoverAndStaysLitWhileZoomed() {
         let bar = Bar()
-        bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: [])
+        bar.toolbar.update(target: "surface:7", kind: .terminal)
         #expect(!bar.view.reveal.isRevealed)
         bar.view.reveal.setPointerInside(true)
         #expect(bar.view.reveal.isRevealed)
         bar.view.reveal.setPointerInside(false)
 
-        bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: [], zoomed: true)
+        bar.toolbar.update(target: "surface:7", kind: .terminal, zoomed: true)
         #expect(bar.view.reveal.isRevealed)
         #expect(bar.view.moreButton.state == .on)
         #expect(bar.controls == ["More"])
-        bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: [], zoomed: false)
+        bar.toolbar.update(target: "surface:7", kind: .terminal, zoomed: false)
         #expect(!bar.view.reveal.isRevealed)
         #expect(bar.view.moreButton.state == .off)
-    }
-
-    /// An action in `tabs.hiddenButtons` stays out of "…".
-    @Test func aHiddenActionIsLeftOutOfMore() {
-        let bar = Bar()
-        bar.toolbar.update(target: "surface:7", kind: .terminal, hidden: ["openDiffViewer"])
-        #expect(bar.more == ["New Terminal Tab", "New Browser Tab", "New Agent Chat", "-", "Split Right", "Split Down", "Open File…", "Toggle Pane Zoom"])
     }
 
     /// "…" opens its menu on press, like a pop-up button (POLISH: press-drag-release): press, drag
     /// to a row, release to run it; a plain click leaves it open.
     @Test func moreOpensItsMenuOnPress() throws {
         let bar = Bar()
-        bar.toolbar.update(target: "surface:2", kind: .browser, hidden: [])
+        bar.toolbar.update(target: "surface:2", kind: .browser)
         var presented: [[String]] = []
         bar.view.moreButton.presentMenu = { menu, _ in presented.append(menu.items.map { $0.isSeparatorItem ? "-" : $0.title }) }
         let press = try #require(NSEvent.mouseEvent(

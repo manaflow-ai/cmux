@@ -14,13 +14,13 @@ extension PaneContentView {
         needsLayout = true
     }
 
-    /// The buttons' width beside a strip `shown` tall (`layout()` hides them with the strip).
+    /// "…"'s width beside a strip `shown` tall (`layout()` hides it with the strip).
     func toolbarWidth(shown: CGFloat) -> CGFloat {
         guard let view = toolbar?.view, shown > 0 else { return 0 }
         return min(view.intrinsicContentSize.width, bounds.width / 2)
     }
 
-    /// The buttons' pins beside a strip pinned to a browser's band.
+    /// "…"'s pins beside a strip pinned to a browser's band.
     func toolbarBandPins() -> [NSLayoutConstraint] {
         guard let view = toolbar?.view else { return [] }
         view.translatesAutoresizingMaskIntoConstraints = false
