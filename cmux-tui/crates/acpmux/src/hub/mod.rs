@@ -781,6 +781,15 @@ impl Hub {
         Ok(draft)
     }
 
+    /// Personal stats over every session log (`crate::stats`): blocking,
+    /// one pass over the store.
+    pub fn stats(
+        &self,
+        options: &crate::stats::StatsOptions,
+    ) -> Result<crate::stats::StatsSummary> {
+        crate::stats::summarize(&*self.store, options)
+    }
+
     /// Turn-by-turn summary from the event log.
     pub fn history(&self, session: &Session, limit: usize) -> Vec<Value> {
         let events = self.store.events(&session.id, 0, 500_000).unwrap_or_default();
