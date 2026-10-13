@@ -14,9 +14,16 @@
 set -euo pipefail
 job=${1:?usage: restore-journey-slot.sh JOB [OUT_DIR] [-- args]}
 shift
-out=${1:-/tmp/restore-journey-$job-$(date +%H%M%S)}
-[ $# -gt 0 ] && shift
-[ "${1:-}" = "--" ] && shift
+[[ $job =~ ^[A-Za-z0-9._-]+$ ]] || { echo "bad JOB: $job" >&2; exit 2; }
+out=/tmp/restore-journey-$job-$(date +%H%M%S)
+if [ "${1:-}" = "--" ]; then
+  shift
+elif [ $# -gt 0 ]; then
+  out=$1
+  shift
+  if [ "${1:-}" = "--" ]; then shift; fi
+fi
+args=$(printf '%q ' "$@")
 here=$(cd "$(dirname "$0")" && pwd)
 mkdir -p "$out"
 stage=/Users/Shared/cmux-capture/restore-journey/$job
@@ -25,6 +32,7 @@ run=$stage/run-$(date +%H%M%S)
 capture-host acquire --slot >"$out/lease.txt" 2>"$out/lease.err" &
 lease_pid=$!
 release() {
+  if [ -n "${host:-}" ]; then ssh -o BatchMode=yes "$host" "rm -rf '$run'" >/dev/null 2>&1 || true; fi
   if [ -n "${lease:-}" ]; then capture-host release "$lease" >/dev/null 2>&1 || true; fi
   kill "$lease_pid" 2>/dev/null || true
 }
@@ -41,25 +49,35 @@ slot=$(sed -n 's/.*slot=\([^ ]*\).*/\1/p' <<<"$info")
 echo "lease $lease host $host slot $slot"
 
 ssh -o BatchMode=yes "$host" "export PATH=\$HOME/.local/bin:\$PATH; set -e; mkdir -p '$stage' '$run'
-  if ! find '$stage' -maxdepth 1 -name '*.app' | grep -q .; then cmux-ci artifact $job '$stage/app.zip' >/dev/null && cd '$stage' && ditto -x -k app.zip . && rm -f app.zip; fi"
+  if ! find '$stage' -maxdepth 1 -name '*.app' | grep -q .; then
+    tmp=\$(mktemp -d '$stage/unzip.XXXXXX') && cmux-ci artifact '$job' \"\$tmp/app.zip\" >/dev/null && ditto -x -k \"\$tmp/app.zip\" \"\$tmp\" &&
+    for a in \"\$tmp\"/*.app; do mv \"\$a\" '$stage/'; done; rm -rf \"\$tmp\"
+  fi"
 scp -q "$here/restore-journey.py" "$here/../../cmux-tui/crates/acpmux/tests/fake_agent.py" "$host:$run/"
 app=$(ssh -o BatchMode=yes "$host" "ls -d '$stage'/*.app | head -1")
 name=$(basename "$app" .app)
 build_tag=${name#cmux DEV }
 capture-host launch "$lease" "$app" rj -- | tee "$out/launch.txt"
-# capture-host prints the socket it gave the app; older versions named it from the build tag.
-sock=$(grep -o 'socket=[^ ]*' "$out/launch.txt" | head -1 | cut -d= -f2-)
-[ -n "$sock" ] || sock=/tmp/cmux-debug-$build_tag-capslot$slot.sock
-for _ in $(seq 1 60); do ssh -o BatchMode=yes "$host" "test -S '$sock'" && break; sleep 1; done
+# The app's control socket: named from the build tag; capture-host also prints the one it set.
+printed=$(grep -o 'socket=[^ ]*' "$out/launch.txt" | head -1 | cut -d= -f2- || true)
+sock=
+for _ in $(seq 1 60); do
+  for candidate in "/tmp/cmux-debug-$build_tag-capslot$slot.sock" $printed; do
+    if ssh -o BatchMode=yes "$host" "test -S '$candidate'"; then sock=$candidate; break 2; fi
+  done
+  sleep 1
+done
+up=$sock
+[ -n "$up" ] || { echo "the app never opened its control socket" >&2; exit 1; }
 
 set +e
-ssh -o BatchMode=yes "$host" "cd '$run' && python3 restore-journey.py --socket '$sock' --out '$run/out' \
-  --fake-agent '$run/fake_agent.py' --src '$app' $*" 2>&1 | tee "$out/journey.txt"
+# Bounded by the lease (10 minutes from acquire): the journey must not outlive the slot.
+ssh -o BatchMode=yes "$host" "cd '$run' && python3 restore-journey.py --max-seconds 480 --socket '$sock' --out '$run/out' \
+  --fake-agent '$run/fake_agent.py' --src '$app' $args" 2>&1 | tee "$out/journey.txt"
 status=${PIPESTATUS[0]}
 set -e
 scp -q -r "$host:$run/out/." "$out/" || true
 # Quit through the app's own action (sessions kept, as a person's quit); release stops the rest.
 ssh -o BatchMode=yes "$host" "python3 -c 'import json,socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(10); s.connect(sys.argv[1]); s.sendall((json.dumps({\"id\":1,\"method\":\"action.run\",\"params\":{\"action\":\"quitKeepSessions\"}})+chr(10)).encode()); print(s.recv(4096)[:200])' '$sock'" || true
-ssh -o BatchMode=yes "$host" "rm -rf '$run'" || true
 echo "results in $out (exit $status)"
 exit "$status"

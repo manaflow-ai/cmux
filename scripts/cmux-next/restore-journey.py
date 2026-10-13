@@ -12,8 +12,8 @@ item.
       [--variants quit,update] [--out DIR] [--fake-agent PATH] [--src STAGED_APP]
 
 Run it on the GUI host where the app already runs: a capture slot started by `capture-host
-launch` (scripts/cmux-next/restore-journey-slot.sh does the whole slot run), or any tagged DEV
-build. It drives the app through its control socket and the tag's daemon through the bundled
+launch` (scripts/cmux-next/restore-journey-slot.sh does the whole slot run), or another tagged DEV
+build with --allow-non-slot. It refuses an installed or untagged app. It drives the app through its control socket and the tag's daemon through the bundled
 `cmux` CLI.
 
 Variants:
@@ -50,10 +50,11 @@ Exit 0 only when every row passes.
 
 Nothing outside the app's own tag state is changed: no settings.set (the shared config of a
 capture mini); the acpmux config gets harness `fake` for the run and is put back; the local
-web server, pid file and chat folder live in --out. The app is left running after the last
+web server, pid file and chat folder live in --out (the fake chats themselves stay in the
+tag's acpmux home). The app is left running after the last
 relaunch (the caller quits it and releases the slot).
 """
-import argparse, glob, hashlib, http.server, json, os, re, socket, subprocess, sys, threading, time
+import argparse, atexit, glob, hashlib, http.server, json, os, re, shlex, signal, socket, subprocess, sys, threading, time
 from urllib.parse import parse_qs, urlparse
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -65,6 +66,11 @@ parser.add_argument("--fake-agent", default=os.path.join(HERE, "../../cmux-tui/c
 parser.add_argument("--src", help="staged app to re-clone from when the slot's app copy is gone after a quit")
 parser.add_argument("--settle", type=float, default=90, help="seconds restore may take to settle")
 parser.add_argument("--skip", default="", help="comma list of seed parts to skip: term,split,web,agent,w2")
+parser.add_argument("--max-seconds", type=int, default=0, help="stop (restoring what it changed) after this long; 0: no limit")
+parser.add_argument("--activate", action="store_true",
+                    help="relaunch as a person's launch does (activating, without CMUX_NEXT_NO_ACTIVATE), so window order and focus follow real key windows")
+parser.add_argument("--allow-non-slot", action="store_true",
+                    help="drive a tagged DEV build that is not in a capture slot (it closes rj-* workspaces, quits and relaunches it)")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 SKIP = {s.strip() for s in opts.skip.split(",") if s.strip()}
@@ -72,6 +78,7 @@ LOG = open(os.path.join(opts.out, "journey.log"), "a")
 RUN = os.urandom(3).hex()
 SCROLLBACK_LINES = 3000
 SCROLL = 1500
+PIDFILE = os.path.join(opts.out, f"counter-{RUN}.pid")
 
 
 def say(*parts):
@@ -84,6 +91,8 @@ def say(*parts):
 def wait(predicate, seconds, step=0.5):
     deadline = time.time() + seconds
     while time.time() < deadline:
+        if os.getppid() == 1:  # the run that started this one is gone (ssh dropped): stop driving the app
+            sys.exit("restore-journey: parent gone; stopping")
         value = predicate()
         if value:
             return value
@@ -134,6 +143,23 @@ class App:
         self.bundle_id = info.get("bundle_id")
         self.env = self.environment(self.pid)
         say(f"app pid {self.pid} tag {self.tag} bundle {self.bundle} id {self.bundle_id}")
+        self.check_target()
+
+    def check_target(self):
+        """Only a tagged DEV build, never a person's cmux: the journey closes rj-* workspaces,
+        quits and relaunches the app and edits its tag's acpmux config."""
+        bundle_id, bundle = self.bundle_id or "", self.bundle or ""
+        problems = []
+        if not self.tag:
+            problems.append("the app has no tag")
+        if ".debug" not in bundle_id:
+            problems.append(f"bundle id {bundle_id!r} is not a DEV build's")
+        if not bundle or bundle.startswith("/Applications/"):
+            problems.append(f"bundle {bundle!r} is an installed app")
+        if not opts.allow_non_slot and "capslot" not in bundle_id and not self.env.get("CMUX_CAPTURE_SLOT"):
+            problems.append("not a capture slot's app (pass --allow-non-slot for another tagged DEV build)")
+        if problems:
+            sys.exit("restore-journey refuses this app: " + "; ".join(problems))
 
     def refresh(self):
         info = rpc("system.identify")
@@ -203,10 +229,18 @@ class App:
     def relaunch(self):
         if not self.ensure_bundle():
             return False
+        # The updater's hook may relaunch the app itself: never start a second copy beside it.
+        answer = rpc("system.identify", timeout=5)
+        if isinstance(answer, dict) and answer.get("pid") and int(answer["pid"]) != self.pid:
+            self.refresh()
+            say(f"  the app relaunched itself: pid {self.pid}")
+            return True
         if os.path.exists(opts.socket):
             os.unlink(opts.socket)
-        args = ["/usr/bin/open", "-g", "-n", "-a", self.bundle]
+        args = ["/usr/bin/open", "-n", "-a", self.bundle] if opts.activate else ["/usr/bin/open", "-g", "-n", "-a", self.bundle]
         for key, value in self.env.items():
+            if opts.activate and key == "CMUX_NEXT_NO_ACTIVATE":
+                continue
             args += ["--env", f"{key}={value}"]
         subprocess.run(args, check=True)
         up = wait(lambda: os.path.exists(opts.socket) and (lambda r: isinstance(r, dict) and r.get("pid"))(rpc("system.identify", timeout=5)), 60, 0.5)
@@ -306,6 +340,11 @@ class Acpmux:
 
 
 ACPMUX_RESTORE = []
+atexit.register(lambda: restore_acpmux_config())
+for _sig in (signal.SIGTERM, signal.SIGHUP, signal.SIGALRM):
+    signal.signal(_sig, lambda *_: sys.exit(1))  # runs finally blocks and atexit
+if opts.max_seconds:
+    signal.alarm(opts.max_seconds)
 
 
 def configure_fake(home):
@@ -332,16 +371,23 @@ def restore_acpmux_config():
             if original is None:
                 os.remove(path)
             else:
-                with open(path, "w") as f:
+                with open(path + ".rj", "w") as f:
                     f.write(original)
-            Acpmux(acpmux_socket_of(os.path.dirname(path))).request("_acpmux/reload_config", {}, timeout=10)
+                os.replace(path + ".rj", path)
         except OSError as error:
-            say("could not restore", path, error)
+            print("could not restore", path, error, file=sys.stderr)
+            continue
+        try:
+            Acpmux(acpmux_socket_of(os.path.dirname(path))).request("_acpmux/reload_config", {}, timeout=10)
+        except Exception as error:  # restored on disk; acpmux reads it at its next start
+            print("could not reload acpmux config", path, error, file=sys.stderr)
+    ACPMUX_RESTORE.clear()
 
 
 # ---- the local web server: pages that report their own path and scroll ---------------------
 
 REPORTS = {}  # page name -> latest {path, scrollY, at}
+SINCE = 0.0  # when the last quit started: reports older than this are stale
 SERVED = set()
 LOCK = threading.Lock()
 
@@ -429,14 +475,15 @@ def new_workspace(name):
 
 
 def seed_term():
+    if os.path.exists(PIDFILE):
+        os.remove(PIDFILE)
     ws = new_workspace("rj-term")
     if not ws.get("terminal_id"):
         return
-    write(ws["terminal_id"], f"cd {opts.out}; for i in $(seq 1 {SCROLLBACK_LINES}); do echo rj-line-$i-{RUN}; done; echo rj-scrollback-done\n")
+    write(ws["terminal_id"], f"cd {shlex.quote(opts.out)}; for i in $(seq 1 {SCROLLBACK_LINES}); do echo rj-line-$i-{RUN}; done; echo rj-scrollback-done\n")
     right = split(ws["pane_id"], "right")
     if right.get("terminal_id"):
-        pidfile = os.path.join(opts.out, "counter.pid")
-        write(right["terminal_id"], f"sh -c 'echo $$ > {pidfile}; i=0; while :; do i=$((i+1)); echo rj-tick-$i; sleep 1; done'\n")
+        write(right["terminal_id"], f"sh -c 'echo $$ > {shlex.quote(PIDFILE)}; i=0; while :; do i=$((i+1)); echo rj-tick-$i; sleep 1; done'\n")
         down = split(right["pane_id"], "down")
         if down.get("terminal_id"):
             write(down["terminal_id"], "top -s 1\n")
@@ -569,7 +616,8 @@ def seed(base):
         say(f"  window.focus -> {json.dumps(rpc('debug.window.focus', {'window': first.get('key')}))[:160]}")
     # The scrollback writer is done and the counter has ticked a few times.
     wait(lambda: "rj-scrollback-done" in json.dumps(rpc("debug.surfaces", {"text": True})), 40, 1)
-    time.sleep(3)
+    if "term" not in SKIP:
+        wait(lambda: view_tick() >= 3, 20, 0.5)
 
 
 # ---- the canonical snapshot ------------------------------------------------------------------
@@ -630,6 +678,13 @@ def layout_shape(screen_id, pane_index):
     return walk(tree)
 
 
+def view_tick():
+    """The counter's newest tick that a terminal view shows (0 when none)."""
+    _, views = view_panes()
+    ticks = [int(t) for t in re.findall(r"rj-tick-(\d+)", "\n".join(v.get("text") or "" for v in views.values()))]
+    return max(ticks) if ticks else 0
+
+
 def view_panes():
     report = rpc("debug.surfaces", {"text": True}, timeout=60)
     panes = {}
@@ -637,6 +692,32 @@ def view_panes():
         for pane in window.get("panes", []):
             panes[pane.get("pane")] = pane
     return report, panes
+
+
+PAGE_WORKSPACE = {"hist": "rj-web", "tall": "rj-web", "w2page": "rj-w2"}
+
+
+class visiting:
+    """Shows workspace `name` for a read, then the workspace that was focused before again (so
+    the focus rows and the next variant see what the person left)."""
+
+    def __init__(self, name):
+        self.name, self.back = name, None
+
+    def __enter__(self):
+        topo = topology() or {}
+        self.back = (topo.get("focus") or {}).get("workspace")
+        target = workspace_named(self.name, topo) if self.name else None
+        if target and target.get("id") != self.back:
+            cli("workspace", target["id"], "focus", quiet=True)
+        else:
+            self.back = None
+        return self
+
+    def __exit__(self, *_):
+        if self.back:
+            cli("workspace", self.back, "focus", quiet=True)
+            wait(lambda: ((topology() or {}).get("focus") or {}).get("workspace") == self.back, 10, 0.3)
 
 
 def snapshot(label):
@@ -685,7 +766,7 @@ def snapshot(label):
             for p_index, pane in enumerate(panes):
                 pp = f"{p}.s{s_index}.pane{p_index}"
                 tabs = pane.get("tabs", [])
-                items[f"{pp}.tabs"] = [t.get("kind") + ("" if t.get("kind") in ("terminal", "conversation") else ":" + (t.get("title") or "")) for t in tabs]
+                items[f"{pp}.tabs"] = [t.get("kind") for t in tabs]  # titles load late; URLs are their own rows
                 items[f"{pp}.selected_tab"] = next((i for i, t in enumerate(tabs) if t.get("id") == pane.get("selected_tab")), None)
                 for t_index, tab in enumerate(tabs):
                     tp = f"{pp}.tab{t_index}"
@@ -700,14 +781,13 @@ def snapshot(label):
                         items[f"{tp}.url"] = tab.get("url")
                     elif kind == "conversation":
                         items[f"{tp}.agent_session"] = tab.get("agent_session")
-                    if tab.get("id") == pane.get("selected_tab") and pane.get("id") in views:
+                    if kind == "terminal" and tab.get("id") == pane.get("selected_tab") and pane.get("id") in views:
                         view = views[pane.get("id")]
                         items[f"{tp}.view.attach"] = view.get("attach")
     # Terminals: scrollback, the numbered lines, the counter.
     pid = None
-    pidfile = os.path.join(opts.out, "counter.pid")
-    if os.path.exists(pidfile):
-        pid = int(open(pidfile).read().strip() or 0)
+    if os.path.exists(PIDFILE):
+        pid = int(open(PIDFILE).read().strip() or 0)
     for tp, term in terms.items():
         info = terminal_items(term)
         raw[f"terminal {tp}"] = info
@@ -731,11 +811,19 @@ def snapshot(label):
     items["counter.tick_in_view"] = max(ticks) if ticks else None
     items["view.scrollback_tail"] = [line.strip() for line in view_text.splitlines() if f"rj-line-" in line][-3:]
     # Browser pages: what each page reports about itself.
+    # Only reports sent since the last quit count: an older one says nothing about the reopened page.
+    # A page in a workspace nobody shows loads when it is shown, as for a person: visit it.
+    stale = lambda: [p for p in REPORTS if REPORTS[p].get("at", 0) <= SINCE]
+    if stale():
+        for page in stale():
+            with visiting(PAGE_WORKSPACE.get(page)):
+                wait(lambda: page not in stale(), 30, 0.5)
+    fresh = {page: r for page, r in REPORTS.items() if r.get("at", 0) > SINCE}
     for page in ("hist", "tall", "w2page"):
-        if page in REPORTS:
-            items[f"page[{page}].path"] = REPORTS[page]["path"]
-    if "tall" in REPORTS:
-        items["page[tall].scrollY"] = REPORTS["tall"]["scrollY"]
+        if page in fresh:
+            items[f"page[{page}].path"] = fresh[page]["path"]
+    if "tall" in fresh:
+        items["page[tall].scrollY"] = fresh["tall"]["scrollY"]
     # The agent chat: its acpmux record, its tab, and what its page shows.
     if AGENT:
         sid = AGENT["session"]
@@ -751,7 +839,11 @@ def snapshot(label):
         items["agent.tabs_bound"] = sum(1 for ws in rj_workspaces(topo) for t in tabs_of(ws) if t.get("agent_session") == sid)
         pane = next((p.get("id") for ws in rj_workspaces(topo) for s_ in ws.get("screens", []) for p in s_.get("panes", [])
                      if any(t.get("agent_session") == sid or t.get("kind") == "conversation" for t in p.get("tabs", []))), AGENT.get("pane"))
-        state = rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)
+        # The chat's page shows only while its workspace is shown: visit it.
+        with visiting("rj-agent"):
+            state = wait(lambda: (lambda r: r if isinstance(r, dict) and "error" not in r else None)(
+                rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)), 20, 1) \
+                or rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=60)
         raw["agent_pane.chat_state"] = state
         if isinstance(state, dict) and "error" not in state:
             items["agent.page.session"] = state.get("sessionId")
@@ -781,7 +873,8 @@ def settled(expected_tabs):
     if any(w.get("awaiting_content") for w in windows.get("windows", [])):
         return False
     _, views = view_panes()
-    return all(v.get("attach") == "live" for v in views.values() if v.get("kind") == "terminal" and v.get("presence") == "visible")
+    shown = [v for v in views.values() if v.get("kind") == "terminal" and v.get("presence") == "visible"]
+    return bool(shown) and all(v.get("attach") == "live" for v in shown)
 
 
 RESULTS = []  # (item, ok, detail, area)
@@ -797,6 +890,43 @@ def area_of(item):
     if item.startswith("page[") or ".url" in item:
         return "browser"
     return "layout"
+
+
+def broken(v):
+    """A probe that answered nothing usable: missing, empty, or an error."""
+    if v in (None, "<missing>", [], {}):
+        return True
+    if isinstance(v, str):
+        return v.startswith(("chat_state:", "unreachable"))
+    return isinstance(v, dict) and ("error" in v or "code" in v and "message" in v)
+
+
+def must_have(item):
+    """Rows whose value is always present on a working app; for these, equal emptiness is a FAIL."""
+    return (item.endswith((".frame", ".layout", ".view.attach", ".selected_workspace", ".id", ".url", ".tabs"))
+            or item in ("windows.recency", "focus.window", "focus.workspace", "agent.page", "agent.acpmux", "agent.prompts")
+            or item.startswith("page["))
+
+
+def seeded(before):
+    """FAIL rows for seed parts the before-snapshot does not show, so a seed that failed cannot
+    leave an empty comparison that passes."""
+    def has(cond):
+        return any(cond(k, v) for k, v in before.items())
+    checks = {
+        "term": [("3000 numbered lines", has(lambda k, v: k.endswith(".scrollback.numbered_lines") and v == SCROLLBACK_LINES)),
+                 ("counter running", before.get("counter.alive") is True and isinstance(before.get("counter.tick_in_daemon"), int))],
+        "web": [("history page at /hist-b", before.get("page[hist].path") == "/hist-b"),
+                ("tall page scrolled", (before.get("page[tall].scrollY") or 0) >= SCROLL - 5)],
+        "agent": [("three turns", len(before.get("agent.prompts") or []) == 3)],
+        "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page")],
+        "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split].")))],
+    }
+    for part, rows in checks.items():
+        if part in SKIP:
+            continue
+        for what, ok in rows:
+            RESULTS.append((f"seed {part}: {what}", bool(ok), "seeded" if ok else "missing before the quit", "seed"))
 
 
 def compare(variant, before, after):
@@ -818,6 +948,8 @@ def compare(variant, before, after):
         else:
             ok = a == b
             detail = json.dumps(a)[:100] if ok else f"{json.dumps(b)[:100]} -> {json.dumps(a)[:100]}"
+        if ok and must_have(item) and (broken(a) or broken(b)):
+            ok, detail = False, f"no value: {json.dumps(b)[:80]} -> {json.dumps(a)[:80]}"
         RESULTS.append((f"{variant}: {item}", ok, detail, area_of(item)))
 
 
@@ -826,12 +958,15 @@ def main():
     APP = App()
     server, base = start_server()
     say(f"local pages at {base}; daemon {daemon_socket()}")
-    seed(base)
+    global SINCE
     try:
-        for variant in [v.strip() for v in opts.variants.split(",") if v.strip()]:
+        seed(base)
+        for n, variant in enumerate(v.strip() for v in opts.variants.split(",") if v.strip()):
             before = snapshot(f"{variant}-before")
+            if n == 0:
+                seeded(before)
             expected = sum(len(tabs_of(w)) for w in rj_workspaces(topology()))
-            started = time.time()
+            started = SINCE = time.time()
             if not APP.quit(variant):
                 RESULTS.append((f"{variant}: app exits through its quit path", False, "still running", "app quit"))
                 break
@@ -843,9 +978,9 @@ def main():
             say(f"  restore {'settled' if ok else 'did NOT settle'} {took:.1f} s after the quit")
             RESULTS.append((f"{variant}: restore settles", bool(ok), f"{took:.1f} s after the quit", "layout"))
             # Pages report every second once loaded; wait for one report from each after the reload.
-            mark = time.time()
-            wait(lambda: all((REPORTS.get(p) or {}).get("at", 0) > mark for p in list(REPORTS)), 30, 1)
-            time.sleep(2)  # the counter's next tick
+            # The counter's next tick, in the view (it must keep counting after the reopen).
+            if isinstance(before.get("counter.tick_in_view"), int):
+                wait(lambda: view_tick() > before["counter.tick_in_view"], 10, 0.5)
             compare(variant, before, snapshot(f"{variant}-after"))
     finally:
         restore_acpmux_config()
