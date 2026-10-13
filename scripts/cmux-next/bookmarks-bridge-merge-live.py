@@ -25,6 +25,8 @@ daemons stopped at the end. Exits 1 when a check fails.
 import argparse
 import json
 import os
+import pwd
+import shutil
 import sys
 import tempfile
 import time
@@ -120,12 +122,23 @@ def normalized(href):
     return (href or "").rstrip("/")
 
 
-app = TaggedApp(opts.tag, fresh_profile=True, log_dir=opts.out)
+app = TaggedApp(opts.tag, fresh_profile=False, log_dir=opts.out)
 teardown = TagTeardown(app.path)
 teardown.install()
-store = os.path.join(app.chromium_root, DEFAULT_PROFILE_DIR)
+# The app keeps its state under the account's real home, which a job host's
+# HOME may not be (nx-remote sets HOME to its work directory).
+support = os.path.join(pwd.getpwuid(os.getuid()).pw_dir, "Library/Application Support")
+chromium_root = os.path.join(support, app.bundle_id, "Chromium")
+store = os.path.join(chromium_root, DEFAULT_PROFILE_DIR)
 bookmarks_file = os.path.join(store, "Bookmarks")
 try:
+    # Fresh state: end this tag's daemons, then remove its Chromium root and
+    # daemon state (this tag's only).
+    teardown.end()
+    teardown.done = False  # the run's own teardown still ends what it starts
+    for path in (chromium_root, os.path.join(support, "cmux/tags", opts.tag, "tui")):
+        if os.path.isdir(path):
+            shutil.rmtree(path)
     # 1. cmux's bookmark, with no Chromium tab.
     app.launch()
     added = app.call("action.run", {"action": "bookmark.add", "args": {
@@ -140,7 +153,6 @@ try:
     seed(bookmarks_file)
 
     # 3. The store loads: merge, then sync.
-    app.fresh_profile = False
     app.launch()
     app.open_chromium("about:blank")
     fork_api = int(((result(app.call("debug.cef")).get("windows") or {}).get("fork_api")) or 0)
