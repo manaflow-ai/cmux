@@ -232,6 +232,9 @@ pub mod method {
     /// starts (debounced), so the switch takes a ready session.
     pub const MUX_PREWARM: &str = "_acpmux/prewarm";
     pub const MUX_HISTORY: &str = "_acpmux/history";
+    /// Personal stats over every session log (`stats.rs`); the unix socket
+    /// and the local app only.
+    pub const MUX_STATS: &str = "_acpmux/stats";
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";

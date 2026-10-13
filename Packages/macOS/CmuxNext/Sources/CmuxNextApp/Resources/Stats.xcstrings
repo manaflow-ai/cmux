@@ -1,0 +1,399 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "stats.tab.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Stats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إحصاءات الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statistika agenata"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentstatistik"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Statistik"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estadísticas de agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statistiques des agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statistiche degli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント統計"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថិតិភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 통계"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentstatistikk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statystyki agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Estatísticas dos agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статистика агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สถิติเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan istatistikleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статистика агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thống kê tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体统计"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式統計"
+          }
+        }
+      }
+    },
+    "stats.unavailable": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent service is not running, so there is nothing to count yet."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خدمة الوكلاء لا تعمل، لذا لا يوجد ما يُحصى بعد."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Servis agenata nije pokrenut, pa još nema šta da se broji."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenttjenesten kører ikke, så der er intet at tælle endnu."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Agent-Dienst läuft nicht, daher gibt es noch nichts zu zählen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El servicio de agentes no se está ejecutando, así que aún no hay nada que contar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le service des agents ne fonctionne pas : il n'y a encore rien à compter."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il servizio degli agenti non è in esecuzione, quindi non c'è ancora nulla da contare."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントサービスが実行されていないため、まだ集計するものがありません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សេវាភ្នាក់ងារមិនកំពុងដំណើរការទេ ដូច្នេះមិនទាន់មានអ្វីត្រូវរាប់ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 서비스가 실행 중이 아니어서 아직 집계할 내용이 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenttjenesten kjører ikke, så det er ingenting å telle ennå."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Usługa agentów nie działa, więc nie ma jeszcze czego liczyć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O serviço de agentes não está em execução, então ainda não há nada para contar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба агентов не запущена, поэтому считать пока нечего."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "บริการเอเจนต์ไม่ได้ทำงานอยู่ จึงยังไม่มีอะไรให้นับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan hizmeti çalışmıyor, bu yüzden henüz sayılacak bir şey yok."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Служба агентів не запущена, тому рахувати поки нічого."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dịch vụ tác tử không chạy nên chưa có gì để đếm."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体服务未运行，因此还没有可统计的内容。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式服務未執行，因此還沒有可統計的內容。"
+          }
+        }
+      }
+    },
+    "stats.refusal.preview": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Stats is a preview feature: turn on Show Preview Features in Settings."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إحصاءات الوكلاء ميزة تجريبية: فعّل «إظهار الميزات التجريبية» في الإعدادات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statistika agenata je funkcija u pregledu: uključite Prikaži funkcije u pregledu u Postavkama."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentstatistik er en prøvefunktion: slå Vis prøvefunktioner til i Indstillinger."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Statistik ist eine Vorschaufunktion: Aktiviere „Vorschaufunktionen anzeigen“ in den Einstellungen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las estadísticas de agentes son una función preliminar: activa Mostrar funciones preliminares en Ajustes."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les statistiques des agents sont une fonction en avant-première : activez Afficher les fonctions en avant-première dans les Réglages."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le statistiche degli agenti sono una funzione in anteprima: attiva Mostra funzioni in anteprima nelle Impostazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェント統計はプレビュー機能です。設定で「プレビュー機能を表示」をオンにしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថិតិភ្នាក់ងារគឺជាមុខងារសាកល្បង៖ បើក «បង្ហាញមុខងារសាកល្បង» នៅក្នុងការកំណត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 통계는 미리 보기 기능입니다. 설정에서 미리 보기 기능 표시를 켜세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentstatistikk er en forhåndsvisningsfunksjon: slå på Vis forhåndsvisningsfunksjoner i Innstillinger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statystyki agentów to funkcja w wersji zapoznawczej: włącz Pokazuj funkcje zapoznawcze w Ustawieniach."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As estatísticas dos agentes são um recurso em prévia: ative Mostrar recursos em prévia nos Ajustes."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статистика агентов — функция предварительного просмотра: включите «Показывать предварительные функции» в настройках."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สถิติเอเจนต์เป็นฟีเจอร์ทดลอง: เปิด แสดงฟีเจอร์ทดลอง ในการตั้งค่า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan istatistikleri bir önizleme özelliğidir: Ayarlar'da Önizleme Özelliklerini Göster'i açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Статистика агентів — функція попереднього перегляду: увімкніть «Показувати функції попереднього перегляду» в налаштуваннях."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thống kê tác tử là tính năng xem trước: bật Hiện tính năng xem trước trong Cài đặt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "智能体统计是预览功能：请在设置中打开“显示预览功能”。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理程式統計是預覽功能：請在設定中開啟「顯示預覽功能」。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}
