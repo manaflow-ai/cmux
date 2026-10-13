@@ -15,6 +15,9 @@ private let cloudDisplayLogger = Logger(subsystem: "com.cmuxterm.app", category:
 final class CloudBrowserAccessState {
     var model: CloudPortAccessModel?
     private(set) var resourceID: SurfaceResourceID?
+    /// The server-advertised noVNC port for a resource-less legacy display.
+    /// Nil keeps the pre-metadata 6901 compatibility check.
+    private(set) var desktopPort: Int?
     private(set) var remoteURL: URL?
     private(set) var navigationURL: URL?
     private(set) var hasCommittedNavigation = false
@@ -88,7 +91,8 @@ final class CloudBrowserAccessState {
 
     /// Rebinds ownership to a committed same-VM service without restarting the
     /// current WebKit navigation (for example, a POST redirect to another port).
-    func adoptCommittedRoute(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID) {
+    func adoptCommittedRoute(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID,
+                             desktopPort: Int? = nil) {
         let logicalURL = Self.canonicalLoopbackURL(url, for: model)
         observationGeneration &+= 1
         cancelUnavailableRetry()
@@ -96,6 +100,7 @@ final class CloudBrowserAccessState {
         isRestoring = false
         restoreFailureMessage = nil
         self.resourceID = resourceID
+        self.desktopPort = desktopPort
         self.model = model
         starting = nil
         remoteURL = logicalURL
@@ -250,8 +255,11 @@ final class CloudBrowserAccessState {
 
     var isDesktop: Bool {
         if resourceID?.kind == .display { return true }
-        guard resourceID == nil else { return false }
-        return model?.target.port == CmuxTuiSnapshotParser.desktopPort && remoteURL?.path == "/vnc.html"
+        guard resourceID == nil, remoteURL?.path == "/vnc.html", let model else { return false }
+        // A resource-less /vnc.html route is only a desktop when its port is
+        // the explicit server identity. Older snapshots have no identity and
+        // retain the shipped 6901 compatibility fallback.
+        return model.target.port == (desktopPort ?? CmuxTuiSnapshotParser.desktopPort)
     }
 
     var failureMessage: String? {
@@ -383,7 +391,7 @@ final class CloudBrowserAccessState {
     }
 
     func configure(model: CloudPortAccessModel, url: URL, resourceID: SurfaceResourceID? = nil,
-                   request: URLRequest? = nil) {
+                   desktopPort: Int? = nil, request: URLRequest? = nil) {
         let logicalURL = Self.canonicalLoopbackURL(url, for: model)
         let replacesService = remoteURL.map { !Self.sameService($0, logicalURL) } ?? true
         observationGeneration &+= 1
@@ -397,6 +405,11 @@ final class CloudBrowserAccessState {
         // first still clear it deliberately.
         if let resourceID {
             self.resourceID = resourceID
+        }
+        if let desktopPort {
+            self.desktopPort = desktopPort
+        } else if replacesService {
+            self.desktopPort = nil
         }
         self.model = model
         starting = nil
@@ -632,6 +645,7 @@ final class CloudBrowserAccessState {
         connectionDeadline.cancel()
         desktopConnected = false
         resourceID = nil
+        desktopPort = nil
         activeNavigationID = nil
         hasCommittedNavigation = false
         unavailable = nil
