@@ -80,7 +80,7 @@ extension IconHistory {
             case .clear: icon = nil
             case .set(let value): icon = value
             }
-            home.send("set-session-icon") { _ = try await $0.setSessionIcon(session, icon: icon) }
+            home.send("set-session-icon") { _ = try await $0.request(SetSessionIconRequest(sessionID: session, icon: icon)) }
             return true
         }
     }

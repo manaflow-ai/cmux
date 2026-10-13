@@ -32,12 +32,3 @@ public struct SetSessionIconRequest: DaemonRequest {
         if let icon { try c.encode(icon, forKey: .icon) } else { try c.encodeNil(forKey: .icon) }
     }
 }
-
-extension DaemonConnection {
-    /// Sets (a string) or clears (nil) the icon of session `sessionID` in this
-    /// home daemon's registry.
-    @discardableResult
-    public func setSessionIcon(_ sessionID: String, icon: String?) async throws -> SetSessionIconRequest.Response {
-        try await request(SetSessionIconRequest(sessionID: sessionID, icon: icon))
-    }
-}
