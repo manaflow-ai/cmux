@@ -96,6 +96,25 @@ import Testing
         try Self.expectThemedField(in: root, scope, placeholder: "Name", "app scene field")
     }
 
+    /// VoiceOver still names a field once it holds text: the stock field's title was its label, and
+    /// the themed placeholder alone disappears when text is typed.
+    @Test func aFieldWithTextKeepsItsPlaceholderAsItsLabel() throws {
+        let scope = try ThemedOverlayColorsTests.purpleRoom()
+        let header = FeedInboxHeader(filter: .constant(FeedInboxFilter(query: "bug")), hasUnread: true, canRefresh: true,
+                                     canAddConnection: false, markRead: {}, refresh: {}, addConnection: {})
+        let (window, root) = Self.host(header, scope)
+        defer { window.contentView = nil; window.close() }
+        let field = try #require(HomeSheetThemeTests.editableFields(in: root).first)
+        #expect(field.stringValue == "bug")
+        #expect(field.accessibilityLabel() == FeedStrings.filterInbox, "label: \(String(describing: field.accessibilityLabel()))")
+
+        let reply = FeedTextField(placeholder: FeedStrings.reply, text: .constant("Looks good"))
+        let (replyWindow, replyRoot) = Self.host(reply, scope)
+        defer { replyWindow.contentView = nil; replyWindow.close() }
+        let replyField = try #require(HomeSheetThemeTests.editableFields(in: replyRoot).first)
+        #expect(replyField.accessibilityLabel() == FeedStrings.reply, "label: \(String(describing: replyField.accessibilityLabel()))")
+    }
+
     /// New Task still puts the keyboard in the field, and Escape still clears it and lets go.
     @Test func newTaskFocusesTheFieldAndEscapeClearsIt() throws {
         let scope = try ThemedOverlayColorsTests.purpleRoom()
