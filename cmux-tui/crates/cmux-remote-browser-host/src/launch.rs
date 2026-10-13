@@ -8,7 +8,9 @@
 //! signal.
 
 use std::io::{ErrorKind, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
 use cmux_rd_proto::control::Control;
@@ -80,9 +82,9 @@ pub enum Admission {
     Refused(String),
 }
 
-/// How long a viewer has to send its hello, in total. The host admits one
-/// caller at a time, so a caller that sends nothing or trickles bytes must
-/// not hold it long; the app's viewer sends its hello at once.
+/// How long a viewer has to send its hello, in total. A caller that sends
+/// nothing or trickles bytes holds one of [`MAX_PENDING_HELLOS`] admissions
+/// until then; the app's viewer sends its hello at once.
 pub const HELLO_DEADLINE: Duration = Duration::from_secs(3);
 
 /// One viewer's admission on the rd stream carrier, before the host sends a
@@ -144,6 +146,72 @@ pub fn admit_within(
             write_control(stream, &Control::Refused { reason: "unauthorized".into() })?;
             Ok(Admission::Refused(format!("refused: {reason}")))
         }
+    }
+}
+
+/// A viewer [`accept_viewers`] admitted: its stream, its hello and the bytes
+/// it sent after the hello.
+pub struct Admitted {
+    pub stream: TcpStream,
+    pub hello: Control,
+    pub deframer: StreamDeframer,
+}
+
+/// How many callers may wait for their hello at once; more are closed at
+/// once until one of them is admitted, refused or reaches its deadline.
+pub const MAX_PENDING_HELLOS: usize = 32;
+
+/// The `--serve` accept loop: admits each caller on `listener` on its own
+/// thread ([`admit_within`] with `deadline`) and runs `session` for each
+/// admitted viewer, one at a time, on the calling thread. A caller that
+/// never sends a hello holds only its own admission, never the viewer slot,
+/// so the app's viewer is admitted while it waits. Returns when the
+/// listener fails for good.
+pub fn accept_viewers(
+    listener: TcpListener,
+    secret: Option<String>,
+    deadline: Duration,
+    mut session: impl FnMut(Admitted),
+) {
+    let (admitted, viewers) = mpsc::channel::<Admitted>();
+    let pending = Arc::new(AtomicUsize::new(0));
+    let secret: Option<Arc<str>> = secret.map(Arc::from);
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            // A failed accept or a peer that reset before setsockopt ends
+            // only that connection, never the listener.
+            let mut stream = match conn {
+                Ok(conn) => conn,
+                Err(e) => {
+                    eprintln!("serve: accept failed: {e}");
+                    continue;
+                }
+            };
+            if let Err(e) = stream.set_nodelay(true) {
+                eprintln!("serve: connection dropped: {e}");
+                continue;
+            }
+            if pending.fetch_add(1, Ordering::AcqRel) >= MAX_PENDING_HELLOS {
+                pending.fetch_sub(1, Ordering::AcqRel);
+                eprintln!("serve: connection dropped: too many callers without a hello");
+                continue;
+            }
+            let (pending, secret, admitted) = (pending.clone(), secret.clone(), admitted.clone());
+            std::thread::spawn(move || {
+                let outcome = admit_within(&mut stream, secret.as_deref(), deadline);
+                pending.fetch_sub(1, Ordering::AcqRel);
+                match outcome {
+                    Ok(Admission::Admitted { hello, deframer }) => {
+                        let _ = admitted.send(Admitted { stream, hello, deframer });
+                    }
+                    Ok(Admission::Refused(reason)) => eprintln!("serve: session ended: {reason}"),
+                    Err(e) => eprintln!("serve: session failed: {e}"),
+                }
+            });
+        }
+    });
+    for viewer in viewers {
+        session(viewer);
     }
 }
 
