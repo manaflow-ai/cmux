@@ -57,25 +57,14 @@ export const agentModelExtras: Record<string, Pick<AgentModel, "minVersion" | "s
   "claude-sonnet-4-6": { supportsOneMillion: true },
 };
 
-/** The providers the model catalog has no curated list for. */
-export const otherAgentModelProviders: Pick<AgentModelCatalog["providers"], "opencode" | "gemini"> = {
+/** OpenCode, which the model catalog only probes (its models are the user's own providers). */
+export const otherAgentModelProviders: Pick<AgentModelCatalog["providers"], "opencode"> = {
   opencode: {
     defaultModel: "anthropic/claude-sonnet-5",
     models: [
       { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5" },
       { id: "anthropic/claude-opus-4-8", label: "Claude Opus 4.8" },
       { id: "openai/gpt-5.5", label: "GPT-5.5" },
-    ],
-  },
-  gemini: {
-    defaultModel: "gemini-3.1-pro-preview",
-    models: [
-      { id: "gemini-3.1-pro-preview", label: "Gemini 3.1 Pro Preview" },
-      { id: "gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
-      { id: "gemini-3-flash-preview", label: "Gemini 3 Flash Preview" },
-      { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro" },
-      { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash" },
-      { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash Lite" },
     ],
   },
 };

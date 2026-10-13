@@ -105,6 +105,7 @@ ${tooltips}
       "agent-session/acpmux/modelPicker.css",
       "agent-session/acpmux/summary/summary.css",
       "agent-session/acpmux/header/header.css",
+      "agent-session/acpmux/newtab/screen.css",
     ),
     body: `<div class="acpmux-shell">
 <div class="acpmux-menu" id="cascade">Model</div>
@@ -121,6 +122,7 @@ ${tooltips}
 <div class="ui-positioner"><div class="ui-popup acpmux-chat-menu-popover" id="chat-menu">Rename</div></div>
 <div class="ui-positioner"><div class="acpmux-pr-status" id="pr-status">Checks</div></div>
 <div class="ui-positioner"><div class="acpmux-summary-popover" id="summary">Summary</div></div>
+<div class="ui-positioner"><div class="ui-popup nt-popover" id="new-tab-suggestions">reddit.com</div></div>
 ${tooltips}`,
     surfaces: [
       "cascade",
@@ -136,6 +138,8 @@ ${tooltips}`,
       "chat-menu",
       "pr-status",
       "summary",
+      // Leo 10-13: the New Tab suggestions showed the page's rows through them on a wallpaper theme.
+      "new-tab-suggestions",
       "title-tooltip",
     ],
   };
