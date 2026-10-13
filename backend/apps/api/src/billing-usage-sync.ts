@@ -121,10 +121,13 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
 
   const listed = only?.subscription ? { subs: [(await stripeFetch(key, "GET", `/v1/subscriptions/${encodeURIComponent(only.subscription)}`)) as StripeSubscription], truncated: false } : await listActive(key)
   if (listed.truncated) console.error(JSON.stringify({ msg: "billing.usage_sync.truncated", pages: MAX_PAGES }))
-  const cmux = listed.subs.filter((sub) => sub.metadata?.app === "cmux" && ACTIVE.has(sub.status))
+  const isCmux = (sub: StripeSubscription) => sub.metadata?.app === "cmux" && ACTIVE.has(sub.status)
+  const cmux = listed.subs.filter(isCmux)
   // One usage subscription per customer: meter events are per customer, so two would bill one total twice (review P2).
+  // One subscription's run counts its customer's other subscriptions too (review P2, the invoice-created path).
+  const counted = only?.subscription && cmux[0] ? (await Promise.all([...ACTIVE].map(async (status) => (await stripeFetch(key, "GET", `/v1/subscriptions?customer=${encodeURIComponent(idOf(cmux[0]!.customer))}&status=${status}&limit=100`)).data as StripeSubscription[]))).flat().filter(isCmux) : cmux
   const perCustomer = new Map<string, number>()
-  for (const sub of cmux) perCustomer.set(idOf(sub.customer), (perCustomer.get(idOf(sub.customer)) ?? 0) + 1)
+  for (const sub of counted) perCustomer.set(idOf(sub.customer), (perCustomer.get(idOf(sub.customer)) ?? 0) + 1)
 
   /** Sends the level of [start, end) for this subscription when it changed; `final` = a closed period's last push. */
   const pushLevel = async (team: string, sub: StripeSubscription, start: number, end: number) => {
@@ -148,8 +151,12 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
   for (const sub of cmux) {
     const planItem = sub.items.data.find((i) => !isUsageItem(i))
     const plan = planOfSubscription(sub, planItem)
-    if (!plan) continue
     report.checked++
+    if (!plan) {
+      report.skipped++
+      console.warn(JSON.stringify({ msg: "billing.usage_sync.skipped", subscription: sub.id, why: "unknown_plan" }))
+      continue
+    }
     const team = teamOfSubscription(env, sub, plan)
     const want = priceOf.get(plan)
     const why = !team ? "no_team" : !want ? "no_usage_price" : !planItem ? "no_plan_item" : planItem.price.recurring?.interval !== "month" ? "not_monthly" : (perCustomer.get(idOf(sub.customer)) ?? 0) > 1 ? "customer_has_several" : null

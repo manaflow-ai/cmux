@@ -187,7 +187,12 @@ const fakeStripe = (period: { start: number; end: number }) => {
       return Response.json(body)
     }
     if (method === "GET" && url.pathname === "/v1/prices") return ok({ data: url.searchParams.getAll("lookup_keys[]").filter((k) => USAGE_PRICES[k]).map((k) => ({ id: USAGE_PRICES[k], lookup_key: k })) })
-    if (method === "GET" && url.pathname === "/v1/subscriptions") return ok({ data: subs.filter((x) => x.status === url.searchParams.get("status")).map(withPeriod), has_more: false })
+    if (method === "GET" && url.pathname === "/v1/subscriptions") return ok({ data: subs.filter((x) => x.status === url.searchParams.get("status") && (!url.searchParams.get("customer") || x.customer === url.searchParams.get("customer"))).map(withPeriod), has_more: false })
+    const one = url.pathname.match(/^\/v1\/subscriptions\/(sub_[A-Za-z0-9_]+)$/)
+    if (method === "GET" && one) {
+      const sub = subs.find((x) => x.id === one[1])
+      return sub ? ok(withPeriod(sub)) : Response.json({ error: { code: "resource_missing", message: "no such subscription" } }, { status: 404 })
+    }
     if (method === "POST" && url.pathname === "/v1/subscription_items") {
       const item = { id: `si_usage_${form.subscription}`, price: { id: form.price, product: "cmux_ai_usage", recurring: { interval: "month" } } }
       subs.find((x) => x.id === form.subscription)!.items.data.push(item)
@@ -283,6 +288,10 @@ describe("usage sync (cx-y79zh S4)", () => {
     const writes = stripe.calls.filter((c) => c.method === "POST")
     expect(writes).toEqual([expect.objectContaining({ path: "/v1/subscription_items/si_usage_m1", form: expect.objectContaining({ price: "price_u_max" }) })])
     expect(planItemsUntouched(stripe)).toBe(true)
+    // One subscription's run (the invoice-created trigger) still sees the customer's other subscription.
+    const one = await sync(env, JSON.stringify({ subscription: "sub_d1" }))
+    expect(one.body).toMatchObject({ checked: 1, skipped: 1, pushed: 0, items_added: 0 })
+    expect(stripe.calls.filter((c) => c.method === "POST")).toHaveLength(1)
   })
 
   it("after a renewal, the closed period gets its final level once more, dated inside that period", async () => {
