@@ -105,10 +105,14 @@ extension AgentTabStore {
             let tab = beside.flatMap { services.locateTab($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
             var page = NewTabPage.page(services, selected: tab)
             page.cwd = cwd ?? page.cwd
-            let handler = NewTabPage.handler(services, cwd: cwd) { [weak services] key, request in
+            // Keys typed since Cmd-N wait for this page's field (NewTabInputCoordinator, cx-kql5h).
+            let input = services.keyRouter.newTabInputCoordinator
+            page.inputToken = input.claimIncomingToken()
+            var handler = NewTabPage.handler(services, cwd: cwd) { [weak services] key, request in
                 guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return }
                 NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller)
             }
+            handler.inputReady = { [weak input] key, token in input?.pageReady(token, key: key) }
             return (page, handler)
         }
         tabs.resolveLocalHost = { [weak services] in

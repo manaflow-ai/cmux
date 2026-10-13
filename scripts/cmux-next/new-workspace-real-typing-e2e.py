@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Real-key proof that no key typed right after Cmd-N is lost (cx-kql5h) on a running tagged
+cmux-next build, cold and warm.
+
+Lawrence's keys came 55-67 ms after Cmd-N at 25-30 keys/s and the New Tab field of the new
+workspace lost the first 2-3 ("hello world 123" became "lo world 123"): nothing held them while
+the daemon made the workspace and its page. Here a small compiled helper posts REAL key events at
+the window server (CGEvent, HID tap), as a keyboard does: Cmd-N, then each character of the text
+at --rate keys/s, the first one --delay-ms after Cmd-N. The field of the new workspace's New Tab
+page must then hold the whole text (`debug.new_tab` `field`).
+
+- cold: the app is relaunched before each run (its first Cmd-N).
+- warm: runs back to back in the same app.
+
+Needs the logged-in GUI session and the right to post events (nx-remote --needs input). The
+helper brings the tagged app to the front itself. It never touches another app's windows.
+
+Usage: new-workspace-real-typing-e2e.py --tag <tag> [--cold N] [--warm N] [--rate 30] [--delay-ms 40]
+Exit status 0 when every run kept every key.
+"""
+import argparse, json, os, re, socket, subprocess, sys, tempfile, time
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--tag", required=True)
+parser.add_argument("--cold", type=int, default=10)
+parser.add_argument("--warm", type=int, default=10)
+parser.add_argument("--rate", type=float, default=30.0)
+parser.add_argument("--delay-ms", type=int, default=40)
+parser.add_argument("--text", default="hello world 123")
+parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
+opts = parser.parse_args()
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+SLUG = re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", opts.tag.lower())).strip("-")
+SOCK = f"/tmp/cmux-debug-{SLUG}.sock"
+
+HELPER = r'''
+import AppKit
+import CoreGraphics
+import Foundation
+
+// args: pid text rate delayMs
+let args = CommandLine.arguments
+let pid = pid_t(args[1])!
+let text = args[2]
+let rate = Double(args[3])!
+let delayMs = Double(args[4])!
+let keys: [Character: (UInt16, Bool)] = {
+    var map: [Character: (UInt16, Bool)] = [:]
+    let plain: [(Character, UInt16)] = [("a",0),("s",1),("d",2),("f",3),("h",4),("g",5),("z",6),("x",7),("c",8),("v",9),("b",11),
+        ("q",12),("w",13),("e",14),("r",15),("y",16),("t",17),("1",18),("2",19),("3",20),("4",21),("6",22),("5",23),("9",25),
+        ("7",26),("8",28),("0",29),("o",31),("u",32),("i",34),("p",35),("l",37),("j",38),("k",40),("n",45),("m",46),(" ",49),
+        ("-",27),("=",24),(".",47),(",",43),("/",44)]
+    for (c, k) in plain { map[c] = (k, false); if c.isLetter { map[Character(c.uppercased())] = (k, true) } }
+    return map
+}()
+func post(_ code: UInt16, _ flags: CGEventFlags) {
+    let source = CGEventSource(stateID: .hidSystemState)
+    for down in [true, false] {
+        let event = CGEvent(keyboardEventSource: source, virtualKey: code, keyDown: down)!
+        event.flags = flags
+        event.post(tap: .cghidEventTap)
+    }
+}
+func now() -> Double { Double(DispatchTime.now().uptimeNanoseconds) / 1e6 }
+guard CGPreflightPostEventAccess() || CGRequestPostEventAccess() else {
+    print("{\"error\":\"no post-event access\"}"); exit(3)
+}
+guard let app = NSRunningApplication(processIdentifier: pid) else { print("{\"error\":\"no app\"}"); exit(4) }
+app.activate()
+let until = now() + 5000
+while NSWorkspace.shared.frontmostApplication?.processIdentifier != pid && now() < until {
+    RunLoop.current.run(until: Date().addingTimeInterval(0.02))  // harness: wait for the front app
+}
+guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { print("{\"error\":\"app not frontmost\"}"); exit(5) }
+usleep(300_000)  // harness: the activation settles before the first key
+let start = now()
+post(45, .maskCommand)  // Cmd-N
+var first = 0.0
+let gap = 1000.0 / rate
+for (index, character) in text.enumerated() {
+    let due = start + delayMs + Double(index) * gap
+    while now() < due { usleep(500) }  // harness: key pacing
+    if index == 0 { first = now() - start }
+    guard let (code, shift) = keys[character] else { continue }
+    post(code, shift ? .maskShift : [])
+}
+let total = now() - start
+print("{\"first_key_ms\":\(first),\"keys_ms\":\(total),\"rate\":\(Double(text.count) / ((total - first) / 1000.0))}")
+'''
+
+
+def rpc(method, params=None, timeout=20):
+    try:
+        conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        conn.settimeout(timeout)
+        conn.connect(SOCK)
+        conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
+        buf = b""
+        while not buf.endswith(b"\n"):
+            chunk = conn.recv(1 << 20)
+            if not chunk:
+                break
+            buf += chunk
+        conn.close()
+        reply = json.loads(buf)
+        return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+    except (OSError, ValueError) as error:
+        return {"error": str(error)}
+
+
+def wait(check, seconds, step=0.1):
+    deadline = time.time() + seconds
+    while time.time() < deadline:
+        value = check()
+        if value:
+            return value
+        time.sleep(step)  # test harness polling a live app
+    return None
+
+
+def app_pid():
+    reply = rpc("system.identify") or {}
+    pid = reply.get("pid") or (reply.get("app") or {}).get("pid")
+    if pid:
+        return int(pid)
+    out = subprocess.run(["pgrep", "-n", "-f", f"cmux DEV {opts.tag}.app/Contents/MacOS/"], capture_output=True, text=True).stdout.strip()
+    return int(out) if out else None
+
+
+def launch():
+    subprocess.run([os.path.join(ROOT, "scripts/launch-tagged-automation.sh"), opts.tag, "--wait-socket", "60"], check=True,
+                   stdout=subprocess.DEVNULL)
+    if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
+        sys.exit("the app does not answer on " + SOCK)
+    # The first window shows its first workspace before the first Cmd-N.
+    wait(lambda: (rpc("debug.focus") or {}).get("windows"), 20)
+    time.sleep(2)  # test harness: launch work settles (a cold run still has no spare page used yet)
+
+
+def field_text():
+    reply = rpc("debug.new_tab", {"action": "field"}) or {}
+    return None if "error" in reply else reply.get("text")
+
+
+def run(name, helper):
+    pid = app_pid()
+    result = subprocess.run([helper, str(pid), opts.text, str(opts.rate), str(opts.delay_ms)], capture_output=True, text=True, timeout=60)
+    timing = {}
+    try:
+        timing = json.loads(result.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        timing = {"error": (result.stdout + result.stderr)[-300:]}
+    got = wait(lambda: (lambda t: t if t == opts.text else None)(field_text()), 6)
+    text = got if got is not None else field_text()
+    holds = (rpc("debug.focus") or {}).get("new_tab_key_holds")
+    ok = text == opts.text and "error" not in timing
+    row = {"run": name, "field": text, "pass": ok, "holds_after": holds, **timing}
+    print(("PASS" if ok else "FAIL"), json.dumps(row), flush=True)
+    return row
+
+
+def main():
+    helper_dir = tempfile.mkdtemp(prefix="realkeys-")
+    source, helper = os.path.join(helper_dir, "keys.swift"), os.path.join(helper_dir, "keys")
+    with open(source, "w") as handle:
+        handle.write(HELPER)
+    subprocess.run(["xcrun", "swiftc", "-O", source, "-o", helper], check=True)
+    rows = []
+    for index in range(opts.cold):
+        launch()
+        rows.append(run(f"cold-{index + 1}", helper))
+    if opts.warm:
+        if not opts.cold:
+            launch()
+        for index in range(opts.warm):
+            time.sleep(1)  # test harness: the previous workspace settles
+            rows.append(run(f"warm-{index + 1}", helper))
+    rpc("debug.quit", {"press": "end-everything"})
+    with open(os.path.join(opts.out, "new-workspace-real-typing.json"), "w") as handle:
+        json.dump(rows, handle, indent=1)
+    passed = sum(1 for row in rows if row["pass"])
+    print(f"\nRESULT {'PASS' if rows and passed == len(rows) else 'FAIL'} ({passed}/{len(rows)})")
+    sys.exit(0 if rows and passed == len(rows) else 1)
+
+
+main()
