@@ -571,7 +571,9 @@ fn valid_short_text(value: &str, max_bytes: usize) -> bool {
     !value.is_empty() && value.len() <= max_bytes && !value.chars().any(char::is_control)
 }
 
-fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
+/// The shape rules of a part list, as a send or an edit checks them (an
+/// import checks the same).
+pub fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
     if parts.is_empty() || parts.len() > MAX_PARTS {
         return Err(Reject::InvalidParts);
     }
@@ -615,7 +617,13 @@ fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
                     return Err(Reject::InvalidParts);
                 }
             }
+            Part::LinkPreview { .. } => {
+                if !crate::link_preview::valid_link_preview_part(part) {
+                    return Err(Reject::InvalidParts);
+                }
+            }
             Part::Question(question) => crate::question::validate(question)?,
+            Part::Unknown(_) => return Err(Reject::InvalidParts),
         }
     }
     Ok(())

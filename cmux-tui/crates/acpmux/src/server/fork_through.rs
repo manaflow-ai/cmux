@@ -89,10 +89,9 @@ async fn to_session_fork(hub: &Hub, params: &Value) -> Result<Value, RpcError> {
     if earlier {
         let harness = session.meta().harness;
         let cfg = hub.config.read().await;
-        if !cfg.profile(&harness).is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio)
-        {
+        if cfg.profile(&harness).and_then(|p| crate::config::turn_cut(&harness, p)).is_none() {
             return Err(RpcError::invalid_params(
-                "only the latest turn of this agent's chat can be forked; an earlier turn needs a Claude chat",
+                "only the latest turn of this agent's chat can be forked; an earlier turn needs a Claude or Codex chat",
             ));
         }
     }

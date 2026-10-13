@@ -122,7 +122,7 @@ extension ControlRouter {
         // wait) answers while the run keeps settling, and the key stays
         // pending until settlement records the final reply for a retry.
         let settling = Task { [self] () -> ControlIdempotencyCache.Outcome in
-            let settled = await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline)
+            let settled = await settle(run, scope: scope, action: action.id, method: call.method, deadline: settleDeadline, replyBy: call.deadline)
             let result = settled.map { snapshot -> JSONValue in
                 var reply = reply
                 if let target = request.target { reply["resolved"] = resolvedJSON(target, in: snapshot.topology) }
@@ -152,7 +152,7 @@ extension ControlRouter {
     /// Waits for the run's work, then for a snapshot that reflects it.
     /// Returns that snapshot or the first failure.
     private func settle(_ run: ControlActionRun, scope: ControlCommandScope, action: String, method: String,
-                        deadline: ContinuousClock.Instant) async -> Result<ControlSnapshot, ControlError> {
+                        deadline: ContinuousClock.Instant, replyBy: ContinuousClock.Instant) async -> Result<ControlSnapshot, ControlError> {
         defer { scope.close() }
         let failure: ActionWorkFailure?
         do {
@@ -169,12 +169,12 @@ extension ControlRouter {
         // No daemon command: the work queue's frame already published the
         // app-local change (selection, focus, settings).
         let barriers = scope.barriers
-        guard !barriers.isEmpty else { return .success(snapshots.current) }
+        guard !barriers.isEmpty else { return .success(await snapshots.showing(scope.created, after: snapshots.current, replyBy: replyBy)) }
         guard let snapshot = await snapshots.snapshot(reflecting: Self.sequenceBarrier(barriers, in: snapshots.current.topology),
                                                       deadline: deadline) else {
             return .failure(Self.stillRunning(method, action: action))
         }
-        return .success(snapshot)
+        return .success(await snapshots.showing(scope.created, after: snapshot, replyBy: replyBy))
     }
 
     /// The scope's per-machine barriers as snapshot sequences: the local

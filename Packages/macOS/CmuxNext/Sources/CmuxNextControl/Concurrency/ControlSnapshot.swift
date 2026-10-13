@@ -65,7 +65,7 @@ public struct ControlSequenceBarrier: Sendable, Hashable {
 public final class ControlSnapshotStore: Sendable {
     private struct Waiter {
         let id: UInt64
-        let barrier: ControlSequenceBarrier
+        let isReady: @Sendable (ControlSnapshot) -> Bool
         let continuation: CheckedContinuation<ControlSnapshot?, Never>
     }
 
@@ -97,8 +97,8 @@ public final class ControlSnapshotStore: Sendable {
             state.snapshot.publishedAtUptimeNanos = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             guard !state.waiters.isEmpty else { return (state.snapshot.generation, state.snapshot, []) }
             let snapshot = state.snapshot
-            let ready = state.waiters.filter { snapshot.reflects($0.barrier) }
-            if !ready.isEmpty { state.waiters.removeAll { snapshot.reflects($0.barrier) } }
+            let ready = state.waiters.filter { $0.isReady(snapshot) }
+            if !ready.isEmpty { state.waiters.removeAll { $0.isReady(snapshot) } }
             return (snapshot.generation, snapshot, ready)
         }
         for waiter in ready { waiter.continuation.resume(returning: snapshot) }
@@ -115,8 +115,16 @@ public final class ControlSnapshotStore: Sendable {
     /// The first published snapshot that reflects every sequence in
     /// `barrier`, or nil at `deadline` or on cancellation.
     public func snapshot(reflecting sequence: ControlSequenceBarrier, deadline: ContinuousClock.Instant) async -> ControlSnapshot? {
+        await snapshot(where: { $0.reflects(sequence) }, deadline: deadline)
+    }
+
+    /// The first published snapshot for which `isReady` holds (the current
+    /// one when it already does), or nil at `deadline` or on cancellation.
+    /// `isReady` runs under the store's lock: keep it a cheap read.
+    public func snapshot(where isReady: @escaping @Sendable (ControlSnapshot) -> Bool,
+                         deadline: ContinuousClock.Instant) async -> ControlSnapshot? {
         let (ready, id) = state.withLock { state -> (ControlSnapshot?, UInt64) in
-            if state.snapshot.reflects(sequence) { return (state.snapshot, 0) }
+            if isReady(state.snapshot) { return (state.snapshot, 0) }
             state.nextWaiter &+= 1
             return (nil, state.nextWaiter)
         }
@@ -132,9 +140,10 @@ public final class ControlSnapshotStore: Sendable {
                 // Resume now when already satisfied or cancelled (the
                 // cancellation handler may have run before this waiter existed).
                 let now = state.withLock { state -> ControlSnapshot?? in
-                    if state.snapshot.reflects(sequence) { return .some(state.snapshot) }
-                    if Task.isCancelled { return .some(nil) }
-                    state.waiters.append(Waiter(id: id, barrier: sequence, continuation: continuation))
+                    if isReady(state.snapshot) { return .some(state.snapshot) }
+                    // The timer may have fired before this waiter existed (a deadline already past).
+                    if Task.isCancelled || ContinuousClock.now >= deadline { return .some(nil) }
+                    state.waiters.append(Waiter(id: id, isReady: isReady, continuation: continuation))
                     return .none
                 }
                 if case .some(let result) = now { continuation.resume(returning: result) }

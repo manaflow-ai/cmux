@@ -49,7 +49,7 @@ public struct CmuxNextApp {
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         // WebKit and the agent pages' first web content process start while the windows build.
-        AgentPaneWarmup.start()
+        AgentPaneView.startWarmup()
         // NSApplication.delegate is weak; keep the delegate alive for the run.
         withExtendedLifetime(delegate) {
             app.run()
