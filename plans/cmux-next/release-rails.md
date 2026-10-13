@@ -271,6 +271,46 @@ and 0, health 200. Rollback: the same PATCH with `invocation_logs: true`. The re
 wrangler.jsonc must say the same (production `invocation_logs: false`), so the next code deploy
 keeps the setting.
 
+## Continuous delivery to production (cx-w1ald)
+
+Lawrence approved 2026-10-13 (#13742). backend.yml, on every feat-cmux-next push after
+deploy-staging and on `workflow_dispatch target=promote`:
+
+- **Source tags.** deploy-worker.sh tags every version: `--tag <sha12> --message "source <sha> run <id>"`.
+  `prod-promote.ts` reads the tag back; a version without one is "unknown code".
+- **promote-gates** (no production secret; repo CLOUDFLARE_API_TOKEN and GITHUB_TOKEN):
+  `prod-promote.ts stale --issue`, then `prod-promote.ts gates`:
+  - G6 hold switch first: repository variable `CMUX_NEXT_PRODUCTION_HOLD`, non-empty = hold
+    (shipped ON; Lawrence's go clears it before the first automatic promotion).
+  - source: production must carry a source tag (the first deploy is the hand rail).
+  - spacing: production code changed at least 6 h ago.
+  - G1 staging-proven: the newest feat-cmux-next push whose deploy-staging job and smoke step
+    passed at least 60 minutes ago, with no red staging deploy in those 60 minutes; it must
+    descend from production's commit.
+  - G2: no open issue labeled `cmux-next-regression` with `P0` or `P1` (beads are not readable
+    from CI; the chief labels an issue or sets the hold).
+  - G3: every DO migration tag the candidate adds over production is listed in
+    `scripts/cmux-next/release/production-approvals.json` `do_tags` with a reviewer; a rename,
+    delete or transfer also needs `lawrence: true`; a tag production has must be unchanged. Any
+    new class makes the deploy fix-forward only.
+  - G5: every name in `required_secrets` is set on cmux-api; `HOME_INVITES_SEND` "on" needs
+    `HOME_INVITE_FROM`. deploy-worker.sh runs the same check (`prod-promote.ts config`) before
+    every production deploy, the hand rail too.
+  - G7: a changed production value of `INFERENCE_*`, `AUTOMATION_CAP_*` or `HOME_INVITES_SEND`
+    must be listed in `guarded_vars` as `NAME=value` (Lawrence's approvals).
+  - G4 (Postgres) is migrate.ts --verify inside deploy-worker.sh.
+- **promote-production** (environment cmux-next-production, branch policy feat-cmux-next and
+  main, concurrency shared with deploy-production): checks the hold again, checks out the
+  candidate, runs `deploy-worker.sh production` with `CMUX_DEPLOY_NO_SECRETS=1
+  CMUX_RELEASE_PROMOTE=1` (production keeps its own secrets; CI sends none), then the
+  worker-release smoke.
+- **Staleness**: `prod-promote.ts stale` fails when production has no source tag, lacks a
+  commit staging proved more than 24 h ago, or is more than 20 backend commits behind the newest
+  staging-proven commit. `--issue` opens or comments on the issue labeled `prod-stale` and closes
+  it when production is current. It runs in promote-gates on every feat-cmux-next backend push
+  (GitHub schedules run only from main; cmux-lawrence has no Cloudflare credential). The chief
+  watches the `prod-stale` label and asks Lawrence after 72 h.
+
 ## cmux-old compatibility (production steps)
 
 cmux-old (latest stable v0.65.0, 2026-10-05) calls cmux.com/api/* (web/), presence.cmux.dev,
