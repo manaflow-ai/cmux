@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build cnx-hostd, the cmux cnx iPhone host (cnx-ios/rust/crates/cnx-hostd),
-# for cmux-next's Settings > Accounts > iPhone. The app runs it as a child
+# for cmux-next's Settings > Mobile > Allow iPhone Connections. The app runs it as a child
 # (CNX_CONTROL=stdio) from Contents/Resources/bin/cnx-hostd.
 #
 # Same contract as build-acpmux.sh: CI, fleet and nx-remote builds run Cargo on
