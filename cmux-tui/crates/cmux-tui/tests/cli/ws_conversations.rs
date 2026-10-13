@@ -143,3 +143,31 @@ fn an_authenticated_websocket_client_reads_and_writes_the_persons_conversations(
     let token = page.reply("conversation-agent-token", json!({"participant": "agent_mux"}));
     assert_eq!(token["ok"], false, "{token}");
 }
+
+/// A browser page on another loopback origin (a dev server, the page host)
+/// reaches the daemon only through `--ws-allow-origin`; the daemon must start
+/// with that flag instead of routing the command line to the public CLI.
+#[test]
+fn a_headless_daemon_starts_with_an_allowed_browser_origin() {
+    let dir = unique_temp_dir("ws-allow-origin");
+    fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("mux.sock");
+    let config = dir.join("config.json");
+    fs::write(&config, json!({"server": {"ws_token": TOKEN}}).to_string()).unwrap();
+    let child = Command::new(bin())
+        .args(["--headless", "--socket"])
+        .arg(&socket)
+        .arg("--state")
+        .arg(dir.join("state"))
+        .args(["--ws", "127.0.0.1:0", "--ws-allow-origin", "http://127.0.0.1:4190"])
+        .env("CMUX_TUI_CONFIG", &config)
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let server = HeadlessServer::adopt(child, socket, dir.join("state"), dir);
+    server.wait_for_socket();
+    let mut page = Ws::open(&ws_addr(&server));
+    let identity = page.request("identify", json!({}));
+    assert!(identity["capabilities"].as_array().unwrap().iter().any(|v| v == "ws-conversations-v1"));
+}
