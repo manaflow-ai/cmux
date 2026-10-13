@@ -197,6 +197,19 @@ struct TerminalSurfaceExplicitInputTests {
         #expect(acceptedInputCount == 1)
     }
 
+    @Test func coldSurfaceKeepsQueuedTextAndKeyInSubmissionOrder() {
+        let fixture = makeFixture()
+        defer { fixture.surface.releaseSurfaceForTesting() }
+
+        #expect(fixture.surface.sendTextResult("echo ready\n") == .queued)
+        #expect(fixture.surface.sendNamedKey("enter") == .queued)
+
+        let pending = fixture.surface.debugPendingSocketInputForTesting()
+        #expect(pending.items == 2)
+        #expect(pending.pasteTextItems == 1)
+        #expect(pending.keyEvents == 1)
+    }
+
     @Test func rejectedParsedInputDoesNotNotifyItsOwner() {
         let fixture = makeFixture()
         defer { fixture.surface.releaseSurfaceForTesting() }

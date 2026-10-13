@@ -241,7 +241,8 @@ extension TerminalController {
                 focus: focus,
                 inheritWorkingDirectoryFallback: true,
                 workingDirectoryFallbackSourcePanelId: panelId,
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let newPanel):
                 _ = workspace.reorderSurface(panelId: newPanel.id, toIndex: targetIndex, focus: focus)

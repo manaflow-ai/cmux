@@ -268,7 +268,8 @@ extension TerminalController {
             inPane: targetPaneId,
             focus: focus,
             inheritWorkingDirectoryFallback: true,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            inheritStartupWork: false
         ) {
         case .created(let panel):
             return .created(panel.id)
