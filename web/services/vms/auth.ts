@@ -728,6 +728,8 @@ export async function verifyPolledReadRequest(
     readonly subrouterAuthorizationSignal?: AbortSignal;
     /** The route needs every team even on the cookie path (the catalog). */
     readonly listAllTeams?: boolean;
+    /** False for native-only routes: no cookie session is accepted. */
+    readonly allowCookie?: boolean;
   } = {},
 ): Promise<AuthedUser | null> {
   if (!isStackConfigured()) return null;
@@ -737,6 +739,7 @@ export async function verifyPolledReadRequest(
       requestedTeamId: options.requestedTeamId,
       subrouterAuthorizationSignal: options.subrouterAuthorizationSignal,
       listAllTeams: options.listAllTeams,
+      allowCookie: options.allowCookie,
     });
   }
   const answer = await answerFromIdentitySnapshot(tokens, options);
@@ -808,7 +811,9 @@ async function answerFromIdentitySnapshot(
     providerCalled: false,
     snapshotAgeMs: snapshot.ageMs,
   });
-  return { kind: "user", user: snapshot.user };
+  // The snapshot row does not store the anonymous flag; the signed token
+  // carries it, so a route that refuses anonymous users still can.
+  return { kind: "user", user: { ...snapshot.user, isAnonymous: local.identity.isAnonymous } };
 }
 
 async function locallyVerifiedAccessToken(

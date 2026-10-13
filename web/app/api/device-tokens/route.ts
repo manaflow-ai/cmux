@@ -10,7 +10,7 @@ import { cloudDb } from "../../../db/client";
 import { deviceTokenRevocations, deviceTokens } from "../../../db/schema";
 import { resolveApnsProviderConfiguration } from "../../../services/apns/config";
 import { jsonResponse } from "../../../services/vms/routeHelpers";
-import { parseNativeStackTokens, unauthorized, verifyRequest } from "../../../services/vms/auth";
+import { parseNativeStackTokens, unauthorized, verifyPolledReadRequest, verifyRequest } from "../../../services/vms/auth";
 import { recordApnsEncryptionKeyRejection, withApnsApiRoute } from "../../../services/apns/routeHandler";
 import { enforceNativeIngressRateLimit } from "../../../services/nativeIngressRateLimit";
 import { authProviderErrorResponse } from "../../../services/vms/authErrors";
@@ -36,7 +36,9 @@ const BASE64_KEY = /^[A-Za-z0-9+/]{43}=?$/;
 
 export async function GET(request: Request): Promise<Response> {
   let user: Awaited<ReturnType<typeof verifyRequest>>;
-  try { user = await verifyRequest(request, { allowCookie: false }); }
+  // A read-only poll scoped to the caller's own rows: a fresh identity
+  // snapshot answers it without Stack (see `verifyPolledReadRequest`).
+  try { user = await verifyPolledReadRequest(request, { allowCookie: false }); }
   catch (error) { return authProviderErrorResponse(error, "device-tokens.get.auth"); }
   if (!user) return unauthorized();
   const url = new URL(request.url);
