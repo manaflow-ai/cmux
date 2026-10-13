@@ -24,8 +24,8 @@ impl WorkspaceNotEmpty {
     pub(crate) const CODE: &'static str = "workspace_not_empty";
 }
 
-impl std::fmt::Display for WorkspaceNotEmpty {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Display for WorkspaceNotEmpty {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             formatter,
             "{}: workspace {} has {} tab(s); close-workspace with if_empty does not close it",
