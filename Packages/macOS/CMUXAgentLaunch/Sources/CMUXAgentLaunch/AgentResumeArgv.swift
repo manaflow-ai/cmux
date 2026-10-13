@@ -313,7 +313,12 @@ public struct AgentResumeArgv: Sendable, Equatable {
             quote: quote
         )
         let joined = rendered.joined(separator: " ")
-        guard rendered.contains(descriptor.wrapperShellExecutableToken) else { return joined }
+        let executableIndex = Self.managedExecutableIndex(in: parts)
+        let fallbackExecutable = executableIndex < parts.count ? parts[executableIndex] : nil
+        let wrapperToken = descriptor.wrapperShellExecutableToken(
+            fallbackExecutable: fallbackExecutable == descriptor.executableName ? nil : fallbackExecutable
+        )
+        guard rendered.contains(wrapperToken) else { return joined }
         return descriptor.portableShellCommand(posixCommand: joined)
     }
 
@@ -347,6 +352,17 @@ public struct AgentResumeArgv: Sendable, Equatable {
         // The executable position is the first token, or the first
         // non-assignment after an `env` prefix. A nested subcommand such as
         // `sr codex resume` is not the managed executable and stays quoted.
+        let executableIndex = Self.managedExecutableIndex(in: parts)
+        return parts.enumerated().map { index, part in
+            index == executableIndex && (part as NSString).lastPathComponent == descriptor.executableName
+                ? descriptor.wrapperShellExecutableToken(
+                    fallbackExecutable: part == descriptor.executableName ? nil : part
+                )
+                : quote(part)
+        }
+    }
+
+    private static func managedExecutableIndex(in parts: [String]) -> Int {
         var executableIndex = 0
         if let first = parts.first, (first as NSString).lastPathComponent == "env" {
             executableIndex = 1
@@ -355,11 +371,7 @@ public struct AgentResumeArgv: Sendable, Equatable {
                 executableIndex += 1
             }
         }
-        return parts.enumerated().map { index, part in
-            index == executableIndex && part == descriptor.executableName
-                ? descriptor.wrapperShellExecutableToken
-                : quote(part)
-        }
+        return executableIndex
     }
 
     private func normalizedManagedExecutable(_ value: String?) -> String? {

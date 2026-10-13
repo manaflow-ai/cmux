@@ -12,6 +12,7 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
         case uuid
         case ampThread
         case hermesSession
+        case opaque
     }
 
     static let claude = Self(
@@ -46,18 +47,33 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
         sessionIDKind: .hermesSession
     )
 
+    static let antigravity = Self(
+        kind: "antigravity",
+        executableName: "agy",
+        wrapperShimEnvironmentKey: "CMUX_AGY_WRAPPER_SHIM",
+        customExecutablePathEnvironmentKey: "CMUX_CUSTOM_ANTIGRAVITY_PATH",
+        sessionIDKind: .opaque
+    )
+
     static func registered(kind: String) -> Self? {
         switch kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case claude.kind: claude
         case codex.kind: codex
         case amp.kind: amp
         case hermesAgent.kind: hermesAgent
+        case antigravity.kind: antigravity
         default: nil
         }
     }
 
     var wrapperShellExecutableToken: String {
-        "\"$([ -x \"${\(wrapperShimEnvironmentKey):-}\" ] && printf '%s' \"$\(wrapperShimEnvironmentKey)\" || printf \(executableName))\""
+        wrapperShellExecutableToken(fallbackExecutable: nil)
+    }
+
+    func wrapperShellExecutableToken(fallbackExecutable: String?) -> String {
+        let fallback = fallbackExecutable.map(Self.posixSingleQuoted) ?? executableName
+        let fallbackPrintf = fallbackExecutable == nil ? "printf \(fallback)" : "printf '%s' \(fallback)"
+        return "\"$([ -x \"${\(wrapperShimEnvironmentKey):-}\" ] && printf '%s' \"$\(wrapperShimEnvironmentKey)\" || \(fallbackPrintf))\""
     }
 
     func portableShellCommand(posixCommand: String) -> String {
@@ -83,6 +99,16 @@ struct ManagedAgentWrapperDescriptor: Equatable, Sendable {
             }
         case .hermesSession:
             return AgentRestoreCLIArgument(rawValue: sessionID) != nil
+        case .opaque:
+            guard !sessionID.isEmpty, sessionID.utf8.count <= 256 else { return false }
+            return sessionID.unicodeScalars.allSatisfy { scalar in
+                switch scalar.value {
+                case 45, 46, 48...57, 58, 65...90, 95, 97...122:
+                    return true
+                default:
+                    return false
+                }
+            }
         }
     }
 
