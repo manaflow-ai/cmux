@@ -447,6 +447,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         ),
         (vec!["tab", TAB, "focus"], "tab.focus"),
         (vec!["tab", TAB, "close"], "tab.close"),
+        (vec!["tab", TAB, "close", "--others", "--include-pinned"], "layout.bulk"),
         (vec!["terminal", "list"], "terminal.list"),
         (vec!["terminal", TERMINAL, "show"], "terminal.get"),
         (vec!["terminal", TERMINAL, "write", "--text", "hello"], "terminal.input.write"),
