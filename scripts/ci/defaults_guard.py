@@ -404,7 +404,9 @@ def command_check_fresh(args: argparse.Namespace) -> int:
 def command_check(args: argparse.Namespace) -> int:
     base, head = Tree.named(args.base), Tree.named(args.head)
     head_sha = args.head_sha or args.head
-    problems = freshness(head)
+    # A pull request branched before the snapshot existed is judged by its sources alone.
+    adopted = base.read(SNAPSHOT) is not None or head.read(SNAPSHOT) is not None
+    problems = freshness(head) if adopted else []
     # The base's snapshot, or (before the first snapshot lands) its sources.
     before = snapshot_of(base) or defaults(base)
     after = snapshot_of(head) or defaults(head)
