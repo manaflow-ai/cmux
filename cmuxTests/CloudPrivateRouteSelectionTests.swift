@@ -94,20 +94,44 @@ struct CloudPrivateRouteSelectionTests {
         let route = try await manager().resolvedPrivateRoute(
             machineID: "vm-test",
             through: CloudWireGuardHub.Ready(socketPath: "/unused", routes: ["fd00::/8"]),
-            fallbackRoute: "ws://10.16.0.2:1337/v1/link",
+            fallbackRoute: "ws://10.16.0.2:8080/v1/link",
             addresses: ["fd00::2"]
         )
-        #expect(route == "ws://[fd00::2]:1337/v1/link")
+        #expect(route == "ws://[fd00::2]:8080/v1/link")
     }
 
     @Test func soleAddressInsideTheEnrolledRoutesWinsAfterFiltering() async throws {
         let route = try await manager().resolvedPrivateRoute(
             machineID: "vm-test",
             through: CloudWireGuardHub.Ready(socketPath: "/unused", routes: ["fd00::/8"]),
-            fallbackRoute: "ws://10.16.0.2:1337/v1/link",
+            fallbackRoute: "ws://10.16.0.2:8080/v1/link",
             addresses: ["10.16.0.2", "fd00::2"]
         )
-        #expect(route == "ws://[fd00::2]:1337/v1/link")
+        #expect(route == "ws://[fd00::2]:8080/v1/link")
+    }
+
+    @Test("A persisted attach route supplies the daemon port after relaunch")
+    func persistedRouteIsUsedWhenAddressesAreRefreshed() async throws {
+        let home = URL(fileURLWithPath: "/tmp/cmux-route-\(UUID().uuidString)")
+        let paths = CloudTuiClientPaths(home: home)
+        paths.saveAttachState(
+            deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker,
+            route: "ws://10.16.0.2:8080/v1/link",
+            for: "vm-test"
+        )
+        let links = CloudMachineLinkManager(
+            paths: paths,
+            clientURL: nil,
+            hostThemeColors: { nil }
+        )
+        await links.setPrivateAddresses(["10.16.0.3"], for: "vm-test")
+
+        #expect(await links.privateRoute(for: "vm-test") == "ws://10.16.0.2:8080/v1/link")
+        let route = try await links.resolvedPrivateRoute(
+            machineID: "vm-test",
+            through: .init(socketPath: "/unused", routes: ["10.16.0.0/24"])
+        )
+        #expect(route == "ws://10.16.0.3:8080/v1/link")
     }
 
     @Test func legacyCallerWithoutAddressCandidatesKeepsItsRoute() async throws {
