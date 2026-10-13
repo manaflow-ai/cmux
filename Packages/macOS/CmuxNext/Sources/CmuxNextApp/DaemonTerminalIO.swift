@@ -28,9 +28,11 @@ import os
 /// - Grid reports go through `ResizeCoordinator` and reach the daemon only
 ///   after the view stops resizing.
 /// - A dropped stream or failed attach leaves the view disconnected (last
-///   screen and a status label) until an event re-attaches it: shown again,
-///   a key press, a click or focus, or the App's ``reconnect()`` (terminal or
-///   connection back). A re-attach after failed ones waits a capped backoff.
+///   screen and a status label). A visible view re-attaches by itself after
+///   a capped backoff (500 ms doubling to 30 s, about a minute in all,
+///   cx-wwtam), then waits for an event: shown again, a key press, a click,
+///   focus or Retry, or the App's ``reconnect()`` (terminal or connection
+///   back). A restored view says "Restoring…" until its first replay.
 ///   ``processExited()`` ends it until the daemon reports the terminal
 ///   running again (``processRevived()``, R41).
 nonisolated final class DaemonTerminalIO: TerminalIO {
@@ -56,6 +58,8 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         let driver = TerminalAttachDriver<TerminalAttachment>(
             initialSize: target.initialSize,
             visible: visible,
+            // A view with no gate attaches to a terminal that already runs: a restore.
+            restoring: gate == nil,
             opener: { size in
                 var attachment = target.attachment
                 if let gate {
@@ -85,8 +89,13 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         events = AsyncStream(unfolding: {
             await driver.nextStep().map { step in
                 let event = Self.event(for: step)
-                guard case .status(.disconnected) = event, policyBlocked() else { return event }
-                return .status(.disconnected(.turnedOffByOrganization, reconnecting: false))
+                switch event {
+                case .status(.disconnected), .status(.restoring):
+                    guard policyBlocked() else { return event }
+                    return .status(.disconnected(.turnedOffByOrganization, reconnecting: false))
+                default:
+                    return event
+                }
             }
         },
                              onCancel: { driver.cancelSteps() })
@@ -160,12 +169,12 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
         driver.processRevived()
     }
 
-    /// Capped backoff before the `failed + 1`th re-attach in a row. Only a
-    /// user or App event starts a re-attach; this only spaces them.
+    /// Capped backoff before the `failed + 1`th re-attach in a row: spaces
+    /// the view's own retries and the event-started ones after them.
     nonisolated static func reattachBackoff(afterFailures failed: Int) async throws {
         var backoff = Backoff(initial: .milliseconds(500), maximum: .seconds(30))
         for _ in 1..<max(1, failed) { _ = backoff.next() }
-        // concurrency-allow: async sleep on the attach task, only before a re-attach an event started after a failed one
+        // concurrency-allow: async sleep on the attach task, only before a re-attach that follows a failed one
         try await backoff.wait(owner: "terminal.reattach")
     }
 
@@ -207,6 +216,7 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
     static func connection(_ status: TerminalLinkStatus) -> TerminalConnectionStatus {
         switch status {
         case .connected: .connected
+        case .restoring: .restoring
         case .exited: .exited
         case .disconnected(let reason, let reconnecting): .disconnected(cause(reason), reconnecting: reconnecting)
         }

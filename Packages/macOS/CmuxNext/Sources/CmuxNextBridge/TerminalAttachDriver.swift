@@ -63,9 +63,12 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
     /// in a row (the App passes a capped ``Backoff``). Throws when cancelled.
     public typealias BackoffDelay = @Sendable (_ failedReconnects: Int) async throws -> Void
 
+    /// `restoring`: the view attaches to a terminal that already runs
+    /// (``TerminalAttachMachine/init(initialSize:visible:restoring:)``).
     public init(
         initialSize: CellSize,
         visible: Bool = true,
+        restoring: Bool = false,
         outputHighWater: Int = 1 << 20,
         opener: @escaping Opener,
         onFailure: @escaping @Sendable (any Error) -> Void = { _ in },
@@ -74,7 +77,7 @@ public nonisolated final class TerminalAttachDriver<Link: TerminalAttachLink>: S
         cursorDefault: TerminalCursorDefault = .ghostty,
         backoffDelay: @escaping BackoffDelay = { _ in }
     ) {
-        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible)))
+        core = Mutex(Core(machine: Machine(initialSize: initialSize, visible: visible, restoring: restoring)))
         queue = TerminalStepQueue(highWater: outputHighWater)
         self.opener = opener
         self.onFailure = onFailure

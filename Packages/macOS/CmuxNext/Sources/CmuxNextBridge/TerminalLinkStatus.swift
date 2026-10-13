@@ -15,6 +15,9 @@ public nonisolated enum TerminalDisconnectReason: Hashable, Sendable {
 /// What a terminal view shows about its daemon link.
 public nonisolated enum TerminalLinkStatus: Hashable, Sendable {
     case connected
+    /// A restored view has not shown its terminal yet: its first attach, or
+    /// a retry after that attach failed (cx-wwtam).
+    case restoring
     /// The last screen stays; `reconnecting` while one re-attach runs.
     case disconnected(TerminalDisconnectReason, reconnecting: Bool)
     /// The terminal's process ended; the view never re-attaches.

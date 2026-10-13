@@ -96,6 +96,7 @@ enum SurfaceDiagnosticsReport {
     private static func linkName(_ status: TerminalConnectionStatus) -> String {
         switch status {
         case .connected: "connected"
+        case .restoring: "restoring"
         case .exited: "exited"
         case .disconnected(let cause, let reconnecting): "disconnected:\(cause)\(reconnecting ? ":reconnecting" : "")"
         }
