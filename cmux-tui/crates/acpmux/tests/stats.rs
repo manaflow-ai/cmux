@@ -84,7 +84,7 @@ fn options(until: u64, days: u64) -> StatsOptions {
 }
 
 #[test]
-fn turns_working_time_and_harnesses() {
+fn stats_turns_working_time_and_harnesses() {
     let store = MemoryStore::default();
     let mut claude = session(&store, meta("a", "claude", "ready", DAY0 + 12 * HOUR));
     claude.prompt(DAY0 + 9 * HOUR);
@@ -122,7 +122,7 @@ fn turns_working_time_and_harnesses() {
 }
 
 #[test]
-fn overlapping_turns_are_parallel_but_back_to_back_ones_are_not() {
+fn stats_overlapping_turns_are_parallel_but_back_to_back_ones_are_not() {
     let store = MemoryStore::default();
     for (id, start, end) in [("a", 0, 60), ("b", 10, 50), ("c", 20, 30), ("d", 60, 90)] {
         let mut log = session(&store, meta(id, "claude", "ready", DAY0 + DAY / 2));
@@ -136,7 +136,7 @@ fn overlapping_turns_are_parallel_but_back_to_back_ones_are_not() {
 }
 
 #[test]
-fn waiting_on_a_permission_answer() {
+fn stats_waiting_on_a_permission_answer() {
     let store = MemoryStore::default();
     let mut log = session(&store, meta("a", "claude", "ready", DAY0 + HOUR));
     log.prompt(DAY0);
@@ -155,7 +155,7 @@ fn waiting_on_a_permission_answer() {
 }
 
 #[test]
-fn a_running_turn_counts_until_now_and_a_dead_one_is_dropped() {
+fn stats_a_running_turn_counts_until_now_and_a_dead_one_is_dropped() {
     let store = MemoryStore::default();
     let mut live = session(&store, meta("live", "claude", "running", DAY0 + HOUR));
     live.prompt(DAY0 + HOUR - 20 * MIN);
@@ -171,7 +171,7 @@ fn a_running_turn_counts_until_now_and_a_dead_one_is_dropped() {
 }
 
 #[test]
-fn ranges_clip_and_old_sessions_are_skipped() {
+fn stats_ranges_clip_and_old_sessions_are_skipped() {
     let store = MemoryStore::default();
     let mut old = session(&store, meta("old", "claude", "ready", DAY0 - 30 * DAY));
     old.prompt(DAY0 - 30 * DAY);
@@ -189,7 +189,7 @@ fn ranges_clip_and_old_sessions_are_skipped() {
 }
 
 #[test]
-fn days_hours_and_streaks_follow_the_callers_offset() {
+fn stats_days_hours_and_streaks_follow_the_callers_offset() {
     let store = MemoryStore::default();
     let mut log = session(&store, meta("a", "claude", "ready", DAY0 + 3 * DAY));
     // 23:30 UTC on three days running; at UTC-8 that is 15:30 the same day.
@@ -215,7 +215,7 @@ fn days_hours_and_streaks_follow_the_callers_offset() {
 }
 
 #[test]
-fn options_from_params_clamp() {
+fn stats_options_from_params_clamp() {
     let now = DAY0;
     let o = StatsOptions::from_params(&json!({}), now);
     assert_eq!(o.since, now - 84 * DAY);
@@ -225,7 +225,7 @@ fn options_from_params_clamp() {
 }
 
 #[test]
-fn civil_dates() {
+fn stats_civil_dates() {
     assert_eq!(civil_date(0), "1970-01-01");
     assert_eq!(civil_date((DAY0 / DAY) as i64), "2026-10-12");
     assert_eq!(civil_date(-1), "1969-12-31");
