@@ -162,6 +162,26 @@ struct CloudMoveTests {
         }
     }
 
+    /// A move a quit interrupted is never left half-done without a word: the relaunched app shows
+    /// the chat's move card again (it didn't finish, Retry), and Retry finishes the move on its
+    /// machine (cx-rppd.16).
+    @Test func aMoveInterruptedByAQuitOffersRetryInItsChatAfterTheRelaunch() async throws {
+        try await Self.withMove("syncTimeout") { move in
+            move.services.cloud.move.timeout = .seconds(60)
+            move.start()
+            let deadline = ContinuousClock.now + .seconds(20)
+            while move.calls().isEmpty, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+            try #require(move.calls().count == 1, "the move never started its sync: \(move.calls())")
+            try await move.relaunch()
+            let cards = move.services.cloud.toolCards
+            let shown = ContinuousClock.now + .seconds(20)
+            while cards.cards(tab: move.key).isEmpty, ContinuousClock.now < shown { try? await Task.sleep(for: .milliseconds(50)) }
+            let card = try #require(cards.cards(tab: move.key).first, "the relaunched app says nothing about the unfinished move")
+            #expect(card.text == CloudMoveStrings.unresolved)
+            #expect(card.actions.map(\.id).contains("retry"), "\(card.actions.map(\.id))")
+        }
+    }
+
     /// A machine whose cmux-tui is too old for the move (cx-rppd.13) is named as one in plain words,
     /// whether the folder copy or the chat move found it, and nothing moves: this Mac's tab stays and
     /// Retry runs the move again on that machine once it is updated.
