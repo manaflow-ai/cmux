@@ -379,8 +379,8 @@ let package = Package(
         ),
         // AppKit overlays of keys (moved out of CmuxNextApp/Focus): the shortcut hint
         // overlay and its capture waiter, the which-key controller, overlay, rows and
-        // the WhichKey strings. The focus state machine, the key rules and key
-        // delivery stay in the App.
+        // the WhichKey strings, and the key-hold buffer (the keys a hold keeps and its
+        // bound). The focus state machine and key delivery stay in the App.
         .target(
             name: "CmuxNextFocusUI",
             dependencies: ["CmuxNextActions", "CmuxNextDesign"],
