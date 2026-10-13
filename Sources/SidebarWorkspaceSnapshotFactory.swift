@@ -131,9 +131,12 @@ struct SidebarWorkspaceSnapshotFactory {
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
+        let sidebarStatusEntries = workspace.sidebarStatusEntriesInDisplayOrder().filter { entry in
+            settings.showsProgramStatus || entry.key != Workspace.programStatusKey
+        }
         let statusEntries = SidebarCompactStatusGlyph.partition(
             detailVisibility.showsMetadata || settings.compactsAgentStatus
-                ? workspace.sidebarStatusEntriesInDisplayOrder()
+                ? sidebarStatusEntries
                 : [],
             compacts: settings.compactsAgentStatus
         )

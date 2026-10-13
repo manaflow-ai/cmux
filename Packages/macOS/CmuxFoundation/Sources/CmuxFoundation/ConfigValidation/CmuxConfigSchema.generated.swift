@@ -1703,6 +1703,14 @@ enum CmuxEmbeddedConfigSchema {
           "description": "Maximum lines shown for the latest notification below each workspace title.",
           "descriptionKey": "schemaDescriptions.sidebar.notificationMessageLineLimit"
         },
+        "statusEntryLimit": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50,
+          "default": 3,
+          "description": "Maximum custom status rows shown before Show more. Set to 0 to show every status row.",
+          "descriptionKey": "schemaDescriptions.sidebar.statusEntryLimit"
+        },
         "showBranchDirectory": {
           "type": "boolean",
           "default": true,
@@ -1786,6 +1794,12 @@ enum CmuxEmbeddedConfigSchema {
           "type": "boolean",
           "default": true,
           "description": "Show custom metadata pills."
+        },
+        "showProgramStatus": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the OSC 7501 program_status row in the sidebar. Program status events and records remain available when this is false.",
+          "descriptionKey": "schemaDescriptions.sidebar.showProgramStatus"
         },
         "compactAgentStatus": {
           "type": "boolean",

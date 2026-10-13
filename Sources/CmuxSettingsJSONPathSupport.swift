@@ -394,6 +394,10 @@ enum SidebarSettingsFileMapping {
             defaultsKey: sidebar.showNotificationMessage.userDefaultsKey
         ),
         .init(
+            jsonKey: "showProgramStatus",
+            defaultsKey: sidebar.showProgramStatus.userDefaultsKey
+        ),
+        .init(
             jsonKey: "showBranchDirectory",
             defaultsKey: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey
         ),

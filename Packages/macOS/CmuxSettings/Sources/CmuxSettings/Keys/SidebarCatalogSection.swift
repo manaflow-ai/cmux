@@ -5,6 +5,8 @@ import Foundation
 public struct SidebarCatalogSection: SettingCatalogSection {
     /// Valid notification-preview line limits for settings UI and configuration parsing.
     public static let notificationMessageLineLimitRange = 1...50
+    /// Valid collapsed status-entry limits. Zero keeps every status row visible.
+    public static let statusEntryLimitRange = 0...50
 
     /// Resolves the shipped legacy layout contract together with the newer
     /// branch/directory placement preference.
@@ -76,6 +78,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         id: "sidebar.notificationMessageLineLimit",
         defaultValue: 12,
         userDefaultsKey: "sidebarNotificationMessageLineLimit"
+    )
+
+    /// Maximum custom status rows shown before the row offers “Show more”.
+    /// Zero disables collapsing and shows every status row.
+    public let statusEntryLimit = DefaultsKey<Int>(
+        id: "sidebar.statusEntryLimit",
+        defaultValue: 3,
+        userDefaultsKey: "sidebarStatusEntryLimit"
     )
 
     public let showBranchDirectory = DefaultsKey<Bool>(
@@ -205,6 +215,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         id: "sidebar.showCustomMetadata",
         defaultValue: true,
         userDefaultsKey: "sidebarShowStatusPills"
+    )
+
+    /// Whether OSC 7501 `program_status` records get a sidebar status row.
+    /// Events and the status record itself remain available when this is off.
+    public let showProgramStatus = DefaultsKey<Bool>(
+        id: "sidebar.showProgramStatus",
+        defaultValue: true,
+        userDefaultsKey: "sidebarShowProgramStatus"
     )
 
     public let rightMaxWidth = DefaultsKey<Double>(
