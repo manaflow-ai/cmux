@@ -38,6 +38,11 @@ extension AppActions {
         // The channels Home tab (HomeChannelsPageTab), next to the native Home. Registered at
         // launch so a restored Channels tab finds its provider.
         services.pages.register(HomeChannelsPageTab(services: services))
+        #if DEBUG
+        // The DEBUG Home fixture (debug.home_native_fixture.open), registered at launch for the same reason: a fixture
+        // tab the daemon restored from an earlier run had no provider when its pane first showed it and stayed blank.
+        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture()) }
+        #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         registry.bind("home.show") {
             if TopPages.show(.home, services: services) != nil { return }
