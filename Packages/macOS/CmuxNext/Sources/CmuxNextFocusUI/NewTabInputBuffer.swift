@@ -1,6 +1,6 @@
-import AppKit
+public import AppKit
 
-/// (Moved from CmuxNextApp, which re-exports this target.) One opening owns its original key events until its field and native responder are ready.
+/// One opening owns its original key events until its field and native responder are ready.
 /// The hold always ends: by the field's readiness, by the opening ending (the page left, focus
 /// moved elsewhere), or by the hold limit. A hold that ends without readiness gives its keys back,
 /// in typing order, to whatever has focus then; no key is ever dropped (nightly 2026-10-11: a
