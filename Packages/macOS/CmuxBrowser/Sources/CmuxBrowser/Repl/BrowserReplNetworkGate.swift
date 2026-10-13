@@ -10,10 +10,15 @@ public struct BrowserReplNetworkSender: Sendable, Equatable {
     public var documentID: String?
     /// For a load of a document, the URL it loads.
     public var loadsDocument: String?
+    /// Whether the request is the tab's main frame's own (WebKit names no
+    /// parent frame for it); false for a child frame's, or when WebKit does
+    /// not say.
+    public var isMainFrame: Bool
 
-    public init(documentID: String?, loadsDocument: String? = nil) {
+    public init(documentID: String?, loadsDocument: String? = nil, isMainFrame: Bool = false) {
         self.documentID = documentID
         self.loadsDocument = loadsDocument
+        self.isMainFrame = isMainFrame
     }
 }
 

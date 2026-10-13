@@ -1317,8 +1317,10 @@ final class BrowserReplTabAttachment {
         let observer = BrowserReplResourceLoadObserver { [weak self] event, payload, sender in
             guard let self else { return }
             if event == "request" { self.requestGeneration += 1 }
+            // Only the main frame's document: a child frame's (one the domain
+            // policy blocks included) never stands for the page's status.
             if event == "response", payload["resourceType"] as? String == "document",
-               payload["isMainFrame"] as? Bool ?? true,
+               sender.isMainFrame,
                let status = payload["status"] as? Int {
                 self.mainDocumentStatus = status
             }

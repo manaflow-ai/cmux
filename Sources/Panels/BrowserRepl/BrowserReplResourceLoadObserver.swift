@@ -135,7 +135,11 @@ final class BrowserReplResourceLoadObserver: NSObject {
             documentID = (resourceLoad.value(forKey: "documentID") as? UUID)?.uuidString
         }
         let loadsDocument = payload["resourceType"] as? String == "document" ? payload["url"] as? String : nil
-        return BrowserReplNetworkSender(documentID: documentID, loadsDocument: loadsDocument)
+        // `_WKResourceLoadInfo.parentFrame` is nil only for the main frame's
+        // loads; without the property no load counts as the main frame's.
+        let parentFrame = NSSelectorFromString("parentFrame")
+        let isMainFrame = resourceLoad.responds(to: parentFrame) && resourceLoad.value(forKey: "parentFrame") == nil
+        return BrowserReplNetworkSender(documentID: documentID, loadsDocument: loadsDocument, isMainFrame: isMainFrame)
     }
 
     private static func loadID(_ resourceLoad: NSObject) -> UInt64 {
