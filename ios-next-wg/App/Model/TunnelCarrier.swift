@@ -27,7 +27,18 @@ final class TunnelCarrier: CmuxTUICarrier {
         try await stream.write(data)
     }
 
+    /// Half-closes, waits (up to a second) for the Mac to end the lane too,
+    /// then releases the socket: the Mac sees a clean close, not a lane left
+    /// half open when the tunnel stops.
     func close() async {
+        stream.shutdownWrite()
+        let pump = pump
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await pump.value }
+            group.addTask { try? await Task.sleep(for: .seconds(1)) }
+            await group.next()
+            group.cancelAll()
+        }
         stream.close()
         pump.cancel()
     }

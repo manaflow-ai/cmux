@@ -56,6 +56,10 @@ public actor WireGuardPhoneHost {
     var invitation: PendingInvitation?
     let invitationExpiry = DemandTimer(owner: "mobile.wireguard.invitation")
     var connections: [String: Int] = [:]
+    /// Open daemon lanes by phone id, closed when the phone is revoked or
+    /// its tunnel goes silent.
+    var lanes: [String: [ObjectIdentifier: SocketStream]] = [:]
+    let laneCheck = DemandTimer(owner: "mobile.wireguard.lane-check")
     var failure: String?
     var justPaired: WireGuardPairedPhone?
 
@@ -113,6 +117,8 @@ public actor WireGuardPhoneHost {
 
     public func stop() {
         invitationExpiry.cancel()
+        laneCheck.cancel()
+        for id in Array(lanes.keys) { closeLanes(of: id) }
         invitation = nil
         for listener in listeners { listener.close() }
         listeners = []
@@ -156,13 +162,18 @@ public actor WireGuardPhoneHost {
         guard let pending = invitation else { return }
         invitation = nil
         try? tunnel?.removePeer(pending.bootstrapPublicKey)
+        publish()
     }
 
     /// Unpairs a phone: its peer is removed at once, so open connections die.
     public func revoke(phoneID: String) throws {
         guard var state, let index = state.phones.firstIndex(where: { $0.id == phoneID }) else { return }
         let phone = state.phones.remove(at: index)
+        // Its address is reused only after every other one (see enroll), so
+        // late segments never reach the next phone.
+        state.retiredAddresses = (state.retiredAddresses ?? []).filter { $0 != phone.address } + [phone.address]
         try tunnel?.removePeer(phone.publicKey)
+        closeLanes(of: phone.id)
         try store.save(state)
         self.state = state
         publish()
@@ -206,10 +217,45 @@ public actor WireGuardPhoneHost {
     private func acceptLoop(_ listener: WireGuardListener,
                             serve: @escaping @Sendable (SocketStream, String) async -> Void) async {
         // wakeup-allow: awaits the next tunneled connection; ends when stop() closes the listener
-        while let (stream, peer) = try? await listener.accept() {
-            // task-owner: one tunneled connection; ends when either side closes
-            Task { await serve(stream, peer) }
+        while true {
+            do {
+                let (stream, peer) = try await listener.accept()
+                // task-owner: one tunneled connection; ends when either side closes
+                Task { await serve(stream, peer) }
+            } catch WireGuardTunnel.Failure.stopped {
+                return
+            } catch {
+                logger.error("wireguard: accept: \(String(describing: error), privacy: .public)")
+            }
         }
+    }
+
+    func closeLanes(of phoneID: String) {
+        for stream in lanes[phoneID]?.values ?? [:].values { stream.close() }
+        lanes[phoneID] = nil
+    }
+
+    /// While lanes are open, closes those of phones whose tunnel went
+    /// silent: a phone that went away without closing (suspended, out of
+    /// range) leaves a lane no FIN will end. A live phone keeps its session
+    /// fresh (keepalive every 25 s, a handshake at least every 2 minutes).
+    func scheduleLaneCheck() {
+        guard !lanes.isEmpty else { return laneCheck.cancel() }
+        laneCheck.scheduleIfIdle(after: .seconds(180)) { [weak self] in await self?.checkLanes() }
+    }
+
+    private func checkLanes() {
+        guard let tunnel, let state else { return }
+        let status = tunnel.status()
+        let cutoff = Date().addingTimeInterval(-200)
+        for phone in state.phones where lanes[phone.id] != nil {
+            let last = status.peer(phone.publicKey)?.lastHandshake ?? .distantPast
+            if last < cutoff {
+                logger.info("wireguard: \(phone.name, privacy: .public) went silent; closing its lanes")
+                closeLanes(of: phone.id)
+            }
+        }
+        scheduleLaneCheck()
     }
 
     /// A paired phone's daemon lane.
@@ -224,6 +270,8 @@ public actor WireGuardPhoneHost {
             return
         }
         connections[phone.id, default: 0] += 1
+        lanes[phone.id, default: [:]][ObjectIdentifier(stream)] = stream
+        scheduleLaneCheck()
         publish()
         let splice = DaemonLaneSplice(phone: SocketStreamLane(stream: stream), daemon: daemon,
                                       policy: DaemonLanePolicy(deviceID: phone.id))
@@ -231,6 +279,8 @@ public actor WireGuardPhoneHost {
         logger.info("wireguard: \(phone.name, privacy: .public) lane ended: \(String(describing: reason), privacy: .public)")
         connections[phone.id, default: 1] -= 1
         if connections[phone.id] == 0 { connections[phone.id] = nil }
+        lanes[phone.id]?[ObjectIdentifier(stream)] = nil
+        if lanes[phone.id]?.isEmpty == true { lanes[phone.id] = nil }
         publish()
     }
 }

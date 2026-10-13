@@ -28,6 +28,9 @@ final class HostConnection: Identifiable {
     @ObservationIgnored private var link: PairedHostLink?
     @ObservationIgnored private var subscription: Task<Void, Never>?
     @ObservationIgnored private var connecting: Task<Void, Never>?
+    /// Bumped by every connect and disconnect; a task whose generation is
+    /// stale changes nothing and closes what it opened.
+    @ObservationIgnored private var generation = 0
     /// Called when the Mac answered on a different endpoint, to persist it.
     @ObservationIgnored var onEndpointLearned: ((PairedHost) -> Void)?
 
@@ -43,32 +46,38 @@ final class HostConnection: Identifiable {
     func connect() {
         guard connecting == nil, phase != .connected else { return }
         phase = .connecting
+        generation += 1
+        let current = generation
         connecting = Task { [weak self] in
-            await self?.establish()
-            self?.connecting = nil
+            await self?.establish(current)
+            if self?.generation == current { self?.connecting = nil }
         }
     }
 
-    private func establish() async {
+    private func establish(_ current: Int) async {
         do {
             let link = try self.link ?? PairedHostLink(host: host, privateKey: privateKey)
             self.link = link
             let stream = try await link.connect(port: OverlayPlan().daemonPort)
+            guard generation == current else { return stream.close() }
             let control = try await CmuxTUIControl.open(carrier: TunnelCarrier(stream: stream), session: nil,
                                                         clientName: "cmux-next-ios", handshakeTimeout: .seconds(10))
+            guard generation == current else { return await control.close() }
             self.control = control
             endpoint = link.currentEndpoint
             if let endpoint, endpoint != host.lastGoodEndpoint {
                 host.lastGoodEndpoint = endpoint
                 onEndpointLearned?(host)
             }
-            workspaces = try await control.listWorkspaces()
+            let list = try await control.listWorkspaces()
+            guard generation == current else { return }
+            workspaces = list
             phase = .connected
             watchTree(control)
         } catch let error as PairingError {
-            phase = .failed(error.localizedDescription)
+            if generation == current { phase = .failed(error.localizedDescription) }
         } catch {
-            phase = .failed(Self.describe(error))
+            if generation == current { phase = .failed(Self.describe(error)) }
         }
     }
 
@@ -115,17 +124,24 @@ final class HostConnection: Identifiable {
         }
     }
 
-    func disconnect() {
+    /// Closes the daemon lane, then the tunnel, so the Mac sees the lane end
+    /// (a FIN through the tunnel) instead of a half-open connection.
+    @discardableResult
+    func disconnect() -> Task<Void, Never> {
+        generation += 1
         connecting?.cancel()
         connecting = nil
         subscription?.cancel()
         subscription = nil
         let control = control
+        let link = link
         self.control = nil
-        Task { await control?.close() }
-        link?.close()
-        link = nil
+        self.link = nil
         phase = .idle
+        return Task {
+            await control?.close()
+            link?.close()
+        }
     }
 
     /// A new workspace with one terminal sized for the phone.

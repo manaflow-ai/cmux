@@ -132,8 +132,15 @@ final class AppModel {
         selected?.connect()
     }
 
+    /// Closes every lane cleanly before iOS suspends the app.
     func enteredBackground() {
-        for connection in connections { connection.disconnect() }
+        let closing = connections.map { $0.disconnect() }
+        let assertion = BackgroundAssertion()
+        assertion.begin()
+        Task {
+            for task in closing { await task.value }
+            assertion.end()
+        }
     }
 
     func networkChanged() {
@@ -148,5 +155,23 @@ final class AppModel {
 
     private func persistAll() {
         try? vault.savePairedHosts(connections.map(\.host))
+    }
+}
+
+/// A UIKit background task that ends exactly once (on finish or expiry).
+@MainActor
+final class BackgroundAssertion {
+    private var identifier = UIBackgroundTaskIdentifier.invalid
+
+    func begin() {
+        identifier = UIApplication.shared.beginBackgroundTask { [weak self] in
+            MainActor.assumeIsolated { self?.end() }
+        }
+    }
+
+    func end() {
+        guard identifier != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(identifier)
+        identifier = .invalid
     }
 }

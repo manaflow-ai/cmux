@@ -163,3 +163,89 @@ struct WireGuardPhoneHostCodeTests {
         await host.stop()
     }
 }
+
+@Suite(.timeLimit(.minutes(1)))
+struct WireGuardPhoneHostReviewTests {
+    private func makeHost(daemon: FakeDaemonPath? = nil) -> (WireGuardPhoneHost, URL) {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("wg-review-\(UUID().uuidString)")
+        let path = daemon?.path
+        return (WireGuardPhoneHost(stateDirectory: directory, hostName: "Review Mac", daemonSocketPath: { path },
+                                   onChange: { _ in }), directory)
+    }
+
+    private func pair(_ host: WireGuardPhoneHost, key: WireGuardKey, name: String) async throws -> PairedHost {
+        var invitation = try await host.makeInvitation()
+        let port = try #require(await host.snapshot().listenPort)
+        invitation.endpoints = ["127.0.0.1:\(port)"]
+        return try await WireGuardPairingClient().pair(invitation: invitation, permanentKey: key,
+                                                       deviceName: name, deviceModel: "iPhone")
+    }
+
+    /// Revoking a phone closes its open daemon lanes on the Mac side, and its
+    /// address goes to the next phone only after the unused ones.
+    @Test func revokeClosesLanesAndRetiresTheAddress() async throws {
+        let daemon = try FakeDaemonPath()
+        let (host, directory) = makeHost(daemon: daemon)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await host.start()
+        let key = WireGuardKey()
+        var paired = try await pair(host, key: key, name: "First")
+        let port = try #require(await host.snapshot().listenPort)
+        paired.endpoints = ["127.0.0.1:\(port)"]
+        let link = try PairedHostLink(host: paired, privateKey: key)
+        let lane = try await link.connect(port: OverlayPlan().daemonPort)
+        try await lane.write(Data(#"{"id":1,"cmd":"ping"}"#.utf8 + [0x0A]))
+        _ = try await lane.read()
+        #expect(await host.snapshot().connections[paired.deviceID] == 1)
+
+        try await host.revoke(phoneID: paired.deviceID)
+        var open = await host.snapshot().connections[paired.deviceID]
+        for _ in 0..<50 where open != nil {
+            await Task.yield()
+            try await Task.sleep(for: .milliseconds(20))
+            open = await host.snapshot().connections[paired.deviceID]
+        }
+        #expect(open == nil)
+
+        let next = try await pair(host, key: WireGuardKey(), name: "Second")
+        #expect(next.address != paired.address)
+        lane.close()
+        link.close()
+        await host.stop()
+    }
+
+    /// A key that is already paired keeps its record (no preshared-key
+    /// rotation), and the invitation's own bootstrap key is refused.
+    @Test func enrollmentCannotRotateOrUseTheBootstrapKey() async throws {
+        let (host, directory) = makeHost()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await host.start()
+        let key = WireGuardKey()
+        let first = try await pair(host, key: key, name: "Phone")
+        let again = try await pair(host, key: key, name: "Impostor")
+        #expect(again.presharedKey == first.presharedKey)
+        #expect(again.address == first.address)
+        #expect(await host.snapshot().phones.map(\.name) == ["Phone"])
+
+        var invitation = try await host.makeInvitation()
+        let port = try #require(await host.snapshot().listenPort)
+        invitation.endpoints = ["127.0.0.1:\(port)"]
+        await #expect(throws: PairingError.self) {
+            _ = try await WireGuardPairingClient().pair(invitation: invitation, permanentKey: invitation.bootstrapKey,
+                                                        deviceName: "Bootstrap", deviceModel: "iPhone")
+        }
+        await host.stop()
+    }
+}
+
+/// The fake daemon socket, for suites outside this file's private type.
+final class FakeDaemonPath: @unchecked Sendable {
+    let path: String
+    private let socket: AnyObject
+
+    init() throws {
+        let fake = try FakeDaemonSocket()
+        path = fake.path
+        socket = fake
+    }
+}

@@ -45,6 +45,8 @@ final class PhonePairingService {
                 })
             self.host = host
             await host.start()
+            // stop() ran while starting: this host has no owner left.
+            guard self.host === host, !Task.isCancelled else { return await host.stop() }
             self.starting = nil
             if self.controller != nil { self.mintCode() }
         }

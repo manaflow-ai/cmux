@@ -32,9 +32,12 @@ struct WireGuardHostState: Codable, Sendable {
     var privateKey: WireGuardKey
     var listenPort: UInt16?
     var phones: [WireGuardPairedPhone]
+    /// Addresses of unpaired phones, oldest first; reused last.
+    var retiredAddresses: [String]?
 
     static func fresh() -> WireGuardHostState {
-        WireGuardHostState(hostID: UUID().uuidString.lowercased(), privateKey: WireGuardKey(), listenPort: nil, phones: [])
+        WireGuardHostState(hostID: UUID().uuidString.lowercased(), privateKey: WireGuardKey(), listenPort: nil, phones: [],
+                           retiredAddresses: [])
     }
 }
 
@@ -46,13 +49,16 @@ struct WireGuardHostStore: Sendable {
             .appendingPathComponent("host.json")
     }
 
+    /// The saved state, or a new identity when there is none yet. Any other
+    /// read or decode failure throws: replacing the file would lose the
+    /// host key and every pairing.
     func load() throws -> WireGuardHostState {
-        guard let data = try? Data(contentsOf: file) else {
+        guard FileManager.default.fileExists(atPath: file.path) else {
             let state = WireGuardHostState.fresh()
             try save(state)
             return state
         }
-        return try JSONDecoder().decode(WireGuardHostState.self, from: data)
+        return try JSONDecoder().decode(WireGuardHostState.self, from: Data(contentsOf: file))
     }
 
     func save(_ state: WireGuardHostState) throws {
@@ -61,7 +67,21 @@ struct WireGuardHostStore: Sendable {
                                                 attributes: [.posixPermissions: 0o700])
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try encoder.encode(state).write(to: file, options: .atomic)
-        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
+        // Owner-only from creation: the file holds the host's private key.
+        let temporary = directory.appendingPathComponent(".host.json.\(UUID().uuidString)")
+        guard FileManager.default.createFile(atPath: temporary.path, contents: try encoder.encode(state),
+                                             attributes: [.posixPermissions: 0o600]) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        do {
+            if FileManager.default.fileExists(atPath: file.path) {
+                _ = try FileManager.default.replaceItemAt(file, withItemAt: temporary)
+            } else {
+                try FileManager.default.moveItem(at: temporary, to: file)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw error
+        }
     }
 }

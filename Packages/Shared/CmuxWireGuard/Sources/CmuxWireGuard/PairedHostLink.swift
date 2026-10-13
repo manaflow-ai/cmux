@@ -142,6 +142,16 @@ public struct WireGuardPairingClient: Sendable {
             newline = buffer.firstIndex(of: 0x0A)
         }
         let response = try JSONLine().decode(EnrollmentResponse.self, from: Data(buffer.prefix { $0 != 0x0A }))
+        // Half-close and wait briefly for the Mac's close, so it can drop the
+        // one-time peer at once rather than at its deadline.
+        stream.shutdownWrite()
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { while let chunk = try? await stream.read(), !chunk.isEmpty {} }
+            group.addTask { try? await Task.sleep(for: .seconds(2)) }
+            await group.next()
+            group.cancelAll()
+            stream.close()
+        }
         var host = try PairedHost(invitation: invitation, response: response, pairedAt: now)
         host.lastGoodEndpoint = winner
         return host

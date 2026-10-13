@@ -66,6 +66,9 @@ final class TerminalSession {
     @ObservationIgnored private var pump: Task<Void, Never>?
     @ObservationIgnored private var generation: UInt64 = 0
     @ObservationIgnored private var lastGrid: (cols: Int, rows: Int)?
+    /// Bumped by every attach and stop; a pump from an older epoch neither
+    /// keeps its attachment nor clears a newer one.
+    @ObservationIgnored private var epoch = 0
 
     func start(control: CmuxTUIControl, surface: Int) {
         guard self.control !== control || attachment == nil else { return }
@@ -86,19 +89,28 @@ final class TerminalSession {
         guard grid.cols > 0, grid.rows > 0 else { return }
         lastGrid = grid
         banner = nil
+        epoch += 1
+        let current = epoch
         pump = Task { [weak self] in
             do {
                 let attachment = try await control.attach(surface: surface, cols: grid.cols, rows: grid.rows)
-                self?.attachment = attachment
-                for await event in attachment.events {
-                    self?.apply(event)
+                guard let self, self.epoch == current else {
+                    // Stopped while attaching: release the Mac's grid claim.
+                    try? await attachment.detach()
+                    return
                 }
-                self?.banner = String(localized: "Disconnected")
+                self.attachment = attachment
+                for await event in attachment.events {
+                    guard self.epoch == current else { break }
+                    self.apply(event)
+                }
+                if self.epoch == current { self.banner = String(localized: "Disconnected") }
             } catch {
-                self?.banner = HostConnection.describe(error)
+                if self?.epoch == current { self?.banner = HostConnection.describe(error) }
             }
-            self?.pump = nil
-            self?.attachment = nil
+            guard let self, self.epoch == current else { return }
+            self.pump = nil
+            self.attachment = nil
         }
         view.onInput = { [weak self] data in self?.send(data) }
         view.becomeFirstResponder()
@@ -155,6 +167,7 @@ final class TerminalSession {
     }
 
     func stop() {
+        epoch += 1
         pump?.cancel()
         pump = nil
         let attachment = attachment

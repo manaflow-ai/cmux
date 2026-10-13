@@ -148,7 +148,8 @@ public final class WireGuardListener: Sendable {
     deinit { close() }
 
     /// The next tunneled connection and the peer's tunnel address
-    /// ("10.77.0.2"). Throws once the listener or tunnel closes.
+    /// ("10.77.0.2"). Throws `.stopped` once the listener or tunnel closes;
+    /// other failures lose one connection and the listener stays usable.
     public func accept() async throws -> (stream: SocketStream, peerAddress: String) {
         let handle = handle
         return try await withCheckedThrowingContinuation { continuation in
@@ -156,7 +157,10 @@ public final class WireGuardListener: Sendable {
                 var peer = [CChar](repeating: 0, count: 80)
                 let fd = cmuxwg_accept(handle, &peer, Int32(peer.count))
                 guard fd >= 0 else {
-                    return continuation.resume(throwing: WireGuardTunnel.Failure.stopped)
+                    // EBADF: the listener or tunnel is gone. Anything else
+                    // (a socketpair that could not be made) lost one connection.
+                    let error: WireGuardTunnel.Failure = -fd == EBADF ? .stopped : .library(operation: "accept", code: -fd)
+                    return continuation.resume(throwing: error)
                 }
                 let remote = String(decoding: peer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
                 let host = remote.split(separator: ":").first.map(String.init) ?? remote

@@ -36,7 +36,7 @@ extension WireGuardPhoneHost {
         invitationExpiry.cancel()
         invitation = nil
         do {
-            let phone = try enroll(request)
+            let phone = try enroll(request, bootstrapKey: pending.bootstrapPublicKey)
             let response = EnrollmentResponse(address: phone.address, presharedKey: phone.presharedKey, deviceID: phone.id)
             try await stream.write(JSONLine().encode(response))
             logger.info("wireguard: paired \(phone.name, privacy: .public) at \(phone.address, privacy: .public)")
@@ -53,22 +53,34 @@ extension WireGuardPhoneHost {
     }
 
     /// Adds (or re-adds) the phone's permanent peer and saves it.
-    private func enroll(_ request: EnrollmentRequest) throws -> WireGuardPairedPhone {
+    private func enroll(_ request: EnrollmentRequest, bootstrapKey: WireGuardKey) throws -> WireGuardPairedPhone {
         guard var state, let tunnel else { throw PairingError.unreachable }
-        // The same phone pairing again keeps its id and address.
-        let existing = state.phones.first { $0.publicKey == request.publicKey }
+        // Keys that are not a phone's own: the Mac's, or an invitation's.
+        guard request.publicKey != state.privateKey.publicKey, request.publicKey != bootstrapKey else {
+            throw PairingError.refused("This pairing request is not valid.")
+        }
+        // A key that is already paired keeps its record unchanged: re-pairing
+        // the same phone needs nothing new, and a request carrying another
+        // phone's public key must not rotate that phone's preshared key.
+        if let existing = state.phones.first(where: { $0.publicKey == request.publicKey }) {
+            justPaired = existing
+            return existing
+        }
         let used = Set(state.phones.map(\.address))
-        guard let address = existing?.address
-                ?? (2...254).lazy.compactMap({ self.plan.deviceAddress($0) }).first(where: { !used.contains($0) }) else {
+        let retired = state.retiredAddresses ?? []
+        let free = (2...254).compactMap { self.plan.deviceAddress($0) }.filter { !used.contains($0) }
+        // Never-used addresses first, then retired ones, oldest first.
+        guard let address = free.first(where: { !retired.contains($0) })
+                ?? retired.first(where: { free.contains($0) }) else {
             throw PairingError.refused("This Mac has no room for another phone. Unpair one first.")
         }
+        state.retiredAddresses = retired.filter { $0 != address }
         let phone = WireGuardPairedPhone(
-            id: existing?.id ?? UUID().uuidString.lowercased(),
+            id: UUID().uuidString.lowercased(),
             name: String(request.deviceName.prefix(80)), model: String(request.deviceModel.prefix(80)),
             publicKey: request.publicKey, presharedKey: WireGuardKey(randomPresharedKey: ()),
             address: address, pairedAt: Date())
         try tunnel.setPeer(Self.peer(for: phone))
-        state.phones.removeAll { $0.publicKey == request.publicKey }
         state.phones.append(phone)
         try store.save(state)
         self.state = state

@@ -81,7 +81,11 @@ private final class DiscoverySearch: Sendable {
         let fresh = state.withLock { state in state.resolving.insert(id).inserted }
         guard fresh else { return }
         let key = txt["hk"].flatMap(WireGuardKey.init(base64:))
-        let connection = NWConnection(to: result.endpoint, using: .udp)
+        // IPv4: a resolved link-local IPv6 address is unusable without its
+        // scope, and every Mac on the LAN has an IPv4 address.
+        let parameters = NWParameters.udp
+        (parameters.defaultProtocolStack.internetProtocol as? NWProtocolIP.Options)?.version = .v4
+        let connection = NWConnection(to: result.endpoint, using: parameters)
         state.withLock { $0.connections.append(connection) }
         connection.stateUpdateHandler = { [weak self, weak connection] update in
             guard case .ready = update, let self, let connection,
