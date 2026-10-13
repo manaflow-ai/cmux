@@ -37,6 +37,7 @@ final class PaneToolbarView: NSView {
         moreButton.setAccessibilityLabel(PaneToolbarStrings.more)
         moreButton.themedToolTip = PaneToolbarStrings.more
         moreButton.menuProvider = { [weak self] in self?.showMenu() }
+        moreButton.pressMenu = { [weak self] in self?.moreMenu?() }
         addSubview(moreButton)
     }
 
@@ -105,7 +106,7 @@ final class PaneToolbarView: NSView {
 
     @objc private func openMore() {
         guard let menu = moreMenu?(), !menu.items.isEmpty else { return }
-        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: moreButton, gap: Metrics.space1), in: moreButton)
+        moreButton.presentMenu(menu, moreButton)
     }
 
     /// A button's right-click: Hide <title> Button.

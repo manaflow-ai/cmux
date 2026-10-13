@@ -107,4 +107,20 @@ struct PaneToolbarTests {
         #expect(bar.buttons == ["splitRight", "splitDown", "openDiffViewer", "file.open"])
         #expect(bar.view.showMenu() == nil)
     }
+
+    /// "…" opens its menu on press, like a pop-up button (POLISH: press-drag-release): press, drag
+    /// to a row, release to run it; a plain click leaves it open. A menu that waited for the
+    /// release could not be picked in one drag.
+    @Test func moreOpensItsMenuOnPress() throws {
+        let bar = Bar()
+        bar.toolbar.update(target: "surface:1", kind: .newTab, hidden: [])
+        var presented: [[String]] = []
+        bar.view.moreButton.presentMenu = { menu, _ in presented.append(menu.items.map(\.title)) }
+        let press = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: .zero, modifierFlags: [], timestamp: 0,
+            windowNumber: 0, context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+        ))
+        bar.view.moreButton.mouseDown(with: press)
+        #expect(presented == [["Search Agent Chats", "Toggle Pane Zoom"]])
+    }
 }
