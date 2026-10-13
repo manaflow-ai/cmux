@@ -6,7 +6,7 @@ import { hostByInstall, hostDelete, hostOf, hostUpsert, memberLeftItems, memberO
 import { appendAudit, type AuditState } from "./team-audit.ts"
 import { AI_LIMIT_MEMBER_OP, AI_LIMIT_OP, AI_LIMIT_OPS, mayManageBilling, reduceAiLimit, withoutMemberLimit } from "./team-ai-limit.ts"
 // TeamDO reads limits through this module (team-do.ts stays within its size budget).
-export { aiLimitViewOf, memberLimit } from "./team-ai-limit.ts"
+export { aiLimitViewOf, codeRunLimit, memberLimit } from "./team-ai-limit.ts"
 import { reduceDomainClaim, reduceDomainLost, reduceDomainRechecked, reduceDomainReleased, reduceDomainVerified, type DomainState } from "./team-domains.ts"
 import { reduceActivated, reduceConnectionCreate, reduceConnectionDisable, reduceSecretSet, type SsoState } from "./team-sso.ts"
 import { reduceDeviceEnroll, reduceDeviceRelease, reduceReportStatus, reduceTokenCreate, reduceTokenRevoke, type EnrollmentState } from "./team-enrollment.ts"

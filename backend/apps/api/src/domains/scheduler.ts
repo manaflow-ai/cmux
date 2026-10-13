@@ -50,6 +50,10 @@ export interface RunRecord extends Run {
   readonly charged_user?: string
 }
 
+/** A change that alters what runs or when (not the name or description): its editor pays for the automation's runs. */
+const effective = (a: Automation, b: Automation) =>
+  (["triggers", "enabled", "budget", "target", "concurrency", "body"] as const).some((k) => canonicalJson(k === "triggers" ? a.triggers.map((t) => t.spec) : a[k]) !== canonicalJson(k === "triggers" ? b.triggers.map((t) => t.spec) : b[k]))
+
 export interface SchedulerState {
   readonly owner: string | null
   /** Continue triggers: runs fired in the current chain (reset when another trigger starts a run). */
@@ -184,8 +188,8 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const stopped = !enabled && a.enabled ? cancelQueued(st, a.id, ctx.now, "the automation was disabled") : []
         return {
           ok: true,
-          // A new body or a re-enable makes the editor the member scheduled runs are charged to.
-          state: st.head({ ...(p.user && (reenabled || canonicalJson(draft.body) !== canonicalJson(a.body)) ? chargeTo(state, a.id, p.user) : state), ...(counted.deploys ? { deploys: counted.deploys } : {}) }),
+          // Any effective change (triggers, enabled, budget, target, concurrency, body) makes the editor the member scheduled runs are charged to (review P2).
+          state: st.head({ ...(p.user && effective(a, draft) ? chargeTo(state, a.id, p.user) : state), ...(counted.deploys ? { deploys: counted.deploys } : {}) }),
           value: next,
           outbox: [automationOutbox(next), ...stopped],
           writes: st.writes()
@@ -222,7 +226,7 @@ export const schedulerDomain: Domain<SchedulerState> = {
         const chained = isAutomationPrincipal(p) ? automationTrigger(state, st.rows, p, a) : undefined
         if (chained && "ok" in chained) return chained
         // A person's (or their install's) manual run is charged to them; an automation-started run to its automation's member.
-        const r = startRun(st, chained ? { ...state, automation_trees: chained.trees } : state, a, chained?.trigger ?? { id: a.triggers.find((t) => t.spec.type === "manual")?.id ?? null, type: "manual" }, ctx, chained ? undefined : p.user)
+        const r = startRun(st, chained ? { ...state, automation_trees: chained.trees } : state, a, chained?.trigger ?? { id: a.triggers.find((t) => t.spec.type === "manual")?.id ?? null, type: "manual" }, ctx, chained ? chained.charged_user : p.user)
         if ("rejected" in r) return r.rejected
         return { ok: true, state: st.head(r.state), value: publicRun(r.run), outbox: r.outbox, writes: st.writes() }
       }

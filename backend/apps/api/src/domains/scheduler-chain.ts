@@ -28,7 +28,7 @@ export const automationTrigger = (
   rows: RowReader | undefined,
   p: Principal,
   target: Automation
-): { trigger: Run["trigger"]; trees: Record<string, number> } | ({ ok: false } & Reject) => {
+): { trigger: Run["trigger"]; trees: Record<string, number>; charged_user?: string } | ({ ok: false } & Reject) => {
   if (target.body.type === "agent_prompt") return { ok: false, code: "auth.forbidden", message: "an automation cannot start an agent_prompt automation" }
   const parent = runRowOf(rows, p.run!)
   // The caller is running, so its record exists; an unknown caller is refused (fail closed).
@@ -50,5 +50,7 @@ export const automationTrigger = (
   const used = trees[root] ?? 0
   if (used >= MAX_TREE_RUNS) return { ok: false, code: "automation.fanout", message: `one run and the runs it starts may start at most ${MAX_TREE_RUNS} runs` }
   trees[root] = used + 1
-  return { trigger: { id: null, type: "automation", parent_run: parent.id, root_run: root, depth }, trees }
+  // The child run is charged to whoever pays for the parent (cx-ds09i review P2).
+  const paying = (parent as { charged_user?: unknown }).charged_user
+  return { trigger: { id: null, type: "automation", parent_run: parent.id, root_run: root, depth }, trees, ...(typeof paying === "string" ? { charged_user: paying } : {}) }
 }
