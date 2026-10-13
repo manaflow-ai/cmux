@@ -55,7 +55,7 @@ enum CloudMoveStrings {
     }
     /// The machine's cmux-tui is too old for the move (`machine_outdated`, cx-rppd.13).
     static func outdatedMachine(_ machine: String) -> String {
-        String(format: String(localized: "cloud.move.outdatedMachine", defaultValue: "%@ runs an older cmux that can't take this chat. Update the machine, then Retry.",
+        String(format: String(localized: "cloud.move.outdatedMachine", defaultValue: "%@ runs an older cmux that can't take this chat yet. Update the machine to move it.",
                               table: "Cloud", bundle: .module), machine)
     }
     /// What a link CLI answers when the machine's cmux-tui is too old for it (cmux-tui `link/machine_gate.rs`).
