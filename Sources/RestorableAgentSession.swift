@@ -1276,6 +1276,24 @@ struct RestorableAgentSessionIndex: Sendable {
         return !incompleteHookStoreKinds.contains { $0.rawValue.lowercased() == kindID }
     }
 
+    /// A copy that no longer claims to describe every live agent.
+    ///
+    /// Used when a save must reuse a cached index because no fresh census
+    /// ran: an agent absent from the copy may have started after the cache
+    /// was published, so its absence is not evidence that the agent stopped.
+    /// Per-kind store completeness is dropped, so every kind reads incomplete.
+    func markingIncomplete() -> RestorableAgentSessionIndex {
+        RestorableAgentSessionIndex(
+            entriesByPanel: entriesByPanel,
+            liveSessionOwners: liveSessionOwners,
+            isComplete: false,
+            incompleteHookStoreKinds: [],
+            incompleteCodexPanelKeys: incompleteCodexPanelKeys,
+            verifiedCodexPanelKeys: verifiedCodexPanelKeys,
+            hasUnboundedCodexIncompleteness: hasUnboundedCodexIncompleteness
+        )
+    }
+
     /// Fingerprint used by the shared index cache to publish scoped completion
     /// changes even when process liveness is unchanged.
     var completionFingerprint: Set<String> {

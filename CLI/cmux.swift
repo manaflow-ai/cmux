@@ -5852,6 +5852,37 @@ struct CMUXCLI {
         }
     }
 
+    /// Sets `flags` on a CodeRouter spawn and starts the child from the signal
+    /// state a shell hands an interactive program: an empty mask and default
+    /// dispositions for the signals the CLI may leave ignored. A CLI command
+    /// runs on a Swift concurrency thread whose nearly full mask would
+    /// otherwise reach the child (see `cliResetInheritedSignalStateForExec`).
+    ///
+    /// - Returns: 0, or the first `posix_spawnattr_*` error.
+    private static func setCoderouterSpawnAttributes(
+        _ attributes: inout posix_spawnattr_t?,
+        flags: Int32
+    ) -> Int32 {
+        var childSignalMask = sigset_t()
+        sigemptyset(&childSignalMask)
+        var childDefaultSignals = sigset_t()
+        sigemptyset(&childDefaultSignals)
+        for signalNumber in cliChildLaunchDefaultDispositionSignals {
+            sigaddset(&childDefaultSignals, signalNumber)
+        }
+        var status = posix_spawnattr_setflags(
+            &attributes,
+            Int16(flags | POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF)
+        )
+        if status == 0 {
+            status = posix_spawnattr_setsigmask(&attributes, &childSignalMask)
+        }
+        if status == 0 {
+            status = posix_spawnattr_setsigdefault(&attributes, &childDefaultSignals)
+        }
+        return status
+    }
+
     private func execCoderouter(
         executablePath: String,
         commandArgs: [String],
@@ -5894,22 +5925,18 @@ struct CMUXCLI {
 
         // CLOEXEC_DEFAULT closes every descriptor that is not named in these
         // actions, including high descriptors above a reduced RLIMIT_NOFILE.
-        // Preserve each standard descriptor only when the caller left it open.
-        // A closed standard descriptor must stay closed and must not make the
-        // alias fail. SETEXEC keeps normal signal and exit-status behavior.
-        for descriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
-            errno = 0
-            if fcntl(descriptor, F_GETFD) >= 0 {
-                guard posix_spawn_file_actions_addinherit_np(&actions, descriptor) == 0 else {
-                    throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
-                }
-            } else if errno != EBADF {
+        // Preserve each standard descriptor only when the caller left it open
+        // at launch: a descriptor the CLI opened since may have reused a
+        // closed standard number, and must not reach the child. A closed
+        // standard descriptor stays closed and does not make the alias fail.
+        for descriptor in CLIStandardDescriptors.openAtLaunch {
+            guard posix_spawn_file_actions_addinherit_np(&actions, descriptor) == 0 else {
                 throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
             }
         }
-        guard posix_spawnattr_setflags(
+        guard Self.setCoderouterSpawnAttributes(
             &attributes,
-            Int16(POSIX_SPAWN_SETEXEC | POSIX_SPAWN_CLOEXEC_DEFAULT)
+            flags: POSIX_SPAWN_SETEXEC | POSIX_SPAWN_CLOEXEC_DEFAULT
         ) == 0 else {
             throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
         }
@@ -6016,9 +6043,9 @@ struct CMUXCLI {
               posix_spawn_file_actions_adddup2(&actions, writeFD, STDOUT_FILENO) == 0,
               posix_spawn_file_actions_adddup2(&actions, nullFD, STDERR_FILENO) == 0,
               posix_spawnattr_setpgroup(&attributes, 0) == 0,
-              posix_spawnattr_setflags(
+              Self.setCoderouterSpawnAttributes(
                   &attributes,
-                  Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP)
+                  flags: POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP
               ) == 0 else {
             return false
         }
@@ -31280,18 +31307,25 @@ struct CMUXCLI {
                         )
                     }
                 }
-                publishAgentSurfaceResumeBinding(
-                    client: client,
-                    workspaceId: workspaceId,
-                    surfaceId: surfaceId,
-                    kind: "claude",
-                    displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
-                    sessionId: acceptedSessionId,
-                    cwd: hookCwd,
-                    launchCommand: launchCommand,
-                    transcriptPath: hookTranscriptPath,
-                    observedPermissionMode: observedHookPermissionMode
-                )
+                // Claude writes a fork's transcript with its first message.
+                // Until then the fork cannot be resumed, so the pane keeps its
+                // binding; the first prompt or stop binds the fork (#20186).
+                let forkTranscriptIsPending = isForkSessionLaunch
+                    && hookTranscriptPath.map { !FileManager.default.fileExists(atPath: $0) } == true
+                if !forkTranscriptIsPending {
+                    publishAgentSurfaceResumeBinding(
+                        client: client,
+                        workspaceId: workspaceId,
+                        surfaceId: surfaceId,
+                        kind: "claude",
+                        displayName: String(localized: "cli.claude-hook.notification.title", defaultValue: "Claude Code"),
+                        sessionId: acceptedSessionId,
+                        cwd: hookCwd,
+                        launchCommand: launchCommand,
+                        transcriptPath: hookTranscriptPath,
+                        observedPermissionMode: observedHookPermissionMode
+                    )
+                }
                 emitAgentJournalEvent(
                     client: client,
                     kind: .sessionStarted,
@@ -35190,6 +35224,22 @@ struct CMUXCLI {
             processName: processName(for: pid),
             arguments: processArguments(for: pid) ?? []
         )
+    }
+
+    /// The controlling terminal device of a live process, or `nil` when the
+    /// process has none or no longer exists.
+    func controllingTerminalDevice(of pid: Int) -> Int64? {
+        guard pid > 0, pid <= Int(Int32.max) else { return nil }
+        var info = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.size
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, Int32(pid)]
+        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0,
+              size > 0,
+              info.kp_proc.p_pid == Int32(pid),
+              info.kp_eproc.e_tdev != -1 else { // NODEV
+            return nil
+        }
+        return Int64(info.kp_eproc.e_tdev)
     }
 
     private func parentPID(of pid: pid_t) -> pid_t {
@@ -45749,9 +45799,20 @@ private enum CMUXCLIOutput {
         cliWriteStderr(message)
     }
 }
+/// The standard descriptors the caller left open when the CLI started.
+enum CLIStandardDescriptors {
+    /// Read once, on first access at the top of `main`.
+    static let openAtLaunch: [Int32] = [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO].filter {
+        fcntl($0, F_GETFD) >= 0
+    }
+}
+
 @main
 struct CMUXTermMain {
     static func main() async {
+        // Record the caller's standard descriptors before anything can open a
+        // file that reuses a closed standard number.
+        _ = CLIStandardDescriptors.openAtLaunch
         let initialSIGPIPEInspectionPayload = CMUXCLI.currentSIGPIPEInspectionPayload()
         _ = signal(SIGPIPE, SIG_DFL)
         configureCLIStdioNoSIGPIPE()
