@@ -73,8 +73,10 @@ extension AuthCoordinator {
         teamScopeRateLimit = nil
     }
 
-    /// Records why a session check or team load failed: a 429 starts or
-    /// extends the rate-limit backoff, any other failure ends it.
+    /// Records why a user fetch or team load failed: a 429 starts or extends
+    /// the rate-limit backoff, any other classified failure ends it. A
+    /// timeout or token-probe failure leaves it unchanged, so a 429 followed
+    /// by a timeout keeps the longer wait.
     func noteTeamScopeFailure(_ error: any Error) {
         if let rateLimit = AuthRateLimit(error: error) {
             let streak = (teamScopeRateLimit?.streak ?? 0) + 1
@@ -85,8 +87,9 @@ extension AuthCoordinator {
     }
 
     /// The wait before the next recovery check: the normal backoff, or,
-    /// after a 429, `Retry-After` (clamped to 1 s-15 min) or 30 s doubling
-    /// to 15 min with jitter.
+    /// after a 429, `Retry-After` (clamped to 1 s-15 min, then stretched by
+    /// up to 50% so Macs behind one IP do not wake together) or 30 s
+    /// doubling to 15 min with jitter.
     func teamScopeRecoveryWait(afterAttempt attempt: Int) -> Duration {
         let normal = Self.teamScopeRecoveryDelay(afterAttempt: attempt)
         guard let rateLimit = teamScopeRateLimit else { return normal }
@@ -99,11 +102,14 @@ extension AuthCoordinator {
 
     static func teamScopeRateLimitDelay(retryAfter: Duration?, streak: Int, jitter: Double) -> Duration {
         let ceiling: Duration = .seconds(15 * 60)
+        let spread = min(max(jitter, 0.5), 1.0)
         if let retryAfter {
-            return min(max(retryAfter, .seconds(1)), ceiling)
+            let base = min(max(retryAfter, .seconds(1)), ceiling)
+            // Never earlier than Retry-After; spread the wake-ups above it.
+            return min(base * (0.5 + spread), ceiling)
         }
         let exponent = Double(max(0, min(streak - 1, 5)))
-        let seconds = min(30 * pow(2, exponent), 900) * min(max(jitter, 0.5), 1.0)
+        let seconds = min(30 * pow(2, exponent), 900) * spread
         return .milliseconds(Int64(seconds * 1000))
     }
 }
