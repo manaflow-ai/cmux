@@ -633,6 +633,16 @@
             }
           },
           {
+            "key" : "settings.group.toolbar",
+            "rows" : [
+              "browser.toolbarButtons"
+            ],
+            "title" : {
+              "key" : "settings.group.toolbar",
+              "text" : "Toolbar"
+            }
+          },
+          {
             "key" : "settings.group.bookmarks",
             "rows" : [
               "browser.showBookmarksBar"
@@ -18239,6 +18249,134 @@
     },
     {
       "accepts" : [
+        [
+
+        ],
+        [
+          "devTools",
+          "theme",
+          "profile",
+          "designMode",
+          "downloads",
+          "favorites",
+          "zoom",
+          "media"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.media",
+            "text" : "Media Controls"
+          },
+          "value" : "media"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.zoom",
+            "text" : "Zoom Level"
+          },
+          "value" : "zoom"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.favorites",
+            "text" : "Bookmarks"
+          },
+          "value" : "favorites"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.downloads",
+            "text" : "Downloads"
+          },
+          "value" : "downloads"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.designMode",
+            "text" : "Design Mode"
+          },
+          "value" : "designMode"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.profile",
+            "text" : "Browser Profile"
+          },
+          "value" : "profile"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.theme",
+            "text" : "Browser Theme"
+          },
+          "value" : "theme"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.devTools",
+            "text" : "Developer Tools"
+          },
+          "value" : "devTools"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+        "media",
+        "zoom",
+        "downloads"
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : {
+        "key" : "settings.browser.toolbarButtons.help",
+        "text" : "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbarButtons",
+      "keywords" : [
+        "toolbar",
+        "buttons",
+        "pin",
+        "more",
+        "extensions",
+        "devtools",
+        "bookmarks"
+      ],
+      "kind" : "string_list",
+      "ordered" : false,
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "toolbarButtons"
+      ],
+      "refuses" : [
+        "media",
+        [
+          "__not_a_choice__"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.toolbarButtons",
+        "text" : "Toolbar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "chromium",
         "webkit"
       ],
@@ -22716,7 +22854,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f312815ba7560457325e76b02f8442caeb34a59332f37bcd188d49d6bd5768de",
+  "schema_hash" : "e992cef3fb480c980e53d6ff31c6bd28bb538669e111b20cb418da20bf706489",
   "sections" : [
     {
       "id" : "general",
