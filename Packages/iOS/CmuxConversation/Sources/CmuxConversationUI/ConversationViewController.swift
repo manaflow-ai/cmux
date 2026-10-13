@@ -1431,7 +1431,6 @@ public final class ConversationViewController: UIViewController {
         if #available(iOS 18.0, *) {
             let options = UIViewController.Transition.ZoomOptions()
             options.dimmingColor = .clear
-            Self.keepPresentingViewLevel(options)
             options.alignmentRectProvider = { context in
                 let zoomed = context.zoomedViewController.view!
                 return ConversationDetailsHeaderGeometry.zoomAlignmentRect(width: zoomed.bounds.width, safeTop: zoomed.safeAreaInsets.top)
@@ -1442,21 +1441,6 @@ public final class ConversationViewController: UIViewController {
         }
         detailsController = details
         present(container, animated: true)
-    }
-
-    /// Messages' details don't recede the conversation behind them: ChatKit
-    /// turns the zoom's recede off right after creating its options (iOS 27
-    /// sim, `-[CKChatController _presentDetailsViewControllerAnimated:]`).
-    /// With UIKit's default the close morph starts at the receded 0.915
-    /// scale and springs back to 1, so the back button and content dip
-    /// 25 pt in the first frames (iOS 27, 60 fps); without it the morph rects
-    /// track Messages' frame for frame. UIKit has no public switch, so this
-    /// is a guarded key-value write that does nothing where the key is gone.
-    @available(iOS 18.0, *)
-    static func keepPresentingViewLevel(_ options: UIViewController.Transition.ZoomOptions) {
-        let key = "_recedesPresentingView"
-        guard options.responds(to: NSSelectorFromString("set\(key):")) else { return }
-        options.setValue(false, forKey: key)
     }
 
     /// Closes the details; returns false when none is open.
