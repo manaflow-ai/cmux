@@ -31,7 +31,7 @@ enum WorkspaceClose {
     }
 
     /// The daemon's refusal of an `ifEmpty` close: the workspace has a tab.
-    static let notEmptyCode = "workspace_not_empty"
+    nonisolated static let notEmptyCode = "workspace_not_empty"
 
     /// `reason` `.sessionEnd`: a workspace its creator closes again because its first tab did not
     /// start, kept out of Recently Closed (`close-reason-v1`; an older daemon records it).

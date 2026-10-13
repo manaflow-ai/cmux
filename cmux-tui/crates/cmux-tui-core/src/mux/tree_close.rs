@@ -368,6 +368,7 @@ impl Mux {
         Ok(Some((result.workspace.unwrap_or(resolved_target), result.key, result.revision)))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn close_workspace_with_mutation_inner(
         &self,
         target: Option<WorkspaceId>,

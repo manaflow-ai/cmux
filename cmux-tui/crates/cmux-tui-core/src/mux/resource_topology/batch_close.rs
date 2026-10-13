@@ -599,6 +599,7 @@ impl Mux {
     /// Same, with an optional `reason` (`close-reason-v1`): a `session_end` close commits the
     /// same way but is not recorded in the closed history. The reason is part of the request a
     /// key names.
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn close_workspace_ending_terminals_for(
         &self,
         target: Option<WorkspaceId>,
