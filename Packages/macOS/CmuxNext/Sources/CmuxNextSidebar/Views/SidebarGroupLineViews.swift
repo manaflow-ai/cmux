@@ -2,22 +2,23 @@ import AppKit
 import CmuxNextDesign
 
 /// Each open group's members' line (cx-qno.17, cx-q5jw) as one view under
-/// the rows. The lines animate in the rows' own spring block (`RowMotion`),
-/// so a line's end tracks its group's last row in every frame and never runs
-/// past it (cx-ai79); a Core Animation spring beside the rows' AppKit spring
-/// drifted apart from them.
+/// the rows. The lines spring with the rows, on the same animator and the
+/// same frames (`SidebarRowSprings`), so a line's end tracks its group's
+/// last row in every frame and never runs past it (cx-ai79); a separate
+/// Core Animation spring beside the rows drifted apart from them.
 @MainActor
 final class SidebarGroupLineViews {
     private var views: [GroupID: GroupLineView] = [:]
     /// Lines of closed or gone groups while they shrink and fade out.
     private var leavingViews: [NSView] = []
 
-    /// The changes that move the lines to `new`, to run inside the rows'
-    /// animation block, and the views to remove when it ends. A kept line
+    /// The changes that move the lines to `new` (springs on `springs` when
+    /// given, else in one step), and the views to remove once they rest. A kept line
     /// moves to its new frame, a new one starts at `start` (the line over
     /// its rows' start frames) so both its ends move with the rows, and a
     /// line whose group closed or left shrinks back up into its header.
-    func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, above decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
+    func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, above decorations: NSView, animated: Bool,
+                springs: SidebarRowSprings) -> (changes: () -> Void, leaving: [NSView]) {
         var gone = views
         let starts = Dictionary(start.map { ($0.group, $0.frame) }, uniquingKeysWith: { first, _ in first })
         var moves: [(GroupLineView, CGRect)] = []
@@ -45,14 +46,24 @@ final class SidebarGroupLineViews {
         }
         leavingViews.removeAll { $0.superview == nil }
         leavingViews += leaving.map(\.0)
-        let changes = {
+        let changes = { [weak springs] in
             for (view, frame) in moves {
-                view.animator().frame = frame
-                view.animator().alphaValue = 1
+                if animated, let springs {
+                    springs.line(view, to: frame, alpha: 1)
+                } else {
+                    springs?.cancel(view)
+                    view.frame = frame
+                    view.alphaValue = 1
+                }
             }
             for (view, frame) in leaving {
-                view.animator().frame = frame
-                view.animator().alphaValue = 0
+                if animated, let springs {
+                    springs.line(view, to: frame, alpha: 0)
+                } else {
+                    springs?.cancel(view)
+                    view.frame = frame
+                    view.alphaValue = 0
+                }
             }
         }
         return (changes, leaving.map(\.0))

@@ -35,6 +35,8 @@ final class SidebarListView: NSView {
     /// Rows kept invisible while a lifted view stands in for them.
     var suppressed: Set<SidebarRowKey> = []
     var openingRows: [SidebarRowKey: CFTimeInterval] = [:] // Rows still opening their slot, by start time.
+    /// Row and members' line springs on the window's MotionClock (SidebarRowSprings).
+    lazy var rowSprings = SidebarRowSprings(list: self)
     /// Workspaces a pin drop took to the band: out of the list until its card lands (cx-odqn).
     var leaving: Set<WorkspaceID> = []
     /// Inline rename of a workspace row (a group's name is edited in `groupEditor`).
@@ -201,7 +203,12 @@ final class SidebarListView: NSView {
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var keep = Set<SidebarRowKey>()
-        let animate = animated && !old.rows.isEmpty && (selectedRowKey.map { old.row(for: $0) != nil } != false || Motion.animates(.newWorkspace)) // Cmd-N's row opens at its index, rows below slide (hq-1d)
+        // A workspace row that was not there (Cmd-N, a script, another client) opens at its index
+        // and the rows below slide; with `ui.animations.newWorkspace` off the whole change is one step (hq-1d).
+        let insertsWorkspace = layout.rows.contains { row in
+            if case .workspace = row.key { old.row(for: row.key) == nil } else { false }
+        }
+        let animate = animated && !old.rows.isEmpty && (!insertsWorkspace || Motion.animates(.newWorkspace))
         // New rows open from their run's top, so only the rows below move; a row still opening
         // that the next update moves (appended, then placed below) opens again there, in a new view:
         // the old one's retargeted spring would carry its stale open on through the rows (cx-ai79).
@@ -212,7 +219,10 @@ final class SidebarListView: NSView {
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         for row in layout.rows {
             let target = frame(for: row)
-            if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
+            if reopened.contains(row.key), let stale = rowViews.removeValue(forKey: row.key) {
+                rowSprings.cancel(stale)
+                stale.removeFromSuperview()
+            }
             let existing = rowViews[row.key]
             guard existing != nil || target.intersects(realize) else { continue }
             keep.insert(row.key)
@@ -238,6 +248,7 @@ final class SidebarListView: NSView {
             }
             if existing == nil { addSubview(view, positioned: .above, relativeTo: decorations); rowViews[row.key] = view }
             if suppressed.contains(row.key) {
+                rowSprings.cancel(view)
                 view.frame = target
                 view.alphaValue = 0
             } else if opens {
@@ -275,7 +286,8 @@ final class SidebarListView: NSView {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: animate)
-        let lines = groupLineViews.update(groupLines(layout), from: animate ? groupLines(layout, current: true) : [], in: self, above: decorations, animated: animate)
+        let lines = groupLineViews.update(groupLines(layout), from: animate ? groupLines(layout, current: true) : [], in: self, above: decorations,
+                                          animated: animate && Motion.animatesMovement, springs: rowSprings)
         RowMotion(targets: targets, appearing: appearing, leaving: leaving, lines: lines).run(in: self, from: old, to: layout, animated: animate)
     }
     func configure(_ view: SidebarRowView, row: SidebarRow, animated: Bool) {
@@ -325,36 +337,10 @@ final class SidebarListView: NSView {
             guard let view = rowViews[row.key] else { continue }
             let target = frame(for: row)
             view.targetSize = target.size
+            rowSprings.cancel(view)
             view.frame = target
         }
         decorations.frame = bounds
-    }
-    /// Adds views for rows scrolled into range and drops far-away ones.
-    func realizeVisibleRows() {
-        guard !isShiftingViewport else { return }
-        groupEditing.followScroll()
-        let realize = realizationRect()
-        for row in displayed.rows where rowViews[row.key] == nil {
-            let target = frame(for: row)
-            guard target.intersects(realize) else { continue }
-            let view = dequeue(row.key)
-            view.targetSize = target.size
-            configure(view, row: row, animated: false)
-            addSubview(view, positioned: .above, relativeTo: decorations)
-            RowMotion.place(view, at: target, opening: openingRows[row.key] != nil, hidden: suppressed.contains(row.key), in: self)
-            rowViews[row.key] = view
-        }
-        pruneOffscreen()
-        updateHover()
-    }
-    func pruneOffscreen() {
-        let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.overscan)
-        for row in displayed.rows {
-            guard let view = rowViews[row.key], !frame(for: row).intersects(keepRect),
-                  inlineRename.session?.key != row.key, row.key != groupEditor.shownGroup.map(SidebarRowKey.group) else { continue }
-            recycle(view)
-            rowViews[row.key] = nil
-        }
     }
     /// The selectable rows in visual order (placeholders left out).
     var visibleWorkspaceOrder: [WorkspaceID] {

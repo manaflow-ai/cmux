@@ -16,11 +16,12 @@ struct SidebarGroupLine: Equatable {
 extension SidebarListView {
     /// The list's lines. Rows a drag hides (`suppressed`) have none: a lifted
     /// group's line goes with its card (SidebarListLift). `current` places
-    /// each row where its view is now, the animation's start, so a new line
+    /// each row where its view shows now (origin and visible height), the
+    /// animation's start, so a new line
     /// starts over its rows and moves with them (cx-ai79).
     func groupLines(_ layout: SidebarLayout, current: Bool = false) -> [SidebarGroupLine] {
         SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups) { row in
-            current ? rowViews[row.key]?.frame ?? frame(for: row) : frame(for: row)
+            current ? rowViews[row.key].map(rowSprings.presented) ?? frame(for: row) : frame(for: row)
         }
     }
 }

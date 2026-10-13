@@ -2,10 +2,12 @@ import AppKit
 import CmuxNextDesign
 
 /// The rows one `SidebarListView.apply` animates, all on one spring
-/// (cx-bqm6): like a browser's vertical tabs, existing rows move, new rows
-/// open their slot and removed rows close theirs, so no row overlaps another
-/// or waits for it. Group lines run in the same block, so a line ends at its
-/// group's last row in every frame (cx-ai79).
+/// (cx-bqm6; hq-1d: on the window's MotionClock, `SidebarRowSprings`): like
+/// a browser's vertical tabs, existing rows move, new rows open their slot
+/// and removed rows close theirs, so no row overlaps another or waits for
+/// it. A row keeps its final size from the first frame and only its origin
+/// and its visible height spring. Group lines run on the same springs, so a
+/// line ends at its group's last row in every frame (cx-ai79).
 @MainActor
 struct RowMotion {
     var targets: [(SidebarRowView, NSRect)]
@@ -14,83 +16,75 @@ struct RowMotion {
     var lines: (changes: () -> Void, leaving: [NSView])
 
     func run(in list: SidebarListView, from old: SidebarLayout, to layout: SidebarLayout, animated: Bool) {
-        let moves = {
-            for (view, target) in targets {
-                view.animator().frame = target
-                view.animator().alphaValue = 1
-            }
-        }
-        guard animated else {
+        let springs = list.rowSprings
+        // Not animated, or Reduce Motion: rows take their places in one step, with no crossfade
+        // standing in for the motion (DESIGN P6): no movement, and nothing a person must wait out.
+        guard animated, Motion.animatesMovement else {
             Motion.withoutAnimation {
-                moves()
-                lines.changes()
-            }
-            leaving.forEach { list.recycle($0.0) }
-            lines.leaving.forEach { $0.removeFromSuperview() }
-            return
-        }
-        guard Motion.animatesMovement else {
-            // Reduce Motion: rows take their places in one step, with no crossfade standing in
-            // for the motion (DESIGN P6): no movement, and nothing a person must wait out.
-            Motion.withoutAnimation {
-                moves()
-                lines.changes()
-                for (view, target) in appearing {
+                for (view, target) in targets + appearing {
+                    springs.cancel(view)
                     view.frame = target
                     view.alphaValue = 1
-                    view.clipsToBounds = false
                 }
+                for (view, _) in appearing { view.clipsToBounds = false }
+                lines.changes()
             }
             leaving.forEach { list.recycle($0.0) }
             lines.leaving.forEach { $0.removeFromSuperview() }
             return
         }
         passOver(in: list, from: old, to: layout)
-        let opens = appearing.map(\.0.opens)
-        Motion.animate(.move, in: list, {
-            moves()
-            lines.changes()
+        Motion.withoutAnimation {
+            for (view, target) in targets {
+                view.alphaValue = 1
+                springs.row(view, to: target)
+            }
             for (view, target) in appearing {
-                view.animator().frame = target
-                view.animator().alphaValue = 1
+                // `apply` placed it at its start (its run's top, zero height): it lays out at its
+                // final size now and opens through its mask.
+                let start = view.frame
+                view.alphaValue = 1
+                let open = view.opens
+                springs.row(view, from: start, to: target) { [view] in
+                    if view.opens == open { view.clipsToBounds = false }
+                }
             }
             for (view, end) in leaving {
-                view.animator().alphaValue = 0
-                view.animator().frame = end
+                let shown = springs.presented(view)
+                springs.row(view, from: shown, to: NSRect(origin: end.origin, size: view.frame.size), visible: end.height) { [weak list, view] in
+                    guard let list, !list.rowViews.values.contains(where: { $0 === view }) else { return }
+                    list.recycle(view)
+                }
             }
-        }, completion: { [weak list, appearing, opens, leaving, leavingLines = lines.leaving] in
+            lines.changes()
+        }
+        springs.whenSettled { [weak list, leavingLines = lines.leaving] in
             leavingLines.forEach { $0.removeFromSuperview() }
-            guard let list else { return }
-            // A row reopened since keeps clipping until its own open ends.
-            for ((view, _), open) in zip(appearing, opens) where view.opens == open { view.clipsToBounds = false }
-            for (view, _) in leaving where !list.rowViews.values.contains(where: { $0 === view }) { list.recycle(view) }
-            list.pruneOffscreen()
-        })
+            list?.pruneOffscreen()
+        }
+        springs.start()
     }
 
     /// Places a row that scrolled into view. One still opening (the viewport
     /// held still for an insert above it, then scrolled to it) opens from zero
     /// height at its slot instead of showing whole over the rows still making
     /// room (cx-ai79).
-    static func place(_ view: SidebarRowView, at target: NSRect, opening: Bool, hidden: Bool, in list: NSView) {
+    static func place(_ view: SidebarRowView, at target: NSRect, opening: Bool, hidden: Bool, in list: SidebarListView) {
         guard opening, !hidden, Motion.animatesMovement else {
+            list.rowSprings.cancel(view)
             view.frame = target
             view.alphaValue = hidden ? 0 : 1
             return
         }
-        Motion.withoutAnimation {
-            view.frame = NSRect(x: target.minX, y: target.minY, width: target.width, height: 0)
-            view.alphaValue = 0
-            view.clipsToBounds = true
-        }
+        view.layer?.removeAllAnimations()
+        view.alphaValue = 1
+        view.clipsToBounds = true
         view.opens += 1
         let open = view.opens
-        Motion.animate(.move, in: list, {
-            view.animator().frame = target
-            view.animator().alphaValue = 1
-        }, completion: { [view] in
+        list.rowSprings.row(view, from: NSRect(x: target.minX, y: target.minY, width: target.width, height: 0), to: target) { [view] in
             if view.opens == open { view.clipsToBounds = false }
-        })
+        }
+        list.rowSprings.start()
     }
 
     /// A moved selected row (with its workspace's tab rows) passes over the
