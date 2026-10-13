@@ -150,7 +150,10 @@ fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> 
         .collect()
 }
 
-/// Seconds between "your UDP reaches me" markers while UDP keeps arriving.
+/// The relay datagram that means "your UDP reaches me". WireGuard messages
+/// start with type 1 to 4 and are at least 32 bytes, so it never collides.
+const REACHABLE_MARKER: [u8; 1] = [0xff];
+/// Time between "your UDP reaches me" markers while UDP keeps arriving.
 const MARKER_INTERVAL: Duration = Duration::from_secs(3);
 
 /// The carrier: one UDP socket for direct paths plus the backend relay.
@@ -159,7 +162,7 @@ const MARKER_INTERVAL: Duration = Duration::from_secs(3);
 /// outbound UDP), so receiving the peer's UDP proves only the peer→us
 /// direction. Until the peer confirms it receives *our* UDP, every datagram
 /// goes through the relay as well as UDP. The confirmation is a relay frame
-/// with an empty datagram (PROTOCOL.md), sent by a side whenever
+/// whose datagram is the single byte `0xff` (PROTOCOL.md), sent by a side whenever
 /// authenticated UDP from its peer arrives (at most every 3 s).
 struct HybridUnderlay {
     socket: UdpSocket,
@@ -260,7 +263,7 @@ impl Underlay for HybridUnderlay {
         loop {
             match self.relay_in.poll_recv(cx) {
                 // The peer receives our UDP.
-                Poll::Ready(Some(datagram)) if datagram.is_empty() => {
+                Poll::Ready(Some(datagram)) if datagram[..] == REACHABLE_MARKER => {
                     if !self.confirmed {
                         tracing::debug!("peer confirmed our UDP reaches it");
                     }
@@ -289,7 +292,7 @@ impl Underlay for HybridUnderlay {
             self.last_direct = Some(now);
             if self.last_marker.is_none_or(|last| now.duration_since(last) >= MARKER_INTERVAL) {
                 self.last_marker = Some(now);
-                (self.relay_out)(&[]);
+                (self.relay_out)(&REACHABLE_MARKER);
             }
             self.publish_path();
         } else if origin.path == RELAY_PATH
