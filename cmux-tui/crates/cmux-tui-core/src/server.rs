@@ -1729,6 +1729,8 @@ enum Command {
         #[serde(default)]
         force: bool,
     },
+    /// Set or clear a session's (machine's) icon (`session-icon-v1`).
+    SetSessionIcon(personal::SetSessionIconParams),
     /// One-time copy of a remote session's shared groups and order.
     ImportSessionOrganization {
         session_id: String,
@@ -3600,6 +3602,7 @@ fn handle_command_with_cancellation(
         Command::ForgetSession { session_id, force } => {
             cmd_profiles::forget_session(mux, session_id, force)
         }
+        Command::SetSessionIcon(params) => personal::set_session_icon(mux, params),
         Command::ImportSessionOrganization { session_id, groups, workspaces } => {
             cmd_profiles::import_session_organization(mux, session_id, groups, workspaces)
         }
@@ -3780,7 +3783,6 @@ fn handle_command_with_cancellation(
     }
 }
 
-/// Validate the start options of a placement command.
 /// The `list-workspaces` reply: the tree plus the registry identity it
 /// belongs to. The launch snapshot stores the same value.
 fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {

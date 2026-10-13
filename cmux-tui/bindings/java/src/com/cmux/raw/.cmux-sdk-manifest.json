@@ -557,8 +557,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "4b9bc99896a9c6585d4e2de8475a1e113c24647f97621137f5dbd1b95c4df84f",
-      "size": 68630
+      "sha256": "25888f048f87c3e60cac12c72581165841ce2c82ea736b968b55346f50d97185",
+      "size": 68867
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1097,8 +1097,8 @@
     },
     {
       "path": "GeneratedCmuxClient.java",
-      "sha256": "22fec22ca49331a0be92cb8c5d9782483e3376c67b59eab35e90e75a49f3df7c",
-      "size": 59854
+      "sha256": "68f6a7957092ef21d6250ad3864f6e09d9a54f79fb36b56786b5a78095e2bd16",
+      "size": 60075
     },
     {
       "path": "GetBlobRequest.java",
@@ -1772,7 +1772,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "9aed806b76ece26b7497cc4b5786556dc5a734671f0802a1c83debbd1f8faab3",
+      "sha256": "a07ece5d272d3174c1f1c08d226950c206d7aaf1463bf58bf0e547d79b2b60d7",
       "size": 6393
     },
     {
@@ -2264,6 +2264,11 @@
       "path": "SetScreenPinnedRequest.java",
       "sha256": "db8f87159e8c9e2929324e5befd1ad65afeacac7894d90704bd93985a1a72491",
       "size": 2711
+    },
+    {
+      "path": "SetSessionIconRequest.java",
+      "sha256": "fe3e3cc63f28645f6e51450f7ea340fe42532bf7e68cc5ace1caf0f70cb1a09b",
+      "size": 2831
     },
     {
       "path": "SetSizeCountsRequest.java",
@@ -3012,7 +3017,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58",
+  "ir_sha256": "c326954ffb2eb20c02e13154851b4f6bdeba0abb181677a52aa8b6d7b881b76c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
