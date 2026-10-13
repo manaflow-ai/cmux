@@ -880,6 +880,11 @@ public actor StackClientApp {
             
             return user
             
+        } catch let error as StackAuthError where error.code == "RATE_LIMITED" {
+            // A 429 says nothing about the session. Reporting it as "no
+            // user" made sign-in fail as a generic server error and could
+            // read as signed out to callers that pass `.returnNull`.
+            throw error
         } catch {
             return try handleNoUser(or: or)
         }

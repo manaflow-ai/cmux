@@ -652632,6 +652632,301 @@
           }
         }
       }
+    },
+    "auth.error.rate_limited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many sign-in requests from this network. cmux retries automatically."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبات تسجيل دخول كثيرة جدًا من هذه الشبكة. يعيد cmux المحاولة تلقائيًا."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Anmeldeanfragen aus diesem Netzwerk. cmux versucht es automatisch erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiadas solicitudes de inicio de sesión desde esta red. cmux lo reintenta automáticamente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de demandes de connexion depuis ce réseau. cmux réessaie automatiquement."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このネットワークからのサインイン要求が多すぎます。cmux が自動的に再試行します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 네트워크에서 로그인 요청이 너무 많습니다. cmux가 자동으로 다시 시도합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自此网络的登录请求过多。cmux 会自动重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自此網路的登入要求過多。cmux 會自動重試。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.rateLimited.recovery": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux retried automatically. Wait a minute, then try again. Your account and existing cmux workspaces are unchanged."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أعاد cmux المحاولة تلقائيًا. انتظر دقيقة ثم حاول مرة أخرى. لم يتغير حسابك ولا مساحات عمل cmux الحالية."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux hat es automatisch erneut versucht. Warte eine Minute und versuche es dann erneut. Dein Konto und deine bestehenden cmux-Workspaces bleiben unverändert."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux lo reintentó automáticamente. Espera un minuto y vuelve a intentarlo. Tu cuenta y tus espacios de trabajo de cmux existentes no han cambiado."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux a réessayé automatiquement. Patientez une minute, puis réessayez. Votre compte et vos espaces de travail cmux existants sont inchangés."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が自動的に再試行しました。1 分ほど待ってから、もう一度お試しください。アカウントと既存の cmux ワークスペースは変更されていません。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 자동으로 다시 시도했습니다. 1분 정도 기다린 후 다시 시도하세요. 계정과 기존 cmux 워크스페이스는 변경되지 않았습니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已自动重试。请等待一分钟后再试。你的账户和现有的 cmux 工作区均未更改。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 已自動重試。請稍候一分鐘後再試一次。你的帳號和現有的 cmux 工作區都沒有變更。"
+          }
+        }
+      }
+    },
+    "account.signIn.error.rateLimited.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many sign-in requests from this network"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبات تسجيل دخول كثيرة جدًا من هذه الشبكة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Anmeldeanfragen aus diesem Netzwerk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiadas solicitudes de inicio de sesión desde esta red"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de demandes de connexion depuis ce réseau"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このネットワークからのサインイン要求が多すぎます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 네트워크에서 로그인 요청이 너무 많습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自此网络的登录请求过多"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自此網路的登入要求過多"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.rateLimited": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Too many sign-in requests from this network"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طلبات تسجيل دخول كثيرة جدًا من هذه الشبكة"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zu viele Anmeldeanfragen aus diesem Netzwerk"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demasiadas solicitudes de inicio de sesión desde esta red"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trop de demandes de connexion depuis ce réseau"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このネットワークからのサインイン要求が多すぎます"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 네트워크에서 로그인 요청이 너무 많습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "来自此网络的登录请求过多"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "來自此網路的登入要求過多"
+          }
+        }
+      }
+    },
+    "account.signIn.loading.rateLimited.instructions": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux retries automatically. Keep this pane open."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعيد cmux المحاولة تلقائيًا. أبقِ هذه اللوحة مفتوحة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux versucht es automatisch erneut. Lass diesen Bereich geöffnet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux lo reintenta automáticamente. Mantén este panel abierto."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux réessaie automatiquement. Gardez ce volet ouvert."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux が自動的に再試行します。このペインを開いたままにしてください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 자동으로 다시 시도합니다. 이 패널을 열어 두세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 会自动重试。请保持此面板打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 會自動重試。請保持此面板開啟。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
