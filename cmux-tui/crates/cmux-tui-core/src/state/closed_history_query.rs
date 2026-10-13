@@ -97,11 +97,19 @@ fn public_member(member: &Value) -> Value {
 pub(crate) fn public_item(record: &Value) -> Value {
     let members = record["members"].as_array().cloned().unwrap_or_default();
     let first = members.first().map(public_member).unwrap_or_else(|| json!({}));
+    // A deleted space is named by the space, not its first workspace (cx-ncc.44).
+    let room = &record["room"]["profile"][0]["name"];
     let mut item = json!({
         "id": record["id"],
         "kind": record["kind"],
         // A window group has no member: its name is the window's workspace.
-        "name": if first["name"].is_null() { record["name"].clone() } else { first["name"].clone() },
+        "name": if room.is_string() {
+            room.clone()
+        } else if first["name"].is_null() {
+            record["name"].clone()
+        } else {
+            first["name"].clone()
+        },
         "workspace_id": first["workspace_id"],
         "pane_id": first["pane_id"],
         "index": first["index"].as_u64().unwrap_or(0),
