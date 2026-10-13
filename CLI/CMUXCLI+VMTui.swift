@@ -58,6 +58,8 @@ extension CMUXCLI {
     struct VMTuiDeviceRecord: Codable {
         let deviceFingerprint: String
         let updatedAtUnix: Int
+        /// The route returned by the control plane; optional for old stores.
+        let route: String?
     }
 
     static var vmTuiUsage: String {
@@ -110,10 +112,14 @@ extension CMUXCLI {
         return store
     }
 
-    static func saveVMTuiDevice(vmId: String, deviceFingerprint: String, to url: URL? = nil) {
+    static func saveVMTuiDevice(vmId: String, deviceFingerprint: String, route: String? = nil, to url: URL? = nil) {
         let storeURL = url ?? vmTuiDevicesStoreURL()
         var store = loadVMTuiDevices(from: storeURL)
-        store[vmId] = VMTuiDeviceRecord(deviceFingerprint: deviceFingerprint, updatedAtUnix: Int(Date().timeIntervalSince1970))
+        store[vmId] = VMTuiDeviceRecord(
+            deviceFingerprint: deviceFingerprint,
+            updatedAtUnix: Int(Date().timeIntervalSince1970),
+            route: route ?? store[vmId]?.route
+        )
         guard let data = try? JSONEncoder().encode(store) else { return }
         try? FileManager.default.createDirectory(at: storeURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: storeURL, options: [.atomic])
@@ -353,9 +359,13 @@ extension CMUXCLI {
                     defaultValue: "The Cloud machine is still preparing remote access. Try again shortly."
                 ))
             }
-            // Later opens reuse the private route with no control-plane call.
-            Self.saveVMTuiDevice(vmId: vmId, deviceFingerprint: Self.carrierDeviceMarker)
         }
+        // Later opens reuse the private route with no control-plane call.
+        Self.saveVMTuiDevice(
+            vmId: vmId,
+            deviceFingerprint: known?.deviceFingerprint ?? Self.carrierDeviceMarker,
+            route: route
+        )
         let networkAddresses: [String: String]? = {
             guard let raw = info["network_addresses"] as? [String: Any] else { return nil }
             let values = raw.compactMapValues { $0 as? String }
