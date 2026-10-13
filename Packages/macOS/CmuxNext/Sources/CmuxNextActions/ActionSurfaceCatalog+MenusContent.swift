@@ -220,6 +220,8 @@ nonisolated extension ActionSurfaceCatalog {
         "bookmark.openInBackgroundTab": [p(.bookmark, .create, 2)],
         "bookmark.openAll": [p(.bookmark, .create, 3)],
         "bookmark.edit": [p(.bookmark, .identity, 100)],
+        "bookmark.setIcon": [p(.bookmark, .identity, 101, label: IconMenuLabels.setIcon)],
+        "bookmark.clearIcon": [p(.bookmark, .identity, 102, label: IconMenuLabels.removeIcon)],
         "bookmark.remove": [p(.bookmark, .close, 101)],
         "bookmark.toggleBar": [p(.bookmark, .view, 300), p(.bookmarksBar, .view, 100)],
         "bookmark.manager": [p(.bookmark, .view, 301), p(.bookmarksBar, .view, 101)],
