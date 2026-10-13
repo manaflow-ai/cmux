@@ -5,7 +5,8 @@ import Testing
 
 /// Integrate a harness, dismissed on a New Tab page, stays dismissed after a relaunch (Leo
 /// 2026-10-12: the dismissal sticks). An agent page's own storage ends with the launch, so the page
-/// tells the app (`newTab.dismissHarnessHint`) and every later New Tab context carries it back.
+/// tells the app with its other choices (`newTab.remember` `harnessHint: "dismissed"`) and every
+/// later New Tab context carries it back.
 @MainActor
 struct NewTabHarnessHintTests {
     private actor NoHost: AgentPaneHostProviding {
@@ -19,8 +20,11 @@ struct NewTabHarnessHintTests {
         let memory = NewTabChoiceMemory(defaults: defaults)
         #expect(!memory.harnessHintDismissed)
         let model = AgentPaneModel(host: NoHost(), allowsTabConversion: true)
-        model.onDismissHarnessHint = { memory.dismissHarnessHint() }
-        let reply = await model.respond(to: AgentPaneRequest(body: ["method": "newTab.dismissHarnessHint"]))
+        model.onRememberNewTab = { memory.remember($0) }
+        _ = await model.respond(to: AgentPaneRequest(body: ["method": "newTab.remember", "params": ["agent": "codex"]]))
+        let reply = await model.respond(to: AgentPaneRequest(body: [
+            "method": "newTab.remember", "params": ["harnessHint": "dismissed"],
+        ]))
         #expect(reply["ok"] as? Bool == true, "\(reply)")
 
         // A relaunch: a new memory on the same defaults, and the page context it hands out.
@@ -29,6 +33,7 @@ struct NewTabHarnessHintTests {
         page.harnessHintDismissed = relaunched.harnessHintDismissed ? true : nil
         let json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(page)) as? [String: Any])
         #expect(json["harnessHintDismissed"] as? Bool == true)
-        #expect(AgentPageOps.methods["newTab.dismissHarnessHint"] != nil)
+        // The dismissal keeps the agent picked before it.
+        #expect(relaunched.agent == "codex")
     }
 }

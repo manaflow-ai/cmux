@@ -135,7 +135,9 @@ export default agentPaneEntry({
     },
     "no-harness-installed": {
       note: "No harness installed (Leo 2026-10-12): one quiet line under the field, No agent to ask, Integrate a harness and a dismiss that holds for later pages. With any harness installed (every other state) the page never offers it.",
-      ready: newTab(),
+      // The mock daemon answers with no harness, as acpmux does on a Mac without an agent CLI.
+      ready: { ...newTab(), transport: "mock" },
+      mockHarnesses: [],
       snapshot: { ...noChat(), catalog: [] },
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-no-agent [data-dismiss-hint]") !== null);

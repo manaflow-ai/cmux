@@ -1,7 +1,7 @@
 // Integrate a harness on the New Tab page (Leo 2026-10-12): it must not show every time. With any
 // harness installed (acpmux lists it, even one it cannot run now) the page never offers it; with
 // none, once acpmux has answered, one quiet line under the field says so with Integrate a harness
-// and a dismiss. The dismissal goes to the app (`newTab.dismissHarnessHint`), which hands it back
+// and a dismiss. The dismissal goes to the app (`newTab.remember` `harnessHint: "dismissed"`), which hands it back
 // to every later page, also after a relaunch. Add Harness stays reachable from the picker's +,
 // Settings and the palette.
 import { afterAll, beforeAll, expect, test } from "bun:test";

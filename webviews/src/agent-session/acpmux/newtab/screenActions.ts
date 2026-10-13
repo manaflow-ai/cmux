@@ -71,6 +71,8 @@ export function newTabScreenActions(deps: {
     onShowAll: deps.showAllChats,
     // No agent to ask: the Harnesses page, in place (cx-uj5g8).
     onAddHarness: () => void openHarnessesPage(),
+    // Its dismissal: the app keeps it for every later page, also after a relaunch.
+    onDismissHarnessHint: () => ignore(callNative("newTab.dismissHarnessHint")),
     onTouched: () => ignore(callNative("newTab.touched")),
     // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
     onCreate: (kind) =>
