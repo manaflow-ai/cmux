@@ -267,9 +267,16 @@ try:
     # 5. A click on the bar above the text focuses and selects.
     if above_text:
         blur()
+        before = omnibar()
         mouse("click", above_text)
-        check(bool(wait_for(lambda: selection_all(omnibar()), "bar click focuses", 5)),
-              f"a click on the bar above the text focuses and selects all: {omnibar().get('selection')}")
+        bar_click = bool(wait_for(lambda: selection_all(omnibar()), "bar click focuses", 5))
+        after = omnibar()
+        check(bar_click, f"a click on the bar above the text focuses and selects all: {after.get('phase')} "
+                         f"{after.get('text')!r} {after.get('selection')}")
+        if not bar_click:  # what the field held before the click, and the state machine's last inputs
+            print("   before the click", {k: before.get(k) for k in ("phase", "field_editor_active", "field_text", "field_selection")}, flush=True)
+            for line in (after.get("pointer") or {}).get("omnibar_trace") or []:
+                print("   trace", line, flush=True)
         blur()
 
     # 6. Cmd-L, typed text, Escape twice.
