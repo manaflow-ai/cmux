@@ -4276,7 +4276,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         self.bonsplitController.onTabBarRenderDiagnostic = { diagnostic in
             Task { @MainActor in
                 sentryBreadcrumb(
-                    "tabbar.render.stall",
+                    "tabbar.render.window",
                     category: "performance",
                     data: [
                         "elapsedMs": Int((diagnostic.elapsed * 1_000).rounded()),
