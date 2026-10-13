@@ -55,9 +55,8 @@ struct PaneZoomMotion {
         alpha.target = 0
         leaving[pane] = Leaving(alpha: alpha, center: CGPoint(x: frame.rect.midX, y: frame.rect.midY), parameters: Motion.spring(.exit))
         let far = leaving.values.map { distance($0.center) }.max() ?? 0
-        for (id, entry) in leaving {
-            leaving[id]?.parameters = Motion.exit(nearness: far > 0 ? 1 - distance(entry.center) / far : 0)
-        }
+        let ranked = leaving.mapValues { Motion.exit(nearness: far > 0 ? 1 - distance($0.center) / far : 0) }
+        for (id, parameters) in ranked { leaving[id]?.parameters = parameters }
     }
 
     /// `pane` is in the layout again. An unzoom (`revealing`) fades it in from where its fade out
