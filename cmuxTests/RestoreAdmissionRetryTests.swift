@@ -134,6 +134,77 @@ struct LiveAgentIndexRelevantChurnTests {
         )
     }
 
+    /// Holds the index loader open so a scan can outlive one request's deadline.
+    private actor OwnershipScanGate {
+        private var started = false
+        private var released = false
+        private var startWaiters: [CheckedContinuation<Void, Never>] = []
+        private var releaseWaiter: CheckedContinuation<Void, Never>?
+        private(set) var loadCount = 0
+
+        func load() async -> SharedLiveAgentIndexLoader.LoadResult {
+            loadCount += 1
+            started = true
+            startWaiters.forEach { $0.resume() }
+            startWaiters.removeAll()
+            if !released {
+                await withCheckedContinuation { releaseWaiter = $0 }
+            }
+            return (
+                index: RestorableAgentSessionIndex.empty,
+                liveAgentProcessFingerprint: [],
+                processScopeFingerprint: [],
+                forkValidatedPanels: []
+            )
+        }
+
+        func waitUntilStarted() async {
+            guard !started else { return }
+            await withCheckedContinuation { startWaiters.append($0) }
+        }
+
+        func release() {
+            released = true
+            releaseWaiter?.resume()
+            releaseWaiter = nil
+        }
+    }
+
+    /// #20186: every restored pane asks for its own ownership decision. When
+    /// the shared scan outlived the earliest request's deadline, that request
+    /// cancelled the scan and failed every other waiter, so with many panes
+    /// some deadline always expired first and no restore was ever admitted.
+    @Test("A timed-out ownership request leaves the shared scan to later requests")
+    func timedOutOwnershipRequestKeepsSharedScanForLaterRequests() async throws {
+        let directory = try Self.makeHookStoreDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let gate = OwnershipScanGate()
+        let index = SharedLiveAgentIndex(
+            indexLoader: { await gate.load() },
+            hookStoreDirectoryProvider: { directory.path },
+            ownershipRefreshTimeoutNanoseconds: 1_500_000_000
+        )
+
+        let first = Task { await index.indexForOwnershipDecision() }
+        await gate.waitUntilStarted()
+        // Stagger the second request so its deadline lands after the first's,
+        // the way restored panes reach admission one after another.
+        try await Task.sleep(for: .milliseconds(750))
+        let second = Task { await index.indexForOwnershipDecision() }
+
+        guard case .timedOut = await first.value else {
+            Issue.record("The first request should outlive its deadline while the scan is held")
+            return
+        }
+        await gate.release()
+
+        guard case .index = await second.value else {
+            Issue.record("The first request's timeout discarded the scan the second request awaited")
+            return
+        }
+        #expect(await gate.loadCount == 1)
+    }
+
     @Test(arguments: ["claude-hook-sessions.json", "pi-hook-sessions.json"])
     func hookStoreChurnDoesNotBlockOwnershipDecision(filename: String) async throws {
         let directory = try Self.makeHookStoreDirectory()
