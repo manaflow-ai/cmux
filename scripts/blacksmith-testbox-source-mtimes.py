@@ -146,7 +146,9 @@ def drop_foreign_cpu_outputs(target: str) -> None:
     # not built for the baseline CPU, with its out dir, and every dir Cargo's
     # records do not explain. Cargo reruns those, and their newer output makes
     # the lib that bundles it and everything linking it rebuild. Compile units
-    # and baseline runs stay.
+    # and baseline runs stay. The out dir must go with its fingerprint dir: the
+    # missing build/<hash>/output is what marks the run, and through it the
+    # kept lib unit, stale.
     paths = list(native_output_dirs(target))
     kinds = {
         path: fingerprint_kind(path)
