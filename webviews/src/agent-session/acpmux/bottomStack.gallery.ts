@@ -100,6 +100,8 @@ const trustThenPermission: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-permission-card"));
   if (ctx.document.querySelectorAll(".acpmux-permission-card").length !== 1)
     throw new Error("More than one tool permission card");
+  if (!ctx.document.querySelector(".acpmux-permission-card .acpmux-permission-card-heading"))
+    throw new Error("Permission card is missing its unified heading surface");
   ctx.find({ role: "button", name: "Allow for this chat" });
   ctx.find({ role: "button", name: "Allow once" });
   ctx.find({ role: "button", name: "Allow for this chat" });

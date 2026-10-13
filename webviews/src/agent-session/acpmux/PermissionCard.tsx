@@ -29,12 +29,13 @@ export function permissionOptionLabel(option: PermissionOption, t: Translate): s
 /** The single card frame used by legacy ACP asks and grouped tool permissions. */
 type PermissionCardFrameProps = {
   title?: string;
+  leading?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
 };
 
 export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, PermissionCardFrameProps>(
-  function PermissionCardFrame({ title, children, className }, ref) {
+  function PermissionCardFrame({ title, leading, children, className }, ref) {
     const titleId = React.useId();
     return (
       <fieldset
@@ -42,7 +43,12 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
         className={`acpmux-permission-card${className ? ` ${className}` : ""}`}
         aria-labelledby={title ? titleId : undefined}
       >
-        {title && <strong id={titleId}>{title}</strong>}
+        {title && (
+          <div className="acpmux-permission-card-heading">
+            {leading && <span className="acpmux-permission-card-leading">{leading}</span>}
+            <strong id={titleId}>{title}</strong>
+          </div>
+        )}
         {children}
       </fieldset>
     );

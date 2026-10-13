@@ -4,6 +4,7 @@ import { toolFiles } from "../diff";
 import { toolDiffs } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
+import { Icon } from "../icons/Icon";
 import type { PermissionClientState, PermissionDecision, PermissionGroup } from "./protocol";
 import { PermissionActionButton, PermissionCardFrame } from "../PermissionCard";
 
@@ -79,6 +80,14 @@ function GroupItems({ group, expandSignal }: { group: PermissionGroup; expandSig
   );
 }
 
+function groupTitle(group: PermissionGroup, fallback: string): string {
+  if (group.items.length !== 1) return fallback;
+  const raw = group.items[0]?.request.toolCall;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return fallback;
+  const title = (raw as Record<string, unknown>).title;
+  return typeof title === "string" && title.trim() ? title : fallback;
+}
+
 export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, onRefresh }: Props) {
   const t = useT();
   const shortcuts = {
@@ -151,11 +160,19 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
       aria-label={t("permission.title")}
       aria-busy={state.busy}
     >
-      <div className="acpmux-permission-coverage" title={t("permission.coverageDetail")}>
-        {t("permission.coverage")}
-      </div>
       {pending.map((group) => (
-        <PermissionCardFrame title={t("permission.title")} key={group.groupId}>
+        <PermissionCardFrame
+          title={groupTitle(group, t("permission.title"))}
+          leading={<Icon name="security.insecure" size={18} />}
+          className="acpmux-permission-surface"
+          key={group.groupId}
+        >
+          <div className="acpmux-permission-card-meta">
+            {t(group.items.length === 1 ? "permission.count.one" : "permission.count.other", { n: group.items.length })}
+            <span className="acpmux-permission-coverage" title={t("permission.coverageDetail")}>
+              {t("permission.coverage")}
+            </span>
+          </div>
           <p className="acpmux-permission-scope">
             {t(group.items.length === 1 ? "permission.count.one" : "permission.count.other", { n: group.items.length })}
           </p>
