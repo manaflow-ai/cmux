@@ -15,6 +15,7 @@ struct RootView: View {
             }
         }
         .animation(.smooth(duration: 0.3), value: model.connections.isEmpty)
+        .task { model.consumeLaunchPairLink() }
         .sheet(isPresented: Binding(get: { model.pairing != .idle }, set: { if !$0 { model.dismissPairingResult() } })) {
             PairingStatusSheet()
                 .presentationDetents([.height(300)])

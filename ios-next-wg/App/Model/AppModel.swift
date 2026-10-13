@@ -3,6 +3,7 @@ import CmuxWireGuardPairing
 import Foundation
 import Observation
 import UIKit
+import os
 
 /// App state: the phone's identity, its paired Macs and the pairing flow.
 @MainActor @Observable
@@ -20,6 +21,7 @@ final class AppModel {
     private(set) var startupError: String?
 
     @ObservationIgnored private let vault = PhoneVault()
+    @ObservationIgnored private let logger = Logger(subsystem: "dev.cmux.ios.wg", category: "pairing")
     @ObservationIgnored private var identity: WireGuardKey?
 
     init() {
@@ -31,12 +33,15 @@ final class AppModel {
         } catch {
             startupError = HostConnection.describe(error)
         }
+    }
+
+    /// DEBUG simulator checks: `simctl launch <udid> dev.cmux.ios.wg -pairLink <link>`
+    /// pairs without the URL-open confirmation. Called once the first view is up.
+    func consumeLaunchPairLink() {
         #if DEBUG
-        // Simulator checks: `simctl launch <udid> dev.cmux.ios.wg -pairLink <link>`
-        // pairs without the URL-open confirmation.
-        if let index = CommandLine.arguments.firstIndex(of: "-pairLink"), index + 1 < CommandLine.arguments.count {
-            pair(link: CommandLine.arguments[index + 1])
-        }
+        let arguments = CommandLine.arguments
+        guard pairing == .idle, let index = arguments.firstIndex(of: "-pairLink"), index + 1 < arguments.count else { return }
+        pair(link: arguments[index + 1])
         #endif
     }
 
@@ -78,8 +83,10 @@ final class AppModel {
             selectedHostID = host.hostID
             persistAll()
             pairing = .paired(hostName: host.hostName)
+            logger.info("paired with \(host.hostName, privacy: .public) via \(host.lastGoodEndpoint ?? "?", privacy: .public)")
             connection.connect()
         } catch {
+            logger.error("pairing failed: \(String(describing: error), privacy: .public)")
             pairing = .failed(HostConnection.describe(error))
         }
     }
