@@ -5,7 +5,10 @@ import CmuxAuthRuntime
 import CnxModel
 import Foundation
 import Observation
+import OSLog
 import StackAuth
+
+private let authModelLog = Logger(subsystem: "dev.cmux.cnx", category: "auth")
 
 /// The app's auth surface over the shared `AuthCoordinator` (Stack Auth:
 /// Apple, Google, GitHub, email code). Views read observable state and call
@@ -52,8 +55,10 @@ public final class CnxAuthModel {
         self.mockSignedIn = isMock
     }
 
-    /// Builds the live model for this process. Reads launch overrides from the
-    /// environment (DEBUG only): `CNX_CLEAR_AUTH=1` starts signed out,
+    /// Builds the live model for this process. Non-DEBUG builds (Release,
+    /// Production) use the production Stack project and its
+    /// `https://cmux.com/auth/callback`, and never read launch overrides.
+    /// Reads launch overrides from the environment (DEBUG only): `CNX_CLEAR_AUTH=1` starts signed out,
     /// `CNX_MOCK_AUTH=1` (or Settings → Developer → Mock data) signs in a
     /// local mock user, and
     /// `CNX_STACK_EMAIL` / `CNX_STACK_PASSWORD` auto-login a Stack test account.
@@ -102,12 +107,19 @@ public final class CnxAuthModel {
             )
         )
         coordinator.start()
-        return CnxAuthModel(
-            coordinator: coordinator,
-            stack: stack,
-            apiBase: environment["CNX_API_BASE"].flatMap(URL.init(string:)) ?? (isDebug ? URL(string: "https://cnx-ios-api-dev.debussy.workers.dev") : nil),
-            isMock: false
-        )
+        let apiBase = Self.apiBase(environment: isDebug ? environment : [:], infoValue: Bundle.main.object(forInfoDictionaryKey: "CNXAPIBase") as? String, isDebug: isDebug)
+        // Which backend this build talks to (public ids only, no tokens).
+        authModelLog.info("Stack project \(config.stack.projectId, privacy: .public) (\(isDebug ? "development" : "production", privacy: .public)), callback \(config.magicLinkCallbackURL, privacy: .public), service \(apiBase?.host() ?? "none", privacy: .public)")
+        return CnxAuthModel(coordinator: coordinator, stack: stack, apiBase: apiBase, isMock: false)
+    }
+
+    /// The `cnx-ios-api` base URL: the `CNX_API_BASE` launch override (DEBUG
+    /// only), else the build's `CNXAPIBase` Info.plist value (set by the
+    /// Production configuration), else the dev Worker in DEBUG builds.
+    static func apiBase(environment: [String: String], infoValue: String?, isDebug: Bool) -> URL? {
+        if let override = environment["CNX_API_BASE"], let url = URL(string: override) { return url }
+        if let infoValue, !infoValue.isEmpty, let url = URL(string: infoValue) { return url }
+        return isDebug ? URL(string: "https://cnx-ios-api-dev.debussy.workers.dev") : nil
     }
 
     /// Whether launch auth has resolved (a cached session counts immediately).
