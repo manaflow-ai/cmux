@@ -3136,6 +3136,10 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// An entry may be absent for a title carried across panel moves or
     /// restored from older snapshots; absent provenance is treated as `.user`.
     var panelCustomTitleSources: [UUID: CustomTitleSource] = [:]
+    /// Most recent optimistic remote-tmux rename request for each projected pane.
+    /// A rejected older request must not roll back a newer request with the same
+    /// title text.
+    var remoteTmuxRenameGenerationByPanelID: [UUID: UInt64] = [:]
     /// Transient labels an automation session puts in front of a panel's
     /// title (`<label> · <title>`); never persisted, and a custom title wins.
     var panelAutomationLabels: [UUID: String] = [:]

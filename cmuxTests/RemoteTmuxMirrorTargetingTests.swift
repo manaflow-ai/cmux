@@ -616,6 +616,35 @@ struct RemoteTmuxMirrorTargetingTests {
         #expect(try harness.surfaceTitles() == ["shell-b"])
     }
 
+    @Test func rejectedOlderPaneRenameDoesNotRollBackNewerIdenticalTitle() throws {
+        let harness = try MirrorTitleHarness()
+        defer { harness.tearDown() }
+        harness.publishListWindows(["@2 abcd,120x40,0,0,5 abcd,120x40,0,0,5 [] logs"])
+        try harness.drainThroughPaneRects([2: [
+            harness.paneRectLine(paneID: 5, index: 0, title: "shell-b"),
+        ]])
+
+        let mirror = try #require(harness.workspace.remoteTmuxWindowMirrors.values.first)
+        let panePanel = try #require(mirror.panel(forPane: 5))
+        #expect(harness.workspace.setPanelCustomTitle(
+            panelId: panePanel.id, title: "build", propagateToCloud: false
+        ))
+        #expect(harness.workspace.setPanelCustomTitle(
+            panelId: panePanel.id, title: "build", propagateToCloud: false
+        ))
+
+        // The first request fails after the later identical request was issued.
+        // Its failure must be ignored; the second command is still authoritative.
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 99, lines: ["can't find pane"], isError: true
+        ))
+        harness.connection.handleMessageForTesting(.commandResult(
+            commandNumber: 100, lines: [], isError: false
+        ))
+
+        #expect(harness.workspace.panelCustomTitles[panePanel.id] == "build")
+    }
+
     @Test func liveTmuxPaneRetitleUpdatesTheMirroredSurfaceTitle() throws {
         let harness = try MirrorTitleHarness()
         defer { harness.tearDown() }

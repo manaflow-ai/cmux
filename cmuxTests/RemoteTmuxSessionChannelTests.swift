@@ -172,6 +172,7 @@ private final class ReconnectFanOutFakeSource: RemoteTmuxSessionSource {
     func unsubscribePaneReflow(paneId: Int) {}
     func unsubscribePaneHeader(paneId: Int) {}
     func unsubscribePaneAgent(paneId: Int) {}
+    func subscribePaneTitlesIfNeeded() {}
     func setPaneColors(_ colors: RemoteTmuxPaneColors, paneId: Int) {}
     func removePaneColors(paneId: Int) {}
     func setWindowSize(windowId: Int, columns: Int, rows: Int) {}

@@ -543,11 +543,22 @@ extension RemoteTmuxWindowMirror {
 
     func title(forPane paneId: Int) -> String {
         let index = paneIndexByPaneId[paneId] ?? 0
-        return Self.surfaceTitle(
+        let fallback = stableFallbackTitle(
+            forPane: paneId,
             windowTitle: windowTitle,
-            paneIndex: index,
-            paneTitleMetadata: paneTitleMetadataByPane[paneId]
+            paneIndex: index
         )
+        return paneTitleMetadataByPane[paneId]?.intentionalTitle ?? fallback
+    }
+
+    /// Captures a default pane label after the first real tmux window payload.
+    /// That label belongs to the pane, so later window renames cannot rewrite it.
+    func stableFallbackTitle(forPane paneId: Int, windowTitle: String, paneIndex: Int) -> String {
+        if let title = fallbackTitleByPaneId[paneId] { return title }
+        let title = Self.windowPaneTitle(windowTitle, paneIndex: paneIndex)
+        guard hasAppliedWindow else { return title }
+        fallbackTitleByPaneId[paneId] = title
+        return title
     }
 
     func combined(children: [RemoteTmuxLayoutNode], orientation: SplitOrientation) -> RemoteTmuxLayoutNode {

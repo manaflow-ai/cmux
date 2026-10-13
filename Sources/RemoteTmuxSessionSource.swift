@@ -206,6 +206,10 @@ protocol RemoteTmuxSessionSource: AnyObject {
     func unsubscribePaneReflow(paneId: Int)
     func unsubscribePaneHeader(paneId: Int)
     func unsubscribePaneAgent(paneId: Int)
+    /// Installs the session-wide pane-title watcher after a topology becomes live.
+    /// Implementations make this idempotent because restoration and reconnect paths
+    /// may both request it.
+    func subscribePaneTitlesIfNeeded()
     /// Sizes one window's grid (per-window `refresh-client -C`, with fallback).
     func setWindowSize(windowId: Int, columns: Int, rows: Int)
     /// Updates the cached session name (after a confirmed rename).
