@@ -44,9 +44,9 @@ public struct CloudPlanRefusal: Equatable, Sendable {
         self.serverMessage = Self.string(ui?["message"]) ?? Self.string(object["message"])
         self.upgradePlanId = Self.string(object["upgradePlanId"])
         switch code {
-        case "vm_resource_pool_exceeded":
+        case Self.resourcePoolExceededCode:
             kind = .resourcePool(Self.shortfall(object))
-        case "vm_active_limit_exceeded":
+        case Self.activeLimitExceededCode:
             // A zero limit is the subscribe gate, not a full set of slots.
             let limit = (object["limit"] as? NSNumber)?.intValue
             kind = limit == 0 ? .other : .activeLimit
@@ -110,6 +110,28 @@ public struct CloudPlanRefusal: Equatable, Sendable {
         case .other:
             return serverMessage ?? CloudDiagnosticFailure.plan.label
         }
+    }
+
+    /// `vm_resource_pool_exceeded`: running machines hold the shared pool.
+    public static let resourcePoolExceededCode = "vm_resource_pool_exceeded"
+    /// `vm_active_limit_exceeded`: every active-machine slot is taken.
+    public static let activeLimitExceededCode = "vm_active_limit_exceeded"
+
+    /// The stable reference a failure transcript carries for a refusal, as
+    /// both the CLI and the in-process create print it.
+    /// - Parameter code: The server's `error` code.
+    public static func reference(code: String) -> String { "(HTTP 402: \(code))" }
+
+    /// The code of the first exact `(HTTP 402: <code>)` reference in a
+    /// failure transcript; nil when there is none. The whole code is read, so
+    /// a longer code never matches a shorter one by prefix.
+    /// - Parameter output: The failure transcript.
+    public static func code(inFailureOutput output: String) -> String? {
+        guard let match = output.range(of: #"\(HTTP 402: [A-Za-z0-9_.-]+\)"#, options: .regularExpression) else {
+            return nil
+        }
+        let reference = output[match]
+        return String(reference.dropFirst("(HTTP 402: ".count).dropLast())
     }
 
     /// A full pool whose answer did not name the numbers.

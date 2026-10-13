@@ -651516,6 +651516,72 @@
     "cloud.operation.failure.capacity": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokrenute mašine vašeg tima koriste sav Cloud kapacitet plana. Pauzirajte ili izbrišite pokrenutu mašinu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit teams kørende maskiner bruger hele planens Cloud-kapacitet. Sæt en kørende maskine på pause eller slet den, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le macchine in esecuzione del tuo team usano tutta la capacità Cloud del piano. Metti in pausa o elimina una macchina in esecuzione, poi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនដែលកំពុងដំណើរការរបស់ក្រុមអ្នកកំពុងប្រើសមត្ថភាព Cloud ទាំងអស់របស់គម្រោង។ ផ្អាក ឬលុបម៉ាស៊ីនដែលកំពុងដំណើរការមួយ រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teamets kjørende maskiner bruker hele Cloud-kapasiteten i planen. Sett en kjørende maskin på pause eller slett den, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uruchomione maszyny Twojego zespołu wykorzystują całą pojemność Cloud w planie. Wstrzymaj lub usuń uruchomioną maszynę, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As máquinas em execução da sua equipe estão usando toda a capacidade de Cloud do plano. Pause ou exclua uma máquina em execução e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущенные машины вашей команды используют всю мощность Cloud по тарифу. Приостановите или удалите запущенную машину и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องที่กำลังทำงานของทีมคุณใช้ความจุ Cloud ของแผนจนหมดแล้ว หยุดเครื่องที่กำลังทำงานชั่วคราวหรือลบออก แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekibinizin çalışan makineleri planın tüm Cloud kapasitesini kullanıyor. Çalışan bir makineyi duraklatın veya silin, ardından tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Запущені машини вашої команди використовують усю потужність Cloud за планом. Призупиніть або видаліть запущену машину й спробуйте ще раз."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -651575,6 +651641,72 @@
     "cloud.operation.failure.activeLimit": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sve aktivne mašine koje vaš plan dozvoljava su u upotrebi. Pauzirajte ili izbrišite pokrenutu mašinu, pa pokušajte ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle aktive maskiner, som din plan tillader, er i brug. Sæt en kørende maskine på pause eller slet den, og prøv igen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tutte le macchine attive consentite dal tuo piano sono in uso. Metti in pausa o elimina una macchina in esecuzione, poi riprova."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ម៉ាស៊ីនសកម្មទាំងអស់ដែលគម្រោងរបស់អ្នកអនុញ្ញាតកំពុងប្រើប្រាស់។ ផ្អាក ឬលុបម៉ាស៊ីនដែលកំពុងដំណើរការមួយ រួចព្យាយាមម្តងទៀត។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle aktive maskiner planen din tillater, er i bruk. Sett en kjørende maskin på pause eller slett den, og prøv igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wszystkie aktywne maszyny dozwolone w Twoim planie są w użyciu. Wstrzymaj lub usuń uruchomioną maszynę, a następnie spróbuj ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todas as máquinas ativas que seu plano permite estão em uso. Pause ou exclua uma máquina em execução e tente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Все активные машины, разрешённые вашим тарифом, уже используются. Приостановите или удалите запущенную машину и повторите попытку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เครื่องที่ใช้งานอยู่ทั้งหมดที่แผนของคุณอนุญาตกำลังถูกใช้งาน หยุดเครื่องที่กำลังทำงานชั่วคราวหรือลบออก แล้วลองอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Planınızın izin verdiği tüm etkin makineler kullanımda. Çalışan bir makineyi duraklatın veya silin, ardından tekrar deneyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Усі активні машини, дозволені вашим планом, уже використовуються. Призупиніть або видаліть запущену машину й спробуйте ще раз."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -651634,6 +651766,72 @@
     "cloud.operation.failure.createCredits": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vaš tim više nema kredita za kreiranje mašina. Zamolite administratora tima da doda kredite ili nadogradite plan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dit team har ikke flere kreditter til at oprette maskiner. Bed en teamadministrator om at tilføje kreditter, eller opgrader planen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il tuo team non ha più crediti per creare macchine. Chiedi a un amministratore del team di aggiungere crediti o passa a un piano superiore."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុមរបស់អ្នកលែងមានក្រេឌីតសម្រាប់បង្កើតម៉ាស៊ីនទៀតហើយ។ សូមស្នើអ្នកគ្រប់គ្រងក្រុមឱ្យបន្ថែមក្រេឌីត ឬដំឡើងគម្រោង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Teamet ditt har ikke flere kreditter for å opprette maskiner. Be en teamadministrator om å legge til kreditter, eller oppgrader planen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Twój zespół nie ma już kredytów na tworzenie maszyn. Poproś administratora zespołu o dodanie kredytów lub zmień plan na wyższy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sua equipe não tem mais créditos para criar máquinas. Peça a um administrador da equipe para adicionar créditos ou faça upgrade do plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У вашей команды закончились кредиты на создание машин. Попросите администратора команды добавить кредиты или повысьте тариф."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทีมของคุณไม่มีเครดิตสำหรับสร้างเครื่องเหลือแล้ว ขอให้ผู้ดูแลทีมเพิ่มเครดิต หรืออัปเกรดแผน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekibinizin makine oluşturma kredisi kalmadı. Bir ekip yöneticisinden kredi eklemesini isteyin veya planı yükseltin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У вашої команди закінчилися кредити на створення машин. Попросіть адміністратора команди додати кредити або перейдіть на вищий план."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -651693,6 +651891,72 @@
     "cloud.operation.failure.memoryRequiresPlan": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova veličina je veća od onoga što vaš plan uključuje. Odaberite manju veličinu ili nadogradite plan."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelse er større, end din plan omfatter. Vælg en mindre størrelse, eller opgrader planen."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa dimensione supera quanto incluso nel tuo piano. Scegli una dimensione più piccola o passa a un piano superiore."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទំហំនេះធំជាងអ្វីដែលគម្រោងរបស់អ្នករួមបញ្ចូល។ ជ្រើសរើសទំហំតូចជាងនេះ ឬដំឡើងគម្រោង។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne størrelsen er større enn det planen din inkluderer. Velg en mindre størrelse, eller oppgrader planen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten rozmiar przekracza to, co obejmuje Twój plan. Wybierz mniejszy rozmiar lub zmień plan na wyższy."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este tamanho é maior do que seu plano inclui. Escolha um tamanho menor ou faça upgrade do plano."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот размер больше, чем включено в ваш тариф. Выберите размер поменьше или повысьте тариф."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ขนาดนี้ใหญ่กว่าที่แผนของคุณรวมไว้ เลือกขนาดที่เล็กกว่า หรืออัปเกรดแผน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu boyut planınızın kapsadığından daha büyük. Daha küçük bir boyut seçin veya planı yükseltin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей розмір більший, ніж включено у ваш план. Виберіть менший розмір або перейдіть на вищий план."
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",

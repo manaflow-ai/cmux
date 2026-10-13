@@ -301,7 +301,7 @@ enum InProcessMachineCreateLauncher {
     static func failureText(for error: Error) -> String {
         let message = CloudVMActionLauncher.displayableFailureMessage(for: error)
         guard let refusal = CloudPlanRefusal(error) else { return message + "\n" }
-        return "\(message)\n(HTTP 402: \(refusal.code))\n"
+        return "\(message)\n\(CloudPlanRefusal.reference(code: refusal.code))\n"
     }
 
     @discardableResult

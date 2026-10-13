@@ -103,3 +103,15 @@ extension CloudDiagnosticFailurePlanRefusalTests {
         #expect(CloudDiagnosticFailure.classify(VMClientError.httpStatus(503, Self.poolExceededBody)) == .server)
     }
 }
+
+extension CloudDiagnosticFailurePlanRefusalTests {
+    @Test("A failure transcript's refusal code is read whole from its exact reference")
+    func failureOutputCodeIsExact() {
+        #expect(CloudPlanRefusal.code(inFailureOutput: "Full.\n(HTTP 402: vm_resource_pool_exceeded)\n") == "vm_resource_pool_exceeded")
+        #expect(CloudPlanRefusal.code(inFailureOutput: "Error: Cloud VM limit reached (HTTP 402: vm_active_limit_exceeded)") == "vm_active_limit_exceeded")
+        #expect(CloudPlanRefusal.code(inFailureOutput: "(HTTP 402: vm_resource_pool_exceeded_v2)") == "vm_resource_pool_exceeded_v2")
+        #expect(CloudPlanRefusal.code(inFailureOutput: "mentions vm_resource_pool_exceeded in prose") == nil)
+        #expect(CloudPlanRefusal.code(inFailureOutput: "(HTTP 409: vm_resource_pool_exceeded)") == nil)
+        #expect(CloudPlanRefusal.reference(code: "vm_x") == "(HTTP 402: vm_x)")
+    }
+}

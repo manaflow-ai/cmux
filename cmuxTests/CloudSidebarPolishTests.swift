@@ -49,6 +49,12 @@ struct CloudSidebarPolishTests {
         #expect(operation.hitResourcePool)
         #expect(!operation.hitMachineLimit)
         #expect(InProcessMachineCreateLauncher.failureText(for: VMClientError.httpStatus(402, "")) == CloudDiagnosticFailure.plan.label + "\n")
+        // Actions key on the parsed code: a longer code or prose naming it is not a full pool.
+        operation.phase = .failed(output: "Refused.\n(HTTP 402: vm_resource_pool_exceeded_v2)")
+        #expect(!operation.hitResourcePool)
+        operation.phase = .failed(output: "The vm_resource_pool_exceeded path\n(HTTP 402: vm_new_gate)")
+        #expect(!operation.hitResourcePool)
+        #expect(operation.refusalCode == "vm_new_gate")
     }
 
     @Test("The mode bar's minimum fits the widest tab's name with every other tab as its icon")

@@ -47,17 +47,24 @@ struct MachineCreateOperation: Identifiable, Equatable {
         return nil
     }
 
+    /// The server's refusal code, read once from the exact `(HTTP 402: <code>)`
+    /// reference the CLI and the in-process create both print. Failure actions
+    /// key on this parsed code, never on a substring of the display text.
+    var refusalCode: String? {
+        failureOutput.flatMap(CloudPlanRefusal.code(inFailureOutput:))
+    }
+
     /// The create failed because the plan's active-machine limit is reached
     /// (the service's `vm_active_limit_exceeded`), so upgrading would let it through.
     var hitMachineLimit: Bool {
-        failureOutput?.contains("vm_active_limit_exceeded") == true
+        refusalCode == CloudPlanRefusal.activeLimitExceededCode
     }
 
     /// The create found the team's shared vCPUs or memory already in use
     /// (`vm_resource_pool_exceeded`). Pausing or deleting a running machine
     /// frees it; a larger plan is only the secondary way through.
     var hitResourcePool: Bool {
-        failureOutput?.contains("vm_resource_pool_exceeded") == true
+        refusalCode == CloudPlanRefusal.resourcePoolExceededCode
     }
 
     /// The one-line status beside the name: the sheet's progress wording
