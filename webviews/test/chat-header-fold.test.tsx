@@ -1,7 +1,8 @@
 // The chat header keeps the most-used tools visible (Leo 2026-10-12: about four buttons, not
-// everything in menus): Terminal, Browser and [+] New tab, then Sources and "...". Split Down, Changes,
-// Preview and Files fold into the top of "...", each while it applies, and run with the toggle mode as
-// their buttons did. A quick action the person shows in the header (layout.json) leaves "..." again.
+// everything in menus): Changes (while the chat has changes), Preview (while there is a page), Terminal
+// and Browser, then Sources and "...". [+] New tab, Files and Split Down fold into the top of "...", and
+// run with the toggle mode as their buttons did. A quick action the person shows in the header
+// (layout.json) leaves "..." again.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -56,7 +57,7 @@ const shown = () =>
     button.getAttribute("data-quick-action"),
   );
 
-test("the header shows Terminal, Browser and New tab; Split Down, Changes and Preview fold into the chat menu", async () => {
+test("the header shows Changes, Preview, Terminal and Browser; New tab, Files and Split Down fold into the chat menu", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
@@ -75,6 +76,7 @@ test("the header shows Terminal, Browser and New tab; Split Down, Changes and Pr
           onChanges={(mode) => runs.push(`changes:${mode}`)}
           previewUrl="http://localhost:5173/"
           onPreview={(url, mode) => runs.push(`preview:${url}:${mode}`)}
+          onFiles={(mode) => runs.push(`files:${mode}`)}
           onSideTabs={() => runs.push("newTab")}
           summary={null}
           menu={() => [{ key: "rename", label: "Rename", icon: "folder", onSelect: () => runs.push("rename") }]}
@@ -85,18 +87,19 @@ test("the header shows Terminal, Browser and New tab; Split Down, Changes and Pr
 
   configureQuickActions({});
   render();
-  expect(shown()).toEqual(["terminal", "browser", "newTab"]);
+  expect(shown()).toEqual(["changes", "preview", "terminal", "browser"]);
   await act(async () => void openPicker("Chat actions"));
-  expect(labels()).toEqual(["Split Down", "Changes", "Preview", "Rename"]);
-  await act(async () => (doc.querySelector(".acpmux-chat-menu-popover .acpmux-chat-menu-item") as HTMLElement).click());
+  expect(labels()).toEqual(["New tab", "Files", "Split Down", "Rename"]);
+  const rows = () => [...doc.querySelectorAll<HTMLElement>(".acpmux-chat-menu-popover .acpmux-chat-menu-item")];
+  await act(async () => rows()[2].click());
   expect(runs).toEqual(["splitDown:toggle"]);
 
   // Shown in the header again: its button is back and "..." no longer lists it.
-  act(() => configureQuickActions({ quickActions: ["terminal", "splitDown", "browser", "newTab"] }));
+  act(() => configureQuickActions({ quickActions: ["changes", "preview", "terminal", "browser", "splitDown"] }));
   render();
-  expect(shown()).toEqual(["terminal", "splitDown", "browser", "newTab"]);
+  expect(shown()).toEqual(["changes", "preview", "terminal", "browser", "splitDown"]);
   await act(async () => void openPicker("Chat actions"));
-  expect(labels()).toEqual(["Changes", "Preview", "Rename"]);
+  expect(labels()).toEqual(["New tab", "Files", "Rename"]);
   act(() => root?.unmount());
   root = undefined;
   configureQuickActions({});
