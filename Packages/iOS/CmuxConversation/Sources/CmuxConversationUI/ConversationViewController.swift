@@ -1682,14 +1682,37 @@ final class TranscriptCollectionView: UICollectionView {
     private var lastMaskGeometry: (CGFloat, CGFloat)?
 
     override func layoutSubviews() {
+        // Before UIKit places its pockets in this pass, so a hidden edge
+        // never gets a pocket; again after, once the content size is current.
+        updateBottomEdgeEffect()
         super.layoutSubviews()
         updateTopFadeMask()
+        if updateBottomEdgeEffect() { setNeedsLayout() }
         // Outgoing bubbles' gradient is fixed to the screen. Placed here,
         // after the cells for this offset are placed, not on scroll: a cell
         // reused at the other edge would otherwise show the gradient of the
         // place it left for a frame (its bubble keeps its size, so it does
         // not lay out again).
         for case let cell as MessageCell in visibleCells { cell.updateScreenGradients() }
+    }
+
+    /// The bottom soft edge is live only while content lies under the
+    /// composer band (see `ConversationScrollEdgePolicy`): at rest on the
+    /// newest message it draws nothing, but a live pocket makes the render
+    /// server redraw most of the screen on every frame a row animates.
+    /// Returns whether it changed.
+    @discardableResult
+    private func updateBottomEdgeEffect() -> Bool {
+        guard #available(iOS 26.0, *) else { return false }
+        let hidden = !ConversationScrollEdgePolicy.contentUnderBottomBar(
+            contentHeight: contentSize.height,
+            offsetY: contentOffset.y,
+            viewportHeight: bounds.height,
+            bottomInset: adjustedContentInset.bottom
+        )
+        guard bottomEdgeEffect.isHidden != hidden else { return false }
+        bottomEdgeEffect.isHidden = hidden
+        return true
     }
 
     /// The mask lives in the scroll view's bounds space, so it follows the
