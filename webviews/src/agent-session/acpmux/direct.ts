@@ -12,7 +12,7 @@ import type {
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, type ComposerAttachment } from "./attachments";
-import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
+import { ARCHIVED_TAG, hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
@@ -1971,6 +1971,23 @@ export class AcpmuxDirectClient {
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
     if (!this.selectedSessionId) return { removed: false };
     return this.request("_acpmux/queue_remove", { sessionId: this.selectedSessionId, promptId });
+  }
+  /// Archive tags the selected chat `archived` in acpmux (the lists hide it; its value is when, in
+  /// milliseconds); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
+  async archive(archived: boolean): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    await this.request(
+      "_acpmux/tag",
+      archived ? { sessionId, set: { [ARCHIVED_TAG]: String(Date.now()) } } : { sessionId, remove: [ARCHIVED_TAG] },
+    );
+  }
+  /// Mark as Unread (cx-ncc.78): acpmux keeps the selected chat unread until it is hidden and
+  /// shown again.
+  async markUnread(): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    await this.request("_acpmux/markUnread", { sessionId });
   }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.

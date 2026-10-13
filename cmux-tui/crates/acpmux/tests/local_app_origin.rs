@@ -233,6 +233,51 @@ async fn the_token_is_new_at_every_launch_private_and_never_in_a_reply() {
     assert_eq!(origin_of(&init), "local");
 }
 
+/// The agent pane's chat menu (cx-jlzsf): Archive and Mark as Unread are
+/// acpmux requests the page sends on its own connection, the app's pane
+/// (LocalApp) and a plain browser tab on the listener (the dev host, remote
+/// origin) alike; no host bridge call is left between the page and the chat.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_pane_archives_and_marks_a_chat_unread_over_its_own_connection() {
+    let d = Daemon::start("chat-state");
+    let token = d.local_token();
+    let (mut app, init) = hello(&d, Some(PANE), Some(&token)).await;
+    assert_eq!(origin_of(&init), "local", "{init}");
+    let trust = call(&mut app, 2, "acp.trust.set", json!({"cwd": d.home, "level": "trusted"})).await;
+    assert!(trust.get("error").is_none(), "{trust}");
+    let new = call(&mut app, 3, "session/new", json!({"cwd": d.home, "mcpServers": []})).await;
+    let id = new["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{new}")).to_owned();
+    let summary = |reply: &Value| -> Value {
+        reply["result"]["sessions"]
+            .as_array()
+            .and_then(|all| all.iter().find(|s| s["sessionId"] == json!(id)).cloned())
+            .unwrap_or_else(|| panic!("no summary for {id}: {reply}"))
+    };
+
+    // Archive: the `archived` tag (its value is when, in milliseconds); Unarchive removes it.
+    let archived = call(&mut app, 4, "_acpmux/tag", json!({"sessionId": id, "set": {"archived": "1760000000000"}})).await;
+    assert_eq!(archived["result"]["tags"]["archived"], json!("1760000000000"), "{archived}");
+    let unread = call(&mut app, 5, "_acpmux/markUnread", json!({"sessionId": id})).await;
+    assert!(unread.get("error").is_none(), "{unread}");
+    let seen = call(&mut app, 6, "_acpmux/watch", json!({})).await;
+    assert_eq!(summary(&seen)["unread"], json!(true), "{seen}");
+    assert_eq!(summary(&seen)["tags"]["archived"], json!("1760000000000"), "{seen}");
+
+    // The same requests from a plain browser tab on the listener (no Swift in between).
+    let (mut tab, init) = hello(&d, None, None).await;
+    assert_eq!(origin_of(&init), "remote", "{init}");
+    let restored = call(&mut tab, 2, "_acpmux/tag", json!({"sessionId": id, "remove": ["archived"]})).await;
+    assert!(restored["result"]["tags"].get("archived").is_none(), "{restored}");
+    let again = call(&mut tab, 3, "_acpmux/markUnread", json!({"sessionId": id})).await;
+    assert!(again.get("error").is_none(), "{again}");
+    let seen = call(&mut tab, 4, "_acpmux/watch", json!({})).await;
+    assert!(summary(&seen)["tags"].get("archived").is_none(), "{seen}");
+    assert_eq!(summary(&seen)["unread"], json!(true), "{seen}");
+    // An unknown chat is an error, never a silent success the menu would show as done.
+    let missing = call(&mut tab, 5, "_acpmux/markUnread", json!({"sessionId": "no-such-chat"})).await;
+    assert!(missing.get("error").is_some(), "{missing}");
+}
+
 /// A stop right after the ready line is a clean stop: SIGTERM ends the
 /// daemon through its shutdown path (exit 0, run/localapp.token removed).
 /// The daemon installed its SIGTERM handler only after the ready line, so a

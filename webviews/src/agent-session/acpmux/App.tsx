@@ -3727,13 +3727,24 @@ function AcpmuxPane() {
       ),
     );
   const archived = snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived);
+  // Archive and Mark as Unread are acpmux requests on the pane's own connection (cx-jlzsf); only
+  // closing an archived chat's tab is the host's (a tab is the window's).
+  const connected = async () => {
+    const client = directClient.current;
+    if (!client) throw new Error(translate("error.notOpen"));
+    return client;
+  };
+  const archiveChat = async (archived: boolean) => {
+    await (await connected()).archive(archived);
+    if (archived) await callNative("pane.action", { id: "closeTab" });
+  };
   const archive = archiveRow(
     {
       sessionId: snapshot.sessionId,
       archived,
       local: localCwd !== undefined,
     },
-    (archived) => ignoreFailure(callNative("chat.archive", { archived })),
+    (archived) => ignoreFailure(archiveChat(archived)),
     t,
   );
   archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
@@ -3744,7 +3755,7 @@ function AcpmuxPane() {
       local: localCwd !== undefined,
       unread: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.unread === true),
     },
-    () => ignoreFailure(callNative("chat.markUnread")),
+    () => ignoreFailure(connected().then((client) => client.markUnread())),
     t,
   );
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);

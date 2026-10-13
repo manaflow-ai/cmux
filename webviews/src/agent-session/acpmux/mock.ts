@@ -413,6 +413,20 @@ export class MockAcpmuxSocket {
           events: this.events.filter((event) => event.sessionId === target),
         };
       }
+      case "_acpmux/tag": {
+        const entry = this.sessions.find((session) => session.sessionId === target);
+        if (!entry) throw Object.assign(new Error("no such session"), { code: -32001 });
+        const tags: Record<string, string> = { ...(entry.tags ?? {}) };
+        for (const [key, value] of Object.entries((params.set ?? {}) as Record<string, unknown>)) tags[key] = String(value);
+        for (const key of Array.isArray(params.remove) ? params.remove : []) delete tags[String(key)];
+        this.touch(target, { tags, archived: undefined }, false);
+        return this.sessions.find((session) => session.sessionId === target);
+      }
+      case "_acpmux/markUnread":
+        if (!this.sessions.some((session) => session.sessionId === target))
+          throw Object.assign(new Error("no such session"), { code: -32001 });
+        this.touch(target, { unread: true }, false);
+        return {};
       case "_acpmux/events":
         return this.page(target, params);
       case "_acpmux/permission_respond":

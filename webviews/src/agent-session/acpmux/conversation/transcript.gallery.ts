@@ -79,6 +79,13 @@ const groupedShellRows = [
   summary(2.4, { id: "gallery-shell-group-summary", status: "completed", toolCount: 2 }),
 ];
 
+/// Whether the open chat menu lists `name` (its label, so "Archive" is not "Unarchive").
+const menuItem = (ctx: PlayContext, name: string) =>
+  [...ctx.document.querySelectorAll('[role="menuitem"]')].some((item) => item.textContent?.trim().startsWith(name));
+/// The mock daemon's chat is open: its header offers the chat menu.
+const chatMenuReady = (ctx: PlayContext) =>
+  ctx.waitFor(() => ctx.document.querySelector('[aria-label="Chat actions"]'), { capMs: 10_000 });
+
 const openWorked = async (ctx: PlayContext) => {
   await ctx.click({ selector: ".cv-worked" });
   await ctx.waitFor(() => ctx.find({ selector: ".cv-worked" }).getAttribute("aria-expanded") === "true");
@@ -390,18 +397,26 @@ export default agentPaneEntry({
       },
     },
     "archive-chat-key": {
-      note: "Play: Archive Chat (cx-ncc.72) archives the chat through the same host call as the chat menu's Archive.",
+      note: "Play: Archive Chat (cx-ncc.72) tags the chat archived over the pane's own acpmux connection (cx-jlzsf), then asks the app to close its tab.",
+      ready: { transport: "mock" },
       snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
       play: async (ctx) => {
-        await ctx.focus({ selector: "[contenteditable='true']" });
         const page = ctx.document.defaultView as unknown as {
           cmuxAcpmuxBridge?: { command?(name: string): void };
-          cmuxGalleryLog: { method: string; params?: { archived?: boolean } }[];
+          cmuxGalleryLog: { method: string; params?: { id?: string } }[];
         };
+        // The chat menu offers Archive once the mock daemon's chat is open.
+        await chatMenuReady(ctx);
+        await ctx.click({ role: "button", name: "Chat actions" });
+        await ctx.waitFor(() => menuItem(ctx, "Archive"));
+        await ctx.press("Escape");
         page.cmuxAcpmuxBridge?.command?.("archiveChat");
+        // The tab closes only after acpmux took the tag.
         await ctx.waitFor(() =>
-          page.cmuxGalleryLog.some(({ method, params }) => method === "chat.archive" && params?.archived === true),
+          page.cmuxGalleryLog.some(({ method, params }) => method === "pane.action" && params?.id === "closeTab"),
         );
+        if (page.cmuxGalleryLog.some(({ method }) => method === "chat.archive"))
+          throw new Error("archive went to the host bridge");
       },
     },
     "fork-any-turn": {
@@ -423,13 +438,18 @@ export default agentPaneEntry({
       },
     },
     "mark-unread-menu": {
-      note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks the host to mark the chat unread.",
+      note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks acpmux on the pane's own connection (cx-jlzsf); the unread chat's menu no longer offers it.",
+      ready: { transport: "mock" },
       snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
       play: async (ctx) => {
         const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string }[] };
+        await chatMenuReady(ctx);
         await ctx.click({ role: "button", name: "Chat actions" });
         await ctx.click({ role: "menuitem", name: "Mark as Unread" });
-        await ctx.waitFor(() => page.cmuxGalleryLog.some(({ method }) => method === "chat.markUnread"));
+        await ctx.click({ role: "button", name: "Chat actions" });
+        await ctx.waitFor(() => menuItem(ctx, "Archive") && !menuItem(ctx, "Mark as Unread"));
+        if (page.cmuxGalleryLog.some(({ method }) => method === "chat.markUnread"))
+          throw new Error("mark unread went to the host bridge");
       },
     },
     "thought-row": {
