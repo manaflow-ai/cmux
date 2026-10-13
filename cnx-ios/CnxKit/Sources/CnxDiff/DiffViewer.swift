@@ -39,7 +39,12 @@ public struct DiffChangesScreen: View {
                 summary
                     .listRowSeparator(.hidden, edges: .top)
                 ForEach(visibleFiles) { file in
-                    NavigationLink(value: DiffFileRoute(fileID: file.id)) {
+                    // A destination link, not a value link: the chat that pushes this
+                    // screen may sit in a stack with a typed path (Home), where a
+                    // DiffFileRoute value has nowhere to go and the tap did nothing.
+                    NavigationLink {
+                        DiffFileScreen(state: state, fileID: file.id)
+                    } label: {
                         DiffFileRow(file: file, isViewed: state.viewed.contains(file.id)) {
                             withAnimation(.cnxSnap) { state.toggleViewed(file) }
                         }
@@ -54,13 +59,10 @@ public struct DiffChangesScreen: View {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
                     Text("Changes").font(.headline)
-                    Text("\(state.changeSet.subtitle) · \(state.changeSet.files.count) files").font(.footnote).foregroundStyle(.secondary)
+                    Text("\(state.changeSet.subtitle) · \(state.changeSet.files.count) \(state.changeSet.files.count == 1 ? "file" : "files")").font(.footnote).foregroundStyle(.secondary)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) { DiffOptionsMenu(state: state) }
-        }
-        .navigationDestination(for: DiffFileRoute.self) { route in
-            DiffFileScreen(state: state, fileID: route.fileID)
         }
     }
 
@@ -70,7 +72,7 @@ public struct DiffChangesScreen: View {
 
     private var summary: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("\(state.changeSet.files.count) files changed").font(.headline)
+            Text("\(state.changeSet.files.count) \(state.changeSet.files.count == 1 ? "file" : "files") changed").font(.headline)
             HStack(spacing: 8) {
                 DiffCounts(additions: state.changeSet.additions, deletions: state.changeSet.deletions)
                 DiffStatBar(additions: state.changeSet.additions, deletions: state.changeSet.deletions)
@@ -81,10 +83,6 @@ public struct DiffChangesScreen: View {
         }
         .padding(.vertical, 6)
     }
-}
-
-struct DiffFileRoute: Hashable {
-    let fileID: String
 }
 
 /// `+12 −4` in diff colors.
