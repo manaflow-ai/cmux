@@ -11,9 +11,9 @@
 //! `session.events` batch in one transaction.
 
 pub(crate) mod agent_folder;
-pub(crate) mod agent_home_moves;
 #[cfg(test)]
 mod agent_folder_tests;
+pub(crate) mod agent_home_moves;
 pub(crate) mod agent_message_store;
 pub(crate) mod agent_messages;
 pub(crate) mod agent_start;
