@@ -79,7 +79,10 @@ const FILTERED_TOTAL_CAP = 50;
 
 const REASON_LABEL_KEY: Record<string, DiffViewerLabelKey> = {
   default: "branchPickerReasonDefault",
+  head: "branchPickerReasonHead",
   manual: "branchPickerReasonManual",
+  recorded: "branchPickerReasonRecorded",
+  upstream: "branchPickerReasonUpstream",
 };
 
 const GROUP_LABEL_KEY: Record<string, DiffViewerLabelKey> = {
@@ -534,7 +537,8 @@ export function BranchPickerRowView({
   // Prefer the backend's localized `secondary` (e.g. the localized reason label
   // for Suggested rows) over the raw English `reason` contract tag so non-English
   // diff viewers don't show "fork point" / "created from" verbatim.
-  // Reason tags the sidecar sends itself (`manual`, `default`) have their own labels.
+  // Reason tags the sidecar sends itself (`manual`, `default`, `recorded`, `upstream`,
+  // `head` for the checked-out branch) have their own labels.
   const reasonKey = row.reason ? REASON_LABEL_KEY[row.reason] : undefined;
   // A worktree reads as its folder's name; the whole path shows on hover.
   const worktreeName = row.worktreeDir?.replace(/\/+$/, "").split("/").pop() || row.worktreeDir;

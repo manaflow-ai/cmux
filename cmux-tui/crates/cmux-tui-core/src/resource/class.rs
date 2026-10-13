@@ -60,6 +60,7 @@ impl ResourceOperation {
                 | Self::GitCheckpointDiff
                 | Self::GitCheckpointGet
                 | Self::GitCheckpointList
+                | Self::GitBranches
                 | Self::GitDiff
                 | Self::GitFilesList
                 | Self::GitFilesSearch
