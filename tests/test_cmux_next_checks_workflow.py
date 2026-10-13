@@ -585,7 +585,11 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
                    "MISSING": missing, "MALFORMED": str(malformed).lower(),
                    "HEAD_REPOSITORY": "outside/fork" if fork else "manaflow-ai/cmux",
                    "REPOSITORY": "manaflow-ai/cmux", "SERVER_URL": "https://github.com",
-                   "GH_TOKEN": "fixture", "RUN_ID": "123"}
+                   "GH_TOKEN": "fixture", "RUN_ID": "123", "API_URL": "https://api.github.com"}
+            # The tree-claim authority needs a job OIDC token; without one it exits 3 and the
+            # preflight falls back to the run-list election (fake curl answers it).
+            env.pop("ACTIONS_ID_TOKEN_REQUEST_URL", None)
+            env.pop("ACTIONS_ID_TOKEN_REQUEST_TOKEN", None)
             result = subprocess.run(["bash", "-c", script], env=env, text=True,
                                     capture_output=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -703,8 +707,8 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
-                                           "request-nightly-next", "swift-canary", "swift-test"])
+        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
+                                           "release-compile", "request-nightly-next", "swift-canary", "swift-test"])
 
 
 
