@@ -146,6 +146,7 @@
         "CmuxNextBridge",
         "CmuxNextBrowser",
         "CmuxNextBrowserAutomation",
+        "CmuxNextBrowserHistory",
         "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
         "CmuxNextCLIInstall",
@@ -214,6 +215,7 @@
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextApp",
+        "CmuxNextBrowserHistory",
         "CmuxNextComputerUse",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
@@ -294,6 +296,16 @@
       "targets": [
         "CmuxNextBrowser",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextBrowserHistory": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserHistory",
+      "targets": [
+        "CmuxNextBrowser",
+        "CmuxNextCompat",
+        "CmuxNextDaemon"
       ],
       "packages": []
     },
