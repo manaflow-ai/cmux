@@ -20,6 +20,11 @@ extension ControlRouter {
     /// How long a started run keeps settling after its request answered
     /// `in_progress`, so a retry with the same key gets the final reply.
     static let settleLimit: Duration = .seconds(30)
+    /// How long a settled run waits for its created objects to show in a
+    /// snapshot: the store can build a new object after the event that moved
+    /// the sequence. Past it the reply lists what it shows (an object closed
+    /// right away never shows).
+    static let createdLimit: Duration = .seconds(2)
 
     func runAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
@@ -169,12 +174,26 @@ extension ControlRouter {
         // No daemon command: the work queue's frame already published the
         // app-local change (selection, focus, settings).
         let barriers = scope.barriers
-        guard !barriers.isEmpty else { return .success(snapshots.current) }
+        guard !barriers.isEmpty else { return .success(await showingCreated(scope.created, after: snapshots.current, deadline: deadline)) }
         guard let snapshot = await snapshots.snapshot(reflecting: Self.sequenceBarrier(barriers, in: snapshots.current.topology),
                                                       deadline: deadline) else {
             return .failure(Self.stillRunning(method, action: action))
         }
-        return .success(snapshot)
+        return .success(await showingCreated(scope.created, after: snapshot, deadline: deadline))
+    }
+
+    /// `settled`, or the first later snapshot that shows every object in
+    /// `created`, so `created` in the reply is not empty under load (cli.md
+    /// Remaining 13). Bounded by ``createdLimit``.
+    private func showingCreated(_ created: [ControlCreatedObject], after settled: ControlSnapshot,
+                                deadline: ContinuousClock.Instant) async -> ControlSnapshot {
+        let showsAll: @Sendable (ControlSnapshot) -> Bool = { snapshot in
+            created.allSatisfy { PublicIDTargetResolver.publicID(of: $0, in: snapshot.topology) != nil }
+        }
+        guard !showsAll(settled) else { return settled }
+        let limit = min(deadline, .now + Self.createdLimit)
+        let shown = await snapshots.snapshot(where: showsAll, deadline: limit)
+        return shown ?? snapshots.current
     }
 
     /// The scope's per-machine barriers as snapshot sequences: the local
