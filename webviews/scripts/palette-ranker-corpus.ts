@@ -60,7 +60,12 @@ const sets: Record<string, { version: number; entries: PaletteRankEntry[] }> = {
   cjk: {
     version: 2,
     entries: [
-      e("新しいタブ", { keywords: ["tab", "new"], actionID: "newTab", frecencyKey: "action:newTab", hasShortcut: true }),
+      e("新しいタブ", {
+        keywords: ["tab", "new"],
+        actionID: "newTab",
+        frecencyKey: "action:newTab",
+        hasShortcut: true,
+      }),
       e("新しいウィンドウ", { actionID: "newWindow", frecencyKey: "action:newWindow" }),
       e("設定…", { keywords: ["preferences", "設定"], actionID: "openSettings", frecencyKey: "action:openSettings" }),
       e("ワークスペースを閉じる", { actionID: "closeWorkspace", frecencyKey: "action:closeWorkspace" }),
@@ -88,9 +93,25 @@ const sets: Record<string, { version: number; entries: PaletteRankEntry[] }> = {
       e("Go to Line", { queryPrefix: ":", actionID: "goToLine" }),
       e("Mention Agent", { queryPrefix: "@", actionID: "mention" }),
       e("Recent Files", { hidesWhenTyping: true, actionID: "recentFiles", frecencyKey: "action:recentFiles" }),
-      e("New Tab", { actionID: "newTab", frecencyKey: "action:newTab", hasShortcut: true, suggestedRank: 1, suggestedSectionIndex: 2 }),
-      e("New Tab…", { actionID: "newTabMenu", frecencyKey: "action:newTabMenu", suggestedRank: 2, suggestedSectionIndex: 2 }),
-      e("Settings", { keywords: ["settings", "preferences"], entersScope: true, actionID: "settingsScope", sectionIndex: 1 }),
+      e("New Tab", {
+        actionID: "newTab",
+        frecencyKey: "action:newTab",
+        hasShortcut: true,
+        suggestedRank: 1,
+        suggestedSectionIndex: 2,
+      }),
+      e("New Tab…", {
+        actionID: "newTabMenu",
+        frecencyKey: "action:newTabMenu",
+        suggestedRank: 2,
+        suggestedSectionIndex: 2,
+      }),
+      e("Settings", {
+        keywords: ["settings", "preferences"],
+        entersScope: true,
+        actionID: "settingsScope",
+        sectionIndex: 1,
+      }),
       e("Settings", { demoted: true, actionID: "settingsRow", frecencyKey: "setting:settings", sectionIndex: 1 }),
       e("Color", { demoted: true, actionID: "colorA", sectionIndex: 1 }),
       e("Color", { demoted: true, actionID: "colorB", sectionIndex: 1 }),
@@ -98,7 +119,12 @@ const sets: Record<string, { version: number; entries: PaletteRankEntry[] }> = {
       e("Close Tab", { actionID: "closeTab", isEnabled: false, frecencyKey: "action:closeTab" }),
       e("Close Window", { actionID: "closeWindow", rankBias: 40, frecencyKey: "action:closeWindow" }),
       e("Hidden Row", { actionID: "hiddenRow", frecencyKey: "action:hiddenRow", isVisibleWhenQueryEmpty: false }),
-      e("Toggle Split Zoom", { actionID: "toggleSplitZoom", accessory: "⇧⌘↩", subtitle: "Pane", typingSectionIndex: 3 }),
+      e("Toggle Split Zoom", {
+        actionID: "toggleSplitZoom",
+        accessory: "⇧⌘↩",
+        subtitle: "Pane",
+        typingSectionIndex: 3,
+      }),
       e("Split Right", { actionID: "splitRight", hasShortcut: true, typingSectionIndex: 3 }),
       e("Split Up", { actionID: "splitUp", typingSectionIndex: 3 }),
     ],
@@ -123,7 +149,9 @@ const add = (name: string, set: string, request: Request, inline = false) =>
 function frecencyFor(evalCase: EvalCase): PaletteFrecency {
   const profile = evalCase.profile ? cases.profiles?.[evalCase.profile] : undefined;
   const start: PaletteFrecency = {
-    entries: Object.fromEntries(Object.entries(profile ?? {}).map(([key, score]) => [key, { score, lastUsed: evalNow }])),
+    entries: Object.fromEntries(
+      Object.entries(profile ?? {}).map(([key, score]) => [key, { score, lastUsed: evalNow }]),
+    ),
   };
   return evalCase.replay ? replayHistory(evalCase.replay, start) : start;
 }
@@ -143,44 +171,151 @@ cases.cases.forEach((evalCase, index) => {
 
 const lawrence: PaletteFrecency = {
   entries: Object.fromEntries(
-    Object.entries(cases.profiles?.lawrence ?? {}).map(([key, score], i) => [key, { score, lastUsed: evalNow - (i % 5) * day }]),
+    Object.entries(cases.profiles?.lawrence ?? {}).map(([key, score], i) => [
+      key,
+      { score, lastUsed: evalNow - (i % 5) * day },
+    ]),
   ),
   halfLife: 3 * day,
 };
 
 // 2. Every keystroke of common commands, with and without usage.
-for (const phrase of ["split right", "new workspace", "toggle sidebar", "settings", "close tab", "rename tab", "new agent chat"]) {
+for (const phrase of [
+  "split right",
+  "new workspace",
+  "toggle sidebar",
+  "settings",
+  "close tab",
+  "rename tab",
+  "new agent chat",
+]) {
   for (let length = 1; length <= phrase.length; length++) {
     const query = phrase.slice(0, length);
     add(`keystroke ${JSON.stringify(query)}`, "root", { ...base, operation: "rank", query, frecency: { entries: {} } });
   }
-  add(`keystroke usage ${JSON.stringify(phrase)}`, "root", { ...base, operation: "rank", query: phrase, frecency: lawrence });
+  add(`keystroke usage ${JSON.stringify(phrase)}`, "root", {
+    ...base,
+    operation: "rank",
+    query: phrase,
+    frecency: lawrence,
+  });
 }
 
 // 3. Typos, ids, accents and width, odd input.
 const queries = [
-  "nwe tab", "sttings", "settigns", "toggel sidebar", "clsoe tab", "rnamee tab", "workspcae", "brwoser", "reloda",
-  "sidbar", "termnial", "colmun", "zom", "fnd", "qiut", "spilt rihgt", "nwe wrokspace", "bookmakr", "histroy",
-  "openSettings", "palette.new", "newSur", "splitRight", "closeTab", "palette.workspaceColor", "newsurface", "open",
-  "SETTINGS", "Séttings", "ＳＥＴＴＩＮＧＳ", "ﬁnd", "  split   right  ", "split…", "settings...", "Split-Right",
-  "zzz", "qx", "1", "2", "3d", "@", "#", ">", "…", "-", "设置", "設定", "タブ", "tab tab tab", "a b c d e",
-  "new tab new window", "x".repeat(40), "srt", "nbt", "tsb", "ws", "nw", "sr", "cmd", "dark", "light", "font size",
+  "nwe tab",
+  "sttings",
+  "settigns",
+  "toggel sidebar",
+  "clsoe tab",
+  "rnamee tab",
+  "workspcae",
+  "brwoser",
+  "reloda",
+  "sidbar",
+  "termnial",
+  "colmun",
+  "zom",
+  "fnd",
+  "qiut",
+  "spilt rihgt",
+  "nwe wrokspace",
+  "bookmakr",
+  "histroy",
+  "openSettings",
+  "palette.new",
+  "newSur",
+  "splitRight",
+  "closeTab",
+  "palette.workspaceColor",
+  "newsurface",
+  "open",
+  "SETTINGS",
+  "Séttings",
+  "ＳＥＴＴＩＮＧＳ",
+  "ﬁnd",
+  "  split   right  ",
+  "split…",
+  "settings...",
+  "Split-Right",
+  "zzz",
+  "qx",
+  "1",
+  "2",
+  "3d",
+  "@",
+  "#",
+  ">",
+  "…",
+  "-",
+  "设置",
+  "設定",
+  "タブ",
+  "tab tab tab",
+  "a b c d e",
+  "new tab new window",
+  "x".repeat(40),
+  "srt",
+  "nbt",
+  "tsb",
+  "ws",
+  "nw",
+  "sr",
+  "cmd",
+  "dark",
+  "light",
+  "font size",
 ];
-for (const query of queries) add(`query ${JSON.stringify(query)}`, "root", { ...base, operation: "rank", query, frecency: lawrence });
+for (const query of queries)
+  add(`query ${JSON.stringify(query)}`, "root", { ...base, operation: "rank", query, frecency: lawrence });
 
 // 4. Request options: prefix-first (tab search), kept section order, row and highlight limits.
 for (const query of ["new", "split", "set", "tab", "close"]) {
-  add(`prefixFirst ${query}`, "root", { ...base, operation: "rank", query, ranksPrefixFirst: true, frecency: lawrence });
-  add(`keepsSectionOrder ${query}`, "root", { ...base, operation: "rank", query, keepsSectionOrder: true, frecency: { entries: {} } });
-  add(`limits ${query}`, "root", { ...base, operation: "rank", query, rowLimit: 7, highlightLimit: 3, frecency: lawrence });
+  add(`prefixFirst ${query}`, "root", {
+    ...base,
+    operation: "rank",
+    query,
+    ranksPrefixFirst: true,
+    frecency: lawrence,
+  });
+  add(`keepsSectionOrder ${query}`, "root", {
+    ...base,
+    operation: "rank",
+    query,
+    keepsSectionOrder: true,
+    frecency: { entries: {} },
+  });
+  add(`limits ${query}`, "root", {
+    ...base,
+    operation: "rank",
+    query,
+    rowLimit: 7,
+    highlightLimit: 3,
+    frecency: lawrence,
+  });
 }
 
 // 5. Empty queries: usage, hidden rows, pins, no Recent, a rank op with only white space.
-const hidden: PaletteFrecency = { ...lawrence, hidden: ["action:newColumn", "action:splitRight", "action:newTab.default"] };
+const hidden: PaletteFrecency = {
+  ...lawrence,
+  hidden: ["action:newColumn", "action:splitRight", "action:newTab.default"],
+};
 add("empty usage", "root", { ...base, operation: "rankEmpty", frecency: lawrence });
 add("empty hidden", "root", { ...base, operation: "rankEmpty", frecency: hidden });
-add("empty pins", "root", { ...base, operation: "rankEmpty", frecency: lawrence, pins: ["splitDown", "missing", "splitDown", "newColumn"], pinnedSectionIndex: 3 });
-add("empty no recent", "root", { ...base, operation: "rankEmpty", showsRecent: false, frecency: lawrence, pins: ["splitDown"] });
+add("empty pins", "root", {
+  ...base,
+  operation: "rankEmpty",
+  frecency: lawrence,
+  pins: ["splitDown", "missing", "splitDown", "newColumn"],
+  pinnedSectionIndex: 3,
+});
+add("empty no recent", "root", {
+  ...base,
+  operation: "rankEmpty",
+  showsRecent: false,
+  frecency: lawrence,
+  pins: ["splitDown"],
+});
 add("empty recentLimit 0", "root", { ...base, operation: "rankEmpty", recentLimit: 0, frecency: lawrence });
 add("empty recentLimit 2", "root", { ...base, operation: "rankEmpty", recentLimit: 2, frecency: lawrence });
 add("rank white space", "root", { ...base, operation: "rank", query: "   ", frecency: lawrence });
@@ -196,9 +331,40 @@ for (const query of ["vs", "VS", " right   split ", "close", "clo", "cw", "nc", 
 
 // 7. CJK, accents, compatibility forms.
 for (const query of [
-  "新しい", "タブ", "新", "設定", "閉じる", "ﾀﾌﾞ", "タフ", "새", "설정", "检查", "更新", "cafe", "café", "naive", "resume",
-  "angstrom", "strasse", "straße", "istanbul", "i̇stanbul", "σοφια", "ΣΟΦΙΑ", "sofia", "fullwidth", "ｆｕｌｌ", "find",
-  "fin fi", "unicode", "ツール", "右", "split", "tab", "update", "",
+  "新しい",
+  "タブ",
+  "新",
+  "設定",
+  "閉じる",
+  "ﾀﾌﾞ",
+  "タフ",
+  "새",
+  "설정",
+  "检查",
+  "更新",
+  "cafe",
+  "café",
+  "naive",
+  "resume",
+  "angstrom",
+  "strasse",
+  "straße",
+  "istanbul",
+  "i̇stanbul",
+  "σοφια",
+  "ΣΟΦΙΑ",
+  "sofia",
+  "fullwidth",
+  "ｆｕｌｌ",
+  "find",
+  "fin fi",
+  "unicode",
+  "ツール",
+  "右",
+  "split",
+  "tab",
+  "update",
+  "",
 ]) {
   add(`cjk ${JSON.stringify(query)}`, "cjk", {
     sectionOrders: [1, 0],
@@ -212,7 +378,10 @@ for (const query of [
 
 // 8. Gated pages: query prefixes, rows hidden while typing, scopes, demoted settings, disabled rows, picks.
 const gatedUsage: PaletteFrecency = {
-  entries: { "action:closeWindow": { score: 9, lastUsed: evalNow }, "action:recentFiles": { score: 4, lastUsed: evalNow } },
+  entries: {
+    "action:closeWindow": { score: 9, lastUsed: evalNow },
+    "action:recentFiles": { score: 4, lastUsed: evalNow },
+  },
   picks: [
     { prefix: "c", key: "action:closeTab", score: 5, lastUsed: evalNow, last: true },
     { prefix: "c", key: "action:workspaceColor", score: 3, lastUsed: evalNow - day, last: false },
@@ -224,8 +393,29 @@ const gatedUsage: PaletteFrecency = {
   hidden: ["setting:settings"],
 };
 for (const query of [
-  ">", ">run", "> last", ":", ":12", "@", "@ag", "run", "recent", "new", "new tab", "settings", "Settings", "color",
-  "colour", "co", "c", "close", "split", "zoom", "pane", "⌘", "",
+  ">",
+  ">run",
+  "> last",
+  ":",
+  ":12",
+  "@",
+  "@ag",
+  "run",
+  "recent",
+  "new",
+  "new tab",
+  "settings",
+  "Settings",
+  "color",
+  "colour",
+  "co",
+  "c",
+  "close",
+  "split",
+  "zoom",
+  "pane",
+  "⌘",
+  "",
 ]) {
   add(`gated ${JSON.stringify(query)}`, "gated", {
     sectionOrders: [0, 1, 2, 3],
@@ -242,8 +432,19 @@ for (const query of [
 
 // 9. Astral-plane titles and keys: equal usage and equal picks tie-break in UTF-16 order.
 const tied: PaletteFrecency = {
-  entries: Object.fromEntries(["action:😀", "action:～", "action:𝐁", "action:🚀", "action:plain"].map((key) => [key, { score: 2, lastUsed: evalNow }])),
-  picks: ["action:😀", "action:～", "action:𝐁"].map((key) => ({ prefix: "mo", key, score: 3, lastUsed: evalNow, last: false })),
+  entries: Object.fromEntries(
+    ["action:😀", "action:～", "action:𝐁", "action:🚀", "action:plain"].map((key) => [
+      key,
+      { score: 2, lastUsed: evalNow },
+    ]),
+  ),
+  picks: ["action:😀", "action:～", "action:𝐁"].map((key) => ({
+    prefix: "mo",
+    key,
+    score: 3,
+    lastUsed: evalNow,
+    last: false,
+  })),
 };
 for (const query of ["", "mo", "mode", "😀", "🚀", "smile", "bold", "𝐁", "family", "👨‍👩‍👧", "ship", "～"]) {
   add(`astral ${JSON.stringify(query)}`, "astral", {
@@ -258,11 +459,40 @@ for (const query of ["", "mo", "mode", "😀", "🚀", "smile", "bold", "𝐁", 
 }
 
 // 10. Edges: prefix-first with aliases, rowLimit 0, a section outside sectionOrders, inline entries.
-add("prefixFirst alias", "gated", { sectionOrders: [0, 1], now: evalNow, showsRecent: true, operation: "rank", query: "close", ranksPrefixFirst: true, aliases: { splitUp: ["close"] }, frecency: gatedUsage });
+add("prefixFirst alias", "gated", {
+  sectionOrders: [0, 1],
+  now: evalNow,
+  showsRecent: true,
+  operation: "rank",
+  query: "close",
+  ranksPrefixFirst: true,
+  aliases: { splitUp: ["close"] },
+  frecency: gatedUsage,
+});
 add("rowLimit 0", "root", { ...base, operation: "rank", query: "new", rowLimit: 0, frecency: lawrence });
-add("section outside orders", "astral", { sectionOrders: [0], now: evalNow, showsRecent: true, operation: "rank", query: "mode", keepsSectionOrder: true, frecency: { entries: {} } });
+add("section outside orders", "astral", {
+  sectionOrders: [0],
+  now: evalNow,
+  showsRecent: true,
+  operation: "rank",
+  query: "mode",
+  keepsSectionOrder: true,
+  frecency: { entries: {} },
+});
 for (const query of ["", "split", "set", "nwe tab", "close"]) {
-  add(`inline ${JSON.stringify(query)}`, "gated", { sectionOrders: [0, 1, 2, 3], now: evalNow, showsRecent: true, operation: query === "" ? "rankEmpty" : "rank", query, frecency: gatedUsage }, true);
+  add(
+    `inline ${JSON.stringify(query)}`,
+    "gated",
+    {
+      sectionOrders: [0, 1, 2, 3],
+      now: evalNow,
+      showsRecent: true,
+      operation: query === "" ? "rankEmpty" : "rank",
+      query,
+      frecency: gatedUsage,
+    },
+    true,
+  );
 }
 
 // The native bridge path: install a set's entries once per version, then rank requests without entries.

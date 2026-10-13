@@ -15,7 +15,11 @@
  *
  * Refuses any live key: live objects are Lawrence's step. Prints object ids and settings only.
  */
-import { USAGE_INCLUDED_USD as INCLUDED_USD, USAGE_METER_EVENT as METER_EVENT, USAGE_PRODUCT_ID as PRODUCT_ID, usagePriceLookupKey as priceLookupKey } from "../apps/api/src/billing-catalog.ts"
+import { USAGE_METER_EVENT as METER_EVENT, USAGE_PRICE_SETS, USAGE_PRODUCT_ID as PRODUCT_ID, usagePriceLookupKey, type UsagePriceSet } from "../apps/api/src/billing-catalog.ts"
+// --set e2e: the end-to-end price set (1 USD included), test mode only like everything here.
+const SET: UsagePriceSet = process.argv.includes("--set=e2e") ? "e2e" : "v1"
+const INCLUDED_USD = USAGE_PRICE_SETS[SET]
+const priceLookupKey = (plan: keyof typeof INCLUDED_USD) => usagePriceLookupKey(plan, SET)
 const key = process.env.STRIPE_USAGE_KEY ?? ""
 const check = process.argv.includes("--check")
 if (!/^(sk|rk)_test_/.test(key)) {
@@ -69,7 +73,7 @@ for (const plan of Object.keys(INCLUDED_USD) as Array<keyof typeof INCLUDED_USD>
       product: PRODUCT_ID,
       currency: "usd",
       lookup_key: lookup,
-      nickname: `AI usage, ${plan}, ${INCLUDED_USD[plan]} USD included, pass-through v1`,
+      nickname: `AI usage, ${plan}, ${INCLUDED_USD[plan]} USD included, pass-through ${SET}`,
       billing_scheme: "tiered",
       tiers_mode: "graduated",
       "tiers[0][up_to]": String(INCLUDED_USD[plan]),
@@ -80,7 +84,7 @@ for (const plan of Object.keys(INCLUDED_USD) as Array<keyof typeof INCLUDED_USD>
       "recurring[usage_type]": "metered",
       "recurring[meter]": meter.id,
       "metadata[plan]": plan,
-      "metadata[price_version]": "ai-passthrough-v1"
+      "metadata[price_version]": `ai-passthrough-${SET}`
     }, `price-${lookup}`)
   }
   const tiers = price?.tiers ?? []

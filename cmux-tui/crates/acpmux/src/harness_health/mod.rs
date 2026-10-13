@@ -266,11 +266,13 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
     let update =
         channel::update_plan(&install, found.as_deref().map(Path::new), real.as_deref(), home);
     let (auth, auth_detail) = match &s.probe_error {
-        _ if !s.check.is_empty() && found.is_some() => match probe::auth_check(&s.check, &s.env) {
-            Ok(true) => (Auth::SignedIn, Some(format!("`{}` passed", s.check.join(" ")))),
-            Ok(false) => (Auth::SignedOut, Some(format!("`{}` failed", s.check.join(" ")))),
-            Err(e) => (Auth::Unknown, Some(e)),
-        },
+        _ if !s.check.is_empty() && found.is_some() => {
+            match probe::auth_check(&s.check, &s.env, &s.family) {
+                Ok(true) => (Auth::SignedIn, Some(format!("`{}` passed", s.check.join(" ")))),
+                Ok(false) => (Auth::SignedOut, Some(format!("`{}` failed", s.check.join(" ")))),
+                Err(e) => (Auth::Unknown, Some(e)),
+            }
+        }
         Some(e) if SIGN_IN.is_match(e) => (Auth::SignedOut, Some(e.clone())),
         _ => (Auth::Unknown, None),
     };
