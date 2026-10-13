@@ -229,10 +229,8 @@ fn browser_profile_commands_create_move_open_and_delete_through_a_real_daemon() 
     let server = HeadlessServer::start("browser-profiles");
 
     let created = ok(&server, &["browser", "profile", "create", "--name", "Work"]);
-    let profile_id = created["browser_profile"]["id"]
-        .as_str()
-        .expect("created browser profile id")
-        .to_owned();
+    let profile_id =
+        created["browser_profile"]["id"].as_str().expect("created browser profile id").to_owned();
 
     let listed = ok(&server, &["browser", "profile", "list"]);
     assert_eq!(listed["browser_profiles"][1]["name"], "Work", "{listed}");
