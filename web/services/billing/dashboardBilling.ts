@@ -61,6 +61,7 @@ export type TeamBillingSubscriptionJson = {
 
 export type ReadyTeamBillingViewJson = {
   readonly status: "ready";
+  readonly personal: boolean;
   readonly team: { readonly id: string; readonly displayName: string | null };
   readonly role: TeamBillingRole;
   readonly canManageBilling: boolean;
@@ -77,7 +78,6 @@ export type ReadyTeamBillingViewJson = {
 /** `TeamBillingView` on the wire: dates are ISO strings. */
 export type TeamBillingViewJson =
   | ReadyTeamBillingViewJson
-  | { readonly status: "personal" }
   | { readonly status: "not_found"; readonly teamId: string }
   | { readonly status: "unavailable"; readonly teamId: string };
 
@@ -86,7 +86,7 @@ export type DashboardBillingResponse = {
   readonly selectedTeamId: string;
   /** Set when the selected scope is the personal entry. */
   readonly personal: PersonalBillingJson | null;
-  /** Set when the selected scope is a real team. */
+  /** Set when the selected scope has Team billing, including the personal scope. */
   readonly team: TeamBillingViewJson | null;
   readonly teams: readonly BillingTeamSummary[];
 };
@@ -115,7 +115,12 @@ export async function loadDashboardBilling(
     requestedTeamId,
   });
   if (selectedTeamId === user.id) {
-    return { selectedTeamId, personal: await loadPersonalBilling(user), team: null, teams };
+    return {
+      selectedTeamId,
+      personal: await loadPersonalBilling(user),
+      team: teamBillingViewJson(await loadTeamBillingView(user, selectedTeamId)),
+      teams,
+    };
   }
   return {
     selectedTeamId,

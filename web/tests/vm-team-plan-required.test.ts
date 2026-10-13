@@ -57,6 +57,28 @@ function provisioningRequest(teamId?: string): Request {
 }
 
 describe("created teams need their own Team plan", () => {
+  test("a personal Team subscription uses its own one-seat Cloud pool", () => {
+    const user: AuthedUser = {
+      id: "user-1",
+      displayName: "User",
+      primaryEmail: "user@example.com",
+      billingCustomerType: "team",
+      billingTeamId: "user-1",
+      selectedTeamId: null,
+      teams: [],
+      teamIds: [],
+      userBillingPlanId: "pro",
+      billingPlanId: "team",
+      billingSeats: 1,
+      clientReadOnlyMetadata: { cmuxPlan: "pro", cmuxTeamPlan: "team", cmuxTeamSeats: 1 },
+    };
+    const entitlements = resolveVmEntitlements(user, ENV);
+    expect(entitlements.billingTeamId).toBe("user-1");
+    expect(entitlements.planId).toBe("team");
+    expect(entitlements.maxActiveVms).toBe(5);
+    expect(entitlements.resourcePool).toEqual({ vcpus: 20, memoryMb: 40 * 1024 });
+  });
+
   test("the sign-up team keeps the personal Pro allowance", () => {
     const entitlements = resolveVmEntitlements(caller({ personalPlan: "pro" }), ENV);
     expect(entitlements.planId).toBe("pro");

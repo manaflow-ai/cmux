@@ -15,6 +15,7 @@ const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 const stripeModule = await import("../services/billing/stripe");
+const realStack = await import("../app/lib/stack");
 
 let currentUser: ReturnType<typeof fixtureStackUser> | null = null;
 let dbRows: BillingDbRows = emptyBillingDbRows();
@@ -29,6 +30,7 @@ const updateSubscription = mock(async (id: unknown, params: Record<string, unkno
 }));
 
 mock.module("../app/lib/stack", () => ({
+  ...realStack,
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
   promoteStackUserFromAnonymousViaApi: async () => undefined,
@@ -139,15 +141,15 @@ describe("team subscription cancel and resume", () => {
     expect(updateSubscription).not.toHaveBeenCalled();
   });
 
-  test("the personal entry is not a team subscription subject", async () => {
+  test("the personal entry can resume its Team subscription", async () => {
     dbRows.subscriptions = [{ id: "sub_personal" }];
 
     const response = await post({ action: "resume", scope: "team", teamId: USER_ID });
 
     expect(response.headers.get("location")).toBe(
-      "https://cmux.test/dashboard/billing?billing=personal_team_not_upgradable_to_team",
+      "https://cmux.test/dashboard/billing?team=user-1&billing=resumed",
     );
-    expect(updateSubscription).not.toHaveBeenCalled();
+    expect(updateSubscription).toHaveBeenCalledWith("sub_personal", { cancel_at_period_end: false });
   });
 });
 
@@ -239,14 +241,14 @@ describe("plan status for an explicit team", () => {
     });
   });
 
-  test("non-members get 404 and the personal entry gets 400", async () => {
+  test("non-members get 404 and the personal entry returns its Team status", async () => {
     const foreign = await plan("team-x");
     expect(foreign.status).toBe(404);
     expect(await foreign.json()).toEqual({ error: "team_not_found" });
 
     const personal = await plan(USER_ID);
-    expect(personal.status).toBe(400);
-    expect(await personal.json()).toEqual({ error: "personal_team_not_upgradable_to_team" });
+    expect(personal.status).toBe(200);
+    expect(await personal.json()).toMatchObject({ teamId: USER_ID, role: "admin", canManageBilling: true });
   });
 
   test("without teamId keeps the legacy implicit response shape", async () => {

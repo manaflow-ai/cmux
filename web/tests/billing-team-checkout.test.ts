@@ -15,6 +15,7 @@ const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 const stripeModule = await import("../services/billing/stripe");
+const realStack = await import("../app/lib/stack");
 
 let currentUser: ReturnType<typeof fixtureStackUser> | null = null;
 let dbRows: BillingDbRows = emptyBillingDbRows();
@@ -27,6 +28,7 @@ const createCustomer = mock(async (_params: unknown) => ({ id: "cus_new_team" })
 const createPortal = mock(async (_params: unknown) => ({ url: "https://billing.stripe.com/p/team" }));
 
 mock.module("../app/lib/stack", () => ({
+  ...realStack,
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },
@@ -119,20 +121,21 @@ describe("explicit team checkout", () => {
     expect(createSession).not.toHaveBeenCalled();
   });
 
-  test("refuses the personal entry with 400 personal_team_not_upgradable_to_team", async () => {
+  test("starts a one-seat Team subscription for the personal entry", async () => {
     const response = await checkoutGet(`plan=team&teamId=${USER_ID}&format=json`);
 
-    expect(response.status).toBe(400);
-    expect(await response.json()).toMatchObject({ error: "personal_team_not_upgradable_to_team" });
-    expect(currentUser?.hasPermission).not.toHaveBeenCalled();
-    expect(createSession).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ url: "https://checkout.stripe.com/c/team" });
+    expect(sessionParams().client_reference_id).toBe(USER_ID);
+    expect(sessionParams().line_items).toEqual([
+      { price: "price_team_month", quantity: 1 },
+    ]);
   });
 
   test("browser navigations redirect refusals to the dashboard billing banner, not JSON", async () => {
     const cases: Array<[string, string]> = [
       ["team-a", "https://cmux.test/dashboard/billing?team=team-a&billing=team_admin_required"],
       ["team-foreign", "https://cmux.test/dashboard/billing?billing=team_not_found"],
-      [USER_ID, "https://cmux.test/dashboard/billing?billing=personal_team_not_upgradable_to_team"],
     ];
     for (const [teamId, location] of cases) {
       const response = await checkoutGet(`plan=team&teamId=${teamId}`);
@@ -195,11 +198,12 @@ describe("explicit team checkout", () => {
     expect(createSession).not.toHaveBeenCalled();
   });
 
-  test("POST team refuses non-admins, non-members and the personal entry", async () => {
+  test("POST team refuses non-admins and non-members, and accepts the personal entry", async () => {
     expect((await checkoutPost({ plan: "team", teamId: "team-a" })).status).toBe(403);
     expect((await checkoutPost({ plan: "team", teamId: "team-foreign" })).status).toBe(404);
-    expect((await checkoutPost({ plan: "team", teamId: USER_ID })).status).toBe(400);
-    expect(createSession).not.toHaveBeenCalled();
+    const personal = await checkoutPost({ plan: "team", teamId: USER_ID });
+    expect(personal.status).toBe(200);
+    expect(await personal.json()).toMatchObject({ plan: "team", teamId: USER_ID });
   });
 
   test("POST team for a paying team returns a server-created team portal session", async () => {

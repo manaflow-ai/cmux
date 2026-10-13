@@ -9,6 +9,10 @@ import {
   isPaidPlanId,
 } from "../billing/pro";
 import {
+  personalTeamPlanIdFromMetadata,
+  personalTeamSeatsFromMetadata,
+} from "../billing/teamBillingAccess";
+import {
   MAX_PLAN_RESOURCE_POOL,
   PAID_MAX_ACTIVE_VMS_DEFAULT,
   PLAN_MACHINE_MEMORY_MB,
@@ -143,6 +147,16 @@ function resolveBillingContext(
 } {
   const requestedTeamId = normalizedOptionalString(options.requestedBillingTeamId);
   if (requestedTeamId) {
+    if (requestedTeamId === user.id) {
+      const personalTeamPlan = personalTeamPlanIdFromMetadata(user.clientReadOnlyMetadata);
+      const personalTeamSeats = personalTeamSeatsFromMetadata(user.clientReadOnlyMetadata);
+      return {
+        billingCustomerType: personalTeamPlan ? "team" : "user",
+        billingTeamId: user.id,
+        billingPlanId: personalTeamPlan ?? user.userBillingPlanId,
+        billingSeats: personalTeamSeats,
+      };
+    }
     const team = user.teams.find((candidate) => candidate.id === requestedTeamId);
     if (!team) {
       throw new VmBillingTeamResolutionError({

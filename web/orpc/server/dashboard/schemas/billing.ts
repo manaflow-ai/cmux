@@ -16,6 +16,7 @@ const billingManagementSchema = z.enum(["stripe", "external", "none"]);
 export const teamBillingViewSchema = z.discriminatedUnion("status", [
   z.object({
     status: z.literal("ready"),
+    personal: z.boolean(),
     team: z.object({ id: z.string(), displayName: z.string().nullable() }),
     role: z.enum(["admin", "member"]),
     canManageBilling: z.boolean(),
@@ -34,7 +35,6 @@ export const teamBillingViewSchema = z.discriminatedUnion("status", [
     overSeat: z.boolean(),
     paymentPastDue: z.boolean(),
   }),
-  z.object({ status: z.literal("personal") }),
   z.object({ status: z.literal("not_found"), teamId: z.string() }),
   z.object({ status: z.literal("unavailable"), teamId: z.string() }),
 ]) satisfies z.ZodType<TeamBillingViewJson>;

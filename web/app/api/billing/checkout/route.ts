@@ -122,12 +122,6 @@ const NATIVE_CHECKOUT_ERRORS = {
   billing_unavailable: { actionCode: "open_pricing", action: "https://cmux.com/pricing", status: 503 },
   plan_unavailable: { actionCode: "plan_unavailable", action: "cmux billing checkout --plan pro", status: 403 },
   team_id_required: { actionCode: "open_teams", action: "https://cmux.com/dashboard/teams", status: 400 },
-  // The personal entry routes to Pro/Max; Team checkout needs a real team.
-  personal_team_not_upgradable_to_team: {
-    actionCode: "choose_plan",
-    action: "cmux billing checkout --plan <go|pro|max>",
-    status: teamBillingAccessStatus("personal_team_not_upgradable_to_team"),
-  },
   team_not_found: { actionCode: "open_teams", action: "https://cmux.com/dashboard/teams", status: teamBillingAccessStatus("team_not_found") },
   team_admin_required: { actionCode: "ask_team_admin", action: "https://cmux.com/dashboard/teams", status: teamBillingAccessStatus("team_admin_required") },
   authorization_unavailable: { actionCode: "retry", action: "https://cmux.com/dashboard/billing", status: teamBillingAccessStatus("authorization_unavailable") },
@@ -496,6 +490,7 @@ async function stripeTeamCheckout(
       nativeCallbackScheme: callbackScheme,
       ...checkoutAttributionMetadata(attribution),
     };
+    const personalTeam = team.id === user.id;
 
     const customerId =
       stripeBillingStatus.customerId ?? await stripeCustomerForTeam(team, stackUserId);
@@ -505,10 +500,14 @@ async function stripeTeamCheckout(
         {
           price: await resolveTeamPrice(interval),
           quantity: await checkoutTeamSeatCount(team),
-          adjustable_quantity: {
-            enabled: true,
-            minimum: 1,
-          },
+          ...(personalTeam
+            ? {}
+            : {
+              adjustable_quantity: {
+                enabled: true,
+                minimum: 1,
+              },
+            }),
         },
       ],
       customer: customerId,

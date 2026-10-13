@@ -31,6 +31,10 @@ import {
   type BillingTeamLike,
 } from "../billing/teamResolution";
 import {
+  personalTeamPlanIdFromMetadata,
+  personalTeamSeatsFromMetadata,
+} from "../billing/teamBillingAccess";
+import {
   isDevelopmentProAccessEnabled,
   PRO_PLAN_ID,
 } from "../billing/pro";
@@ -49,6 +53,7 @@ export type AuthedUser = {
   billingPlanId: string | null;
   /** Paid seats on the resolved billing team; null for user billing or unknown. */
   billingSeats: number | null;
+  clientReadOnlyMetadata?: unknown;
 };
 
 export type AuthedTeam = {
@@ -932,13 +937,17 @@ async function authedUserFromStackUser(
   const userBillingPlanId = developmentPro
     ? PRO_PLAN_ID
     : billingPlanIdFromMetadata(user.clientReadOnlyMetadata) ?? null;
-  // A team cmux created after sign-up bills only its own plan; the sign-up
-  // team (and older teams) fall back to the user's personal plan.
-  const billingPlanId = developmentPro
-    ? PRO_PLAN_ID
-    : billingPlanIdFromMetadata(billingTeam?.clientReadOnlyMetadata) ??
-      (teamPlanRequiredFromMetadata(billingTeam?.clientReadOnlyMetadata) ? null : userBillingPlanId);
-  const billingSeats = billingSeatsFromMetadata(billingTeam?.clientReadOnlyMetadata);
+  const personalTeamPlanId = developmentPro
+    ? null
+    : personalTeamPlanIdFromMetadata(user.clientReadOnlyMetadata);
+  const personalTeamSeats = personalTeamSeatsFromMetadata(user.clientReadOnlyMetadata);
+  const billing = resolveAuthedBillingContext({
+    developmentPro,
+    billingTeam,
+    userBillingPlanId,
+    personalTeamPlanId,
+    personalTeamSeats,
+  });
   const authedTeams = teams.map((team) => ({
     id: team.id,
     displayName: team.displayName,
@@ -955,16 +964,49 @@ async function authedUserFromStackUser(
       isAnonymous: user.isAnonymous === true,
       displayName: user.displayName,
       primaryEmail: user.primaryEmail,
-      billingCustomerType: billingTeam ? "team" : "user",
+      billingCustomerType: billing.customerType,
       billingTeamId: billingTeam?.id ?? user.id,
       selectedTeamId: selectedTeam?.id ?? null,
       teams: authedTeams,
       teamIds,
       userBillingPlanId,
-      billingPlanId,
-      billingSeats,
+      billingPlanId: billing.planId,
+      billingSeats: billing.seats,
+      clientReadOnlyMetadata: user.clientReadOnlyMetadata,
     },
     completeTeamList,
+  };
+}
+
+function resolveAuthedBillingContext(input: {
+  readonly developmentPro: boolean;
+  readonly billingTeam: BillingTeamLike | null;
+  readonly userBillingPlanId: string | null;
+  readonly personalTeamPlanId: string | null;
+  readonly personalTeamSeats: number | null;
+}): { readonly customerType: "team" | "user"; readonly planId: string | null; readonly seats: number | null } {
+  if (input.developmentPro) {
+    return {
+      customerType: input.billingTeam ? "team" : "user",
+      planId: PRO_PLAN_ID,
+      seats: null,
+    };
+  }
+  const teamMetadataPlan = billingPlanIdFromMetadata(input.billingTeam?.clientReadOnlyMetadata);
+  const teamPlanRequired = teamPlanRequiredFromMetadata(input.billingTeam?.clientReadOnlyMetadata);
+  const planId = teamMetadataPlan ?? (
+    teamPlanRequired
+      ? null
+      : input.billingTeam
+        ? input.userBillingPlanId
+        : input.personalTeamPlanId ?? input.userBillingPlanId
+  );
+  const seats = billingSeatsFromMetadata(input.billingTeam?.clientReadOnlyMetadata) ??
+    (input.billingTeam ? null : input.personalTeamSeats);
+  return {
+    customerType: input.billingTeam || input.personalTeamPlanId ? "team" : "user",
+    planId,
+    seats,
   };
 }
 

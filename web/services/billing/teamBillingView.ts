@@ -27,6 +27,8 @@ export type TeamBillingSubscription = {
 
 export type ReadyTeamBillingView = {
   readonly status: "ready";
+  /** True for the synthetic one-user billing scope on Plan & billing. */
+  readonly personal: boolean;
   readonly team: { readonly id: string; readonly displayName: string | null };
   readonly role: TeamBillingRole;
   readonly canManageBilling: boolean;
@@ -50,15 +52,14 @@ export type ReadyTeamBillingView = {
 
 export type TeamBillingView =
   | ReadyTeamBillingView
-  | { readonly status: "personal" }
   | { readonly status: "not_found"; readonly teamId: string }
   | { readonly status: "unavailable"; readonly teamId: string };
 
 /**
  * Everything a team billing panel renders, for any member of `teamId`.
  * Members get a read-only view (`canManageBilling: false`); admins get the
- * actions. The personal entry (`teamId === user.id`) is not a Team billing
- * subject and returns `personal` so callers render the Pro/Max view instead.
+ * actions. The personal entry is represented by the same one-seat Team view
+ * as a real team, with its metadata isolated from Pro/Max.
  */
 export async function loadTeamBillingView(
   user: TeamBillingAccessUser,
@@ -66,7 +67,6 @@ export async function loadTeamBillingView(
 ): Promise<TeamBillingView> {
   const access = await resolveTeamBillingAccess(user, teamId, { requireAdmin: false });
   if (!access.ok) {
-    if (access.error === "personal_team_not_upgradable_to_team") return { status: "personal" };
     if (access.error === "authorization_unavailable") return { status: "unavailable", teamId };
     return { status: "not_found", teamId };
   }
@@ -79,6 +79,7 @@ export async function loadTeamBillingView(
   const seats = subscription?.seats ?? billingSeatsFromMetadata(team.clientReadOnlyMetadata);
   return {
     status: "ready",
+    personal: team.id === user.id,
     team: { id: team.id, displayName: billingTeamFromUnknown(team)?.displayName ?? null },
     role: access.role,
     canManageBilling: access.canManageBilling,
