@@ -14,7 +14,6 @@ final class NewTabChoiceMemory {
     private static let agentKey = "newTab.lastAgent"
     private static let picksKey = "newTab.lastPicks"
     private let defaults: UserDefaults
-    private let templates = NSMapTable<NSWindow, NSString>.weakToStrongObjects()
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -36,15 +35,5 @@ final class NewTabChoiceMemory {
         var picks = picks ?? AgentPaneLastPicks()
         picks.record(.init(harness: pick.agent, model: model), folder: pick.folder)
         if let data = try? JSONEncoder().encode(picks) { defaults.set(data, forKey: Self.picksKey) }
-    }
-
-    /// The template `window`'s dots last picked; nil when they picked none (the setting applies).
-    func template(in window: NSWindow?) -> NewTabTemplate? {
-        window.flatMap { templates.object(forKey: $0) }.flatMap { NewTabTemplate(rawValue: $0 as String) }
-    }
-
-    func remember(template: NewTabTemplate, in window: NSWindow?) {
-        guard let window else { return }
-        templates.setObject(template.rawValue as NSString, forKey: window)
     }
 }
