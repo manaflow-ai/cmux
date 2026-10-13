@@ -141,7 +141,8 @@ public final class ControlSnapshotStore: Sendable {
                 // cancellation handler may have run before this waiter existed).
                 let now = state.withLock { state -> ControlSnapshot?? in
                     if isReady(state.snapshot) { return .some(state.snapshot) }
-                    if Task.isCancelled { return .some(nil) }
+                    // The timer may have fired before this waiter existed (a deadline already past).
+                    if Task.isCancelled || ContinuousClock.now >= deadline { return .some(nil) }
                     state.waiters.append(Waiter(id: id, isReady: isReady, continuation: continuation))
                     return .none
                 }
