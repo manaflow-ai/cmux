@@ -189,6 +189,7 @@ extension ConversationViewController: ConversationComposerViewDelegate {
 
         // The transaction's completion lands the flight however it ends.
         activeFlights[rowID] = container
+        sendFlightTookOff()
         CATransaction.begin()
         CATransaction.setCompletionBlock { [weak self] in
             self?.landFlight(rowID: rowID)
@@ -210,12 +211,15 @@ extension ConversationViewController: ConversationComposerViewDelegate {
 extension ConversationViewController {
     /// Removes a flight's overlay and reveals its real row. Idempotent; runs
     /// when the flight's animation ends, the row reshapes, or the reader scrolls.
-    func landFlight(rowID: String) {
-        activeFlights.removeValue(forKey: rowID)?.removeFromSuperview()
+    /// Then what waited for the flight applies (see `sendFlightLanded`).
+    func landFlight(rowID: String, insideUpdate: Bool = false) {
+        let flight = activeFlights.removeValue(forKey: rowID)
+        flight?.removeFromSuperview()
         flyingRowIDs.remove(rowID)
         if let index = indexPath(for: rowID), let cell = collectionView.cellForItem(at: index) as? MessageCell {
             cell.setFlightHidden(false)
         }
+        if flight != nil { sendFlightLanded(insideUpdate: insideUpdate) }
     }
 
     /// Each flying row's top on screen, before a transcript update.
@@ -384,6 +388,14 @@ extension MessageCell {
         let flown: [UIView] = [bubble, textLabel, emojiLabel, footerLabel] + imageViews
         for view in flown {
             view.alpha = alpha
+        }
+        isFlightHidden = hidden
+        // A status that reached the row mid-flight grows in at the landing.
+        if !hidden, statusGrowsOnLanding {
+            statusGrowsOnLanding = false
+            if !footerLabel.isHidden {
+                footerLabel.layer.add(Self.statusAnimation(appearing: true), forKey: "statusFade")
+            }
         }
     }
 }

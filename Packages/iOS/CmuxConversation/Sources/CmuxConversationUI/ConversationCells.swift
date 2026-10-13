@@ -61,6 +61,11 @@ final class MessageCell: UICollectionViewCell {
 
     private(set) var model: MessageRowModel?
     private var previousRowID: String?
+    /// The row's send flight is in the air (see `setFlightHidden`).
+    var isFlightHidden = false
+    /// A status reached the row while its flight was in the air; it grows
+    /// in when the flight lands (`ConversationStatusMotion.growOnLanding`).
+    var statusGrowsOnLanding = false
     private var imageRowID: String?
     private(set) var cellLayout: MessageCellLayout?
     private var imageTasks: [Task<Void, Never>] = []
@@ -125,6 +130,8 @@ final class MessageCell: UICollectionViewCell {
         imageTasks.forEach { $0.cancel() }
         imageTasks = []
         previousRowID = nil
+        isFlightHidden = false
+        statusGrowsOnLanding = false
         imageRowID = nil
         timestampReveal = 0
         replyDrag = 0
@@ -261,13 +268,24 @@ final class MessageCell: UICollectionViewCell {
         let previousFooterText = footerLabel.attributedText
         let wasNotDelivered = !footerWasHidden && footerLabel.textColor == ConversationTheme.notDelivered
         defer {
+            let motion = ConversationStatusMotion.of(
+                sameRow: sameRow, wasShown: !footerWasHidden, isShown: !footerLabel.isHidden,
+                wasNotDelivered: wasNotDelivered, isFlying: isFlightHidden
+            )
+            if !sameRow || footerLabel.isHidden { statusGrowsOnLanding = false }
             // Explicit layer animations: these run the same inside a batch
             // update, a spring, or performWithoutAnimation.
-            if sameRow, footerWasHidden, !footerLabel.isHidden {
+            switch motion {
+            case .grow:
                 // A status landing on this row grows out of its own center.
                 footerLabel.alpha = 1
                 footerLabel.layer.add(Self.statusAnimation(appearing: true), forKey: "statusFade")
-            } else if sameRow, !footerWasHidden, footerLabel.isHidden, !wasNotDelivered {
+            case .growOnLanding:
+                // Hidden under the send flight, it grows when the flight
+                // lands (`setFlightHidden`), not unseen now.
+                footerLabel.alpha = 1
+                statusGrowsOnLanding = true
+            case .leave:
                 // (Not Delivered leaves at once on Try Again; the row is moving.)
                 // A status leaving this row shrinks slightly and fades in ~0.1 s.
                 footerLabel.isHidden = false
@@ -280,8 +298,8 @@ final class MessageCell: UICollectionViewCell {
                 }
                 footerLabel.layer.add(Self.statusAnimation(appearing: false), forKey: "statusFade")
                 CATransaction.commit()
-            } else if !footerLabel.isHidden {
-                footerLabel.alpha = 1
+            case .none:
+                if !footerLabel.isHidden { footerLabel.alpha = 1 }
             }
             previousRowID = model.rowID
         }

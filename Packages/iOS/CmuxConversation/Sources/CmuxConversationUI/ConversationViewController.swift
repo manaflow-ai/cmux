@@ -375,6 +375,13 @@ public final class ConversationViewController: UIViewController {
         #endif
     }
 
+    public override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // A send still in the air when the conversation goes lands now:
+        // other people's changes wait for it (`ConversationLiveChangeGate`).
+        landAllFlights()
+    }
+
     public override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         // With the keyboard up Messages insets the composer by the system
@@ -685,6 +692,21 @@ public final class ConversationViewController: UIViewController {
             }
             rebuild(change: change)
         }
+    }
+
+    /// One of my sends took off: other people's changes wait for it to land
+    /// (see `ConversationLiveChangeGate`).
+    func sendFlightTookOff() {
+        liveGate.beginFlight()
+    }
+
+    /// One of my sends landed: what waited for it applies now, with its own
+    /// motion. A flight landing inside an update (a send failing as it
+    /// applies) leaves it to that update, whose rows come from the store and
+    /// so already show it.
+    func sendFlightLanded(insideUpdate: Bool) {
+        guard let held = liveGate.endFlight(), !insideUpdate else { return }
+        rebuild(change: held)
     }
 
     func rebuild(change: ConversationStoreChange) {
@@ -1111,7 +1133,7 @@ public final class ConversationViewController: UIViewController {
         // A failed send reshapes its row; never leave its flight hanging.
         for indexPath in updated {
             if case let .message(model) = newRows[indexPath.item], model.footer == .notDelivered {
-                landFlight(rowID: model.rowID)
+                landFlight(rowID: model.rowID, insideUpdate: true)
             }
         }
         let wasAtBottom = isPinnedToBottom || isNearBottom()
@@ -1623,12 +1645,13 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     }
 
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // As in Messages, nothing changes the transcript under the finger
+        // (what waited for a flight landing here waits for the lift).
+        liveGate.beginDragging()
         // A flight is pinned to the screen; once the reader scrolls, show the real row.
         landAllFlights()
         dismissPhotoDrawer()
         isScrollingToTop = false
-        // As in Messages, nothing changes the transcript under the finger.
-        liveGate.beginDragging()
         #if DEBUG
         transcriptDynamics?.dragBegan(atContentY: scrollView.panGestureRecognizer.location(in: scrollView).y)
         #endif
