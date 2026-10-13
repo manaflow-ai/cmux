@@ -187,6 +187,33 @@ final class HostView: NSView {
         observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
     }
 
+    // MARK: Live resize (MessagesLab c483761 resize-drops, Host.swift)
+
+    /// While the window is resized live: the transcript clip has no mask, and the chrome's border is its nine-part
+    /// image (ChromeView.liveResizing; Home hides the chrome), so no width makes the render server draw the
+    /// transcript offscreen to fit the mask. The clip's mask (WindowView placeMask) clips nothing that the window
+    /// view's own bounds do not. Both come back when the resize ends (the still pixels are the resting ones).
+    private var restingClipMask: CALayer?
+    override func viewWillStartLiveResize() {
+        super.viewWillStartLiveResize()
+        guard let demo, restingClipMask == nil, let m = demo.clip.layer.mask else { demo?.chrome.liveResizing = true; return }
+        restingClipMask = m
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        demo.clip.layer.mask = nil
+        CATransaction.commit()
+        demo.chrome.liveResizing = true
+    }
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        guard let demo else { return }
+        demo.chrome.liveResizing = false
+        guard let m = restingClipMask else { return }
+        restingClipMask = nil
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        demo.clip.layer.mask = m
+        CATransaction.commit()
+    }
+
     /// A backing scale change (the window moved to a display with another scale): ChatController.displayScaleChanged
     /// calls MessagesWindowView.setRenderScale, which re-rasterizes and, from MessagesLab 82ccac1, re-snaps the rows,
     /// the typing indicator and its clip and remakes the thread-preview heights at the new scale
