@@ -124,6 +124,9 @@ export type IPhoneHostState = {
   status: string;
   /** `off`, `unavailable`, `connecting`, `online` or `waiting`. */
   phase: string;
+  account_title: string;
+  /** "Registered as <email>": the account phones must sign in with; null while signed out. */
+  account: string | null;
   space_title: string;
   /** The team the Mac is listed in (or the personal space); null while signed out. */
   space: string | null;

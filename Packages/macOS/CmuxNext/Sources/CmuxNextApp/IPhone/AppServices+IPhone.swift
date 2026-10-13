@@ -66,6 +66,7 @@ extension AppServices {
         let team = cloud.auth.teamID
         return IPhoneHostService.Account(
             userID: user.id, teamID: CnxHostLaunch.teamID(selected: team, userID: user.id),
-            teamName: team.flatMap { id in cloud.auth.teams.first { $0.id == id }?.displayName })
+            teamName: team.flatMap { id in cloud.auth.teams.first { $0.id == id }?.displayName },
+            email: user.primaryEmail)
     }
 }

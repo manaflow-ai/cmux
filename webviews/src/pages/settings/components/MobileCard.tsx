@@ -16,6 +16,11 @@ export function MobileCard() {
         <ActionRow title={state.status_title} help={state.status}>
           {null}
         </ActionRow>
+        {state.account !== null && (
+          <ActionRow title={state.account_title} help={state.account}>
+            {null}
+          </ActionRow>
+        )}
         {state.space !== null && (
           <ActionRow title={state.space_title} help={state.space}>
             {null}

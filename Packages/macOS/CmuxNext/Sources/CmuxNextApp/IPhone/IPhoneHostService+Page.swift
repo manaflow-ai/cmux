@@ -13,6 +13,8 @@ extension IPhoneHostService {
             "status_title": .string(IPhoneHostStrings.statusTitle),
             "status": .string(statusText),
             "phase": .string(phaseName),
+            "account_title": .string(IPhoneHostStrings.accountTitle),
+            "account": account.map { .string(IPhoneHostStrings.registered(as: $0.email ?? $0.userID)) } ?? .null,
             "space_title": .string(IPhoneHostStrings.spaceTitle),
             "space": account.map { .string($0.teamName ?? IPhoneHostStrings.personalSpace) } ?? .null,
             "how_title": .string(IPhoneHostStrings.howTitle),

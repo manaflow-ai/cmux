@@ -19,6 +19,8 @@ final class IPhoneHostService {
         var teamID: String
         /// The team's name; nil for the personal space.
         var teamName: String?
+        /// The account's email, shown as "Registered as <email>" (phones sign in with the same one).
+        var email: String?
     }
 
     /// What the service needs from the app; set once by `AppServices`.

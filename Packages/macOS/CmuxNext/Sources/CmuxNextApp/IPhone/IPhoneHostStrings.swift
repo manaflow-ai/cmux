@@ -5,6 +5,10 @@ enum IPhoneHostStrings {
     static var connectionTitle: String {
         String(localized: "iphone.connection.title", defaultValue: "Connection", table: "IPhone", bundle: .module)
     }
+    static var accountTitle: String { String(localized: "iphone.account.title", defaultValue: "Account", table: "IPhone", bundle: .module) }
+    static func registered(as email: String) -> String {
+        String(format: String(localized: "iphone.account.registered", defaultValue: "Registered as %@", table: "IPhone", bundle: .module), email)
+    }
     static var spaceTitle: String { String(localized: "iphone.space.title", defaultValue: "Space", table: "IPhone", bundle: .module) }
     static var statusTitle: String { String(localized: "iphone.status.title", defaultValue: "Status", table: "IPhone", bundle: .module) }
     static var off: String { String(localized: "iphone.status.off", defaultValue: "Off", table: "IPhone", bundle: .module) }

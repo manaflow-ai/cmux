@@ -16,6 +16,8 @@ const state: IPhoneHostState = {
   status_title: "Status",
   status: "Online · Phones connected: 1",
   phase: "online",
+  account_title: "Account",
+  account: "Registered as me@example.com",
   space_title: "Space",
   space: "Personal",
   how_title: "How to Connect",
@@ -47,13 +49,17 @@ test("the card shows status, space and phones with their transport, and follows 
   expect(element.dataset.phase).toBe("online");
   expect(element.textContent).toContain("Online · Phones connected: 1");
   expect(element.textContent).toContain("Personal");
+  expect(element.textContent).toContain("Registered as me@example.com");
   const phone = element.querySelector<HTMLElement>("[data-mobile-phone]")!;
   expect([phone.dataset.transport, phone.dataset.path]).toEqual(["wireguard", "relay"]);
   await act(async () => page.provider.setHost({ ...page.provider.host, iphone: { ...state, phones: [] } }));
   await settle();
   expect(card(page.container)!.textContent).toContain("No phones are connected.");
   await act(async () =>
-    page.provider.setHost({ ...page.provider.host, iphone: { ...state, allowed: false, space: null, phase: "off" } }),
+    page.provider.setHost({
+      ...page.provider.host,
+      iphone: { ...state, allowed: false, account: null, space: null, phase: "off" },
+    }),
   );
   await settle();
   expect(card(page.container)!.querySelector("[data-mobile-phones]")).toBeNull();
