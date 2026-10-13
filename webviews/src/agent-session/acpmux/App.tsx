@@ -4608,6 +4608,7 @@ function AcpmuxPane() {
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
               harnessesListed={harnessesListed}
+              {...((newTab.host ?? machineName) ? { machineName: (newTab.host ?? machineName)! } : {})}
               {...(newTab.harnessHintDismissed ? { harnessHintDismissed: true } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
