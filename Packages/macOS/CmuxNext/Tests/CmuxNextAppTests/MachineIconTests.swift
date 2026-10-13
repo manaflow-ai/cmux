@@ -173,7 +173,7 @@ struct MachineIconTests {
             let menu = SidebarContextMenus.machineMenu(MachineRegistry.localID, services: services)
             #expect(menu.items.contains { !$0.isSeparatorItem && $0.title != MenuFolder.appearance.title }, "the sidebar's own rows stay")
             let appearance = try #require(menu.items.first { $0.title == MenuFolder.appearance.title }?.submenu)
-            return appearance.items.compactMap(ActionRegistry.menuRun).map { ($0.id, $0.target) }
+            return appearance.items.compactMap { ActionRegistry.menuRun(of: $0) }.map { (id: $0.id, target: $0.target) }
         }
         Self.record(services, icon: nil)
         let plain = try iconRuns()

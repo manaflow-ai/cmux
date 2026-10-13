@@ -34,12 +34,8 @@ enum SidebarContextMenus {
             return menu
         case .group(let id):
             return registry.makeContextMenu(for: .workspaceGroup, target: ActionTargetRef(kind: .workspaceGroup, id: id.rawValue))
-        case .section(.machine(let machine)) where services.machines.sshSession(machine.rawValue) != nil:
-            return registry.makeContextMenu(for: .sshMachine, target: ActionTargetRef(kind: .machine, id: machine.rawValue))
-        case .section(.machine(let machine)) where services.machines.server(machine.rawValue) != nil:
-            return registry.makeContextMenu(for: .sidebarBackground)
-        case .section(.machine(let machine)) where machine.rawValue != MachineRegistry.localID:
-            return registry.makeContextMenu(for: .cloudMachine, target: ActionTargetRef(kind: .machine, id: machine.rawValue))
+        case .section(.machine(let machine)):
+            return machineMenu(machine.rawValue, services: services)
         case .section, .background:
             return registry.makeContextMenu(for: .sidebarBackground)
         case .footer:
@@ -52,5 +48,35 @@ enum SidebarContextMenus {
         case .layoutItem, .layoutSection:
             return nil
         }
+    }
+
+    /// A machine header's menu: its own (an SSH or Cloud machine's; this
+    /// Mac's and a paired server's are the sidebar's), with what every
+    /// machine offers (`machineSection`: its icon) after the first group.
+    static func machineMenu(_ machine: String, services: AppServices) -> NSMenu {
+        let registry = services.registry, machines = services.machines
+        let target = ActionTargetRef(kind: .machine, id: machine)
+        let menu = if machines.sshSession(machine) != nil {
+            registry.makeContextMenu(for: .sshMachine, target: target)
+        } else if machines.server(machine) != nil || machine == MachineRegistry.localID {
+            registry.makeContextMenu(for: .sidebarBackground)
+        } else {
+            registry.makeContextMenu(for: .cloudMachine, target: target)
+        }
+        let shared = registry.makeContextMenu(for: .machineSection, target: target)
+        let items = shared.items
+        shared.removeAllItems()
+        guard !items.isEmpty else { return menu }
+        var at = menu.items.firstIndex(where: \.isSeparatorItem) ?? menu.items.count
+        if at > 0 {
+            menu.insertItem(.separator(), at: at)
+            at += 1
+        }
+        for item in items {
+            menu.insertItem(item, at: at)
+            at += 1
+        }
+        if at < menu.items.count, !menu.items[at].isSeparatorItem { menu.insertItem(.separator(), at: at) }
+        return menu
     }
 }

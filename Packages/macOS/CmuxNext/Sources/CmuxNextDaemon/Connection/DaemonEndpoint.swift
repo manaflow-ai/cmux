@@ -242,13 +242,17 @@ public struct DaemonCapabilities: Sendable {
     /// `icon` on tab groups and saved tab groups, on `tab_group.update` and
     /// raw `update-tab-group` (null clears).
     public let tabGroupIcon = "tab-group-icon-v1"
+    /// `icon` on each session record of the home session registry
+    /// (`list-personal`), set and cleared by raw `set-session-icon`: the
+    /// icon the sidebar draws for that machine. Home daemon only.
+    public let sessionIcon = "session-icon-v1"
     /// `attachment` parts and their bytes on the local conversation owner:
     /// `conversation-attachment-upload` and `conversation-attachment-read`.
     public let localAttachments = "local-attachments-v1"
     /// `chief-inspect`: the Chief memory inspector's read-only API on the
     /// brain's daemon (advertised when the daemon knows the brain's tools socket).
     public let chiefInspect = "chief-inspect-v1"
-    public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations] }
+    public var homeOnly: [String] { [profiles, personalTerminals, browserProfiles, bookmarks, localConversations, sessionIcon] }
     /// Written to the local daemon's personal rows instead of each machine's
     /// daemon once the local daemon serves `profiles-v1`.
     public var personalOnHome: [String] { [workspaceGroups, savedTabGroups] }
@@ -325,7 +329,7 @@ public struct DaemonCapabilities: Sendable {
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
-                                            workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
+                                            workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
                                             originClaim, sessionJournal, terminalResources, keybindings, iconAssets] }
 
     /// App code waiting for a daemon half that no branch has yet. Each

@@ -120,6 +120,7 @@ public nonisolated enum ActionCatalog {
         CloudActionCatalog.self,
         AccountActionCatalog.self,
         RemoteActionCatalog.self,
+        MachineIconActionCatalog.self,
         SettingsActionCatalog.self,
         BackdropActionCatalog.self,
         HibernationActionCatalog.self,
