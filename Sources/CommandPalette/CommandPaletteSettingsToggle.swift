@@ -476,6 +476,9 @@ enum CommandPaletteSettingsToggleCommands {
                 }
             ),
             CommandPaletteSettingToggleDescriptor(
+                userFacing: SettingCatalog().app.closeRunningTabsWithoutConfirmation
+            ),
+            CommandPaletteSettingToggleDescriptor(
                 userFacing: SettingCatalog().app.warnBeforeClosingTab
             ),
             CommandPaletteSettingToggleDescriptor(

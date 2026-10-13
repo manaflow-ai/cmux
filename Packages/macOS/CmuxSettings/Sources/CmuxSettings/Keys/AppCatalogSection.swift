@@ -208,6 +208,29 @@ public struct AppCatalogSection: SettingCatalogSection {
         )
     )
 
+    /// Opts out of tab-close warnings for running terminal processes, including agents.
+    /// Unsaved content and workspace/window close policies are unaffected.
+    public let closeRunningTabsWithoutConfirmation = DefaultsKey<Bool>(
+        id: "app.closeRunningTabsWithoutConfirmation",
+        defaultValue: false,
+        userDefaultsKey: "closeRunningTabsWithoutConfirmation",
+        userFacing: UserFacingSettingDescriptor(
+            title: String(
+                localized: "settings.app.closeRunningTabsWithoutConfirmation",
+                defaultValue: "Close Running Tabs Without Confirmation"
+            ),
+            section: .app,
+            searchID: "close-running-tabs-without-confirmation",
+            searchKeywords: ["close", "tab", "running", "process", "agent", "confirmation", "prompt"],
+            control: .toggle(.init(
+                commandPalette: .init(
+                    id: "closeRunningTabsWithoutConfirmation",
+                    keywords: ["close", "tab", "running", "process", "confirmation"]
+                )
+            ))
+        )
+    )
+
     /// Gates the "Close workspace?" prompts (running processes, multi-workspace
     /// close). The "Close pinned workspace?" prompt is not gated by it.
     public let warnBeforeClosingAgentSession = DefaultsKey<Bool>(

@@ -9921,7 +9921,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                 let state = states?[tmuxPaneId] ?? windowMirror.paneForegroundState(tmuxPaneId)
                 let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
                     requiresConfirmation: state?.hasActiveCommand ?? false,
-                    source: .tabCloseButton
+                    source: .tabCloseButton,
+                    isRunningProcess: state?.hasActiveCommand ?? false
                 )
                 if !warningKinds.isEmpty {
                     // No manager → no way to ask → refuse the destructive kill rather
@@ -9932,7 +9933,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
                         ?? AppDelegate.shared?.tabManager else { return }
                     let message: String
                     if let command = state?.command, state?.hasActiveCommand == true, !command.isEmpty {
-                        message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(command)\".")
+                        message = String(format: String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"%@\"."), locale: .current, command)
                     } else {
                         message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
                     }
@@ -13880,7 +13881,7 @@ extension Workspace: BonsplitDelegate {
             )
             message = String(format: format, locale: .current, agentName)
         } else if let panelName {
-            message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
+            message = String(format: String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"%@\"."), locale: .current, panelName)
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
         }
@@ -14435,11 +14436,13 @@ extension Workspace: BonsplitDelegate {
         if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
            let panelId = panelIdFromSurfaceId(tab.id),
            let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
-           remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
+           let cachedMirrorActivity = remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) {
             let confirmationSource: CloseTabCloseSource =
                 tabCloseButtonClose == true ? .tabCloseButton : .shortcut
             let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
-                requiresConfirmation: true, source: confirmationSource
+                requiresConfirmation: true,
+                source: confirmationSource,
+                isRunningProcess: cachedMirrorActivity.hasActiveCommand
             )
             if warningKinds.isEmpty {
                 let routed = remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: id, panelId: panelId)
@@ -14503,7 +14506,9 @@ extension Workspace: BonsplitDelegate {
                 )
                 if !unconditionalWarningKinds.isEmpty {
                     let promptWarningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
-                        requiresConfirmation: cached?.hasActiveCommand ?? false, source: confirmationSource
+                        requiresConfirmation: cached?.hasActiveCommand ?? false,
+                        source: confirmationSource,
+                        isRunningProcess: cached?.hasActiveCommand ?? false
                     )
                     presentConfirmation(cached?.activeCommandName, promptWarningKinds)
                     return false
@@ -14527,7 +14532,17 @@ extension Workspace: BonsplitDelegate {
                         self.recordRemoteTmuxWorkspaceCloseAfterWindowClose(routed: routed, tabId: tabId, panelId: panelId, explicitUserClose: explicitUserClose, tabStripClose: tabStripClose, tabCloseButton: tabCloseButtonClose == true)
                         return
                     }
-                    presentConfirmation(activity.activeCommandName, warningKinds)
+                    let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
+                        requiresConfirmation: activity.hasActiveCommand,
+                        source: confirmationSource,
+                        isRunningProcess: activity.hasActiveCommand
+                    )
+                    if !warningKinds.isEmpty {
+                        presentConfirmation(activity.activeCommandName, warningKinds)
+                    } else {
+                        let routed = remoteTmuxController.handleMirrorTabCloseRequested(workspaceId: self.id, panelId: panelId)
+                        self.recordRemoteTmuxWorkspaceCloseAfterWindowClose(routed: routed, tabId: tabId, panelId: panelId, explicitUserClose: explicitUserClose, tabStripClose: tabStripClose, tabCloseButton: tabCloseButtonClose == true)
+                    }
                 }
                 return false
             }
@@ -14586,10 +14601,12 @@ extension Workspace: BonsplitDelegate {
         // this gating on the second pass.
         let confirmationSource: CloseTabCloseSource = tabCloseButtonClose == true ? .tabCloseButton : .shortcut
         let agentWarning = activeAgentCloseWarningInfo(panelId: panelId)
+        let runningProcess = panelShellActivityStates[panelId] == .commandRunning || agentWarning != nil
         let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
             requiresConfirmation: panelNeedsConfirmClose(panelId: panelId) || agentWarning != nil,
             source: confirmationSource,
-            isAgentSession: agentWarning != nil
+            isAgentSession: agentWarning != nil,
+            isRunningProcess: runningProcess
         )
         if !warningKinds.isEmpty {
             clearStagedClosedBrowserRestoreSnapshot(for: tab.id)
@@ -15016,8 +15033,11 @@ extension Workspace: BonsplitDelegate {
             guard let panelId = panelIdFromSurfaceId(tab.id) else { continue }
             promptTitles.append(CloseOtherTabsConfirmationPrompt.displayTitle(panelTitle(panelId: panelId)))
             if CloseTabWarningStore(defaults: closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
-                requiresConfirmation: panelNeedsConfirmClose(panelId: panelId),
-                source: .shortcut
+                requiresConfirmation: panelNeedsConfirmClose(panelId: panelId)
+                    || activeAgentCloseWarningInfo(panelId: panelId) != nil,
+                source: .shortcut,
+                isAgentSession: activeAgentCloseWarningInfo(panelId: panelId) != nil,
+                isRunningProcess: panelShellActivityStates[panelId] == .commandRunning || activeAgentCloseWarningInfo(panelId: panelId) != nil
             ) {
                 needsPrompt = true
             }

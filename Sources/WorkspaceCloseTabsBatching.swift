@@ -57,15 +57,25 @@ extension Workspace {
         }
         guard !candidates.isEmpty else { return }
 
-        let needsConfirmation = candidates.contains { candidate in
-            guard let panelId = candidate.panelId else { return false }
-            return panelNeedsConfirmClose(panelId: panelId)
+        let closeWarningStore = CloseTabWarningStore(
+            defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults
+        )
+        var warningKinds: CloseWarningKinds = []
+        for candidate in candidates {
+            guard let panelId = candidate.panelId else { continue }
+            let isAgentSession = activeAgentCloseWarningInfo(panelId: panelId) != nil
+            let isRunningProcess = panelShellActivityStates[panelId] == .commandRunning
+                || isAgentSession
+            warningKinds.formUnion(closeWarningStore.warningKindsIncludingSafety(
+                requiresConfirmation: panelNeedsConfirmClose(panelId: panelId) || isAgentSession,
+                source: .shortcut,
+                isAgentSession: isAgentSession,
+                isRunningProcess: isRunningProcess
+            ))
         }
+        let needsConfirmation = !warningKinds.isEmpty
 
-        if CloseTabWarningStore(defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
-            requiresConfirmation: needsConfirmation,
-            source: .shortcut
-        ) {
+        if needsConfirmation {
             guard let confirmationManager else { return }
             let prompt = CloseOtherTabsConfirmationPrompt(
                 titles: candidates.map { candidate in

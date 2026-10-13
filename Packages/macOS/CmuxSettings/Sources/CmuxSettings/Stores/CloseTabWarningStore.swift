@@ -2,7 +2,7 @@ import Foundation
 
 /// Repository for the close warning settings, persisted in `UserDefaults`
 /// under the catalog's `app.warnBeforeClosingTab`,
-/// `app.warnBeforeClosingTabXButton`, `app.warnBeforeClosingAgentSession`,
+/// `app.closeRunningTabsWithoutConfirmation`, `app.warnBeforeClosingTabXButton`, `app.warnBeforeClosingAgentSession`,
 /// `app.warnBeforeClosingWorkspace`,
 /// `app.warnBeforeClosingWindow`, and
 /// `app.hideTabCloseButton` keys.
@@ -27,6 +27,10 @@ public struct CloseTabWarningStore: CloseTabWarningReading {
 
     public var warnsBeforeClosingTabXButton: Bool {
         keys.warnBeforeClosingTabXButton.value(in: defaults)
+    }
+
+    public var closesRunningTabsWithoutConfirmation: Bool {
+        keys.closeRunningTabsWithoutConfirmation.value(in: defaults)
     }
 
     public var warnsBeforeClosingAgentSession: Bool {

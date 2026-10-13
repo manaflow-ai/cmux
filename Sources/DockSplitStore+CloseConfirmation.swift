@@ -51,7 +51,8 @@ extension DockSplitStore {
         )
         guard closeWarningStore.shouldConfirmCloseIncludingSafety(
             requiresConfirmation: dockPanelNeedsConfirmClose(panel),
-            source: closeSource
+            source: closeSource,
+            isRunningProcess: (panel as? TerminalPanel)?.shellActivity.state == .commandRunning
         ) else {
             if closeHistoryEligibleDockTabIds.contains(tab.id) {
                 stageDockClosedPanelHistory(
@@ -126,7 +127,8 @@ extension DockSplitStore {
             guard userCloseTabIds.contains(tab.id), let panel else { continue }
             if closeWarningStore.shouldConfirmCloseIncludingSafety(
                 requiresConfirmation: dockPanelNeedsConfirmClose(panel),
-                source: .shortcut
+                source: .shortcut,
+                isRunningProcess: (panel as? TerminalPanel)?.shellActivity.state == .commandRunning
             ) {
                 confirmableTabIds.insert(tab.id)
             }
@@ -227,12 +229,31 @@ extension DockSplitStore {
         return false
     }
 
+    /// Collects close reasons for the dock through the shared tab warning policy.
+    /// The dock has no agent-session lifecycle store, so terminal activity is
+    /// the only process signal available here.
+    func closeWarningKindsIncludingSafety() -> CloseWarningKinds {
+        let warningStore = CloseTabWarningStore(
+            defaults: dockCloseConfirmationManager()?.closeTabWarningDefaults ?? .standard
+        )
+        var warningKinds: CloseWarningKinds = []
+        for tabId in bonsplitController.allTabIds {
+            guard let panel = panel(for: tabId) else { continue }
+            warningKinds.formUnion(warningStore.warningKindsIncludingSafety(
+                requiresConfirmation: dockPanelNeedsConfirmClose(panel),
+                source: .shortcut,
+                isRunningProcess: (panel as? TerminalPanel)?.shellActivity.state == .commandRunning
+            ))
+        }
+        return warningKinds
+    }
+
     private func confirmCloseDockPanel(_ panel: any Panel, confirmationManager: TabManager?) -> Bool {
         let title = String(localized: "dialog.closeTab.title", defaultValue: "Close tab?")
         let panelName = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let message: String
         if !panelName.isEmpty {
-            message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
+            message = String(format: String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"%@\"."), locale: .current, panelName)
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
         }

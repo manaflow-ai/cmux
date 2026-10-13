@@ -2160,6 +2160,7 @@
           "devWindowDisplay": "仅在 DEBUG 构建中打开新窗口时使用的显示器名称。空值使用系统默认设置。",
           "warnBeforeQuit": "用于退出确认的旧布尔回退值。新配置请使用 app.confirmQuit。",
           "warnBeforeClosingTabXButton": "使用标签关闭按钮关闭标签前显示确认。",
+          "closeRunningTabsWithoutConfirmation": "关闭包含运行中进程（包括活跃代理）的标签页时跳过确认。其他标签页、工作区和窗口警告仍然适用。",
           "hideTabCloseButton": "在窗格标签栏中隐藏标签关闭按钮。",
           "tabBarVisibility": "决定窗格何时绘制其标签栏。\"always\" 即使窗格只有一个标签也会绘制；\"multiple-tabs\" 在窗格只有一个标签时隐藏，开启第二个标签后绘制。极简模式（app.minimalMode）始终绘制，因为在该模式下顶部窗格的标签栏同时充当窗口标题栏。",
           "forkConversationDefaultDestination": "标签页上下文菜单中主要 Fork Conversation 操作的默认目标。子菜单仍会显示所有目标。",

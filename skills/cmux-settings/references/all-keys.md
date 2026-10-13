@@ -31,6 +31,7 @@ General app preferences from Settings > App.
 | `app.sendAnonymousTelemetry` | boolean | `true` | Allow anonymous telemetry. |
 | `app.warnBeforeQuit` | boolean | `true` | Show a confirmation before quitting cmux. |
 | `app.warnBeforeClosingTab` | boolean | `true` | Show a confirmation before closing a tab. |
+| `app.closeRunningTabsWithoutConfirmation` | boolean | `false` | Skip confirmation when closing a tab with a running process, including an active agent. Other tab, workspace, and window warnings still apply. |
 | `app.warnBeforeClosingAgentSession` | boolean | `true` | Show a confirmation before closing an agent session while it is mid-turn. |
 | `app.renameSelectsExistingName` | boolean | `true` | Select the current name when opening rename flows. |
 | `app.commandPaletteSearchesAllSurfaces` | boolean | `false` | Search every surface in the command palette switcher instead of only the active workspace. |

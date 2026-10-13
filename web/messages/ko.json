@@ -2160,6 +2160,7 @@
           "devWindowDisplay": "새 창을 열 때 DEBUG 빌드에서만 사용하는 디스플레이 이름입니다. 빈 값은 시스템 기본값을 사용합니다.",
           "warnBeforeQuit": "종료 확인을 위한 기존 boolean 대체값입니다. 새 구성에는 app.confirmQuit을 사용하세요.",
           "warnBeforeClosingTabXButton": "탭 닫기 버튼으로 탭을 닫기 전에 확인을 표시합니다.",
+          "closeRunningTabsWithoutConfirmation": "활성 에이전트를 포함하여 실행 중인 프로세스가 있는 탭을 닫을 때 확인을 건너뜁니다. 다른 탭, 작업 공간 및 윈도우 경고는 계속 적용됩니다.",
           "hideTabCloseButton": "창 영역 탭 막대에서 탭 닫기 버튼을 숨깁니다.",
           "tabBarVisibility": "창 영역이 탭 막대를 그리는 시점을 정합니다. \"always\"는 탭이 하나뿐인 창 영역에서도 그리고, \"multiple-tabs\"는 탭이 하나인 동안에는 숨겼다가 두 번째 탭이 열리면 그립니다. 미니멀 모드(app.minimalMode)에서는 항상 그립니다. 그곳에서는 맨 위 창 영역의 탭 막대가 창 제목 표시줄을 겸하기 때문입니다.",
           "forkConversationDefaultDestination": "탭 컨텍스트 메뉴의 기본 Fork Conversation 동작에 사용할 기본 대상입니다. 하위 메뉴에는 여전히 모든 대상이 표시됩니다.",

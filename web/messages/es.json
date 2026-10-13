@@ -2160,6 +2160,7 @@
           "devWindowDisplay": "Nombre de pantalla usado solo en compilaciones DEBUG al abrir ventanas nuevas. Un valor vacío usa el valor predeterminado del sistema.",
           "warnBeforeQuit": "Alternativa booleana heredada para la confirmación de salida. Usa app.confirmQuit para configuraciones nuevas.",
           "warnBeforeClosingTabXButton": "Mostrar una confirmación antes de cerrar una pestaña con el botón de cerrar pestaña.",
+          "closeRunningTabsWithoutConfirmation": "Omitir la confirmación al cerrar una pestaña con un proceso en ejecución, incluido un agente activo. Las demás advertencias de pestañas, espacios de trabajo y ventanas siguen aplicándose.",
           "hideTabCloseButton": "Ocultar los botones de cerrar pestaña en la barra de pestañas del panel.",
           "tabBarVisibility": "Determina cuándo un panel dibuja su barra de pestañas. \"always\" la dibuja incluso en un panel con una sola pestaña; \"multiple-tabs\" la oculta mientras el panel tenga una sola pestaña y la dibuja en cuanto se abre una segunda. El modo mínimo (app.minimalMode) la dibuja siempre, porque allí la barra de pestañas del panel superior hace también de barra de título de la ventana.",
           "forkConversationDefaultDestination": "Destino predeterminado de la acción principal Fork Conversation en el menú contextual de la pestaña. El submenú sigue mostrando todos los destinos.",

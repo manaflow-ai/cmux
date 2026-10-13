@@ -2160,6 +2160,7 @@
           "devWindowDisplay": "ឈ្មោះអេក្រង់ដែលប្រើតែក្នុង build DEBUG ពេលបើកបង្អួចថ្មី។ តម្លៃទទេប្រើលំនាំដើមរបស់ប្រព័ន្ធ។",
           "warnBeforeQuit": "ជម្រើសបម្រុង boolean ចាស់សម្រាប់ការបញ្ជាក់មុនចាកចេញ។ ប្រើ app.confirmQuit សម្រាប់ការកំណត់ថ្មី។",
           "warnBeforeClosingTabXButton": "បង្ហាញការបញ្ជាក់ មុនពេលបិទផ្ទាំងដោយប៊ូតុងបិទផ្ទាំង។",
+          "closeRunningTabsWithoutConfirmation": "រំលងការបញ្ជាក់នៅពេលបិទផ្ទាំងដែលមានដំណើរការកំពុងរត់ រួមទាំងភ្នាក់ងារសកម្ម។ ការព្រមានផ្សេងទៀតសម្រាប់ផ្ទាំង កន្លែងធ្វើការ និងបង្អួច នៅតែអនុវត្ត។",
           "hideTabCloseButton": "លាក់ប៊ូតុងបិទផ្ទាំងនៅក្នុងរបារផ្ទាំងរបស់ផ្ទាំងបង្អួច។",
           "tabBarVisibility": "កំណត់ពេលដែលបន្ទះគូររបារផ្ទាំងរបស់វា។ \"always\" គូររបារនេះ ទោះបីជាបន្ទះមានផ្ទាំងតែមួយក៏ដោយ។ \"multiple-tabs\" លាក់របារនេះខណៈបន្ទះមានផ្ទាំងតែមួយ ហើយគូរវានៅពេលផ្ទាំងទីពីរត្រូវបានបើក។ របៀបសាមញ្ញ (app.minimalMode) គូរវាជានិច្ច ព្រោះនៅទីនោះ របារផ្ទាំងរបស់បន្ទះខាងលើគេ គឺជារបារចំណងជើងបង្អួចផងដែរ។",
           "forkConversationDefaultDestination": "Default destination for the tab context menu's primary Fork Conversation action. The submenu still exposes every destination.",
