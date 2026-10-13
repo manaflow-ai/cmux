@@ -63,8 +63,10 @@ extension ChatColumnPlacement {
     }
 
     /// Whether `tab` is an agent chat. The New Tab page is an agent tab too, but not a chat.
+    /// Reads `tab` itself: finding it again by id walks every workspace's tabs, once per
+    /// tab of a pane whose tab bar is drawn (cx-6so.21).
     @MainActor static func isChat(_ tab: TabModel, services: AppServices) -> Bool {
-        services.agentTabs.isAgentTab(tab.id) && !services.agentTabs.isNewTabPage(tab.id)
+        tab.agentSession != nil && !services.agentTabs.isNewTabPage(tab.id)
     }
 
     /// Where a person's new tab from `controller`'s pane opens: the pane

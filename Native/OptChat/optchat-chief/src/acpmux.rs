@@ -202,6 +202,12 @@ pub trait AgentPort: Send + Sync {
         Ok(())
     }
 
+    /// The models acpmux offers for `harness` (`_acpmux/models`), each
+    /// `{"id", "name"}`, in its order: what an engine set may pick.
+    fn offered_models(&self, _harness: &str) -> Result<Vec<Value>, String> {
+        Ok(Vec::new())
+    }
+
     /// The daemon's `_acpmux/harnesses` answer: every profile with its kind,
     /// command and family (`harness_gate::admit` reads it before each Chief
     /// session). A port without one refuses every Chief session.
@@ -955,6 +961,27 @@ impl AgentPort for Acpmux {
             .request("_acpmux/models", json!({"probe": [harness]}))
             .map(|_| ())
             .map_err(|e| format!("models probe: {e}"))
+    }
+
+    fn offered_models(&self, harness: &str) -> Result<Vec<Value>, String> {
+        let catalog = self
+            .client()?
+            .request("_acpmux/models", json!({}))
+            .map_err(|e| format!("models: {e}"))?;
+        Ok(catalog["harnesses"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|h| h["harness"] == harness)
+            .and_then(|h| h["models"].as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|m| {
+                let id = m["id"].as_str()?;
+                let name = m["name"].as_str().unwrap_or(id);
+                Some(json!({"id": id, "name": name}))
+            })
+            .collect())
     }
 
     fn harness_catalog(&self) -> Result<Value, String> {

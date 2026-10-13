@@ -374,13 +374,17 @@ export function ComposerPickers({
   // catalog's first, as the model picker's face does.
   const chipHarness = harness ?? pickerEntries[0]?.id;
   const unreported = shown === undefined && chipHarness !== undefined && (!summary?.sessionId || switching);
-  // Before the session reports, the default this harness last resolved to, else the model catalog's
-  // default for it, else the first model it lists (defaultModel: its last session's).
-  const predictedId = unreported
-    ? (loadResolvedDefaults()[chipHarness] ??
-      pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness)?.defaultModel ??
-      defaultModel(chipHarness, snapshot.catalog))
-    : undefined;
+  // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
+  // started it on (cx-e2aa, cx-21jvw). A resumed or remote chat may run another: it waits.
+  const fresh = (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
+  // Before a fresh chat's session reports, the default this harness last resolved to, else the model
+  // catalog's default for it, else the first model it lists (defaultModel: its last session's).
+  const predictedId =
+    unreported && fresh
+      ? (loadResolvedDefaults()[chipHarness] ??
+        pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness)?.defaultModel ??
+        defaultModel(chipHarness, snapshot.catalog))
+      : undefined;
   const resolvedId = unreported
     ? predictedId
     : defaulted
@@ -393,9 +397,6 @@ export function ComposerPickers({
         .find((entry) => entry.id === chipHarness)
         ?.models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
       modelIdName(resolvedId));
-  // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
-  // started it on (cx-e2aa, cx-21jvw). A resumed or remote chat may run another: it waits.
-  const fresh = (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
   const starting = shown === undefined && harness && fresh && !switching ? startingModel(harness) : undefined;
   // Before the session reports, the predicted model's name holds the chip's width (cx-ncc.58).
   const modelName =

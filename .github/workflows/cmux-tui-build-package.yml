@@ -686,23 +686,6 @@ jobs:
         shell: bash
         run: ld.lld --version
 
-      # Cargo cache for PUSH builds only (chief decision 2026-10-12, trust note on #13742): a
-      # pull_request_target run builds pull request code, so it must neither read nor write the
-      # cache that published binaries are built from. Pull request runs get no cache step at all.
-      - name: Restore the Windows cargo cache (push builds only)
-        id: windows-cargo-cache
-        if: github.event_name == 'push'
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            cmux-tui/target/x86_64-pc-windows-gnu
-          key: cmux-tui-win-gnu-push-v1-${{ hashFiles('cmux-tui/Cargo.lock', 'cmux-tui/rust-toolchain.toml') }}
-          restore-keys: |
-            cmux-tui-win-gnu-push-v1-
-
       # rustc links x86_64-pc-windows-gnu with this MinGW gcc, whose static
       # mingw-w64 CRT and libgcc end up in the binaries; the package notice
       # covers only the reviewed build (package-notices.json windows_gnu).
@@ -732,20 +715,9 @@ jobs:
           version="$(sed -nE 's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' build.zig.zon | head -1)"
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu -Dversion-string="$version" --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --release --locked --target x86_64-pc-windows-gnu
+          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target x86_64-pc-windows-gnu
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target x86_64-pc-windows-gnu
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target x86_64-pc-windows-gnu
-
-      - name: Save the Windows cargo cache (push builds only)
-        if: github.event_name == 'push' && steps.windows-cargo-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            cmux-tui/target/x86_64-pc-windows-gnu
-          key: ${{ steps.windows-cargo-cache.outputs.cache-primary-key }}
 
       - name: Test Windows long-path state handling
         working-directory: cmux-tui
@@ -775,6 +747,12 @@ jobs:
         run: |
           python cmux-tui/scripts/smoke-windows-process-wait.py \
             --binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
+
+      - name: Verify Windows install key handoff
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -File cmux-tui/scripts/smoke-windows-install-key-handoff.ps1 `
+            -Binary cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe
 
       - name: Set up Python for ConPTY verification
         uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
@@ -806,6 +784,7 @@ jobs:
           mkdir -p dist
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe" "dist/cmux-tui-x86_64-pc-windows-gnu.exe"
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui-hook.exe" "dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe"
+          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui-host.exe" "dist/cmux-tui-host-x86_64-pc-windows-gnu.exe"
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-relay.exe" "dist/cmux-relay-x86_64-pc-windows-gnu.exe"
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/chatmux-relay.exe" "dist/chatmux-relay-x86_64-pc-windows-gnu.exe"
           ls -la dist
@@ -818,6 +797,7 @@ jobs:
           path: |
             dist/cmux-tui-x86_64-pc-windows-gnu.exe
             dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe
+            dist/cmux-tui-host-x86_64-pc-windows-gnu.exe
             dist/cmux-relay-x86_64-pc-windows-gnu.exe
             dist/chatmux-relay-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
