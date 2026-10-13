@@ -32,6 +32,10 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 libc = "0.2"
 # The native engine's Messages API client (blocking, like optchat-host's).
 ureq = { version = "2", features = ["json"] }
+# Link previews (src/link_preview): URLs as the guard checks them (ureq's own
+# url), and the preview picture decoded and re-encoded as a small JPEG.
+url = "2"
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 # The codex compactor slots' config.toml, kept keys copied from the user's.
 toml = "0.8"
 # The brain host's cloud install key (ES256) and its base64url encodings.

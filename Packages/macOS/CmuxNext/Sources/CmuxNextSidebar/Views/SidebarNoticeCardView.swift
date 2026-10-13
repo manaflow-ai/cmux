@@ -59,7 +59,7 @@ final class SidebarNoticeCardView: NSView {
         bar.cornerRadius = 1.5
         content.layer?.addSublayer(track)
         content.layer?.addSublayer(bar)
-        closeButton.onPress = { [weak self] in if let id = self?.notice?.id { self?.onDismiss?(id) } }
+        closeButton.onPress = { [weak self] in self?.closePressed() }
         [eyebrowLabel, titleLabel, detailLabel, shortcutLabel, icon, spinner, closeButton].forEach(content.addSubview)
         setAccessibilityElement(false)
         isHidden = true
@@ -113,19 +113,45 @@ final class SidebarNoticeCardView: NSView {
         applyColors()
     }
 
-    /// Right-click (cx-2lm4): the card's buttons, then its x (Dismiss), as menu items.
+    /// Right-click (cx-2lm4): the card's buttons, then its x (Dismiss, or the x's menu), as menu items.
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let notice else { return nil }
         let menu = NSMenu()
-        for action in notice.actions.prefix(2) {
+        addItems(notice.actions.prefix(2), to: menu)
+        if let dismiss = notice.dismissLabel {
+            if !menu.items.isEmpty { menu.addItem(.separator()) }
+            if notice.dismissMenu.isEmpty {
+                menu.addItem(withTitle: dismiss, action: #selector(menuDismiss), keyEquivalent: "").target = self
+            } else {
+                addItems(notice.dismissMenu[...], to: menu)
+            }
+        }
+        return menu.items.isEmpty ? nil : menu
+    }
+
+    /// The x's menu (the tip's Hide / Mute / Never), or nil when the x dismisses at once.
+    var dismissMenu: NSMenu? {
+        guard let items = notice?.dismissMenu, !items.isEmpty else { return nil }
+        let menu = NSMenu()
+        addItems(items[...], to: menu)
+        return menu
+    }
+
+    /// The x: opens its menu under the x, or dismisses.
+    private func closePressed() {
+        guard let id = notice?.id else { return }
+        guard let menu = dismissMenu else {
+            onDismiss?(id)
+            return
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: closeButton.frame.minX, y: closeButton.frame.maxY + 2), in: content)
+    }
+
+    private func addItems(_ actions: ArraySlice<SidebarNoticeCard.Action>, to menu: NSMenu) {
+        for action in actions {
             let item = menu.addItem(withTitle: action.title, action: #selector(menuAction(_:)), keyEquivalent: "")
             (item.target, item.representedObject) = (self, action.id)
         }
-        if let dismiss = notice.dismissLabel {
-            if !menu.items.isEmpty { menu.addItem(.separator()) }
-            menu.addItem(withTitle: dismiss, action: #selector(menuDismiss), keyEquivalent: "").target = self
-        }
-        return menu.items.isEmpty ? nil : menu
     }
 
     @objc private func menuAction(_ item: NSMenuItem) {

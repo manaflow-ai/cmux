@@ -7,8 +7,8 @@
 .nt-field{flex:1;min-width:0;height:100%;border:0;outline:0;padding:0;background:none;color:var(--agent-text);caret-color:var(--cmux-caret, var(--agent-text));font:inherit;font-size:var(--text-title);line-height:var(--text-title--line-height)}
 .nt-field::placeholder{color:var(--acpmux-composer-placeholder);opacity:1}
 .nt-hint{flex:none;color:var(--acpmux-composer-dim);font-size:12px;white-space:nowrap}
-/* The suggestions' popover (Leo 2026-10-12): the shared Popover under the composer box, as wide as it, a solid theme surface over every section; it never moves the page or grows its scroll. The list inside scrolls. */
-.nt-popover{box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,8px);background:linear-gradient(var(--acpmux-composer-bg),var(--acpmux-composer-bg)),var(--agent-page-bg,var(--acpmux-base));color:var(--agent-text);font-family:system-ui;-webkit-font-smoothing:antialiased;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 16px 40px -12px var(--agent-shadow,rgb(0 0 0/.45))}
+/* The suggestions' popover (Leo 2026-10-12): the shared Popover under the composer box, as wide as it, the composer's fill over the opaque popup surface (Leo 10-13: the page background is see-through on a wallpaper theme, and the rows under it showed through); it never moves the page or grows its scroll. The list inside scrolls. */
+.nt-popover{box-sizing:border-box;width:var(--anchor-width);padding:0;border-radius:var(--ui-popup-radius,8px);background:linear-gradient(var(--acpmux-composer-bg),var(--acpmux-composer-bg)),var(--surface-popup);color:var(--agent-text);font-family:system-ui;-webkit-font-smoothing:antialiased;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),0 16px 40px -12px var(--agent-shadow,rgb(0 0 0/.45))}
 .nt-popover .nt-rows{--popup-scroll-cap:360px;box-sizing:border-box;padding:6px;max-height:min(48vh,360px);overflow:auto;overscroll-behavior:contain}
 .nt-row{display:flex;align-items:center;gap:10px;height:32px;padding:0 10px;border-radius:8px;color:var(--agent-soft);font-size:var(--text-control);cursor:default;white-space:nowrap}
 .nt-row.is-selected{background:color-mix(in srgb,var(--agent-accent,var(--agent-text)) 8%,transparent);color:var(--agent-text)}
@@ -138,96 +138,6 @@
 .nt-screen[data-template="console"] .nt-card-message {
   font-family: inherit;
   font-weight: 400;
-}
-/* The template dots, centered under every template, in the page's own flow after the scrolling
-   screen (never over it: nxdog82, "Integrate a harness" ran under the dots in a short window). */
-.nt-templates {
-  --nt-template-slot: 24px;
-  order: 1;
-  flex: none;
-  align-self: center;
-  position: relative;
-  display: flex;
-  margin: 0;
-  border: 0;
-  padding: 6px 0 12px;
-  min-inline-size: 0;
-}
-/* Drawn like the sidebar's space dots (cx-l1jv): a slot per dot, a 20px chip inset 2px with the
-   item corner radius, the current template's chip in the selected-row fill, the dots at 70%, 90%
-   under the pointer and full for the current one. */
-.nt-template-dot {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: var(--nt-template-slot);
-  height: var(--nt-template-slot);
-  cursor: pointer;
-}
-/* The chip and the dot draw only: a click lands on the radio itself (a click on the label would
-   reach it as a synthetic click, which Terminal ignores). */
-.nt-template-dot::before,
-.nt-templates-chip {
-  content: "";
-  position: absolute;
-  inset: 2px;
-  border-radius: 6px;
-  pointer-events: none;
-}
-.nt-template-dot:hover::before {
-  background: var(--agent-control-hover);
-}
-.nt-templates-chip {
-  inset: auto;
-  top: calc(6px + 2px);
-  left: 2px;
-  width: calc(var(--nt-template-slot) - 4px);
-  height: calc(var(--nt-template-slot) - 4px);
-  background: color-mix(in srgb, var(--agent-accent, var(--agent-text)) 8%, transparent);
-  transform: translateX(calc(var(--nt-template-index) * var(--nt-template-slot)));
-  pointer-events: none;
-}
-.nt-template-dot::after {
-  content: "";
-  position: relative;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--agent-text);
-  opacity: 0.7;
-  pointer-events: none;
-}
-.nt-template-dot:hover::after {
-  opacity: 0.9;
-}
-.nt-template-dot:has(.nt-template-input:checked)::after {
-  opacity: 1;
-}
-.nt-template-input {
-  position: absolute;
-  inset: 0;
-  margin: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-.nt-template-dot:has(.nt-template-input:focus-visible)::before {
-  outline: 1.5px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
-}
-/* The chip slides to the dot picked on the move token; hover eases in and clears at once (as rows do). */
-@media (prefers-reduced-motion: no-preference) {
-  .nt-templates-chip {
-    transition: transform var(--agent-motion-move, 0.19s) var(--agent-ease-out, ease-out);
-  }
-  .nt-template-dot::before,
-  .nt-template-dot::after {
-    transition:
-      background-color var(--agent-motion-hover-out, 0s) var(--agent-ease-out, ease-out),
-      opacity var(--agent-motion-hover-out, 0s) var(--agent-ease-out, ease-out);
-  }
-  .nt-template-dot:hover::before,
-  .nt-template-dot:hover::after {
-    transition-duration: var(--agent-motion-hover, 0.08s);
-  }
 }
 /* Open Tabs (cx-jfo7): a split's page lists the workspace's tabs to move into its pane. */
 .nt-open-tabs{margin-top:12px;display:flex;flex-direction:column}

@@ -13,10 +13,11 @@ import Foundation
 /// by exactly one after `reconcile`. Every transition that takes a window's
 /// last workspace (close, move, tear-off, daemon removal) removes that
 /// window in the same step, the only window too; no window is registered
-/// without a workspace. Closing a window never ends terminals: its
-/// workspaces move to the most recent other open window, or, when it is the
-/// only open one, it stays registered (closed, still owning them) so
-/// relaunch or reopen restores it.
+/// without a workspace. Closing a window never ends terminals: it stays
+/// registered (closed, still owning its workspaces) as one closed group that
+/// Cmd-Shift-T, History, a Dock click or relaunch restores (cx-gzh.9.3). On a
+/// daemon without window records (no closed group) a non-last window's
+/// workspaces move to the most recent other open window instead.
 ///
 /// Incognito windows (user decision 2026-09-30) are their own kind: no
 /// workspace moves between an incognito window and a normal one (moves and
@@ -38,8 +39,8 @@ struct WindowRegistry: Equatable, Sendable {
         var frame: CGRect?
         /// Display the window was on (`CGDisplayCreateUUIDFromDisplayID`).
         var display: String?
-        /// False for the last window after the user closed it: kept so its
-        /// workspaces stay restorable.
+        /// False after the user closed it: kept so its workspaces stay
+        /// restorable (one closed group).
         var isOpen = true
 
         init(id: String, workspaceIDs: [String] = [], frame: CGRect? = nil, display: String? = nil, isOpen: Bool = true) {
@@ -149,13 +150,14 @@ struct WindowRegistry: Equatable, Sendable {
         return changes
     }
 
-    /// The user closed `id`. Its workspaces move to the most recent other
-    /// open window of its kind; the only open normal window is kept, closed,
-    /// with its workspaces (it owns at least one, so it is never an empty
-    /// record). An incognito window closes for good, and its workspaces are
-    /// `discarded`.
+    /// The user closed `id`. A normal window closes like a browser window
+    /// (cx-gzh.9.3): kept, closed, with its workspaces (still running), as one
+    /// closed `window` group that Cmd-Shift-T reopens whole. With `keepsGroup`
+    /// false (no window records, so no group) a non-last window's workspaces
+    /// move to the most recent other open window. An incognito window closes
+    /// for good, and its workspaces are `discarded`.
     @discardableResult
-    mutating func close(_ id: String) -> Changes {
+    mutating func close(_ id: String, keepsGroup: Bool = true) -> Changes {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return Changes() }
         if isIncognito(id) {
             var changes = Changes()
@@ -164,12 +166,30 @@ struct WindowRegistry: Equatable, Sendable {
             remove(id)
             return changes
         }
-        guard let heir = mostRecentOpen(excluding: [id]) else {
-            windows[index].isOpen = false
+        if !keepsGroup, let heir = mostRecentOpen(excluding: [id]) {
+            return merge(id, into: heir)
+        }
+        windows[index].isOpen = false
+        activate(id) // a Dock click or a relaunch brings back the last window closed
+        return Changes()
+    }
+
+    /// Closed window `id`'s group was deleted: its workspaces move to the most
+    /// recent open window of its kind, else it opens again (never hidden).
+    @discardableResult
+    mutating func releaseClosed(_ id: String) -> Changes {
+        guard let window = window(id), !window.isOpen else { return Changes() }
+        guard let heir = mostRecentOpen(excluding: [id], incognito: isIncognito(id)) else {
+            _ = reopen(id: id)
             return Changes()
         }
+        return merge(id, into: heir)
+    }
+
+    /// Moves every workspace of `id` into `heir` and removes `id`.
+    private mutating func merge(_ id: String, into heir: String) -> Changes {
         var changes = Changes()
-        let orphans = windows[index].workspaceIDs
+        let orphans = window(id)?.workspaceIDs ?? []
         remove(id)
         if !orphans.isEmpty, let heirIndex = windows.firstIndex(where: { $0.id == heir }) {
             windows[heirIndex].workspaceIDs += orphans
@@ -186,6 +206,13 @@ struct WindowRegistry: Equatable, Sendable {
         windows[index].isOpen = true
         activate(id)
         return id
+    }
+
+    /// Marks restored window `id` open or closed (a relaunch keeps a closed
+    /// window closed, `WindowRecord.isClosed`).
+    mutating func setRestored(_ id: String, open: Bool) {
+        guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
+        windows[index].isOpen = open
     }
 
     /// Opens closed window `id` again (Reopen Closed of its `window` group).

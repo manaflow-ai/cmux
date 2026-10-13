@@ -201,6 +201,14 @@ final class WindowManager {
             }
         }
         reconcileMembership()
+        // Every remaining window closed (the open ones lost their workspaces while the app was
+        // not running): the most recent one opens, so the app never starts with no window.
+        if !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen), let front = registry.value.recency.first {
+            registry.apply { registry in
+                registry.setRestored(front, open: true)
+                return WindowRegistry.Changes()
+            }
+        }
         sync(previous: [:])
         // Registered now (it received workspaces): an ordinary window. If
         // it has none (the daemon failed to create one), it keeps showing
@@ -231,7 +239,9 @@ final class WindowManager {
         // workspaces are gone or still connecting would leave the launch
         // window on screen with nothing to show.
         guard let launchID = launchWindowID, let launch = controller(for: launchID),
-              let front = restored.recency.first(where: { id in restored.window(id).map(hasMirroredWorkspace) == true }),
+              let front = restored.recency.first(where: { id in
+                  restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true
+              }),
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
         launchWindowID = front

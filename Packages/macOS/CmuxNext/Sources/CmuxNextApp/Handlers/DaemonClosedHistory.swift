@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -71,12 +72,9 @@ enum DaemonClosedHistory {
         owner(of: entry, window: window, install: try? services.cloud.localDeviceID(), in: services)
     }
 
-    /// Same, with this install's id read once (`newest` asks for every entry).
-    /// The recorded window decides only on this Mac's daemon, for a window of
-    /// this install the registry still has; anything else (a window that
-    /// merged into another, another Mac's daemon) falls back to the
-    /// workspace's window. A window item of a window the registry no longer
-    /// has cannot be reopened.
+    /// Same, with this install's id read once. The recorded window decides only
+    /// on this Mac's daemon for a window the registry has; else the workspace's
+    /// window does. A window item of an unknown window is not reopenable.
     private static func owner(of entry: Entry, window: String?, install: String?, in services: AppServices) -> Owner {
         if entry.daemon.isLocal, let install, let recorded = entry.item.window, recorded.hasPrefix(install + "/") {
             let windowID = String(recorded.dropFirst(install.count + 1))
@@ -173,7 +171,7 @@ enum DaemonClosedHistory {
             await daemon.store.applied(through: await connection.eventSequence())
             if item.kind == .workspace {
                 if let id = reopened.workspaceID,
-                   let workspace = await workspaceAfterReopen(id, in: daemon.store, clock: daemon.reopenClock) {
+                   let workspace = await daemon.store.workspace(afterReopen: id, clock: daemon.reopenClock) {
                     services.windows.reveal(workspaceID: workspace)
                     return nil
                 } else {
@@ -188,14 +186,29 @@ enum DaemonClosedHistory {
         })
     }
 
+    /// A deleted `window` item of this app: its closed window lets its
+    /// workspaces go (nothing could reopen them otherwise).
+    private static func releaseWindow(of item: ClosedItem, daemon: DaemonService, services: AppServices) {
+        guard item.kind == .window, daemon.isLocal, let recorded = item.window,
+              let install = try? services.cloud.localDeviceID(), recorded.hasPrefix(install + "/") else { return }
+        services.windows.releaseClosedWindow(id: String(recorded.dropFirst(install.count + 1)))
+    }
+
+    /// Sends the agent-home folders of deleted closed workspaces (the
+    /// daemon moved them to `.trash-pending`, cx-gzh.9.2) to the Trash, off
+    /// the main thread. At launch and after each delete or clear.
+    static func emptyAgentHomeTrash() { AgentHome.emptyStandardTrashPendingInBackground() }
+
     /// Deletes `entry` for good on its daemon (History's Remove, Search
     /// Tabs' forget): it cannot be reopened any more.
     static func delete(_ entry: Entry, services: AppServices) {
         let daemon = entry.daemon, id = entry.item.id
+        releaseWindow(of: entry.item, daemon: daemon, services: services)
         services.registry.track(Task { @MainActor in
             guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
             do {
                 try await connection.state.deleteClosed(id)
+                if daemon.isLocal { emptyAgentHomeTrash() }
                 return nil
             } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
                 // Already gone (a second Remove, or a reopen that ran first): the goal holds.
@@ -213,11 +226,15 @@ enum DaemonClosedHistory {
     /// that skew.
     static func clear(since: Date?, services: AppServices) {
         let sinceMs = since.map { UInt64(max(0, $0.timeIntervalSince1970 * 1000)) }
+        for entry in entries([.window], in: services) where sinceMs.map({ entry.item.closedAtMs >= $0 }) ?? true {
+            releaseWindow(of: entry.item, daemon: entry.daemon, services: services)
+        }
         for daemon in services.machines.daemons where daemon.store.servesStateResources {
             services.registry.track(Task { @MainActor in
                 guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
                 do {
                     try await connection.state.deleteAllClosed(sinceMs: sinceMs)
+                    if daemon.isLocal { emptyAgentHomeTrash() }
                     return nil
                 } catch {
                     daemon.logger.error("closed.delete all failed: \(String(describing: error), privacy: .public)")

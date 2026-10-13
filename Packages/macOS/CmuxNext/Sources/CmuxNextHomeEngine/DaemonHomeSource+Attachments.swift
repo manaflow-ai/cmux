@@ -21,6 +21,13 @@ nonisolated extension DaemonHomeSource {
     /// evicted file costs one more read.
     public static var defaultAttachmentCacheLimit: Int { 512_000_000 }
 
+    /// The local owner takes `link_preview` parts when it advertises
+    /// `link-preview-v1` (a daemon older than the part gets plain text).
+    public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool {
+        guard let connection = try? requireOwner() else { return false }
+        return await connection.identity?.supports(DaemonCapabilities.shared.linkPreview) == true
+    }
+
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
         let connection = try requireOwner()
         let stored = try await Self.attachmentCall {
