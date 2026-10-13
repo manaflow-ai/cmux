@@ -228,6 +228,9 @@ export type AcpmuxSnapshot = {
     family?: string;
     /** `_acpmux/harnesses` `icon`: a brand id, or a file the host serves. */
     icon?: string;
+    /** `_acpmux/harnesses` `start`: the model and effort acpmux starts a new chat here on (the
+     * person's saved pick, else the catalog's default; acpmux start_defaults.rs). */
+    start?: { model?: string; effort?: string };
     /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
      * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
      * (`diagnostic`: its first problem). Global harnesses have none. */

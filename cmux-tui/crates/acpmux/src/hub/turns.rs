@@ -847,6 +847,15 @@ impl Hub {
             )
             .await?;
         self.append(session, "mux", "config", json!({"configId": config_id, "value": value}));
+        {
+            let mut applied =
+                session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if config_id == "model" {
+                applied.model = value.as_str().map(str::to_owned);
+            } else if super::start_defaults::is_effort_id(config_id) {
+                applied.effort = value.as_str().map(str::to_owned);
+            }
+        }
         Ok(r)
     }
 
@@ -881,6 +890,8 @@ impl Hub {
             self.save_meta(session);
             self.detach_child(session).await;
             self.append(session, "mux", "model", json!({"modelId": model_id, "atSpawn": true}));
+            session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).model =
+                Some(model_id.to_owned());
             return Ok(json!({}));
         }
         // Prefer the config option named "model" when the agent exposes one.
@@ -908,6 +919,8 @@ impl Hub {
         let r =
             self.forward(session, method::SESSION_SET_MODEL, json!({"modelId": model_id})).await?;
         self.append(session, "mux", "model", json!({"modelId": model_id}));
+        session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).model =
+            Some(model_id.to_owned());
         Ok(r)
     }
 

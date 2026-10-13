@@ -37,12 +37,39 @@ impl Hub {
         }
         let family = crate::config::derive_family(agent, &profile);
         let policy = policy.or(defaults.policy);
-        let model = model.or(defaults.model);
-        let effort = effort.or(defaults.effort);
         // `${model}` in argv or env: the model is a spawn parameter, not a
         // set_model call.
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
+        // What a new chat starts on when nothing pins it (start_defaults.rs):
+        // the person's last pick, config.json defaults, the catalog default.
+        // A request value, a preset, a folder profile, a profile's own
+        // model/effort, an adopted conversation and a remote-origin chain
+        // keep today's chain (request, then `defaults`).
+        let eligible = adopt.is_none() && !remote && preset_name.is_none() && folder_root.is_none();
+        let model_pinned = model.is_some() || !eligible || profile.model.is_some() || spawn_model;
+        let effort_pinned = effort.is_some() || !eligible || profile.effort.is_some();
+        let pinned_model =
+            if model_pinned { model.or_else(|| defaults.model.clone()) } else { None };
+        let (start_model, start_effort) = if eligible {
+            self.start_defaults(agent, &profile, &defaults, pinned_model.as_deref())
+        } else {
+            (None, None)
+        };
+        let (model, model_soft) = match (model_pinned, start_model) {
+            (true, _) | (false, None) => (pinned_model, false),
+            (false, Some(start)) => {
+                let soft = start.soft();
+                (Some(start.value), soft)
+            }
+        };
+        let (effort, effort_soft) = match (effort_pinned, start_effort) {
+            (true, _) | (false, None) => (effort.or_else(|| defaults.effort.clone()), false),
+            (false, Some(start)) => {
+                let soft = start.soft();
+                (Some(start.value), soft)
+            }
+        };
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
         let env = [&defaults.env, &profile.env];
@@ -182,17 +209,30 @@ impl Hub {
                     let full = format!("{head}/{m}");
                     let m = if !catalog.is_empty() && !catalog.iter().any(|id| id == m) && catalog.contains(&full) { full } else { m.clone() };
                     if let Err(e) = self.set_model(&session, &m).await {
-                        if e.message.contains("Method not found") {
+                        // A last pick or catalog default the harness refuses: the
+                        // chat runs the harness's own default instead.
+                        if model_soft {
+                            tracing::warn!(harness = agent, model = %m, "start model skipped: {}", e.message);
+                            self.append(&session, "mux", "start_default_skipped", json!({"modelId": m, "error": e.message}));
+                        } else if e.message.contains("Method not found") {
                             return Err(RpcError::invalid_params(format!(
                                 "harness {agent} takes no model over ACP (no session/set_model); choose it in the harness's own settings, or give its profile a `${{model}}` argv or env entry in config.json"
                             )));
+                        } else {
+                            let hint = if catalog.is_empty() { String::new() } else { format!("; models: {}", catalog.join(", ")) };
+                            return Err(RpcError::invalid_params(format!("model {m:?} for {agent}: {}{hint}", e.message)));
                         }
-                        let hint = if catalog.is_empty() { String::new() } else { format!("; models: {}", catalog.join(", ")) };
-                        return Err(RpcError::invalid_params(format!("model {m:?} for {agent}: {}{hint}", e.message)));
                     }
                 }
             if let Some(e) = &effort {
-                self.set_config(&session, "effort", json!(e)).await.map_err(|err| RpcError::invalid_params(format!("effort {e:?} for {agent}: {}", err.message)))?;
+                match self.set_config(&session, "effort", json!(e)).await {
+                    Ok(_) => {}
+                    Err(err) if effort_soft => {
+                        tracing::warn!(harness = agent, effort = %e, "start effort skipped: {}", err.message);
+                        self.append(&session, "mux", "start_default_skipped", json!({"effort": e, "error": err.message}));
+                    }
+                    Err(err) => return Err(RpcError::invalid_params(format!("effort {e:?} for {agent}: {}", err.message))),
+                }
             }
             Ok(())
         }

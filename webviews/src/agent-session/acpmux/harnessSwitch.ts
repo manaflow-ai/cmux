@@ -650,8 +650,10 @@ export class HarnessSwitch {
 /// composer comes from the session once it attaches, else from what that harness last reported
 /// (harnessProfiles.ts), else from the catalog; queued prompts draw as the user's messages.
 /// The model a new chat on `harness` in `folder` starts on before anything is picked: the one last
-/// picked on it (lastPick.ts) while the harness still offers it, else what a session acpmux last
-/// started there reported, else its last session's, else the catalog's first.
+/// picked on it (lastPick.ts) while the harness still offers it, else the one acpmux starts a new
+/// chat there on (`start`: the saved pick or the catalog default, acpmux start_defaults.rs), else
+/// what a session acpmux last started there reported, else its last session's, else the catalog's
+/// first.
 export function defaultModel(
   harness: string,
   catalog: Catalog,
@@ -661,6 +663,7 @@ export function defaultModel(
   const profile = profiles.get(harness);
   return (
     lastOfferedModel(harness, catalog, folder) ??
+    catalog.find((entry) => entry.id === harness)?.start?.model ??
     profile?.startModel ??
     profile?.model ??
     catalog.find((entry) => entry.id === harness)?.models[0]?.id
