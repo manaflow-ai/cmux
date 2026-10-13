@@ -61,12 +61,18 @@ final class PendingWorkspaceRows {
         rows.removeAll { $0.id == id }
     }
 
-    /// Forgets the rows of workspaces a window now owns: their own rows show.
-    func forget(owned: (String) -> Bool) {
-        for entry in waiting where owned(entry.row.id) { entry.timer.cancel() }
-        waiting.removeAll { owned($0.row.id) }
-        guard rows.contains(where: { owned($0.id) }) else { return }
-        rows.removeAll { owned($0.id) }
+    /// Forgets the rows of `window` that it lists now (`listed`: its own row
+    /// replaces the placeholder in place) or that will not list there
+    /// (`elsewhere`: another window owns it, or it is pinned to another
+    /// room). Owning is not listing: a window owns a new workspace a moment
+    /// before its room shows it (the pin can come after the workspace), and
+    /// a row forgotten then left a gap.
+    func forget(in window: String, listed: Set<String>, elsewhere: (String) -> Bool) {
+        let done: (Row) -> Bool = { row in row.window == window && (listed.contains(row.id) || elsewhere(row.id)) }
+        for entry in waiting where done(entry.row) { entry.timer.cancel() }
+        waiting.removeAll { done($0.row) }
+        guard rows.contains(where: done) else { return }
+        rows.removeAll(where: done)
     }
 
     func rows(in window: String) -> [Row] {
