@@ -230,7 +230,7 @@ export type AcpmuxSnapshot = {
     icon?: string;
     /** `_acpmux/harnesses` `start`: the model and effort acpmux starts a new chat here on (the
      * person's saved pick, else the catalog's default; acpmux start_defaults.rs). */
-    start?: { model?: string; effort?: string };
+    start?: { model?: string; effort?: string; modelSource?: StartSource; effortSource?: StartSource };
     /** A profile from the chat's folder (`<folder>/.cmux/harnesses/<id>.toml`), with its state:
      * enabled, waiting for the user's Enable, waiting for the folder's Trust answer, or broken
      * (`diagnostic`: its first problem). Global harnesses have none. */
@@ -706,3 +706,7 @@ export function paneHeader(
   }
   return { title, status, detail: reason || rowError || status };
 }
+
+/** Where acpmux's start model or effort comes from: `saved` (acpmux defaults or the person's
+ * pick), `profile` (the harness profile's own), `catalog` (the model catalog's default). */
+export type StartSource = "saved" | "profile" | "catalog";

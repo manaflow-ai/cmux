@@ -42,12 +42,16 @@ impl Hub {
         let spawn_model = profile_takes_model_at_spawn(&profile)
             || defaults.env.values().any(|v| v.contains("${model}"));
         // What a new chat starts on when nothing pins it (start_defaults.rs):
-        // the person's last pick, config.json defaults, the catalog default.
+        // the saved default (acpmux defaults or the person's pick), else the catalog default.
         // A request value, a preset, a folder profile, a profile's own
-        // model/effort, an adopted conversation and a remote-origin chain
-        // keep today's chain (request, then `defaults`).
-        let eligible = adopt.is_none() && !remote && preset_name.is_none() && folder_root.is_none();
-        let model_pinned = model.is_some() || !eligible || profile.model.is_some() || spawn_model;
+        // model/effort (or a model in its argv or env) and an adopted
+        // conversation keep today's chain (request, then `defaults`).
+        let eligible = adopt.is_none() && preset_name.is_none() && folder_root.is_none();
+        let model_pinned = model.is_some()
+            || !eligible
+            || profile.model.is_some()
+            || spawn_model
+            || super::start_defaults::profile_sets_model(&profile);
         let effort_pinned = effort.is_some() || !eligible || profile.effort.is_some();
         let pinned_model =
             if model_pinned { model.or_else(|| defaults.model.clone()) } else { None };
@@ -58,17 +62,11 @@ impl Hub {
         };
         let (model, model_soft) = match (model_pinned, start_model) {
             (true, _) | (false, None) => (pinned_model, false),
-            (false, Some(start)) => {
-                let soft = start.soft();
-                (Some(start.value), soft)
-            }
+            (false, Some(start)) => (Some(start.value), true),
         };
         let (effort, effort_soft) = match (effort_pinned, start_effort) {
             (true, _) | (false, None) => (effort.or_else(|| defaults.effort.clone()), false),
-            (false, Some(start)) => {
-                let soft = start.soft();
-                (Some(start.value), soft)
-            }
+            (false, Some(start)) => (Some(start.value), true),
         };
         // Adopting checks the id against the harness's own store before
         // anything is created, and takes the conversation's recorded cwd.
@@ -209,7 +207,7 @@ impl Hub {
                     let full = format!("{head}/{m}");
                     let m = if !catalog.is_empty() && !catalog.iter().any(|id| id == m) && catalog.contains(&full) { full } else { m.clone() };
                     if let Err(e) = self.set_model(&session, &m).await {
-                        // A last pick or catalog default the harness refuses: the
+                        // A start value the harness refuses (start_defaults.rs): the
                         // chat runs the harness's own default instead.
                         if model_soft {
                             tracing::warn!(harness = agent, model = %m, "start model skipped: {}", e.message);
@@ -316,6 +314,9 @@ impl Hub {
         }
 
         self.record_launch_roots(session, profile).await;
+        // A fresh agent: what acpmux set on the last one is replayed, not assumed.
+        *session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+            Default::default();
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {

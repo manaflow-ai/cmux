@@ -3,7 +3,7 @@
 //!
 //! 1. the saved default in config.json `defaults` (family, then profile):
 //!    what `acpmux defaults <family> model=… effort=…` sets, and what the
-//!    person's last pick in a chat writes (`note_pick`: a local client's
+//!    person's pick in a chat writes (`note_pick`: the app pane's
 //!    `session/set_model` or effort `session/set_config_option`), so a pick
 //!    carries to the next new chat and across restarts;
 //! 2. the curated catalog's `defaultModel` for the harness and that model's
@@ -12,11 +12,12 @@
 //!    default (`~/.claude/settings.json`, `~/.codex/config.toml`) never
 //!    decides what a cmux chat runs.
 //!
-//! An explicit value in the request, a preset, a folder profile and a
-//! profile's own `model`/`effort` always win (`new_session`). A saved
-//! default the harness refuses fails creation loudly (today's rule); a
-//! catalog default it refuses is skipped with a warning, and the chat then
-//! runs the harness's own default.
+//! An explicit value in the request, a preset, a folder profile, a
+//! profile's own `model`/`effort` (or a model in its argv or env) and an
+//! adopted conversation keep today's chain (`new_session`). A start value
+//! the harness refuses (a retired model, an effort the model lacks) is
+//! skipped with a warning and a `start_default_skipped` event: the chat then
+//! runs the harness's own default and is never refused for it.
 
 use super::*;
 
@@ -34,11 +35,31 @@ pub(super) fn is_effort_id(id: &str) -> bool {
     EFFORT_IDS.contains(&id)
 }
 
+/// Records that `session` runs `model` now. A model change can reset the
+/// harness's effort (Codex does), so the recorded effort is dropped.
+pub(super) fn model_applied(session: &Session, model: &str) {
+    let mut applied = session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    applied.model = Some(model.to_owned());
+    applied.effort = None;
+}
+
+/// Whether a profile chooses its model itself in its argv (`--model`, `-m`,
+/// `model=…`) or env (`*MODEL*`): then no start model is set over it.
+pub(super) fn profile_sets_model(profile: &HarnessProfile) -> bool {
+    profile
+        .argv
+        .iter()
+        .any(|a| a == "--model" || a == "-m" || a.starts_with("--model=") || a.contains("model="))
+        || profile.env.keys().any(|k| k.to_ascii_uppercase().contains("MODEL"))
+}
+
 /// Where a start value came from (`_acpmux/harnesses` `start.*Source`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum StartSource {
     /// config.json `defaults` (an `acpmux defaults` write or a pick).
     Saved,
+    /// The profile's own `model`/`effort`.
+    Profile,
     /// The curated catalog's default.
     Catalog,
 }
@@ -47,23 +68,18 @@ impl StartSource {
     fn as_str(self) -> &'static str {
         match self {
             StartSource::Saved => "saved",
+            StartSource::Profile => "profile",
             StartSource::Catalog => "catalog",
         }
     }
 }
 
-/// A start value and where it came from.
+/// A start value and where it came from. Every start value is soft: a
+/// refusal skips it (module docs).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct StartValue {
     pub value: String,
     pub source: StartSource,
-}
-
-impl StartValue {
-    /// A catalog default: skipped when the harness refuses it.
-    pub fn soft(&self) -> bool {
-        self.source == StartSource::Catalog
-    }
 }
 
 fn usable(value: &str) -> bool {
@@ -81,38 +97,38 @@ fn effort_fits(curated: Option<&CatalogHarness>, model: Option<&str>, effort: &s
 }
 
 impl Hub {
-    /// A local client's `session/set_model`. The model the session already
-    /// runs (acpmux's start value, or the same pick again) is no new pick and
-    /// is not sent again: a Codex model set resets its effort. Any other
-    /// model is sent, and once the harness takes it, saved as the person's
-    /// pick (`note_pick`).
+    /// `session/set_model`. The model the chat already runs (acpmux's start
+    /// value, or the same pick again) is not sent again: a Codex model set
+    /// resets its effort. Any other model is sent; from the app pane
+    /// (`pick`), once the harness takes it, it is the person's saved pick.
     pub async fn client_set_model(
         self: &Arc<Self>,
         session: &Arc<Session>,
         model: &str,
-        local: bool,
+        pick: bool,
     ) -> Result<Value, RpcError> {
-        let runs =
-            session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).model.clone();
+        let runs = super::model_options::current_model(&session.meta()).or_else(|| {
+            session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).model.clone()
+        });
         if runs.as_deref() == Some(model) {
             return Ok(json!({}));
         }
         let r = self.set_model(session, model).await?;
-        if local {
+        if pick {
             self.note_pick(session, Some(model), None).await;
         }
         Ok(r)
     }
 
-    /// A local client's `session/set_config_option`: an effort the session
-    /// does not already run is saved as the person's pick once the harness
+    /// `session/set_config_option`. From the app pane (`pick`), an effort the
+    /// chat did not already run is the person's saved pick once the harness
     /// takes it.
     pub async fn client_set_config(
         self: &Arc<Self>,
         session: &Arc<Session>,
         config_id: &str,
         value: Value,
-        local: bool,
+        pick: bool,
     ) -> Result<Value, RpcError> {
         let before = session
             .applied
@@ -122,7 +138,7 @@ impl Hub {
             .clone();
         let r = self.set_config(session, config_id, value.clone()).await?;
         let resolved = super::model_options::resolve_config_id(&session.meta(), config_id);
-        if local && is_effort_id(&resolved) && before.as_deref() != value.as_str() {
+        if pick && is_effort_id(&resolved) && before.as_deref() != value.as_str() {
             self.note_pick(session, None, value.as_str()).await;
         }
         Ok(r)
@@ -130,18 +146,19 @@ impl Hub {
 
     /// Saves a pick on `session` as the saved default of its harness profile
     /// (config.json `defaults`, the entry `acpmux defaults` writes). Not for
-    /// a preset's chat: an orchestration's settings are not the person's
-    /// choice. A value of "default" (the harness's own), or one the profile
-    /// pins itself, saves nothing.
+    /// a preset's chat (an orchestration's settings are not the person's
+    /// choice) or a folder profile's (its file decides). A value of
+    /// "default" (the harness's own), or one the profile pins itself, saves
+    /// nothing.
     async fn note_pick(&self, session: &Session, model: Option<&str>, effort: Option<&str>) {
         let meta = session.meta();
         if meta.preset.is_some() || meta.harness.is_empty() {
             return;
         }
         let mut cfg = self.config.write().await;
-        let pins =
-            cfg.harnesses.get(&meta.harness).map(|p| (p.model.is_some(), p.effort.is_some()));
-        let (model_pinned, effort_pinned) = pins.unwrap_or((false, false));
+        let Some(profile) = cfg.harnesses.get(&meta.harness) else { return };
+        let model_pinned = profile.model.is_some() || profile_sets_model(profile);
+        let effort_pinned = profile.effort.is_some();
         let model = model.filter(|m| usable(m) && !model_pinned);
         let effort = effort.filter(|e| usable(e) && !effort_pinned);
         if model.is_none() && effort.is_none() {
@@ -188,16 +205,18 @@ impl Hub {
                 }),
         };
         let runs = model.or(start_model.as_ref().map(|m| m.value.as_str()));
+        // A saved effort the running model lacks (a pick made on another
+        // model) gives way to that model's own default.
         let start_effort = saved
             .effort
             .clone()
+            .filter(|e| effort_fits(curated.as_ref(), runs, e))
             .map(|value| StartValue { value, source: StartSource::Saved })
             .or_else(|| {
                 curated
                     .as_ref()
                     .and_then(|c| c.models.iter().find(|m| Some(m.id.as_str()) == runs))
                     .and_then(|m| m.default_effort.clone())
-                    .filter(|e| effort_fits(curated.as_ref(), runs, e))
                     .map(|value| StartValue { value, source: StartSource::Catalog })
             });
         (start_model, start_effort)
@@ -211,12 +230,19 @@ impl Hub {
         agent: &str,
         profile: &HarnessProfile,
     ) -> Option<Value> {
+        if profile_sets_model(profile) {
+            return None;
+        }
         let saved = cfg.defaults_for(agent);
         let pinned = profile.model.clone();
         let (model, effort) = self.start_defaults(agent, profile, &saved, pinned.as_deref());
         let model = match pinned {
-            Some(value) => Some(StartValue { value, source: StartSource::Saved }),
+            Some(value) => Some(StartValue { value, source: StartSource::Profile }),
             None => model,
+        };
+        let effort = match &profile.effort {
+            Some(value) => Some(StartValue { value: value.clone(), source: StartSource::Profile }),
+            None => effort,
         };
         if model.is_none() && effort.is_none() {
             return None;

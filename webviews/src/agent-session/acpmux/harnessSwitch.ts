@@ -649,11 +649,11 @@ export class HarnessSwitch {
 /// picked model drawn until the session reports a change). During one, the target harness's
 /// composer comes from the session once it attaches, else from what that harness last reported
 /// (harnessProfiles.ts), else from the catalog; queued prompts draw as the user's messages.
-/// The model a new chat on `harness` in `folder` starts on before anything is picked: the one last
-/// picked on it (lastPick.ts) while the harness still offers it, else the one acpmux starts a new
-/// chat there on (`start`: the saved pick or the catalog default, acpmux start_defaults.rs), else
-/// what a session acpmux last started there reported, else its last session's, else the catalog's
-/// first.
+/// The model a new chat on `harness` in `folder` starts on before anything is picked: acpmux's
+/// saved default or the profile's own model (`start`, acpmux start_defaults.rs), else the one last
+/// picked on it here (lastPick.ts) while the harness still offers it, else acpmux's catalog
+/// default, else what a session acpmux last started there reported, else its last session's, else
+/// the catalog's first.
 export function defaultModel(
   harness: string,
   catalog: Catalog,
@@ -661,9 +661,14 @@ export function defaultModel(
   folder?: string,
 ): string | undefined {
   const profile = profiles.get(harness);
+  const start = catalog.find((entry) => entry.id === harness)?.start;
+  // A saved default (acpmux defaults, or a pick acpmux saved) or the profile's own model wins over
+  // this page's last pick: acpmux starts the chat on it.
+  const decided = start?.modelSource === "saved" || start?.modelSource === "profile" ? start.model : undefined;
   return (
+    decided ??
     lastOfferedModel(harness, catalog, folder) ??
-    catalog.find((entry) => entry.id === harness)?.start?.model ??
+    start?.model ??
     profile?.startModel ??
     profile?.model ??
     catalog.find((entry) => entry.id === harness)?.models[0]?.id

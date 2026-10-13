@@ -597,7 +597,7 @@ def main():
             LAST_MCP_SERVERS = params.get("mcpServers")
         # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
         # option), as Claude Code and Codex are; FAKE_CALLS=<path> logs each model and
-        # effort set as one JSON line {method, params}.
+        # effort set as one JSON line {method, params}; FAKE_REFUSE_ID=<id> refuses that model.
         if os.environ.get("FAKE_PICKER") == "1" and m in ("session/new", "session/set_model", "session/set_config_option"):
             if os.environ.get("FAKE_CALLS") and m != "session/new":
                 with open(os.environ["FAKE_CALLS"], "a") as calls:
@@ -607,6 +607,8 @@ def main():
             if m == "session/new":
                 sessions += 1
                 send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": [effort]}})
+            elif m == "session/set_model" and params.get("modelId") == os.environ.get("FAKE_REFUSE_ID"):
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32602, "message": "model not available"}})
             elif m == "session/set_model":
                 send({"jsonrpc": "2.0", "id": rid, "result": {}})
             else:

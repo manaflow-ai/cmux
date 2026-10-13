@@ -850,9 +850,7 @@ impl Hub {
         {
             let mut applied =
                 session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            if config_id == "model" {
-                applied.model = value.as_str().map(str::to_owned);
-            } else if super::start_defaults::is_effort_id(config_id) {
+            if super::start_defaults::is_effort_id(config_id) {
                 applied.effort = value.as_str().map(str::to_owned);
             }
         }
@@ -890,8 +888,7 @@ impl Hub {
             self.save_meta(session);
             self.detach_child(session).await;
             self.append(session, "mux", "model", json!({"modelId": model_id, "atSpawn": true}));
-            session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).model =
-                Some(model_id.to_owned());
+            super::start_defaults::model_applied(session, model_id);
             return Ok(json!({}));
         }
         // Prefer the config option named "model" when the agent exposes one.
@@ -914,13 +911,18 @@ impl Hub {
                 crate::model_catalog::resolve(option, model_id)
                     .map_err(RpcError::invalid_params)?,
             );
-            return self.set_config(session, "model", value).await;
+            let r = self.set_config(session, "model", value).await?;
+            super::start_defaults::model_applied(session, model_id);
+            return Ok(r);
         }
         let r =
             self.forward(session, method::SESSION_SET_MODEL, json!({"modelId": model_id})).await?;
         self.append(session, "mux", "model", json!({"modelId": model_id}));
-        session.applied.lock().unwrap_or_else(std::sync::PoisonError::into_inner).model =
-            Some(model_id.to_owned());
+        super::start_defaults::model_applied(session, model_id);
+        // The harness runs this model now, also when its reply lists no models.
+        if let Some(Value::Object(models)) = session.meta.lock().unwrap().models.as_mut() {
+            models.insert("currentModelId".into(), json!(model_id));
+        }
         Ok(r)
     }
 

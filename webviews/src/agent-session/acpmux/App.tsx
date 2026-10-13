@@ -3550,8 +3550,16 @@ function AcpmuxPane() {
           "chat.new": async ({ harness, cwd, peer, deferred, noProject, model }) => {
             const folder = cwd ? String(cwd) : peer || noProject === true ? undefined : startFolderRef.current;
             if (harness && !peer && noProject !== true) {
-              // A new chat starts on its pick, else on the model last picked on that harness here.
-              const picked = model ? String(model) : lastOfferedModel(String(harness), catalogRef.current, folder);
+              // A new chat starts on its pick, else on acpmux's saved default, else on the model last
+              // picked on that harness here. acpmux sets its start model itself (start_defaults.rs):
+              // that one is not sent again.
+              const start = catalogRef.current.find((entry) => entry.id === String(harness))?.start;
+              const asked = model
+                ? String(model)
+                : start?.modelSource === "saved" || start?.modelSource === "profile"
+                  ? undefined
+                  : lastOfferedModel(String(harness), catalogRef.current, folder);
+              const picked = asked && asked !== start?.model ? asked : undefined;
               return harnessSwitch.switchTo(String(harness), folder, {
                 deferred: deferred === true,
                 ...(picked ? { model: picked } : {}),

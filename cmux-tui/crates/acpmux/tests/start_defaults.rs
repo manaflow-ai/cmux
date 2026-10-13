@@ -22,16 +22,28 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 /// A home whose config.json has a fake `codex` and a fake `claude`, both
 /// logging their model and effort sets to `calls`.
 fn home(name: &str) -> (PathBuf, PathBuf) {
+    home_with(name, json!({}), json!({}))
+}
+
+/// `home` with extra fake env for `claude` and a config.json `defaults` object.
+fn home_with(name: &str, claude_env: Value, defaults: Value) -> (PathBuf, PathBuf) {
     let dir =
         std::env::temp_dir().join(format!("acpmux-start-defaults-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
     let calls = dir.join("calls.jsonl");
-    let profile = |_: &str| json!({"argv": ["python3", FAKE], "env": {"FAKE_PICKER": "1", "FAKE_CALLS": calls.to_str().unwrap()}});
+    let profile = |extra: &Value| {
+        let mut env = json!({"FAKE_PICKER": "1", "FAKE_CALLS": calls.to_str().unwrap()});
+        for (k, v) in extra.as_object().unwrap() {
+            env[k] = v.clone();
+        }
+        json!({"argv": ["python3", FAKE], "env": env})
+    };
     let config = json!({
-        "harnesses": {"codex": profile("codex"), "claude": profile("claude")},
+        "harnesses": {"codex": profile(&json!({})), "claude": profile(&claude_env)},
         "defaultHarness": "codex",
         "permissionPolicy": "approve-all",
+        "defaults": defaults,
     });
     std::fs::write(dir.join("config.json"), serde_json::to_vec_pretty(&config).unwrap()).unwrap();
     (dir, calls)
@@ -48,10 +60,15 @@ fn hub(dir: &Path) -> Arc<Hub> {
 
 struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
+/// The app's agent pane.
 fn client(hub: &Arc<Hub>) -> Client {
+    client_as(hub, Origin::LocalApp)
+}
+
+fn client_as(hub: &Arc<Hub>, origin: Origin) -> Client {
     let (in_tx, in_rx) = mpsc::channel(64);
     let (out_tx, out_rx) = mpsc::channel(4096);
-    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::LocalApp));
+    tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
     Client(in_tx, out_rx, 0)
 }
 
@@ -161,6 +178,38 @@ async fn a_model_named_in_the_request_wins_and_its_effort_follows_the_catalog() 
     app.call("session/new", params).await;
     assert_eq!(take_calls(&calls), set("gpt-6-luna", "medium"));
     // A model the request names is not the person's saved pick.
+    assert_eq!(saved(&dir, "codex"), Value::Null);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_refused_start_model_is_skipped_and_a_saved_effort_the_model_lacks_gives_way() {
+    // Claude refuses the catalog default (a model the account cannot run); Codex has a saved
+    // default whose effort (max) its saved model (gpt-5.5) does not offer.
+    let (dir, calls) = home_with(
+        "refused",
+        json!({"FAKE_REFUSE_ID": "claude-opus-5-5"}),
+        json!({"codex": {"model": "gpt-5.5", "effort": "max"}}),
+    );
+    let daemon = hub(&dir);
+    let mut app = client(&daemon);
+    // The chat still starts (on the harness's own model), with the effort set.
+    app.new_chat("claude").await;
+    assert_eq!(take_calls(&calls), set("claude-opus-5-5", "medium"));
+    app.new_chat("codex").await;
+    assert_eq!(take_calls(&calls), set("gpt-5.5", "medium"));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn a_model_set_from_the_cli_is_no_saved_pick() {
+    let (dir, calls) = home("cli");
+    let daemon = hub(&dir);
+    let mut cli = client_as(&daemon, Origin::Local);
+    let codex = cli.new_chat("codex").await;
+    take_calls(&calls);
+    cli.call("session/set_model", json!({"sessionId": codex, "modelId": "gpt-6-astra"})).await;
+    assert_eq!(take_calls(&calls), vec![("model".to_owned(), "gpt-6-astra".to_owned())]);
     assert_eq!(saved(&dir, "codex"), Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
 }

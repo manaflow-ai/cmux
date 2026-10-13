@@ -8,6 +8,7 @@ import type {
   AcpmuxRow,
   AcpmuxSnapshot,
   QueueEdit,
+  StartSource,
 } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
@@ -2548,15 +2549,20 @@ function harnessEntries(harnesses: Record<string, unknown>, preferred: unknown):
   return ids.map((id) => ({ id, ...(harnesses[id] as any) }));
 }
 
-/// `_acpmux/harnesses` `start` ({model?, effort?}), with only its string fields.
-function harnessStart(value: unknown): { model?: string; effort?: string } | undefined {
+/// `_acpmux/harnesses` `start` ({model?, effort?, modelSource?, effortSource?}), with only its
+/// known fields.
+function harnessStart(value: unknown): AcpmuxSnapshot["catalog"][number]["start"] {
   if (!value || typeof value !== "object") return undefined;
-  const { model, effort } = value as { model?: unknown; effort?: unknown };
+  const { model, effort, modelSource, effortSource } = value as Record<string, unknown>;
+  const source = (raw: unknown) =>
+    raw === "saved" || raw === "profile" || raw === "catalog" ? (raw as StartSource) : undefined;
   const start = {
     ...(typeof model === "string" && model ? { model } : {}),
     ...(typeof effort === "string" && effort ? { effort } : {}),
+    ...(source(modelSource) ? { modelSource: source(modelSource) } : {}),
+    ...(source(effortSource) ? { effortSource: source(effortSource) } : {}),
   };
-  return Object.keys(start).length > 0 ? start : undefined;
+  return start.model || start.effort ? start : undefined;
 }
 
 export function normalizeCatalog(value: any): AcpmuxSnapshot["catalog"] {
