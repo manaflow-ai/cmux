@@ -192,7 +192,11 @@ fn lease_user(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
     let service = service(mux, client)?;
     // A page uses only the human's lease (the app's), never another one.
     if is_websocket_person(mux, client) {
-        return if service.app_holds_lease() { Ok(service) } else { Err(CloudError::SignedOut.into()) };
+        return if service.app_holds_lease() {
+            Ok(service)
+        } else {
+            Err(CloudError::SignedOut.into())
+        };
     }
     let app = is_app(mux, client);
     // The app never uses a lease another connection set (P2-2): it is signed

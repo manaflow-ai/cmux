@@ -57,7 +57,11 @@ impl Fixture {
         let key = format!("cmuxik1 {INSTALL} {KEY_HEX}\n");
         child.stdin.take().unwrap().write_all(key.as_bytes()).unwrap();
         let output = child.wait_with_output().unwrap();
-        assert!(output.status.success(), "ensure failed: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "ensure failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
         fixture
     }
 
