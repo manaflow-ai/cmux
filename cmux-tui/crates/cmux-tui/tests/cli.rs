@@ -3667,9 +3667,6 @@ mod app_workspaces;
 #[path = "cli/browser_devices.rs"]
 mod browser_devices;
 #[cfg(unix)]
-#[path = "cli/browser_profiles.rs"]
-mod browser_profiles;
-#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[path = "cli/closed_delete.rs"]
