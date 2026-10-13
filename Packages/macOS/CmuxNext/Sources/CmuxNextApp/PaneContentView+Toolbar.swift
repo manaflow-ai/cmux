@@ -1,8 +1,8 @@
 import AppKit
 
-// The pane's buttons (`PaneToolbar`, cx-kk7lm) sit at the strip's trailing end, as wide as they
-// need: in frame layout the strip gives up that width (`layout()`); pinned to a browser's band
-// (R109) they pin beside it.
+// The pane's "…" (`PaneToolbar`) sits at the strip's trailing end, as wide as it needs: in frame
+// layout the strip gives up that width (`layout()`); pinned to a browser's band (R109) it pins
+// beside it.
 extension PaneContentView {
     func installToolbar(replacing old: PaneToolbar?) {
         // Pins to a browser's band name the toolbar: they are made again for the new one.
