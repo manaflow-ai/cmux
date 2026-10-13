@@ -247,7 +247,11 @@ export class AppsStore {
     if (!this.client) return;
     try {
       const wire = await this.client.call<WireLogs>(AppsOps.logs, { app, limit: LOG_LINES });
-      const lines: LogLine[] = wire.lines.map((line) => ({ level: line.level, message: line.message, at_ms: line.ts_ms }));
+      const lines: LogLine[] = wire.lines.map((line) => ({
+        level: line.level,
+        message: line.message,
+        at_ms: line.ts_ms,
+      }));
       if (this.snapshot.logsShown === app) this.set({ logs: { ...this.snapshot.logs, [app]: lines } });
     } catch (error) {
       this.set(failure(error));
@@ -336,7 +340,11 @@ export class AppsStore {
 
   /** Opens the app's page: the host action `app.open` (a host verb, not a daemon op). */
   open(app: string): Promise<void> {
-    return this.intent(OPEN_ACTION.op, { action: OPEN_ACTION.action, args: { app } }, { reread: false, mutation: false });
+    return this.intent(
+      OPEN_ACTION.op,
+      { action: OPEN_ACTION.action, args: { app } },
+      { reread: false, mutation: false },
+    );
   }
 
   private async intent(
