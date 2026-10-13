@@ -137,6 +137,50 @@ print(module.parse_kind({"vm_id": "vm-1", "kind": "owner"}))
     expect(read(path.join(etc, "vm-kind"))).toBe("team\n");
   });
 
+  test("a refusal drops the record at once, an outage only after five minutes, and no failure crashes the loop", async () => {
+    const run = (script: string) => python(String.raw`
+import io, pathlib, sys as _sys, types, urllib.error
+d = pathlib.Path(sys.argv[2])
+clock = {"now": 1000.0, "sleeps": 0}
+def sleep(seconds):
+    clock["now"] += seconds
+    clock["sleeps"] += 1
+    if clock["sleeps"] > 40:
+        raise SystemExit(0)
+module.time = types.SimpleNamespace(sleep=sleep, monotonic=lambda: clock["now"])
+answers = iter(` + script + String.raw`)
+def fetch(url):
+    answer = next(answers, SystemExit(0))
+    if isinstance(answer, BaseException):
+        raise answer
+    return answer
+module.fetch_kind = fetch
+_sys.argv = ["cmux-vm-kind-sync", "--directory", str(d)]
+try:
+    module.main()
+except (SystemExit, StopIteration):
+    pass
+print((d / "vm-kind").read_text().strip() if (d / "vm-kind").exists() else "none")
+`, path.join(fixture(), "cmux"));
+    const refused = 'urllib.error.HTTPError("u", 409, "vm_not_live", {}, io.BytesIO())';
+    const outage = 'urllib.error.URLError("down")';
+    // Owner, then a refusal: no record is left.
+    let result = await run(`["owner", ${refused}]`);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim()).toBe("none");
+    // Owner, then a short outage (well under five minutes of backoff): the record stays.
+    result = await run(`["owner", ${outage}, ${outage}, ${outage}]`);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim()).toBe("owner");
+    // Owner, then an outage that outlasts five minutes: the record is gone.
+    result = await run(`["owner"] + [${outage}] * 12`);
+    expect(result.stdout.trim()).toBe("none");
+    // An exception outside OSError/ValueError backs off instead of crashing the unit.
+    result = await run(`["owner", RuntimeError("http.client.IncompleteRead"), "team"]`);
+    expect(result.stderr).toBe("");
+    expect(result.stdout.trim()).toBe("team");
+  });
+
   test("never polls faster after a failure than after a success", async () => {
     const result = await python(String.raw`
 import io, urllib.error
