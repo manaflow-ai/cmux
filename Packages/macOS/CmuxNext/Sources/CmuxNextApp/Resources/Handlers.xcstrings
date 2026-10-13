@@ -8385,6 +8385,268 @@
           }
         }
       }
+    },
+    "confirm.remoteLocalhost.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Change this workspace's localhost?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هل تريد تغيير localhost لمساحة العمل هذه؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Promijeniti localhost ovog radnog prostora?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du ændre dette arbejdsområdes localhost?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost dieses Arbeitsbereichs ändern?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "¿Cambiar el localhost de este espacio de trabajo?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Modifier le localhost de cet espace de travail ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cambiare il localhost di quest’area di lavoro?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このワークスペースの localhost を変更しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប្តូរ localhost របស់កន្លែងធ្វើការនេះ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 작업 공간의 localhost를 변경할까요?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vil du endre localhost for dette arbeidsområdet?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zmienić localhost tego obszaru roboczego?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alterar o localhost deste espaço de trabalho?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Изменить localhost этого рабочего пространства?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปลี่ยน localhost ของพื้นที่ทำงานนี้ใช่ไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu çalışma alanının localhost’u değiştirilsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Змінити localhost цього робочого простору?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thay đổi localhost của không gian làm việc này?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要更改此工作区的 localhost 吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "要變更此工作區的 localhost 嗎？"
+          }
+        }
+      }
+    },
+    "confirm.remoteLocalhost.body": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A command asks to set localhost for %1$@ to %2$@. Only you can change this, so cmux asks you first."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يطلب أمر تعيين localhost لـ %1$@ إلى %2$@. أنت وحدك من يمكنه تغيير ذلك، لذا يسألك cmux أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naredba traži da se localhost za %1$@ postavi na %2$@. Samo vi ovo možete promijeniti, pa vas cmux prvo pita."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En kommando beder om at sætte localhost for %1$@ til %2$@. Kun du kan ændre dette, så cmux spørger dig først."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Befehl möchte Localhost für %1$@ auf %2$@ setzen. Nur du kannst das ändern, daher fragt cmux zuerst nach."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un comando pide definir el localhost de %1$@ como %2$@. Solo tú puedes cambiarlo, así que cmux te lo pregunta primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une commande demande de définir le localhost de %1$@ sur %2$@. Vous seul pouvez le modifier, donc cmux vous le demande d’abord."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un comando chiede di impostare il localhost di %1$@ su %2$@. Solo tu puoi cambiarlo, quindi cmux te lo chiede prima."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "コマンドが %1$@ の localhost を %2$@ に設定しようとしています。これを変更できるのはあなただけなので、cmux が先に確認します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជាមួយស្នើកំណត់ localhost សម្រាប់ %1$@ ទៅ %2$@។ មានតែអ្នកទេដែលអាចប្តូរវាបាន ដូច្នេះ cmux សួរអ្នកជាមុន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "명령이 %1$@의 localhost를 %2$@(으)로 설정하려고 합니다. 이 항목은 사용자만 변경할 수 있으므로 cmux가 먼저 확인합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En kommando ber om å sette localhost for %1$@ til %2$@. Bare du kan endre dette, så cmux spør deg først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polecenie chce ustawić localhost dla %1$@ na %2$@. Tylko Ty możesz to zmienić, więc cmux najpierw pyta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um comando pede para definir o localhost de %1$@ como %2$@. Só você pode alterar isso, então o cmux pergunta primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда хочет задать localhost для %1$@: %2$@. Изменить это можете только вы, поэтому cmux сначала спрашивает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งหนึ่งขอตั้งค่า localhost ของ %1$@ เป็น %2$@ มีเพียงคุณที่เปลี่ยนค่านี้ได้ cmux จึงถามคุณก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir komut %1$@ için localhost’u %2$@ olarak ayarlamak istiyor. Bunu yalnızca siz değiştirebilirsiniz, bu yüzden cmux önce size soruyor."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда хоче задати localhost для %1$@: %2$@. Змінити це можете лише ви, тому cmux спершу питає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một lệnh yêu cầu đặt localhost cho %1$@ thành %2$@. Chỉ bạn mới có thể thay đổi điều này nên cmux hỏi bạn trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有命令请求将 %1$@ 的 localhost 设为 %2$@。只有你可以更改此项，因此 cmux 会先询问你。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "有指令要求將 %1$@ 的 localhost 設為 %2$@。只有你可以變更此項，因此 cmux 會先詢問你。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -25549,6 +25549,268 @@
         }
       }
     },
+    "handlers.refusal.unknownLocalhostChoice": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown localhost '%@' (use machine, thisMac or setting)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "قيمة localhost غير معروفة '%@' (استخدم machine أو thisMac أو setting)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nepoznat localhost '%@' (koristite machine, thisMac ili setting)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukendt localhost '%@' (brug machine, thisMac eller setting)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Localhost '%@' (verwende machine, thisMac oder setting)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost desconocido '%@' (usa machine, thisMac o setting)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost inconnu '%@' (utilisez machine, thisMac ou setting)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost sconosciuto '%@' (usa machine, thisMac o setting)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明な localhost '%@'（machine、thisMac、setting のいずれかを使用）"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "localhost មិនស្គាល់ '%@' (ប្រើ machine, thisMac ឬ setting)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 localhost '%@' (machine, thisMac 또는 setting 사용)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ukjent localhost '%@' (bruk machine, thisMac eller setting)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nieznany localhost '%@' (użyj machine, thisMac lub setting)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost desconhecido '%@' (use machine, thisMac ou setting)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестный localhost '%@' (используйте machine, thisMac или setting)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่รู้จัก localhost '%@' (ใช้ machine, thisMac หรือ setting)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bilinmeyen localhost '%@' (machine, thisMac veya setting kullanın)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невідомий localhost '%@' (використайте machine, thisMac або setting)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Localhost không xác định '%@' (dùng machine, thisMac hoặc setting)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 localhost“%@”（请使用 machine、thisMac 或 setting）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的 localhost「%@」（請使用 machine、thisMac 或 setting）"
+          }
+        }
+      }
+    },
+    "handlers.refusal.localhostChoiceNotApproved": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not changed: the change was not approved in cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لم يتم التغيير: لم تتم الموافقة على التغيير في cmux."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije promijenjeno: promjena nije odobrena u cmuxu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke ændret: ændringen blev ikke godkendt i cmux."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht geändert: Die Änderung wurde in cmux nicht bestätigt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sin cambios: el cambio no se aprobó en cmux."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non modifié : la modification n’a pas été approuvée dans cmux."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non modificato: la modifica non è stata approvata in cmux."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "変更されませんでした: cmux で変更が承認されませんでした。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនបានប្តូរ៖ ការប្តូរមិនត្រូវបានយល់ព្រមនៅក្នុង cmux ទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "변경되지 않음: cmux에서 변경이 승인되지 않았습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke endret: endringen ble ikke godkjent i cmux."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bez zmian: zmiana nie została zatwierdzona w cmux."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não alterado: a alteração não foi aprovada no cmux."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не изменено: изменение не подтверждено в cmux."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไม่ได้เปลี่ยน: การเปลี่ยนแปลงไม่ได้รับการอนุมัติใน cmux"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Değiştirilmedi: değişiklik cmux’ta onaylanmadı."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не змінено: зміну не схвалено в cmux."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa thay đổi: thay đổi chưa được chấp thuận trong cmux."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未更改：此更改未在 cmux 中获得批准。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未變更：此變更未在 cmux 中獲得核准。"
+          }
+        }
+      }
+    },
     "handlers.refusal.machineIconNotRegistered": {
       "extractionState": "manual",
       "localizations": {
