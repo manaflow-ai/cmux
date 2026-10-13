@@ -182,6 +182,8 @@ extension CloudDiagnosticFailurePlanRefusalTests {
         #expect(CloudPlanRefusal.teamID(inCLIFailureOutput: "Upgrade at https://cmux.com/dashboard/billing?team=team-trollol.") == "team-trollol")
         #expect(CloudPlanRefusal.teamID(inCLIFailureOutput: "Upgrade at https://cmux.com/dashboard/billing?team=team-trollol، أو بدّل الفريق.") == "team-trollol")
         #expect(CloudPlanRefusal.teamID(inCLIFailureOutput: "Upgrade at https://cmux.com/dashboard/billing?team=team-trollol。") == "team-trollol")
+        #expect(CloudPlanRefusal.teamID(inCLIFailureOutput: "Upgrade at https://cmux.com/dashboard/billing?team=team-، next") == "team-")
+        #expect(CloudPlanRefusal.teamID(inCLIFailureOutput: "Upgrade at https://cmux.com/dashboard/billing?team=team_، next") == "team_")
         #expect(CloudPlanRefusal.teamID(inCLIFailureOutput: "See https://evil.example/dashboard/billing?team=wrong") == nil)
         #expect(CloudPlanRefusal.teamID(inCLIFailureOutput: "Upgrade at https://cmux.com/dashboard/billing?team=team%20bad") == nil)
     }
