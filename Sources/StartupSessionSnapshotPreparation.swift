@@ -78,7 +78,7 @@ actor StartupSessionSnapshotPreparation {
             overwriteGuard: overwriteGuard,
             clearsCrashOnlyPrimarySnapshotRemovalMarker: primaryOutcome.map {
                 switch $0 {
-                case .loaded, .unusable: return true
+                case .loaded(_), .unusable: return true
                 case .missing: return false
                 }
             } ?? false
