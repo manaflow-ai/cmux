@@ -92,7 +92,8 @@ final class CloudService {
                 guard await MainActor.run(body: { auth.isSignedIn }) else { return CloudCredentialRelay.Session(signedIn: false, team: nil) }
                 let token = try? await identity.installToken()
                 return CloudCredentialRelay.Session(signedIn: true, team: token.flatMap(CloudService.team(ofToken:)))
-            }
+            },
+            allowedOps: { await CloudCredentialRelay.bundledServedOps() }
         ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary

@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import Foundation
 
 /// Which acpmux an agent tab's pane attaches to.

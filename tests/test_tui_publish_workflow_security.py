@@ -2007,6 +2007,21 @@ def test_relay_attestations_survive_a_skipped_windows_build() -> None:
         assert "needs.package.result == 'success'" in section
 
 
+def test_windows_unit_tests_build_without_fat_lto() -> None:
+    # The Windows leg ends every tree publication. Its long-path unit tests compiled with the
+    # release profile's fat LTO in one codegen unit took 13 of 33 min (run 38259768770); the
+    # test binary needs optimization, not whole-program LTO (cx-3gstu).
+    jobs = _package_workflow_document()["jobs"]
+    assert isinstance(jobs, dict)
+    steps = jobs["build-windows"]["steps"]
+    step = next(s for s in steps if s.get("name") == "Test Windows long-path state handling")
+    assert step["env"]["CARGO_PROFILE_RELEASE_LTO"] == "off"
+    assert int(step["env"]["CARGO_PROFILE_RELEASE_CODEGEN_UNITS"]) > 1
+    # The published binaries still build with the release profile as written.
+    build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU)")
+    assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
+
+
 PACKAGE_BUILD_JOBS = (
     "build",
     # cloudflare-relay moved to its own lane; it checks out the pull request
