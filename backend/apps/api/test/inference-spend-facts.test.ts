@@ -158,7 +158,7 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
  */
 
 const SYNC_KEY = "test-billing-levels-key-0123456789abcdef"
-const USAGE_PRICES: Record<string, string> = { "cmux-ai-usage-go-incl5-v1": "price_u_go", "cmux-ai-usage-pro-incl20-v1": "price_u_pro", "cmux-ai-usage-max-incl100-v1": "price_u_max", "cmux-ai-usage-team-incl20-v1": "price_u_team" }
+const USAGE_PRICES: Record<string, string> = { "cmux-ai-usage-go-incl5-v1": "price_u_go", "cmux-ai-usage-pro-incl20-v1": "price_u_pro", "cmux-ai-usage-max-incl100-v1": "price_u_max", "cmux-ai-usage-team-incl20-v1": "price_u_team", "cmux-ai-usage-pro-incl1-e2e": "price_e2e_pro" }
 
 type Call = { method: string; path: string; form: Record<string, string>; idempotency: string | null; version: string | null }
 type FakeSub = { id: string; status: string; customer: string; metadata: Record<string, string>; items: { data: Array<any> } }
@@ -292,6 +292,19 @@ describe("usage sync (cx-y79zh S4)", () => {
     const one = await sync(env, JSON.stringify({ subscription: "sub_d1" }))
     expect(one.body).toMatchObject({ checked: 1, skipped: 1, pushed: 0, items_added: 0 })
     expect(stripe.calls.filter((c) => c.method === "POST")).toHaveLength(1)
+  })
+
+  it("uses the e2e price set only on the development Worker that asks for it", async () => {
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    stripe.addSub("sub_e1", "cus_e1", { plan: "pro", stackUserId: "usage-sync-e2e" }, "cmux-pro-monthly-50")
+    fakeBoundaries(stripe, 0)
+    // Another environment with the same var keeps the v1 prices.
+    expect((await sync({ ...(env as object), ENVIRONMENT: "staging", BILLING_USAGE_PRICE_SET: "e2e" })).body).toMatchObject({ items_added: 1 })
+    expect(stripe.calls.filter((c) => c.method === "POST").map((c) => c.form.price)).toEqual(["price_u_pro"])
+    // Development with the var moves the usage item to the e2e price; the plan item stays.
+    expect((await sync({ ...(env as object), ENVIRONMENT: "development", BILLING_USAGE_PRICE_SET: "e2e" })).body).toMatchObject({ items_moved: 1 })
+    expect(stripe.calls.filter((c) => c.method === "POST").map((c) => c.form.price)).toEqual(["price_u_pro", "price_e2e_pro"])
+    expect(planItemsUntouched(stripe)).toBe(true)
   })
 
   it("after a renewal, the closed period gets its final level once more, dated inside that period", async () => {

@@ -29,7 +29,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `tabs.plusButton` | string | `"hover"` | `hover`, `always` | New Tab Button. On Hover shows each tab bar's + only while the pointer is over that tab bar. |
 | `tabs.barPosition` | string | `"top"` | `top`, `bottom` | Tab Bar Position. Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane. |
 | `tabs.barOrder` | string | `"aboveToolbar"` | `aboveToolbar`, `belowToolbar` | Tab Bar and Browser Toolbar. In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it. |
-| `tabs.toolbarButtons` | array | `[]` | `splitRight`, `splitDown`, `openDiffViewer`, `file.open`, `agentPane.searchChats`, `toggleSplitZoom` | Tab Bar Buttons. Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back. |
 | `newTerminal.opensWorkspace` | boolean | `false` |  | New Terminal Opens a Workspace. Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click. |
 | `tabs.cmdWClosesPinnedTabs` | boolean | `false` |  | Cmd-W Closes Pinned Tabs. When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu. |
 | `tabs.swapCmdTAndCmdN` | boolean | `false` |  | Swap Cmd-T and Cmd-N. When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused. |
@@ -270,6 +269,11 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `browser.omnibar.inlineAutocomplete` | boolean | `true` |  | Complete Addresses Inline. Completes a site you typed before or visit often. |
 | `browser.omnibar.maxRows` | real | `8` | 3 to 15 | Suggestions Shown |
 | `browser.omnibar.calculator` | boolean | `true` |  | Calculator Answers. Shows the answer to arithmetic you type. Return copies it. |
+| `browser.omnibar.glass` | string | `"regular"` | `regular`, `clear`, `off` | Address Bar Glass. The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color. |
+| `browser.omnibar.glassTint` | string | `"background"` | `background`, `accent`, `none` | Glass Tint. The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none. |
+| `browser.omnibar.glassTintStrength` | real | `0.35` | 0 to 1 | Tint Strength |
+| `browser.omnibar.cornerRadius` | string | `"theme"` | `theme`, `capsule` | Address Bar Corners. Match Theme uses the standard bar radius. Capsule rounds the ends fully. Also accepts a number from 0 to 16 in a raw profile. |
+| `browser.omnibar.shadow` | boolean | `false` |  | Address Bar Shadow. A soft shadow under the glass address bar. |
 | `browser.links.cmdClick` | string | `"backgroundTab"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Command-Click. In Chromium tabs, Download keeps Chrome's default. |
 | `browser.links.cmdShiftClick` | string | `"foregroundTab"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Shift-Command-Click. Shift-middle-click does the same. |
 | `browser.links.shiftClick` | string | `"newWindow"` | `backgroundTab`, `foregroundTab`, `newWindow`, `currentTab`, `download` | Shift-Click. In Chromium tabs, Download keeps Chrome's default. |

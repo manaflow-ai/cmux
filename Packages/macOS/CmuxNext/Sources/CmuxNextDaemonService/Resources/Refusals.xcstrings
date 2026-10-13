@@ -25679,6 +25679,137 @@
           }
         }
       }
+    },
+    "handlers.refusal.hibernateFormSubmission": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This page shows the result of a form. It stays loaded so the form is not sent again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعرض هذه الصفحة نتيجة نموذج. تبقى محمّلة حتى لا يُرسل النموذج مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova stranica prikazuje rezultat obrasca. Ostaje učitana da se obrazac ne pošalje ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne side viser resultatet af en formular. Den forbliver indlæst, så formularen ikke sendes igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Seite zeigt das Ergebnis eines Formulars. Sie bleibt geladen, damit das Formular nicht erneut gesendet wird."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta página muestra el resultado de un formulario. Permanece cargada para que el formulario no se envíe de nuevo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette page affiche le résultat d’un formulaire. Elle reste chargée pour que le formulaire ne soit pas renvoyé."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa pagina mostra il risultato di un modulo. Resta caricata così il modulo non viene inviato di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このページはフォーム送信の結果です。フォームが再送信されないよう、読み込んだままにします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រនេះបង្ហាញលទ្ធផលនៃទម្រង់មួយ។ វានៅតែផ្ទុក ដើម្បីកុំឱ្យទម្រង់ត្រូវបានផ្ញើម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 페이지는 양식 제출 결과입니다. 양식이 다시 전송되지 않도록 로드된 상태로 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne siden viser resultatet av et skjema. Den forblir lastet slik at skjemaet ikke sendes på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta strona pokazuje wynik formularza. Pozostaje załadowana, aby formularz nie został wysłany ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta página mostra o resultado de um formulário. Ela continua carregada para que o formulário não seja enviado de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта страница показывает результат отправки формы. Она остаётся загруженной, чтобы форма не отправилась повторно."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้านี้แสดงผลลัพธ์ของแบบฟอร์ม หน้านี้จะยังคงโหลดอยู่เพื่อไม่ให้ส่งแบบฟอร์มซ้ำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sayfa bir formun sonucunu gösteriyor. Form yeniden gönderilmesin diye yüklü kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця сторінка показує результат надсилання форми. Вона лишається завантаженою, щоб форму не надіслали повторно."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang này hiển thị kết quả của một biểu mẫu. Trang vẫn được tải để biểu mẫu không bị gửi lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此页面显示表单提交的结果。它会保持加载，以免再次发送表单。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此頁面顯示表單送出的結果。它會保持載入，以免再次送出表單。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

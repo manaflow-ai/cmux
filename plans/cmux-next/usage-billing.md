@@ -278,3 +278,51 @@ Freestyle VM, never the laptop.
 | S4 | web `usage-sync` cron, `usage_sync` table (migration rehearsed on staging branch), metered item ensure, `invoice.created` final push, drift alert | the test-clock run in section 7 | no (test mode) |
 | S5 | console and web billing UI copy | tagged dashboard proof | copy review if wanted |
 | S6 | live: prices, live meter, grace period, tax, customer notice, add item to existing subscriptions | live dry run on one staff account | yes: all of it |
+
+## 9. Test-mode end-to-end result (2026-10-13)
+
+Development Worker (`BILLING_USAGE_PRICE_SET=e2e`, 1 USD included), Stripe test mode, test clocks,
+agent account CMUX_UITEST (dev sign-in project; `cmuxPlan=pro` set on the dev project only), its
+personal team `team_6774f37212cb1152d2a9` (already on the development `INFERENCE_ALLOWED_TEAMS`; no
+allowlist change was needed). Script: `backend/scripts/stripe-usage-e2e.ts`.
+
+- Run 2 (clock `clock_1UQ0yHLbtiW1udY8ynqwKD6e`, subscription `sub_1UQ0yILbtiW1udY8B1cT9rDS`):
+  27 real model calls; the sync added the usage item once and sent each new level once (a repeat run
+  sent nothing). Usage written with the clock 10 minutes before the period end, and usage written after
+  the renewal while the invoice was a draft, both reached the finalized invoice. Level 1.350535 USD;
+  the renewal invoice: Pro 50.00 + "0.350535 x cmux AI usage (Tier 2 at $1.00)" = 0.35, total
+  50.35 USD, correct to the cent; the meter summary matched the level exactly.
+- Run 1 finding: a level sent about one minute before the invoice finalized did not reach it (the
+  invoice used the level before it; the meter summary showed the newer one later). Stripe aggregated
+  meter events in 45-50 s in run 2. In live mode Stripe keeps a subscription invoice a draft for about
+  an hour after the period ends, and the sync runs every 15 minutes, so only usage in the last minute
+  or so before finalization can slip; a finalization grace period (live step) covers it. The webhook
+  would not fix an aggregation delay, so it stays a live step.
+- Cleanup: both subscriptions canceled, both test clocks deleted by exact id, Freestyle VMs deleted.
+  The development `BILLING_USAGE_PRICE_SET=e2e` stays as the standing billing-e2e configuration
+  (test mode only; staging and production ignore it). Staging must never get STRIPE_USAGE_KEY while it
+  shares the development Stripe sandbox; a separate sandbox is needed if staging ever pushes.
+
+## 10. Live steps for Lawrence (none done; all test-mode work above)
+
+1. Restricted live key (Stripe Dashboard only): Billing meter events Write, Subscriptions Read,
+   Subscription items Write, Prices Read, Customers Read. Store it in the team store; it goes to the
+   production Worker as STRIPE_USAGE_KEY. The code refuses every live key today: the live switch is
+   a reviewed code change (an explicit production allow) landed with the key.
+2. Real included amounts per plan (go, pro, max, team) and the answer to "Team included amount: per
+   team or per seat" (per seat means the pusher subtracts it and the price is flat).
+3. Live catalog: the meter `cmux_ai_usage` (aggregation last), the product "cmux AI usage" and one
+   graduated price per plan with the real amounts (a new `-v2` price set), made by the catalog script
+   with a live switch it does not have today.
+4. Reconcile on live subscriptions: the sync adds the usage item to every active monthly go, pro, max
+   and team subscription. Decide the order: staff accounts first, then everyone; annual plans are
+   skipped (they cannot hold a monthly metered item).
+5. Invoice finalization grace period (Stripe Billing settings), for example 1 to 24 hours, and the
+   `invoice.created` webhook to the Worker for a final push per subscription.
+6. Stripe Tax (off today) for the usage lines.
+7. Customer notice and terms: AI usage above the included amount is billed at our provider cost; the
+   pricing page and the console say so before the first live invoice.
+8. Founders and Apple buyers: hard stop at the included amount (decided); the limit code for it is
+   still to build (S5).
+9. Rotate the development and staging BILLING_LEVELS_KEY / STRIPE_USAGE_KEY secrets onto the team
+   Cloudflare token when it exists (they were set with Lawrence's own OAuth login).
