@@ -369,3 +369,63 @@ fn status_set_refuses_a_forged_owner() {
 
     assert_eq!(entries(&server, &workspace), Vec::<serde_json::Value>::new());
 }
+
+/// cx-uf8b (nxdog94 preflight): the root help lists `status`, `status --help`
+/// and `status set --help` print the status usage (they printed the root
+/// help), and `status set KEY TEXT`, the `workspace status set` form, sets the
+/// entry (it failed with "status takes set, clear, list or run").
+#[test]
+fn status_is_in_the_help_and_takes_the_positional_text_form() {
+    // The `cmux` name (the app's bundled CLI) prints its own root help.
+    let dir = std::env::temp_dir().join(format!("cmux-status-help-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let cmux = dir.join("cmux");
+    let _ = std::fs::remove_file(&cmux);
+    std::os::unix::fs::symlink(bin(), &cmux).unwrap();
+    let run = |program: &std::path::Path, args: &[&str]| {
+        let output = Command::new(program)
+            .env("LC_ALL", "C")
+            .env_remove("CMUX_TUI_SOCKET")
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .args(args)
+            .output()
+            .unwrap();
+        assert_success(&output);
+        String::from_utf8(output.stdout).unwrap()
+    };
+    for program in [std::path::Path::new(bin()), cmux.as_path()] {
+        let root = run(program, &["--help"]);
+        assert!(
+            root.lines().any(|line| line.starts_with("  status ")),
+            "{program:?} root help lists no status scope:\n{root}"
+        );
+        for args in [&["status", "--help"][..], &["status", "set", "--help"], &["help", "status"]] {
+            let text = run(program, args);
+            assert!(text.contains("cmux status set [KEY] (TEXT | --label"), "{args:?}:\n{text}");
+            assert!(text.contains("cmux status run"), "{args:?}:\n{text}");
+            assert!(!text.contains("GLOBAL OPTIONS"), "{args:?} printed the root help:\n{text}");
+        }
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+
+    let server = HeadlessServer::start("status-positional-text");
+    state_cli(&server, None, &["workspace", "create", "--name", "delta", "--empty"]);
+    let workspace = workspace_id_named(&server, "delta");
+    let output = status_output(
+        &server,
+        None,
+        &["status", "set", "build", "Building pf94", "--target", &workspace, "--state", "busy"],
+    );
+    assert_success(&output);
+    let build = entry(&server, &workspace, "build").expect("build entry");
+    assert_eq!(build["text"], "Building pf94", "{build}");
+    assert_eq!(build["state"], "busy", "{build}");
+
+    let output = status_output(
+        &server,
+        None,
+        &["status", "set", "build", "Twice", "--label", "Twice", "--target", &workspace],
+    );
+    assert_eq!(output.status.code(), Some(2), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(entry(&server, &workspace, "build").unwrap()["text"], "Building pf94");
+}
