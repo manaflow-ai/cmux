@@ -205,8 +205,16 @@ final class TerminalKeyBarView: UIInputView {
             scroll.trailingAnchor.constraint(equalTo: dismiss.leadingAnchor, constant: -6),
             scroll.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             // With a hardware keyboard the bar sits at the screen's bottom
-            // edge: keep the keys above the home indicator.
-            scroll.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -6),
+            // edge: keep the keys above the home indicator. When the system
+            // holds the bar at its initial height anyway (keyboard
+            // minimization off with a hardware keyboard) the keys keep their
+            // height instead of being squashed to a few points.
+            {
+                let aboveHome = scroll.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -6)
+                aboveHome.priority = .defaultHigh
+                return aboveHome
+            }(),
+            scroll.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
             scroll.heightAnchor.constraint(equalToConstant: 40),
             stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),

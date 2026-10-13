@@ -230,7 +230,11 @@ final class GhosttySurfaceView: UIView {
     /// text), read row by row from the bottom so soft-wrapped lines count as
     /// the rows they take. `limit` stops the scan early.
     func trailingBlankRows(rows: Int, cols: Int, limit: Int) -> Int {
-        guard surface != nil, rows > 0, cols > 0 else { return 0 }
+        guard let surface, rows > 0, cols > 0 else { return 0 }
+        // Rows past the local grid (a resize still on its way) would read
+        // as blank and hide real rows: wait for the grid to match.
+        let grid = ghostty_surface_grid(surface)
+        guard Int(grid.rows) == rows, Int(grid.columns) == cols else { return 0 }
         var blank = 0
         for row in stride(from: rows - 1, through: 0, by: -1) {
             guard blank < limit else { break }
@@ -256,10 +260,15 @@ final class GhosttySurfaceView: UIView {
     }
 
     private func readText(top: ghostty_point_s, bottom: ghostty_point_s) -> String {
-        guard let surface else { return "" }
+        readTextIfAny(top: top, bottom: bottom) ?? ""
+    }
+
+    /// nil when Ghostty can't read the region (out of the grid).
+    private func readTextIfAny(top: ghostty_point_s, bottom: ghostty_point_s) -> String? {
+        guard let surface else { return nil }
         let selection = ghostty_selection_s(top_left: top, bottom_right: bottom, rectangle: false)
         var text = ghostty_text_s()
-        guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
+        guard ghostty_surface_read_text(surface, selection, &text) else { return nil }
         defer { ghostty_surface_free_text(surface, &text) }
         guard let pointer = text.text, text.text_len > 0 else { return "" }
         return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
