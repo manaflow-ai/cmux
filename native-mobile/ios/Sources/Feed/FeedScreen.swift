@@ -206,13 +206,21 @@ struct FeedPostView: View {
     let onOpen: () -> Void
 
     @State private var expanded = false
-    @State private var bodyHeight: CGFloat = 20
+    @State private var bodyHeight: CGFloat
     @State private var replying = false
     @State private var replyText = ""
     @State private var sending = false
+    @State private var replyError: String?
     @FocusState private var replyFocused: Bool
 
     private let collapsedHeight: CGFloat = 132
+
+    init(item: FeedItem, store: FeedStore, onOpen: @escaping () -> Void) {
+        self.item = item
+        self.store = store
+        self.onOpen = onOpen
+        _bodyHeight = State(initialValue: MarkdownHeightCache.height(for: item.body) ?? MarkdownHeightCache.estimate(for: item.body))
+    }
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -221,7 +229,7 @@ struct FeedPostView: View {
             VStack(alignment: .leading, spacing: 8) {
                 header
                 if let quote = item.quote, !quote.isEmpty {
-                    QuoteBubble(text: quote).frame(maxWidth: .infinity, alignment: .trailing)
+                    QuoteBubble(text: quote)
                 }
                 if !item.title.isEmpty, item.body.isEmpty || !item.body.contains(item.title) {
                     Text(item.title).font(.body.weight(.medium))
@@ -296,8 +304,13 @@ struct FeedPostView: View {
 
     private var bodyText: some View {
         VStack(alignment: .leading, spacing: 4) {
+            // The page keeps its full height and the post clips it, so Read
+            // more only moves the clip: the rest is already painted (growing
+            // the web view itself showed blank tiles while it expanded).
             MarkdownWebView(markdown: item.body, contentHeight: $bodyHeight)
-                .frame(height: expanded ? bodyHeight : min(bodyHeight, collapsedHeight))
+                .frame(height: bodyHeight)
+                .frame(height: expanded ? bodyHeight : min(bodyHeight, collapsedHeight), alignment: .top)
+                .clipped()
                 .mask(alignment: .top) {
                     LinearGradient(
                         stops: needsMore && !expanded
@@ -308,7 +321,10 @@ struct FeedPostView: View {
                 }
                 .allowsHitTesting(expanded)
             if needsMore {
-                Button(expanded ? String(localized: "Show less") : String(localized: "Read more")) { expanded.toggle() }
+                Button(expanded ? String(localized: "Show less") : String(localized: "Read more")) {
+                    withAnimation(.smooth(duration: 0.3)) { expanded.toggle() }
+                }
+                .contentTransition(.opacity)
                     .font(.subheadline.weight(.medium))
                     .buttonStyle(.plain)
                     .foregroundStyle(.primary)
@@ -322,7 +338,9 @@ struct FeedPostView: View {
         VStack(alignment: .leading, spacing: 6) {
             ForEach(item.options) { option in
                 Button {
-                    Task { try? await store.answer(item, option: option) }
+                    Task {
+                        do { try await store.answer(item, option: option) } catch { Haptics.warning() }
+                    }
                 } label: {
                     HStack(spacing: 10) {
                         Text(option.key).font(.footnote.monospacedDigit().weight(.semibold))
@@ -378,11 +396,18 @@ struct FeedPostView: View {
             Button {
                 let text = replyText
                 sending = true
+                replyError = nil
                 Task {
                     defer { sending = false }
-                    try? await store.reply(item, text: text)
-                    replyText = ""
-                    replying = false
+                    do {
+                        try await store.reply(item, text: text)
+                        replyText = ""
+                        replying = false
+                    } catch {
+                        // Keep the draft; say why it didn't go.
+                        replyError = error.localizedDescription
+                        Haptics.warning()
+                    }
                 }
             } label: {
                 Image(systemName: "arrow.up")
@@ -396,6 +421,15 @@ struct FeedPostView: View {
             .opacity(replyText.trimmingCharacters(in: .whitespaces).isEmpty ? 0.4 : 1)
             .accessibilityIdentifier("feed.replySend")
         }
+        .overlay(alignment: .bottomLeading) {
+            if let replyError {
+                Label(replyError, systemImage: "exclamationmark.circle")
+                    .font(.caption).foregroundStyle(Theme.danger)
+                    .alignmentGuide(.bottom) { $0[.top] - 4 }
+                    .padding(.leading, 14)
+            }
+        }
+        .padding(.bottom, replyError == nil ? 0 : 20)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 }
@@ -408,30 +442,46 @@ struct QuoteBubble: View {
         Text(text)
             .font(.subheadline)
             .lineLimit(4)
-            .padding(.horizontal, 13)
+            .padding(.leading, 13)
+            .padding(.trailing, 13 + BubbleShape.tailWidth)
             .padding(.vertical, 8)
             .foregroundStyle(.primary)
             .background(BubbleShape().fill(Theme.bubbleOutgoing))
-            .padding(.trailing, 2)
-            .frame(maxWidth: 300, alignment: .trailing)
+            // iMessage keeps a bubble to about three quarters of the width.
+            .containerRelativeFrame(.horizontal, alignment: .trailing) { width, _ in width * 0.78 }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .accessibilityLabel(String(localized: "You asked: \(text)"))
     }
 }
 
-/// iMessage bubble: rounded rect with a curled tail at the bottom right.
+/// iMessage outgoing bubble: one continuous outline, rounded corners and a
+/// tail that flicks out of the bottom-right corner and curls back under.
+/// (The old shape added the tail as a second subpath winding the other way,
+/// which punched a white notch into the corner.)
 struct BubbleShape: Shape {
+    static let tailWidth: CGFloat = 5
+
     func path(in rect: CGRect) -> Path {
-        let r: CGFloat = min(18, rect.height / 2)
-        var path = Path()
-        path.addRoundedRect(in: CGRect(x: rect.minX, y: rect.minY, width: rect.width, height: rect.height), cornerSize: CGSize(width: r, height: r), style: .continuous)
-        // Tail: square off the bottom-right corner and flick out to the right.
-        let x = rect.maxX, y = rect.maxY
-        path.move(to: CGPoint(x: x - 14, y: y))
-        path.addQuadCurve(to: CGPoint(x: x + 5, y: y), control: CGPoint(x: x - 2, y: y + 0.5))
-        path.addQuadCurve(to: CGPoint(x: x, y: y - 14), control: CGPoint(x: x - 1, y: y - 4))
-        path.addLine(to: CGPoint(x: x - 14, y: y - 14))
-        path.closeSubpath()
-        return path
+        let w = rect.width, h = rect.height
+        let right = w - Self.tailWidth
+        let r = min(17, h / 2)
+        var p = Path()
+        p.move(to: CGPoint(x: r, y: 0))
+        p.addLine(to: CGPoint(x: right - r, y: 0))
+        p.addArc(tangent1End: CGPoint(x: right, y: 0), tangent2End: CGPoint(x: right, y: h), radius: r)
+        p.addLine(to: CGPoint(x: right, y: max(r, h - 10)))
+        // Tail: out to the tip at the bottom-right corner…
+        p.addCurve(to: CGPoint(x: w, y: h), control1: CGPoint(x: right, y: h - 3), control2: CGPoint(x: w - 1.5, y: h))
+        // …and back under the bubble.
+        p.addCurve(to: CGPoint(x: right - 7, y: h - 3), control1: CGPoint(x: w - 4, y: h + 0.4), control2: CGPoint(x: right - 3.5, y: h - 1))
+        p.addCurve(to: CGPoint(x: right - min(r, 16), y: h), control1: CGPoint(x: right - 10, y: h - 0.5), control2: CGPoint(x: right - 13, y: h))
+        p.addLine(to: CGPoint(x: r, y: h))
+        p.addArc(tangent1End: CGPoint(x: 0, y: h), tangent2End: CGPoint(x: 0, y: 0), radius: r)
+        p.addLine(to: CGPoint(x: 0, y: r))
+        p.addArc(tangent1End: CGPoint(x: 0, y: 0), tangent2End: CGPoint(x: w, y: 0), radius: r)
+        p.closeSubpath()
+        return p.offsetBy(dx: rect.minX, dy: rect.minY)
     }
 }
 

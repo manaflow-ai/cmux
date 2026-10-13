@@ -10,7 +10,7 @@ struct MarkdownWebView: UIViewRepresentable {
     var maxHeight: CGFloat?
     @Binding var contentHeight: CGFloat
 
-    func makeCoordinator() -> Coordinator { Coordinator(height: $contentHeight) }
+    func makeCoordinator() -> Coordinator { Coordinator(height: $contentHeight, cacheKey: markdown) }
 
     func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
@@ -24,12 +24,18 @@ struct MarkdownWebView: UIViewRepresentable {
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.navigationDelegate = context.coordinator
         webView.isInspectable = true
+        // A cell scrolled back into view (LazyVStack rebuilds it) already
+        // knows its height: show the page as soon as it paints. A first
+        // load stays clear until its height is known, so the post never
+        // flashes at the estimate and then jumps.
+        webView.alpha = MarkdownHeightCache.height(for: markdown) == nil ? 0 : 1
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         guard context.coordinator.loaded != markdown else { return }
         context.coordinator.loaded = markdown
+        context.coordinator.cacheKey = markdown
         webView.loadHTMLString(MarkdownHTML.page(body: MarkdownHTML.render(markdown)), baseURL: nil)
     }
 
@@ -41,11 +47,25 @@ struct MarkdownWebView: UIViewRepresentable {
     final class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         var height: Binding<CGFloat>
         var loaded: String?
-        init(height: Binding<CGFloat>) { self.height = height }
+        var cacheKey: String
+        init(height: Binding<CGFloat>, cacheKey: String) {
+            self.height = height
+            self.cacheKey = cacheKey
+        }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            guard let value = message.body as? Double, abs(CGFloat(value) - height.wrappedValue) > 0.5 else { return }
-            height.wrappedValue = CGFloat(value)
+            guard let value = message.body as? Double, value > 0 else { return }
+            let measured = CGFloat(value).rounded(.up)
+            MarkdownHeightCache.store(measured, for: cacheKey)
+            if let webView = message.webView, webView.alpha < 1 {
+                UIView.animate(withDuration: 0.12) { webView.alpha = 1 }
+            }
+            guard abs(measured - height.wrappedValue) > 0.5 else { return }
+            // Without an animation transaction: a height change from
+            // measuring must not animate the whole timeline.
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { height.wrappedValue = measured }
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction) async -> WKNavigationActionPolicy {
@@ -55,6 +75,33 @@ struct MarkdownWebView: UIViewRepresentable {
             }
             return .allow
         }
+    }
+}
+
+/// Measured markdown heights, so a post rebuilt by the lazy timeline (or
+/// re-rendered after an update) starts at its real height instead of
+/// growing from an estimate.
+@MainActor
+enum MarkdownHeightCache {
+    private static var heights: [String: CGFloat] = [:]
+    private static var order: [String] = []
+    private static let limit = 400
+
+    static func height(for markdown: String) -> CGFloat? { heights[markdown] }
+
+    static func store(_ height: CGFloat, for markdown: String) {
+        if heights.updateValue(height, forKey: markdown) == nil {
+            order.append(markdown)
+            if order.count > limit { heights[order.removeFirst()] = nil }
+        }
+    }
+
+    /// A first guess before the page is measured: about 40 characters a
+    /// line at the body size, plus the explicit line breaks.
+    nonisolated static func estimate(for markdown: String) -> CGFloat {
+        let lines = markdown.split(separator: "\n", omittingEmptySubsequences: false)
+            .reduce(0) { $0 + max(1, Int((Double($1.count) / 40).rounded(.up))) }
+        return CGFloat(lines) * 23
     }
 }
 
@@ -69,17 +116,18 @@ enum MarkdownHTML {
         :root { color-scheme: light dark; --fg:#1d1d1f; --muted:#6e6e73; --code:#f2f2f4; --border:rgba(0,0,0,.1); }
         @media (prefers-color-scheme: dark) { :root { --fg:#ececee; --muted:#9a9aa0; --code:#1b1c1e; --border:rgba(255,255,255,.1); } }
         html,body { margin:0; padding:0; background:transparent; color:var(--fg);
-          font:-apple-system-body; font-family:-apple-system,system-ui; font-size:16px; line-height:1.42;
+          font:-apple-system-body; line-height:1.42;
           -webkit-text-size-adjust:none; word-wrap:break-word; }
+        #c { display:flow-root } #c > :first-child { margin-top:0 } #c > :last-child { margin-bottom:0 }
         p { margin:0 0 .6em } p:last-child { margin-bottom:0 }
         h1,h2,h3,h4 { font-weight:600; margin:.7em 0 .35em; line-height:1.25 } h1{font-size:1.25em} h2{font-size:1.15em} h3,h4{font-size:1.05em}
         ul,ol { margin:.2em 0 .6em; padding-left:1.3em } li { margin:.15em 0 }
         a { color:inherit; text-decoration:underline; text-decoration-color:var(--muted) }
-        code { font:13px ui-monospace,Menlo,monospace; background:var(--code); padding:.1em .35em; border-radius:6px }
+        code { font-family:ui-monospace,Menlo,monospace; font-size:.82em; background:var(--code); padding:.1em .35em; border-radius:6px }
         pre { background:var(--code); border:1px solid var(--border); border-radius:12px; padding:10px 12px; overflow-x:auto; margin:.5em 0 }
-        pre code { background:none; padding:0; font-size:12.5px; line-height:1.45 }
+        pre code { background:none; padding:0; font-size:.78em; line-height:1.45 }
         blockquote { margin:.4em 0; padding-left:.8em; border-left:3px solid var(--border); color:var(--muted) }
-        table { border-collapse:collapse; display:block; overflow-x:auto; margin:.5em 0; font-size:14px }
+        table { border-collapse:collapse; display:block; overflow-x:auto; margin:.5em 0; font-size:.88em }
         th,td { border-bottom:1px solid var(--border); padding:6px 10px; text-align:left; white-space:nowrap }
         hr { border:0; border-top:1px solid var(--border); margin:.8em 0 }
         .add { color:#3fb950 } .del { color:#f85149 }
@@ -187,7 +235,10 @@ enum MarkdownHTML {
         html = replace(html, #"\*\*(.+?)\*\*"#) { "<strong>\($0[1])</strong>" }
         html = replace(html, #"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])"#) { "<em>\($0[1])</em>" }
         html = replace(html, #"\[([^\]]+)\]\((https?://[^)\s]+)\)"#) { "<a href=\"\($0[2])\">\($0[1])</a>" }
-        html = replace(html, #"\u{1}(\d+)\u{2}"#) { codes[Int($0[1]) ?? 0] }
+        // Not a raw string: the sentinels are real U+0001/U+0002 characters
+        // (a raw `\u{1}` reached ICU as text, so every inline code span
+        // showed as "\u{1}0\u{2}" boxes).
+        html = replace(html, "\u{1}(\\d+)\u{2}") { codes[Int($0[1]) ?? 0] }
         return html
     }
 
