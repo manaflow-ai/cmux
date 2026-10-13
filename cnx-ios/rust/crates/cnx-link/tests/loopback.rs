@@ -113,3 +113,50 @@ async fn dialing_another_users_mac_is_refused() {
         .expect("refused");
     assert!(matches!(error, cnx_link::DialError::Refused { ref code, .. } if code == "not_owner"), "{error}");
 }
+
+/// One side's outbound UDP is lost (the mini's sshd-launched hostd could not
+/// route to the LAN), the other's works. The side that receives UDP must not
+/// switch to UDP-only replies it cannot deliver; the link stays up on the
+/// relay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_survives_one_way_udp() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    let mac = SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap();
+    tokio::spawn(async move {
+        while let Some(session) = mac.next_session().await {
+            let events = SessionEvents { session: session.events, backend: mac.events() };
+            let mac = mac.clone();
+            tokio::spawn(async move {
+                let options = DialOptions { drop_outbound_udp: true, ..options() };
+                let connected =
+                    dial::answer(&mac, session.first, events, &options, LinkConfig::default()).await.unwrap();
+                while let Some(mut incoming) = connected.link.accept().await {
+                    tokio::spawn(async move {
+                        while let Some(ChannelEvent::Data(bytes)) = incoming.channel.recv().await {
+                            let _ = incoming.channel.send(bytes).await;
+                        }
+                    });
+                }
+            });
+        }
+    });
+    let phone =
+        SignalingClient::connect(&server.base_url, "user:alice", "team", &uuid::Uuid::new_v4().to_string())
+            .await
+            .unwrap();
+    let connected =
+        dial::connect(&phone, &mac_id, TransportKind::WireGuard, &options(), LinkConfig::default())
+            .await
+            .expect("dial over the relay");
+    let mut channel = connected.link.open("echo", serde_json::json!({})).await.unwrap();
+    channel.send(Bytes::from(vec![5u8; 100_000])).await.unwrap();
+    let mut got = 0;
+    while got < 100_000 {
+        match tokio::time::timeout(Duration::from_secs(20), channel.recv()).await.expect("echo in time") {
+            Some(ChannelEvent::Data(bytes)) => got += bytes.len(),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    assert_eq!(*connected.path.borrow(), LinkPath::Relay);
+}

@@ -67,6 +67,11 @@ pub struct DialOptions {
     /// WireGuard sends no endpoints and ignores the peer's, so every
     /// datagram goes through the backend relay frames.
     pub force_relay: bool,
+    /// Test support: WireGuard silently drops every UDP datagram this side
+    /// sends, as when the OS refuses the route (macOS Local Network
+    /// privacy) or a firewall drops outbound UDP. Inbound UDP still works.
+    #[doc(hidden)]
+    pub drop_outbound_udp: bool,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
 }
@@ -78,6 +83,7 @@ impl Default for DialOptions {
             include_loopback: false,
             exclude_cgnat: false,
             force_relay: false,
+            drop_outbound_udp: false,
             timeout: Duration::from_secs(25),
         }
     }

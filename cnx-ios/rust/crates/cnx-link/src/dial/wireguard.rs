@@ -153,6 +153,7 @@ fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> 
 /// The carrier: one UDP socket for direct paths plus the backend relay.
 struct HybridUnderlay {
     socket: UdpSocket,
+    drop_outbound_udp: bool,
     candidates: Vec<SocketAddr>,
     direct: Option<SocketAddr>,
     last_direct: Option<Instant>,
@@ -166,6 +167,9 @@ const RELAY_PATH: PathId = PathId(1);
 
 impl HybridUnderlay {
     fn send_udp(&self, datagram: &[u8], target: SocketAddr) {
+        if self.drop_outbound_udp {
+            return;
+        }
         // A full socket drops the datagram; WireGuard and TCP retransmit.
         if let Err(error) = self.socket.try_send_to(datagram, target)
             && error.kind() != io::ErrorKind::WouldBlock
@@ -278,6 +282,7 @@ fn start_tunnel(
     own_ip: Ipv4Addr,
     peer_ip: Ipv4Addr,
     peer_endpoints: &[String],
+    options: &DialOptions,
 ) -> Result<Tunnel, DialError> {
     let session_uuid =
         Uuid::parse_str(session_id).map_err(|_| DialError::Unexpected("sessionId is not a UUID".into()))?;
@@ -296,6 +301,7 @@ fn start_tunnel(
     let (path_tx, path_rx) = watch::channel(LinkPath::Relay);
     let underlay = HybridUnderlay {
         socket,
+        drop_outbound_udp: options.drop_outbound_udp,
         candidates: peer_endpoints.iter().filter_map(|text| text.parse().ok()).collect(),
         direct: None,
         last_direct: None,
@@ -408,6 +414,7 @@ impl Dialer for WireGuardDialer {
                 DIALER_OVERLAY,
                 peer_ip,
                 &usable_endpoints(&peer_endpoints, options),
+                options,
             )?;
             for datagram in early_relay {
                 let _ = tunnel.relay_in.send(datagram);
@@ -459,6 +466,7 @@ impl Dialer for WireGuardDialer {
                 own_ip,
                 peer_ip,
                 &usable_endpoints(&peer_endpoints, options),
+                options,
             )?;
             let task = follow(events, &tunnel);
             let guard = Guard {
