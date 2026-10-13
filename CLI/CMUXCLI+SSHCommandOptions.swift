@@ -23,6 +23,7 @@ extension CMUXCLI {
         let initialCommand: String?
         let windowRaw: String?
         let noFocus: Bool
+        let reuseCurrentPane: Bool
         var sshOptions: [String]
         let remoteCommand: SSHRemoteCommand
         let terminalTransport: WorkspaceRemoteTerminalTransport
@@ -58,6 +59,7 @@ extension CMUXCLI {
             initialCommand: String? = nil,
             windowRaw: String? = nil,
             noFocus: Bool,
+            reuseCurrentPane: Bool = false,
             sshOptions: [String],
             remoteCommand: SSHRemoteCommand,
             terminalTransport: WorkspaceRemoteTerminalTransport = .ssh,
@@ -78,6 +80,7 @@ extension CMUXCLI {
             self.initialCommand = initialCommand
             self.windowRaw = windowRaw
             self.noFocus = noFocus
+            self.reuseCurrentPane = reuseCurrentPane
             self.sshOptions = sshOptions
             self.remoteCommand = remoteCommand
             self.terminalTransport = terminalTransport
