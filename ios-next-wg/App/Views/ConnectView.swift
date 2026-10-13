@@ -26,6 +26,9 @@ struct ConnectView: View {
                 .font(.body)
                 .foregroundStyle(.primary)
                 .padding(.top, 16)
+            PairingInlineStatus()
+                .padding(.top, 22)
+                .padding(.horizontal, 40)
             Spacer()
             Label("End-to-end encrypted with WireGuard", systemImage: "lock.fill")
                 .font(.footnote)
@@ -43,5 +46,29 @@ struct ConnectView: View {
     private func pasteLink() {
         guard let text = UIPasteboard.general.string else { return }
         model.pair(link: text)
+    }
+}
+
+/// The pairing attempt in progress or its failure, under the buttons.
+struct PairingInlineStatus: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        switch model.pairing {
+        case .pairing(let name):
+            HStack(spacing: 8) {
+                ProgressView()
+                Text("Pairing with \(name)…")
+            }
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        case .failed(let message):
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.red)
+                .multilineTextAlignment(.center)
+        default:
+            EmptyView()
+        }
     }
 }

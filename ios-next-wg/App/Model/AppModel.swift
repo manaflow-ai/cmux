@@ -65,6 +65,7 @@ final class AppModel {
             let invitation = try PairingInvitation(link: link)
             Task { await pair(invitation) }
         } catch {
+            logger.error("pairing link rejected: \(String(describing: error), privacy: .public)")
             pairing = .failed(HostConnection.describe(error))
         }
     }
