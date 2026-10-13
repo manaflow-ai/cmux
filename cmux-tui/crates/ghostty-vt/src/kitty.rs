@@ -1236,6 +1236,23 @@ mod tests {
     }
 
     #[test]
+    fn discarding_an_unreplayable_command_preserves_completed_chunks() {
+        let first = b"\x1b_Ga=t,t=d,f=24,i=92,s=1,v=2,m=1;AAAA\x1b\\";
+        let mut tracker = KittyInFlightTracker::default();
+        tracker.set_max_bytes(64);
+        tracker.write(first);
+
+        // Overflow the active continuation while keeping the completed m=1
+        // prefix within the tracker's replay budget.
+        tracker.write(b"\x1b_Gm=0;this-command-is-too-large");
+        tracker.discard_unreplayable();
+        assert_eq!(tracker.replay_prefix(usize::MAX), first);
+
+        tracker.write(b"\x1b_Gm=0;B\x1b\\");
+        assert!(tracker.replay_prefix(usize::MAX).is_empty());
+    }
+
+    #[test]
     fn completed_oversized_non_transmissions_do_not_poison_future_replay() {
         for header in ["a=p,i=92,p=1,c=1,r=1", "a=d,d=i,i=92"] {
             let mut tracker = KittyInFlightTracker::default();

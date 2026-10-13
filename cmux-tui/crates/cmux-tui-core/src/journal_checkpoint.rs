@@ -809,6 +809,9 @@ mod tests {
         JournalAuthority, JournalClass, JournalEventSchema, JournalProducer,
         JournalProducerManifest, JournalSensitivity, JournalSubject,
     };
+    use base64::Engine;
+    use flate2::read::GzDecoder;
+    use std::io::Read;
     use std::sync::Arc;
 
     fn terminal_replay_checkpoint() -> JournalCheckpoint {
@@ -1481,6 +1484,7 @@ mod tests {
             )
             .unwrap();
         let surface = mux.surface(surface_id).unwrap();
+        let attach = surface.attach_stream().unwrap();
         let mut upload = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
         upload.resize(ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + 1, b'A');
         surface.apply_local_pty_output_for_test(&upload).unwrap();
@@ -1488,6 +1492,24 @@ mod tests {
         let captured =
             capture(&mux).expect("checkpoint capture should recover the terminal parser");
         assert_eq!(captured.blobs.len(), 1);
+
+        let mut decoded = Vec::new();
+        GzDecoder::new(captured.blobs[0].compressed.as_slice())
+            .read_to_end(&mut decoded)
+            .unwrap();
+        let replay: Value = serde_json::from_slice(&decoded).unwrap();
+        let replay_bytes = base64::engine::general_purpose::STANDARD
+            .decode(replay["bytes_base64"].as_str().unwrap())
+            .unwrap();
+        assert_eq!(replay_bytes.last(), Some(&0x18));
+
+        let mut attach_output = Vec::new();
+        while let Ok(frame) = attach.stream.try_recv() {
+            if let crate::surface::AttachFrame::Output(bytes) = frame {
+                attach_output.push(bytes);
+            }
+        }
+        assert_eq!(attach_output.last(), Some(&vec![0x18]));
 
         drop(surface);
         drop(mux);
