@@ -216,6 +216,20 @@ pub(super) fn app_connection(mux: &Mux, client: u64) -> AppConnection {
     }
 }
 
+/// The subscribe events a page relay connection hears (page-router.json
+/// `events` of its page; none for a relay without a page), or `None` for
+/// any other connection, whose stream stays as it was.
+pub(super) fn page_relay_events(mux: &Mux, client: u64) -> Option<&'static [String]> {
+    let state = mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let origin = &state.clients.get(&client)?.origin;
+    (origin.role == HelloRole::PageRelay).then(|| {
+        origin
+            .page
+            .as_deref()
+            .map_or(&[][..], crate::request_origin::page_router_table::page_events)
+    })
+}
+
 #[cfg(unix)]
 /// Gate A2 on the legacy `apps-*` door: `Err` unless `client` derives
 /// origin `user` (a verified cmux app connection).

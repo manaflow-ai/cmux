@@ -2,8 +2,10 @@ import Foundation
 import CmuxNextCompat
 
 /// The page relay's handshake (request-origin.md): `identify`, then `client-hello {role:
-/// page_relay}` only when the daemon has `origin-claim-v1`, and nothing else (no label, no
-/// subscribe). The connection is ready, and takes page calls, only after the hello result: a
+/// page_relay}` only when the daemon has `origin-claim-v1`, and no label. When the hello names
+/// events the page hears (`page-events-v1`), a plain `subscribe` follows: the daemon narrows that
+/// stream to those events, and the connection reports each one as it came (``DaemonEvent/raw``),
+/// so the relay forwards it without a Swift type per event. The connection is ready, and takes page calls, only after the hello result: a
 /// relay request never goes out with a client role. Without the capability the connect fails.
 /// Its own type, not a `DaemonConnection` member (that type's line budget is frozen).
 enum PageRelayHandshake {
@@ -28,6 +30,12 @@ enum PageRelayHandshake {
             let reply = try WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: hello[0].get().line)
             configuration.relayIdentity?.connectionID = reply.connectionId
             configuration.relayIdentity?.gestureOperations = Set(reply.pageOperations?.gesture ?? [])
+            let events = reply.pageEvents ?? []
+            configuration.relayIdentity?.events = Set(events)
+            if !events.isEmpty {
+                let subscribed = await transport.pipeline([PipelinedLine(SubscribeRequest(treeEvents: .coarse))], timeout: timeout)
+                _ = try WireCoding.decodeResponse(EmptyResponse.self, from: subscribed[0].get().line)
+            }
             return identity
         } catch {
             transport.close()
@@ -42,6 +50,7 @@ enum PageRelayHandshake {
 public final class PageRelayIdentity: Sendable {
     private let value = Mutex<String?>(nil)
     private let gestures = Mutex<Set<String>>([])
+    private let pageEvents = Mutex<Set<String>>([])
     /// The page id (`history`), or nil for a relay that serves no one page.
     public let page: String?
 
@@ -54,9 +63,23 @@ public final class PageRelayIdentity: Sendable {
         set { value.withLock { $0 = newValue } }
     }
 
+    /// The subscribe events the page hears on this relay (`history-changed`).
+    public var events: Set<String> {
+        get { pageEvents.withLock { $0 } }
+        set { pageEvents.withLock { $0 = newValue } }
+    }
+
     /// The operations the page may call only on the person's gesture.
     public var gestureOperations: Set<String> {
         get { gestures.withLock { $0 } }
         set { gestures.withLock { $0 = newValue } }
+    }
+}
+
+extension DaemonEvent {
+    /// One subscribe-stream line as the daemon sent it (`.unknown` with its whole object): what a
+    /// page relay connection reports, so the relay forwards events without a Swift type for each.
+    static func raw(name: String, line: Data) -> DaemonEvent {
+        .unknown(name: name, payload: (try? WireCoding.decoder().decode(JSONValue.self, from: line)) ?? .null)
     }
 }

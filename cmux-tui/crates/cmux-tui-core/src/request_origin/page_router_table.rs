@@ -18,6 +18,11 @@ const PAGE_ROUTER_JSON: &str = include_str!("../../../../spec/page-router.json")
 /// list, and the routed v2 namespaces.
 pub(crate) const PAGE_ROUTER_CAPABILITY: &str = "page-router-v1";
 
+/// Advertised by `identify`: a page relay's `client-hello` reply carries
+/// `page_events`, and a page relay whose page names events may `subscribe`
+/// and hears only those events.
+pub(crate) const PAGE_EVENTS_CAPABILITY: &str = "page-events-v1";
+
 #[derive(Deserialize)]
 struct Table {
     pages: BTreeMap<String, PageEntry>,
@@ -29,6 +34,8 @@ struct PageEntry {
     read: Vec<String>,
     gesture: Vec<String>,
     confirm: Vec<String>,
+    /// The subscribe events a page relay of this page hears.
+    events: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -99,6 +106,13 @@ pub(crate) fn page_operations(page: &str) -> Value {
         }
         None => json!({"read": [], "gesture": [], "confirm": []}),
     }
+}
+
+/// The subscribe events a page relay of `page` hears (`page-router-v1`
+/// events): empty for a page with no entry or no events, and such a relay
+/// gets no event stream.
+pub(crate) fn page_events(page: &str) -> &'static [String] {
+    table().pages.get(page).map_or(&[], |entry| entry.events.as_slice())
 }
 
 /// The refusal reason of a grant without the person's confirmation.

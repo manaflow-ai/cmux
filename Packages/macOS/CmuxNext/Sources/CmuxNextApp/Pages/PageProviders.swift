@@ -136,6 +136,27 @@ final class DaemonPageRelay: PageProvider {
         }
     }
 
+    /// A page stream `cmux.<ns>.<event>` is the daemon subscribe event `<ns>-<event>`
+    /// (`cmux.history.changed` -> `history-changed`), as the daemon sent it, on the page's relay
+    /// connection (page-events-v1, cx-hnmbt.9). The daemon decides which events a page hears; a
+    /// stream it does not name is `unknown_op` (the page then reads without live updates).
+    func subscribe(_ stream: String, filter: CmuxNextSettings.JSONValue, context: PageCallContext,
+                   onEvent: @escaping @MainActor (CmuxNextSettings.JSONValue) -> Void) async throws -> PageSubscription {
+        guard stream.hasPrefix("cmux.") else { throw PageError.unknownOp(stream) }
+        guard services.machines.local.connection != nil else { throw PageError.closed }
+        let event = stream.dropFirst("cmux.".count).replacingOccurrences(of: ".", with: "-")
+        do {
+            let cancel = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).listen(event: event) { payload in
+                onEvent((try? Self.pageValue(payload)) ?? .object([:]))
+            }
+            return PageSubscription(onCancel: cancel)
+        } catch is PageRelayChannel.NoSuchEvent {
+            throw PageError.unknownOp(stream)
+        } catch let error as DaemonError {
+            throw Self.pageError(error)
+        }
+    }
+
     /// The v2 idempotency key: the page's own, else its operation id (decision 31), so a resend
     /// after a reconnect replays the daemon's first answer instead of applying twice.
     static func idempotencyKey(_ explicit: String?, context: PageCallContext) -> String? {

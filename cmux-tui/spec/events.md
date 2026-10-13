@@ -416,10 +416,14 @@ a committed `history.entries.remove`, `history.site.remove`, `history.clear`,
 records the module newly folded. The payload is
 `{event:"history-changed", revision:uint64, kinds:[string]}`, where `kinds`
 names the entry kinds that changed (`page`, `command`, `agent`, and
-`closed` when a history remove or clear deleted closed groups); interested
-frontends re-read `history.entries.list`. A replayed mutation publishes
-nothing. Other changes of closed items and of the app's location trail are
-announced by their owners' events, not by this one. Page visits are shared
+`closed` when a history remove or clear deleted closed groups, or when a
+committed change closed or deleted a workspace, tab, screen or group in the
+closed-history store, after the module's journal feed started with a history
+read); interested frontends re-read `history.entries.list`. A replayed
+mutation publishes nothing, and a deletion can publish `closed` twice (the
+mutation and its journal record). Changes of the app's location trail are
+announced by the app, not by this event. A page relay hears this event when
+its page lists it in page-router.json (`page-events-v1`). Page visits are shared
 by the sessions of a machine; the event goes to the session that served the
 change.
 

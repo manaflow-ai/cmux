@@ -15,6 +15,11 @@ import os
 /// (cmux-tui/spec/page-router.json). A call the list marks `gesture` goes out with a confirmation
 /// token when a real key or pointer event backs it (``PageCallContext/userGesture``).
 ///
+/// Events (`page-events-v1`, cx-hnmbt.9): the relay connection also subscribes when its page hears
+/// events (page-router.json `events`); the daemon narrows that stream to them. ``listen(event:onEvent:)``
+/// hands each one, as the daemon sent it, to the page streams that asked for it. After a reconnect
+/// or an `overflow` (events were lost) every listener gets `{resync: true}` and re-reads.
+///
 /// Against a daemon without `origin-claim-v1` there is no relay connection: page calls go on the
 /// main connection as before, with a logged warning that they are not narrowed.
 @MainActor
@@ -55,6 +60,14 @@ final class PageRelayChannel {
     private var warned = false
     /// The event uptime of the last gesture a call spent (``spendGesture(_:)``).
     private var spentGesture: TimeInterval?
+    /// Page streams by id: the daemon event each hears and its delivery.
+    private var listeners: [UInt64: (event: String, deliver: @MainActor (CmuxNextDaemon.JSONValue) -> Void)] = [:]
+    private var nextListener: UInt64 = 0
+    /// Reads the relay connection's events while it lives (``pumpEvents(_:)``).
+    private var pump: Task<Void, Never>?
+
+    /// The page does not hear `event` on this daemon (no entry, or an older daemon).
+    struct NoSuchEvent: Error {}
 
     init(service: DaemonService, page: String?) {
         self.service = service
@@ -87,6 +100,58 @@ final class PageRelayChannel {
             operation: operation, params: params, idempotencyKey: idempotencyKey, origin: origin)
     }
 
+    /// Hands every `event` (a daemon subscribe event name, `history-changed`) the page hears to
+    /// `onEvent`, until the returned cancel runs. Throws ``NoSuchEvent`` when the page's entry does
+    /// not name it or the daemon has no page relay.
+    func listen(event: String, onEvent: @escaping @MainActor (CmuxNextDaemon.JSONValue) -> Void) async throws -> () -> Void {
+        guard let service, service.connection != nil else { throw DaemonError.notConnected }
+        guard service.supports(DaemonClientRole.originClaimCapability) else { throw NoSuchEvent() }
+        _ = try await relayConnection(service)
+        guard identity.events.contains(event) else { throw NoSuchEvent() }
+        nextListener += 1
+        let id = nextListener
+        listeners[id] = (event, onEvent)
+        return { [weak self] in self?.listeners[id] = nil }
+    }
+
+    /// Delivers the relay connection's events to the listeners until the connection ends.
+    private func pumpEvents(_ connection: DaemonConnection) {
+        pump?.cancel()
+        // task-owner: one reader of this relay connection's events; cancelled when a new connection replaces it
+        pump = Task { [weak self, weak connection] in
+            guard let events = connection?.events else { return }
+            var connectedBefore = false
+            do {
+                for try await envelope in events {
+                    guard let self else { return }
+                    switch envelope.event {
+                    case .connected:
+                        // A reconnect: the events while it was down are lost.
+                        if connectedBefore { self.resync() }
+                        connectedBefore = true
+                    case .unknown(name: "overflow", payload: _):
+                        // The daemon ended the stream: subscribe again, then re-read.
+                        // task-owner: one subscribe request with the control deadline
+                        Task { _ = try? await connection?.request(SubscribeRequest(treeEvents: .coarse)) }
+                        self.resync()
+                    case .unknown(let name, var payload):
+                        if case .object(var members) = payload {
+                            members.removeValue(forKey: "event")
+                            payload = .object(members)
+                        }
+                        for listener in self.listeners.values where listener.event == name { listener.deliver(payload) }
+                    default:
+                        continue
+                    }
+                }
+            } catch {}
+        }
+    }
+
+    private func resync() {
+        for listener in listeners.values { listener.deliver(.object(["resync": .bool(true)])) }
+    }
+
     /// Whether `context` carries a key or pointer event no earlier call spent.
     private func spendGesture(_ context: PageCallContext) -> Bool {
         guard context.userGesture, let event = context.gestureEvent, event != spentGesture else { return false }
@@ -109,7 +174,11 @@ final class PageRelayChannel {
         starting = task
         defer { starting = nil }
         let connection = try await task.value
+        // A relay that dropped and was replaced stops reconnecting, so only one connection
+        // carries this page's id and events.
+        await relay?.close()
         relay = connection
+        pumpEvents(connection)
         return connection
     }
 

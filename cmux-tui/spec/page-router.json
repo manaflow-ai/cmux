@@ -1,16 +1,17 @@
 {
   "schema_version": 1,
   "capability": "page-router-v1",
-  "description": "The daemon page router (page-router.md): what each cmux page may call, and which v2 operation namespaces the daemon routes to an owner outside the operation catalog. The one source: the daemon embeds this file, and bindings/codegen/page_router.py generates the page clients' table from it.",
+  "description": "The daemon page router (page-router.md): what each cmux page may call and which subscribe events it hears, and which v2 operation namespaces the daemon routes to an owner outside the operation catalog. The one source: the daemon embeds this file, and bindings/codegen/page_router.py generates the page clients' table from it.",
   "pages": {
     "home-channels": {
-      "description": "Channels (Home). It reads conversations through the raw conversation commands of its authenticated WebSocket, so it needs no v2 operation.",
+      "description": "Channels (Home). It reads conversations through the raw conversation commands of its authenticated WebSocket, so it needs no v2 operation. Its WebSocket keeps its raw subscribe; a page relay of this page gets no event stream.",
       "read": [],
       "gesture": [],
-      "confirm": []
+      "confirm": [],
+      "events": []
     },
     "history": {
-      "description": "History. Reads the merged history; a delete needs the person's gesture (hq-99 rule on cmux#13742).",
+      "description": "History. Reads the merged history; a delete needs the person's gesture (hq-99 rule on cmux#13742); it hears history-changed, so an open page re-reads when history changes.",
       "read": [
         "history.entries.list",
         "history.visit.summaries"
@@ -20,7 +21,10 @@
         "history.site.remove",
         "history.clear"
       ],
-      "confirm": []
+      "confirm": [],
+      "events": [
+        "history-changed"
+      ]
     },
     "apps": {
       "description": "App Store. Reads the catalog; an install, uninstall or change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox).",
@@ -34,7 +38,8 @@
         "apps.set",
         "apps.install",
         "apps.uninstall"
-      ]
+      ],
+      "events": []
     }
   },
   "namespaces": {

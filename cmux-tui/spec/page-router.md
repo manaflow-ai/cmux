@@ -49,6 +49,22 @@ origin `user` on top of the table.
 hq-99's rule (cmux#13742): `history.*` reads only for page `history`; a History delete needs page
 `history` and the person's gesture.
 
+## Events (`page-events-v1`)
+
+A page entry's `events` names the subscribe events (events.md) that page hears. A page relay's
+`client-hello` reply carries them as `page_events`. A page relay whose page names events may send
+`{cmd: "subscribe"}` (only `tree_events` besides `id`): the daemon delivers only those events on
+it, with no pairing requests and no tree, terminal or conversation events. A `surface` output
+stream is a screen read and stays refused, and a relay whose page names no event gets
+`origin.forbidden {reason: "page_events"}`. The host forwards each event as the daemon sent it:
+page stream `cmux.<ns>.<event>` is daemon event `<ns>-<event>` (`cmux.history.changed` is
+`history-changed`). After a reconnect or an `overflow` the host tells the page to re-read.
+
+`history-changed` names the Closed kind when a commit changed the closed-history store (a closed
+workspace, tab or group, or a deleted one), so an open History page shows a closed workspace at once.
+
+A page WebSocket keeps the raw `subscribe` rules of its authenticated connection.
+
 ## Routed namespaces
 
 Some page operations belong to an owner outside the operation catalog. The table's `namespaces`

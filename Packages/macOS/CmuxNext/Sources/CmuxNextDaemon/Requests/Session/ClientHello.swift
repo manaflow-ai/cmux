@@ -24,12 +24,16 @@ public struct ClientHelloRequest: DaemonRequest {
         public var userOriginAllowed: Bool?
         /// The page's allow list (`page-router-v1`), on a page relay's hello that named a page.
         public var pageOperations: PageOperations?
+        /// The subscribe events the page hears (`page-events-v1`), on a page relay's hello that
+        /// named a page; nil from an older daemon (no event stream).
+        public var pageEvents: [String]?
 
         enum CodingKeys: String, CodingKey {
             case connectionId = "connection_id"
             case nonce
             case userOriginAllowed = "user_origin_allowed"
             case pageOperations = "page_operations"
+            case pageEvents = "page_events"
         }
     }
 

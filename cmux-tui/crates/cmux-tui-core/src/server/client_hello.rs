@@ -71,13 +71,22 @@ pub(super) struct HelloGate {
     transport: ClientTransport,
     window: Window,
     page_relay: bool,
+    /// A page relay whose page hears subscribe events (page-router.json
+    /// `events`): its `subscribe` line goes to dispatch, which narrows the
+    /// stream to those events.
+    page_events: bool,
 }
 
 type Refusal = (&'static str, &'static str, Option<Value>);
 
 impl HelloGate {
     pub(super) fn new(transport: ClientTransport) -> Self {
-        Self { transport, window: Window::Open { identified: false }, page_relay: false }
+        Self {
+            transport,
+            window: Window::Open { identified: false },
+            page_relay: false,
+            page_events: false,
+        }
     }
 
     /// Ends the hello window (a line the connection's admission refused
@@ -138,6 +147,10 @@ impl HelloGate {
                 return None;
             }
             Some("identify") if self.page_relay => return None,
+            Some("subscribe") if self.page_relay => {
+                return (!self.page_events || !page_relay_subscribe(&value))
+                    .then(|| page_relay_subscribe_refusal(id));
+            }
             _ if self.page_relay => return Some(page_relay_refusal(id)),
             _ => return None,
         };
@@ -199,6 +212,8 @@ impl HelloGate {
             return Err(("client_hello.window_closed", "this connection already has a role", None));
         }
         self.page_relay = role == HelloRole::PageRelay;
+        self.page_events =
+            page.as_deref().is_some_and(|page| !page_router_table::page_events(page).is_empty());
         let mut data = json!({
             "connection_id": client.to_string(),
             "user_origin_allowed": user_origin_allowed(mux, client),
@@ -206,6 +221,7 @@ impl HelloGate {
         if let Some(page) = page.as_deref() {
             data["page"] = json!(page);
             data["page_operations"] = page_router_table::page_operations(page);
+            data["page_events"] = json!(page_router_table::page_events(page));
         }
         // Uniform nonce rule: role main with an install id always gets one,
         // known id or not and signed build or not (no oracle).
@@ -230,6 +246,25 @@ fn page_relay_refusal(id: Option<Value>) -> Value {
         "error": "a page relay connection sends only cmux.protocol/2 requests",
         "error_code": "origin.forbidden",
         "error_details": {"required": "agent", "derived": RequestOrigin::Page.wire_name()},
+    })
+}
+
+/// A page relay's `subscribe`: the page's event stream only, so no member
+/// but `tree_events` (a `surface` output stream is a screen read).
+fn page_relay_subscribe(value: &Value) -> bool {
+    value.as_object().is_some_and(|object| {
+        object.keys().all(|key| matches!(key.as_str(), "cmd" | "id" | "tree_events"))
+    })
+}
+
+/// The answer to a page relay `subscribe` its page may not send.
+fn page_relay_subscribe_refusal(id: Option<Value>) -> Value {
+    json!({
+        "id": id,
+        "ok": false,
+        "error": "a page relay hears only its page's events (page-router.json): no terminal output stream, and none for a page without events",
+        "error_code": "origin.forbidden",
+        "error_details": {"reason": "page_events", "derived": RequestOrigin::Page.wire_name()},
     })
 }
 
