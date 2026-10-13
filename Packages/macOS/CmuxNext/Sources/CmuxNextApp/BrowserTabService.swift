@@ -85,6 +85,8 @@ final class BrowserTabService {
     private(set) var historyWriters: [String: BrowserHistoryWriter] = [:]
     /// Stored-history reads in flight, by tab id (cancelled with the page).
     private var historyFetches: [String: Task<Void, Never>] = [:]
+    /// Per tab: the page follows the tab record's `extra.emulation` (`trackEmulation`).
+    var emulationFollowers: [String: Task<Void, Never>] = [:]
     /// True for a pane of an incognito window (the App sets it).
     var isIncognitoPane: @MainActor (PaneModel) -> Bool = { _ in false }
     /// True for a tab of an incognito window, by tab id (the App sets it).
@@ -304,6 +306,7 @@ final class BrowserTabService {
     }
 
     func track(_ page: any BrowserTab, for tab: TabModel) {
+        trackEmulation(page, id: tab.id)
         guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
         let update = update, updateState = updateState, id = tab.id, daemonForTab = daemonForTab
         let keeps = keepsState(tab)
@@ -372,6 +375,7 @@ final class BrowserTabService {
         writers.removeValue(forKey: key)?.cancel()
         historyWriters.removeValue(forKey: key)?.cancel()
         historyFetches.removeValue(forKey: key)?.cancel()
+        emulationFollowers.removeValue(forKey: key)?.cancel()
     }
 
     func isTracking(_ key: String) -> Bool { writers[key] != nil }

@@ -84,6 +84,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var capturesTitleBeforeCommit = false
     /// The pending find-in-page request (`CEFFindRequests`).
     @ObservationIgnored var findRequests = CEFFindRequests()
+    /// The daemon's resolved emulation (`CEFTab+DeviceEmulation`), its last fit scale,
+    /// whether an override is on the page, and the calls in flight.
+    @ObservationIgnored public internal(set) var deviceEmulation: BrowserEmulation?
+    @ObservationIgnored var deviceEmulationScale: CGFloat?
+    @ObservationIgnored var deviceEmulationApplied = false
+    @ObservationIgnored var deviceEmulationTask: Task<Void, Never>?
+    @ObservationIgnored var deviceEmulationDirty = false
     @ObservationIgnored var faviconTask: Task<Void, Never>?
     @ObservationIgnored private(set) var isClosed = false
     @ObservationIgnored private var isOccluded = false
@@ -134,6 +141,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         applyPageBackground()
         applyPasswordFill()
         leaveAutomaticDownloadsToCmux(browser)
+        applyDeviceEmulation()
         agentRelay.browserAttached()
         let zoom = machine.state.zoom
         if zoom != 1 { runtime.shim?.setZoomLevel(browser, CEFZoom.level(forFactor: zoom)) }
