@@ -132,11 +132,15 @@ struct CloudTreeCategoryCreateActionTests {
         })
         let cell = try fixture.cell(for: action)
         let host = try fixture.createHost(for: action)
-        let replacementCount = host.rootReplacementCount
+        cell.setHovered(false)
+        let hostedContentIdentity = host.hostedContentIdentity
+        let updateCount = host.hostedContentUpdateCount
 
         cell.setHovered(true)
+        fixture.container.layoutSubtreeIfNeeded()
 
-        #expect(host.rootReplacementCount == replacementCount)
+        #expect(host.hostedContentIdentity == hostedContentIdentity)
+        #expect(host.hostedContentUpdateCount == updateCount + 1)
     }
 
     @MainActor

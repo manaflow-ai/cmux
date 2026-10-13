@@ -1013,6 +1013,8 @@
 		C89102068E07EACBA352A1D4 /* CloudTreeExpansionPreferencesWriter.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF17EFA89EF805463E847285 /* CloudTreeExpansionPreferencesWriter.swift */; };
 		46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */; };
 		804D4B1A5D2D5447573018FE /* CloudTreeHeaderActionsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1440E4C8B82D1DACD9AE13A /* CloudTreeHeaderActionsTests.swift */; };
+		883088028607CEDF2E759CB4 /* CloudTreeHostedContent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 052DD9F6A8DA9A4B2A58BA52 /* CloudTreeHostedContent.swift */; };
+		ABDC0925C389CC2FA9899DCC /* CloudTreeHostedRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BC08BA503FC8D042C87E0A8E /* CloudTreeHostedRootView.swift */; };
 		74301DB50DB8A09647547C72 /* CloudTreeHostedUpdateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B8DC7A936F722318390CA078 /* CloudTreeHostedUpdateTests.swift */; };
 		3D95479C3874F85CE7E5237D /* CloudTreeHoverStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 816419434ABFAE3CA43F258C /* CloudTreeHoverStyle.swift */; };
 		A12501000000000000000003 /* CloudTreeLayoutMetricsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A12501000000000000000004 /* CloudTreeLayoutMetricsTests.swift */; };
@@ -5696,6 +5698,8 @@
 		EF17EFA89EF805463E847285 /* CloudTreeExpansionPreferencesWriter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeExpansionPreferencesWriter.swift; sourceTree = "<group>"; };
 		B93142FA1472ACA28B993606 /* CloudTreeExpansionStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeExpansionStore.swift; sourceTree = "<group>"; };
 		E1440E4C8B82D1DACD9AE13A /* CloudTreeHeaderActionsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeHeaderActionsTests.swift"; sourceTree = "<group>"; };
+		052DD9F6A8DA9A4B2A58BA52 /* CloudTreeHostedContent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeHostedContent.swift; sourceTree = "<group>"; };
+		BC08BA503FC8D042C87E0A8E /* CloudTreeHostedRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeHostedRootView.swift; sourceTree = "<group>"; };
 		B8DC7A936F722318390CA078 /* CloudTreeHostedUpdateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudTreeHostedUpdateTests.swift"; sourceTree = "<group>"; };
 		816419434ABFAE3CA43F258C /* CloudTreeHoverStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudTreeHoverStyle.swift; sourceTree = "<group>"; };
 		A12501000000000000000004 /* CloudTreeLayoutMetricsTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = CloudTreeLayoutMetricsTests.swift; sourceTree = "<group>"; };
@@ -9994,6 +9998,8 @@
 				5284AD113D5D3BC29608D4F4 /* InProcessMachineCreateLauncher.swift */,
 				B4E85236BC4E03F5BA8B908C /* CoderouterAccountState.swift */,
 				5ECF12C0C620A0999268B8BA /* CloudTuiManualMirrorHandshake.swift */,
+				052DD9F6A8DA9A4B2A58BA52 /* CloudTreeHostedContent.swift */,
+				BC08BA503FC8D042C87E0A8E /* CloudTreeHostedRootView.swift */,
 			);
 			name = Cloud;
 			path = Cloud;
@@ -15161,6 +15167,8 @@
 				C27D0E8F904B1EA33DD9E689 /* CloudTreeExpansionPreferences.swift in Sources */,
 				C89102068E07EACBA352A1D4 /* CloudTreeExpansionPreferencesWriter.swift in Sources */,
 				46C9B49F24011903C31179A7 /* CloudTreeExpansionStore.swift in Sources */,
+				883088028607CEDF2E759CB4 /* CloudTreeHostedContent.swift in Sources */,
+				ABDC0925C389CC2FA9899DCC /* CloudTreeHostedRootView.swift in Sources */,
 				3D95479C3874F85CE7E5237D /* CloudTreeHoverStyle.swift in Sources */,
 				1E4E42D3E7014A549A2B0572 /* CloudTreeLocalMachineRowContent.swift in Sources */,
 				22AB98037152B25680CF28C7 /* CloudTreeMachineDetailLayout.swift in Sources */,

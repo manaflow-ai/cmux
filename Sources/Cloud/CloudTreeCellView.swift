@@ -157,7 +157,7 @@ final class CloudTreeCellView: NSTableCellView {
         needsLayout = true
     }
 
-    /// Rehosts one immutable tree snapshot and its optional row actions.
+    /// Configures one immutable tree snapshot and its optional row actions.
     ///
     /// - Parameters:
     ///   - node: The row snapshot to display.
@@ -210,7 +210,14 @@ final class CloudTreeCellView: NSTableCellView {
         updateRowHover()
         if showsHoverButtons {
             let buttons = buttonsHost ?? makeButtonsHost(style: style)
-            buttons.setHostedRootView(AnyView(CloudTreeRowHoverButtons(kind: node.kind, nodeID: node.id, machineActions: machineActions, nodeActions: nodeActions)))
+            buttons.setHostedRootView(
+                AnyView(
+                    CloudTreeRowHoverButtons(
+                        kind: node.kind, nodeID: node.id,
+                        machineActions: machineActions, nodeActions: nodeActions
+                    )
+                )
+            )
             buttons.isHidden = !buttonsVisible || !showsHoverButtons
             buttons.alphaValue = buttonsAlpha
             buttonsLeadingConstraint?.constant = -style.rowGrid.trailingGap
@@ -417,14 +424,28 @@ final class CloudTreePassthroughHostingView: NSHostingView<AnyView> {
     /// section header's refresh icon, in this view's (flipped) coordinates.
     var interactiveRects: [CGRect] = []
 #if DEBUG
-    private(set) var rootReplacementCount = 0
+    var hostedContentIdentity: ObjectIdentifier { ObjectIdentifier(hostedContent) }
+    private(set) var hostedContentUpdateCount = 0
 #endif
 
+    /// Updates row content without replacing the `NSHostingView` root while AppKit lays out the outline.
     func setHostedRootView(_ rootView: AnyView) {
 #if DEBUG
-        rootReplacementCount += 1
+        hostedContentUpdateCount += 1
 #endif
-        self.rootView = rootView
+        hostedContent.view = rootView
+    }
+
+    private let hostedContent: CloudTreeHostedContent
+
+    required init(rootView: AnyView) {
+        hostedContent = CloudTreeHostedContent()
+        super.init(rootView: AnyView(CloudTreeHostedRootView(content: hostedContent)))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
@@ -454,14 +475,28 @@ final class CloudTreeRowControlsHostingView: NSHostingView<AnyView> {
     var onPointerInside: ((Bool) -> Void)?
     private var pointerTracking: NSTrackingArea?
 #if DEBUG
-    private(set) var rootReplacementCount = 0
+    var hostedContentIdentity: ObjectIdentifier { ObjectIdentifier(hostedContent) }
+    private(set) var hostedContentUpdateCount = 0
 #endif
 
+    /// Updates row content without replacing the `NSHostingView` root while AppKit lays out the outline.
     func setHostedRootView(_ rootView: AnyView) {
 #if DEBUG
-        rootReplacementCount += 1
+        hostedContentUpdateCount += 1
 #endif
-        self.rootView = rootView
+        hostedContent.view = rootView
+    }
+
+    private let hostedContent: CloudTreeHostedContent
+
+    required init(rootView: AnyView) {
+        hostedContent = CloudTreeHostedContent()
+        super.init(rootView: AnyView(CloudTreeHostedRootView(content: hostedContent)))
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
     }
 
     override func updateTrackingAreas() {
