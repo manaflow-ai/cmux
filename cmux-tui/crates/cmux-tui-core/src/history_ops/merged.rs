@@ -255,6 +255,9 @@ fn remove(
             json!({"id": location, "message": "locations belong to the app's trail; remove them in the app"}),
         ));
     }
+    // Closed groups first: a failure there leaves no page backup without
+    // its restore id.
+    let deleted = closed::remove(mux, key, actor, &ids)?;
     let mut changed = Vec::new();
     let mut value = json!({"removed": 0, "restore_id": null});
     if ids.iter().any(|id| id.starts_with("page:")) {
@@ -289,7 +292,6 @@ fn remove(
             }
         }
     }
-    let deleted = closed::remove(mux, key, actor, &ids)?;
     if deleted > 0 {
         let before = value["removed"].as_u64().unwrap_or(0);
         value["removed"] = json!(before + deleted);
@@ -315,6 +317,11 @@ fn clear(
     let wants = |kind| kinds.is_empty() || kinds.contains(&kind);
     let since = pages::range(fields, true)?.start(now_ms, day_start_ms);
     let profile = pages::text(fields, "profile")?;
+    // Closed groups first, as in remove.
+    let deleted = match profile {
+        None if wants(HistoryKind::Closed) => closed::clear(mux, key, actor, since)?,
+        _ => 0,
+    };
     let mut changed = Vec::new();
     let mut value = json!({"removed": 0, "restore_id": null});
     if wants(HistoryKind::Page) && pages::shared(mux, OPERATION)?.is_some() {
@@ -336,13 +343,10 @@ fn clear(
         .map_err(|error| failed(OPERATION, &error))?;
         changed.extend(hidden);
     }
-    if profile.is_none() && wants(HistoryKind::Closed) {
-        let deleted = closed::clear(mux, key, actor, since)?;
-        if deleted > 0 {
-            let before = value["removed"].as_u64().unwrap_or(0);
-            value["removed"] = json!(before + deleted);
-            changed.push(HistoryKind::Closed);
-        }
+    if deleted > 0 {
+        let before = value["removed"].as_u64().unwrap_or(0);
+        value["removed"] = json!(before + deleted);
+        changed.push(HistoryKind::Closed);
     }
     Ok((value, changed))
 }

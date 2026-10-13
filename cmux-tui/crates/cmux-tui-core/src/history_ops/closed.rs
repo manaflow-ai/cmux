@@ -60,7 +60,10 @@ pub(super) fn clear(
     since_ms: Option<i64>,
 ) -> Result<u64, ResourceError> {
     let request = DeleteRequest { all: true, since_ms, ..DeleteRequest::default() };
-    delete(mux, key, actor, "\u{0}all", &request)
+    // The scope names the bound: the range start moves with the clock, and a
+    // retry with another bound must not meet the first commit's fingerprint.
+    let scope = format!("\u{0}all\u{0}{}", since_ms.map_or(String::new(), |ms| ms.to_string()));
+    delete(mux, key, actor, &scope, &request)
 }
 
 /// One `closed.delete` commit; the number of groups it deleted.
