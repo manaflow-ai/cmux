@@ -3,6 +3,7 @@ import CoreGraphics
 import CoreVideo
 import Foundation
 import Network
+import VideoToolbox
 
 /// Viewer → host input and control on the `input` data channel. Pointer
 /// coordinates are normalized (0...1) within the display being streamed.
@@ -245,9 +246,13 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
     private var onDisplays: (@Sendable ([CGSize], Int) -> Void)?
     private var tasks: [Task<Void, Never>] = []
 
+    private let inputStream: AsyncStream<ScreenInput>
+    private let inputSink: AsyncStream<ScreenInput>.Continuation
+
     public init(target: VNCEndpoint, credentials: VNCCredentials, log: @escaping @Sendable (String) -> Void) {
         client = VNCClient(endpoint: target, options: VNCSessionOptions(credentials: credentials))
         self.log = log
+        (inputStream, inputSink) = AsyncStream.makeStream(of: ScreenInput.self)
     }
 
     public func start(frame: @escaping @Sendable (CVPixelBuffer, CGRect) -> Void,
@@ -275,7 +280,13 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
                 deliver(frame)
             }
         }
-        lock.withLock { tasks = [events, frames] }
+        let inputs = Task { [weak self, inputStream] in
+            for await input in inputStream {
+                guard let self else { return }
+                await apply(input, client: client)
+            }
+        }
+        lock.withLock { tasks = [events, frames, inputs] }
     }
 
     private func detect(_ frame: VNCFrame) {
@@ -297,8 +308,10 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
             let crop = displays.indices.contains(current) ? displays[current] : CGRect(x: 0, y: 0, width: frame.width, height: frame.height)
             return (crop, onFrame)
         }
-        sink?(frame.pixelBuffer, crop)
+        sink?(converter.nv12(frame.pixelBuffer) ?? frame.pixelBuffer, crop)
     }
+
+    private let converter = NV12Converter()
 
     public func select(display index: Int) {
         let update = lock.withLock { () -> ([CGSize], Int, (@Sendable ([CGSize], Int) -> Void)?, VNCFrame?)? in
@@ -311,22 +324,25 @@ public final class VNCLoopbackBackend: ScreenBackend, @unchecked Sendable {
         if let frame = update.3 { deliver(frame) }
     }
 
+    /// Inputs go through one ordered queue, applied one at a time: a burst
+    /// never reorders and never spawns a task per event.
     public func handle(_ input: ScreenInput) {
+        inputSink.yield(input)
+    }
+
+    private func apply(_ input: ScreenInput, client: VNCClient) async {
         let display = lock.withLock { displays.indices.contains(current) ? displays[current] : .zero }
-        let client = self.client
         let x = Int(display.minX + (input.x ?? 0) * display.width), y = Int(display.minY + (input.y ?? 0) * display.height)
-        Task {
-            switch input.t {
-            case "move": await client.pointer(x: x, y: y, buttons: VNCButtons(rawValue: input.b ?? 0))
-            case "scroll":
-                await client.movePointer(x: x, y: y)
-                await client.scroll(dx: input.dx ?? 0, dy: input.dy ?? 0)
-            case "key": if let keysym = input.k { await client.key(VNCKeysym(rawValue: keysym), down: input.d ?? true) }
-            case "chord": if let keysym = input.k { await client.chord((input.m ?? []).map(VNCKeysym.init(rawValue:)), VNCKeysym(rawValue: keysym)) }
-            case "text": if let text = input.s { await client.type(text) }
-            case "refresh": await client.refresh()
-            default: break
-            }
+        switch input.t {
+        case "move": await client.pointer(x: x, y: y, buttons: VNCButtons(rawValue: input.b ?? 0))
+        case "scroll":
+            await client.movePointer(x: x, y: y)
+            await client.scroll(dx: input.dx ?? 0, dy: input.dy ?? 0)
+        case "key": if let keysym = input.k { await client.key(VNCKeysym(rawValue: keysym), down: input.d ?? true) }
+        case "chord": if let keysym = input.k { await client.chord((input.m ?? []).map(VNCKeysym.init(rawValue:)), VNCKeysym(rawValue: keysym)) }
+        case "text": if let text = input.s { await client.type(text) }
+        case "refresh": await client.refresh()
+        default: break
         }
     }
 
@@ -452,5 +468,35 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         link?.close()
         socket?.close()
         for task in tasks { task.cancel() }
+    }
+}
+
+/// BGRA → NV12 on the GPU (VTPixelTransferSession). The hardware H.264
+/// encoder takes NV12; without this libwebrtc converts on the CPU and its
+/// overuse detector lowers the frame rate ("limited-by cpu").
+final class NV12Converter: @unchecked Sendable {
+    // @unchecked: used from one frame task.
+    private var session: VTPixelTransferSession?
+    private var pool: CVPixelBufferPool?
+    private var size = (0, 0)
+
+    func nv12(_ source: CVPixelBuffer) -> CVPixelBuffer? {
+        let width = CVPixelBufferGetWidth(source), height = CVPixelBufferGetHeight(source)
+        if session == nil { VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &session) }
+        if pool == nil || size != (width, height) {
+            let attributes: [String: Any] = [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                kCVPixelBufferWidthKey as String: width, kCVPixelBufferHeightKey as String: height,
+                kCVPixelBufferIOSurfacePropertiesKey as String: [String: Any](),
+            ]
+            pool = nil
+            CVPixelBufferPoolCreate(nil, [kCVPixelBufferPoolMinimumBufferCountKey as String: 4] as CFDictionary, attributes as CFDictionary, &pool)
+            size = (width, height)
+        }
+        guard let session, let pool else { return nil }
+        var output: CVPixelBuffer?
+        CVPixelBufferPoolCreatePixelBuffer(nil, pool, &output)
+        guard let output, VTPixelTransferSessionTransferImage(session, from: source, to: output) == noErr else { return nil }
+        return output
     }
 }
