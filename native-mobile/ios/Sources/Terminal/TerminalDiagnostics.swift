@@ -86,6 +86,8 @@ struct TerminalSurfaceStats {
     var lastFeed: Date?
     var pendingFeeds = 0
     var draws = 0
+    /// Draws done in the scroll pass (viewport row changes).
+    var syncDraws = 0
     var lastDraw: Date?
     var gridRequests = 0
     var scrollbar = (total: 0, offset: 0, length: 0)
@@ -185,4 +187,29 @@ final class TerminalDebugOverlay: UIView {
 extension Date {
     /// "0.4s ago" for the overlay.
     var ago: String { String(format: "%.1fs ago", Date().timeIntervalSince(self)) }
+}
+
+/// How a viewport row change is synchronized with the view's move (QA
+/// switch, launch argument `-terminal.scrollSync N`): Ghostty's draw of a
+/// new viewport reaches the screen asynchronously, and moving the view by a
+/// row before it lands shows the old rows one row off for a frame.
+enum TerminalScrollSync: Int {
+    /// Move now, draw on the next tick.
+    case immediate = 0
+    /// Move now, tick and draw now.
+    case sync = 1
+    /// Draw now, move on the next main-actor hop.
+    case deferredFrame = 2
+    /// Draw on the next tick, move right after it.
+    case deferredBoth = 3
+
+    /// Default: `deferredFrame`. Measured on recordings (qa3, frame by
+    /// frame at row boundaries): `immediate` mostly lands together but
+    /// lags a row at speed, `sync` lags a row at every boundary,
+    /// `deferredBoth` leads a row at every boundary, `deferredFrame` keeps
+    /// rows and position in the same display frame.
+    static let mode: TerminalScrollSync = {
+        guard UserDefaults.standard.object(forKey: "terminal.scrollSync") != nil else { return .deferredFrame }
+        return TerminalScrollSync(rawValue: UserDefaults.standard.integer(forKey: "terminal.scrollSync")) ?? .deferredFrame
+    }()
 }

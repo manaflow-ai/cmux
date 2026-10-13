@@ -108,10 +108,17 @@ final class GhosttyRuntime {
         for draw in draws.values { draw() }
     }
 
-    func requestDraw(_ owner: AnyObject, _ draw: @escaping () -> Void) {
+    /// Queues a draw for the next tick, or (`now`) ticks right away: the
+    /// tick applies queued surface actions (a viewport scroll) before the
+    /// draws, all within the caller's Core Animation transaction.
+    func requestDraw(_ owner: AnyObject, now: Bool = false, _ draw: @escaping () -> Void) {
         let first = dirty.isEmpty
         dirty[ObjectIdentifier(owner)] = draw
-        if first { Task { @MainActor in self.tick() } }
+        if now {
+            tick()
+        } else if first {
+            Task { @MainActor in self.tick() }
+        }
     }
 }
 

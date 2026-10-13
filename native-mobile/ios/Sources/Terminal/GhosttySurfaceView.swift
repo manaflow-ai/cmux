@@ -191,19 +191,23 @@ final class GhosttySurfaceView: UIView {
 
     // MARK: Viewport
 
-    /// Moves Ghostty's viewport so `row` (0 = oldest scrollback row) is on top.
-    func scrollViewport(toRow row: Int) {
-        guard let surface else { return }
-        let action = "scroll_to_row:\(max(0, row))"
-        _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
-        requestFrame()
+    /// Moves Ghostty's viewport so `row` (0 = oldest scrollback row) is on
+    /// top. `now` ticks and draws in this pass instead of the next tick;
+    /// the scroll controller times the view's row move to the draw (see
+    /// `TerminalScrollSync`).
+    func scrollViewport(toRow row: Int, now: Bool) {
+        bindingAction("scroll_to_row:\(max(0, row))", now: now)
     }
 
-    func scrollViewportToBottom() {
+    func scrollViewportToBottom(now: Bool) {
+        bindingAction("scroll_to_bottom", now: now)
+    }
+
+    private func bindingAction(_ action: String, now: Bool) {
         guard let surface else { return }
-        let action = "scroll_to_bottom"
         _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
-        requestFrame()
+        if now { stats.syncDraws += 1 }
+        requestFrame(now: now)
     }
 
     /// VoiceOver reads what is on screen (only computed when VoiceOver asks).
@@ -237,9 +241,11 @@ final class GhosttySurfaceView: UIView {
         return String(decoding: UnsafeRawBufferPointer(start: pointer, count: Int(text.text_len)), as: UTF8.self)
     }
 
-    private func requestFrame() {
+    /// Asks for a draw on the next runtime tick, or (`now`) ticks and draws
+    /// in this pass.
+    private func requestFrame(now: Bool = false) {
         guard let runtime, surface != nil else { return }
-        runtime.requestDraw(self) { [weak self] in
+        runtime.requestDraw(self, now: now) { [weak self] in
             guard let self, let surface = self.surface else { return }
             ghostty_surface_refresh(surface)
             ghostty_surface_draw(surface)
@@ -292,7 +298,7 @@ final class GhosttySurfaceView: UIView {
         }
         lines.append("feeds \(stats.feeds) \(ByteCountFormatter.string(fromByteCount: Int64(stats.feedBytes), countStyle: .binary))"
                      + " last \(stats.lastFeed?.ago ?? "never")")
-        lines.append("draws \(stats.draws) last \(stats.lastDraw?.ago ?? "never") renderer \(stats.rendererHealthy ? "ok" : "UNHEALTHY")")
+        lines.append("draws \(stats.draws) (scroll \(stats.syncDraws)) last \(stats.lastDraw?.ago ?? "never") renderer \(stats.rendererHealthy ? "ok" : "UNHEALTHY")")
         let bar = stats.scrollbar
         lines.append("scrollbar total \(bar.total) offset \(bar.offset) len \(bar.length) events \(stats.scrollbarEvents)")
         return lines

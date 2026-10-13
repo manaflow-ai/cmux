@@ -123,11 +123,16 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         scrollView.frame = view.bounds
         onWidthChange?(view.bounds.width)
         if let host = composer?.view {
-            // The hosting view's frame lags its content (the keys row grew
-            // the SwiftUI content but not the frame), so take the measured
-            // content height when it is taller.
+            // The measured composer bar, not the hosting view's frame: the
+            // frame lags its content (the keys row grew the SwiftUI content
+            // but not the frame) and also holds the jump-to-bottom button,
+            // which must not move the content when it appears.
             let belowComposer = max(0, view.bounds.height - host.frame.maxY)
-            bottomInset = belowComposer + max(host.frame.height, composerContentHeight)
+            // The SwiftUI content sits above the host's bottom safe area
+            // (home indicator) when the keyboard is down.
+            bottomInset = composerMeasured
+                ? belowComposer + composerContentHeight + host.safeAreaInsets.bottom
+                : belowComposer + host.frame.height
         }
         if let size = surface.cellSize { cell = size }
         let tui = session.isTUI
@@ -157,9 +162,11 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
 
     /// The composer's SwiftUI content height (see `bottomInset`).
     private var composerContentHeight: CGFloat = 0
+    private var composerMeasured = false
 
     func composerContentHeightChanged(_ height: CGFloat) {
-        guard abs(height - composerContentHeight) > 0.5 else { return }
+        guard !composerMeasured || abs(height - composerContentHeight) > 0.5 else { return }
+        composerMeasured = true
         composerContentHeight = height
         composer?.view.invalidateIntrinsicContentSize()
         view.setNeedsLayout()
@@ -220,12 +227,35 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
             offset: scrollView.contentOffset.y, maxOffset: maxOffset, cellHeight: cell.height,
             totalRows: scrollback.total, gridRows: session.rows, viewportRows: scrollback.length
         )
-        surface.frame = CGRect(x: gridX, y: topPad + CGFloat(row) * cell.height,
-                               width: TerminalViewportMath.gridWidth(viewWidth: bounds.width), height: gridHeight)
-        guard row != lastViewportRow else { return }
+        let frame = CGRect(x: gridX, y: topPad + CGFloat(row) * cell.height,
+                           width: TerminalViewportMath.gridWidth(viewWidth: bounds.width), height: gridHeight)
+        let mode = TerminalScrollSync.mode
+        if row == lastViewportRow {
+            if pendingFrame != nil { pendingFrame = frame } else { surface.frame = frame }
+            return
+        }
         lastViewportRow = row
-        if row >= maxRow { surface.scrollViewportToBottom() } else { surface.scrollViewport(toRow: row) }
+        let toBottom = row >= maxRow
+        switch mode {
+        case .deferredFrame, .deferredBoth:
+            // Ghostty presents a new viewport one hop later than this pass;
+            // move the view by the row in that same hop, after the draw.
+            pendingFrame = frame
+            if toBottom { surface.scrollViewportToBottom(now: mode == .deferredFrame) } else { surface.scrollViewport(toRow: row, now: mode == .deferredFrame) }
+            Task { @MainActor [weak self] in
+                guard let self, let pending = self.pendingFrame else { return }
+                self.pendingFrame = nil
+                guard !self.session.isTUI else { return }
+                self.surface.frame = pending
+            }
+        case .immediate, .sync:
+            surface.frame = frame
+            if toBottom { surface.scrollViewportToBottom(now: mode == .sync) } else { surface.scrollViewport(toRow: row, now: mode == .sync) }
+        }
     }
+
+    /// A row move waiting for Ghostty's draw (see `TerminalScrollSync`).
+    private var pendingFrame: CGRect?
 
     // MARK: Ghostty scrollbar
 
@@ -267,6 +297,7 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
     private func modeChanged() {
         pinnedToBottom = true
         lastViewportRow = -1
+        pendingFrame = nil
         UIView.performWithoutAnimation { view.setNeedsLayout(); view.layoutIfNeeded() }
     }
 

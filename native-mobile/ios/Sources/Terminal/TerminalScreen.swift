@@ -177,6 +177,24 @@ struct ComposerHostContent: View {
                 .accessibilityLabel(String(localized: "Jump to bottom"))
                 .accessibilityIdentifier("terminal.jumpToBottom")
             }
+            // Only the composer counts toward the terminal's bottom inset:
+            // the jump button above it comes and goes as the view leaves
+            // the bottom, and counting it shifted the content by its height
+            // (and resized a shell's grid on the Mac) at every arrival and
+            // departure.
+            bottomBar
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                    chrome.composerHeightChanged?(height)
+                }
+        }
+        .animation(.smooth(duration: 0.22), value: chrome.atBottom)
+        .animation(.smooth(duration: 0.2), value: chrome.directTyping)
+        .frame(width: chrome.width > 0 ? chrome.width : nil)
+        .preferredColorScheme(.dark)
+    }
+
+    @ViewBuilder private var bottomBar: some View {
+        VStack(spacing: 0) {
             if !chrome.directTyping && showComposer {
                 ComposerBar(model: model, session: session, services: services, agentWorking: agentWorking, placeholder: placeholder)
                     .transition(.opacity)
@@ -193,13 +211,6 @@ struct ComposerHostContent: View {
                 .accessibilityLabel(String(localized: "Type in terminal"))
             }
         }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-            chrome.composerHeightChanged?(height)
-        }
-        .animation(.smooth(duration: 0.22), value: chrome.atBottom)
-        .animation(.smooth(duration: 0.2), value: chrome.directTyping)
-        .frame(width: chrome.width > 0 ? chrome.width : nil)
-        .preferredColorScheme(.dark)
     }
 }
 
