@@ -404,6 +404,14 @@ pub enum ResourceOperation {
     SettingsReset,
     #[serde(rename = "settings.reset_all")]
     SettingsResetAll,
+    #[serde(rename = "keybindings.get")]
+    KeybindingsGet,
+    #[serde(rename = "keybindings.set")]
+    KeybindingsSet,
+    #[serde(rename = "keybindings.remove")]
+    KeybindingsRemove,
+    #[serde(rename = "keybindings.reset")]
+    KeybindingsReset,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]
@@ -488,6 +496,8 @@ pub enum ResourceOperation {
     TabGroupAddTabs,
     #[serde(rename = "tab_group.close")]
     TabGroupClose,
+    #[serde(rename = "layout.bulk")]
+    LayoutBulk,
     #[serde(rename = "tab_group.create")]
     TabGroupCreate,
     #[serde(rename = "tab_group.get")]

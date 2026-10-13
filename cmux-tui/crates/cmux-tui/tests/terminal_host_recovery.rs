@@ -5263,11 +5263,17 @@ mod host_orphan;
 #[path = "terminal_host_recovery/false_exit.rs"]
 mod false_exit;
 
+#[path = "terminal_host_recovery/host_link_failed.rs"]
+mod host_link_failed;
+
 #[path = "terminal_host_recovery/host_death.rs"]
 mod host_death;
 
 #[path = "terminal_host_recovery/upgrade.rs"]
 mod upgrade;
+
+#[path = "terminal_host_recovery/program_status_restart.rs"]
+mod program_status_restart;
 
 #[path = "terminal_host_recovery/process_support.rs"]
 mod process_support;

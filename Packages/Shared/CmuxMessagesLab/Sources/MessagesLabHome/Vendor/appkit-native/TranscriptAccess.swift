@@ -191,8 +191,10 @@ final class TranscriptSelection {
         guard let key = selectedKey, let demo = controller.demo else { return nil }
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
             guard let spec = cell.spec, spec.key == key, case let .part(p) = spec.kind else { continue }
-            let body = cell.convert(RowDraw.bodyRect(spec), to: demo)
-            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail).cgPath
+            // cmux: MessagesLab 2281879's selection outline (this file stays at bd65bbf): the drawn balloon.
+            let frame = RowDraw.bodyRect(spec)
+            let body = cell.convert(RowDraw.balloon(frame, row: p), to: demo)
+            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail, cornersOf: frame.size).cgPath
         }
         return nil
     }

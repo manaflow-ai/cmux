@@ -62,6 +62,7 @@ nonisolated enum NotificationSettingsSchema {
                 ["notifications", "suppressWhileTypingSeconds"], section: .notifications, group: banners,
                 title: SettingsText.keyed("settings.notifications.suppressWhileTyping", "Quiet After Typing"),
                 help: SettingsText.keyed("settings.notifications.suppressWhileTyping.help", "A pane typed into this recently is marked read at once. 0 turns it off."),
+                summary: SettingsText.keyed("settings.notifications.suppressWhileTyping.summary", "No alerts from a pane you just typed in"),
                 kind: .number(SettingNumber(NotificationPreferences.typingRange, step: 1, unit: .seconds)),
                 default: .number(defaults.suppressWhileTypingSeconds)
             ),
@@ -70,6 +71,7 @@ nonisolated enum NotificationSettingsSchema {
                 title: SettingsText.keyed("settings.status.runNotifyMinimumSeconds", "Notify When a Run Takes"),
                 help: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.help",
                                         "cmux status run notifies when the command took at least this long."),
+                summary: SettingsText.keyed("settings.status.runNotifyMinimumSeconds.summary", "Long runs notify when they finish"),
                 kind: .number(SettingNumber(StatusBehaviorSettings.runNotifyRange, step: 1, unit: .seconds)),
                 default: .number(StatusBehaviorSettings().runNotifyMinimumSeconds)
             ),
@@ -95,6 +97,7 @@ nonisolated enum NotificationSettingsSchema {
                 title: SettingsText.keyed("settings.feed.mirrorTerminal", "Copy Terminal Notifications to the Feed"),
                 help: SettingsText.keyed("settings.feed.mirrorTerminal.help",
                                         "Notifications that programs send through the terminal can contain secrets. Off sends nothing to your cmux account."),
+                summary: SettingsText.keyed("settings.feed.mirrorTerminal.summary", "Terminal output can contain secrets"),
                 kind: .choice([
                     SettingChoice(FeedTerminalMirror.off.rawValue, SettingsText.keyed("settings.choice.feedMirror.off", "Off")),
                     SettingChoice(FeedTerminalMirror.title.rawValue, SettingsText.keyed("settings.choice.feedMirror.title", "Title Only")),
@@ -158,6 +161,13 @@ nonisolated enum NotificationSettingsSchema {
                 ["notifications", "attention", "showOnSidebar"], section: .notifications, group: ring,
                 title: SettingsText.keyed("settings.attention.showOnSidebar", "Mark the Sidebar Row"),
                 kind: .toggle, default: .bool(attention.showsOnSidebar)
+            ),
+            SettingDescriptor(
+                ["notifications", "attention", "moveToTop"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.moveToTop", "Move the Workspace to the Top"),
+                help: SettingsText.keyed("settings.attention.moveToTop.help",
+                                        "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane."),
+                kind: .toggle, default: .bool(attention.movesToTop), keywords: ["reorder", "sort", "bump"]
             ),
             SettingDescriptor(
                 ["notifications", "mutedWorkspaces"], section: .notifications, group: banners,

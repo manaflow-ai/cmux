@@ -41,12 +41,15 @@ export function omnibarContext(value: unknown): OmnibarContext | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const object = value as Record<string, unknown>;
   const kinds = new Set(["terminal", "browser", "agent"]);
+  const seen = new Set<string>();
   return {
     tabs: records(object.tabs)
       .flatMap((tab) => {
         const id = string(tab.id);
-        const title = string(tab.title) ?? "";
-        if (!id || !kinds.has(tab.kind as string)) return [];
+        const title = string(tab.title);
+        // A row needs a place to go: never a New Tab page's `about:blank`, never a tab listed twice.
+        if (!id || !title || title === "about:blank" || !kinds.has(tab.kind as string) || seen.has(id)) return [];
+        seen.add(id);
         const detail = string(tab.detail);
         const workspace = string(tab.workspace);
         return [

@@ -9,6 +9,18 @@ extension PaletteController {
     func configureScopes() {
         configureScopes(entry: PaletteTunables.scopeEntry.value, chip: PaletteTunables.scopeChip.value,
                         itemActions: PaletteTunables.itemActions.value)
+        applyRankSettings()
+    }
+
+    /// Reads the user's aliases and pins (cmux.json) into the searcher. A change ranks the empty
+    /// query again: the last rank kept for the next open was ranked with the old pins.
+    private func applyRankSettings() {
+        let settings = sources.rankSettings?() ?? PaletteRankSettings()
+        let changed = model.searcher.rankSettings.withLock { current in
+            defer { current = settings }
+            return current != settings
+        }
+        if changed { model.frecencyRevision += 1 }
     }
 
     func configureScopes(entry: PaletteScopeEntryStyle, chip: PaletteScopeChipStyle, itemActions: PaletteItemActionsStyle) {

@@ -657,7 +657,7 @@
   color: var(--muted-text);
 }
 
-/* The Reset slot: every row reserves it, so the control fades and scales in place. */
+/* The Reset slot: every row reserves it, so the control fades in place. */
 .reset-slot {
   display: inline-flex;
   flex: none;
@@ -667,17 +667,14 @@
 
 .reset-button {
   opacity: 0;
-  transform: scale(0.8);
   transition:
     opacity var(--motion-out) var(--motion-ease),
-    transform var(--motion-out) var(--motion-ease),
     background var(--motion-hover);
 }
 
 .reset-slot[data-shown] .reset-button {
   opacity: 1;
-  transform: none;
-  transition-duration: var(--motion-in), var(--motion-in), var(--motion-hover);
+  transition-duration: var(--motion-in), var(--motion-hover);
 }
 
 /* A category fades in when it opens; a transform never moves anything else. */
@@ -691,7 +688,6 @@
 @keyframes settings-pop {
   from {
     opacity: 0;
-    transform: scale(0.92);
   }
 }
 
@@ -742,8 +738,9 @@
   margin-top: 0;
 }
 
+/* The popup surfaces keep their fades (pages/shared/desktop.css). */
 @media (prefers-reduced-motion: reduce) {
-  *,
+  *:not(.ui-popup, .ui-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop),
   *::before,
   *::after {
     animation: none !important;
@@ -783,5 +780,6 @@
 
   .content {
     padding: 14px 16px 40px;
+    --content-fade-top: 12px;
   }
 }

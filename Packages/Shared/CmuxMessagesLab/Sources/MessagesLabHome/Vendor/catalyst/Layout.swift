@@ -356,7 +356,15 @@ struct ThreadPreview: Hashable {
     /// Text previews (macOS 27, lossless stills): stub 5.15 pt under the box, 12.25 pt long.
     var stubGap: CGFloat { isThumbnail ? 5.5 : isText ? 5.15 : ThreadPreview.stubGap }
     var stubHeight: CGFloat { isThumbnail ? 11.5 : isText ? 12.25 : ThreadPreview.stubHeight }
-    var height: CGFloat { box.height + stubGap + stubHeight }
+    /// The row's height: box, stub, rounded to the device pixel grid (Fixture.renderScale). A text preview's parts are
+    /// 41.65 pt (24.25 + 5.15 + 12.25; 52.65 with 2 lines); Messages' rows under a preview sit on whole device pixels
+    /// (nosb-active against deactivate-activate tp0000ms: incoming edges 798.00 / 864.00 px, ours were 798.31 / 864.31
+    /// with 41.65), so its preview row is 41.5 pt at 2x. The drawing keeps its measured places from the row's top: the
+    /// stub's end lies 0.15 pt inside the reply gap (cx-3cb row-snap).
+    var height: CGFloat {
+        let s = max(1, Fixture.renderScale)
+        return ((box.height + stubGap + stubHeight) * s).rounded() / s
+    }
 }
 
 struct PartRow: Hashable {

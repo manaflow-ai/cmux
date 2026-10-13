@@ -5,6 +5,9 @@
 
 use super::*;
 
+#[path = "workspace_resource_deltas.rs"]
+mod workspace_resource_deltas;
+
 const APP: &str = "cmux/coderouter";
 
 /// The daemon's installed apps: the first-party packages of this checkout,

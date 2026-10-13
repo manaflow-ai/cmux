@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextDesign
 import CmuxNextIcons
 import SwiftUI
 
@@ -37,6 +38,7 @@ struct FeedInboxView: View {
                                 shown: shown?.id, now: now, pendingIDs: pendingIDs, select: select)
                         }
                         .padding(.bottom, 10)
+                        .thinScrollers()
                     }
                 }
             }
@@ -113,6 +115,7 @@ struct FeedInboxDetail: View {
                 }
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .thinScrollers()
             }
         }
     }

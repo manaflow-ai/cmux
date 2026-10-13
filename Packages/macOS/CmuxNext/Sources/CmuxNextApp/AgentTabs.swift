@@ -166,6 +166,8 @@ final class AgentTabStore {
     var pendingTurns: [String: String] = [:]
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
+    /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
+    var uploader: (@MainActor (_ tab: String) -> AgentPaneUploader?)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``)
@@ -363,17 +365,13 @@ final class AgentTabStore {
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
-        model.onTypeAhead = { [weak self] text in
-            guard let self else { return }
-            let key = resolve(provisional)
-            (newTabPages[key]?.handler ?? blankChatHandler?(key))?.typeAhead(key, text)
-        }
+        model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in
             guard let self else { return }
             let key = resolve(provisional)
             newTabPages[key]?.handler.inputReady(key, token)
         }
-        model.onRememberNewTab = { [weak self] agent in self?.newTabPage(provisional)?.handler.remember(agent) }
+        model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
         model.onNewTabSetting = { [weak self] setting in self?.newTabPage(provisional)?.handler.write(setting) }
@@ -415,6 +413,10 @@ final class AgentTabStore {
             return try await link.write(request, in: cwd)
         }
         wireAgentFolder(model, key: provisional)
+        model.onUpload = { [weak self] in
+            guard let self else { return nil }
+            return uploader?(resolve(provisional))
+        }
     }
 
     /// A pane view on this store's page and host, with the shared pushes.
@@ -429,7 +431,7 @@ final class AgentTabStore {
         // React-only New Tab). Chat panes keep it.
         if model.newTab != nil { view.showsLoadingState = false }
         pageChats.seed(view)
-        model.onShowContextUsage = { [weak pageSettings] show in try await pageSettings?.setShowContextUsage(show) }
+        model.onComposerSetting = { [weak pageSettings] path, show in try await pageSettings?.setComposer(path, show) }
         customization.start()
         return view
     }
@@ -437,9 +439,15 @@ final class AgentTabStore {
     func existingView(_ key: String) -> AgentPaneView? { views[resolve(key)] }
 
     func newTabPage(_ key: String) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? { newTabPages[resolve(key)] }
+    /// The New Tab page's handler, else a chat tab's (a chat's picks are remembered too, cx-q5x6r).
+    func pageHandler(_ key: String) -> NewTabPageHandler? { newTabPages[resolve(key)]?.handler ?? blankChatHandler?(resolve(key)) }
 
     /// The tab still shows the new tab page (it has not become a chat).
     func isNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)] != nil }
+
+    /// A New Tab page whose selected kind is an agent chat: it becomes that chat in place, so it
+    /// takes the chat's chrome from its first frame (cx-ncc.58).
+    func isAgentNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)]?.page.kind == .agent }
 
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.

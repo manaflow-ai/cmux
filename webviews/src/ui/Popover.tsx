@@ -2,7 +2,7 @@
 // the page stays usable; Escape and a press outside close it, and focus returns where it was.
 import type { ReactNode } from "react";
 import { Popover as BasePopover } from "@base-ui/react/popover";
-import { usePortalContainer } from "./UiProvider";
+import { useOverlayPosition, usePortalContainer } from "./UiProvider";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 
@@ -78,6 +78,7 @@ export function Popover({
   children,
 }: PopoverProps) {
   const container = usePortalContainer();
+  const positionMethod = useOverlayPosition();
   return (
     <BasePopover.Root
       open={open}
@@ -87,6 +88,7 @@ export function Popover({
       <BasePopover.Portal container={container}>
         <BasePopover.Positioner
           className="ui-positioner"
+          positionMethod={positionMethod}
           anchor={virtualAnchor(anchor)}
           side={side}
           collisionAvoidance={flip ? undefined : { side: "none" }}

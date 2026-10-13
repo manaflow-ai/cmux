@@ -17,7 +17,10 @@
 //!   folder are kept per receive in memory.
 //! - `agent-transfer-write {receive_id, path, offset, data}`: one page.
 //! - `agent-transfer-finish {receive_id, name?}`: imports the chat in the
-//!   receive's own folder (`cwd` is never taken here). While the call runs
+//!   receive's own folder (`cwd` is never taken here). The session id
+//!   acpmux answers is remembered as landed here (`landed.rs`), so
+//!   `new-conversation-tab` may file it under this store's `registry:`
+//!   host. While the call runs
 //!   (from the moment acpmux is reached until it returns, on every path) a
 //!   receive-abort of it answers that the landing cannot be told yet.
 //! - `agent-transfer-receive-abort {receive_id}`: forgets the receive and has
@@ -26,7 +29,11 @@
 //!   files and refuses that move from then on. A receive its finish ended
 //!   (settled) can still be asked, so a pump that lost the finish answer
 //!   learns whether the chat landed (`landed`) before it commits or aborts
-//!   the source.
+//!   the source. A receive acpmux answered here stays askable after it was
+//!   dropped and after this daemon restarts (`askable.rs`: the 40 most
+//!   recent, 24 h each, on disk when the session has a state folder), so a
+//!   restart between a finish and the pump's question does not leave the
+//!   move unresolved.
 //!
 //! Machine kind: receive and finish read `agent-session-start`'s host gate
 //! at each call and refuse on a team VM and on a Cloud VM of unknown kind
@@ -43,7 +50,9 @@
 //!   `source` paths, and its `session.json` without the source machine's
 //!   launch settings (env, argv, harness roots, preset, tags; its `cwd`
 //!   stays, the target's finish replaces it); the manifest lists their
-//!   scrubbed sizes.
+//!   scrubbed sizes. With `ask_first: true` the chat is first narrowed here
+//!   to an asking policy, rules and mode (`ask_first.rs`), so a Mac's guard
+//!   that refused it takes it.
 //! - `agent-transfer-read {transfer_id, path, offset, limit?}` pages a bundle
 //!   file the begin manifest of a move begun through this daemon lists.
 //! - `agent-transfer-commit {surface, transfer_id, to}` and
@@ -78,6 +87,12 @@ use crate::state::conversation_tabs_store::ConversationTabRecord;
 
 mod bundle;
 use bundle::{is_bundle_path, page_data_len, page_of, scrub_bundle};
+/// `access-request-v1`, served on a Cloud host as this is.
+pub mod access_requests;
+mod ask_first;
+mod askable;
+mod landed;
+mod state_file;
 
 pub const AGENT_TRANSFER_CAPABILITY: &str = "agent-transfer-v1";
 
@@ -128,6 +143,10 @@ pub(crate) struct AgentTransfers {
     /// Receives a finish ended: only a receive-abort still names them.
     settled: Mutex<HashMap<String, Settled>>,
     moves: Mutex<HashMap<String, Move>>,
+    /// Chats a finish here landed (`landed.rs`).
+    landed: landed::Landed,
+    /// Receives a receive-abort may still name after a restart (`askable.rs`).
+    askable: askable::Askable,
     calls: AtomicUsize,
 }
 
@@ -282,6 +301,12 @@ impl Mux {
         *self.agent_transfers.host.write().unwrap_or_else(|e| e.into_inner()) = host;
     }
 
+    /// True on a cmux Cloud host, as the binary set it at start
+    /// (`access-request-v1` is served there only).
+    pub(crate) fn on_cloud_host(&self) -> bool {
+        self.agent_transfers.host().is_some_and(|host| host.cloud)
+    }
+
     /// True with an acpmux socket path and a host.
     pub(crate) fn serves_agent_transfer(&self) -> bool {
         self.serves_agent_session_attach() && self.agent_transfers.host().is_some()
@@ -332,6 +357,8 @@ struct BeginParams {
     surface: SurfaceId,
     #[serde(default)]
     interrupt: bool,
+    #[serde(default)]
+    ask_first: bool,
 }
 
 #[derive(Deserialize)]
@@ -523,6 +550,9 @@ pub(super) fn try_handle(
     message: &str,
     writer: &MessageWriter,
 ) -> Option<bool> {
+    if let Some(keep_open) = access_requests::try_handle(mux, client, message, writer) {
+        return Some(keep_open);
+    }
     if !message.contains("\"agent-transfer-") {
         return None;
     }
@@ -606,6 +636,7 @@ enum Prepared {
     Begin {
         session: String,
         interrupt: bool,
+        ask_first: bool,
     },
     Read {
         transfer_id: String,
@@ -675,14 +706,23 @@ fn prepare(mux: &Mux, verb: Verb) -> Result<Prepared, Failure> {
         Verb::ReceiveAbort(ReceiveAbortParams { receive_id }) => {
             // Without this entry no write or finish reaches the receive; acpmux
             // drops its files and refuses the move from now on (its forget).
-            transfers.take_for_abort(&receive_id).ok_or(Refusal::UnknownReceive)?
+            match transfers.take_for_abort(&receive_id) {
+                Some(prepared) => prepared,
+                // Not held in memory (this daemon restarted, or its receive
+                // was dropped): the recorded move of a receive acpmux
+                // answered here, asked again (acpmux's forget is idempotent).
+                None => {
+                    let moved = mux.askable_receive(&receive_id).ok_or(Refusal::UnknownReceive)?;
+                    Prepared::Forget { receive_id, moved, live: None }
+                }
+            }
         }
-        Verb::Begin(BeginParams { surface, interrupt }) => {
+        Verb::Begin(BeginParams { surface, interrupt, ask_first }) => {
             let session = tab_session(mux, surface).ok_or(Refusal::UnknownTab)?;
             if AgentTransfers::full(&mut lock(&transfers.moves), MAX_MOVES, |m| m.touched) {
                 return Err(Refusal::Limit.into());
             }
-            Prepared::Begin { session, interrupt }
+            Prepared::Begin { session, interrupt, ask_first }
         }
         Verb::Read(ReadParams { transfer_id, path, offset, limit }) => {
             let limit = limit.unwrap_or(DEFAULT_READ);
@@ -803,6 +843,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let (Some(receive_id), true) = (receive_id, answer["guarded"] == json!(true)) else {
                 return Err(Refusal::Unguarded.into());
             };
+            // Before the pump learns the receive: it can always ask about it.
+            mux.remember_askable_receive(receive_id, &moved);
             let entry = Receive { cwd, moved, touched: Instant::now(), finishing: false };
             lock(&transfers.receives).insert(receive_id.to_owned(), entry);
             Ok(json!({"receive_id": receive_id, "session_id": answer["sessionId"]}))
@@ -826,9 +868,17 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
                 transfers.settle(&receive_id);
             }
             drop(finishing);
-            Ok(json!({"session": finished?}))
+            let session = finished?;
+            // acpmux's own answer, never a client's id: this machine's chat now.
+            if let Some(landed) = session["sessionId"].as_str() {
+                mux.remember_landed_agent_session(landed);
+            }
+            Ok(json!({"session": session}))
         }
-        Prepared::Begin { session, interrupt } => {
+        Prepared::Begin { session, interrupt, ask_first } => {
+            if ask_first {
+                ask_first::narrow(&call, &session)?;
+            }
             let source_session = session.clone();
             let params = json!({"sessionId": session, "interrupt": interrupt});
             let mut manifest = call("_acpmux/transfer_begin", params, BEGIN_TIMEOUT)?;
@@ -848,6 +898,8 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             };
             let entry = Move { files, touched: Instant::now() };
             lock(&transfers.moves).insert(transfer_id.clone(), entry);
+            // The chat is leaving this machine: no new tab of it may name it.
+            mux.forget_landed_agent_session(&source_session);
             Ok(json!({"transfer_id": transfer_id, "source_session": source_session,
                        "manifest": manifest}))
         }
@@ -875,6 +927,7 @@ fn run(mux: &Mux, socket: &Path, prepared: Prepared) -> Result<Value, Failure> {
             let params = json!({"sessionId": session, "transferId": transfer_id, "to": to});
             call("_acpmux/transfer_commit", params, CALL_TIMEOUT)?;
             lock(&transfers.moves).remove(&transfer_id);
+            mux.forget_landed_agent_session(&session);
             Ok(json!({"committed": true}))
         }
         Prepared::Abort { session, transfer_id } => {

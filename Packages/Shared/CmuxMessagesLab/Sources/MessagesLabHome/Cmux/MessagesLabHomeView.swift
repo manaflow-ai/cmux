@@ -48,6 +48,14 @@ public final class MessagesLabHomeView: NSView {
 
     public override var isFlipped: Bool { true }
 
+    /// MessagesLab b6760b6: Home moved in its pane without a size change (a split or sidebar move that only
+    /// shifts it): the typing indicator snaps to the window's device pixels at the new place. A size change
+    /// lays the host out, which refreshes it too (HostView.layout).
+    public override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        controller.host.refreshWindowPlaceIfMoved()
+    }
+
     public override func layout() {
         super.layout()
         if controller.host.frame != bounds { controller.host.frame = bounds }
@@ -263,7 +271,7 @@ public final class MessagesLabHomeView: NSView {
 
     /// Automation (DEBUG socket): the field's height and, for the newest
     /// receipt row with a row under it, its top to that row's body (macOS 27
-    /// Messages: 31 pt and 20 pt).
+    /// Messages: the field is 30 pt after a send and 31 pt from the first key; 20 pt).
     public func debugGeometry() -> [String: Double] {
         guard let demo = controller.demo else { return [:] }
         var out: [String: Double] = ["fieldHeight": Double(demo.compose.fieldRect.height)]
@@ -277,6 +285,64 @@ public final class MessagesLabHomeView: NSView {
         }
         return out
     }
+
+    /// Automation (DEBUG socket): the typing bubble's body (RowCell.typingBody) in window
+    /// coordinates (AppKit: origin at the bottom left), nil when no typing row shows.
+    public func debugTypingBubbleFrame() -> CGRect? {
+        guard let demo = controller.demo, controller.host.window != nil, let hostLayer = controller.host.layer else { return nil }
+        for case let cell as RowCell in demo.collection.visibleCells {
+            guard case .typing? = cell.spec?.kind, !cell.isHidden else { continue }
+            let inHost = cell.typingBody.convert(cell.typingBody.bounds, to: hostLayer)
+            return controller.host.convert(inHost, to: nil)
+        }
+        return nil
+    }
+
+    /// Automation (DEBUG socket): the visible rows as drawn, in window coordinates (AppKit: origin
+    /// at the bottom left), top to bottom. A message part gives its bubble body (RowDraw.bodyRect in
+    /// the row's content, which RowCell.snapRow moves onto the window's device pixels) and its drawn
+    /// balloon (RowDraw.balloon: an outgoing text balloon lies a little inside the body on macOS 27);
+    /// a thread preview and any other row give the row's content box (both).
+    public func debugRowFrames() -> [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] {
+        guard let demo = controller.demo, controller.host.window != nil, let hostLayer = controller.host.layer else { return [] }
+        var rows: [(kind: String, key: String, outgoing: Bool, frame: CGRect, balloon: CGRect)] = []
+        for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
+            guard let spec = cell.spec else { continue }
+            let content = cell.contentView.layer
+            let kind: String, outgoing: Bool, rect: CGRect, drawn: CGRect
+            switch spec.kind {
+            case let .part(p):
+                kind = { if case .text = p.part { return "text" }; return "part" }()
+                outgoing = p.outgoing
+                rect = RowDraw.bodyRect(spec)
+                drawn = RowDraw.balloon(rect, row: p)
+            case .threadPreview(let pv):
+                kind = "preview"; outgoing = pv.outgoing
+                rect = CGRect(origin: .zero, size: content.bounds.size); drawn = rect
+            default:
+                kind = "other"; outgoing = false
+                rect = CGRect(origin: .zero, size: content.bounds.size); drawn = rect
+            }
+            func inWindow(_ r: CGRect) -> CGRect { controller.host.convert(content.convert(r, to: hostLayer), to: nil) }
+            rows.append((kind, spec.key, outgoing, inWindow(rect), inWindow(drawn)))
+        }
+        return rows.sorted { $0.frame.maxY > $1.frame.maxY }
+    }
+
+    /// Automation (DEBUG socket): MessagesLab's width pass counters (every window view): passes run and
+    /// passes deferred to the next display frame (WindowView's resize pacing).
+    public var debugWidthPasses: (passes: Int, deferred: Int) {
+        (MessagesWindowView.widthPasses, MessagesWindowView.widthPassesDeferred)
+    }
+    /// MessagesLab's frame budget for width passes (s): a later width change in a display frame runs at once
+    /// while that frame's passes cost less (f11642b resize-pace).
+    public var debugWidthPassBudget: Double { Double(MessagesWindowView.widthPassFrameBudget) }
+
+    /// The window view's origin in window points (bottom-left origin), for automation.
+    public var debugHostOrigin: CGPoint { controller.host.convert(CGPoint.zero, to: nil) }
+    /// The window view's frame in window points (bottom-left origin), for automation (its right edge: a pane
+    /// whose width is a fraction of a device pixel).
+    public var debugHostFrame: CGRect { controller.host.convert(controller.host.bounds, to: nil) }
 
     /// Automation (DEBUG socket): the text of the newest `limit` messages
     /// this view holds (its own store), oldest first.

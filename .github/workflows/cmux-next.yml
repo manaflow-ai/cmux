@@ -644,6 +644,8 @@ jobs:
           CMUX_TUI_TREE_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           CMUX_TUI_TREE_BASE_FALLBACK: ${{ steps.route.outputs.own_tui == 'false' && '1' || '' }}
           CMUX_TUI_TREE_RECHECK_SECONDS: "0"
+          # The first probe already waited for main's merge-tree publisher.
+          CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS: "0"
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/pin-cmux-tui.sh probe
 
@@ -874,9 +876,10 @@ jobs:
         continue-on-error: true
         run: scripts/cmux-next/check-module-resources.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
-      # SCROLLBARS-FOLLOW-MACOS: no forced scroller style, hidden indicators or
-      # custom web scrollbars; scrollers follow the macOS "Show scroll bars" setting.
-      - name: Scrollbars follow macOS
+      # SCROLLBARS-THIN: no forced scroller style, hidden indicators or
+      # custom web scrollbars outside the one shared style (SystemScrollers.swift,
+      # webviews/src/scrollers.ts): thin, shown only while scrolling.
+      - name: Scrollbars thin, one style
         id: scrollbars
         continue-on-error: true
         env:
@@ -885,6 +888,13 @@ jobs:
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/ratchet-debt"
           scripts/cmux-next/check-scrollbars.sh "$GITHUB_WORKSPACE" | tee "$RUNNER_TEMP/ratchet-debt/scrollbars.log"
+
+      # Animation timing comes from the Motion tokens (plans/cmux-next/motion.md),
+      # so ui.animationSpeed and Reduce Motion reach every animation.
+      - name: Motion tokens
+        id: motion
+        continue-on-error: true
+        run: scripts/cmux-next/check-motion.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
 
       # LAUNCH-NO-TCC-PROMPTS: the Swift and TypeScript copies of the one
       # protected-folder list (cmux-tui/crates/acpmux/data/protected-folders.json).
@@ -916,6 +926,7 @@ jobs:
           bash scripts/cmux-next/tests/pin-cmux-tui-windows-fetch.test.sh
           python3 tests/test_cmux_next_tree_notify.py
           bash scripts/cmux-next/tests/pin-cmux-tui-resolve-newest.test.sh
+          bash scripts/cmux-next/tests/pin-cmux-tui-fallback-key.test.sh
           bash scripts/cmux-next/tests/pin-cmux-tui-dispatch.test.sh
           bash scripts/cmux-next/tests/cmux-tui-tree-claim.test.sh
           bash scripts/cmux-next/tests/request-nightly-next.test.sh
@@ -1099,6 +1110,7 @@ jobs:
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
             ${{ steps.scrollbars.outcome }}|Scrollbars follow macOS
+            ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)

@@ -22,7 +22,12 @@ export function deliverDictation(update: DictationUpdate): void {
 
 let autoSend = false;
 /// `layout.json` `{"dictation": {"autoSend": true}}` sends the prompt when a session ends with
-/// words. Off by default: dictated text waits for the user.
+/// words. Off by default: dictated text waits for the user. The host gates it, not this page:
+/// every session/prompt needs a real key or click in the pane within 30 s (AgentPaneUserGestures),
+/// which page script cannot make. A session the user stops in the pane (the mic, or its shortcut
+/// while the pane has focus) sends. One that ends by itself (sleep, the engine, a push-to-talk hold
+/// past 30 s) or from the palette, a menu or the CLI is refused, and its prompt stays in the
+/// composer with "Not sent. Send it again." (cx-w2p8r).
 export function configureDictation(layout: Record<string, unknown> | undefined): void {
   const dictation = layout?.dictation as { autoSend?: unknown } | undefined;
   autoSend = dictation?.autoSend === true;
@@ -60,8 +65,14 @@ export type Dictation = {
   dismiss(): void;
 };
 
+/// What dictation drives a prompt with: the composer's Markdown field, or a plain field (the New
+/// Tab page's) that sends with `submit` (it is in no form).
+export type DictationField = Pick<MarkdownFieldHandle, "focus" | "text" | "writeText" | "focused" | "element"> & {
+  submit?(): void;
+};
+
 /// Dictation into the composer's prompt, which `prompt` holds once the composer mounts.
-export function useDictation(prompt: React.RefObject<MarkdownFieldHandle | null>, call: Call): Dictation {
+export function useDictation(prompt: React.RefObject<DictationField | null>, call: Call): Dictation {
   const t = useT();
   const [state, setState] = useState<DictationState>("idle");
   const [notice, setNotice] = useState<DictationUpdate | null>(null);
@@ -76,9 +87,20 @@ export function useDictation(prompt: React.RefObject<MarkdownFieldHandle | null>
     let composing = false;
     /// The last update spliced; a repeat (a level-only tick) leaves the prompt and caret alone.
     let applied: DictationUpdate | null = null;
+    /// The field element the session writes into.
+    let owner: Element | null = null;
     const apply = (update: DictationUpdate) => {
       const field = prompt.current;
       if (!field) return;
+      // The session's field went away (New Tab became the chat): its words and offsets belong to
+      // that field, so the session ends rather than splicing into, or sending, another one.
+      if (anchor.current && owner && owner !== field.element()) {
+        anchor.current = null;
+        applied = null;
+        owner = null;
+        if (isActive(update.state)) void call("dictation.cancel").catch(() => {});
+        return;
+      }
       if (applied && applied.state === update.state && applied.text === update.text && !update.cancelled) return;
       applied = isActive(update.state) ? update : null;
       // A session the shortcut started writes where the user will type, as undoable edits.
@@ -86,10 +108,11 @@ export function useDictation(prompt: React.RefObject<MarkdownFieldHandle | null>
       const splice = applyDictation(field.text(), anchor.current, update);
       if (!splice) return;
       anchor.current = splice.anchor;
+      owner = splice.anchor ? field.element() : null;
       field.writeText(splice.value, splice.selectionStart, splice.selectionEnd);
       // Submit on the next task, once the composer's state holds the dictated text.
       if (update.state === "idle" && !update.cancelled && autoSend && splice.placed)
-        setTimeout(() => field.element()?.closest("form")?.requestSubmit(), 0);
+        setTimeout(() => (field.submit ? field.submit() : field.element()?.closest("form")?.requestSubmit()), 0);
     };
     const receive = (update: DictationUpdate) => {
       requested.current = false;
@@ -129,7 +152,7 @@ export function useDictation(prompt: React.RefObject<MarkdownFieldHandle | null>
       document.removeEventListener("compositionstart", compositionStart, true);
       document.removeEventListener("compositionend", compositionEnd, true);
     };
-  }, [prompt]);
+  }, [prompt, call]);
 
   // Esc cancels, only while a session runs; idle composers keep every key.
   const active = isActive(state);

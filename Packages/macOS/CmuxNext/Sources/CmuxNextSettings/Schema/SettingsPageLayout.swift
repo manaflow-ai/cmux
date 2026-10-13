@@ -109,7 +109,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.sidebar"), group("settings.group.workspaceRows"),
                 group("settings.group.statusIndicator"), group("settings.group.surfaces"),
             ],
-            actions: [.appearance], aliases: [.appearance]),
+            // Change Background… lands here: the art picker draws appearance.background and
+            // appearance.backgroundOpacity (search still shows them as rows).
+            lead: [.backdrops], actions: [.appearance], aliases: [.appearance]),
         CategorySpec(
             id: "terminal", title: section(.terminal), symbol: "terminal",
             groups: [
@@ -139,8 +141,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "browser", title: section(.browser), symbol: "globe",
             groups: [
                 group("settings.group.engine"), group("settings.group.addressBar"), group("settings.group.bookmarks"),
-                group("settings.group.links"), group("settings.group.terminalLinks"), group("settings.group.memory"),
-                group("settings.group.remote"),
+                group("settings.group.links"), group("settings.group.terminalLinks"), group("settings.group.passwords"),
+                group("settings.group.memory"), group("settings.group.remote"),
             ],
             trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),
         CategorySpec(
@@ -174,7 +176,6 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 GroupSpec(group: "settings.group.labs", keys: ["appearance.experimentalControls"]),
                 group("settings.group.appearanceTuning"),
-            ],
-            trail: [.backdrops]),
+            ]),
     ]
 }

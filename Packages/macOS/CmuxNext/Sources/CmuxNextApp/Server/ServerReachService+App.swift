@@ -27,7 +27,13 @@ extension ServerReachService {
             linkPeers: { await ServerReachService.readLinkPeers(binary: cli) },
             cli: cli,
             linkSetupFile: cli.map { _ in
-                ServerReachPlan.defaultLinkSetupFile(environment: ProcessInfo.processInfo.environment, home: NSHomeDirectory())
+                // The app's own daemon state root (a tag's or channel's), which
+                // only the daemon gets as CMUX_TUI_STATE_DIR.
+                var environment = ProcessInfo.processInfo.environment
+                if let tag = services.environment.daemonTag {
+                    environment["CMUX_TUI_STATE_DIR"] = DaemonLauncher.tagStateDirectory(tag: tag).path
+                }
+                return ServerReachPlan.defaultLinkSetupFile(environment: environment, home: NSHomeDirectory())
             })
     }
 }

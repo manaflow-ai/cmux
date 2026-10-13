@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 package import CmuxNextRemoteView
 
 #if DEBUG
@@ -109,7 +110,7 @@ public final class RemoteBrowserContentView: NSView {
     /// Why the page is not shown (a refused or lost session), drawn over
     /// the page area; nil while the page streams.
     public private(set) var failureMessage: String?
-    private var failureLabel: NSTextField?
+    private var failureLabel: ThemedLabel?
 
     /// Shows `message` centered in the page area (nil hides it).
     public func showFailure(_ message: String?) {
@@ -119,12 +120,13 @@ public final class RemoteBrowserContentView: NSView {
             failureLabel = nil
             return
         }
-        let label = failureLabel ?? NSTextField(wrappingLabelWithString: "")
+        let label = failureLabel ?? ThemedLabel(wrappingLabelWithString: "")
         label.stringValue = message
         label.alignment = .center
-        label.textColor = .secondaryLabelColor
+        label.ink = .secondary
         label.font = .systemFont(ofSize: NSFont.systemFontSize)
         label.isSelectable = true
+        label.focusRingType = .none
         if failureLabel == nil {
             failureLabel = label
             addSubview(label)

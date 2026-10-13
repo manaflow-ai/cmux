@@ -13,14 +13,16 @@ the box, or the field's own border) show focus. This check refuses a new ring on
        its name; buttons, checkboxes, radios, ranges, switches excluded) and
        sets a visible `outline` (or outline-width / outline-style / outline-color).
        A universal focus ring (`:focus-visible { outline: ... }`, the shared rule) must name
-       `input`, `textarea` and `contenteditable` in its `:not(...)` list.
+       `input`, `textarea` and `contenteditable` in its `:not(...)` list, and open menus
+       and popovers (`[role="menu"]`, `.ui-popup`), which take focus on open.
   tsx  a Tailwind `focus:` / `focus-visible:` outline or ring utility on an <input> or <textarea>
        (`outline-none` / `ring-0` are fine).
 
   swift CmuxNext sources: a SwiftUI TextField / SecureField whose modifier chain (the next 8
        lines) has no `.focusEffectDisabled()`, and an AppKit NSTextField / NSSearchField /
        NSSecureTextField / NSTokenField / NSComboBox built in a file that never sets
-       `focusRingType = .none` (labels excluded). AppKit's and SwiftUI's ring is a system-blue
+       `focusRingType = .none` (labels excluded), or a label made selectable (`isSelectable = true`)
+       without it. AppKit's and SwiftUI's ring is a system-blue
        rectangle around the field.
 
 A deliberate exception carries `text-focus-allow: <reason>` in a comment on the rule (CSS) or on
@@ -147,6 +149,11 @@ def css_hits(path: str, text: str):
                 if not all(name in compound for name in ("input", "textarea", "contenteditable")):
                     line = text.count("\n", 0, match.start(2)) + 1
                     yield line, part.strip(), ring[0] + " on every element, text fields included"
+                # An open menu or popover takes focus so its keys work; a ring drew a square
+                # around the whole menu (Leo 2026-10-11). A list that takes Tab focus keeps it.
+                elif not all(name in compound for name in ('[role="menu"]', ".ui-popup")):
+                    line = text.count("\n", 0, match.start(2)) + 1
+                    yield line, part.strip(), ring[0] + " on every element, open menus included"
                 continue
             selecting = strip_not(compound)
             if TEXT_COMPOUND.search(" " + selecting) and not NOT_TEXT.search(selecting):
@@ -173,6 +180,8 @@ APPKIT_FIELD = re.compile(
     r"(?<![\w.])(?:NSTextField|NSSearchField|NSSecureTextField|NSTokenField|NSComboBox)\s*\("
     r"(?!\s*(?:labelWithString|wrappingLabelWithString|labelWithAttributedString)\b)"
 )
+
+SELECTABLE = re.compile(r"(?<![\w.])(\w+)\.isSelectable\s*=\s*true\b")
 
 
 def swift_hits(text: str):
@@ -201,6 +210,16 @@ def swift_hits(text: str):
             if name is None and re.search(r"focusRingType\s*=\s*\.none", text):
                 continue  # an unbound field (an argument): the file-level setting is the best signal
             yield index + 1, f"an AppKit text field ({name or 'unbound'}) without focusRingType = .none"
+        # A selectable label takes the keyboard on a click and draws the same ring (cx-ncc.88);
+        # an NSTextView draws none.
+        selectable = SELECTABLE.search(code)
+        if selectable:
+            name = selectable.group(1)
+            if re.search(rf"\b{re.escape(name)}\s*(?::\s*NSTextView\b|=\s*NSTextView\s*\()", text):
+                continue
+            if re.search(rf"\b{re.escape(name)}\.focusRingType\s*=\s*\.none", text):
+                continue
+            yield index + 1, f"a selectable AppKit label ({name}) without focusRingType = .none"
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)

@@ -104,7 +104,8 @@ export function ComposerContext({
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;
-  const moves = started && onMove !== undefined && !busy;
+  const movable = started && onMove !== undefined;
+  const moves = movable && !busy;
   const branch = summary?.branch;
   // A started chat's Choose folder…: the host's folder panel, then the move (dogfood 09).
   const browseMove = onBrowseFolder
@@ -117,7 +118,9 @@ export function ComposerContext({
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <div className="acpmux-location-leading">
-        {readOnly && !moves && !currentFolder ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
+        {/* A movable chat keeps its folder control while a turn runs (off, not gone), so the row
+            never loses and regains it with each turn (cx-ncc.58). */}
+        {readOnly && !movable && !currentFolder ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
           <FolderMenu
             label={t(CONTEXT_LABELS.folder)}
             menu="Location"
@@ -181,7 +184,7 @@ function BranchPicker({ branch }: { branch: string }) {
   return (
     <span ref={control} className="acpmux-location-picker" title={branch}>
       <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton className="acpmux-location-button" label={t("changes.scope.branch")}>
+        <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
         </MenuButton>
         <MenuPopup side={side} flip={false} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
@@ -201,7 +204,7 @@ function BranchPicker({ branch }: { branch: string }) {
 function BranchIcon() {
   return (
     <svg
-      className="acpmux-icon acpmux-location-icon"
+      className="acpmux-icon acpmux-location-icon ui-ghost-icon"
       width={14}
       height={14}
       viewBox="0 0 16 16"
@@ -286,7 +289,11 @@ function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value:
     <>
       {icon}
       <span className="acpmux-location-label">{value}</span>
-      {chevron && <ChevronIcon />}
+      {chevron && (
+        <span className="ui-ghost-icon" aria-hidden="true">
+          <ChevronIcon />
+        </span>
+      )}
     </>
   );
 }
@@ -294,7 +301,7 @@ function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value:
 function FolderIcon() {
   return (
     <svg
-      className="acpmux-icon acpmux-location-icon"
+      className="acpmux-icon acpmux-location-icon ui-ghost-icon"
       width={14}
       height={14}
       viewBox="0 0 16 16"
@@ -382,7 +389,7 @@ function FolderMenu({
   return (
     <span ref={control} className="acpmux-location-picker" title={current}>
       <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton className="acpmux-location-button" label={label}>
+        <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
           <LocationFace icon={<FolderIcon />} value={value} chevron />
         </MenuButton>
         <MenuPopup side={side} flip={false} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="start">
@@ -515,7 +522,7 @@ function LocationPicker({
     return (
       <span ref={control} className="acpmux-location-picker">
         <Menu open={open} onOpenChange={setOpen}>
-          <MenuButton className="acpmux-location-button" label={label}>
+          <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
             {button}
           </MenuButton>
           <MenuPopup
@@ -560,7 +567,7 @@ function LocationPicker({
     <span ref={control} className="acpmux-location-picker" title={selected}>
       <button
         type="button"
-        className="acpmux-location-button"
+        className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -600,6 +607,7 @@ function LocationPicker({
             );
           }}
           inline
+          keepHeight
         />
         {onBrowse && (
           <>

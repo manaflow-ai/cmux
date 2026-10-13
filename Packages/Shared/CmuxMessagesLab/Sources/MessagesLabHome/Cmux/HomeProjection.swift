@@ -281,7 +281,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
         let draft = store.state.ui.draft
         let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
-        guard !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
+        // MessagesLab d0017ba: the reducer's own rule first (Return with nothing to send does nothing:
+        // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
+        guard Reducer.canSend(draft), !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
         // The open thread or reply view: the send is a reply in that thread (HomeStore's root id).
         let threadRoot: MessageID?
         if let deferred {
@@ -411,6 +413,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
             let id = HomeMapping.id(item, aliases: aliases)
             guard let message = store.state.message(id) else { continue }
             for part in item.parts {
+                if case .linkPreview(let link) = part {
+                    refreshLinkPicture(link, in: message)
+                    continue
+                }
                 guard case .attachment(let ref) = part else { continue }
                 media.request(ref)
                 let want = HomeMapping.attachment(ref, picture: media.asset(ref.hash), progress: Self.shownProgress(item, ref))
@@ -421,6 +427,20 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 if let have, have != want { controller.dispatch(.cmuxSetAttachment(id, want)) }
             }
         }
+    }
+
+    /// A link preview's picture, fetched by its hash like an attachment's
+    /// (never the URL): once ready it fills a card that has none
+    /// (`.linkMetadata`, the card redraws in place).
+    private func refreshLinkPicture(_ link: LinkPreview, in message: Message) {
+        guard let image = link.image else { return }
+        media.request(HomeMapping.attachmentRef(image))
+        guard let picture = media.asset(image.hash) else { return }
+        let bare = message.parts.contains { part in
+            if case let .link(url, _, _, shown, _) = part { return url == link.url && shown == nil }
+            return false
+        }
+        if bare { controller.dispatch(.linkMetadata(url: link.url, title: nil, site: nil, image: picture)) }
     }
 
     /// MessagesLab draws upload progress only on file rows (a bar); image and
@@ -534,6 +554,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 self.onRefusal(intent, rejection)
             } catch {}
         }
+    }
+
+    func rowsPlaced() {
+        video.place()
     }
 
     func scrolled() {

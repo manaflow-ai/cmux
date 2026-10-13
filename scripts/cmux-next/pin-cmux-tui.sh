@@ -108,6 +108,9 @@
 #          default 24; never waits; CMUX_TUI_TREE_SAME_PATHS, space-separated
 #          paths, skips a commit whose copy of any of them differs from the tip's)
 #        | wait (wait for the tree; superseded=true output for a superseded commit)
+#        | fallback-key (fleet suites: when HEAD has the tree of its base,
+#          CMUX_TUI_TREE_FALLBACK_BASE (default origin/feat-cmux-next), print the newest
+#          published tree's key, as CI's CMUX_TUI_TREE_BASE_FALLBACK; else exit 1)
 #        With CMUX_TUI_TREE_DISPATCH=1 (and GH_TOKEN or an authenticated gh), a tree that
 #        no active run publishes gets one cmux-tui-artifacts run on cmux-tui-pin-<sha12>.
 #        | probe (the cmux-next same-tree check: look once, never wait; writes tree_state=
@@ -435,6 +438,7 @@ ensure_tree_publisher() {
       sha="$fallback"
     else
       echo "warning: could not point refs/heads/cmux-tui-pin-${sha:0:12} at $sha (push $sha first; the token needs contents: write); not dispatching tree $key" >&2
+      await_outside_publisher "$key" "$sha"
       return 0
     fi
   fi
@@ -448,9 +452,38 @@ ensure_tree_publisher() {
     echo "cmux-tui tree $key: dispatched cmux-tui-artifacts.yml on $pin for $sha" >&2
     tree_publisher_sha="$sha"; tree_publisher_action=dispatched
   else
-    echo "warning: could not dispatch cmux-tui-artifacts.yml on $pin (the token needs actions: write); tree $key has no publisher" >&2
+    echo "warning: could not dispatch cmux-tui-artifacts.yml on $pin (the token needs actions: write); waiting for another publisher of tree $key" >&2
+    await_outside_publisher "$key" "$sha"
   fi
   return 0
+}
+
+# await_outside_publisher <key> <sha>: a pull request's token may write nothing
+# (403), and main's cmux-next-pr-merge-tree.yml (pull_request_target, started by
+# the same push) then pins the merge commit and dispatches its publish. Waits up
+# to CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS (default 90; path routing has 5 minutes) for an artifacts run for
+# <sha>, or one with the same tree, and sets tree_publisher_sha to defer to it.
+await_outside_publisher() {
+  local key="$1" sha="$2" current
+  local wait="${CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS:-90}" poll="${CMUX_TUI_TREE_PUBLISHER_POLL_SECONDS:-10}" started=$SECONDS
+  # Only a pull request has that publisher; other callers have their own waits.
+  [[ "${GITHUB_EVENT_NAME:-}" == pull_request ]] || return 0
+  [[ "$wait" =~ ^[0-9]+$ && "$poll" =~ ^[0-9]+$ ]] || { echo "warning: CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS and _POLL_SECONDS must be whole seconds" >&2; return 0; }
+  echo "cmux-tui tree $key: waiting up to ${wait}s for main's merge-tree publisher (cmux-next-pr-merge-tree.yml)" >&2
+  while :; do
+    if [[ "$(artifacts_runs_state "$sha")" == active ]]; then
+      echo "cmux-tui tree $key: an artifacts run for $sha started; deferring to it" >&2
+      tree_publisher_sha="$sha"; tree_publisher_action=active; return 0
+    fi
+    current="$(active_publisher_for_key "$key")"
+    if [[ -n "$current" ]]; then
+      echo "cmux-tui tree $key: active artifacts run for $current has the same tree; deferring to it" >&2
+      tree_publisher_sha="$current"; tree_publisher_action=active; return 0
+    fi
+    (( SECONDS - started + poll <= wait )) || break
+    sleep "$poll"
+  done
+  echo "warning: no artifacts run for tree $key started within ${wait}s; tree $key has no publisher" >&2
 }
 
 # pin_tree_ref <sha>: points refs/heads/cmux-tui-pin-<sha12> at <sha> and prints
@@ -1312,6 +1345,51 @@ PY
     ;;
   resolve-exact)
     resolve_exact_tree
+    ;;
+  fallback-key)
+    # A head that changes no tree input (its key equals its base's) tests the
+    # same cmux-tui as that base, so an older published tree stands in for an
+    # unpublished one. A commit on the base compares with its first parent.
+    # Fleet steps check out the ref at depth 1 with no branch refs: fetch the
+    # base and deepen both to CMUX_TUI_TREE_SEARCH_COMMITS so the merge base,
+    # the parent and the published tree's commit are in the history.
+    # The fleet worker's checkout is a git init fetched from the repository URL,
+    # with no origin remote: fetch from CMUX_TUI_TREE_FALLBACK_REMOTE then.
+    fallback_base="${CMUX_TUI_TREE_FALLBACK_BASE:-origin/feat-cmux-next}"
+    fallback_depth="${CMUX_TUI_TREE_SEARCH_COMMITS:-50}"
+    fallback_remote=origin
+    git -C "$repo_root" remote get-url origin >/dev/null 2>&1 \
+      || fallback_remote="${CMUX_TUI_TREE_FALLBACK_REMOTE:-https://github.com/manaflow-ai/cmux.git}"
+    fallback_refs=()
+    if [[ "$fallback_base" == origin/* ]] \
+        && ! git -C "$repo_root" rev-parse -q --verify "$fallback_base^{commit}" >/dev/null; then
+      fallback_refs+=("+refs/heads/${fallback_base#origin/}:refs/remotes/$fallback_base")
+    fi
+    if [[ "$(git -C "$repo_root" rev-parse --is-shallow-repository)" == true ]]; then
+      fallback_refs+=("$(git -C "$repo_root" rev-parse HEAD)")
+      [[ -z "$(git -C "$repo_root" rev-parse -q --verify "$fallback_base^{commit}")" ]] \
+        || fallback_refs+=("+refs/heads/${fallback_base#origin/}:refs/remotes/$fallback_base")
+      git -C "$repo_root" fetch -q --no-tags --depth="$fallback_depth" "$fallback_remote" "${fallback_refs[@]}" \
+        || echo "fallback-key: could not deepen the shallow checkout; using the history it has" >&2
+    elif (( ${#fallback_refs[@]} )); then
+      git -C "$repo_root" fetch -q --no-tags "$fallback_remote" "${fallback_refs[@]}" \
+        || echo "fallback-key: could not fetch $fallback_base" >&2
+    fi
+    if ! fallback_rev="$(git -C "$repo_root" merge-base HEAD "$fallback_base" 2>/dev/null)"; then
+      echo "fallback-key: no merge base of HEAD and $fallback_base in the last $fallback_depth commits" >&2
+      exit 1
+    fi
+    if [[ "$fallback_rev" == "$(git -C "$repo_root" rev-parse HEAD)" ]] \
+        && ! fallback_rev="$(git -C "$repo_root" rev-parse -q --verify HEAD^1)"; then
+      echo "fallback-key: HEAD is on $fallback_base and its parent is not in the checkout" >&2
+      exit 1
+    fi
+    if [[ "$(tree_key HEAD)" != "$(tree_key "$fallback_rev")" ]]; then
+      echo "fallback-key: HEAD changes a cmux-tui tree input since ${fallback_rev:0:12}; no fallback tree" >&2
+      exit 1
+    fi
+    resolved="$(CMUX_TUI_TREE_DISPATCH='' GITHUB_STEP_SUMMARY='' resolve_newest_published_tree)" || exit 1
+    awk -F= '$1 == "key" { print $2 }' <<<"$resolved" | grep .
     ;;
   wait)
     wait_for_checkout_tree

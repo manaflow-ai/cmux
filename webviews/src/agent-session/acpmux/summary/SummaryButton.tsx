@@ -5,7 +5,7 @@ import type { AcpmuxRow } from "../model";
 import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
 import { sessionSummary } from "./sessionSummary";
-import { SummaryPopover } from "./SummaryPopover";
+import { SummaryPopover, type SummaryChanges } from "./SummaryPopover";
 import { Popover } from "../../../ui/Popover";
 import { registerPicker } from "../pickerOpeners";
 import { Lineage } from "../subagents/Lineage";
@@ -27,9 +27,10 @@ export function SummaryButton({
   rows: readonly AcpmuxRow[];
   onOpenOutput?: (path: string) => void;
   onOpenImage?: (src: string, alt: string) => void;
-  /// The last turn that edited files, with its counts; the popover's Changes row opens it.
-  changes?: { additions: number; deletions: number };
-  onOpenChanges?: () => void;
+  /// The last turn that edited files, with its counts and files; the popover's Changes rows open
+  /// its diff, or a file's.
+  changes?: SummaryChanges;
+  onOpenChanges?: (path?: string) => void;
   lineage?: {
     /// The subagents' own views (the snapshot's `subagentViews`), for their nested subagents.
     views: Record<string, AcpmuxRow[]> | undefined;
@@ -111,13 +112,13 @@ export function SummaryButton({
               setGallery(true);
             }}
             changes={changes}
-            onOpenChanges={() => {
+            onOpenChanges={(path) => {
               // Diff review restores focus to its opener after closing. Keep the
               // persistent Sources button as that opener before unmounting this
               // popover, rather than handing it a detached Changes row.
               button.current?.focus();
               setOpen(false);
-              onOpenChanges?.();
+              onOpenChanges?.(path);
             }}
             onFollow={() => setOpen(false)}
             lineage={

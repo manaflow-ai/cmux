@@ -5,6 +5,9 @@
 
 use super::*;
 
+#[path = "mouse_mode_reset.rs"]
+mod mouse_mode_reset;
+
 fn raw(server: &HeadlessServer, request: serde_json::Value) -> serde_json::Value {
     raw_json(server, request)
 }

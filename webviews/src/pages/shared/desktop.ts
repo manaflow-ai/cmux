@@ -35,7 +35,7 @@ export function installDesktopLayer(doc: Document = document): void {
   root.setAttribute(DESKTOP_LAYER_ATTRIBUTE, "");
   // Spellcheck only where a page asks for it (prose inputs set spellcheck="true").
   root.spellcheck = false;
-  // SCROLLBARS-FOLLOW-MACOS: library scrollers follow the host's data-scrollers (scrollers.ts).
+  // SCROLLBARS-THIN: library scrollers follow the host's data-scrollers (scrollers.ts).
   installScrollers(doc);
   // All first-party pages get the same native-feeling title tooltip. It replaces the browser's
   // delayed, clipping title bubble while preserving the title as the source of truth.

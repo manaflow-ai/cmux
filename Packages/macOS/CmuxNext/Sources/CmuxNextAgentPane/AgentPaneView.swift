@@ -74,6 +74,8 @@ public final class AgentPaneView: NSView {
     /// Records the user's real key and mouse events in this pane (``AgentPaneUserGestures``).
     private var gestureMonitor: Any?
     var transportPacer: AgentPaneFramePacer?
+    /// The page's menu shown past the window's edge (AgentPaneView+Popup).
+    var popupHostStorage: WebPopupHost?
     /// The message and the selected transcript text the page reported under the pointer for the
     /// next context menu, and where the menu's copies go (tests record them instead).
     var messageMenuTarget: AgentPaneMessageTarget?
@@ -126,7 +128,7 @@ public final class AgentPaneView: NSView {
             })
         } else {
             let configuration = WKWebViewConfiguration()
-            configuration.websiteDataStore = .nonPersistent()
+            configuration.websiteDataStore = AgentPaneView.sharedDataStore
             // One process pool for every agent page: a fresh pool per page made WebKit list the
             // user-installed fonts again for each new page (registerUserInstalledFonts, about
             // 25 ms of the 30 ms main-thread page build, R81 trace); a shared pool lists them once.
@@ -303,6 +305,7 @@ public final class AgentPaneView: NSView {
 
     /// Stops the page (and its WebSocket) for good; call when the tab closes.
     public func close() {
+        popupHostStorage?.hide()
         rateReapply?.cancel()
         motionObservation?.cancel()
         motionObservation = nil
@@ -334,6 +337,7 @@ public final class AgentPaneView: NSView {
     public override func viewDidHide() {
         super.viewDidHide()
         dictation.handle(.stop)
+        popupHostStorage?.dismiss()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -344,7 +348,10 @@ public final class AgentPaneView: NSView {
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         // Its tab or window closed, or it moved out of sight: stop listening, keep the words.
-        if window == nil { dictation.handle(.stop) }
+        if window == nil {
+            dictation.handle(.stop)
+            popupHostStorage?.dismiss()
+        }
         applyTheme()
     }
 

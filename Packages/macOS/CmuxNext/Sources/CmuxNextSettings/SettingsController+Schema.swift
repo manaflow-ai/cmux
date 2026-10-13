@@ -30,16 +30,20 @@ extension SettingsController {
         // again behind the new value (or behind a reset to the default).
         var legacy: [String]?
         if let old = WorkspaceRowSetting.legacyPath(for: descriptor.path), try await file.value(at: old) != nil { legacy = old }
+        // The window background's opacity and material leave Ghostty, or return to it, together.
+        let linked = try await windowBackgroundLinkedEdits(writing: descriptor.path, value: value)
         if let value {
             guard descriptor.accepts(value) else { throw SettingRefused(key: descriptor.id, value: value) }
-            if let legacy {
-                try await file.apply([(path: descriptor.path, value: value), (path: legacy, value: nil)])
+            if legacy != nil || !linked.isEmpty {
+                try await file.apply([(path: descriptor.path, value: value)] + (legacy.map { [(path: $0, value: nil)] } ?? []) + linked)
             } else {
                 try await file.set(value, at: descriptor.path)
             }
             await reloadAfterWrite()
         } else {
             if let legacy { try await file.remove(legacy) }
+            // One publish removes the pair; removePruning then drops the emptied parents.
+            if !linked.isEmpty { try await file.apply([(path: descriptor.path, value: nil)] + linked) }
             try await removePruning(descriptor.path)
         }
         validatedWrites[descriptor.id, default: 0] += 1

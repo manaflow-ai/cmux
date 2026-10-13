@@ -34,7 +34,7 @@ struct HeaderSplitOrderTests {
         }
 
         init() {
-            for (id, kind) in [("splitRight", TabKind.pty), ("splitBrowserRight", .browser)] {
+            for (id, kind) in [("splitRight", TabKind.pty), ("splitDown", .pty), ("splitBrowserRight", .browser)] {
                 registry.register(Action(id: ActionID(rawValue: id), title: id, invoke: { [unowned self] invocation in
                     invocations[id] = invocation
                     split(invocation.target?.id, kind: kind)
@@ -124,6 +124,21 @@ struct HeaderSplitOrderTests {
         #expect(row.invocations["splitBrowserRight"]?.opensTerminal == false)
     }
 
+    /// Split Down (cx-kk7lm) asks for a terminal under the chat, even after Terminal opened one right
+    /// of it, and its second click closes that terminal, not Terminal's.
+    @Test func splitDownOpensATerminalUnderTheChatAndClosesIt() {
+        let row = Row(), toggles = AgentChatSplitToggles()
+        row.click("splitRight", toggles: toggles)
+        let right = row.tabs[1]
+        row.click("splitDown", toggles: toggles)
+        #expect(row.invocations["splitDown"]?.target?.id == row.chat)
+        #expect(row.invocations["splitDown"]?.opensTerminal == true)
+        #expect(row.tabs.count == 3)
+        #expect(toggles.headerState(chat: row.chat, store: row.store).lit.contains("splitDown"))
+        row.click("splitDown", toggles: toggles)
+        #expect(row.tabs == [row.chat, right])
+    }
+
     /// A split the user closed is forgotten: the button never claims, and later closes, a terminal
     /// the user opened themselves.
     @Test func aButtonNeverClosesTheUsersOwnTerminal() {
@@ -147,5 +162,29 @@ struct HeaderSplitOrderTests {
         #expect(row.order == ["chat", "terminal"])
         row.click("splitBrowserRight", toggles: toggles)
         #expect(row.order == ["chat", "terminal", "browser"])
+    }
+
+    /// The header's Terminal opens in the chat's folder, the folder a split inherits; Ghostty's
+    /// `split-inherit-working-directory = false` turns that off as for any split (cx-zld.1): the
+    /// terminal names no folder, so the split starts in the home folder (NewTerminalStart).
+    @Test func terminalInheritsTheChatsFolderOnlyWhenSplitsInherit() {
+        let row = Row(), toggles = AgentChatSplitToggles()
+        for inherits in [true, false] {
+            var actions = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry })
+            actions.splitInherits = { inherits }
+            toggles.open("splitRight", cwd: row.cwd, chat: row.chat, store: row.store, actions: actions)
+            #expect(row.invocations["splitRight"]?["cwd"]?.stringValue == (inherits ? row.cwd : nil), "inherits \(inherits)")
+        }
+        // A chat of another machine keeps its folder: the key is this Mac's (NewTerminalStart).
+        var remote = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry })
+        remote.splitInherits = { false }
+        remote.local = { false }
+        toggles.open("splitRight", cwd: row.cwd, chat: row.chat, store: row.store, actions: remote)
+        #expect(row.invocations["splitRight"]?["cwd"]?.stringValue == row.cwd)
+        // Browser names no folder either way.
+        var actions = AgentChatTabActions(tab: { [chat = row.chat] in chat }, registry: { [registry = row.registry] in registry })
+        actions.splitInherits = { false }
+        toggles.open("splitBrowserRight", cwd: row.cwd, chat: row.chat, store: row.store, actions: actions)
+        #expect(row.invocations["splitBrowserRight"]?["cwd"]?.stringValue == row.cwd)
     }
 }

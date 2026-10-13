@@ -46,13 +46,14 @@ public final class HomeSidebarView: NSView {
         list.frame = bounds
         list.autoresizingMask = [.width, .height]
         addSubview(list)
+        SystemScrollers.follow(list.scrollView)
         addSubview(dragStrip)
         compose.bezelStyle = .accessoryBarAction
         compose.isBordered = false
         compose.image = NSImage.icon(.agentChatNew, size: 15)
         compose.setAccessibilityLabel(HomeConversationStrings.newMessage)
         compose.setAccessibilityIdentifier("cmux.home.sidebar.compose")
-        compose.toolTip = HomeConversationStrings.newMessage
+        compose.themedToolTip = HomeConversationStrings.newMessage
         compose.target = self
         compose.action = #selector(newMessage)
         compose.owner = self

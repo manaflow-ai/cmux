@@ -1,7 +1,15 @@
 // Bundles the React agent pane (src/agent-session/acpmux) for the app with the React
 // Compiler on, the same compiler the Vite dev server runs (vite.config.ts).
 //
-//   bun scripts/agent-pane/bundle.mjs <entry> <shiki alias dir> <outfile> [--report <file>]
+//   bun scripts/agent-pane/bundle.mjs <entry> <shiki alias dir> <outfile> [--report <file>] [--split]
+//
+// --split writes the code behind dynamic imports (shiki's grammars, KaTeX) as chunks/ beside
+// <outfile>, so the page's first script is only what its first frame runs.
+//
+// --css-inputs <file> lists, one per line relative to webviews/, every stylesheet the bundle
+// imports. The bundle drops CSS, so the page build checks each one ships in the page.
+// --css-inputs-only writes just that list: no React Compiler, no minify, nothing written to
+// <outfile>, so a test can ask for it in about a second.
 //
 // Pass `-` as the shiki alias for a page that does not use shiki (the Settings page).
 //
@@ -15,6 +23,7 @@ import path from "node:path";
 import { reactCompilerMode } from "../../reactCompiler.mjs";
 import { reactCompilerPlugin } from "./reactCompilerPlugin.mjs";
 import { tailwindPlugin } from "./tailwindCompile.mjs";
+import { jsonParsePlugin } from "./jsonParsePlugin.mjs";
 
 const [entry, shikiAlias, outfile, ...rest] = process.argv.slice(2);
 if (!entry || !shikiAlias || !outfile) {
@@ -23,6 +32,10 @@ if (!entry || !shikiAlias || !outfile) {
 }
 const reportIndex = rest.indexOf("--report");
 const reportFile = reportIndex >= 0 ? rest[reportIndex + 1] : undefined;
+const split = rest.includes("--split");
+const cssInputsIndex = rest.indexOf("--css-inputs");
+const cssInputsFile = cssInputsIndex >= 0 ? rest[cssInputsIndex + 1] : undefined;
+const cssInputsOnly = rest.includes("--css-inputs-only");
 const srcRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), "../../src");
 
 const mode = reactCompilerMode();
@@ -35,20 +48,37 @@ const reactCompiler = reactCompilerPlugin({
   onDiagnostic: (diagnostic) => bailouts.push(diagnostic),
 });
 
-await build({
+const result = await build({
   entryPoints: [entry],
   bundle: true,
   format: "esm",
   platform: "browser",
   target: "es2022",
   define: { "process.env.NODE_ENV": '"production"' },
-  minify: true,
+  minify: !cssInputsOnly,
+  write: !cssInputsOnly,
   legalComments: "none",
   alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
-  outfile,
-  plugins: [reactCompiler, tailwindPlugin],
+  ...(split
+    ? {
+        splitting: true,
+        outdir: path.dirname(outfile),
+        entryNames: path.basename(outfile, ".js"),
+        chunkNames: "chunks/[name]-[hash]",
+      }
+    : { outfile }),
+  plugins: cssInputsOnly ? [tailwindPlugin, jsonParsePlugin] : [reactCompiler, tailwindPlugin, jsonParsePlugin],
+  metafile: Boolean(cssInputsFile),
 });
+if (cssInputsFile) {
+  const webviewsRoot = path.dirname(srcRoot);
+  const sheets = Object.keys(result.metafile.inputs)
+    .filter((input) => input.endsWith(".css") && !input.includes("node_modules/"))
+    .map((input) => path.relative(webviewsRoot, path.resolve(input)))
+    .sort();
+  await writeFile(cssInputsFile, sheets.map((sheet) => sheet + "\n").join(""));
+}
 
 bailouts.sort((a, b) => `${a.file}:${a.line}`.localeCompare(`${b.file}:${b.line}`));
 if (bailouts.length) {

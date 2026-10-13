@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4";
+inline constexpr std::string_view kProtocolIrSha256 = "7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -115,6 +115,7 @@ struct PaneRef;
 struct PaneSurfaceResult;
 struct PingResult;
 struct ProcessInfoResult;
+enum class ProgramStatusState;
 struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
@@ -154,6 +155,7 @@ struct SetSizeCountsResult;
 struct SetSizePolicyResult;
 struct SetTerminalIdlePolicyResult;
 struct SetTerminalKeepResult;
+struct ShownProgramStatus;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
 struct Size;
@@ -529,6 +531,7 @@ struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
 struct HistoryChangedEvent;
+struct KeybindingsChangedEvent;
 struct LayoutChangedEvent;
 struct MachineUsageChangedEvent;
 struct NotificationEvent;
@@ -539,6 +542,7 @@ struct PairingResolvedEvent;
 struct PaneAddedEvent;
 struct PaneClosedEvent;
 struct PersonalChangedEvent;
+struct ProgramStatusChangedEvent;
 struct RenderDeltaEvent;
 struct RenderStateEvent;
 struct ResizedEvent;
@@ -602,6 +606,7 @@ enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+enum class KeybindingsChangedEventOrigin;
 enum class SettingsChangedEventOrigin;
 struct ConversationAttachmentUploadResultStoredPoster;
 struct ConversationAttachmentUploadResultStoredPreview;
@@ -850,6 +855,7 @@ struct Bookmark {
     std::string browser_profile_id{};
     std::uint64_t created_ms{};
     std::optional<std::string> favicon_key{};
+    std::optional<std::string> icon{};
     std::string id{};
     std::uint64_t index{};
     std::string kind{};
@@ -1423,6 +1429,7 @@ struct CloseWorkspaceRequest {
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
+    Field<CloseReason> reason{};
     Field<Id> workspace{};
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
 };
@@ -2726,6 +2733,22 @@ struct JournalFrontendEventResult {
     friend bool operator==(const JournalFrontendEventResult&, const JournalFrontendEventResult&) = default;
 };
 
+enum class KeybindingsChangedEventOrigin {
+    user,
+    cli,
+    mcp,
+    script,
+    remote,
+    app,
+    file,
+};
+
+struct KeybindingsChangedEvent {
+    KeybindingsChangedEventOrigin origin{};
+    std::uint64_t revision{};
+    friend bool operator==(const KeybindingsChangedEvent&, const KeybindingsChangedEvent&) = default;
+};
+
 struct KittyGraphicsState {
     std::uint32_t alternate_next_image_id{};
     std::uint32_t alternate_replay_next_image_id{};
@@ -2965,6 +2988,19 @@ struct NotificationMarker {
     friend bool operator==(const NotificationMarker&, const NotificationMarker&) = default;
 };
 
+enum class ProgramStatusState {
+    working,
+    blocked,
+    error,
+    done,
+};
+
+struct ShownProgramStatus {
+    std::optional<std::uint16_t> progress{};
+    ProgramStatusState state{};
+    friend bool operator==(const ShownProgramStatus&, const ShownProgramStatus&) = default;
+};
+
 enum class TabBrowserSource {
     external,
     launched,
@@ -2991,6 +3027,7 @@ struct Tab {
     TabKind kind{};
     std::optional<std::string> name{};
     Field<NotificationMarker> notification{};
+    Field<ShownProgramStatus> program_status{};
     std::optional<std::string> short_id{};
     std::optional<Size> size{};
     std::optional<bool> supports_clear_history_key_fallback{};
@@ -3442,8 +3479,10 @@ struct NoteSizeActivityResult {
 
 struct NotificationEvent {
     std::string body{};
+    std::optional<bool> desktop{};
     NotificationLevel level{};
     Id notification{};
+    std::optional<bool> reply{};
     std::optional<NotificationSource> source{};
     std::optional<Id> surface{};
     std::string title{};
@@ -3609,6 +3648,12 @@ struct ProcessInfoResult {
     Field<std::string> foreground_executable{};
     std::optional<std::uint32_t> pid{};
     friend bool operator==(const ProcessInfoResult&, const ProcessInfoResult&) = default;
+};
+
+struct ProgramStatusChangedEvent {
+    std::optional<ShownProgramStatus> program_status{};
+    Id surface{};
+    friend bool operator==(const ProgramStatusChangedEvent&, const ProgramStatusChangedEvent&) = default;
 };
 
 struct ProviderWorkspaceMutationResult {
@@ -5003,6 +5048,7 @@ struct UnsaveTabGroupResult {
 struct UpdateBookmarkRequest {
     std::string bookmark{};
     Field<std::string> favicon_key{};
+    Field<std::string> icon{};
     Field<std::uint64_t> last_used_ms{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
@@ -5061,6 +5107,7 @@ struct UpdateScreenGroupRequest {
     Field<bool> collapsed{};
     Field<std::string> color{};
     std::string group{};
+    Field<std::string> icon{};
     Field<std::string> name{};
     friend bool operator==(const UpdateScreenGroupRequest&, const UpdateScreenGroupRequest&) = default;
 };
@@ -5069,6 +5116,7 @@ struct UpdateTabGroupRequest {
     Field<bool> collapsed{};
     Field<std::string> color{};
     std::string group{};
+    Field<std::string> icon{};
     Field<std::string> name{};
     friend bool operator==(const UpdateTabGroupRequest&, const UpdateTabGroupRequest&) = default;
 };
@@ -5843,6 +5891,12 @@ struct Codec<ProcessInfoResult> {
 };
 
 template <>
+struct Codec<ProgramStatusState> {
+    static Result<Json> encode(const ProgramStatusState& value);
+    static Result<ProgramStatusState> decode(const Json& value);
+};
+
+template <>
 struct Codec<ProviderWorkspaceMutationResult> {
     static Result<Json> encode(const ProviderWorkspaceMutationResult& value);
     static Result<ProviderWorkspaceMutationResult> decode(const Json& value);
@@ -6074,6 +6128,12 @@ template <>
 struct Codec<SetTerminalKeepResult> {
     static Result<Json> encode(const SetTerminalKeepResult& value);
     static Result<SetTerminalKeepResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ShownProgramStatus> {
+    static Result<Json> encode(const ShownProgramStatus& value);
+    static Result<ShownProgramStatus> decode(const Json& value);
 };
 
 template <>
@@ -8327,6 +8387,12 @@ struct Codec<HistoryChangedEvent> {
 };
 
 template <>
+struct Codec<KeybindingsChangedEvent> {
+    static Result<Json> encode(const KeybindingsChangedEvent& value);
+    static Result<KeybindingsChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<LayoutChangedEvent> {
     static Result<Json> encode(const LayoutChangedEvent& value);
     static Result<LayoutChangedEvent> decode(const Json& value);
@@ -8384,6 +8450,12 @@ template <>
 struct Codec<PersonalChangedEvent> {
     static Result<Json> encode(const PersonalChangedEvent& value);
     static Result<PersonalChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ProgramStatusChangedEvent> {
+    static Result<Json> encode(const ProgramStatusChangedEvent& value);
+    static Result<ProgramStatusChangedEvent> decode(const Json& value);
 };
 
 template <>
@@ -8762,6 +8834,12 @@ template <>
 struct Codec<GraphicsStatusEventKind> {
     static Result<Json> encode(const GraphicsStatusEventKind& value);
     static Result<GraphicsStatusEventKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<KeybindingsChangedEventOrigin> {
+    static Result<Json> encode(const KeybindingsChangedEventOrigin& value);
+    static Result<KeybindingsChangedEventOrigin> decode(const Json& value);
 };
 
 template <>

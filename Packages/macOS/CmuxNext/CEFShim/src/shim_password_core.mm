@@ -3,12 +3,15 @@
 // _set_username, _reveal and _export (API 18). Lists carry metadata only.
 // A revealed password never travels in a REPLY: password_reveal_relay.h
 // hands it to the app's callback and zeroes the shim's copy. Nothing here
-// logs a value.
+// logs a value. Save and update prompts (API 20, passwords.md 1.1) go to the
+// host's prompt bar: the event carries the origin and username, never the
+// password, which stays inside Chromium from the form to the store.
 
 #include <string>
 #include <vector>
 
 #include "include/cef_cookie.h"
+#include "include/cef_parser.h"
 #include "include/cef_request_context.h"
 #include "password_reveal_relay.h"
 #include "shim_internal.h"
@@ -123,9 +126,39 @@ bool UsableId(const char* id) {
   return id && *id;
 }
 
+// The fork's prompt JSON, re-emitted with its tab and prompt id so the host
+// routes it to that tab ("kind": "save", "update" or "gone").
+void PasswordPromptTrampoline(void*, const char* json) {
+  if (!json) return;
+  CefRefPtr<CefValue> parsed = CefParseJSON(json, JSON_PARSER_RFC);
+  CefRefPtr<CefDictionaryValue> prompt = parsed ? parsed->GetDictionary() : nullptr;
+  if (!prompt) return;
+  Emit(CMUX_SHIM_PASSWORD_PROMPT, prompt->GetInt("browser_id"), prompt->GetInt("prompt_id"), 0, 0, json);
+}
+
 }  // namespace
 
+namespace cmux_shim {
+
+void InstallPasswordPromptHandler() {
+  if (fork_api().set_password_prompt_handler) fork_api().set_password_prompt_handler(PasswordPromptTrampoline, nullptr);
+}
+
+void RemovePasswordPromptHandler() {
+  if (fork_api().set_password_prompt_handler) fork_api().set_password_prompt_handler(nullptr, nullptr);
+}
+
+}  // namespace cmux_shim
+
 extern "C" {
+
+int cmux_shim_password_prompt_answer(int prompt_id, int action, const char* username) {
+  return fork_api().password_prompt_answer ? fork_api().password_prompt_answer(prompt_id, action, username) : 0;
+}
+
+int cmux_shim_set_password_generation_enabled(int enabled) {
+  return fork_api().set_password_generation_enabled ? fork_api().set_password_generation_enabled(enabled ? 1 : 0) : 0;
+}
 
 int cmux_shim_password_core_available(void) {
   const ForkApi& api = fork_api();

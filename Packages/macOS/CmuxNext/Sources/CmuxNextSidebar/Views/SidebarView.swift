@@ -76,8 +76,11 @@ public final class SidebarView: NSView {
     private var lastState: RenderState?
     /// App section contributions the bands showed at the last update (`releaseAppSections`).
     var shownAppContributions: Set<String> = []
-    public init(model: SidebarModel) {
+    /// The `sidebar.*` settings this sidebar draws from (tests give their own).
+    let design: DesignSettings
+    public init(model: SidebarModel, design: DesignSettings = .shared) {
         self.model = model
+        self.design = design
         list = SidebarListView(model: model)
         profileBar = ProfileBarView(model: model)
         super.init(frame: .zero)
@@ -129,20 +132,6 @@ public final class SidebarView: NSView {
         window?.makeFirstResponder(list)
     }
 
-    /// CPU and memory for the workspace hover card. Sampled only while a
-    /// card is pending or shown.
-    public var resourceSource: (any ResourceSampleSource)? {
-        get { list.hoverCard.resources.source }
-        set { list.hoverCard.resources.setSource(newValue) }
-    }
-
-    /// Shows workspace `id`'s hover card (CPU and memory) now, until the
-    /// next key press, click or scroll. False when its row is not shown.
-    @discardableResult
-    public func showHoverCard(for id: WorkspaceID) -> Bool {
-        list.showHoverCard(for: id)
-    }
-
     /// Draws the sections apps contribute (`SectionContent.app`); the App
     /// injects one per window. Without it, app sections draw nothing.
     public var appSections: (any SidebarAppSectionProvider)? {
@@ -155,7 +144,6 @@ public final class SidebarView: NSView {
         }
     }
 
-    /// The app's one hover card coordinator (the App injects it).
     /// The React update surfaces (cx-urd.61.2): the staged card's highlights
     /// popover and the "cmux Updated!" card. Set by the App; without them the
     /// popover does not open and the Updated card does not show.
@@ -169,23 +157,19 @@ public final class SidebarView: NSView {
         }
     }
 
-    public var hoverCards: HoverCardCoordinator {
-        get { list.hoverCards }
-        set { list.hoverCards = newValue }
-    }
-
-    /// True while the workspace hover card samples resources.
-    public var isSamplingResources: Bool { list.hoverCard.resources.isOpen }
-
-    /// Right-click menu for a target. The App fills this from the action
-    /// registry (menus are ordered action-ID lists per context); nil means
     /// The profile menu the footer's profile control opens
     /// (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 2); the App builds it from
     /// registry actions. Nil opens nothing.
     public var profileMenuProvider: (() -> NSMenu?)?
-    /// Shows a profile menu over its anchor (tests record it instead).
-    var profileMenuPresenter: @MainActor (NSMenu, NSView?) -> Void = { SidebarView.popUpProfileMenu($0, from: $1) }
+    /// The bottom band: footer slots, profile menu, spaces dots.
+    private(set) lazy var footerBand = SidebarFooterBand(host: self)
+    /// Opens the profile menu over the profile control; false when the App
+    /// gave none. Without a visible control the menu opens at the pointer.
+    @discardableResult
+    public func showProfileMenu() -> Bool { footerBand.showProfileMenu(from: footerBand.profileControl?.view) }
 
+    /// Right-click menu for a target. The App fills this from the action
+    /// registry (menus are ordered action-ID lists per context); nil means
     /// no context menu.
     public var contextMenuProvider: ((SidebarContextTarget) -> NSMenu?)? {
         get { list.contextMenuProvider }
@@ -196,11 +180,8 @@ public final class SidebarView: NSView {
         }
     }
 
-    /// Starts inline rename of a workspace (the "rename workspace" action's
-    /// sidebar entrypoint). Commit emits `.rename`.
-    public func beginRename(workspace id: WorkspaceID) {
-        list.inlineRename.begin(.workspace(id))
-    }
+    /// Starts inline rename of a workspace (the "rename workspace" action's sidebar entrypoint).
+    public func beginRename(workspace id: WorkspaceID) { list.inlineRename.begin(.workspace(id)) }
 
     // MARK: Hierarchy
 
@@ -211,7 +192,7 @@ public final class SidebarView: NSView {
 
         scrollView.drawsBackground = false
         scrollView.hasVerticalScroller = true
-        // The system's "Show scroll bars" setting (R111); the list follows
+        // Thin, shown only while scrolling (SCROLLBARS-THIN); the list follows
         // the clip's width when a legacy scroller narrows it.
         SystemScrollers.follow(scrollView)
         scrollView.automaticallyAdjustsContentInsets = false
@@ -241,7 +222,7 @@ public final class SidebarView: NSView {
     }
 
     private func scrollerStyleChanged() {
-        scrollView.scrollerStyle = SystemScrollers.preferredStyle
+        scrollView.scrollerStyle = SystemScrollers.nativeStyle
         syncListSize()
     }
 
@@ -271,15 +252,19 @@ public final class SidebarView: NSView {
         let visibleSlots = SidebarAccessorySlot.allCases.compactMap { slot in
             accessories[slot].flatMap { view in view.isHidden ? nil : (slot, view) }
         }
-        let showsProfiles = true
-        profileBar.isHidden = false
+        // A lone space switches nothing, so the footer keeps one control, the
+        // profile control (Leo 2026-10-11: its mark and the History dot beside
+        // it read as a duplicate switcher). Two or more spaces show the strip.
+        // `sidebar.showSpaces` off (cx-wab7m) shows no strip, wherever it would sit.
+        let showsProfiles = ProfileBarLogic.isVisible(profileCount: model.profiles.count) && design.sidebarSections.showSpaces
+        profileBar.isHidden = !showsProfiles
         // R109: the dots under the titlebar row, or in the footer.
         let spacesHeight: CGFloat = spacesPosition == .top && showsProfiles ? SidebarStyle.footerHeight : 0
         // Amendment 3: at the bottom the dots share the footer band's row
         // (after the profile control), so the dots row takes no height of
         // its own unless the band is empty.
         updateBands()
-        let footerHeight: CGFloat = spacesPosition == .bottom && dotsShareBandRow ? 0 : SidebarStyle.footerHeight
+        let footerHeight: CGFloat = spacesPosition == .bottom && footerBand.dotsShareBandRow ? 0 : SidebarStyle.footerHeight
         let cardsHeight = attachFooterCards(), updateHeight = cardSlot.height
         // From the bottom up (R112/R114): the pinned footer section (the
         // profile control, then the dots), the band below the list, the
@@ -289,8 +274,8 @@ public final class SidebarView: NSView {
         footer.frame = NSRect(x: 0, y: belowFade.frame.minY - footerHeight, width: b.width, height: footerHeight)
         cardSlot.place(above: footer.frame.minY, width: b.width, slotHeight: updateHeight)
         footerCards?.frame = NSRect(x: 0, y: footer.frame.minY - updateHeight - cardsHeight, width: b.width, height: cardsHeight)
-        layoutFooter(visibleSlots)
-        placeSpaces(top: y, height: spacesHeight)
+        footerBand.layoutFooter(visibleSlots)
+        footerBand.placeSpaces(top: y, height: spacesHeight)
         edgeFade.frame = listFrame
         scrollView.tile()
         syncListSize()
@@ -309,6 +294,11 @@ public final class SidebarView: NSView {
     }
 
     override public func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    /// A bottom-band right-click no piece took opens the band's menu: Show for its hidden pieces (cx-wab7m).
+    override public func menu(for event: NSEvent) -> NSMenu? {
+        convert(event.locationInWindow, from: nil).y >= footer.frame.minY ? contextMenuProvider?(.footer) : super.menu(for: event)
+    }
 
     // MARK: Hover reveal
 
@@ -342,7 +332,7 @@ public final class SidebarView: NSView {
     }
 
     private func observe() {
-        let model = model
+        let model = model, design = design
         observation = Task { [weak self] in
             for await state in ObservationStream({
                 RenderState(
@@ -358,7 +348,7 @@ public final class SidebarView: NSView {
                     collapsedSections: model.collapsedLayoutSections,
                     look: SidebarSectionTunables.currentLook,
                     drawsLines: Borders.drawsLines,
-                    preferences: DesignSettings.shared.sidebarSections,
+                    preferences: design.sidebarSections,
                     suppressedApps: model.suppressedApps,
                     metrics: .standard,
                     fontSize: Typography.body.pointSize,

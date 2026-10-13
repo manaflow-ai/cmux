@@ -57,7 +57,7 @@ final class ExtensionActionButton: NSButton {
             icon.accessibilityDescription = action.name
             image = icon
         }
-        toolTip = action.title.isEmpty ? action.name : action.title
+        themedToolTip = action.title.isEmpty ? action.name : action.title
         setAccessibilityLabel(action.name)
         // The badge is in the icon; VoiceOver reads it as the value.
         setAccessibilityValue(action.badge.isEmpty ? nil : action.badge)

@@ -26,8 +26,8 @@ final class CloudMachineProgressView: NSView {
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let typingLabel = NSTextField(wrappingLabelWithString: "")
     private let retryButton = ThemedDefaultButton()
-    private let copyButton = NSButton()
-    private let dismissButton = NSButton()
+    private let copyButton = ThemedBezelButton()
+    private let dismissButton = ThemedBezelButton()
     private let buttons = NSStackView()
     private var observation: Task<Void, Never>?
     private let ticker: DemandTimer
@@ -61,6 +61,7 @@ final class CloudMachineProgressView: NSView {
         detailLabel.font = Typography.body
         detailLabel.alignment = .center
         detailLabel.isSelectable = true
+        detailLabel.focusRingType = .none
         detailLabel.maximumNumberOfLines = 8
         typingLabel.font = Typography.caption
         typingLabel.alignment = .center

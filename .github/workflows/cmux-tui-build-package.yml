@@ -38,7 +38,7 @@ on:
         default: false
         type: boolean
       target_set:
-        description: "Binary targets to build: all, macos (both macOS targets) or macos-arm64"
+        description: "Binary targets to build: all, macos (both macOS targets), macos-arm64 or macos-x86_64"
         required: false
         default: all
         type: string
@@ -203,6 +203,11 @@ jobs:
               selected = [
                   target for target in targets
                   if target["target"] == "aarch64-apple-darwin"
+              ]
+          elif target_set == "macos-x86_64":
+              selected = [
+                  target for target in targets
+                  if target["target"] == "x86_64-apple-darwin"
               ]
           else:
               raise SystemExit(f"unsupported target_set: {target_set!r}")
@@ -681,6 +686,23 @@ jobs:
         shell: bash
         run: ld.lld --version
 
+      # Cargo cache for PUSH builds only (chief decision 2026-10-12, trust note on #13742): a
+      # pull_request_target run builds pull request code, so it must neither read nor write the
+      # cache that published binaries are built from. Pull request runs get no cache step at all.
+      - name: Restore the Windows cargo cache (push builds only)
+        id: windows-cargo-cache
+        if: github.event_name == 'push'
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            cmux-tui/target/x86_64-pc-windows-gnu
+          key: cmux-tui-win-gnu-push-v1-${{ hashFiles('cmux-tui/Cargo.lock', 'cmux-tui/rust-toolchain.toml') }}
+          restore-keys: |
+            cmux-tui-win-gnu-push-v1-
+
       # rustc links x86_64-pc-windows-gnu with this MinGW gcc, whose static
       # mingw-w64 CRT and libgcc end up in the binaries; the package notice
       # covers only the reviewed build (package-notices.json windows_gnu).
@@ -714,9 +736,26 @@ jobs:
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target x86_64-pc-windows-gnu
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target x86_64-pc-windows-gnu
 
+      - name: Save the Windows cargo cache (push builds only)
+        if: github.event_name == 'push' && steps.windows-cargo-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            cmux-tui/target/x86_64-pc-windows-gnu
+          key: ${{ steps.windows-cargo-cache.outputs.cache-primary-key }}
+
       - name: Test Windows long-path state handling
         working-directory: cmux-tui
         shell: bash
+        env:
+          # The test binary needs release optimization, not fat LTO in one codegen unit: with the
+          # release profile as is, compiling these cmux-tui-core unit tests took 13 of the job's
+          # 33 min (run 38259768770, 2026-10-12) and the Windows leg ends every tree publication.
+          CARGO_PROFILE_RELEASE_LTO: "off"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
         run: |
           cargo test --release --locked --target x86_64-pc-windows-gnu \
             -p cmux-tui-core --lib normalize_long_windows

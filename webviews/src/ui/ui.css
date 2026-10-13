@@ -1,4 +1,5 @@
 @import "./popupSurface.css";
+@import "./ghost.css";
 
 /* The wrapper's look (R139 desktop feel): system font, chrome that is not selectable, focus rings
    only for keyboard focus (`:focus-visible`), colors only from the shared web theme (`--cmux-*`)
@@ -40,6 +41,11 @@
   outline: none;
 }
 
+/* The anchor scrolled out of its scroller: the pop-up waits, hidden, until it is back. */
+.ui-positioner[data-anchor-hidden] {
+  visibility: hidden;
+}
+
 .ui-popup {
   min-width: 160px;
   max-height: min(420px, calc(100vh - 24px));
@@ -48,7 +54,7 @@
   padding: var(--ui-popup-padding);
   border: 1px solid var(--ui-line);
   border-radius: var(--ui-popup-radius);
-  background: var(--ui-surface);
+  background: var(--surface-popup);
   color: var(--ui-fg);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
@@ -56,7 +62,6 @@
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
   transform-origin: var(--transform-origin);
-  scrollbar-width: thin;
 }
 
 /* A menu may own a submenu. Let the safe-triangle bridge extend beyond the parent surface;
@@ -64,6 +69,12 @@
 .ui-menu {
   max-height: none;
   overflow: visible;
+}
+
+/* A select's options never run past the room on its side: a long list scrolls inside. */
+.ui-menu.ui-select-popup {
+  max-height: min(420px, var(--available-height, 420px));
+  overflow-y: auto;
 }
 
 /* Large pickers own scrolling in their two columns; the surface itself must stay fixed so opening
@@ -224,18 +235,7 @@
   margin: 0 4px;
 }
 
-.ui-tooltip {
-  max-width: 320px;
-  padding: 3px 7px;
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--ui-surface) 96%, var(--ui-fg));
-  border: 1px solid var(--ui-line);
-  color: var(--ui-fg);
-  font-size: var(--text-caption);
-  line-height: var(--text-caption--line-height);
-  box-shadow: 0 2px 10px color-mix(in srgb, black 14%, transparent);
-  pointer-events: none;
-}
+/* .ui-tooltip's look is the title tooltip's (pages/shared/desktop.css), the native tooltip's. */
 
 .ui-toolbar,
 .ui-toggle-group,
@@ -347,19 +347,17 @@
   .ui-popup {
     animation: ui-popup-open var(--ui-popup-open) ease-out;
   }
+}
 
-  .ui-tooltip,
-  .ui-sheet {
-    transition: opacity 90ms ease-out;
-  }
+/* Tooltips and sheets only fade, so they fade under Reduce Motion too. */
+.ui-tooltip,
+.ui-sheet {
+  transition: opacity 90ms ease-out;
+}
 
-  .ui-tooltip[data-starting-style],
-  .ui-tooltip[data-ending-style],
-  .ui-sheet[data-starting-style] {
-    opacity: 0;
-  }
-
-  .ui-sheet[data-ending-style] {
-    opacity: 0;
-  }
+.ui-tooltip[data-starting-style],
+.ui-tooltip[data-ending-style],
+.ui-sheet[data-starting-style],
+.ui-sheet[data-ending-style] {
+  opacity: 0;
 }

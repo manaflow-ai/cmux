@@ -159,6 +159,7 @@ cmux-tui-core = { path = "crates/cmux-tui-core" }
 cmux-feed-core = { path = "crates/cmux-feed-core" }
 cmux-layout-reducer = { path = "crates/cmux-layout-reducer" }
 cmux-unix-socket = { path = "crates/cmux-unix-socket" }
+cmux-agent-pane-policy = { path = "crates/cmux-agent-pane-policy" }
 cmux-chat-index = { path = "crates/cmux-chat-index" }
 cmux-tui-cdp = { path = "crates/cmux-tui-cdp" }
 cmux-pty = { path = "crates/cmux-pty" }
@@ -227,7 +228,7 @@ regex = "1"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "json"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 time = { version = "0.3", default-features = false, features = ["parsing", "std"] }
-jsonschema = { version = "0.30", default-features = false }
+jsonschema = { version = "0.34", default-features = false }
 # QuickJS-ng for the app host (one VM per app process). Exact pin: the app
 # host is a sandbox boundary, so engine upgrades are deliberate. `allocator`
 # lets the host count every byte the VM allocates (32 MiB limit per app).
@@ -293,8 +294,11 @@ crossterm = { path = "vendor/crossterm" }
 # exhaustive event mapping in the same source-controlled compatibility layer.
 terminput-crossterm = { path = "vendor/terminput-crossterm" }
 
+# Fat LTO with one codegen unit, as on main (#19666): the nightly-next client is
+# 79 MB stripped on thin LTO. Each release link takes about 2 minutes longer.
 [profile.release]
-lto = "thin"
+lto = "fat"
+codegen-units = 1
 
 # Debug builds are what mux-dev dogfood runs; opt-level 0 makes the
 # per-frame render/diff path visibly laggy. Light optimization for our

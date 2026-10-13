@@ -23,7 +23,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/prewarm": (["harness", "cwd"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
         "_acpmux/harnesses": (["cwd"], []),
-        "_acpmux/models": ([], []),
+        // `refresh`: the picker's Refresh models; acpmux probes its agents' model lists again. It
+        // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
+        "_acpmux/models": (["refresh"], []),
         "_acpmux/status": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),

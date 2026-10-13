@@ -81,6 +81,38 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all.</string>
+			<key>pfm_name</key>
+			<string>history.closed.maxGroups</string>
+			<key>pfm_range_max</key>
+			<real>10000</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Recently Closed Items to Keep</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<integer>0</integer>
+			<key>pfm_description</key>
+			<string>Each machine deletes closed items that are older. 0 keeps them however old they are.</string>
+			<key>pfm_name</key>
+			<string>history.closed.maxAgeDays</string>
+			<key>pfm_range_max</key>
+			<real>3650</real>
+			<key>pfm_range_min</key>
+			<real>0.0</real>
+			<key>pfm_title</key>
+			<string>Keep Recently Closed Items For</string>
+			<key>pfm_type</key>
+			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>minimal</string>
 			<key>pfm_description</key>
 			<string>Minimal has no titlebar strip; the top row moves the window.</string>
@@ -246,6 +278,27 @@
 			<string>Tab Bar and Browser Toolbar</string>
 			<key>pfm_type</key>
 			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again.</string>
+			<key>pfm_name</key>
+			<string>tabs.hiddenButtons</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Hidden Tab Bar Buttons</string>
+			<key>pfm_type</key>
+			<string>array</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -970,6 +1023,39 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<dict/>
+			<key>pfm_description</key>
+			<string>A word that names a command by its action id ("vs": "splitRight"). Typing the whole word in the command palette puts that command first.</string>
+			<key>pfm_name</key>
+			<string>palette.aliases</string>
+			<key>pfm_title</key>
+			<string>Command Aliases</string>
+			<key>pfm_type</key>
+			<string>dictionary</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Commands shown first when the command palette opens, in this order, by action id.</string>
+			<key>pfm_name</key>
+			<string>palette.pins</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Pinned Commands</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>Show chats stored on this device. Nothing is uploaded.</string>
@@ -1097,6 +1183,7 @@
 			<array>
 				<string>neutral</string>
 				<string>theme</string>
+				<string>art</string>
 				<string>red</string>
 				<string>green</string>
 				<string>yellow</string>
@@ -1119,17 +1206,180 @@
 			<key>pfm_range_list</key>
 			<array>
 				<string>none</string>
-				<string>wheat-field-with-cypresses</string>
-				<string>met-saint-catherine-436908</string>
-				<string>met-woman-man-casement-436896</string>
-				<string>met-women-picking-olives-436536</string>
-				<string>met-sunflowers-436524</string>
-				<string>nga-degas-halevy-standing-66489</string>
-				<string>nga-degas-dancer-from-behind-32137</string>
-				<string>nga-carpaccio-groups-of-male-figures-73858</string>
-				<string>nga-perino-del-vaga-figure-studies-57613</string>
-				<string>nga-rubens-battle-of-nude-men-63034</string>
-				<string>nga-teniers-market-figures-62615</string>
+				<string>david-death-of-marat</string>
+				<string>goya-saturn</string>
+				<string>velde-small-ship-storm</string>
+				<string>bosch-garden-right</string>
+				<string>bosch-ascent-blessed</string>
+				<string>goya-witches-flight</string>
+				<string>bocklin-self-portrait-death</string>
+				<string>caravaggio-medusa</string>
+				<string>martin-pandemonium</string>
+				<string>moran-burning-philadelphia</string>
+				<string>goya-burial-sardine</string>
+				<string>arbo-wild-hunt</string>
+				<string>caravaggio-david-goliath</string>
+				<string>van-gogh-skeleton-cigarette</string>
+				<string>altdorfer-battle-of-issus</string>
+				<string>gentileschi-judith</string>
+				<string>munch-madonna</string>
+				<string>bocklin-isle-of-the-dead</string>
+				<string>klee-fish-magic</string>
+				<string>friedrich-forest-moonlight</string>
+				<string>goya-witches-sabbath</string>
+				<string>bosch-garden-left</string>
+				<string>rembrandt-storm-galilee</string>
+				<string>cole-voyage-manhood</string>
+				<string>fuseli-nightmare-2</string>
+				<string>hiremy-hirschl-souls-of-acheron</string>
+				<string>munch-scream</string>
+				<string>klimt-judith</string>
+				<string>repin-ivan</string>
+				<string>millais-ophelia</string>
+				<string>bruegel-fall-rebel-angels</string>
+				<string>fuseli-nightmare</string>
+				<string>bundy-death-general</string>
+				<string>wright-vesuvius</string>
+				<string>gerome-botsaris</string>
+				<string>durer-knight-death-devil</string>
+				<string>martin-joshua</string>
+				<string>velde-gale</string>
+				<string>hogai-nio</string>
+				<string>klimt-death-and-life</string>
+				<string>klimt-medicine</string>
+				<string>bosch-garden-central</string>
+				<string>martin-great-day-wrath</string>
+				<string>bonheur-wounded-eagle</string>
+				<string>gerome-pollice-verso</string>
+				<string>cole-voyage-old-age</string>
+				<string>friedrich-abbey-oakwood</string>
+				<string>goya-sleep-of-reason</string>
+				<string>bosch-garden-fragment</string>
+				<string>bruegel-triumph-death</string>
+				<string>spilliaert-vertigo</string>
+				<string>rothaug-melpomene</string>
+				<string>schiele-death-and-the-maiden</string>
+				<string>aivazovsky-ship-stormy-seas</string>
+				<string>vereshchagin-apotheosis-war</string>
+				<string>ensor-skeleton-painter</string>
+				<string>cabanel-fallen-angel</string>
+				<string>spilliaert-woman-shoreline</string>
+				<string>el-greco-view-of-toledo</string>
+				<string>gericault-raft-of-the-medusa</string>
+				<string>moreau-apparition</string>
+				<string>rembrandt-prodigal-son</string>
+				<string>velazquez-las-meninas</string>
+				<string>matejko-stanczyk</string>
+				<string>sargent-madame-x</string>
+				<string>millais-joan-of-arc</string>
+				<string>cot-storm</string>
+				<string>rembrandt-night-watch</string>
+				<string>vigee-lebrun-madame-grand</string>
+				<string>waterhouse-lady-shalott</string>
+				<string>draper-lament-icarus</string>
+				<string>fragonard-swing</string>
+				<string>rubens-st-francis-xavier</string>
+				<string>vermeer-pearl-earring</string>
+				<string>danielson-gambogi-self</string>
+				<string>beard-his-majesty</string>
+				<string>marc-foxes</string>
+				<string>degas-green-dancers</string>
+				<string>modigliani-nude-divan</string>
+				<string>raphael-sistine-madonna</string>
+				<string>bouguereau-virgin-lilies</string>
+				<string>wood-american-gothic</string>
+				<string>steinlen-chat-noir</string>
+				<string>degas-blue-dancers</string>
+				<string>botticelli-primavera</string>
+				<string>van-gogh-cafe-terrace</string>
+				<string>matisse-red-room</string>
+				<string>kandinsky-deepened-impulse</string>
+				<string>friedrich-wanderer</string>
+				<string>klimt-adele</string>
+				<string>mucha-job</string>
+				<string>van-gogh-starry-night</string>
+				<string>klimt-tree-of-life</string>
+				<string>klimt-the-kiss</string>
+				<string>van-gogh-starry-night-rhone</string>
+				<string>delacroix-liberty</string>
+				<string>van-gogh-sunflowers</string>
+				<string>klimt-mada-primavesi</string>
+				<string>schiele-kneeling-orange</string>
+				<string>van-gogh-sunflowers-munich</string>
+				<string>michelangelo-sistine-ceiling</string>
+				<string>mondrian-composition-red-plane</string>
+				<string>lemoyne-apotheosis-hercules</string>
+				<string>schiele-moa</string>
+				<string>aivazovsky-ninth-wave</string>
+				<string>popova-painterly-architectonic</string>
+				<string>bruegel-tower-babel</string>
+				<string>botticelli-birth-of-venus</string>
+				<string>kandinsky-yellow-red-blue</string>
+				<string>kandinsky-composition-viii</string>
+				<string>kramskoi-unknown-woman</string>
+				<string>michelangelo-creation-of-adam</string>
+				<string>hokusai-great-wave</string>
+				<string>holbein-ambassadors</string>
+				<string>brueghel-wooden-vessel</string>
+				<string>dahl-dresden-moonlight</string>
+				<string>bosschaert-wan-li-vase</string>
+				<string>cot-springtime</string>
+				<string>ruysch-flowers</string>
+				<string>van-gogh-flowering-plum</string>
+				<string>toulmouche-reluctant-bride</string>
+				<string>rosso-musical-angel</string>
+				<string>grimshaw-blackman-street</string>
+				<string>waterhouse-ophelia</string>
+				<string>biard-magdalena-bay</string>
+				<string>renoir-vase-roses</string>
+				<string>roerich-himalayas</string>
+				<string>velde-close-hauled</string>
+				<string>sohlberg-flower-meadow</string>
+				<string>dahl-cloud-study</string>
+				<string>friedrich-two-men-moon</string>
+				<string>monet-waterlily-pond</string>
+				<string>hesselbom-dusk</string>
+				<string>toulmouche-vanity</string>
+				<string>hiroshige-zoshigaya</string>
+				<string>monet-water-lilies</string>
+				<string>monet-water-lilies-1907</string>
+				<string>bierstadt-storm-rockies</string>
+				<string>korovin-place-opera</string>
+				<string>klimt-garden-sunflowers</string>
+				<string>redon-butterflies</string>
+				<string>aivazovsky-winter-landscape</string>
+				<string>aivazovsky-along-coast</string>
+				<string>grimshaw-silver-moonlight</string>
+				<string>monet-water-lilies-setting-sun</string>
+				<string>hiroshige-hota-coast</string>
+				<string>durer-praying-hands</string>
+				<string>cole-voyage-childhood</string>
+				<string>monet-impression-sunrise</string>
+				<string>monet-woman-parasol</string>
+				<string>velde-cannon-shot</string>
+				<string>cross-pink-cloud</string>
+				<string>laurence-mckinley</string>
+				<string>van-gogh-irises</string>
+				<string>kramskoi-christ-in-the-desert</string>
+				<string>turner-temeraire</string>
+				<string>leonardo-vitruvian-man</string>
+				<string>bruegel-hunters-snow</string>
+				<string>cole-voyage-youth</string>
+				<string>friedrich-monk-by-the-sea</string>
+				<string>van-gogh-wheat-field-cypresses</string>
+				<string>monet-cliff-pourville</string>
+				<string>van-gogh-almond-blossom</string>
+				<string>van-gogh-fishing-boats</string>
+				<string>hokusai-umezawa</string>
+				<string>whistler-falling-rocket</string>
+				<string>dore-fall-of-satan</string>
+				<string>dore-flood</string>
+				<string>dore-wolves-sheep</string>
+				<string>dore-leviathan</string>
+				<string>dore-paradise-lost-book-vi</string>
+				<string>dore-moses-tables</string>
+				<string>dore-empyrean</string>
+				<string>dore-raven</string>
 			</array>
 			<key>pfm_title</key>
 			<string>Backdrop Art</string>
@@ -1140,23 +1390,187 @@
 			<key>pfm_default</key>
 			<string>none</string>
 			<key>pfm_description</key>
-			<string>Choose a public-domain figure drawing or painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.</string>
+			<string>Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.</string>
 			<key>pfm_name</key>
 			<string>appearance.background</string>
 			<key>pfm_range_list</key>
 			<array>
 				<string>none</string>
-				<string>nga-degas-halevy-standing-66489</string>
-				<string>nga-degas-dancer-from-behind-32137</string>
-				<string>nga-carpaccio-groups-of-male-figures-73858</string>
-				<string>nga-perino-del-vaga-figure-studies-57613</string>
-				<string>nga-rubens-battle-of-nude-men-63034</string>
-				<string>nga-teniers-market-figures-62615</string>
-				<string>wheat-field-with-cypresses</string>
-				<string>met-saint-catherine-436908</string>
-				<string>met-woman-man-casement-436896</string>
-				<string>met-women-picking-olives-436536</string>
-				<string>met-sunflowers-436524</string>
+				<string>daily</string>
+				<string>david-death-of-marat</string>
+				<string>goya-saturn</string>
+				<string>velde-small-ship-storm</string>
+				<string>bosch-garden-right</string>
+				<string>bosch-ascent-blessed</string>
+				<string>goya-witches-flight</string>
+				<string>bocklin-self-portrait-death</string>
+				<string>caravaggio-medusa</string>
+				<string>martin-pandemonium</string>
+				<string>moran-burning-philadelphia</string>
+				<string>goya-burial-sardine</string>
+				<string>arbo-wild-hunt</string>
+				<string>caravaggio-david-goliath</string>
+				<string>van-gogh-skeleton-cigarette</string>
+				<string>altdorfer-battle-of-issus</string>
+				<string>gentileschi-judith</string>
+				<string>munch-madonna</string>
+				<string>bocklin-isle-of-the-dead</string>
+				<string>klee-fish-magic</string>
+				<string>friedrich-forest-moonlight</string>
+				<string>goya-witches-sabbath</string>
+				<string>bosch-garden-left</string>
+				<string>rembrandt-storm-galilee</string>
+				<string>cole-voyage-manhood</string>
+				<string>fuseli-nightmare-2</string>
+				<string>hiremy-hirschl-souls-of-acheron</string>
+				<string>munch-scream</string>
+				<string>klimt-judith</string>
+				<string>repin-ivan</string>
+				<string>millais-ophelia</string>
+				<string>bruegel-fall-rebel-angels</string>
+				<string>fuseli-nightmare</string>
+				<string>bundy-death-general</string>
+				<string>wright-vesuvius</string>
+				<string>gerome-botsaris</string>
+				<string>durer-knight-death-devil</string>
+				<string>martin-joshua</string>
+				<string>velde-gale</string>
+				<string>hogai-nio</string>
+				<string>klimt-death-and-life</string>
+				<string>klimt-medicine</string>
+				<string>bosch-garden-central</string>
+				<string>martin-great-day-wrath</string>
+				<string>bonheur-wounded-eagle</string>
+				<string>gerome-pollice-verso</string>
+				<string>cole-voyage-old-age</string>
+				<string>friedrich-abbey-oakwood</string>
+				<string>goya-sleep-of-reason</string>
+				<string>bosch-garden-fragment</string>
+				<string>bruegel-triumph-death</string>
+				<string>spilliaert-vertigo</string>
+				<string>rothaug-melpomene</string>
+				<string>schiele-death-and-the-maiden</string>
+				<string>aivazovsky-ship-stormy-seas</string>
+				<string>vereshchagin-apotheosis-war</string>
+				<string>ensor-skeleton-painter</string>
+				<string>cabanel-fallen-angel</string>
+				<string>spilliaert-woman-shoreline</string>
+				<string>el-greco-view-of-toledo</string>
+				<string>gericault-raft-of-the-medusa</string>
+				<string>moreau-apparition</string>
+				<string>rembrandt-prodigal-son</string>
+				<string>velazquez-las-meninas</string>
+				<string>matejko-stanczyk</string>
+				<string>sargent-madame-x</string>
+				<string>millais-joan-of-arc</string>
+				<string>cot-storm</string>
+				<string>rembrandt-night-watch</string>
+				<string>vigee-lebrun-madame-grand</string>
+				<string>waterhouse-lady-shalott</string>
+				<string>draper-lament-icarus</string>
+				<string>fragonard-swing</string>
+				<string>rubens-st-francis-xavier</string>
+				<string>vermeer-pearl-earring</string>
+				<string>danielson-gambogi-self</string>
+				<string>beard-his-majesty</string>
+				<string>marc-foxes</string>
+				<string>degas-green-dancers</string>
+				<string>modigliani-nude-divan</string>
+				<string>raphael-sistine-madonna</string>
+				<string>bouguereau-virgin-lilies</string>
+				<string>wood-american-gothic</string>
+				<string>steinlen-chat-noir</string>
+				<string>degas-blue-dancers</string>
+				<string>botticelli-primavera</string>
+				<string>van-gogh-cafe-terrace</string>
+				<string>matisse-red-room</string>
+				<string>kandinsky-deepened-impulse</string>
+				<string>friedrich-wanderer</string>
+				<string>klimt-adele</string>
+				<string>mucha-job</string>
+				<string>van-gogh-starry-night</string>
+				<string>klimt-tree-of-life</string>
+				<string>klimt-the-kiss</string>
+				<string>van-gogh-starry-night-rhone</string>
+				<string>delacroix-liberty</string>
+				<string>van-gogh-sunflowers</string>
+				<string>klimt-mada-primavesi</string>
+				<string>schiele-kneeling-orange</string>
+				<string>van-gogh-sunflowers-munich</string>
+				<string>michelangelo-sistine-ceiling</string>
+				<string>mondrian-composition-red-plane</string>
+				<string>lemoyne-apotheosis-hercules</string>
+				<string>schiele-moa</string>
+				<string>aivazovsky-ninth-wave</string>
+				<string>popova-painterly-architectonic</string>
+				<string>bruegel-tower-babel</string>
+				<string>botticelli-birth-of-venus</string>
+				<string>kandinsky-yellow-red-blue</string>
+				<string>kandinsky-composition-viii</string>
+				<string>kramskoi-unknown-woman</string>
+				<string>michelangelo-creation-of-adam</string>
+				<string>hokusai-great-wave</string>
+				<string>holbein-ambassadors</string>
+				<string>brueghel-wooden-vessel</string>
+				<string>dahl-dresden-moonlight</string>
+				<string>bosschaert-wan-li-vase</string>
+				<string>cot-springtime</string>
+				<string>ruysch-flowers</string>
+				<string>van-gogh-flowering-plum</string>
+				<string>toulmouche-reluctant-bride</string>
+				<string>rosso-musical-angel</string>
+				<string>grimshaw-blackman-street</string>
+				<string>waterhouse-ophelia</string>
+				<string>biard-magdalena-bay</string>
+				<string>renoir-vase-roses</string>
+				<string>roerich-himalayas</string>
+				<string>velde-close-hauled</string>
+				<string>sohlberg-flower-meadow</string>
+				<string>dahl-cloud-study</string>
+				<string>friedrich-two-men-moon</string>
+				<string>monet-waterlily-pond</string>
+				<string>hesselbom-dusk</string>
+				<string>toulmouche-vanity</string>
+				<string>hiroshige-zoshigaya</string>
+				<string>monet-water-lilies</string>
+				<string>monet-water-lilies-1907</string>
+				<string>bierstadt-storm-rockies</string>
+				<string>korovin-place-opera</string>
+				<string>klimt-garden-sunflowers</string>
+				<string>redon-butterflies</string>
+				<string>aivazovsky-winter-landscape</string>
+				<string>aivazovsky-along-coast</string>
+				<string>grimshaw-silver-moonlight</string>
+				<string>monet-water-lilies-setting-sun</string>
+				<string>hiroshige-hota-coast</string>
+				<string>durer-praying-hands</string>
+				<string>cole-voyage-childhood</string>
+				<string>monet-impression-sunrise</string>
+				<string>monet-woman-parasol</string>
+				<string>velde-cannon-shot</string>
+				<string>cross-pink-cloud</string>
+				<string>laurence-mckinley</string>
+				<string>van-gogh-irises</string>
+				<string>kramskoi-christ-in-the-desert</string>
+				<string>turner-temeraire</string>
+				<string>leonardo-vitruvian-man</string>
+				<string>bruegel-hunters-snow</string>
+				<string>cole-voyage-youth</string>
+				<string>friedrich-monk-by-the-sea</string>
+				<string>van-gogh-wheat-field-cypresses</string>
+				<string>monet-cliff-pourville</string>
+				<string>van-gogh-almond-blossom</string>
+				<string>van-gogh-fishing-boats</string>
+				<string>hokusai-umezawa</string>
+				<string>whistler-falling-rocket</string>
+				<string>dore-fall-of-satan</string>
+				<string>dore-flood</string>
+				<string>dore-wolves-sheep</string>
+				<string>dore-leviathan</string>
+				<string>dore-paradise-lost-book-vi</string>
+				<string>dore-moses-tables</string>
+				<string>dore-empyrean</string>
+				<string>dore-raven</string>
 				<string>desktop</string>
 			</array>
 			<key>pfm_title</key>
@@ -2212,6 +2626,26 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>sidebar.showSpaces</string>
+			<key>pfm_title</key>
+			<string>Show Spaces</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>sidebar.showProfileControl</string>
+			<key>pfm_title</key>
+			<string>Show Profile Button</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Workspace rows show only their icon, name and unread mark, and section titles become thin lines.</string>
@@ -2241,7 +2675,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>bottom</string>
+			<string>off</string>
 			<key>pfm_description</key>
 			<string>Hides the chosen sections until the pointer is over the sidebar.</string>
 			<key>pfm_name</key>
@@ -2522,7 +2956,20 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The text of the workspace's newest unread notification.</string>
+			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.notification</string>
+			<key>pfm_title</key>
+			<string>Latest Notification</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<array>
+				<string>notification</string>
 				<string>directory</string>
 				<string>branch</string>
 				<string>process</string>
@@ -2541,6 +2988,7 @@
 					<string>Item</string>
 					<key>pfm_range_list</key>
 					<array>
+						<string>notification</string>
 						<string>directory</string>
 						<string>branch</string>
 						<string>process</string>
@@ -2655,6 +3103,14 @@
 		</dict>
 		<dict>
 			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.terminal.notification</string>
+			<key>pfm_title</key>
+			<string>Latest Notification</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
 			<string>sidebar.workspaceRow.terminal.secondLineOrder</string>
 			<key>pfm_subkeys</key>
 			<array>
@@ -2663,6 +3119,7 @@
 					<string>Item</string>
 					<key>pfm_range_list</key>
 					<array>
+						<string>notification</string>
 						<string>directory</string>
 						<string>branch</string>
 						<string>process</string>
@@ -2777,6 +3234,14 @@
 		</dict>
 		<dict>
 			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.agent.notification</string>
+			<key>pfm_title</key>
+			<string>Latest Notification</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
 			<string>sidebar.workspaceRow.agent.secondLineOrder</string>
 			<key>pfm_subkeys</key>
 			<array>
@@ -2785,6 +3250,7 @@
 					<string>Item</string>
 					<key>pfm_range_list</key>
 					<array>
+						<string>notification</string>
 						<string>directory</string>
 						<string>branch</string>
 						<string>process</string>
@@ -2899,6 +3365,14 @@
 		</dict>
 		<dict>
 			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.browser.notification</string>
+			<key>pfm_title</key>
+			<string>Latest Notification</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
 			<string>sidebar.workspaceRow.browser.secondLineOrder</string>
 			<key>pfm_subkeys</key>
 			<array>
@@ -2907,6 +3381,7 @@
 					<string>Item</string>
 					<key>pfm_range_list</key>
 					<array>
+						<string>notification</string>
 						<string>directory</string>
 						<string>branch</string>
 						<string>process</string>
@@ -3021,6 +3496,14 @@
 		</dict>
 		<dict>
 			<key>pfm_name</key>
+			<string>sidebar.workspaceRow.mixed.notification</string>
+			<key>pfm_title</key>
+			<string>Latest Notification</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_name</key>
 			<string>sidebar.workspaceRow.mixed.secondLineOrder</string>
 			<key>pfm_subkeys</key>
 			<array>
@@ -3029,6 +3512,7 @@
 					<string>Item</string>
 					<key>pfm_range_list</key>
 					<array>
+						<string>notification</string>
 						<string>directory</string>
 						<string>branch</string>
 						<string>process</string>
@@ -3396,6 +3880,42 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask.</string>
+			<key>pfm_name</key>
+			<string>browser.passwords.offerToSave</string>
+			<key>pfm_title</key>
+			<string>Offer to Save Passwords</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Offers a generated password when a site asks for a new one, and saves it.</string>
+			<key>pfm_name</key>
+			<string>browser.passwords.generate</string>
+			<key>pfm_title</key>
+			<string>Suggest Strong Passwords</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password.</string>
+			<key>pfm_name</key>
+			<string>browser.passwords.allowExport</string>
+			<key>pfm_title</key>
+			<string>Allow Password Export</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>When off, location data is removed from photos and videos before they are attached.</string>
@@ -3741,6 +4261,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.</string>
+			<key>pfm_name</key>
+			<string>notifications.attention.moveToTop</string>
+			<key>pfm_title</key>
+			<string>Move the Workspace to the Top</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<array/>
 			<key>pfm_description</key>
 			<string>Workspace ids whose notifications are silent. Mute a workspace from its sidebar row menu.</string>
@@ -3892,6 +4424,18 @@
 			<string>agentPane.showContextUsage</string>
 			<key>pfm_title</key>
 			<string>Show Context Usage</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The microphone beside Send in every composer, including the New Tab page.</string>
+			<key>pfm_name</key>
+			<string>agentPane.showDictation</string>
+			<key>pfm_title</key>
+			<string>Show Dictation Button</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>

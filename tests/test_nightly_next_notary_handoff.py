@@ -47,7 +47,8 @@ def run_prepare(state_extra: dict[str, str]) -> subprocess.CompletedProcess[str]
         "release_tag": "nightly-next",
         "dmg_prefix": "cmux-nightly-next-macos",
         "variant": "arm64",
-        "channel": "nightly",
+        # notarize-nightly-dmg.sh records CMUX_CHANNEL: cmux NEXT signs as `next`.
+        "channel": "next",
         "output_file": f"{dmg}.notarization.log",
     }
     state.update(state_extra)
@@ -57,6 +58,7 @@ def run_prepare(state_extra: dict[str, str]) -> subprocess.CompletedProcess[str]
         NIGHTLY_DMG_RELEASE=str(dmg),
         CHANNEL_APP_PATH=str(app),
         CHANNEL="nightly",
+        SIGN_CHANNEL="next",
         NIGHTLY_VARIANT="arm64",
         CHANNEL_RELEASE_TAG="nightly-next",
         NIGHTLY_BUILD="1",
@@ -76,6 +78,11 @@ class NightlyNextNotaryHandoffTests(unittest.TestCase):
         result = run_prepare({"submit_exit": "1", "wait_timed_out": "true"})
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(json.loads(result.manifest.read_text())["submission_id"], "fixture-id")
+
+    def test_state_from_another_signing_channel_is_not_handed_off(self):
+        result = run_prepare({"channel": "nightly"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("does not match the build", result.stderr)
 
     def test_failed_submit_is_not_handed_off(self):
         result = run_prepare({"submit_exit": "1"})

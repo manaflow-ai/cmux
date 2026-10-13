@@ -72,7 +72,8 @@ use reconnect_backoff::TERMINAL_HOST_RECONNECT_MAX_FAILURES;
 #[cfg(any(unix, windows))]
 use reconnect_backoff::{
     TERMINAL_HOST_HEALTHY_CONNECTION, TERMINAL_HOST_RECONNECT_MAX_DELAY,
-    TerminalHostReconnectBackoff, wait_for_reconnect_after_geometry_failure,
+    TerminalHostReconnectBackoff, publish_host_link_state,
+    wait_for_reconnect_after_geometry_failure,
 };
 #[cfg(test)]
 use render_tap::FrameProducerTestHook;
@@ -527,6 +528,9 @@ struct HostedSurfaceLaunch {
     lifetime: PtyLifetime,
     terminal_public_id: Option<TerminalPublicId>,
     resource_identity: Option<TabResourceIdentity>,
+    /// The host's program was already running (an adopted session), so its
+    /// shell may be mid-command when the mirror starts reading.
+    adopted: bool,
 }
 
 fn encode_key_from_terminal(term: &Terminal, input: &KeyInput) -> anyhow::Result<Vec<u8>> {
@@ -632,6 +636,7 @@ impl Surface {
             lifetime,
             terminal_public_id,
             resource_identity,
+            adopted,
         } = launch;
         anyhow::ensure!(
             lifetime == PtyLifetime::SessionOwned,
@@ -693,6 +698,12 @@ impl Surface {
         let initial_color_delta = terminal_color_override_full_state(&snapshot.colors);
         if !initial_color_delta.is_empty() {
             term.vt_write(&initial_color_delta);
+        }
+        // After the replay: the host's records are what the programs last
+        // reported. (The replay carries no OSC 133 marks today, so it cannot
+        // end them; test `a_prompt_mark_in_the_reconnect_replay_keeps_a_waiting_programs_record`.)
+        if let Some(program_status) = snapshot.program_status.clone() {
+            terminal_metadata.restore_program_status(program_status);
         }
         let initial_color_revision = term.color_revision();
         let initial_cursor_activity = term.cursor_activity().ok();
@@ -858,6 +869,11 @@ impl Surface {
             applied_color_overrides,
             applied_color_revision: initial_color_revision,
             applied_cursor_activity: initial_cursor_activity,
+            shell_marks: if adopted {
+                crate::prompt_mode_reset::ShellMarks::joined_midway()
+            } else {
+                crate::prompt_mode_reset::ShellMarks::default()
+            },
             title_changed,
             pending_bells,
             output_apply_delay: HostedReader::output_apply_delay_from_env(),

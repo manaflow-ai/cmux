@@ -34,6 +34,7 @@ struct HistoryCookieBackupsView: View {
                         Spacer(minLength: 0)
                         Button(HistoryStrings.cookieBackupsDelete) { ask([backup.id]) }
                     }
+                    .thinScrollers()
                 }
                 .listStyle(.plain).scrollContentBackground(.hidden).frame(minHeight: 160)
             }

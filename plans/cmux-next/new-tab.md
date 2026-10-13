@@ -154,6 +154,9 @@ must work with no page.
   MCP tool from the catalog, mux agent tools. Automation origin never steals focus (the tab opens
   without selection unless origin user).
 - `newTab.page` (exists) opens the screen; `focusLocation` (Cmd-L) unchanged.
+- The screen's create row (cx-ag5.7): New terminal and New browser tab ask the host's `tab.open`
+  with no text (a blank terminal in the tab's folder; a browser tab on `browser.newTabPage`); New
+  chat is Return's chat with nothing to send. Ctrl-` is New Terminal Tab everywhere (#18133).
 - `check-action-surfaces.sh` gets the new action with every surface.
 
 ## 6. Ownership

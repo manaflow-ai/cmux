@@ -139,11 +139,37 @@ impl Hub {
         if session.meta().agent_session_id.as_deref() == Some(adopt.agent_session_id.as_str()) {
             return Ok(());
         }
+        // Another Codex still writing the thread (classic cmux's terminal, a bare `codex` the
+        // live check cannot tie to it) refuses the load: say so, not "could not resume" (cx-l7g6k).
+        let held = self.load_error(session).is_some_and(|e| e.contains("active writer"));
         let _ = self.kill(session, true).await;
+        if held {
+            return Err(RpcError::invalid_params(format!(
+                "{agent} session {} is still open in another app, such as classic cmux: \
+                 quit it there, then open it again",
+                adopt.agent_session_id
+            )));
+        }
         Err(RpcError::internal(format!(
             "{agent} could not resume session {}",
             adopt.agent_session_id
         )))
+    }
+
+    /// Records that `session`'s agent refused its `session/load`, with the error's `data`, where
+    /// codex-acp says why (its message is "Internal error").
+    pub(super) fn note_load_failed(&self, session: &Session, e: &RpcError) {
+        let failed = json!({"error": e.message, "data": e.data});
+        self.append(session, "mux", "resume_failed", failed);
+    }
+
+    /// Why `session`'s agent refused its `session/load`, if it did: the error's message and its
+    /// `data` (where codex-acp puts the reason), as one text.
+    fn load_error(&self, session: &Session) -> Option<String> {
+        let events = self.events(&session.id, 0, 1_000).ok()?;
+        let failed = events.iter().rev().find(|e| e.dir == "mux" && e.kind == "resume_failed")?;
+        let message = failed.msg.get("error").and_then(Value::as_str).unwrap_or_default();
+        Some(format!("{message} {}", failed.msg.get("data").unwrap_or(&Value::Null)))
     }
 }
 
@@ -176,13 +202,19 @@ pub(super) fn session_cwd(
     family: &str,
 ) -> Result<PathBuf, RpcError> {
     let cwd = match (cwd, recorded) {
+        // Claude keeps a conversation under its cwd's project; resuming elsewhere finds nothing.
+        // The client's folder is only its default (the page's private agent-home folder), so the
+        // conversation's own folder wins while it exists (nxdog93: "cwd mismatch" on an
+        // agent-home chat). A gone folder needs the person's pick (`needsFolder`).
         (Some(given), Some(recorded)) if family == "claude" && !same_dir(&given, &recorded) => {
-            // Claude keeps a conversation under its cwd's project; resuming elsewhere finds nothing.
-            return Err(RpcError::invalid_params(format!(
-                "cwd {} does not match the adopted session's {}",
-                given.display(),
-                recorded.display()
-            )));
+            if !recorded.is_dir() {
+                return Err(RpcError::invalid_params(format!(
+                    "cwd {} does not match the adopted session's {}, which is gone",
+                    given.display(),
+                    recorded.display()
+                )));
+            }
+            recorded
         }
         (Some(given), _) => given,
         (None, Some(recorded)) => recorded,

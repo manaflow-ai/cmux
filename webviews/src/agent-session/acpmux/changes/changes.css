@@ -1,6 +1,7 @@
 /* The changes view's per-file menu. Colors come from the pane's theme tokens only. */
+@import "./git.css";
 .acpmux-file-menu{position:relative;display:inline-flex}
-.acpmux-file-menu-list{position:absolute;z-index:var(--layer-dropdown);top:calc(100% + 4px);right:0;display:flex;flex-direction:column;min-width:180px;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--acpmux-menu-bg);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:top right;color:var(--agent-text);font-size:13px;line-height:18px}
+.acpmux-file-menu-list{position:absolute;z-index:var(--layer-dropdown);top:calc(100% + 4px);right:0;display:flex;flex-direction:column;min-width:180px;padding:var(--ui-popup-padding);box-sizing:border-box;border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow);transform-origin:top right;color:var(--agent-text);font-size:13px;line-height:18px}
 .ui-positioner>.acpmux-file-menu-list{position:static;top:auto;right:auto}
 .acpmux-file-menu-item{display:flex;align-items:center;min-height:var(--ui-row-height);padding:4px var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:default}
 .acpmux-file-menu-item:hover,.acpmux-file-menu-item:focus-visible{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));outline:none}
@@ -29,7 +30,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-diff-notes{flex:none;display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:8px;border-bottom:1px solid var(--agent-border)}
 .acpmux-turn-note{color:var(--agent-muted);font-size:12px;line-height:16px}
 .acpmux-branch-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:100%}
-.acpmux-pull-request-create{height:29px;padding:0 12px;border:0;border-radius:14.5px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;white-space:nowrap;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-pull-request-create{height:29px;padding:0 12px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;white-space:nowrap;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-pull-request-create:hover:enabled{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
 .acpmux-pull-request-create:active:enabled{background:var(--acpmux-step-pressed-on-page)}
 .acpmux-pull-request-create:disabled{color:var(--agent-muted)}
@@ -38,7 +39,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-pull-request[role=alert]{white-space:normal;color:var(--acpmux-del)}
 .acpmux-pull-request a{color:var(--agent-accent);text-decoration:none}
 .acpmux-pull-request a:hover{text-decoration:underline}
-.acpmux-branch-pill{display:inline-flex;align-items:center;max-width:100%;height:29px;box-sizing:border-box;padding:0 12px;border-radius:14.5px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 .5px var(--acpmux-pill-edge);white-space:nowrap}
+.acpmux-branch-pill{display:inline-flex;align-items:center;max-width:100%;height:29px;box-sizing:border-box;padding:0 12px;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 .5px var(--acpmux-pill-edge);white-space:nowrap}
 .acpmux-branch-from,.acpmux-branch-to{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .acpmux-branch-arrow{flex:none;margin:0 10px;color:var(--agent-muted)}
 .acpmux-changes-banner{display:flex;align-items:center;gap:12px;align-self:stretch;padding:12px 14px;border-radius:16px;border-left:2px solid var(--acpmux-warning);background:color-mix(in srgb,var(--acpmux-warning) 6%,var(--agent-page-bg,var(--acpmux-base)));box-shadow:inset 0 0 0 .5px var(--agent-border)}
@@ -47,7 +48,7 @@ button.acpmux-diff-scope:focus-visible{outline:2px solid var(--agent-accent);out
 .acpmux-changes-banner-title{font-weight:600}
 .acpmux-changes-banner-body{color:var(--agent-muted)}
 .acpmux-changes-banner-divider{flex:none;width:1px;height:24px;background:var(--agent-border)}
-.acpmux-changes-banner-action,.acpmux-changes-banner-refresh{flex:none;height:24px;padding:0 9px;border:0;border-radius:12px;background:none;color:var(--agent-muted);font:inherit;white-space:nowrap;cursor:default}
+.acpmux-changes-banner-action,.acpmux-changes-banner-refresh{flex:none;height:24px;padding:0 9px;border:0;border-radius:6px;background:none;color:var(--agent-muted);font:inherit;white-space:nowrap;cursor:default}
 .acpmux-changes-banner-action{background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));box-shadow:inset 0 0 0 1px var(--agent-border);color:var(--agent-text)}
 .acpmux-changes-banner-action:hover,.acpmux-changes-banner-refresh:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)));color:var(--agent-text)}
 .acpmux-changes-banner-action:focus-visible,.acpmux-changes-banner-refresh:focus-visible{outline:2px solid var(--agent-accent);outline-offset:1px}
@@ -84,7 +85,7 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-diff-notice{display:flex;align-items:center;gap:8px;padding:7px 14px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);background:color-mix(in srgb,var(--agent-danger) 14%,transparent);font-size:12px}
 /* Hunk review: each hunk's Reject and Accept under its last changed line, and the bar that sends the rejected ones back. */
 .acpmux-hunk-actions{display:flex;justify-content:flex-end;align-items:center;gap:6px;padding:6px 12px;border-top:1px solid var(--agent-border);background:var(--agent-surface-elevated);font:12px system-ui,-apple-system,sans-serif;color:var(--agent-muted)}
-.acpmux-hunk-undo,.acpmux-hunk-reject,.acpmux-hunk-accept,.acpmux-hunk-stage,.acpmux-revert-send{height:24px;padding:0 10px;border:0;border-radius:12px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
+.acpmux-hunk-undo,.acpmux-hunk-reject,.acpmux-hunk-accept,.acpmux-hunk-stage,.acpmux-revert-send{height:24px;padding:0 10px;border:0;border-radius:6px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
 .acpmux-hunk-reject{background:color-mix(in srgb,var(--acpmux-del) 30%,var(--agent-surface-elevated))}
 .acpmux-hunk-accept{background:color-mix(in srgb,var(--acpmux-add) 30%,var(--agent-surface-elevated))}
 .acpmux-hunk-undo:hover,.acpmux-hunk-stage:hover,.acpmux-revert-send:hover{background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
@@ -98,55 +99,15 @@ button.acpmux-edited-file:focus-visible{outline:1.5px solid var(--agent-muted);o
 .acpmux-hunk-actions[data-decision=accepted] output{color:var(--acpmux-add)}
 .acpmux-revert-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-top:1px solid var(--agent-border);background:var(--agent-surface-elevated)}
 .acpmux-revert-count{white-space:nowrap;color:var(--agent-text)}
-.acpmux-revert-bar input{flex:1;min-width:0;height:28px;padding:0 10px;border:1px solid var(--agent-border);border-radius:14px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
+.acpmux-revert-bar input{flex:1;min-width:0;height:28px;padding:0 10px;border:1px solid var(--agent-border);border-radius:6px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit}
 .acpmux-revert-bar input:focus-visible{outline:none;border-color:color-mix(in srgb,var(--agent-accent) 55%,transparent)}
-.acpmux-revert-send{height:28px;padding:0 12px;border-radius:14px}
+.acpmux-revert-send{height:28px;padding:0 12px;border-radius:6px}
 .acpmux-diff-keys{flex:none;display:flex;align-items:center;gap:6px;padding:4px 12px 6px;border-top:1px solid var(--agent-border);color:var(--agent-muted);font-size:11px;line-height:16px;white-space:nowrap;overflow:hidden}
 .acpmux-diff-key{display:inline-flex;align-items:center;gap:2px}
 .acpmux-diff-key .acpmux-keycap:last-of-type{margin-right:3px}
 @media (prefers-reduced-motion:no-preference){.acpmux-file-menu-list{animation:ui-popup-open var(--ui-popup-open) ease-out}}
 /* Commit and Push: text buttons in the toolbar pill, the commit form and the latest write's status line under the header. */
-.acpmux-git-tool{display:inline-flex;align-items:center;gap:4px;height:28px;padding:0 10px;border:0;border-radius:14px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:pointer;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease),color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
-.acpmux-git-tool:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 10%,transparent));color:var(--agent-text)}
-.acpmux-git-tool:active:not(:disabled){background:var(--acpmux-step-pressed);color:var(--agent-text)}
-.acpmux-git-tool[aria-expanded=true]{background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text)}
-.acpmux-git-tool:disabled{opacity:.5;cursor:default}
-.acpmux-git-tool:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-.acpmux-git-ahead{font-variant-numeric:tabular-nums;color:var(--agent-text)}
-.acpmux-git-form{flex:none;display:flex;flex-direction:column;gap:8px;padding:8px 12px;border-bottom:1px solid var(--agent-border);background:var(--agent-surface-elevated)}
-.acpmux-git-message{min-height:44px;max-height:160px;resize:vertical;padding:7px 10px;border:1px solid var(--agent-border);border-radius:10px;background:var(--agent-input-bg);color:var(--agent-text);font:inherit;font-size:var(--text-body)}
-.acpmux-git-message:focus-visible{outline:none;border-color:color-mix(in srgb,var(--agent-text) 35%,transparent)}
-.acpmux-git-form-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.acpmux-git-message-keys{display:contents}
-/* A ui/ChoiceGroup fieldset: its native border, margin and min-width reset. */
-.acpmux-git-scope{display:inline-flex;gap:2px;margin:0;border:0;min-width:0;padding:2px;border-radius:14px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)))}
-.acpmux-git-scope-option{display:inline-flex;align-items:center;height:24px;padding:0 10px;border-radius:12px;color:var(--agent-muted);font-size:var(--text-detail);cursor:pointer}
-.acpmux-git-scope-option input{position:absolute;opacity:0;pointer-events:none}
-.acpmux-git-scope-option[data-checked=true]{background:var(--agent-page-bg);color:var(--agent-text)}
-.acpmux-git-scope-option:has(input:focus-visible){outline:1.5px solid var(--agent-muted);outline-offset:1px}
-.acpmux-git-scope-hint{flex:1;min-width:120px;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-git-primary,.acpmux-git-secondary{height:28px;padding:0 12px;border:0;border-radius:14px;background:var(--agent-control,color-mix(in srgb,var(--agent-text) 10%,var(--agent-page-bg)));color:var(--agent-text);font:inherit;font-size:var(--text-detail);cursor:default;transition:background-color var(--acpmux-motion-hover) var(--acpmux-motion-ease)}
-.acpmux-git-primary{background:color-mix(in srgb,var(--agent-text) 85%,var(--agent-page-bg));color:var(--agent-page-bg)}
-.acpmux-git-secondary:hover:not(:disabled){background:var(--agent-control-hover,color-mix(in srgb,var(--agent-text) 14%,var(--agent-page-bg)))}
-.acpmux-git-primary:hover:not(:disabled){background:var(--agent-text)}
-.acpmux-git-primary:disabled,.acpmux-git-secondary:disabled{opacity:.5}
-.acpmux-git-primary:focus-visible,.acpmux-git-secondary:focus-visible{outline:1.5px solid var(--agent-muted);outline-offset:1px}
-.acpmux-git-status{flex:none;display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:6px 12px;border-bottom:1px solid var(--agent-border);color:var(--agent-text);font-size:var(--text-detail)}
-.acpmux-git-status[data-phase=busy],.acpmux-git-status[data-phase=done]{background:color-mix(in srgb,var(--agent-text) 4%,transparent)}
-.acpmux-git-status[data-phase=failed]{background:color-mix(in srgb,var(--agent-danger) 14%,transparent)}
-.acpmux-git-status-text{flex:1;min-width:0}
-.acpmux-git-status .acpmux-git-secondary,.acpmux-diff-notice .acpmux-git-secondary{height:24px;padding:0 10px}
 .acpmux-diff-notice-text{flex:1;min-width:0}
-.acpmux-git-output{flex-basis:100%}
-.acpmux-git-output summary{color:var(--agent-muted);cursor:default}
-.acpmux-git-output pre{max-height:200px;overflow:auto;margin:6px 0 0;padding:8px;border-radius:8px;background:var(--agent-input-bg);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-caption);white-space:pre-wrap}
-@media (prefers-reduced-motion: reduce){.acpmux-git-tool,.acpmux-git-primary,.acpmux-git-secondary{transition:none}}
-.acpmux-git-status[data-phase=idle]{padding:0;border-bottom:0}
-.acpmux-git-status-text:empty{display:none}
-.acpmux-git-include-new{display:inline-flex;align-items:center;gap:6px;color:var(--agent-text);font-size:var(--text-detail)}
-.acpmux-git-form-note{color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-git-new-files{display:flex;flex-direction:column;gap:4px}
-.acpmux-git-new-files ul{max-height:120px;overflow:auto;margin:0;padding:0 0 0 16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:var(--text-detail);color:var(--agent-text)}
 /* Pull request review threads (cx-ncc.77.2): under their line in the diff, or above it when the line is gone. */
 .acpmux-review-unplaced{display:flex;flex-direction:column;gap:6px;padding:6px 12px}
 .acpmux-review-thread{margin:6px 12px;padding:8px 10px;border:1px solid var(--agent-border);border-radius:8px;background:var(--agent-surface-elevated);color:var(--agent-text);font-family:system-ui,-apple-system,sans-serif;font-size:var(--text-body)}

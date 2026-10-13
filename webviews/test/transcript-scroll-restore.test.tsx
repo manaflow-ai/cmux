@@ -157,3 +157,35 @@ test("a place whose row is gone opens at the latest message", async () => {
     await act(async () => root.unmount());
   }
 });
+
+test("switching chats opens the new chat at latest instead of the old chat's scroll offset", async () => {
+  const rowsA = turnView(turns, new Set());
+  const rowsB = turnView(
+    turns.map((one) => ({ ...one, id: `session-b-${one.id}` })),
+    new Set(),
+  );
+  const root = createRoot(dom.window.document.getElementById("root")!);
+  const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-scroll")!;
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={rowsA} sessionId="session-a" onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+    const resting = Math.round(scroller().scrollTop / 3);
+    scroller().scrollTop = resting;
+    await act(async () => void scroller().dispatchEvent(new dom.window.Event("scroll")));
+    expect(scroller().scrollTop).toBe(resting);
+
+    await act(async () =>
+      root.render(
+        <VirtualTranscript rows={rowsB} sessionId="session-b" onToggleActivity={() => {}} expanded={new Set()} />,
+      ),
+    );
+    const latest =
+      parseFloat(dom.window.document.querySelector<HTMLElement>(".acpmux-spacer")!.style.height) - VIEWPORT;
+    expect(scroller().scrollTop).toBe(latest);
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

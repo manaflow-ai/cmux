@@ -3,6 +3,8 @@
 // turn's hunks, reaches memoized rows without changing their versions.
 import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
+import type { HarnessHealth } from "../HarnessHealthNotice";
+import type { AcpmuxSnapshot } from "../model";
 import type { MessageBranch } from "./branches";
 
 export type TurnActions = {
@@ -11,7 +13,7 @@ export type TurnActions = {
   fork?: (throughSeq: number) => void;
   /// The latest completed turn (`latestForkSeq`), the only one `fork` goes through unless `forkAny`.
   forkSeq?: number;
-  /// Every completed turn forks (`forksAnyTurn`): acpmux forks a Claude chat through any of them (cx-yqiv).
+  /// Every completed turn forks (`forksAnyTurn`): acpmux forks a Claude or Codex chat through any of them (cx-yqiv, cx-a7r).
   forkAny?: boolean;
   /// Edit and resend (cx-ncc.60): the prompts that edit in place, each with the turn its edit forks
   /// through (`editableTurns`), and the send that forks there and sends the edited text.
@@ -46,3 +48,15 @@ export type TurnActions = {
 };
 
 export const TurnActionsContext = createContext<TurnActions>({});
+
+/// The command that signs the chat's harness in, for Sign in again: its profile's `auth.login`, else
+/// the one acpmux's health check names (a CLI found on PATH has no profile, cx-gz0dz).
+export function chatLoginCommand(
+  catalog: AcpmuxSnapshot["catalog"],
+  harness: string | undefined,
+  health: HarnessHealth | undefined,
+): string | undefined {
+  const profile = catalog.find((entry) => entry.id === (harness ?? ""))?.auth?.login;
+  const checked = health && health.id === harness ? health.login?.trim() : undefined;
+  return profile || checked || undefined;
+}

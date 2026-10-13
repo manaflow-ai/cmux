@@ -228,7 +228,8 @@ pub use events::{GraphicsStatus, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKin
 mod notification_types;
 mod notifications;
 pub use notification_types::{
-    NotificationEvent, NotificationSource, ResourceNotification, SurfaceNotification,
+    NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
+    NotificationSource, ResourceNotification, SurfaceNotification,
 };
 mod notification_level;
 pub use notification_level::NotificationLevel;
@@ -257,6 +258,7 @@ pub(crate) mod screen_groups;
 mod signaled_mutex;
 pub(crate) use signaled_mutex::SignaledMutex;
 mod command_history;
+pub(crate) mod keybindings;
 mod new_terminal_cwd;
 mod session_paths;
 pub(crate) mod settings;
@@ -325,7 +327,7 @@ pub use presentation::{
     WorkspaceGroupChange,
 };
 pub(crate) use resource_content::ResourceEffectProjection;
-pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget, CloseReason};
+pub(crate) use resource_topology::{BatchCloseOutcome, BatchCloseTarget, CloseReason, RoomClose};
 pub use rows::{RowHeightsOutcome, RowsError};
 pub(crate) use screen_groups::workspace_screen_groups;
 pub use screen_groups::{
@@ -703,6 +705,10 @@ pub struct Mux {
     /// Guarded chat moves (`agent-transfer-v1`, server/agent_transfer.rs).
     #[cfg(unix)]
     pub(crate) agent_transfers: crate::server::agent_transfer::AgentTransfers,
+    /// A Cloud machine's agents' requests for files of the person's Mac
+    /// (`access-request-v1`, server/agent_transfer/access_requests.rs).
+    #[cfg(unix)]
+    pub(crate) access_requests: crate::server::agent_transfer::access_requests::AccessRequests,
     /// VM activity facts for `subscribe-activity` (server/activity.rs).
     pub(crate) activity: crate::server::activity::ActivityStream,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
@@ -720,6 +726,8 @@ pub struct Mux {
     /// The settings owner (the settings file), started on first use or at
     /// daemon start (mux/settings.rs).
     settings: settings::SettingsSlot,
+    /// The keybindings.json owner, beside the settings file (mux/keybindings.rs).
+    keybindings: keybindings::KeybindingsSlot,
     /// Parallel terminal host launches and reaps (`terminal_work`).
     terminal_work: terminal_work::TerminalWorkPool,
     /// Hosts launched ahead of their creation, by reserved terminal id.

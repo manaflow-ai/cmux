@@ -143,7 +143,10 @@ fn tab_of(harness: &RecoveryHarness, name: &str) -> serde_json::Value {
 }
 
 /// The host record once a host other than `old` serves the terminal.
-fn wait_for_replacement(harness: &RecoveryHarness, old: &TerminalHostRecord) -> TerminalHostRecord {
+pub(super) fn wait_for_replacement(
+    harness: &RecoveryHarness,
+    old: &TerminalHostRecord,
+) -> TerminalHostRecord {
     let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
     loop {
         let records = load_terminal_host_records(&harness.host_root()).unwrap();

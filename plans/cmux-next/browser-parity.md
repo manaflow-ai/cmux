@@ -32,7 +32,7 @@ A user who makes cmux the default browser hits these in the first day.
 | Certificate error interstitial with proceed | missing (generic error) | UNSURE | app (W), engine (C) | W has no server-trust delegate |
 | mailto: and other handlers from pages and other apps | missing | missing | app | Info.plist has http/https only |
 | Address and card autofill | missing | UNSURE | pw | C may work with no cmux UI |
-| Clear browsing data (history, cookies, cache, by time range) | partial | partial | app | per-site data only; no global sheet |
+| Clear browsing data (history, cookies, cache, by time range) | fixed (cx-d0d.23) | fixed (cx-d0d.23) | app (+hist) | one action `browserProfile.clearBrowsingData` per profile: palette, profile menu, CLI, MCP, inline in Settings > Browser > Profiles. C deletes cookies created in the range and clears the whole HTTP cache (Chromium has no ranged cache clear); C keeps site storage (localStorage, IndexedDB, service workers: no ranged clear), remote-localhost derived stores, and the cache of a profile used this launch with no open tab |
 | Zoom remembered per site | per tab | per tab | app | Chrome keys zoom by host |
 | Find in page with count | works | works | app | |
 | Default browser registration, open links from other apps | works | works | app | |

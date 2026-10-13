@@ -21,7 +21,7 @@ struct DebugSettingsSidebar: View {
                     if !model.query.isEmpty {
                         Button { model.query = "" } label: { Icon(.fieldClear, size: 13) }
                             .buttonStyle(.plain).foregroundStyle(SettingsStyle.tertiary)
-                            .help(DebugSettingsStrings.clearSearch).accessibilityLabel(DebugSettingsStrings.clearSearch)
+                            .themedHelp(DebugSettingsStrings.clearSearch).accessibilityLabel(DebugSettingsStrings.clearSearch)
                     }
                 }
                 .padding(.horizontal, Metrics.space4)
@@ -42,6 +42,7 @@ struct DebugSettingsSidebar: View {
             .padding(.horizontal, Metrics.space4)
             .padding(.top, Metrics.titlebarHeight + Metrics.space2)
             .padding(.bottom, Metrics.space4)
+            .thinScrollers()
         }
         .onChange(of: model.searchFocusRequest) { searchFocused = true }
     }

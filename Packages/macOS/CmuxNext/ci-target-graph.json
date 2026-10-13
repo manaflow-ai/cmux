@@ -115,6 +115,7 @@
       ],
       "packages": [],
       "reads": [
+        "cmux-tui/crates/cmux-agent-pane-policy/tests/cases/environment.json",
         "scripts/cmux-next/pin-cmux-tui.sh"
       ]
     },
@@ -157,6 +158,7 @@
         "CmuxNextFeed",
         "CmuxNextHistory",
         "CmuxNextHome",
+        "CmuxNextHomeEngine",
         "CmuxNextIcons",
         "CmuxNextLayout",
         "CmuxNextMallocZone",
@@ -213,6 +215,7 @@
         "CmuxNextDaemon",
         "CmuxNextHistory",
         "CmuxNextHome",
+        "CmuxNextHomeEngine",
         "CmuxNextLayout",
         "CmuxNextProcessEnvironment",
         "CmuxNextTabs",
@@ -221,11 +224,13 @@
       ],
       "packages": [
         "CmuxAgentQuestion",
+        "CmuxGhosttyKit",
         "CmuxHomeCore",
         "CmuxHomeRender"
       ],
       "reads": [
         "plans/cmux-next/",
+        "schemas/keybindings/keybinding-vectors.json",
         "scripts/cmux-next/pin-cmux-tui.sh",
         "tests/fixtures/classic-to-next/"
       ]
@@ -470,6 +475,25 @@
         "CmuxHomeCore",
         "CmuxHomeRender",
         "CmuxMessagesLab"
+      ]
+    },
+    "CmuxNextHomeEngine": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextCloud",
+        "CmuxNextCompat",
+        "CmuxNextDaemon",
+        "CmuxNextDesign",
+        "CmuxNextHome",
+        "CmuxNextIcons",
+        "CmuxNextWakeups"
+      ],
+      "packages": [
+        "CmuxAgentQuestion",
+        "CmuxHomeCore"
       ]
     },
     "CmuxNextIcons": {

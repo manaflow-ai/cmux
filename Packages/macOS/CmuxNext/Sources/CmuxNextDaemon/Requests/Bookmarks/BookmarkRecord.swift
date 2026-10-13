@@ -16,9 +16,13 @@ public struct BookmarkRecord: Decodable, Sendable, Equatable {
     public var sourceKey: String?
     public var createdMs: Int64
     public var lastUsedMs: Int64?
+    /// A folder's icon (`bookmark-icon-v1`): one emoji, an SF Symbol name or a
+    /// stored `image:`/`svg:sha256-<hex>` asset. Nil for none, for a URL
+    /// bookmark, and from a daemon without the capability.
+    public var icon: String?
 
     enum CodingKeys: String, CodingKey {
-        case id, parent, kind, index, title, url
+        case id, parent, kind, index, title, url, icon
         case browserProfileID = "browser_profile_id"
         case faviconKey = "favicon_key"
         case sourceKey = "source_key"

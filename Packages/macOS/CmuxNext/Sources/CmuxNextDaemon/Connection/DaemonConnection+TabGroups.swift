@@ -17,11 +17,11 @@ extension DaemonConnection {
     }
 
     /// `transaction` is accepted for source compatibility; `update-tab-group`
-    /// does not echo one (the change arrives as `tree-changed`).
+    /// does not echo one (the change arrives as `tree-changed`). `icon`: `tab-group-icon-v1`.
     @discardableResult
-    public func updateTabGroup(_ group: TabGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged,
-                               collapsed: Bool? = nil, transaction: ClientTransactionID? = nil) async throws -> TabGroupResult {
-        try await requestNew(UpdateTabGroupRequest(group: group, name: name, color: color, collapsed: collapsed))
+    public func updateTabGroup(_ group: TabGroupID, name: String? = nil, color: FieldUpdate<String> = .unchanged, collapsed: Bool? = nil,
+                               icon: FieldUpdate<String> = .unchanged, transaction: ClientTransactionID? = nil) async throws -> TabGroupResult {
+        try await requestNew(UpdateTabGroupRequest(group: group, name: name, color: color, collapsed: collapsed, icon: icon))
     }
 
     /// Adds tabs at the end of the group. With `index` (position inside the

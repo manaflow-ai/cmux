@@ -159,19 +159,19 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "tab clear-name"
             ),
             // Previous / Next (Leo 2026-10-09): the focused pane's tabs when it has 2+, else the
-            // sidebar rows (`PreviousNext`). The browser-style keys run these; Ctrl-Tab and
-            // Ctrl-PageDown are `KeyBindingDefaults.tabSwitching`.
+            // sidebar rows (`PreviousNext`). No default key: the Chrome tab keys select sidebar
+            // items (`KeyBindingDefaults.tabSwitching`, Leo 2026-10-12).
             ActionDescriptor(
                 id: "navigate.next",
                 title: String(localized: "action.navigate.next", defaultValue: "Next Tab or Workspace", bundle: .module),
-                keywords: ["tab", "workspace", "switch", "next", "sidebar"], defaultShortcut: Shortcut("]", modifiers: [.command, .shift]),
+                keywords: ["tab", "workspace", "switch", "next", "sidebar"],
                 category: .tab, symbol: "chevron.right.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 mainMenu: .file
             ),
             ActionDescriptor(
                 id: "navigate.previous",
                 title: String(localized: "action.navigate.previous", defaultValue: "Previous Tab or Workspace", bundle: .module),
-                keywords: ["tab", "workspace", "switch", "previous", "sidebar"], defaultShortcut: Shortcut("[", modifiers: [.command, .shift]),
+                keywords: ["tab", "workspace", "switch", "previous", "sidebar"],
                 category: .tab, symbol: "chevron.left.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 mainMenu: .file
             ),

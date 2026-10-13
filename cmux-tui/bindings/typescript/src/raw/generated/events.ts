@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4. */
+/* cmux-tui mux protocol 12, IR 7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa. */
 
 
 import type * as T from "./types.js";
@@ -245,6 +245,12 @@ export type HistoryChangedEvent = { event: "history-changed" } & {
   "revision": bigint;
 };
 
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type KeybindingsChangedEvent = { event: "keybindings-changed" } & {
+  "origin": "user" | "cli" | "mcp" | "script" | "remote" | "app" | "file";
+  "revision": bigint;
+};
+
 /** Protocol v6; emission: emitted; streams: subscribe. */
 export type LayoutChangedEvent = { event: "layout-changed" } & {
   "screen": T.Id;
@@ -258,8 +264,10 @@ export type MachineUsageChangedEvent = { event: "machine-usage-changed" } & {
 /** Protocol v6; emission: emitted; streams: subscribe, attach-byte, attach-browser. */
 export type NotificationEvent = { event: "notification" } & {
   "body": string;
+  "desktop"?: boolean;
   "level": T.NotificationLevel;
   "notification": T.Id;
+  "reply"?: boolean;
   "source"?: T.NotificationSource;
   "surface": (T.Id) | null;
   "title": string;
@@ -313,6 +321,12 @@ export type PaneClosedEvent = { event: "pane-closed" } & {
 /** Protocol v12; emission: emitted; streams: subscribe. */
 export type PersonalChangedEvent = { event: "personal-changed" } & {
   "personal_revision": bigint;
+};
+
+/** Protocol v12; emission: emitted; streams: subscribe. */
+export type ProgramStatusChangedEvent = { event: "program-status-changed" } & {
+  "program_status": (T.ShownProgramStatus) | null;
+  "surface": T.Id;
 };
 
 /** Protocol v7; emission: emitted; streams: attach-render. */
@@ -637,6 +651,7 @@ export type KnownCmuxEvent =
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | HistoryChangedEvent
+  | KeybindingsChangedEvent
   | LayoutChangedEvent
   | MachineUsageChangedEvent
   | NotificationEvent
@@ -647,6 +662,7 @@ export type KnownCmuxEvent =
   | PaneAddedEvent
   | PaneClosedEvent
   | PersonalChangedEvent
+  | ProgramStatusChangedEvent
   | RenderDeltaEvent
   | RenderStateEvent
   | ResizedEvent
@@ -710,6 +726,7 @@ export type KnownSubscribeEvent =
   | FrontendProjectionChangedEvent
   | GraphicsStatusEvent
   | HistoryChangedEvent
+  | KeybindingsChangedEvent
   | LayoutChangedEvent
   | MachineUsageChangedEvent
   | NotificationEvent
@@ -719,6 +736,7 @@ export type KnownSubscribeEvent =
   | PaneAddedEvent
   | PaneClosedEvent
   | PersonalChangedEvent
+  | ProgramStatusChangedEvent
   | ScreenAddedEvent
   | ScreenChangedEvent
   | ScreenClosedEvent

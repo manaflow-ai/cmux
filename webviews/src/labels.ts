@@ -8,7 +8,9 @@ const catalog = new DiffLabelCatalog(diffLocaleLoaders);
 const availableLanguages = ["en", ...Object.keys(diffLocaleLoaders)];
 
 type CatalogKey = keyof typeof english;
-export type DiffViewerLabelKey = CatalogKey extends `diffViewer.${infer Key}` ? Key : never;
+/** Distributes over the catalog's keys: the table also holds the changes view's git strings. */
+type ViewerKey<K> = K extends `diffViewer.${infer Key}` ? Key : never;
+export type DiffViewerLabelKey = ViewerKey<CatalogKey>;
 export type DiffViewerLabelResolver = (key: DiffViewerLabelKey) => string;
 export type DiffViewerLanguage = string;
 
@@ -23,13 +25,23 @@ export function diffViewerLanguage(
 export function diffViewerLabelsFor(language: DiffViewerLanguage): Record<DiffViewerLabelKey, string> {
   const strings = catalog.strings(language);
   return Object.fromEntries(
-    Object.keys(english).map((key) => [key.slice("diffViewer.".length), strings.t(key)]),
+    viewerKeys(Object.keys(english)).map((key) => [key.slice("diffViewer.".length), strings.t(key)]),
   ) as Record<DiffViewerLabelKey, string>;
 }
 
+/** The viewer's own keys; the table also carries the changes view's git strings (diff-viewer/git.ts). */
+const viewerKeys = (keys: string[]) => keys.filter((key) => key.startsWith("diffViewer."));
+
 export const DEFAULT_DIFF_VIEWER_LABELS = Object.fromEntries(
-  Object.entries(english).map(([key, value]) => [key.slice("diffViewer.".length), value]),
+  viewerKeys(Object.keys(english)).map((key) => [key.slice("diffViewer.".length), english[key as CatalogKey]]),
 ) as Record<DiffViewerLabelKey, string>;
+
+/** The loaded table's changes view strings in `language` and English, for the reused Stage, Commit and Push. */
+export function diffGitStrings(language: DiffViewerLanguage): Record<string, Record<string, string>> {
+  const pick = (table: Record<string, string>) =>
+    Object.fromEntries(Object.entries(table).filter(([key]) => !key.startsWith("diffViewer.")));
+  return { en: pick(english), [language]: pick(catalog.table(language)) };
+}
 /** Resolves before any diff UI is rendered; a failed locale fetch never paints English first. */
 export function loadDiffViewerLabels(language: DiffViewerLanguage = diffViewerLanguage()): Promise<void> {
   return catalog.load(language);

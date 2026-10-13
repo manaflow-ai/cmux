@@ -31,6 +31,7 @@ enum AgentPanePageHost {
         events.append(.editedFiles(view.editedFiles))
         events.append(.composer(view.model.composer))
         events.append(.diffColors(view.model.diffColors))
+        events.append(.toolCards(view.model.toolCards))
         if !view.customization.isEmpty { events += AgentPageEvent.customization(view.customization) }
         return events
     }

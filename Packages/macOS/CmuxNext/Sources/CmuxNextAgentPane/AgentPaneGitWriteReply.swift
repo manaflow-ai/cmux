@@ -1,7 +1,8 @@
 import Foundation
 
 /// The page's git writes: `git.commit` / `git.push` from the changes view, a new chat's
-/// `git.worktree.create` (cx-lyqio.2) and a worktree chat's `git.worktree.apply` (cx-lyqio.4).
+/// `git.worktree.create` (cx-lyqio.2) and a worktree chat's `git.worktree.apply` (cx-lyqio.4) and
+/// `git.worktree.remove` (cx-lyqio.5).
 /// Its own type, so the pane model only forwards to it.
 @MainActor
 enum AgentPaneGitWriteReply {
@@ -15,9 +16,12 @@ enum AgentPaneGitWriteReply {
         if case .worktree(let cwd, _, _) = write { return await newWorktree(write, in: cwd, model: model) }
         guard let sessionId = model.sessionId else { return AgentPaneModel.gitFailure(.noSessionFolder, message: message) }
         guard write.sessionId == sessionId else { return AgentPaneModel.gitFailure(.sessionChanged, message: message) }
-        // Apply changes the user's own checkout: only on their click in the pane.
-        if case .worktreeApply = write, !model.transport.gestures.consume() {
-            return AgentPaneModel.transportFailure(.gestureRequired)
+        // Apply changes the user's own checkout and Remove deletes a folder: only on their click.
+        switch write {
+        case .worktreeApply, .worktreeRemove:
+            if !model.transport.gestures.consume() { return AgentPaneModel.transportFailure(.gestureRequired) }
+        default:
+            break
         }
         let folder: AgentPaneSessionFolder?
         do {

@@ -33,30 +33,36 @@
   display: inline-flex;
   min-width: 0;
 }
+/* The button's geometry and type are the shared small ghost button's (ui/ghost.css, cx-s6zvc);
+   the read-only face matches it by hand. The chevron's ink sits 4 px inside its 14 px box. */
 .acpmux-location-button,
 .acpmux-location-readonly {
   appearance: none;
   -webkit-appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
   min-width: 0;
   width: 100%;
   max-width: 220px;
-  height: 22px;
   margin: 0;
-  padding: 0 6px;
   box-sizing: border-box;
   border: 0;
-  border-radius: 6px;
   background: none;
   box-shadow: none;
   color: var(--agent-muted);
-  font: inherit;
-  font-weight: inherit;
-  letter-spacing: inherit;
+  font-family: inherit;
   white-space: nowrap;
   outline: none;
+}
+.acpmux-location-button {
+  --ui-ghost-end-bearing: 4px;
+}
+.acpmux-location-readonly {
+  gap: 4px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  font: inherit;
 }
 .acpmux-location-button { cursor: default; }
 .acpmux-location-button:hover,
@@ -94,6 +100,8 @@
    useLocationPopover), so the list fits the room the positioner reports there, less Choose folder…
    and the menu's padding, but never under two rows. */
 .acpmux-location-folders {
+  /* Its height by design: a window too small for it sends the menu past its edge (popupHost.ts). */
+  --popup-scroll-cap: 260px;
   max-height: max(88px, min(260px, 45vh, calc(var(--available-height, 100vh) - 60px)));
   overflow: auto;
 }
@@ -134,24 +142,10 @@
   padding: var(--ui-popup-padding);
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background-color: color-mix(in srgb, var(--acpmux-menu-bg) var(--surface-text-min, 92%), transparent);
-  -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
-  backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
+  background-color: var(--surface-popup);
   box-shadow: var(--ui-popup-shadow);
   color: var(--agent-text);
   transform-origin: var(--transform-origin);
-}
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-access-menu {
-    background-color: var(--acpmux-menu-bg);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-:root[data-reduce-transparency] .acpmux-access-menu {
-  background-color: var(--acpmux-menu-bg);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 .ui-menu-item.acpmux-access-item {
   display: grid;
@@ -242,6 +236,8 @@
 .acpmux-location-button,
 .acpmux-location-readonly {
   max-width: 190px;
+}
+.acpmux-location-readonly {
   border-radius: 7px;
 }
 .acpmux-composer-context .acpmux-location-label {
@@ -250,7 +246,8 @@
 @media (max-width: 480px) {
   .acpmux-composer-context { padding-inline: 9px; gap: 2px; }
   .acpmux-location-button,
-  .acpmux-location-readonly { max-width: 145px; padding-inline: 4px; }
+  .acpmux-location-readonly { max-width: 145px; }
+  .acpmux-location-readonly { padding-inline: 4px; }
   .acpmux-composer-context > .acpmux-location-leading > .acpmux-location-picker + .acpmux-location-picker { padding-left: 2px; }
 }
 

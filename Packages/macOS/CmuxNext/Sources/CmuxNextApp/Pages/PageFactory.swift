@@ -1,9 +1,11 @@
 import CmuxNextAccounts
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextTerminal
 import Foundation
+import UniformTypeIdentifiers
 
 /// Builds the app's React pages with their routes (its own type, not an `AppServices` member:
 /// that type's line budget is frozen).
@@ -146,16 +148,43 @@ struct PageFactory {
             },
             reload: { [weak services] in await services?.themes.catalog.reload() },
             pickFile: { [weak services] in await services?.viewers.picker.open(.init(choose: .files))?.first })
+        provider.backdropImages = SettingsWindowService.userImages.map { images in
+            SettingsBackdropImages(images: images) { [weak services] in
+                await services?.viewers.picker.open(.init(choose: .files, types: [.image]))?.first
+            }
+        }
+        let museumArt = MuseumArtSession()
+        provider.museumArt = museumArt
+        provider.workspaceBackgrounds = SettingsWorkspaceBackgrounds(
+            title: { [weak services] id in services?.workspace(id: id)?.displayName },
+            value: { [weak services] id in services?.themes.workspaceBackground(id) },
+            set: { [weak services] value, id in services?.themes.setWorkspaceBackground(value, for: id) },
+            preview: { [weak services] value, id in services?.themes.previewWorkspaceBackground(value, for: id) },
+            opacity: SettingsWorkspaceOpacity(
+                value: { [weak services] id in services?.themes.workspaceOpacity(id) },
+                set: { [weak services] value, id in services?.themes.setWorkspaceOpacity(value, for: id) },
+                preview: { [weak services] value, id in services?.themes.previewWorkspaceOpacity(value, for: id) }))
         let native = AppPageNativeProvider(services: services, page: .settings)
         let routes = [PageRoute(prefix: "cmux.settings.", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
         // `appearance.surfaces.settings` colors the page, as it colored the Swift Settings view.
-        let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices)
+        let dynamicResources = SettingsBackdropThumbnails(choices: SettingsWindowService.backdrops.choices,
+                                                          userImages: SettingsWindowService.userImages, museum: museumArt,
+                                                          iconPNG: { [weak services] icon in
+                                                              await SettingsIconAssets.png(icon, owner: services?.machines.local)
+                                                          })
         let page = services.pageHostPool.claim(.settings, routes: routes, route: route, surface: .settings,
                                                dynamicResources: dynamicResources,
                                                window: services.windows.active?.window, focus: false)
             ?? PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
                            dynamicResources: dynamicResources)
         native.anchor = { [weak page] in page }
+        // An image dropped on Settings becomes the background (cx-t2x.8), while the picker shows.
+        page?.fileDrop = PageFileDrop(accepts: { [weak services] url in
+            services?.settings?.snapshot.experimentalAppearance == true && BackdropUserImages.isImage(url)
+        }) { [weak provider] url in
+            // task-owner: one short copy and settings write per drop; a failed one changes nothing
+            Task { try? await provider?.useBackdropImage(url) }
+        }
         return page
     }
 

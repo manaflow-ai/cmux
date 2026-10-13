@@ -47,6 +47,9 @@ enum DebugNewTab {
             case "bench_open": return await DebugNewTabBench.open(params, controller, services)
             default: return await DebugNewTabBench.bang(params, controller, services)
             }
+        case "frame_strip":
+            guard let controller = controller(params, services) else { return .object(["error": .string("no such window")]) }
+            return await DebugFrameStrip.run(params, controller, services)
         case "retarget":
             // What a key-window change does, for no-activate runs whose windows never become key.
             guard let window = controller(params, services)?.window else { return .object(["error": .string("no such window")]) }
@@ -59,6 +62,7 @@ enum DebugNewTab {
 
     private static func state(_ services: AppServices) -> JSONValue {
         let pool = services.newTabSpares
+        let omnibar = NewTabPage.omnibar(services, excluding: nil)
         var spares: [JSONValue] = []
         if let spare = pool.spare {
             // Ready: the page asked for its handshake, so it is loaded and rendered.
@@ -74,6 +78,9 @@ enum DebugNewTab {
             "target_window": pool.target.map { .number(Double($0.windowNumber)) } ?? .null,
             "last_retarget_ms": pool.lastRetargetMilliseconds.map { .number($0) } ?? .null,
             "last_recycle_refusal": pool.lastRecycleRefusal.map { .string($0) } ?? .null,
+            // What a New Tab page opened now would suggest: its open tabs and other workspaces.
+            "omnibar_tabs": .array(omnibar.tabs.map { .object(["title": .string($0.title), "workspace": $0.workspace.map(JSONValue.string) ?? .null]) }),
+            "omnibar_workspaces": .array(omnibar.workspaces.map { .object(["id": .string($0.id), "name": .string($0.name)]) }),
         ])
     }
 

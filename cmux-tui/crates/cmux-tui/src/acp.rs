@@ -122,12 +122,19 @@ pub(crate) fn configure_home() {
 /// daemon start, without touching acpmux's process-wide config.
 #[cfg(unix)]
 pub(crate) fn daemon_socket_path() -> Option<PathBuf> {
-    if let Some(socket) = env_value("ACPMUX_SOCKET") {
-        return Some(PathBuf::from(socket));
-    }
     // SAFETY: getuid has no preconditions and cannot fail.
     let uid = unsafe { libc::getuid() };
-    Some(socket_in_home(&daemon_acpmux_home()?, uid))
+    if let Some(socket) = env_value("ACPMUX_SOCKET") {
+        return Some(daemon_socket(Some(&socket), Path::new(""), uid));
+    }
+    Some(daemon_socket(None, &daemon_acpmux_home()?, uid))
+}
+
+/// The socket for a configured `ACPMUX_SOCKET` or an acpmux home, by the rule
+/// acpmux and every host share (cmux-agent-pane-policy `socket_path`).
+#[cfg(unix)]
+fn daemon_socket(configured: Option<&str>, home: &Path, uid: u32) -> PathBuf {
+    PathBuf::from(cmux_agent_pane_policy::environment::socket_path(configured, home, uid))
 }
 
 /// How the session daemon starts the acpmux that [`daemon_socket_path`]
@@ -192,22 +199,6 @@ fn daemon_acpmux_home() -> Option<PathBuf> {
 #[cfg(unix)]
 fn env_value(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|value| !value.is_empty())
-}
-
-/// acpmux `config::socket_path` for `home`: `<home>/acpmux.sock`, or, for a
-/// long home path, `/tmp/acpmux-<uid>/<fnv1a64(home)>.sock`.
-#[cfg(unix)]
-fn socket_in_home(home: &Path, uid: u32) -> PathBuf {
-    let preferred = home.join("acpmux.sock");
-    if preferred.as_os_str().len() < 96 {
-        return preferred;
-    }
-    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
-    for byte in home.to_string_lossy().bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x0100_0000_01b3);
-    }
-    PathBuf::from(format!("/tmp/acpmux-{uid}/{hash:016x}.sock"))
 }
 
 /// `cmux harness run ID --tab`: a new tab in the current pane whose process
@@ -374,11 +365,41 @@ mod tests {
     #[test]
     fn the_daemon_finds_the_acpmux_socket_where_acpmux_puts_it() {
         let home = Path::new("/Users/me/.cmux/brains/chief/acpmux");
-        assert_eq!(socket_in_home(home, 501), home.join("acpmux.sock"));
+        assert_eq!(daemon_socket(None, home, 501), home.join("acpmux.sock"));
         let long = PathBuf::from(format!("/Users/me/{}", "d".repeat(100)));
-        let socket = socket_in_home(&long, 501);
+        let socket = daemon_socket(None, &long, 501);
         assert!(socket.starts_with("/tmp/acpmux-501/"), "{socket:?}");
         assert_eq!(socket.extension().and_then(|e| e.to_str()), Some("sock"));
+    }
+
+    /// The shared cases (cmux-agent-pane-policy tests/cases/environment.json) the
+    /// Swift host, the brain host and the Chief run too.
+    #[cfg(unix)]
+    #[test]
+    fn the_daemon_socket_matches_the_shared_cases() {
+        let file = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../cmux-agent-pane-policy/tests/cases/environment.json");
+        let cases: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(file).unwrap()).unwrap();
+        for row in cases["sockets"].as_array().unwrap() {
+            let got = daemon_socket(
+                None,
+                Path::new(row[0].as_str().unwrap()),
+                row[1].as_u64().unwrap() as u32,
+            );
+            assert_eq!(got.to_str(), row[2].as_str(), "home {}", row[0]);
+        }
+        let configured = cases["configured_sockets"].as_array().unwrap();
+        assert!(!configured.is_empty());
+        for row in configured {
+            let given = row[0].as_str().unwrap();
+            let got = daemon_socket(
+                Some(given).filter(|g| !g.is_empty()),
+                Path::new(row[1].as_str().unwrap()),
+                row[2].as_u64().unwrap() as u32,
+            );
+            assert_eq!(got.to_str(), row[3].as_str(), "configured {given}");
+        }
     }
 
     #[test]

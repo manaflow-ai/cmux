@@ -33,16 +33,21 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import random
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import urllib.parse
 from dataclasses import dataclass
 from pathlib import Path
 
 REPO = "manaflow-ai/cmux"
 BRANCH = "pr-media"
+# One write plus retries of a lost race or a GitHub 5xx (put_file).
+PUT_ATTEMPTS = 5
 RAW_HOST = "https://raw.githubusercontent.com"
 
 VIDEO_SUFFIXES = (".mp4", ".mov")
@@ -294,6 +299,11 @@ def looks_like_a_conflict(text: str) -> bool:
     return "409" in text or "but expected" in text or "wasn't supplied" in text
 
 
+def looks_like_a_server_error(text: str) -> bool:
+    """GitHub's own failure (500, 502, 503, 504): the same write can land on a retry."""
+    return re.search(r"HTTP 50[0234]\b", text) is not None
+
+
 def gh_read(args: list[str], runner=None, absent_ok: bool = False) -> dict | None:
     """A `gh api` read.
 
@@ -335,13 +345,14 @@ def put_file(repo: str, branch: str, path: str, local: Path, message: str,
     The body goes in on stdin: a base64 megabyte does not fit in an argument
     list, and `gh api -f` would put it there.
 
-    A rejected write is retried once with a freshly read sha, because two
-    sessions uploading to this branch at the same time is normal and the loser
-    of that race should not lose its clip.
+    A write that lost a race, or that GitHub failed with a 5xx, is retried with
+    a freshly read sha and a short backoff, a bounded number of times: many
+    sessions and gallery jobs upload to this branch at once, so losing twice
+    in a row is normal and the loser should not lose its clip.
     """
     content = base64.b64encode(local.read_bytes()).decode("ascii")
     sha = existing_sha(repo, branch, path, runner=runner)
-    for attempt in (1, 2):
+    for attempt in range(1, PUT_ATTEMPTS + 1):
         body: dict[str, str] = {"message": message, "branch": branch, "content": content}
         if sha:
             body["sha"] = sha
@@ -352,7 +363,8 @@ def put_file(repo: str, branch: str, path: str, local: Path, message: str,
         if done.returncode == 0:
             return
         said = (done.stderr or done.stdout).strip()
-        if attempt == 1 and looks_like_a_conflict(said):
+        if attempt < PUT_ATTEMPTS and (looks_like_a_conflict(said) or looks_like_a_server_error(said)):
+            time.sleep(0.5 * attempt + random.random())
             sha = existing_sha(repo, branch, path, runner=runner)
             continue
         raise MediaError(f"upload of {path} failed: {said}")

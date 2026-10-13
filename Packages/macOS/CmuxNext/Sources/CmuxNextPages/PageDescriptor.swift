@@ -107,6 +107,13 @@ public nonisolated struct PageNativeOp {
     /// Stream every page may subscribe to: `{connected}`, the page's owner link (the daemon). The
     /// current state arrives as the first event.
     public static let pageConnection = "cmux.page.connection"
+    /// Built in for every page (cx-6k6cg): a small transient surface with no room in the page shows
+    /// its rows past the window's edge (WebPopupHost): `show`, `update` and `hide`.
+    public static let popupShow = "cmux.app.popup.show"
+    public static let popupUpdate = "cmux.app.popup.update"
+    public static let popupHide = "cmux.app.popup.hide"
+    /// Stream every page may subscribe to: the popup's `pick`, `highlight` and `dismiss`.
+    public static let pagePopup = "cmux.page.popup"
     /// The page commands the dispatcher sends (the Settings lead's page pattern).
     public static let commands: Set<String> = ["find", "focusSearch", "back", "forward", "reset"]
 }
@@ -134,11 +141,12 @@ public extension PageDescriptor {
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
-                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration",
+                  "browserProfile.manageExtensions", "browserProfile.delete", "browserProfile.clearBrowsingData",
+                  "reloadConfiguration",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
             .union(settingsSectionActions),
-        dynamicPrefixes: ["backdrop"], ownsSearchField: true)
+        dynamicPrefixes: ["backdrop", "museum", "icon"], ownsSearchField: true)
 
     /// The App Store page (react-pages.md 3). Install, update, Remove and allowing a scope pass the
     /// host's native sheet before they reach the owner (the app's ConfirmingPageProvider); the page

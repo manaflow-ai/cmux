@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Springs.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Springs.swift
-@@ -138,7 +138,8 @@
+@@ -148,7 +148,8 @@
  /// from here; nothing else defines a curve.
  enum Springs {
      static let all: [String: SpringElement] = {

@@ -55,13 +55,14 @@ export async function pickFolder(
 
 /// New Worktree (cx-lyqio.2, Codex/Conductor style): the host makes a worktree of the new chat's
 /// folder on a branch of its own (`git.worktree.create`, on this click; the user's checkout stays
-/// as it is), and the chat starts there as in a picked folder. Rejects with the host's reason when
-/// it makes none; nothing is used then.
+/// as it is), and the chat starts there as in a picked folder: when the host asks about that
+/// folder first, the question comes back (`ask`) for the pane to show, and nothing starts until the
+/// user answers it. Rejects with the host's reason when it makes none; nothing is used then.
 export async function newWorktree(
   callNative: Native,
   cwd: string,
   use: (cwd: string) => void,
-): Promise<{ root: string; branch?: string }> {
+): Promise<{ root: string; branch?: string; ask?: FolderAsk }> {
   let reply: { value?: { root?: unknown; branch?: unknown } } | undefined;
   try {
     reply = (await callNative("git.worktree.create", { cwd, idempotency_key: crypto.randomUUID() })) as typeof reply;
@@ -74,9 +75,9 @@ export async function newWorktree(
   }
   const root = reply?.value?.root;
   if (typeof root !== "string" || !root) throw new Error(translate("worktree.failed"));
-  await pickFolder(callNative, root, use);
+  const ask = await pickFolder(callNative, root, use);
   const branch = reply?.value?.branch;
-  return { root, ...(typeof branch === "string" ? { branch } : {}) };
+  return { root, ...(typeof branch === "string" ? { branch } : {}), ...(ask ? { ask } : {}) };
 }
 
 /// New Worktree's refusal above the composer: the host's reason, and Dismiss.

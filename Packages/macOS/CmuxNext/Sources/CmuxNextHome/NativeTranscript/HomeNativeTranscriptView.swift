@@ -70,6 +70,12 @@ public final class HomeNativeTranscriptView: NSView {
     /// first-run panel waits, so a Chief conversation with history never
     /// flashes it before its messages arrive (stability rule).
     public var holdsFirstRun = false { didSet { if holdsFirstRun != oldValue { updateFirstRun() } } }
+    /// Automation (DEBUG socket): the transcript sits this far from this view's origin, with no size change
+    /// (a pane on a fraction of a point; MessagesLab b6760b6's typing snap). Zero in the product.
+    public var debugTranscriptOffset = CGPoint.zero { didSet { needsLayout = true } }
+    /// Automation (DEBUG socket): the transcript is this much narrower than this view (a pane's width
+    /// change, as a divider drag or a live resize makes it). Zero in the product.
+    public var debugTranscriptWidthTrim: CGFloat = 0 { didSet { needsLayout = true } }
     private var observers: [any NSObjectProtocol] = []
     /// The window's typing hold for the compose field's cursor rects (HomeCursorRectHold).
     private var cursorHold: HomeCursorRectHold?
@@ -181,9 +187,14 @@ public final class HomeNativeTranscriptView: NSView {
         super.layout()
         // Showing the tab again re-attaches the same views: the transcript is
         // laid out only when the size changed (no bitmap or backdrop rebuild).
-        if transcript.frame != bounds {
-            transcript.frame = bounds
-            transcript.layoutSubtreeIfNeeded()
+        // A size change lays the transcript out; a move only (debugTranscriptOffset) keeps its size.
+        // debugTranscriptWidthTrim narrows it (automation: a pane width change).
+        var place = bounds.offsetBy(dx: debugTranscriptOffset.x, dy: debugTranscriptOffset.y)
+        place.size.width = max(0, place.width - debugTranscriptWidthTrim)
+        if transcript.frame != place {
+            let resized = transcript.frame.size != place.size
+            transcript.frame = place
+            if resized { transcript.layoutSubtreeIfNeeded() }
         }
         // Every pass: the field can grow (a multi-line draft) without a size
         // change, and the first-run panel fits its agent rows above it.
@@ -283,6 +294,12 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
     }
 
+    /// The header band's fade in or out, in seconds. Reduce Motion keeps it, at the crossfade length
+    /// (motion.md rule 7): turned off there, the band appeared and left in one frame.
+    static func headerFadeDuration(shown: Bool) -> TimeInterval {
+        Motion.duration(shown ? .fadeIn : .fadeOut)
+    }
+
     /// The theme's palettes (key and non-key window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
@@ -292,12 +309,10 @@ public final class HomeNativeTranscriptView: NSView {
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(accentOverride: accent) }
         transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
         // The header's band: a light fade of the window background, shown only
-        // near the top; the design system's fades, none under Reduce Motion.
+        // near the top; the design system's fades.
         let (fade, maxAlpha) = performWithTheme { (Palette.surfaceBackground.withAlphaComponent(1), Palette.legibilityScrimOpacity) }
         transcript.setHeaderPillBacking(performWithTheme { Palette.capsuleScrim })
-        transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in
-            Motion.reduceMotion ? 0 : Motion.duration(shown ? .fadeIn : .fadeOut)
-        }
+        transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in Self.headerFadeDuration(shown: shown) }
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,

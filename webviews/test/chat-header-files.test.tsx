@@ -75,7 +75,7 @@ test("Files is off until added from the right-click menu, then runs and lights l
   const show = doc.querySelector<HTMLButtonElement>('.ui-context-menu [role="menuitem"][aria-label="Show Files"]');
   expect(show).not.toBeNull();
   act(() => show!.click());
-  expect(lists.at(-1)).toBe("terminal browser changes files preview newTab");
+  expect(lists.at(-1)).toBe("terminal splitDown browser changes files preview newTab");
 
   expect(files()?.getAttribute("aria-pressed")).toBe("false");
   act(() => files()!.click());

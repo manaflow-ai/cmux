@@ -27,15 +27,18 @@ public nonisolated struct SidebarWorkspaceStatus: Hashable, Sendable {
     public nonisolated struct Entry: Hashable, Sendable {
         public var key: String
         public var text: String
-        /// SF Symbol name or one emoji.
+        /// SF Symbol name, one emoji or a stored image or SVG (drawn from ``image``).
         public var icon: String?
         public var tint: Tint?
+        /// The stored image or SVG `icon` names, once read (cx-qno.11.1).
+        public var image: SidebarFavicon?
 
-        public init(key: String, text: String, icon: String? = nil, tint: Tint? = nil) {
+        public init(key: String, text: String, icon: String? = nil, tint: Tint? = nil, image: SidebarFavicon? = nil) {
             self.key = key
             self.text = text
             self.icon = icon
             self.tint = tint
+            self.image = image
         }
 
         /// The text, or the key when the text is blank.

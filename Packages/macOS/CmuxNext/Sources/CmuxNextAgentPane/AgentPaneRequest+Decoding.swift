@@ -1,4 +1,5 @@
 import CmuxNextDictation
+import CmuxNextSettings
 import Foundation
 
 extension AgentPaneRequest {
@@ -69,9 +70,10 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "pane.showContextUsage":
+        case "pane.showContextUsage", "pane.showDictation":
             if let show = params?["show"] as? Bool {
-                self = .showContextUsage(show)
+                let path = method == "pane.showDictation" ? AgentPaneComposerSetting.showDictationPath : AgentPaneComposerSetting.showContextUsagePath
+                self = .composerSetting(path: path, show: show)
             } else {
                 self = .unsupported(method)
             }
@@ -87,9 +89,10 @@ extension AgentPaneRequest {
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)), kind != .agent {
                 let text = params?["text"] as? String ?? ""
                 let cwd = (params?["cwd"] as? String).flatMap { $0.isEmpty ? nil : String($0.prefix(Self.maximumOpenTabText)) }
-                self = .openTab(kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil,
-                                search: kind == .browser && params?["search"] as? Bool == true,
-                                run: kind != .terminal || params?["run"] as? Bool != false)
+                self = .openTab(AgentPaneOpenTab(kind: kind, text: String(text.prefix(Self.maximumOpenTabText)), cwd: kind == .terminal ? cwd : nil,
+                                                 search: kind == .browser && params?["search"] as? Bool == true,
+                                                 run: kind != .terminal || params?["run"] as? Bool != false,
+                                                 keep: params?["keep"] as? Bool == true))
             } else {
                 self = .unsupported(method)
             }
@@ -132,9 +135,11 @@ extension AgentPaneRequest {
         case "newTab.context":
             self = .newTabContext
         case "newTab.remember":
-            // One input (R86): only the agent pick is remembered.
+            // One input (R86): the agent pick, and the model picked on it in `folder`.
             if let agent = params?["agent"] as? String, !agent.isEmpty, agent.count <= 128 {
-                self = .rememberNewTab(agent: agent)
+                let model = (params?["model"] as? String).flatMap { !$0.isEmpty && $0.count <= 256 ? $0 : nil }
+                let folder = (params?["folder"] as? String).flatMap { !$0.isEmpty && $0.count <= 4096 ? $0 : nil }
+                self = .rememberNewTab(AgentPaneRememberedPick(agent: agent, model: model, folder: folder))
             } else {
                 self = .unsupported(method)
             }
@@ -170,7 +175,8 @@ extension AgentPaneRequest {
             }
         case "harness.health":
             if let id = params?["id"] as? String, !id.isEmpty, id.count <= 128, !id.contains(where: \.isNewline) {
-                self = .harnessHealth(id, refresh: params?["refresh"] as? Bool == true)
+                self = .harnessHealth(id, refresh: params?["refresh"] as? Bool == true,
+                                      rescan: params?["rescan"] as? Bool == true)
             } else {
                 self = .unsupported(method)
             }
@@ -206,6 +212,10 @@ extension AgentPaneRequest {
             if let archived = params?["archived"] as? Bool { self = .archive(archived) } else { self = .unsupported(method) }
         case "chat.markUnread":
             self = .markUnread
+        case "chat.upload":
+            if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
+        case "chat.toolCard.respond":
+            if let answer = AgentPaneToolCard.answer(params) { self = .toolCard(card: answer.card, action: answer.action, value: answer.value) } else { self = .unsupported(method) }
         case "shortcut.edit":
             if let kind = (params?["kind"] as? String).flatMap(AgentPaneTabKind.init(rawValue:)) {
                 self = .editShortcut(kind)
@@ -261,7 +271,7 @@ extension AgentPaneRequest {
             } else {
                 self = .invalidGit(method)
             }
-        case "git.commit", "git.push", "git.worktree.create", "git.worktree.apply":
+        case "git.commit", "git.push", "git.worktree.create", "git.worktree.apply", "git.worktree.remove":
             self = AgentPaneGitWrite(method: method, params: params).map(AgentPaneRequest.gitWrite) ?? .invalidGit(method)
         case "transport.open": self = .transportOpen
         case "transport.gesture": self = .transportGesture(AgentPaneGestureIntent(gestureParams: params))

@@ -51,6 +51,7 @@ mod mux;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
 mod program_status;
+mod prompt_mode_reset;
 pub mod provider_management;
 #[cfg(unix)]
 mod pty_write;
@@ -132,7 +133,8 @@ pub use mux::{
     AgentActivity, AgentPresence, AgentRecord, AgentSource, AgentState, AppliedLayout, AppliedPane,
     CellPixelUpdate, CellPixelUpdateFailure, ColumnDockError, ColumnDockOutcome, ConfigReloadError,
     DiagnosticReporter, Direction, GraphicsStatus, LayoutLeafSpec, LayoutRatioError, LayoutSpec,
-    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent, NotificationEvent,
+    LayoutUndoError, LayoutUndoResult, MachineUsage, Mux, MuxEvent,
+    NOTIFICATION_DESKTOP_CAPABILITY, NOTIFICATION_REPLY_CAPABILITY, NotificationEvent,
     NotificationLevel, NotificationSource, ProviderWorkspaceAuthority,
     ProviderWorkspaceAuthorityStatus, ProviderWorkspaceAuthorityUpdateError, ResourceNotification,
     RowHeightsOutcome, RowsError, RunPlacement, ScreenDestination, ScreenGroupOutcome,
@@ -148,6 +150,7 @@ pub use mux::{
     validate_terminal_reap_grace,
 };
 pub use pairing::{PairingChallenge, PairingDecision, PairingError};
+pub use program_status::ShownProgramStatus;
 pub use remote_relay_state::{
     BindRefused, CLOSE_STREAMS_AFTER, PairingRecords, RECHECK_INTERVAL, REFUSE_NEW_STREAMS_AFTER,
     RelayLock, RelayStateError, RevocationClock,

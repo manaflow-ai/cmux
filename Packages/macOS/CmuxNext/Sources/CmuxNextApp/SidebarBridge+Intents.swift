@@ -99,8 +99,6 @@ extension SidebarBridge {
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:
             services.registry.perform("space.new", invocation: ActionInvocation())
-        case .openHistory:
-            if let pane = services.windows.controller(for: state.id)?.focusedPane { AgentHistoryPage.open(in: pane) }
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
@@ -164,11 +162,11 @@ extension SidebarBridge {
         model.ungroupedFirst = !usesMixedOrder
         var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                      hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
-                                     newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces)
+                                     newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         rows.show(sections)
-        model.profiles = Self.profiles(services.machines.local.store)
+        model.profiles = SidebarSpaceBar.profiles(services.machines.local)
         groupFlow.openPendingEditor()
     }
 

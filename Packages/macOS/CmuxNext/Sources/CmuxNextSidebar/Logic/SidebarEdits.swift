@@ -17,7 +17,7 @@ public nonisolated enum SidebarEdits {
     @discardableResult
     public static func apply(_ intent: SidebarIntent, to sections: inout [SidebarSection]) -> Bool {
         switch intent {
-        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .openHistory, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
+        case .select, .selectTab, .moveTab, .newWorkspace, .openGroup, .switchProfile, .newProfile, .reorderProfile, .activateItem, .installUpdate, .setAutomaticUpdates,
              .openUpdateLink, .openUpdateChanges, .noticeAction, .dismissNotice, .openWhatsNew, .shareCmux, .dismissUpdated, .layout, .toggleLayoutSection,
              .dropOnLayoutSection, .groupEditorEnded:
             return false
@@ -292,7 +292,7 @@ public nonisolated enum SidebarEdits {
         return removed
     }
 
-    static func insert(_ workspaces: [SidebarWorkspace], at position: DropPosition, in sections: inout [SidebarSection]) {
+    public static func insert(_ workspaces: [SidebarWorkspace], at position: DropPosition, in sections: inout [SidebarSection]) {
         guard let s = sections.firstIndex(where: { $0.id == position.section }) else { return }
         if let group = position.group,
            let n = sections[s].nodes.firstIndex(where: { $0.id == .group(group) }),

@@ -1,6 +1,6 @@
 // R82 commit 4: the Swift window's last cards are drawn by the page (the Theme section has its own
-// test, themeStudio.test.tsx). The wallpaper grid
-// writes appearance.background behind the experimental switch, Terminal shows the Ghostty facts,
+// test, themeStudio.test.tsx). The background picker (Change Background…, cx-t2x.4) previews and
+// writes appearance.background on Appearance, Terminal shows the Ghostty facts,
 // and Advanced shows the settings file and every problem of the last load.
 import { act } from "react";
 import { afterAll, expect, test } from "bun:test";
@@ -13,19 +13,180 @@ const { renderPage, settle } = await import("./testing");
 const runs = (page: Awaited<ReturnType<typeof renderPage>>, op: string) =>
   page.provider.log.filter((entry) => entry.op === op).map((entry) => entry.params);
 
-test("the wallpaper grid shows behind the experimental switch and writes appearance.background", async () => {
-  const hidden = await renderPage({ path: "/settings/experimental" });
-  expect(hidden.container.querySelector('[data-card="backdrop"]')).toBeNull();
-  hidden.unmount();
+test("Change Background… shows the picker on Appearance: resting previews, leaving restores, a click keeps", async () => {
   const page = await renderPage({
-    path: "/settings/experimental",
-    mock: { values: { "appearance.experimentalControls": true } },
+    path: "/settings/appearance?focus=appearance.background",
+    mock: { values: { "appearance.background": "starryNight" } },
   });
-  const grid = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
-  expect(grid.querySelector("img")!.getAttribute("src")).toBe("backdrop/starryNight");
-  await act(async () => grid.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!.click());
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  expect(picker.querySelector("img")!.getAttribute("src")).toBe("backdrop/starryNight");
+  // Its Opacity slider is in the picker, and the two rows are not repeated in Window Background.
+  expect(picker.querySelector('[data-row-key="appearance.backgroundOpacity"]')).not.toBeNull();
+  expect(page.container.querySelectorAll('[data-row-key="appearance.backgroundOpacity"]').length).toBe(1);
+  // The picker is not a row: the row keys (↑/↓) step from the search field to its Opacity row.
+  expect(page.container.querySelector('[data-row-key="appearance.background"]')).toBeNull();
+  // Change Background… lands on the saved choice, not on the slider.
+  expect(document.activeElement?.getAttribute("aria-label")).toBe("The Starry Night");
+
+  const tile = picker.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
+  await act(async () => {
+    tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  await settle();
+  expect(runs(page, "cmux.settings.preview").at(-1)).toMatchObject({
+    key: "appearance.background",
+    value: "starryNight",
+  });
+  expect(runs(page, "cmux.settings.set").length).toBe(0);
+  await act(async () => tile.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true })));
+  await settle();
+  expect(runs(page, "cmux.settings.preview.end").at(-1)).toMatchObject({ key: "appearance.background" });
+
+  await act(async () => tile.click());
   await settle();
   expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "starryNight" });
+  page.unmount();
+});
+
+test("Shuffle Daily is a tile that keeps appearance.background daily", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const tile = page.container.querySelector<HTMLButtonElement>('[data-card="backdrop"] [aria-label="Shuffle Daily"]')!;
+  expect(tile).not.toBeNull();
+  await act(async () => tile.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "daily" });
+  page.unmount();
+});
+
+test("Change Background… on a workspace chooses that workspace's own background", async () => {
+  const page = await renderPage({
+    path: "/settings/appearance?focus=appearance.background&workspace=ws-1",
+    mock: {
+      values: { "appearance.background": "starryNight" },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+  });
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  // It opens on All Workspaces, so Change Background… still chooses for every window.
+  expect(picker.querySelector<HTMLInputElement>('[aria-label="All Workspaces"]')!.checked).toBe(true);
+  expect(picker.querySelector('[aria-label="Same as All Workspaces"]')).toBeNull();
+  const scope = picker.querySelector<HTMLInputElement>('[aria-label="This Workspace (Research)"]')!;
+  await act(async () => scope.click());
+  await settle();
+  expect(scope.checked).toBe(true);
+  // It follows All Workspaces until it has its own; the app-wide image tiles are left out.
+  const follow = picker.querySelector<HTMLButtonElement>('[aria-label="Same as All Workspaces"]')!;
+  expect(follow.getAttribute("aria-pressed")).toBe("true");
+  expect(picker.textContent).not.toContain("Choose Image");
+
+  const none = picker.querySelector<HTMLButtonElement>('[aria-label="No wallpaper"]')!;
+  const appPreviews = runs(page, "cmux.settings.preview").length;
+  await act(async () => {
+    none.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({
+    workspace: "ws-1",
+    value: "none",
+  });
+  expect(runs(page, "cmux.settings.preview").length).toBe(appPreviews);
+  await act(async () => none.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true })));
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({ workspace: "ws-1", end: true });
+
+  await act(async () => none.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", value: "none" });
+  expect(runs(page, "cmux.settings.set").length).toBe(0);
+  expect(none.getAttribute("aria-pressed")).toBe("true");
+  await act(async () => follow.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", value: null });
+
+  // All Workspaces chooses appearance.background again.
+  const all = picker.querySelector<HTMLInputElement>('[aria-label="All Workspaces"]')!;
+  await act(async () => all.click());
+  await settle();
+  expect(picker.querySelector('[aria-label="Same as All Workspaces"]')).toBeNull();
+  await act(async () => picker.querySelector<HTMLButtonElement>('[aria-label="No wallpaper"]')!.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "none" });
+  page.unmount();
+});
+
+test("This Workspace's Opacity previews while the slider moves, saves on release, and clears", async () => {
+  const page = await renderPage({
+    path: "/settings/appearance?workspace=ws-1",
+    mock: { workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: "starryNight", opacity: null }] },
+  });
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  // All Workspaces shows the app's Opacity row; This Workspace its own tint over art instead.
+  expect(picker.querySelector('[data-row-key="appearance.backgroundOpacity"]')).not.toBeNull();
+  await act(async () => picker.querySelector<HTMLInputElement>('[aria-label="This Workspace (Research)"]')!.click());
+  await settle();
+  expect(picker.querySelector('[data-row-key="appearance.backgroundOpacity"]')).toBeNull();
+  const row = picker.querySelector<HTMLElement>("[data-workspace-opacity]")!;
+  expect(row.textContent).toContain("Follows the work's own tint");
+  const slider = row.querySelector<HTMLInputElement>('input[type="range"]')!;
+  await act(async () => {
+    slider.dispatchEvent(new window.MouseEvent("pointerdown", { bubbles: true }));
+    const set = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")!.set!;
+    set.call(slider, "0.8");
+    slider.dispatchEvent(new window.Event("input", { bubbles: true }));
+  });
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({
+    workspace: "ws-1",
+    opacity: 0.8,
+  });
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").length).toBe(0);
+  await act(async () => slider.dispatchEvent(new window.MouseEvent("pointerup", { bubbles: true })));
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", opacity: 0.8 });
+  expect(runs(page, "cmux.settings.backdrop.workspace.preview").at(-1)).toMatchObject({ workspace: "ws-1", end: true });
+  expect(runs(page, "cmux.settings.set").length).toBe(0);
+
+  const reset = [...row.querySelectorAll("button")].find((button) => button.textContent === "Use the Work's Own")!;
+  await act(async () => reset.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.workspace.set").at(-1)).toMatchObject({ workspace: "ws-1", opacity: null });
+  expect(row.textContent).toContain("Follows the work's own tint");
+  page.unmount();
+});
+
+test("Window Glass sets the Clear Glass material and turning it off returns the default", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const row = page.container.querySelector<HTMLElement>('[data-card="backdrop"] [data-window-glass]')!;
+  const glass = row.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  expect(glass.getAttribute("aria-checked")).toBe("false");
+  await act(async () => glass.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({
+    key: "appearance.backgroundBlur",
+    value: "glass-clear",
+  });
+  expect(glass.getAttribute("aria-checked")).toBe("true");
+  await act(async () => glass.click());
+  await settle();
+  expect(runs(page, "cmux.settings.reset").at(-1)).toMatchObject({ key: "appearance.backgroundBlur" });
+  expect(glass.getAttribute("aria-checked")).toBe("false");
+  page.unmount();
+});
+
+test("sweeping the pointer across the picker previews nothing", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;
+  await act(async () => {
+    tile.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
+    tile.dispatchEvent(new window.MouseEvent("pointerout", { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  });
+  await settle();
+  expect(runs(page, "cmux.settings.preview").length).toBe(0);
   page.unmount();
 });
 
@@ -63,7 +224,7 @@ test("Advanced names the loaded settings file and shows one Reload Configuration
   const buttons = [...page.container.querySelectorAll<HTMLButtonElement>("button")].map((b) => b.textContent);
   expect(buttons.filter((title) => title === "Open cmux.json").length).toBe(1);
   expect(buttons.filter((title) => title === "Reload Configuration").length).toBe(1);
-  expect(text).toContain("Every setting and shortcut in cmux.json goes back to its default.");
+  expect(text).toContain("Resets everything in cmux.json. Custom actions stay.");
   expect(text).not.toContain("cmux-next.json");
   page.unmount();
 });

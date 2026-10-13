@@ -60,11 +60,12 @@ final class WorkspaceStatusView: NSView {
 
     // MARK: Text
 
+    // theme-scoped: called only from updateLayer(), inside performWithTheme
     private static func text(for line: SidebarWorkspaceStatus.Line) -> NSAttributedString {
         switch line {
         case .entry(let entry):
             let color = entry.tint.map(Self.color) ?? Palette.textSecondary
-            return compose(icon: entry.icon, color: color, text: entry.displayText, textColor: color)
+            return compose(icon: entry.icon, color: color, text: entry.displayText, textColor: color, image: entry.image)
         case .more(let count):
             return compose(icon: nil, color: Palette.textTertiary, text: Strings.statusMore(count), textColor: Palette.textTertiary)
         case .log(let log):
@@ -75,13 +76,20 @@ final class WorkspaceStatusView: NSView {
         }
     }
 
-    /// `icon` is an SF Symbol name or one emoji; an unknown symbol name is
-    /// left out rather than drawn as text.
+    /// `icon` is an SF Symbol name or one emoji; an unknown symbol name (or a stored asset not
+    /// read yet) is left out rather than drawn as text. `image` is a stored asset's image.
     private static func compose(icon: String?, color: NSColor, text: String, textColor: NSColor,
-                                iconScale: CGFloat = 0.85) -> NSAttributedString {
+                                iconScale: CGFloat = 0.85, image: SidebarFavicon? = nil) -> NSAttributedString {
         let font = SidebarStyle.subtitleFont
         let result = NSMutableAttributedString()
-        if let icon, !icon.isEmpty {
+        if let image {
+            let attachment = NSTextAttachment()
+            let side = font.pointSize
+            attachment.image = NSImage(cgImage: image.image, size: NSSize(width: side, height: side))
+            attachment.bounds = CGRect(x: 0, y: (font.capHeight - side) / 2, width: side, height: side)
+            result.append(NSAttributedString(attachment: attachment))
+            result.append(NSAttributedString(string: " ", attributes: [.font: font]))
+        } else if let icon, !icon.isEmpty {
             let config = NSImage.SymbolConfiguration(pointSize: font.pointSize * iconScale, weight: .medium)
                 .applying(NSImage.SymbolConfiguration(paletteColors: [color]))
             if let image = NSImage(systemSymbolName: icon, accessibilityDescription: nil)?.withSymbolConfiguration(config) {
@@ -112,7 +120,8 @@ final class WorkspaceStatusView: NSView {
     }
 
     /// Level colors come from the theme's palette; no blue accent.
-    static func color(_ level: SidebarWorkspaceStatus.LogLevel) -> NSColor {
+    // theme-scoped: called only from text(for:), inside updateLayer()'s performWithTheme
+    private static func color(_ level: SidebarWorkspaceStatus.LogLevel) -> NSColor {
         switch level {
         case .info, .progress: Palette.textTertiary
         case .success: Palette.success

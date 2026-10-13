@@ -108,7 +108,6 @@ function GalleryComposerPickers() {
         onModel={setModel}
         onMode={setMode}
         onEffort={(id, value) => (id === "fast-mode" ? setFast(value) : setEffort(value))}
-        onShowContextUsage={() => undefined}
         showPlan
       />
     </div>
@@ -120,9 +119,69 @@ const openModel: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"] [type="search"]') !== null);
 };
 
+const modelFocus: Play = async (ctx) => {
+  const trigger = ctx.find({ role: "button", name: "Model" });
+  const search = { selector: '.acpmux-mp input[role="combobox"]' };
+  await ctx.click({ role: "button", name: "Model" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"] [type="search"]') !== null);
+  await ctx.waitFor(() => ctx.document.activeElement === ctx.find(search));
+  await ctx.press("ArrowDown");
+  await ctx.waitFor(() => Boolean(ctx.find(search).getAttribute("aria-activedescendant")));
+  await ctx.press("Escape");
+  await ctx.waitFor(() => !ctx.document.querySelector('[role="dialog"]') && ctx.document.activeElement === trigger);
+};
+
+const modelPressDragRelease: Play = async (ctx) => {
+  await ctx.pointer.down({ role: "button", name: "Model" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]') !== null);
+  await ctx.waitFor(() => {
+    const popup = ctx.document.querySelector<HTMLElement>('[role="dialog"]');
+    if (!popup) return false;
+    const rect = popup.getBoundingClientRect();
+    return (
+      rect.width > 0 && rect.height > 0 && ctx.document.defaultView?.getComputedStyle(popup).visibility !== "hidden"
+    );
+  });
+  // Astra is folded under Older models in this fixture. Drag to the visible current model row;
+  // the gesture still exercises the picker trigger's press-drag-release path without inventing a
+  // click on a row that is not mounted.
+  const visibleModel = '[role="option"][data-key="model:gpt-6.1-sol"]';
+  await ctx.pointer.move({ selector: visibleModel });
+  await ctx.pointer.up({ selector: visibleModel });
+  await ctx.waitFor(
+    () =>
+      !ctx.document.querySelector('[role="dialog"]') &&
+      ctx.document.activeElement === ctx.find({ role: "button", name: "Model" }),
+  );
+};
+
 const openEffort: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Effort" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+};
+
+const effortFocus: Play = async (ctx) => {
+  const trigger = ctx.find({ role: "button", name: "Effort" });
+  await ctx.click({ role: "button", name: "Effort" });
+  await ctx.waitFor(() => {
+    const selected = ctx.document.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]');
+    return selected !== null && ctx.document.activeElement === selected;
+  });
+  await ctx.press("ArrowDown");
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][data-highlighted]') !== null);
+  await ctx.press("Escape");
+  await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === trigger);
+};
+
+const effortPressDragRelease: Play = async (ctx) => {
+  await ctx.pointer.down({ role: "button", name: "Effort" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
+  await ctx.pointer.move({ text: "High" });
+  await ctx.pointer.up({ text: "High" });
+  await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
+  await ctx.waitFor(
+    () => ctx.document.querySelector(".acpmux-effort .acpmux-picker-button > span")?.textContent === "High",
+  );
 };
 
 const openMode: Play = async (ctx) => {
@@ -130,9 +189,29 @@ const openMode: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
 };
 
+const modeFocus: Play = async (ctx) => {
+  const trigger = ctx.find({ role: "button", name: "Mode" });
+  await ctx.click({ role: "button", name: "Mode" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  await ctx.press("2");
+  await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]'));
+  await ctx.click({ role: "button", name: "Mode" });
+  await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
+  await ctx.press("Escape");
+  await ctx.waitFor(() => !ctx.document.querySelector('[role="menu"]') && ctx.document.activeElement === trigger);
+};
+
 const openContext: Play = async (ctx) => {
   await ctx.click({ selector: ".acpmux-context-ring" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-pop") !== null);
+};
+
+const contextFocus: Play = async (ctx) => {
+  const trigger = ctx.find({ selector: ".acpmux-context-ring" });
+  await ctx.click({ selector: ".acpmux-context-ring" });
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-context-pop") !== null);
+  await ctx.press("Escape");
+  await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-context-pop") && ctx.document.activeElement === trigger);
 };
 
 const planToggle: Play = async (ctx) => {
@@ -146,7 +225,8 @@ export default componentEntry<Props>({
   area: "Agent pane",
   pane: true,
   height: 260,
-  widths: { narrow: 420, normal: 640, wide: 860 },
+  // Keep the narrow stage below the model picker's 407px column-layout breakpoint.
+  widths: { narrow: 400, normal: 640, wide: 860 },
   anchors: [{ selector: ".acpmux-chips" }],
   checks: {
     anchorMovePx: { value: 0, reason: "Opening a picker must leave the composer rail in place." },
@@ -166,9 +246,39 @@ export default componentEntry<Props>({
   variants: {
     closed: { props: {} },
     "model-menu": { props: {}, play: openModel },
+    "model-focus": {
+      note: "The model search owns focus while open; Escape closes it and restores focus to Model.",
+      props: {},
+      play: modelFocus,
+    },
+    "model-press-drag-release": {
+      note: "Pressing Model, dragging onto a model row, and releasing picks the row and closes the picker.",
+      props: {},
+      play: modelPressDragRelease,
+    },
     "effort-menu": { props: {}, play: openEffort },
+    "effort-focus": {
+      note: "Arrow navigation moves the highlighted effort; Escape closes the menu and restores Effort focus.",
+      props: {},
+      play: effortFocus,
+    },
+    "effort-press-drag-release": {
+      note: "Pressing Effort, dragging onto High, and releasing picks the row and closes the menu.",
+      props: {},
+      play: effortPressDragRelease,
+    },
     "permission-menu": { props: {}, play: openMode },
+    "permission-focus": {
+      note: "The numeric mode shortcut picks Full access; Escape from a reopen returns focus to Mode.",
+      props: {},
+      play: modeFocus,
+    },
     "context-details": { props: {}, play: openContext },
+    "context-focus": {
+      note: "Escape closes the context details popover and restores focus to the context ring.",
+      props: {},
+      play: contextFocus,
+    },
     plan: { props: {}, play: planToggle },
   },
 });

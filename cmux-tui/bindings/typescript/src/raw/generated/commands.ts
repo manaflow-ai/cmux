@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4. */
+/* cmux-tui mux protocol 12, IR 7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa. */
 
 
 import type * as T from "./types.js";
@@ -344,6 +344,8 @@ export interface CloseWorkspaceRequest extends CmuxRequestBase {
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
+  /** With end_terminals: the close is not recorded in the closed history (session_end). */
+  "reason"?: (T.CloseReason) | null;
   "workspace"?: (T.Id) | null;
 }
 export type CloseWorkspaceResult = T.WorkspaceMutationResult;
@@ -2351,6 +2353,8 @@ export interface UpdateBookmarkRequest extends CmuxRequestBase {
   cmd: "update-bookmark";
   "bookmark": string;
   "favicon_key"?: (string) | null;
+  /** Folders only; null clears. Refused on a url node. */
+  "icon"?: (string) | null;
   "last_used_ms"?: (bigint) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
@@ -2421,6 +2425,7 @@ export interface UpdateScreenGroupRequest extends CmuxRequestBase {
   "collapsed"?: (boolean) | null;
   "color"?: (string) | null;
   "group": string;
+  "icon"?: (string) | null;
   "name"?: (string) | null;
 }
 export type UpdateScreenGroupResult = T.JsonValue;
@@ -2431,6 +2436,7 @@ export interface UpdateTabGroupRequest extends CmuxRequestBase {
   "collapsed"?: (boolean) | null;
   "color"?: (string) | null;
   "group": string;
+  "icon"?: (string) | null;
   "name"?: (string) | null;
 }
 export type UpdateTabGroupResult = T.TabGroupOutcome;

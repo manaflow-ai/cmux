@@ -7,7 +7,6 @@ import SwiftUI
 /// Undesigned on purpose: system controls, theme colors, density tokens.
 struct BookmarkManagerView: View {
     @Bindable var model: BookmarkManagerModel
-    @FocusState private var searchFocused: Bool
 
     private var colors: BookmarkPageColors { model.colors }
 
@@ -28,19 +27,15 @@ struct BookmarkManagerView: View {
         .sheet(item: $model.editor) { state in
             BookmarkEditorSheet(model: model, state: state)
         }
-        .onAppear { searchFocused = true }
     }
 
     private var toolbar: some View {
         HStack(spacing: Metrics.space4) {
             Text(BookmarkStrings.pageTitle).font(Font(Typography.title))
             Spacer(minLength: Metrics.space6)
-            TextField(BookmarkStrings.searchPlaceholder, text: $model.query)
-                .textFieldStyle(.roundedBorder)
-                .focusEffectDisabled()
-                .focused($searchFocused)
+            ThemedField(text: $model.query, placeholder: BookmarkStrings.searchPlaceholder, focusOnAppear: true,
+                        identifier: "cmux.bookmarks.manager.search")
                 .frame(maxWidth: Metrics.paletteWidth / 2)
-                .accessibilityIdentifier("cmux.bookmarks.manager.search")
             Menu {
                 Button(BookmarkStrings.addBookmark) { model.startAddBookmark() }
                 Button(BookmarkStrings.addFolder) { model.startAddFolder() }
@@ -54,7 +49,7 @@ struct BookmarkManagerView: View {
             .menuStyle(.borderlessButton)
             .fixedSize()
             .accessibilityIdentifier("cmux.bookmarks.manager.menu")
-            .help(BookmarkStrings.more)
+            .themedHelp(BookmarkStrings.more)
             .accessibilityLabel(BookmarkStrings.more)
         }
         .padding(.horizontal, Metrics.space6)
@@ -69,6 +64,7 @@ struct BookmarkManagerView: View {
                 }
             }
             .padding(Metrics.space3)
+            .thinScrollers()
         }
         .accessibilityIdentifier("cmux.bookmarks.manager.folders")
     }
@@ -76,8 +72,12 @@ struct BookmarkManagerView: View {
     private func folderRow(_ choice: BookmarkFolderChoice) -> some View {
         let selected = !model.isSearching && model.folder == choice.id
         return HStack(spacing: Metrics.space3) {
-            Icon(choice.depth == 0 ? (choice.id == BookmarkRoot.bar.rawValue ? .bookmarksBar : .bookmarksOther) : .folder, size: 13)
-                .foregroundStyle(colors.secondary)
+            if choice.depth > 0, let node = model.tree.node(choice.id) {
+                BookmarkNodeIcon(node: node, source: model.source, color: colors.secondary)
+            } else {
+                Icon(choice.depth == 0 ? (choice.id == BookmarkRoot.bar.rawValue ? .bookmarksBar : .bookmarksOther) : .folder, size: 13)
+                    .foregroundStyle(colors.secondary)
+            }
             Text(choice.title).lineLimit(1)
             Spacer(minLength: 0)
         }
@@ -100,6 +100,7 @@ struct BookmarkManagerView: View {
                     model.source?.openAll(in: node.id)
                 }
                 Button(BookmarkStrings.rename) { model.startEdit(node) }
+                BookmarkFolderIconMenuItems(node: node, source: model.source)
                 Button(BookmarkStrings.delete, role: .destructive) { model.delete([node.id]) }
             } else {
                 Button(BookmarkStrings.addFolder) {

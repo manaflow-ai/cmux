@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR aafcd987f9b6f4bea884b8f2f605457a177e0bbafd9c6b73f7e68a20c86e8ad4. */
+/* cmux-tui mux protocol 12, IR 7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -71,6 +71,8 @@ export type Bookmark = {
   "browser_profile_id": string;
   "created_ms": bigint;
   "favicon_key"?: string;
+  /** Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>. */
+  "icon"?: string;
   /** `bm_` and 32 lowercase hex digits. */
   "id": string;
   /** Dense 0-based position among the node's siblings. */
@@ -253,7 +255,7 @@ export type ConversationPart = {
   "status"?: string;
   /** type text. */
   "text"?: string;
-  /** Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties. */
+  /** Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties. */
   "type": string;
   [key: string]: unknown;
 };
@@ -690,6 +692,8 @@ export type ProcessInfoResult = {
   "pid": (number) | null;
 };
 
+export type ProgramStatusState = "working" | "blocked" | "error" | "done";
+
 export type ProviderWorkspaceMutationResult = {
   "key": string;
   "workspace": Id;
@@ -1020,6 +1024,11 @@ export type SetTerminalKeepResult = {
   "terminal_resource_id"?: (string) | null;
 };
 
+export type ShownProgramStatus = {
+  "progress": (number) | null;
+  "state": ProgramStatusState;
+};
+
 export type ShutdownDaemonResult = {
   "accepted": true;
   "ended_terminals"?: (bigint) | null;
@@ -1130,6 +1139,7 @@ export type Tab = {
   "kind": "pty" | "browser" | "conversation";
   "name": (string) | null;
   "notification"?: (NotificationMarker) | null;
+  "program_status"?: (ShownProgramStatus) | null;
   "short_id"?: string;
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;

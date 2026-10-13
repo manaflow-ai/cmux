@@ -113,10 +113,10 @@ final class MachineBrowserPageTab: BrowserTab {
 
 /// The not-ready message, the waiting address and the two buttons.
 final class MachineBrowserStateView: NSView {
-    private let message = NSTextField(wrappingLabelWithString: "")
-    private let queued = NSTextField(wrappingLabelWithString: "")
+    private let message = ThemedLabel(wrappingLabelWithString: "")
+    private let queued = ThemedLabel(wrappingLabelWithString: "")
     let openLocallyButton = ThemedDefaultButton(title: MachineBrowserStrings.openLocally, target: nil, action: nil)
-    private let retryButton = NSButton(title: MachineBrowserStrings.retry, target: nil, action: nil)
+    private let retryButton = ThemedBezelButton(title: MachineBrowserStrings.retry, target: nil, action: nil)
     var onOpenLocally: (() -> Void)?
     var onRetry: (() -> Void)?
     /// The message shown (tests, debug).
@@ -127,10 +127,11 @@ final class MachineBrowserStateView: NSView {
         for label in [message, queued] {
             label.alignment = .center
             label.isSelectable = true
+            label.focusRingType = .none
         }
         message.font = .systemFont(ofSize: NSFont.systemFontSize + 1, weight: .medium)
         queued.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        queued.textColor = .secondaryLabelColor
+        queued.ink = .secondary
         openLocallyButton.target = self
         openLocallyButton.action = #selector(openLocallyPressed)
         openLocallyButton.keyEquivalent = "\r"

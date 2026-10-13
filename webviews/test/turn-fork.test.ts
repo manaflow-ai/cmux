@@ -1,9 +1,10 @@
-// Fork from any turn (cx-yqiv, Codex desktop app parity): a Claude chat's footer offers Fork under
-// every completed turn, since acpmux forks a Claude chat through any of them; another agent forks only
-// at a chat's end. The transcript gallery's plays drive both in Chromium.
+// Fork from any turn (cx-yqiv, Codex desktop app parity): a Claude or Codex chat's footer offers
+// Fork under every completed turn, since acpmux forks those chats through any of them (cx-a7r);
+// another agent forks only at a chat's end. The transcript gallery's plays drive both in Chromium.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("turn-fork.test.ts", async () => {
@@ -70,11 +71,16 @@ await requireBrowserLane("turn-fork.test.ts", async () => {
 
   test("A Claude chat forks through an earlier turn from its footer", async () => {
     const result = await play("fork-any-turn");
-    expect(["pass", "warn"], result.report).toContain(result.play ?? "");
+    expect(playFailures(result.report)).toEqual([]);
+  });
+
+  test("A Codex chat forks through an earlier turn from its footer", async () => {
+    const result = await play("fork-any-turn-codex");
+    expect(playFailures(result.report)).toEqual([]);
   });
 
   test("Another agent offers Fork only under its latest turn", async () => {
     const result = await play("fork-latest-turn-only");
-    expect(["pass", "warn"], result.report).toContain(result.play ?? "");
+    expect(playFailures(result.report)).toEqual([]);
   });
 });
