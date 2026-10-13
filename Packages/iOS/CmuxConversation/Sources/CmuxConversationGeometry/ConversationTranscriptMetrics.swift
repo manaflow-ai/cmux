@@ -84,6 +84,14 @@ public enum ConversationTranscriptMetrics {
         return (height, height + space(contiguousSpace, captionLineSpacing: captionLineSpacing, scale: scale))
     }
 
+    /// Top of a group avatar beside the last bubble of an incoming run: its
+    /// bottom meets the tip of the bubble's tail (`tailDrop` below the
+    /// body), or the body's bottom when the bubble has no tail. Real iPhone
+    /// 17 Pro Max (iOS 26.4): the avatar ends 7.67 pt under a one-line body.
+    public static func avatarMinY(bodyBottom: CGFloat, tailDrop: CGFloat?, avatarSize: CGFloat) -> CGFloat {
+        bodyBottom + (tailDrop ?? 0) - avatarSize
+    }
+
     /// A transcript space at the reader's text size. ChatKit scales every
     /// space by the caption 2 font's line spacing over its 13 pt at Large and
     /// rounds to the pixel grid; up to Large nothing changes. Logged from
