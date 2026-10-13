@@ -1365,7 +1365,7 @@ fi
 [[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
 
 # The cmux cnx iPhone host (cnx-ios/rust/crates/cnx-hostd), which Settings >
-# Accounts > iPhone runs. Same rule as optchat-chief: fleet and CI builds
+# Mobile runs. Same rule as optchat-chief: fleet and CI builds
 # compile it on a miss and require it; a local reload bundles a cached build
 # when one exists and otherwise builds an app whose iPhone section says it is
 # unavailable (never Cargo on the developer Mac).

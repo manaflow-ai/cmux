@@ -25,7 +25,7 @@ Independent effort on branch `feat-cnx-ios`. Native, mainstream-AI-app feel
 ## Mac side
 
 `cnx-hostd` runs beside the cmux-next daemon on the Mac. The cmux-next app
-bundles it and runs it itself (Settings > Accounts > iPhone; `rust/README.md`
+bundles it and runs it itself (Settings > Mobile; `rust/README.md`
 "Supervised by the cmux-next app"); `run-host.sh` in the demo host package is
 for Macs without the app. It registers the Mac with `cnx-ios-api`, answers WebRTC offers and
 WireGuard handshakes, and splices link channels to the cmux-tui socket

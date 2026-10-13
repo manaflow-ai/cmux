@@ -3,10 +3,11 @@
 # host into Contents/Resources/bin/cnx-hostd, from CMUX_NEXT_CNX_HOSTD_BIN or
 # the cache build-cnx-hostd.sh fills on CI and fleet builds. It never runs Cargo.
 #
-# A build without it is still a valid build: Settings > Accounts > iPhone then
-# says iPhone connections are not available. Release builds carry it only when
-# CMUX_NEXT_CNX_HOSTD_BIN names it (the release signing step signs every
-# Mach-O in Resources/bin). CMUX_NEXT_REQUIRE_CNX_HOSTD=1 turns a missing
+# A build without it is still a valid build: Settings > Mobile then says
+# iPhone connections are not available. Release builds carry it only when
+# CMUX_NEXT_CNX_HOSTD_BIN names it (reload.sh sets it on fleet and CI builds,
+# universal for Release; the release signing step signs every Mach-O in
+# Resources/bin). CMUX_NEXT_REQUIRE_CNX_HOSTD=1 turns a missing
 # binary into an error.
 set -euo pipefail
 

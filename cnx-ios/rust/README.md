@@ -148,8 +148,9 @@ Logs go to stderr.
 ### Supervised by the cmux-next app (`CNX_CONTROL=stdio`)
 
 The cmux-next Mac app bundles cnx-hostd (`Contents/Resources/bin/cnx-hostd`,
-built by `scripts/cmux-next/build-cnx-hostd.sh`) and runs it while Settings >
-Accounts > iPhone > Allow iPhone Connections is on and an account is signed in
+built by `scripts/cmux-next/build-cnx-hostd.sh`) and runs it while
+`mobile.allowIPhoneConnections` (Settings > Mobile > Allow iPhone Connections,
+or cmux.json) is on and an account is signed in
 (`CnxHostSupervisor` in `Packages/macOS/CmuxNext/Sources/CmuxNextMobile/CnxHost`).
 The app keeps the Stack session; hostd never sees a refresh token.
 
@@ -166,7 +167,8 @@ The app keeps the Stack session; hostd never sees a refresh token.
   UUID kept in its Application Support folder, `CNX_DEVICE_NAME` to the
   computer name, `CNX_TEAM_ID` to the selected team or `personal-<userId>`,
   and `CNX_FILE_ROOTS` to the chat roots. The service is the dev Worker
-  (`CMUX_NEXT_CNX_API_URL` overrides it in a Debug build).
+  (`CMUX_NEXT_CNX_API_URL` overrides it in a Debug build), for production
+sign-in too.
 
 Startup: refresh the access token, `POST /v1/devices {kind:"mac"}`, open the
 signaling socket, answer. On any failure it reconnects with backoff (1 s to

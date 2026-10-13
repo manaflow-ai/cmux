@@ -22,10 +22,9 @@ extension AppServices {
         let override: URL? = nil
         let serviceOverride: URL? = nil
         #endif
-        var executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
-        // The cnx service accepts the development sign-in project only, for now: a build that
-        // signs in to production has no service to register with.
-        if auth.configuration.isProductionAuth, serviceOverride == nil { executable = nil }
+        // Every build runs it, production sign-in included: the cnx service verifies
+        // tokens of both sign-in projects.
+        let executable = [override, bundled].compactMap { $0 }.first { FileManager.default.isExecutableFile(atPath: $0.path) }
         let base = serviceOverride ?? Self.cnxDevelopmentAPI
         let namespace = environment.launch.bundleID ?? "com.cmuxterm.app.next"
         let state = DaemonLauncher.applicationSupportDirectory()
