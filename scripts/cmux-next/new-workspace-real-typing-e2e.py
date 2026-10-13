@@ -190,6 +190,13 @@ def focused_tab():
     return ((windows[0].get("model") or {}).get("resolved_tab")) if windows else None
 
 
+def fresh_page_workspace():
+    """A new workspace on its New Tab page, so Cmd-D splits a page into a new pane (not measured)."""
+    print("  setup newTab:", rpc("action.run", {"action": "newTab", "args": {}, "focus": True}), flush=True)
+    wait(lambda: field_text() == "", 5)
+    time.sleep(1)  # test harness: the page settles
+
+
 def run(name, helper, steps, setup=None):
     if setup:
         setup()
@@ -231,9 +238,8 @@ def main():
             rows.append(run(f"warm-cmdn-{index + 1}", helper, CMD_N))
         for index in range(opts.others):
             rows.append(run(f"warm-cmdt-{index + 1}", helper, CMD_T, setup=focus_terminal_tab))
-            # Cmd-D on the New Tab page just made: the new pane opens its own New Tab page.
-            time.sleep(1)  # test harness: the page settles
-            rows.append(run(f"warm-split-{index + 1}", helper, CMD_D))
+            # Cmd-D on a fresh New Tab page: the new pane opens its own New Tab page.
+            rows.append(run(f"warm-split-{index + 1}", helper, CMD_D, setup=fresh_page_workspace))
             rows.append(run(f"warm-palette-{index + 1}", helper, PALETTE, setup=focus_terminal_tab))
     rpc("debug.quit", {"press": "end-everything"})
     with open(os.path.join(opts.out, "new-workspace-real-typing.json"), "w") as handle:
