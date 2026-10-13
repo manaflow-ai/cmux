@@ -12,6 +12,30 @@ When we change the fork, update this document and the parent submodule SHA.
 
 ## Current fork changes
 
+### Minimum contrast uses the host-painted background
+
+- Branch: `cmux-min-contrast-host-bg`
+  ([manaflow-ai/ghostty#269](https://github.com/manaflow-ai/ghostty/pull/269)),
+  based on the cmux pin `a53c76d06`. Merge it with a merge commit so the pin
+  stays reachable from fork `main`.
+- Commit: `2b3fdc58e` (fix).
+- Summary: `macos-background-from-layer` and the macOS glass styles zero the
+  background uniform's alpha, and the Metal `cell_text` vertex shader
+  premultiplied it to black before running `minimum-contrast`. On a light
+  theme, dark text failed the check against black and was drawn white on the
+  light background cmux's host layer paints (#4156, #3967). `updateFrame` now
+  sets a Metal-only `bools.host_paints_background` uniform where it zeroes the
+  alpha, and the text shader treats `bg_color` as opaque for contrast and
+  linear correction when it is set. The fill is still skipped.
+- Coverage: `cmuxTests/GhosttyMinimumContrastLayerBackgroundTests` reads the
+  presented IOSurface for Flexoki Light colors with `minimum-contrast = 2`.
+- GhosttyKit: built by
+  [run 38276408682](https://github.com/manaflow-ai/cmux/actions/runs/38276408682),
+  archive SHA-256 `33af7242117297ed796c72c2f60c801e4b3bb12a703edd9cf9a34b84a9a2d4fc`.
+- Conflict notes: the flag is set next to the glass and layer-background
+  alpha zeroing in `updateFrame`; keep them together, and keep the Zig
+  `Uniforms.bools` and the MSL `Uniforms` field order identical.
+
 ### Link filter: the embedder vetoes hover regex links
 
 - Branch: `link-filter`
