@@ -18,8 +18,8 @@ enum ProUpgradePresenter {
     @MainActor
     static var upgradeMenuTitle: String {
         upgradeMenuTitle(
-            isProActive: AppDelegate.shared?.auth?.accountFlow?.isProActive == true,
-            isMaxActive: AppDelegate.shared?.auth?.accountFlow?.isMaxActive == true
+            isProActive: AppDelegate.shared?.auth?.accountFlow.isProActive == true,
+            isMaxActive: AppDelegate.shared?.auth?.accountFlow.isMaxActive == true
         )
     }
 
@@ -35,7 +35,7 @@ enum ProUpgradePresenter {
 
     @MainActor
     private static var pricingWorkspaceTitle: String {
-        if AppDelegate.shared?.auth?.accountFlow?.isProActive == true {
+        if AppDelegate.shared?.auth?.accountFlow.isProActive == true {
             return String(localized: "pricing.max.workspace.title", defaultValue: "cmux Max")
         }
         return String(localized: "pricing.pro.workspace.title", defaultValue: "cmux Pro")
@@ -93,8 +93,9 @@ enum ProUpgradePresenter {
         let generation = pricingPresentationGeneration
         pricingPresentationTask = Task { @MainActor in
             defer {
-                guard pricingPresentationGeneration == generation else { return }
-                pricingPresentationTask = nil
+                if pricingPresentationGeneration == generation {
+                    pricingPresentationTask = nil
+                }
             }
             await presentAuthenticatedPricing(url: url)
         }
