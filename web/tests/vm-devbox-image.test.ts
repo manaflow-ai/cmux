@@ -1190,7 +1190,7 @@ describe("devbox image template", () => {
 
   test("opencode config names the way out when the team has no OpenCode account", async () => {
     const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-opencode-403-"));
-    const message = "No OpenCode account is shared with this Cloud machine's team. Or use your own provider sign-in on this machine: run `cr use own opencode`.";
+    const message = "No OpenCode account is shared with this Cloud machine's team. If one was added as private, the person who added it can choose Share with team at coderouter.dev, or add one here with `cr add opencode` (accounts added on a Cloud machine are shared with its team). Or use your own provider sign-in on this machine: run `cr use own opencode`, then `opencode auth login` (on older machines, start OpenCode with `env -u OPENAI_BASE_URL -u ANTHROPIC_BASE_URL opencode`).";
     const server = await listen((_request, response) => {
       response.statusCode = 403;
       response.setHeader("content-type", "application/json");
