@@ -43,9 +43,7 @@ const address = (row: ScreenRow) =>
 test('"red" shows Reddit once, as the open tab, with a clean title and a short host', () => {
   const rows = screenRows("red", photo);
   const reddit = rows.filter((row) => address(row) === "reddit.com");
-  expect(reddit).toEqual([
-    { type: "tab", id: "reddit-tab", title: "Reddit", detail: "reddit.com", url: "reddit.com" },
-  ]);
+  expect(reddit).toEqual([{ type: "tab", id: "reddit-tab", title: "Reddit", detail: "reddit.com", url: "reddit.com" }]);
   for (const row of rows) {
     const detail = "detail" in row ? row.detail : undefined;
     expect(detail ?? "").not.toContain("solution");
