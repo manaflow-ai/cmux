@@ -40,6 +40,7 @@ on:
       - "cmux-tui/crates/cmux-app-ffi/**"
       - "cmux-tui/crates/cmux-layout-reducer/**"
       - "cmux-tui/crates/cmux-layout-reducer-ffi/**"
+      - "cmux-tui/crates/cmux-palette-ranker/**"
       - "cmux-tui/crates/cmux-rd-core/**"
       - "cmux-tui/crates/cmux-rd-proto/**"
       - "cmux-tui/crates/cmux-rd-ffi/**"
