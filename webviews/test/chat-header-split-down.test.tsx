@@ -38,6 +38,8 @@ test("Split Down sits after Terminal, runs in its mode and lights while its spli
   const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
   const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
   const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  // Split Down shown as a button (it is in the chat menu by default).
+  configureQuickActions({ quickActions: ["terminal", "splitDown", "browser", "changes", "preview", "newTab"] });
   const runs: string[] = [];
   root = createRoot(host);
   act(() =>
