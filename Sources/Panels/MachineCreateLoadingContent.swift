@@ -73,9 +73,10 @@ struct MachineCreateLoadingContent: View {
     /// pool, and a larger plan exists. At the machine limit an unloaded plan
     /// still offers it; a full pool waits for the plan, so Max never sees it.
     private var offersUpgrade: Bool {
-        let hasHigherPlan = NewMachineSheetDataCache.shared?.currentData?.plan?.hasHigherPlan
-        if operation.hitMachineLimit { return hasHigherPlan ?? true }
-        return operation.hitResourcePool && hasHigherPlan == true
+        CloudPlanRefusal.offersUpgrade(
+            for: operation.refusalCode,
+            plan: NewMachineSheetDataCache.shared?.currentData?.plan
+        )
     }
 
     private var upgradeIsPrimary: Bool { offersUpgrade && operation.hitMachineLimit }

@@ -84,6 +84,17 @@ public struct CloudPlanRefusal: Equatable, Sendable {
     /// Whether the answer names a larger plan that would let the request through.
     public var offersUpgrade: Bool { upgradePlanId != nil }
 
+    /// Whether a failed-create row can offer a larger plan for this refusal.
+    ///
+    /// - Parameters:
+    ///   - code: The refusal code carried by the failed create.
+    ///   - plan: The currently loaded plan, or nil while it is unavailable.
+    /// - Returns: Whether the row should show its upgrade action.
+    public static func offersUpgrade(for code: String?, plan: MachinePlanSnapshot?) -> Bool {
+        if code == activeLimitExceededCode { return plan?.hasHigherPlan ?? true }
+        return code == resourcePoolExceededCode && plan?.hasHigherPlan == true
+    }
+
     /// The localized sentence for a person: what stopped the request and what
     /// to do, with an upgrade only as the secondary option.
     public var message: String {

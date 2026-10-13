@@ -82,6 +82,37 @@ extension CloudDiagnosticFailurePlanRefusalTests {
         #expect(refusal.message == "Cloud VMs require a cmux Pro subscription.")
     }
 
+    @Test("Pool upgrades follow the capacity ladder, including Founders and Team")
+    func resourcePoolUpgradeActions() {
+        let poolCode = CloudPlanRefusal.resourcePoolExceededCode
+        for planID in ["pro", "founders", " Team "] {
+            let plan = MachinePlanSnapshot(activeCount: 1, planId: planID)
+            #expect(CloudPlanRefusal.offersUpgrade(for: poolCode, plan: plan), "\(planID)")
+        }
+        let maxPlan = MachinePlanSnapshot(activeCount: 1, planId: " MAX ")
+        #expect(!CloudPlanRefusal.offersUpgrade(for: poolCode, plan: maxPlan))
+        #expect(!CloudPlanRefusal.offersUpgrade(for: poolCode, plan: nil))
+        #expect(!CloudPlanRefusal.offersUpgrade(for: "vm_other", plan: maxPlan))
+        #expect(CloudPlanRefusal.offersUpgrade(for: CloudPlanRefusal.activeLimitExceededCode, plan: nil))
+        for planID in ["max", "founders", "team"] {
+            let plan = MachinePlanSnapshot(activeCount: 5, planId: planID)
+            #expect(!CloudPlanRefusal.offersUpgrade(for: CloudPlanRefusal.activeLimitExceededCode, plan: plan))
+        }
+    }
+
+    @Test("Create-credit refusals keep the server's account or team billing scope")
+    func createCreditsPreserveBillingScope() throws {
+        for message in [
+            "Your account has no Cloud VM create credits left.",
+            "This team has no Cloud VM create credits left."
+        ] {
+            let refusal = try #require(CloudPlanRefusal(status: 402, body: Self.body([
+                "error": "vm_create_credits_insufficient", "message": message,
+            ])))
+            #expect(refusal.message == message)
+        }
+    }
+
     @Test("An unrecognised 402 prefers the server's sentence, else the plan sentence")
     func unrecognisedCodes() throws {
         let explained = try #require(CloudPlanRefusal(status: 402, body: Self.body([
