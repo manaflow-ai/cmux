@@ -87,6 +87,33 @@ struct AgentResumeArgvTests {
         )
     }
 
+    @Test("Antigravity restore renders through its per-surface wrapper and preserves a custom binary")
+    func antigravityRestoreUsesWrapperShim() {
+        let quote: (String) -> String = { "'" + $0 + "'" }
+        let executable = "/opt/Antigravity Preview/bin/agy"
+        let parts = AgentResumeArgv().builtInKind(
+            kind: "antigravity",
+            sessionId: "conversation-123",
+            executablePath: executable,
+            arguments: [executable, "--dangerously-skip-permissions"]
+        )!
+
+        let rendered = AgentResumeArgv().renderedPortableManagedResumeShellCommand(
+            parts: parts,
+            kind: "antigravity",
+            quote: quote
+        )
+        let fallback = "\"$([ -x \"${CMUX_AGY_WRAPPER_SHIM:-}\" ] && printf '%s' \"$CMUX_AGY_WRAPPER_SHIM\" || printf '%s' '/opt/Antigravity Preview/bin/agy')\""
+        #expect(rendered == "/bin/sh -c '" + (fallback + " '--conversation' 'conversation-123' '--dangerously-skip-permissions'").replacingOccurrences(of: "'", with: "'\\''") + "'")
+        #expect(
+            AgentResumeArgv().managedWrapperCustomExecutableEnvironment(
+                kind: "antigravity",
+                executablePath: executable,
+                arguments: [executable]
+            ) == ["CMUX_CUSTOM_ANTIGRAVITY_PATH": executable]
+        )
+    }
+
     @Test("OpenCode resume drops internal TUI settings selector")
     func opencodeResumeDropsInternalTUISettingsSelector() {
         #expect(

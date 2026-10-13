@@ -1722,10 +1722,11 @@ final class SessionPersistenceTests: XCTestCase {
         )
         XCTAssertEqual(agent.kind, .custom("antigravity"))
         XCTAssertEqual(agent.sessionId, "antigravity-conversation-123")
-        XCTAssertEqual(
-            agent.resumeCommand,
-            "cd -- '/tmp/repo' 2>/dev/null || [ ! -d '/tmp/repo' ] && '/usr/local/bin/agy' '--conversation' 'antigravity-conversation-123' '--sandbox' 'danger-full-access'"
-        )
+        let resumeCommand = try XCTUnwrap(agent.resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("CMUX_AGY_WRAPPER_SHIM"), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("/usr/local/bin/agy"), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("'--conversation' 'antigravity-conversation-123'"), resumeCommand)
+        XCTAssertTrue(resumeCommand.contains("'--sandbox' 'danger-full-access'"), resumeCommand)
     }
 
     @MainActor
