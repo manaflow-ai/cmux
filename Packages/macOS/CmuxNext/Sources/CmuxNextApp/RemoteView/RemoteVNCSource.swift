@@ -56,7 +56,7 @@ final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
                 case let .disconnected(error):
                     self?.setStatus(RemoteViewStatus(path: .compatibility, state: .ended(Self.end(for: error, hadCredentials: hadCredentials))),
                                     generation: generation)
-                case .cursor, .bell, .clipboard:
+                case .cursor, .screens, .bell, .clipboard:
                     break
                 }
             }

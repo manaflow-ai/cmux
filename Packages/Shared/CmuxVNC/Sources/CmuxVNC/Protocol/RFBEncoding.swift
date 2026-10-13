@@ -15,12 +15,14 @@ public enum RFBEncoding: Int32, Sendable, CaseIterable {
     case lastRect = -224
     /// Pseudo: the cursor shape, drawn by the client.
     case cursor = -239
+    /// Pseudo: the framebuffer size plus the layout of its screens (displays).
+    case extendedDesktopSize = -308
 
     /// What the client advertises, most preferred first. ZRLE and Zlib cut
     /// bandwidth on real networks; Hextile and RRE cover older servers;
     /// CopyRect makes scrolling and window moves cheap; Raw always works.
     public static func advertised(localCursor: Bool) -> [RFBEncoding] {
-        var list: [RFBEncoding] = [.copyRect, .zrle, .zlib, .hextile, .rre, .raw, .desktopSize, .lastRect]
+        var list: [RFBEncoding] = [.copyRect, .zrle, .zlib, .hextile, .rre, .raw, .extendedDesktopSize, .desktopSize, .lastRect]
         if localCursor { list.append(.cursor) }
         return list
     }

@@ -27,8 +27,20 @@ struct LiveServerTests {
         }
         print("live: \(info.name) \(info.width)x\(info.height) RFB 3.\(info.protocolMinor) security \(info.securityType)")
         var frames = client.frames.makeAsyncIterator()
-        let frame = try #require(await frames.next())
+        let remaining = events
+        Task {
+            var iterator = remaining
+            while let event = await iterator.next() { if case let .screens(screens) = event { print("live: screens \(screens)") } }
+        }
+        var frame = try #require(await frames.next())
+        print("live: first-frame screens \(VNCScreenLayout().screens(in: frame))")
+        // Later updates paint the other displays.
+        for _ in 0 ..< (Int(env["CMUX_VNC_LIVE_FRAMES"] ?? "0") ?? 0) {
+            guard let next = await frames.next() else { break }
+            frame = next
+        }
         #expect(frame.width == info.width && frame.height == info.height)
+        print("live: detected screens \(VNCScreenLayout().screens(in: frame))")
         let stats = await client.stats
         print("live: \(stats.rectangles) rectangles \(stats.rectanglesByEncoding) \(stats.bytesReceived) bytes, latency \(stats.lastUpdateLatencyMs ?? -1) ms")
         if let path = env["CMUX_VNC_LIVE_PNG"], let image = frame.makeImage(),

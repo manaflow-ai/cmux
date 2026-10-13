@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// One `FramebufferUpdate` rectangle header.
@@ -14,6 +15,8 @@ enum RFBRectangleEffect: Equatable {
     case drew
     case resized
     case cursor(VNCCursor)
+    /// ExtendedDesktopSize: the framebuffer may have resized, and its screens.
+    case screens([VNCScreen])
     /// LastRect: the update ends here.
     case lastRect
 }
@@ -28,7 +31,7 @@ final class RFBRectangleDecoder {
             throw RFBError.protocolViolation("unsupported encoding \(header.encoding)")
         }
         // Pixel rectangles must lie inside the framebuffer: their size bounds every read below.
-        if ![.desktopSize, .lastRect, .cursor].contains(encoding) {
+        if ![.desktopSize, .lastRect, .cursor, .extendedDesktopSize].contains(encoding) {
             guard header.x + header.width <= framebuffer.width, header.y + header.height <= framebuffer.height else {
                 throw RFBError.protocolViolation("rectangle \(header.x),\(header.y) \(header.width)x\(header.height) outside the framebuffer")
             }
@@ -69,6 +72,22 @@ final class RFBRectangleDecoder {
             return .resized
         case .lastRect:
             return .lastRect
+        case .extendedDesktopSize:
+            // x is the reason and y the status; a nonzero status answers a failed request.
+            let count = Int(try await reader.u8())
+            try await reader.skip(3)
+            var screens: [VNCScreen] = []
+            for _ in 0 ..< count {
+                let id = try await reader.u32()
+                let x = Int(try await reader.u16()), y = Int(try await reader.u16())
+                let w = Int(try await reader.u16()), h = Int(try await reader.u16())
+                _ = try await reader.u32() // flags
+                screens.append(VNCScreen(id: id, frame: CGRect(x: x, y: y, width: w, height: h)))
+            }
+            guard header.y == 0 else { return .drew }
+            try RFBLimits.checkFramebuffer(width: header.width, height: header.height)
+            framebuffer.resize(width: header.width, height: header.height)
+            return .screens(screens)
         case .cursor:
             return .cursor(try await decodeCursor(header, reader))
         }

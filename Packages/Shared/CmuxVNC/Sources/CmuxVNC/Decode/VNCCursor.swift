@@ -1,6 +1,18 @@
 import CoreGraphics
 import Foundation
 
+/// One physical display inside the framebuffer (ExtendedDesktopSize).
+public struct VNCScreen: Sendable, Equatable {
+    public var id: UInt32
+    /// In framebuffer pixels.
+    public var frame: CGRect
+
+    public init(id: UInt32, frame: CGRect) {
+        self.id = id
+        self.frame = frame
+    }
+}
+
 /// The remote cursor shape (Cursor pseudo-encoding): premultiplied BGRA
 /// pixels where the server's bitmask is set, transparent elsewhere.
 public struct VNCCursor: Sendable, Equatable {

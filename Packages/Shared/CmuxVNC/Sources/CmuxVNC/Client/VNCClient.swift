@@ -26,6 +26,8 @@ public struct VNCSessionOptions: Sendable, Equatable {
 public enum VNCEvent: Sendable, Equatable {
     case connected(VNCServerInfo)
     case cursor(VNCCursor)
+    /// The server's screens (displays) inside the framebuffer.
+    case screens([VNCScreen])
     case bell
     case clipboard(String)
     /// The session ended: nil when the client disconnected on purpose.
@@ -259,6 +261,11 @@ public actor VNCClient {
                 resized = true
             case let .cursor(cursor):
                 eventSink.yield(.cursor(cursor))
+            case let .screens(screens):
+                let width = framebuffer.width, height = framebuffer.height
+                if width != size.width { resized = true }
+                if height != size.height { resized = true }
+                eventSink.yield(.screens(screens))
             case .lastRect:
                 ended = true
             }

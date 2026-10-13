@@ -39,6 +39,8 @@ final class RemoteSession {
 
     @ObservationIgnored var onFrame: ((VNCFrame) -> Void)?
     @ObservationIgnored var onCursor: ((VNCCursor) -> Void)?
+    /// The server's own screen layout (ExtendedDesktopSize), when it sends one.
+    @ObservationIgnored var onScreens: (([CGRect]) -> Void)?
     @ObservationIgnored private var client: VNCClient?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     @ObservationIgnored private let endpoint: VNCEndpoint?
@@ -98,6 +100,8 @@ final class RemoteSession {
                     pointer = CGPoint(x: info.width / 2, y: info.height / 2)
                 case let .cursor(cursor):
                     onCursor?(cursor)
+                case let .screens(screens):
+                    onScreens?(screens.count > 1 ? screens.map(\.frame) : [])
                 case let .disconnected(error):
                     if let error {
                         phase = .failed(message: Self.message(for: error), needsSignIn: error.needsCredentials)
