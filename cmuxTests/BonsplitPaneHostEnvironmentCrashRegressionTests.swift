@@ -69,8 +69,18 @@ struct BonsplitPaneHostEnvironmentCrashRegressionTests {
         }
         let splitView = try #require(mountedSplit)
 
+        // Detach the split from its SwiftUI ancestor, then change the model so
+        // the representable must refresh its retained pane hosting controller
+        // while that controller is no longer under BonsplitView's environment.
+        // This is the deterministic equivalent of the terminal refresh that
+        // reaches a detached pane host during AppKit's drag run loop.
+        splitView.removeFromSuperview()
+        controller.focusPane(firstPane)
+        hostingView.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+
         // Closing a window during the drag's nested run loop detaches the
-        // Bonsplit hierarchy before the queued divider callback runs.
+        // remaining Bonsplit hierarchy before the queued divider callback runs.
         hostingView.removeFromSuperview()
         window.close()
         // The crash reports show a queued terminal refresh forcing a detached
