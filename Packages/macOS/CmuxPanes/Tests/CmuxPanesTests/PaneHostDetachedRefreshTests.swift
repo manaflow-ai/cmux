@@ -55,7 +55,16 @@ struct PaneHostDetachedRefreshTests {
         let firstPane = try #require(controller.focusedPaneId)
         _ = try #require(controller.splitPane(firstPane, orientation: .horizontal))
         Self.settle(window)
-        let paneHosts = Self.paneHosts(in: bonsplitHost)
+        var paneHosts = Self.paneHosts(in: bonsplitHost)
+        for _ in 0..<400 where paneHosts.count < 2 {
+            CFRunLoopRunInMode(.defaultMode, 0.005, true)
+            window.displayIfNeeded()
+            contentView.layoutSubtreeIfNeeded()
+            paneHosts = Self.paneHosts(in: bonsplitHost)
+        }
+        if paneHosts.count != 2 {
+            print("PaneHostDetachedRefreshTests: view tree\n" + Self.describeTree(contentView))
+        }
         #expect(paneHosts.count == 2, "a two-pane split mounts two pane hosts")
         let paneHost = try #require(paneHosts.first)
 
@@ -98,12 +107,23 @@ struct PaneHostDetachedRefreshTests {
         }
     }
 
+    private static func describeTree(_ view: NSView, depth: Int = 0) -> String {
+        var line = String(repeating: "  ", count: depth)
+            + String(describing: type(of: view)) + " " + NSStringFromClass(type(of: view))
+            + " \(view.frame)\n"
+        guard depth < 24 else { return line }
+        for subview in view.subviews { line += describeTree(subview, depth: depth + 1) }
+        return line
+    }
+
     /// Bonsplit's per-pane hosting views (`NonDraggableHostingView`), found by
     /// class name because the type is internal to Bonsplit.
     private static func paneHosts(in root: NSView) -> [NSView] {
         var found: [NSView] = []
         func visit(_ view: NSView) {
-            if String(describing: type(of: view)).hasPrefix("NonDraggableHostingView") {
+            if view !== root,
+               String(describing: type(of: view)).hasPrefix("NonDraggableHostingView")
+                || NSStringFromClass(type(of: view)).contains("NonDraggableHostingView") {
                 found.append(view)
                 return
             }
