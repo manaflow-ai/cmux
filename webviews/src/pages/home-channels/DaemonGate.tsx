@@ -228,7 +228,7 @@ export function InstanceBar({
         disabled={busy}
         onClick={() => {
           setBusy(true);
-          daemon
+          void daemon
             .request("new-workspace", {})
             .then(refresh)
             .finally(() => setBusy(false));
