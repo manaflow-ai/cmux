@@ -149,14 +149,8 @@ bool NavigationRefusedForAgent(int browser_id, const std::string& url) {
   return AgentRefusesURL(url);
 }
 
-std::map<int, bool>& MainFrameRequestWasPost() {
-  static std::map<int, bool> map;
-  return map;
-}
-
 void ForgetNavigationGuard(int browser_id) {
   guards().erase(browser_id);
-  MainFrameRequestWasPost().erase(browser_id);
   auth_callbacks().erase(browser_id);
 }
 

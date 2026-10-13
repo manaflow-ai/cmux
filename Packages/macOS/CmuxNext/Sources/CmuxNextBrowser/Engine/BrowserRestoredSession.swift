@@ -47,9 +47,9 @@ class BrowserRestoredSession {
     /// The saved session carries the flag to the daemon; a hibernation
     /// never starts on such a page.
     private var formPostURLs: Set<URL> = []
-
-    /// The shown document came from a form submission.
-    var showsFormSubmission: Bool { tab?.state.url.map(formPostURLs.contains) ?? false }
+    /// The shown document came from a form submission, as its main-frame
+    /// commit said (a same-document navigation keeps it).
+    private(set) var showsFormSubmission = false
 
     init(host: @escaping () -> (any BrowserRestoredSessionHost)?) {
         self.host = host
@@ -114,7 +114,8 @@ class BrowserRestoredSession {
         guard session.entries.indices.contains(session.current) else { return nil }
         for index in session.entries.indices {
             if session.entries[index].scrollY == nil { session.entries[index].scrollY = knownScrollY[session.entries[index].url] }
-            session.entries[index].formPost = formPostURLs.contains(session.entries[index].url)
+            session.entries[index].formPost = index == session.current
+                ? showsFormSubmission : formPostURLs.contains(session.entries[index].url)
         }
         knownScrollY = knownScrollY.filter { known in session.entries.contains { $0.url == known.key } }
         formPostURLs = formPostURLs.filter { url in session.entries.contains { $0.url == url } }
@@ -209,6 +210,7 @@ class BrowserRestoredSession {
     /// A main-frame document committed; `formPost` when its request was a
     /// POST (a form the person sent, or one an engine sent again).
     func documentCommitted(url: URL?, formPost: Bool) {
+        showsFormSubmission = formPost
         guard let url else { return }
         if formPost { formPostURLs.insert(url) } else { formPostURLs.remove(url) }
     }

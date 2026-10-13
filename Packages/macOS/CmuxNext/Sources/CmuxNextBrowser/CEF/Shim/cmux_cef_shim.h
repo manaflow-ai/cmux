@@ -44,7 +44,7 @@ typedef enum {
   CMUX_SHIM_TITLE = 5,            // s1 = title
   CMUX_SHIM_FAVICON = 6,          // s1 = first favicon url or ""
   CMUX_SHIM_LOADING_STATE = 7,    // a = loading | back << 1 | forward << 2
-  CMUX_SHIM_LOAD_START = 8,       // main frame; s1 = url
+  CMUX_SHIM_LOAD_START = 8,       // main frame; s1 = url, a = 1 when the entry came from a POST
   CMUX_SHIM_LOAD_END = 9,         // main frame; a = http status
   CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, b = 1 when Chromium shows its certificate
                                   // interstitial for it, s1 = text, s2 = url
@@ -379,9 +379,6 @@ CMUX_SHIM_EXPORT void cmux_shim_free(char* s);
 CMUX_SHIM_EXPORT char* cmux_shim_tab_navigation_state(int browser_id);
 CMUX_SHIM_EXPORT int cmux_shim_tab_restore_navigation(int browser_id, const char* state);
 CMUX_SHIM_EXPORT int cmux_shim_navigation_restore_supported(void);
-// 1 when the browser's last main-frame request was a POST (a form; a 303
-// after it arrives again as GET), read when its document commits (BR-R1).
-CMUX_SHIM_EXPORT int cmux_shim_tab_document_from_post(int browser_id);
 
 // Extension management and commands (fork API v3; 0/NULL on older forks).
 CMUX_SHIM_EXPORT char* cmux_shim_ext_list(int browser_id);

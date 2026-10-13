@@ -193,8 +193,6 @@ bool NavigationViolatesGuard(int browser_id, const std::string& url);
 // page agents may not reach (AgentURLPolicy.swift).
 bool NavigationRefusedForAgent(int browser_id, const std::string& url);
 void ForgetNavigationGuard(int browser_id);
-// Browser id -> whether its last main-frame request was a POST (UI thread).
-std::map<int, bool>& MainFrameRequestWasPost();
 // True when url is the sign-in callback of browser_id (cmux_shim_set_auth_callback).
 bool NavigationIsAuthCallback(int browser_id, const std::string& url);
 

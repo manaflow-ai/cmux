@@ -142,8 +142,6 @@ class Client : public CefClient,
                       bool user_gesture, bool is_redirect) override {
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
-    // The method of the request the next commit shows (cmux_shim_tab_document_from_post).
-    MainFrameRequestWasPost()[id] = request->GetMethod().ToString() == "POST";
     std::string url = request->GetURL().ToString();
     // A sign-in tab's callback never loads: the session ends with its URL.
     if (NavigationIsAuthCallback(id, url)) {
@@ -418,7 +416,11 @@ class Client : public CefClient,
   void OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType) override {
     if (frame->IsMain()) {
       ForgetCertificateState(browser->GetIdentifier());
-      Emit(CMUX_SHIM_LOAD_START, browser->GetIdentifier(), 0, 0, 0, frame->GetURL().ToString());
+      // a = 1 when the committed entry came from a POST (a form; a 303 after
+      // it is a GET entry): such a page never hibernates (BR-R1).
+      CefRefPtr<CefNavigationEntry> entry = browser->GetHost()->GetVisibleNavigationEntry();
+      int64_t from_post = entry && entry->IsValid() && entry->HasPostData() ? 1 : 0;
+      Emit(CMUX_SHIM_LOAD_START, browser->GetIdentifier(), 0, from_post, 0, frame->GetURL().ToString());
     }
   }
 

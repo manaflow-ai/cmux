@@ -32,6 +32,7 @@ extension WebKitTab: BrowserHibernationSource {
         // top would add a history entry. A form that item came from is not
         // sent again without the person (WebKitFormResubmission).
         formResubmission.restoring = true
+        formResubmission.restoreData = data
         webView.interactionState = data
         return true
     }
