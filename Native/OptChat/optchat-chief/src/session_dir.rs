@@ -223,6 +223,22 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "Workflow",
 ];
 
+/// The Claude Code env of every turn, in the turn directory's project
+/// settings (over the user's settings env; acpmux's built-in Chief presets
+/// take no env from the host): no mid-conversation system message. Claude
+/// Code 2.1.295 otherwise ends each request with a `role: "system"` message
+/// (its environment, model, date and, with tool search, the deferred tool
+/// list) after our last mark, so every warm turn paid about 450 uncached
+/// input tokens (captured 2026-10-13, smoke: 478-539 input tokens on a
+/// 31-47 byte message; 20-82 without it). Without it Claude Code puts the
+/// same text as reminders in the first user message, before the `<chat>`
+/// mark: read from the cache (the turn directory is constant), and the
+/// date in it costs one cold turn a day. Turns only: in a compactor slot
+/// the slot's own directory would sit before the mark and split the
+/// slots' shared prefix.
+pub const TURN_SETTINGS_ENV: [(&str, &str); 1] =
+    [("CLAUDE_CODE_MODEL_CAPABILITIES", "-mid_conv_system")];
+
 /// Days Claude Code keeps a turn session's transcript in the isolated
 /// configuration (the memory is the record; these only help debugging).
 pub const TURN_TRANSCRIPT_DAYS: u64 = 2;
@@ -300,7 +316,11 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         pretty(&mcp_json(setup, paths))?.as_bytes(),
     )?;
     // Private: they may hold the user's settings env (an API token).
-    let settings = pretty(&settings_json(setup, paths, &TURN_DENIED_TOOLS))?;
+    let mut settings = settings_json(setup, paths, &TURN_DENIED_TOOLS);
+    for (key, value) in TURN_SETTINGS_ENV {
+        settings["env"][key] = json!(value);
+    }
+    let settings = pretty(&settings)?;
     write_private(
         &paths.session.join(".claude").join("settings.json"),
         settings.as_bytes(),
