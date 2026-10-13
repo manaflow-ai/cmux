@@ -3736,7 +3736,8 @@ function AcpmuxPane() {
   };
   const archiveChat = async (archived: boolean) => {
     await (await openClient()).archive(archived);
-    if (archived) await callNative("pane.action", { id: "closeTab" });
+    // Quick Chat's panel has no tab to close.
+    if (archived && !quick) await callNative("pane.action", { id: "closeTab" });
   };
   const archive = archiveRow(
     {
