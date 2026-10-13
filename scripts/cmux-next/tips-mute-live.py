@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Live check: the hints card ("Did you know?"): its x menu (Hide This Hint, Mute Hints for 1 Day or 1 Week,
-Never Show Hints) and each hint shown once, ever.
+"""Live check: the tips card ("Did you know?"): its x menu (Hide This Tip, Mute Tips for 1 Day or 1 Week,
+Never Show Tips) and each tip shown once, ever.
 
   scripts/cmux-next/tips-mute-live.py --tag <tag> [--out DIR] [--app PATH]
 
@@ -50,8 +50,8 @@ GHOSTTY = os.path.join(SCRATCH, "ghostty-config")
 BASE_ENV = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
             "PATH": "/usr/bin:/bin:/usr/sbin:/sbin"}
 CAPTURE_SOCKET = os.path.expanduser("~/Library/Application Support/cmux/agent-capture/run/cua.sock")
-MENU = ["Hide This Hint", "Mute Hints for 1 Day", "Mute Hints for 1 Week", "Never Show Hints"]
-X_LABEL = "Hide or Mute Hints"
+MENU = ["Hide This Tip", "Mute Tips for 1 Day", "Mute Tips for 1 Week", "Never Show Tips"]
+X_LABEL = "Hide or Mute Tips"
 HOUR, DAY = 3600, 86400
 failures = []
 transcript = []
