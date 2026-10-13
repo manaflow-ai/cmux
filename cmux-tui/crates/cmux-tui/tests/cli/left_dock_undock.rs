@@ -128,7 +128,8 @@ fn an_agent_chat_dock_exports_and_applies_with_its_role() {
         .map(|pane| pane["id"].clone())
         .find(|id| *id != pane)
         .unwrap();
-    let tabs = strip["panes"]
+    request(&server, serde_json::json!({"cmd": "new-tab", "pane": right}));
+    let tabs = screen(&server, "chat")["panes"]
         .as_array()
         .unwrap()
         .iter()
@@ -136,11 +137,25 @@ fn an_agent_chat_dock_exports_and_applies_with_its_role() {
         .unwrap()["tabs"]
         .clone();
     let chat = tabs.as_array().unwrap().last().unwrap()["surface"].clone();
-    let dock = serde_json::json!({"edge": "left", "mode": "docked", "role": "agent_chat", "permanent": true});
     request(
         &server,
-        serde_json::json!({"cmd": "move-tab-to-column", "surface": chat, "pane": right, "dock": dock}),
+        serde_json::json!({
+            "cmd": "move-tab-to-column",
+            "surface": chat,
+            "pane": right,
+            "dock": {"edge": "left", "mode": "docked", "role": "agent_chat"},
+        }),
     );
+    let dock_pane = pane_of(&screen(&server, "chat"), &chat);
+    request(
+        &server,
+        serde_json::json!({
+            "cmd": "set-column-dock", "pane": dock_pane, "dock": true, "edge": "left",
+            "mode": "docked", "role": "agent_chat", "permanent": true,
+        }),
+    );
+    let dock = serde_json::json!({"edge": "left", "mode": "docked", "role": "agent_chat", "permanent": true});
+    assert_eq!(screen(&server, "chat")["columns"][0]["dock"], dock);
 
     let docks = |document: &serde_json::Value| -> Vec<serde_json::Value> {
         document["root"]["columns"]
