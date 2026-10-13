@@ -3861,7 +3861,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     /// A missing primary with a backup is ambiguous until the asynchronous
     /// crash-artifact probe completes. Replay-file cleanup runs independently
-    /// in a detached utility task and does not participate in this restore gate.
+    /// in a detached utility task; snapshot preparation remains behind the
+    /// barrier below so restore and persistence observe one settled state.
     private func shouldAwaitCrashRecoveryProbe() -> Bool {
         guard SessionRestorePolicy.shouldAttemptRestore(),
               !didHandleExplicitOpenIntentAtStartup,
