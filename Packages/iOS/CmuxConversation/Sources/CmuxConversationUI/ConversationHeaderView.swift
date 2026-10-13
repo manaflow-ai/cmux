@@ -14,7 +14,7 @@ final class ConversationHeaderView: UIView {
         case cancel
     }
 
-    let backGlass = makeGlassView(cornerRadius: 22, interactive: true)
+    let backGlass = makeGlassView(cornerRadius: 22, interactive: true, clipsContent: false)
     let backButton = UIButton(type: .system)
     private let unreadLabel = UILabel()
     private let unreadPill = UIView()
@@ -22,18 +22,18 @@ final class ConversationHeaderView: UIView {
     /// The avatar or group cluster: the details zoom out of (and back into) it.
     let avatarContainer = UIView()
     /// Group chats seat their avatar cluster on a 60 pt glass disc.
-    private let clusterDisc = makeGlassView(cornerRadius: 30)
+    private let clusterDisc = makeGlassView(cornerRadius: 30, clipsContent: false)
     /// Measured on iOS 26 Messages: a 32.33 pt capsule 55 pt below the safe
     /// area top, bold 17 pt name inset 13 pt, then a heavy compact chevron
     /// 5.9 pt after the text and 10.9 pt from the trailing edge.
     static let namePillHeight: CGFloat = 97.0 / 3
-    let namePillGlass = makeGlassView(cornerRadius: 97.0 / 6, interactive: true)
+    let namePillGlass = makeGlassView(cornerRadius: 97.0 / 6, interactive: true, clipsContent: false)
     let nameButton = UIButton(type: .system)
     private let nameLabel = UILabel()
     /// ChatKit's title chevron: `chevron.compact.forward` at the body size,
     /// heavy, small scale, in tertiary label color.
     private let chevron = UIImageView(image: UIImage(systemName: "chevron.compact.forward", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .heavy, scale: .small)))
-    let trailingGlass = makeGlassView(cornerRadius: 22, interactive: true)
+    let trailingGlass = makeGlassView(cornerRadius: 22, interactive: true, clipsContent: false)
     let trailingButton = UIButton(type: .system)
     private let avatarTapButton = UIButton(type: .custom)
     let statusLabel = UILabel()
@@ -90,7 +90,7 @@ final class ConversationHeaderView: UIView {
         avatarContainer.layer.shadowOpacity = shadow.opacity
         avatarContainer.layer.shadowRadius = shadow.radius
         avatarContainer.layer.shadowOffset = shadow.offset
-        avatarContainer.layer.shadowPath = UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: shadow.pathDiameter, height: shadow.pathDiameter)).cgPath
+        setAvatarShadowScale(1)
         addSubview(avatarContainer)
         avatarContainer.addSubview(clusterDisc)
         addSubview(avatarTapButton)
@@ -210,6 +210,7 @@ final class ConversationHeaderView: UIView {
             nameLabel.font = Self.nameFont
             setNeedsLayout()
         }
+        if traitCollection.verticalSizeClass != previousTraitCollection?.verticalSizeClass { setNeedsLayout() }
     }
 
     override func layoutSubviews() {
@@ -232,6 +233,12 @@ final class ConversationHeaderView: UIView {
         trailingGlass.frame = CGRect(x: bounds.width - ConversationHeaderGeometry.sideMargin(layoutMargin: layoutMargins.right) - 44, y: top, width: 44, height: 44)
         trailingButton.frame = trailingGlass.bounds
 
+        if isCompact {
+            layoutCompact(margin: margin)
+            return
+        }
+        restorePillGlass()
+        setAvatarShadowScale(1)
         let centerX = bounds.midX
         avatarContainer.frame = CGRect(x: centerX - 30, y: top, width: 60, height: 60)
         if avatars.count <= 1 {
@@ -261,6 +268,79 @@ final class ConversationHeaderView: UIView {
         statusLabel.frame = CGRect(x: 0, y: namePillGlass.frame.maxY + 2, width: bounds.width, height: 14)
         let anchorTop = namePillGlass.frame.maxY + Self.pocketBelowCapsule - Self.floatingElementPocketExtent
         pocketAnchor.frame = CGRect(x: centerX, y: anchorTop, width: 1, height: 1)
+    }
+
+    /// Landscape iPhone: Messages' compact bar (see
+    /// `ConversationHeaderGeometry.compactLayout`).
+    var isCompact: Bool { traitCollection.verticalSizeClass == .compact && traitCollection.userInterfaceIdiom == .phone }
+
+    /// The header's height below the safe top: the 92 pt stack, or the
+    /// compact bar's bottom.
+    var heightBelowSafeTop: CGFloat {
+        guard isCompact else { return Self.contentHeight }
+        let bar = ConversationHeaderGeometry.compactBarTop
+        return max(safeAreaInsets.top, bar) + ConversationHeaderGeometry.compactBarHeight - safeAreaInsets.top
+    }
+
+    private var avatarShadowScale: CGFloat = 0
+
+    /// ChatKit's avatar shadow path, scaled with the compact bar's 44 pt avatar.
+    private func setAvatarShadowScale(_ scale: CGFloat) {
+        guard avatarShadowScale != scale else { return }
+        avatarShadowScale = scale
+        let diameter = ConversationHeaderGeometry.avatarShadow.pathDiameter * scale
+        avatarContainer.layer.shadowPath = UIBezierPath(ovalIn: CGRect(x: 0, y: 0, width: diameter, height: diameter)).cgPath
+    }
+
+    private var pillGlassEffect: UIVisualEffect?
+    private var pillGlassCleared = false
+
+    /// The compact bar shows the name without its capsule.
+    private func clearPillGlass() {
+        guard !pillGlassCleared else { return }
+        pillGlassCleared = true
+        pillGlassEffect = namePillGlass.effect
+        namePillGlass.effect = nil
+    }
+
+    private func restorePillGlass() {
+        guard pillGlassCleared else { return }
+        pillGlassCleared = false
+        namePillGlass.effect = pillGlassEffect
+    }
+
+    private func layoutCompact(margin: CGFloat) {
+        clearPillGlass()
+        let chevronSize = chevron.image?.size ?? CGSize(width: 8, height: 15)
+        nameLabel.sizeToFit()
+        let maxName = max(0, bounds.width - 2 * (margin + 44 + 8) - ConversationHeaderGeometry.compactAvatarSize - 24 - chevronSize.width)
+        let nameSize = CGSize(width: min(nameLabel.bounds.width, maxName), height: ceil(nameLabel.font.lineHeight))
+        let layout = ConversationHeaderGeometry.compactLayout(width: bounds.width, safeTop: safeAreaInsets.top, nameSize: nameSize, chevronSize: chevronSize)
+        backGlass.frame.origin.y = layout.barTop
+        trailingGlass.frame.origin.y = layout.barTop
+        avatarContainer.frame = layout.avatar
+        let scale = layout.avatar.width / 60
+        setAvatarShadowScale(scale)
+        if avatars.count <= 1 {
+            avatars.first?.frame = avatarContainer.bounds
+        } else {
+            clusterDisc.frame = avatarContainer.bounds
+            let cluster = [CGRect(x: 5, y: 6, width: 32, height: 32), CGRect(x: 32, y: 18, width: 24, height: 24), CGRect(x: 16, y: 36, width: 18, height: 18)]
+            for (avatar, frame) in zip(avatars, cluster) {
+                avatar.frame = CGRect(x: frame.minX * scale, y: frame.minY * scale, width: frame.width * scale, height: frame.height * scale)
+            }
+        }
+        avatarTapButton.frame = layout.avatar
+        let pill = CGRect(x: layout.name.minX - ConversationHeaderGeometry.compactNameGap, y: layout.barTop,
+                          width: layout.chevron.maxX + ConversationHeaderGeometry.compactTrailingPadding - layout.name.minX + ConversationHeaderGeometry.compactNameGap,
+                          height: ConversationHeaderGeometry.compactAvatarSize)
+        namePillGlass.frame = pill
+        nameLabel.frame = layout.name.offsetBy(dx: -pill.minX, dy: -pill.minY)
+        chevron.frame = layout.chevron.offsetBy(dx: -pill.minX, dy: -pill.minY)
+        nameButton.frame = namePillGlass.bounds
+        statusLabel.frame = CGRect(x: 0, y: layout.avatar.maxY + 2, width: bounds.width, height: 14)
+        let anchorTop = layout.barTop + layout.barHeight + Self.pocketBelowCapsule - Self.floatingElementPocketExtent
+        pocketAnchor.frame = CGRect(x: bounds.midX, y: anchorTop, width: 1, height: 1)
     }
 
     /// Select mode hides the back button; the trailing X (Cancel) is the way out.

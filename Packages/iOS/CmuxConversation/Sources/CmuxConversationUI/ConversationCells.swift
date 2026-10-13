@@ -350,7 +350,7 @@ final class MessageCell: UICollectionViewCell {
         }
 
         configureAudio(model: model, layout: layout)
-        timeLabel.text = message.sentAt.formatted(date: .omitted, time: .shortened)
+        timeLabel.text = ConversationShortTime.text(for: message.sentAt)
         setNeedsLayout()
         applyShifts()
         accessibility.update(model: model, layout: layout)
@@ -732,7 +732,7 @@ final class TimestampCell: UICollectionViewCell {
 
     static func text(for date: Date, now: Date = Date()) -> NSAttributedString {
         let calendar = Calendar.current
-        let time = date.formatted(date: .omitted, time: .shortened)
+        let time = ConversationShortTime.text(for: date)
         let day: String
         // Older than a week, Messages joins the date and time with "at"
         // ("Thu, Sep 24 at 7:18 PM"; device recording, iOS 26).
@@ -830,10 +830,13 @@ final class ConversationStartCell: UICollectionViewCell {
         let text = NSMutableAttributedString(string: title + "\n", attributes: [
             .font: ConversationTheme.timestampBoldFont, .foregroundColor: color, .paragraphStyle: centered,
         ])
-        let lock = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .semibold))!
+        let lock = UIImage(systemName: "lock.fill", withConfiguration: UIImage.SymbolConfiguration(pointSize: 8, weight: .bold))!
         let lockAttachment = NSTextAttachment(image: lock.withTintColor(color, renderingMode: .alwaysOriginal))
-        // A ~7 x 9 pt lock on the baseline, as measured for the compose screen.
-        lockAttachment.bounds = CGRect(x: 0, y: -0.5, width: 7, height: 9)
+        // A 9.33 pt tall lock on the baseline at the symbol's own proportions
+        // (Messages 26.5: the glyph is 6 x 8.3 pt; a 7 x 9 pt box squeezed
+        // it to 4.7 x 8 pt).
+        let lockHeight: CGFloat = 28.0 / 3.0
+        lockAttachment.bounds = CGRect(x: 0, y: -0.5, width: lockHeight * lock.size.width / lock.size.height, height: lockHeight)
         let attachment = NSMutableAttributedString(attachment: lockAttachment)
         attachment.addAttributes([.font: ConversationTheme.timestampFont, .paragraphStyle: centered], range: NSRange(location: 0, length: attachment.length))
         text.append(attachment)

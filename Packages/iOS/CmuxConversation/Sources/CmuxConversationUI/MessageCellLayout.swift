@@ -273,6 +273,18 @@ extension MessageCellLayout {
         return result
     }
 
+    /// A detected item's underline: the text color, lightened as
+    /// DataDetectorsUI does (see `ConversationDataDetection.underlineAlpha`).
+    private static func detectedUnderlineColor(textColor: UIColor) -> UIColor {
+        UIColor { traits in
+            let color = textColor.resolvedColor(with: traits)
+            var hue: CGFloat = 0, saturation: CGFloat = 0, brightness: CGFloat = 0, alpha: CGFloat = 0
+            color.getHue(&hue, saturation: &saturation, brightness: &brightness, alpha: &alpha)
+            let lighten = ConversationDataDetection.underlineAlpha(saturation: Double(saturation), brightness: Double(brightness))
+            return color.withAlphaComponent(CGFloat(lighten))
+        }
+    }
+
     private static func buildAttributedBody(
         _ text: String,
         outgoing: Bool,
@@ -280,9 +292,10 @@ extension MessageCellLayout {
         meID: String?,
         runs: [ConversationTextRun]
     ) -> NSAttributedString {
+        let textColor = outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: ConversationTheme.bubbleFont,
-            .foregroundColor: outgoing ? ConversationTheme.outgoingText : ConversationTheme.incomingText,
+            .foregroundColor: textColor,
             .paragraphStyle: ConversationTheme.bubbleParagraph,
         ])
         if !runs.isEmpty {
@@ -294,6 +307,7 @@ extension MessageCellLayout {
         linkDetector?.enumerateMatches(in: text, range: range) { match, _, _ in
             guard let match else { return }
             result.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: match.range)
+            result.addAttribute(.underlineColor, value: detectedUnderlineColor(textColor: textColor), range: match.range)
             if let url = ConversationDataDetection.actionURL(for: match) { result.addAttribute(.conversationLink, value: url, range: match.range) }
         }
         ConversationMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: ConversationTheme.bubbleFont)

@@ -16,7 +16,10 @@ final class ConversationAvatarView: UIView {
         super.init(frame: frame)
         layer.addSublayer(gradient)
         layer.addSublayer(monogram)
-        clipsToBounds = true
+        // The disc clips itself: a rounded view clipping its sublayers
+        // renders them offscreen every frame it moves (scrolling), a rounded
+        // leaf layer does not. The initials sit well inside the circle.
+        gradient.masksToBounds = true
         isAccessibilityElement = false
         // Decorative: the sender is spoken in the bubble, the header has its own button.
         accessibilityElementsHidden = true
@@ -58,8 +61,13 @@ final class ConversationAvatarView: UIView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        // The view's radius shapes a border set on it (header cluster).
         layer.cornerRadius = bounds.width / 2
-        gradient.frame = bounds
+        // Under a border the disc stops mid-border, so its own edge never
+        // tints the border's outer edge.
+        let inset = layer.borderWidth / 2
+        gradient.frame = bounds.insetBy(dx: inset, dy: inset)
+        gradient.cornerRadius = gradient.frame.width / 2
         monogram.contentsScale = window?.screen.scale ?? traitCollection.displayScale
         monogram.frame = bounds.insetBy(dx: bounds.width * 0.08, dy: 0)
         monogram.fontSize = bounds.width * ConversationTheme.monogramFontScale
@@ -296,6 +304,10 @@ final class ReactionBadgeView: UIView {
     private let fillContainer = UIView()
     private let fillMask = CAShapeLayer()
     private let gradient = CAGradientLayer()
+    /// Others' gray fill draws the circles' outline itself: a mask would
+    /// cost an offscreen pass per badge every frame it moves. Mine keep the
+    /// mask, which shapes the screen gradient.
+    private let grayFill = CAShapeLayer()
     private var glyphViews: [UIView] = []
     private(set) var reactions: [ConversationReaction] = []
     private var mine = false
@@ -314,7 +326,10 @@ final class ReactionBadgeView: UIView {
             outlines.append(outline)
             addSubview(outline)
         }
-        fillContainer.layer.mask = fillMask
+        // Clipped to the badge's box as the mask was (a rectangular clip on
+        // a leaf costs nothing).
+        grayFill.masksToBounds = true
+        fillContainer.layer.addSublayer(grayFill)
         fillContainer.layer.addSublayer(gradient)
         addSubview(fillContainer)
     }
@@ -346,7 +361,12 @@ final class ReactionBadgeView: UIView {
     private func updateColors() {
         let traits = traitCollection
         for outline in outlines { outline.backgroundColor = ConversationTheme.background.resolvedColor(with: traits) }
-        fillContainer.backgroundColor = mine ? nil : ConversationTheme.incomingBubble.resolvedColor(with: traits)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        grayFill.fillColor = ConversationTheme.incomingBubble.resolvedColor(with: traits).cgColor
+        grayFill.isHidden = mine
+        fillContainer.layer.mask = mine ? fillMask : nil
+        CATransaction.commit()
         gradient.isHidden = !mine
         updateScreenGradient()
     }
@@ -403,6 +423,8 @@ final class ReactionBadgeView: UIView {
         gradient.frame = bounds
         fillMask.frame = bounds
         fillMask.path = path.cgPath
+        grayFill.frame = bounds
+        grayFill.path = path.cgPath
         for (index, glyph) in glyphViews.enumerated() {
             let step = CGFloat(index) * Self.pileStep * (pointsLeft ? -1 : 1)
             let center = CGPoint(x: disc.midX + step, y: disc.midY)

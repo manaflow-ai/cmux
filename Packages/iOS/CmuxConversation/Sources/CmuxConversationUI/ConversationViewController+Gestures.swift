@@ -105,6 +105,18 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
     static let pressName = "conversation.press"
     static let pressTimeoutName = "conversation.pressTimeout"
 
+    /// The visible row whose tapback badge is under `point`. A badge hangs
+    /// over the row above its own, where `messageCell(at:)` would find that
+    /// other row (iOS 27 sim: taps on a badge's upper half did nothing).
+    func reactionBadgeCell(at point: CGPoint) -> MessageCell? {
+        let cells = collectionView.visibleCells.compactMap { $0 as? MessageCell }
+            .sorted { $0.frame.minY < $1.frame.minY }
+        let badges: [CGRect?] = cells.map { cell in
+            cell.reactionBadge.isHidden ? nil : cell.reactionBadge.convert(cell.reactionBadge.bounds, to: collectionView)
+        }
+        return ConversationTapbackGeometry.badgeOwner(at: point, badges: badges).map { cells[$0] }
+    }
+
     func messageCell(at point: CGPoint, requireContentHit: Bool) -> MessageCell? {
         guard let indexPath = collectionView.indexPathForItem(at: point),
               let cell = collectionView.cellForItem(at: indexPath) as? MessageCell else { return nil }
@@ -231,6 +243,10 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
             presentNotUnsent(messageID: notice.messageID)
             return
         }
+        if !isSelecting, let cell = reactionBadgeCell(at: point), let model = cell.model {
+            presentActions(for: model, cell: cell, mode: .reactionDetail)
+            return
+        }
         guard let cell = messageCell(at: point, requireContentHit: false), let model = cell.model else {
             return
         }
@@ -250,10 +266,6 @@ extension ConversationViewController: UIGestureRecognizerDelegate {
         if let fileView = cell.fileViews.first(where: { !$0.isHidden && $0.bounds.contains($0.convert(point, from: collectionView)) }),
            let attachment = fileView.attachment {
             openFile(attachment, from: fileView, model: model)
-            return
-        }
-        if !cell.reactionBadge.isHidden, cell.reactionBadge.frame.insetBy(dx: -6, dy: -6).contains(cell.shiftable.convert(local, from: cell)) {
-            presentActions(for: model, cell: cell, mode: .reactionDetail)
             return
         }
         if handlePollTap(cell: cell, model: model, local: local) { return }
