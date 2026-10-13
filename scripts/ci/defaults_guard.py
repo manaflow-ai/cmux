@@ -235,8 +235,10 @@ def command_text(text: str) -> str:
 def code(text: str) -> str:
     """Head text as a Markdown code span: no formatting, links or mentions."""
     text = plain(text)
-    fence = "``" if "`" in text else "`"
-    return f"{fence} {text} {fence}" if fence == "``" else f"`{text}`"
+    # The fence is longer than any run of backticks in the text, so nothing inside can close it.
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    fence = "`" * (longest + 1)
+    return f"{fence} {text} {fence}" if longest else f"`{text}`"
 
 
 @dataclass(frozen=True)

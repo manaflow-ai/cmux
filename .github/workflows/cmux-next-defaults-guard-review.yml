@@ -32,10 +32,12 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           run_id="$(gh api "repos/$REPO/actions/workflows/cmux-next-defaults-guard.yml/runs?event=pull_request_target&head_sha=$HEAD_SHA&per_page=20" \
-            --jq '[.workflow_runs[] | select(.status == "completed")][0].id // empty')"
+            --jq '.workflow_runs[0].id // empty')"
           if [[ -z "$run_id" ]]; then
-            echo "No finished defaults guard run on $HEAD_SHA yet; it reads the reviews when it runs."
+            echo "No defaults guard run on $HEAD_SHA yet; it reads the reviews when it runs."
             exit 0
           fi
+          # A run still going may have read the reviews before this one: let it finish, then re-run it.
+          gh run watch "$run_id" --repo "$REPO" --interval 10 > /dev/null || true
           gh run rerun "$run_id" --repo "$REPO"
           echo "Re-ran defaults guard run $run_id for $HEAD_SHA."
