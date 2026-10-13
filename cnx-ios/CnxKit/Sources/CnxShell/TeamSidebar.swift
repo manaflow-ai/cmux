@@ -121,7 +121,7 @@ struct TeamSidebar: View {
         .buttonStyle(SidebarRowStyle())
         .padding(.horizontal, theme.metrics.selectedRowInset)
         .contextMenu {
-            Button("Change color and emoji", systemImage: "paintpalette") { shell.editingTeam = team }
+            Button("Change color and icon", systemImage: "paintpalette") { shell.editingTeam = team }
             Button("Invite to team", systemImage: "person.badge.plus") { shell.invite(to: team) }
             Button("Copy team name", systemImage: "doc.on.doc") {
                 UIPasteboard.general.string = team.name

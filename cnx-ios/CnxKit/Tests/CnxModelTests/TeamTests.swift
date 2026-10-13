@@ -14,6 +14,28 @@ import Testing
         #expect(TeamAppearance.palette.contains(TeamAppearance(defaultFor: "abc").colorHex))
     }
 
+    @Test func glyphMapsToTheWireEmojiField() {
+        var appearance = TeamAppearance(colorHex: "#30D158")
+        #expect(appearance.glyph == .automatic)
+        appearance.glyph = .none
+        #expect(appearance.emoji == "")
+        appearance.glyph = .custom("🚀")
+        #expect(appearance.emoji == "🚀" && appearance.glyph == .custom("🚀"))
+        appearance.glyph = .custom("ab")
+        #expect(appearance.emoji == "b")
+        appearance.glyph = .custom(" ")
+        #expect(appearance.glyph == .automatic)
+        appearance.glyph = .automatic
+        #expect(appearance.emoji == nil)
+    }
+
+    @Test func characterTakesTheNewestGrapheme() {
+        #expect(TeamGlyph.character(from: "A🇯🇵") == "🇯🇵")
+        #expect(TeamGlyph.character(from: "👩‍👩‍👧") == "👩‍👩‍👧")
+        #expect(TeamGlyph.character(from: "x \n") == "x")
+        #expect(TeamGlyph.character(from: "") == nil)
+    }
+
     @MainActor @Test func openingTabPrefersLastUsed() {
         let store = AppStore.mock(tabMemory: .inMemory())
         let ws = store.workspaces[0]

@@ -58,6 +58,11 @@ describe("HTTP API", () => {
     expect((await call("GET", "/v1/teams/team-a/prefs", await token("bob"))).json).toEqual({ color: null, emoji: null })
     expect((await call("PUT", "/v1/teams/team-a/prefs", alice, { color: "red" })).status).toBe(400)
     expect((await call("PUT", "/v1/teams/team-a/prefs", alice, { emoji: "ab" })).status).toBe(400)
+    expect((await call("PUT", "/v1/teams/team-a/prefs", alice, { emoji: " " })).status).toBe(400)
+    expect((await call("PUT", "/v1/teams/team-a/prefs", alice, { emoji: "" })).json).toEqual({ color: "#FF8800", emoji: "" })
+    expect((await call("GET", "/v1/teams/team-a/prefs", alice)).json).toEqual({ color: "#FF8800", emoji: "" })
+    expect((await call("PUT", "/v1/teams/team-a/prefs", alice, { emoji: "Q" })).json).toEqual({ color: "#FF8800", emoji: "Q" })
+    expect((await call("PUT", "/v1/teams/team-a/prefs", alice, { emoji: "👩‍👩‍👧" })).json).toEqual({ color: "#FF8800", emoji: "👩‍👩‍👧" })
     expect((await call("PUT", "/v1/teams/team-a/prefs", await token("mallory"), { color: "#000000" })).status).toBe(403)
   })
 

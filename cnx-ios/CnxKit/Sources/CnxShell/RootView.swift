@@ -24,6 +24,8 @@ public struct ShellLaunchOptions: Sendable {
     /// DEBUG: open setup on the Connect your Mac step, with no Mac until a
     /// few seconds in (the presence flip, for recordings).
     public var setupPairDemo = false
+    /// DEBUG: open Settings on this page (`SettingsRoute` case name).
+    public var settingsPage: String?
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         func value(_ flag: String) -> String? {
@@ -38,6 +40,7 @@ public struct ShellLaunchOptions: Sendable {
         initialEmail = value("-cnx-email")
         setupPairDemo = arguments.contains("-cnx-setup-pair")
         if setupPairDemo { forceSetup = true }
+        settingsPage = value("-cnx-settings-page")
         #endif
     }
 }
@@ -176,6 +179,10 @@ struct ShellView: View {
     init(store: AppStore, auth: CnxAuthModel, settings: SettingsStore, sidebar: SidebarModel, options: ShellLaunchOptions) {
         let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
         if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
+        if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
+            shell.tab = .settings
+            shell.settingsPath = [page]
+        }
         _shell = State(initialValue: shell)
         self.options = options
     }
