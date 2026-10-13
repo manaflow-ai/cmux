@@ -77,6 +77,9 @@ fn primary_local_ip() -> Option<IpAddr> {
 
 /// Host and server-reflexive endpoints of `socket`.
 async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Vec<String> {
+    if options.force_relay {
+        return Vec::new();
+    }
     let port = match socket.local_addr() {
         Ok(addr) => addr.port(),
         Err(_) => return Vec::new(),
@@ -122,11 +125,30 @@ async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Vec<Stri
             }
         }
     }
-    endpoints.into_iter().map(|endpoint| endpoint.to_string()).collect()
+    endpoints
+        .into_iter()
+        .filter(|endpoint| !(options.exclude_cgnat && super::is_cgnat(endpoint.ip())))
+        .map(|endpoint| endpoint.to_string())
+        .collect()
 }
 
 /// Sends one datagram through the backend relay.
 type RelaySend = Box<dyn Fn(&[u8]) + Send>;
+
+/// The peer's endpoints this side may use.
+fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> {
+    if options.force_relay {
+        return Vec::new();
+    }
+    endpoints
+        .iter()
+        .filter(|text| {
+            text.parse::<SocketAddr>()
+                .is_ok_and(|addr| !(options.exclude_cgnat && super::is_cgnat(addr.ip())))
+        })
+        .cloned()
+        .collect()
+}
 
 /// The carrier: one UDP socket for direct paths plus the backend relay.
 struct HybridUnderlay {
@@ -385,7 +407,7 @@ impl Dialer for WireGuardDialer {
                 peer_key,
                 DIALER_OVERLAY,
                 peer_ip,
-                &peer_endpoints,
+                &usable_endpoints(&peer_endpoints, options),
             )?;
             for datagram in early_relay {
                 let _ = tunnel.relay_in.send(datagram);
@@ -436,7 +458,7 @@ impl Dialer for WireGuardDialer {
                 peer_key,
                 own_ip,
                 peer_ip,
-                &peer_endpoints,
+                &usable_endpoints(&peer_endpoints, options),
             )?;
             let task = follow(events, &tunnel);
             let guard = Guard {

@@ -20,6 +20,7 @@ use webrtc::ice_transport::ice_candidate_type::RTCIceCandidateType;
 use webrtc::ice_transport::ice_server::RTCIceServer;
 use webrtc::peer_connection::RTCPeerConnection;
 use webrtc::peer_connection::configuration::RTCConfiguration;
+use webrtc::peer_connection::policy::ice_transport_policy::RTCIceTransportPolicy;
 use webrtc::peer_connection::sdp::session_description::RTCSessionDescription;
 
 use super::{DialError, DialFuture, Dialed, Dialer, LinkPath, SessionEvents, TransportKind};
@@ -44,6 +45,9 @@ async fn new_peer_connection(options: &super::DialOptions) -> Result<Arc<RTCPeer
     if options.include_loopback {
         settings.set_include_loopback_candidate(true);
     }
+    if options.exclude_cgnat {
+        settings.set_ip_filter(Box::new(|ip| !super::is_cgnat(ip)));
+    }
     let api = APIBuilder::new().with_setting_engine(settings).build();
     let config = RTCConfiguration {
         ice_servers: options
@@ -55,6 +59,11 @@ async fn new_peer_connection(options: &super::DialOptions) -> Result<Arc<RTCPeer
                 credential: server.credential.clone().unwrap_or_default(),
             })
             .collect(),
+        ice_transport_policy: if options.force_relay {
+            RTCIceTransportPolicy::Relay
+        } else {
+            RTCIceTransportPolicy::All
+        },
         ..Default::default()
     };
     Ok(Arc::new(api.new_peer_connection(config).await.map_err(transport_error)?))
@@ -86,12 +95,18 @@ fn trickle(pc: &RTCPeerConnection, signaling: &SignalingClient, peer: &str, sess
 /// Remote candidates arrive before or after the remote description; hold
 /// the early ones.
 struct RemoteCandidates {
+    exclude_cgnat: bool,
     ready: bool,
     pending: Vec<RTCIceCandidateInit>,
 }
 
 impl RemoteCandidates {
     async fn add(&mut self, pc: &RTCPeerConnection, candidate: RTCIceCandidateInit) {
+        // `candidate:<foundation> <component> <proto> <priority> <address> ...`
+        let address = candidate.candidate.split_whitespace().nth(4).and_then(|a| a.parse().ok());
+        if self.exclude_cgnat && address.is_some_and(super::is_cgnat) {
+            return;
+        }
         if self.ready {
             if let Err(error) = pc.add_ice_candidate(candidate).await {
                 tracing::debug!(%error, "remote candidate refused");
@@ -269,7 +284,8 @@ impl Dialer for WebRtcDialer {
             signaling
                 .send_signal(mac, session_id, SignalPayload::WebrtcOffer { sdp: offer.sdp })
                 .map_err(|e| DialError::Signaling(e.to_string()))?;
-            let mut remote = RemoteCandidates { ready: false, pending: Vec::new() };
+            let mut remote =
+                RemoteCandidates { exclude_cgnat: options.exclude_cgnat, ready: false, pending: Vec::new() };
             let opened = loop {
                 tokio::select! {
                     opened = &mut open_rx => break opened.map_err(|_| DialError::Transport("data channel never opened".into()))?,
@@ -318,7 +334,8 @@ impl Dialer for WebRtcDialer {
             trickle(&pc, signaling, &first.from, &first.session_id);
             let offer = RTCSessionDescription::offer(sdp).map_err(transport_error)?;
             pc.set_remote_description(offer).await.map_err(transport_error)?;
-            let mut remote = RemoteCandidates { ready: true, pending: Vec::new() };
+            let mut remote =
+                RemoteCandidates { exclude_cgnat: options.exclude_cgnat, ready: true, pending: Vec::new() };
             let answer = pc.create_answer(None).await.map_err(transport_error)?;
             pc.set_local_description(answer.clone()).await.map_err(transport_error)?;
             signaling

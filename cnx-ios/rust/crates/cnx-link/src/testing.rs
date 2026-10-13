@@ -49,7 +49,14 @@ impl Drop for FakeSignaling {
 
 impl FakeSignaling {
     pub async fn start(options: FakeOptions) -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        Self::start_on("127.0.0.1:0", options).await
+    }
+
+    /// Listen on `address` (for a fake backend reachable from another host).
+    /// Besides the signaling WebSocket it answers `GET /v1/health`,
+    /// `GET /v1/ice` (Cloudflare STUN only) and `POST /v1/devices`.
+    pub async fn start_on(address: &str, options: FakeOptions) -> Self {
+        let listener = TcpListener::bind(address).await.expect("bind");
         let base_url = format!("http://{}", listener.local_addr().expect("addr"));
         let state = Arc::new(Mutex::new(State::default()));
         let shared = Arc::clone(&state);
@@ -77,6 +84,15 @@ impl FakeSignaling {
 
 #[allow(clippy::result_large_err)] // tungstenite's handshake callback signature
 async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options: FakeOptions) {
+    let mut stream = stream;
+    match peek_head(&stream).await {
+        Some(head) if !head.to_ascii_lowercase().contains("upgrade: websocket") => {
+            answer_http(&mut stream, &head).await;
+            return;
+        }
+        Some(_) => {}
+        None => return,
+    }
     let mut identity = None;
     let callback = |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
         let user = request
@@ -205,4 +221,59 @@ async fn serve(stream: tokio::net::TcpStream, state: Arc<Mutex<State>>, options:
     if state.devices.get(&device).is_some_and(|d| d.out.same_channel(&out_tx)) {
         state.devices.remove(&device);
     }
+}
+
+/// The request head (through the blank line), without consuming it.
+async fn peek_head(stream: &tokio::net::TcpStream) -> Option<String> {
+    let mut buffer = vec![0u8; 8192];
+    for _ in 0..200 {
+        let read = stream.peek(&mut buffer).await.ok()?;
+        if read == 0 {
+            return None;
+        }
+        let text = String::from_utf8_lossy(&buffer[..read]);
+        if let Some(end) = text.find("\r\n\r\n") {
+            return Some(text[..end + 4].to_owned());
+        }
+        if read == buffer.len() {
+            return None;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    }
+    None
+}
+
+async fn answer_http(stream: &mut tokio::net::TcpStream, head: &str) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let length = head
+        .lines()
+        .find_map(|line| {
+            line.to_ascii_lowercase().strip_prefix("content-length:").map(|v| v.trim().to_owned())
+        })
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0);
+    let mut request = vec![0u8; head.len() + length.min(1 << 20)];
+    if stream.read_exact(&mut request).await.is_err() {
+        return;
+    }
+    let body: Value = serde_json::from_slice(&request[head.len()..]).unwrap_or(Value::Null);
+    let line = head.lines().next().unwrap_or_default();
+    let authorized = head.lines().any(|l| l.to_ascii_lowercase().starts_with("authorization: bearer user:"));
+    let (status, reply) = if line.starts_with("GET /v1/health") {
+        ("200 OK", json!({"ok": true, "version": "fake"}))
+    } else if !authorized {
+        ("401 Unauthorized", json!({"error": "unauthorized"}))
+    } else if line.starts_with("GET /v1/ice") {
+        ("200 OK", json!({"iceServers": [{"urls": ["stun:stun.cloudflare.com:3478"]}], "ttl": 3600}))
+    } else if line.starts_with("POST /v1/devices") {
+        ("200 OK", json!({"device": body}))
+    } else {
+        ("404 Not Found", json!({"error": "not_found"}))
+    };
+    let reply = reply.to_string();
+    let response = format!(
+        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{reply}",
+        reply.len()
+    );
+    let _ = stream.write_all(response.as_bytes()).await;
 }

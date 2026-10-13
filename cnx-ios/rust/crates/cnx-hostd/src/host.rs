@@ -23,6 +23,7 @@ pub struct AnswerContext {
     /// ICE servers; `None` fetches `GET /v1/ice` per session.
     pub ice: IceSource,
     pub include_loopback: bool,
+    pub exclude_cgnat: bool,
 }
 
 #[derive(Clone)]
@@ -95,6 +96,7 @@ async fn connect_once(config: &HostConfig, tokens: &Tokens, services: &Arc<Servi
         services: Arc::clone(services),
         ice: IceSource::Api(api),
         include_loopback: config.include_loopback,
+        exclude_cgnat: config.exclude_cgnat,
     };
     Ok(serve_signaling(signaling, context).await)
 }
@@ -154,6 +156,7 @@ async fn answer_session(
     let options = DialOptions {
         ice_servers: context.ice.servers().await,
         include_loopback: context.include_loopback,
+        exclude_cgnat: context.exclude_cgnat,
         ..DialOptions::default()
     };
     let connected = match dial::answer(&signaling, first, events, &options, LinkConfig::default()).await {
