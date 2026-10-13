@@ -231,7 +231,9 @@ final class WindowManager {
         // workspaces are gone or still connecting would leave the launch
         // window on screen with nothing to show.
         guard let launchID = launchWindowID, let launch = controller(for: launchID),
-              let front = restored.recency.first(where: { id in restored.window(id).map(hasMirroredWorkspace) == true }),
+              let front = restored.recency.first(where: { id in
+                  restored.window(id).map { $0.isOpen && hasMirroredWorkspace($0) } == true
+              }),
               let record = records.first(where: { $0.id == front }) else { return nil }
         launch.state.adopt(record)
         launchWindowID = front

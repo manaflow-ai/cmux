@@ -149,11 +149,13 @@ struct WindowRegistry: Equatable, Sendable {
         return changes
     }
 
-    /// The user closed `id`. Its workspaces move to the most recent other
-    /// open window of its kind; the only open normal window is kept, closed,
-    /// with its workspaces (it owns at least one, so it is never an empty
-    /// record). An incognito window closes for good, and its workspaces are
-    /// `discarded`.
+    /// The user closed `id`. A normal window closes like a browser window
+    /// (cx-gzh.9.3, reopen-closed.md 4): it is kept, closed, with its
+    /// workspaces (it owns at least one, so it is never an empty record);
+    /// their terminals and agents keep running, and the app's window record
+    /// makes the close one closed-history `window` group that Cmd-Shift-T
+    /// reopens whole. No other window takes its workspaces. An incognito
+    /// window closes for good, and its workspaces are `discarded`.
     @discardableResult
     mutating func close(_ id: String) -> Changes {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return Changes() }
@@ -164,18 +166,8 @@ struct WindowRegistry: Equatable, Sendable {
             remove(id)
             return changes
         }
-        guard let heir = mostRecentOpen(excluding: [id]) else {
-            windows[index].isOpen = false
-            return Changes()
-        }
-        var changes = Changes()
-        let orphans = windows[index].workspaceIDs
-        remove(id)
-        if !orphans.isEmpty, let heirIndex = windows.firstIndex(where: { $0.id == heir }) {
-            windows[heirIndex].workspaceIDs += orphans
-            changes.moved[heir] = orphans
-        }
-        return changes
+        windows[index].isOpen = false
+        return Changes()
     }
 
     /// Opens the most recent closed window again (Dock click, Show cmux).
