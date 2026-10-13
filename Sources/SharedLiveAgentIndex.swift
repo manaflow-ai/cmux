@@ -505,6 +505,11 @@ final class SharedLiveAgentIndex {
     /// safer. Requiring the shared hook-store directory to stay quiet for a
     /// whole scan made admission fail on any Mac where other agents keep
     /// rewriting their hook stores (#12158).
+    ///
+    /// A deadline ends only this request. The shared scan keeps running for
+    /// the other waiters and later requests coalesce onto it: cancelling it
+    /// failed every concurrent restore, so after a relaunch with many agent
+    /// panes some deadline always expired first and none was admitted (#20186).
     func indexForOwnershipDecision() async -> SharedLiveAgentIndexRefreshOutcome {
         ensureWatchingHookStoreDirectory()
         var requestedRefreshGeneration: UUID?
@@ -513,7 +518,6 @@ final class SharedLiveAgentIndex {
         while true {
             guard !Task.isCancelled else { return .cancelled }
             guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
-                abandonOwnershipRefreshTasks()
                 preservePendingHookChangeAfterOwnershipRefreshFailure()
                 return .timedOut
             }
@@ -527,7 +531,6 @@ final class SharedLiveAgentIndex {
                     )
                 ) else {
                     guard !Task.isCancelled else { return .cancelled }
-                    abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return .timedOut
                 }
@@ -541,7 +544,6 @@ final class SharedLiveAgentIndex {
                     return .index(index)
                 }
                 guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
-                    abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return .timedOut
                 }
@@ -568,12 +570,10 @@ final class SharedLiveAgentIndex {
                     )
                 ) else {
                     guard !Task.isCancelled else { return .cancelled }
-                    abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return .timedOut
                 }
                 guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
-                    abandonOwnershipRefreshTasks()
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
                     return .timedOut
                 }
@@ -935,26 +935,6 @@ final class SharedLiveAgentIndex {
         ownershipRefreshWaiterKinds.removeValue(forKey: waiterID)
         ownershipRefreshWaiterTimers.removeValue(forKey: waiterID)?.cancel()
         continuation.resume(returning: result)
-    }
-
-    /// Cancels and detaches a refresh that outlived the ownership admission
-    /// deadline. The loader runs in a detached task and may not observe
-    /// cancellation promptly, so retain the cancelled refresh handles and
-    /// generation tokens until their callbacks reap the loader. This keeps
-    /// every later refresh coalesced onto the one in-flight scan instead of
-    /// allowing repeated timeouts to overlap full process/filesystem walks.
-    private func abandonOwnershipRefreshTasks() {
-        refreshTask?.cancel()
-        forkAvailabilityRefreshTask?.cancel()
-        // Keep the detached loader handle until its synchronous probe actually
-        // returns. Cancellation cannot interrupt that closure, and dropping it
-        // here would let the next refresh start a second full scan while the
-        // first one is still consuming process/filesystem resources. Future
-        // reloads coalesce onto this one in-flight task; their own ownership
-        // waiters retain the deadline and fail closed if it never finishes.
-        for waiterID in Array(ownershipRefreshWaiters.keys) {
-            finishOwnershipRefreshWaiter(waiterID, result: false)
-        }
     }
 
     private func preservePendingHookChangeAfterOwnershipRefreshFailure() {
