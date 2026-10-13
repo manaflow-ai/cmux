@@ -14,7 +14,7 @@ final class ConversationHeaderView: UIView {
         case cancel
     }
 
-    let backGlass = makeGlassView(cornerRadius: 22, interactive: true)
+    let backGlass = makeGlassView(cornerRadius: 22, interactive: true, clipsContent: false)
     let backButton = UIButton(type: .system)
     private let unreadLabel = UILabel()
     private let unreadPill = UIView()
@@ -22,18 +22,18 @@ final class ConversationHeaderView: UIView {
     /// The avatar or group cluster: the details zoom out of (and back into) it.
     let avatarContainer = UIView()
     /// Group chats seat their avatar cluster on a 60 pt glass disc.
-    private let clusterDisc = makeGlassView(cornerRadius: 30)
+    private let clusterDisc = makeGlassView(cornerRadius: 30, clipsContent: false)
     /// Measured on iOS 26 Messages: a 32.33 pt capsule 55 pt below the safe
     /// area top, bold 17 pt name inset 13 pt, then a heavy compact chevron
     /// 5.9 pt after the text and 10.9 pt from the trailing edge.
     static let namePillHeight: CGFloat = 97.0 / 3
-    let namePillGlass = makeGlassView(cornerRadius: 97.0 / 6, interactive: true)
+    let namePillGlass = makeGlassView(cornerRadius: 97.0 / 6, interactive: true, clipsContent: false)
     let nameButton = UIButton(type: .system)
     private let nameLabel = UILabel()
     /// ChatKit's title chevron: `chevron.compact.forward` at the body size,
     /// heavy, small scale, in tertiary label color.
     private let chevron = UIImageView(image: UIImage(systemName: "chevron.compact.forward", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .heavy, scale: .small)))
-    let trailingGlass = makeGlassView(cornerRadius: 22, interactive: true)
+    let trailingGlass = makeGlassView(cornerRadius: 22, interactive: true, clipsContent: false)
     let trailingButton = UIButton(type: .system)
     private let avatarTapButton = UIButton(type: .custom)
     let statusLabel = UILabel()

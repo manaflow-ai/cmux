@@ -107,6 +107,10 @@ public final class ConversationViewController: UIViewController {
     /// Whether the reader is following the bottom. Only the reader's own
     /// scrolling (or a send) changes it; inset changes never do.
     var isPinnedToBottom = true
+    #if DEBUG
+    /// DEBUG lab: the scripted scroll, when the environment asks for one.
+    var autoScrollDriver: ConversationAutoScrollDriver?
+    #endif
     /// A status-bar tap's animated scroll to the top is running. Messages
     /// loads history only once it comes to rest at the spinner, so a page
     /// never lands under (and is never chased by) that animation.
@@ -324,6 +328,12 @@ public final class ConversationViewController: UIViewController {
         ReplySwipeIndicator.prewarm(traits: traitCollection)
         updateViewing()
         focusComposerIfEmpty()
+        #if DEBUG
+        if autoScrollDriver == nil, let driver = ConversationAutoScrollDriver.fromEnvironment(controller: self) {
+            autoScrollDriver = driver
+            driver.start()
+        }
+        #endif
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
@@ -1780,14 +1790,37 @@ final class TranscriptCollectionView: UICollectionView {
     private var lastMaskGeometry: (CGFloat, CGFloat)?
 
     override func layoutSubviews() {
+        // Before UIKit places its pockets in this pass, so a hidden edge
+        // never gets a pocket; again after, once the content size is current.
+        updateBottomEdgeEffect()
         super.layoutSubviews()
         updateTopFadeMask()
+        if updateBottomEdgeEffect() { setNeedsLayout() }
         // Outgoing bubbles' gradient is fixed to the screen. Placed here,
         // after the cells for this offset are placed, not on scroll: a cell
         // reused at the other edge would otherwise show the gradient of the
         // place it left for a frame (its bubble keeps its size, so it does
         // not lay out again).
         for case let cell as MessageCell in visibleCells { cell.updateScreenGradients() }
+    }
+
+    /// The bottom soft edge is live only while content lies under the
+    /// composer band (see `ConversationScrollEdgePolicy`): at rest on the
+    /// newest message it draws nothing, but a live pocket makes the render
+    /// server redraw most of the screen on every frame a row animates.
+    /// Returns whether it changed.
+    @discardableResult
+    private func updateBottomEdgeEffect() -> Bool {
+        guard #available(iOS 26.0, *) else { return false }
+        let hidden = !ConversationScrollEdgePolicy.contentUnderBottomBar(
+            contentHeight: contentSize.height,
+            offsetY: contentOffset.y,
+            viewportHeight: bounds.height,
+            bottomInset: adjustedContentInset.bottom
+        )
+        guard bottomEdgeEffect.isHidden != hidden else { return false }
+        bottomEdgeEffect.isHidden = hidden
+        return true
     }
 
     /// The mask lives in the scroll view's bounds space, so it follows the

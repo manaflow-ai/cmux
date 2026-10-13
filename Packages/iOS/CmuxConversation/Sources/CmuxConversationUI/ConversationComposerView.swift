@@ -44,8 +44,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     weak var delegate: (any ConversationComposerViewDelegate)?
 
     let plusButton = ComposerPlusButton(type: .system)
-    private let plusGlass = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, interactive: true)
-    let fieldGlass = makeGlassView(cornerRadius: ConversationTheme.composerFieldCornerRadius, interactive: false)
+    private let plusGlass = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, interactive: true, clipsContent: false)
+    let fieldGlass = makeGlassView(cornerRadius: ConversationTheme.composerFieldCornerRadius, interactive: false, clipsContent: false)
     /// TextKit 1, so the effect overlay can read glyph geometry.
     /// (Built on an explicit stack: the `usingTextLayoutManager:` factory
     /// bypasses Swift's stored-property initialization in subclasses.)
@@ -353,6 +353,14 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             textTop += linkPreview.container.frame.height
         }
         let trailing = sendSize.width + 10
+        // The full-width shelf and link card, the Send Later chip and
+        // scrolled text reach the rounded corners; only then does the glass
+        // clip (it costs an offscreen pass each frame behind it moves).
+        let reachesCorners = !attachments.isEmpty || linkPreview.preview != nil || sendLaterDate != nil || textView.isScrollEnabled
+        if #available(iOS 26.0, *) {
+            let clips = ConversationGlassClipping.clipsToBounds(liquidGlass: true, contentReachesCorners: reachesCorners)
+            if fieldGlass.clipsToBounds != clips { fieldGlass.clipsToBounds = clips }
+        }
         textView.frame = CGRect(x: fieldTextInset, y: textTop, width: field.width - fieldTextInset - trailing, height: field.height - textTop)
         placeholder.frame = CGRect(x: fieldTextInset, y: textTop + verticalPadding, width: textView.bounds.width, height: ConversationTheme.lineHeight)
             .offsetBy(dx: row.field.minX, dy: row.field.minY)
