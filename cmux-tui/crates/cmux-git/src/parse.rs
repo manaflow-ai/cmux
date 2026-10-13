@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 /// One changed file from `git diff --name-status -z`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct NameStatus {
+pub struct NameStatus {
     pub path: String,
     pub previous_path: Option<String>,
     pub status: &'static str,
@@ -15,12 +15,12 @@ pub(super) struct NameStatus {
 /// Added and deleted line counts from `git diff --numstat -z`; `None` for a
 /// binary file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct LineCounts {
+pub struct LineCounts {
     pub additions: u64,
     pub deletions: u64,
 }
 
-pub(super) fn name_status(bytes: &[u8]) -> Vec<NameStatus> {
+pub fn name_status(bytes: &[u8]) -> Vec<NameStatus> {
     let mut tokens = tokens(bytes);
     let mut files = Vec::new();
     while let Some(code) = tokens.next() {
@@ -50,7 +50,7 @@ pub(super) fn name_status(bytes: &[u8]) -> Vec<NameStatus> {
 }
 
 /// Counts by the file's (new) path.
-pub(super) fn numstat(bytes: &[u8]) -> HashMap<String, Option<LineCounts>> {
+pub fn numstat(bytes: &[u8]) -> HashMap<String, Option<LineCounts>> {
     let mut tokens = tokens(bytes);
     let mut counts = HashMap::new();
     while let Some(token) = tokens.next() {
@@ -86,7 +86,7 @@ pub(super) fn numstat(bytes: &[u8]) -> HashMap<String, Option<LineCounts>> {
 /// its `+++` (or, for a deletion, `---`) line names. A file without hunks
 /// (binary, mode-only or an exact rename) has no entry. The diff must use the
 /// `a/` and `b/` prefixes.
-pub(super) fn patches(bytes: &[u8]) -> Vec<(String, String)> {
+pub fn patches(bytes: &[u8]) -> Vec<(String, String)> {
     let text = String::from_utf8_lossy(bytes);
     let mut patches = Vec::new();
     let mut section: Vec<&str> = Vec::new();
@@ -170,7 +170,7 @@ fn unquote(quoted: &str) -> Option<String> {
 
 /// Cuts a patch to at most `limit` bytes at a line end (or, for a single
 /// long line, a character boundary). Returns whether it was cut.
-pub(super) fn truncate_patch(patch: &mut String, limit: usize) -> bool {
+pub fn truncate_patch(patch: &mut String, limit: usize) -> bool {
     if patch.len() <= limit {
         return false;
     }
@@ -190,7 +190,7 @@ pub(super) fn truncate_patch(patch: &mut String, limit: usize) -> bool {
 
 /// The branch headers of `git status --porcelain=v2 --branch -z`.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub(super) struct BranchHeaders {
+pub struct BranchHeaders {
     pub head: Option<String>,
     pub branch: Option<String>,
     pub upstream: Option<String>,
@@ -198,7 +198,7 @@ pub(super) struct BranchHeaders {
     pub behind: u64,
 }
 
-pub(super) fn branch_headers(bytes: &[u8]) -> BranchHeaders {
+pub fn branch_headers(bytes: &[u8]) -> BranchHeaders {
     let mut headers = BranchHeaders::default();
     for token in tokens(bytes) {
         let Some(header) = token.strip_prefix("# branch.") else { continue };
@@ -224,7 +224,7 @@ pub(super) fn branch_headers(bytes: &[u8]) -> BranchHeaders {
 
 /// NUL-separated paths from `git ls-files -z`, without nested repositories
 /// (which git lists as a folder, ending in `/`).
-pub(super) fn file_list(bytes: &[u8]) -> Vec<String> {
+pub fn file_list(bytes: &[u8]) -> Vec<String> {
     tokens(bytes).filter(|path| !path.is_empty() && !path.ends_with('/')).collect()
 }
 

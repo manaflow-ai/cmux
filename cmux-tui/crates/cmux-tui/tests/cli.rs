@@ -3684,6 +3684,8 @@ mod explicit_socket;
 mod feed_local;
 #[path = "cli/frontend_browser_status.rs"]
 mod frontend_browser_status;
+#[path = "cli/git_branches.rs"]
+mod git_branches;
 #[path = "cli/git_write.rs"]
 mod git_write;
 #[path = "cli/icon_assets.rs"]
