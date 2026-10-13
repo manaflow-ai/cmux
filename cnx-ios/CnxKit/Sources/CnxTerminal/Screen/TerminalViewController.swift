@@ -210,8 +210,22 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             }
         }
         let guide = view.keyboardLayoutGuide
-        guide.followsUndockedKeyboard = false
+        // The stack rides the keyboard only while the keyboard is docked at
+        // the bottom. With a hardware keyboard the guide can report a 0-wide,
+        // 44 pt frame near the top (172 pt on iPhone 17 Pro): pinned to it,
+        // the composer and key bar jumped to the top of the page and the
+        // terminal went blank. Away from the bottom the stack rests at the
+        // chrome's line instead and the key bar folds away.
+        guide.followsUndockedKeyboard = true
         guide.usesBottomSafeArea = false
+        guide.setConstraints([
+            bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: guide.topAnchor),
+            prioritized(bottomStack.bottomAnchor.constraint(equalTo: guide.topAnchor), .defaultHigh),
+            keyBarClip.heightAnchor.constraint(lessThanOrEqualTo: guide.heightAnchor),
+        ], activeWhenNearEdge: .bottom)
+        guide.setConstraints([
+            keyBarClip.heightAnchor.constraint(equalToConstant: 0),
+        ], activeWhenAwayFrom: .bottom)
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -220,9 +234,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
             bottomStack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomStack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: guide.topAnchor),
             stackRestingLimit,
-            prioritized(bottomStack.bottomAnchor.constraint(equalTo: guide.topAnchor), .defaultHigh),
+            // Rest on the chrome's line when nothing pins the stack higher.
+            prioritized(bottomStack.bottomAnchor.constraint(equalTo: view.bottomAnchor), .defaultLow),
             composer.view.topAnchor.constraint(equalTo: bottomStack.topAnchor),
             composer.view.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
             composer.view.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
@@ -240,7 +254,6 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             keyBar.view.heightAnchor.constraint(equalToConstant: 44),
             keyBarClip.heightAnchor.constraint(lessThanOrEqualToConstant: 44),
             keyBarClip.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
-            keyBarClip.heightAnchor.constraint(lessThanOrEqualTo: guide.heightAnchor),
             prioritized(keyBarClip.heightAnchor.constraint(equalToConstant: 44), .defaultHigh - 1),
 
             tuiTop,
@@ -464,6 +477,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private func layoutTerminal() {
         let bounds = view.bounds
         guard bounds.width > 0 else { return }
+        #if DEBUG
+        if CommandLine.arguments.contains("-CnxTermLog") {
+            NSLog("cnxterm layout kb=%@ stack=%@ view=%@ window=%@", NSCoder.string(for: view.keyboardLayoutGuide.layoutFrame), NSCoder.string(for: bottomStack.frame), NSCoder.string(for: view.frame), NSCoder.string(for: view.convert(view.bounds, to: nil)))
+        }
+        #endif
         let measured = surface.cellSize
         if measured.height > 0 { cell = measured }
         let cellHeight = cell.height > 0 ? cell.height : 16
