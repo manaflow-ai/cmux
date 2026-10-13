@@ -117,3 +117,19 @@ public enum ComposerBarGeometry {
     }
 
 }
+
+/// New Message's To: add button, as Messages draws it (ContactsUI's
+/// CNComposeRecipientActionButton, iOS 26.5 and 27.0): SF Symbols'
+/// `plus.circle.fill` at the Title 1 text style (32.67 pt at Large), label
+/// over secondarySystemFill, centered 25.35 pt from the capsule's trailing
+/// edge and 16 pt above the last line's bottom.
+public enum ComposeRecipientAddGeometry {
+    public static let symbolName = "plus.circle.fill"
+    public static let textStyleName = "title1"
+    public static let centerFromTrailing: CGFloat = 9 + 32.7 / 2
+    public static let centerAboveLineBottom: CGFloat = 16
+
+    public static func frame(fieldWidth: CGFloat, lineBottom: CGFloat, side: CGFloat) -> CGRect {
+        CGRect(x: fieldWidth - centerFromTrailing - side / 2, y: lineBottom - centerAboveLineBottom - side / 2, width: side, height: side)
+    }
+}
