@@ -991,8 +991,8 @@ fn the_apps_page_reads_panels_and_changes_apps_only_for_the_person() {
         (json!(true), json!(false)),
         "{reply}"
     );
-    let reply = relay
-        .v2("apps.asset.get", json!({"app": "acme/tool", "path": "icon.png"}), page.clone());
+    let reply =
+        relay.v2("apps.asset.get", json!({"app": "acme/tool", "path": "icon.png"}), page.clone());
     let url = v2_ok(&reply)["data_url"].as_str().unwrap_or_default().to_owned();
     assert!(url.starts_with("data:image/png;base64,"), "{reply}");
     for path in ["notes.txt", "../tool/notes.png"] {
@@ -1008,9 +1008,7 @@ fn the_apps_page_reads_panels_and_changes_apps_only_for_the_person() {
     let refused = relay.v2("apps.hidden.set", hide.clone(), json!({"idempotency_key": "h1"}));
     assert_eq!(v2_reason(&refused), "gesture_required");
     let token = confirmation(&mut app, &relay_id, "apps.hidden.set", &hide);
-    let user = |key: &str, token: String| {
-        json!({"idempotency_key": key, "origin": {"claim": "user", "confirmation": token}})
-    };
+    let user = |key: &str, token: String| json!({"idempotency_key": key, "origin": {"claim": "user", "confirmation": token}});
     let reply = relay.v2("apps.hidden.set", hide, user("h2", token));
     assert_eq!(v2_ok(&reply)["app"]["state"]["hidden"], true, "{reply}");
 
