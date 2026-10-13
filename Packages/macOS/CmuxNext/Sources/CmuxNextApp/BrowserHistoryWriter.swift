@@ -102,17 +102,14 @@ final class BrowserHistoryWriter {
     /// `session` as the daemon stores it, bounded.
     static func history(_ session: BrowserSavedSession) -> FrontendBrowserHistory? {
         FrontendBrowserHistory(entries: session.entries.map { entry in
-            FrontendBrowserHistory.Entry(url: entry.url.absoluteString, title: entry.title, scrollY: entry.scrollY,
-                                         formPost: entry.formPost ? true : nil)
+            FrontendBrowserHistory.Entry(url: entry.url.absoluteString, title: entry.title, scrollY: entry.scrollY, formPost: entry.formPost ? true : nil)
         }, index: session.current).bounded()
     }
 
     /// The saved entries of `history` (nil when it has none to restore).
     static func session(_ history: FrontendBrowserHistory) -> BrowserSavedSession? {
         let entries = history.entries.compactMap { entry in
-            URL(string: entry.url).map {
-                BrowserSavedEntry(url: $0, title: entry.title, scrollY: entry.scrollY, formPost: entry.formPost ?? false)
-            }
+            URL(string: entry.url).map { BrowserSavedEntry(url: $0, title: entry.title, scrollY: entry.scrollY, formPost: entry.formPost == true) }
         }
         guard entries.count == history.entries.count, entries.indices.contains(history.index) else { return nil }
         return BrowserSavedSession(entries: entries, current: history.index)

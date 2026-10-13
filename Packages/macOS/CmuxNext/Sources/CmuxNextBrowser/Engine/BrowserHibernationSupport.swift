@@ -59,3 +59,13 @@ extension CEFTab: BrowserHibernationSource {
         return .chromium(String(cString: raw))
     }
 }
+
+extension BrowserRestoreState {
+    /// The back/forward history `page` can be recreated from (Duplicate Tab,
+    /// Reopen Closed Tab): a hibernated page's saved state, else what a live
+    /// page saves now.
+    @MainActor public static func history(of page: any BrowserTab) -> BrowserRestoreState? {
+        if let hibernated = page as? HibernatedBrowserTab { return hibernated.restoreState }
+        return (page as? any BrowserHibernationSource)?.hibernationState()
+    }
+}
