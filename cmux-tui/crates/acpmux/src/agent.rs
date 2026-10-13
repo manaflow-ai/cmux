@@ -198,6 +198,14 @@ pub(crate) fn harness_command(
         owned
     };
     let mut env = resolved_profile_env(profile)?;
+    // The Codex bridge runs the configured codex binary: `CODEX_PATH` of the
+    // profile or its family (`defaults.codex.env`), as the ACP adapter does.
+    let owned = match env.get("CODEX_PATH").filter(|p| !p.is_empty()) {
+        Some(path) if crate::codex_app_server::is_launch(&owned.0, &owned.1) => {
+            (path.clone(), owned.1)
+        }
+        _ => owned,
+    };
     // A bound route's provider variables the inherited env must not keep
     // (routes.rs): an earlier route's key never reaches this process.
     let route_unset = env.remove(crate::routes::UNSET_KEY);

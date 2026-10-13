@@ -59,11 +59,12 @@ pub(super) async fn handle_request(
     let m = super::fork_through::as_session_fork(hub, m, &mut params).await?;
     // Before anything runs or is forwarded to a peer (`remote_guard.rs`).
     if conn.origin != Origin::Local {
-        super::remote_guard::check(hub, conn.origin, m, &mut params).await?;
+        super::remote_guard::check(hub, conn.origin, conn.auth, m, &mut params).await?;
     }
     // Only the person allows or widens what runs without asking
     // (`hub/person.rs`): one check, before the request runs or reaches a peer.
-    let verdict = hub.person_check(conn.is_person(), m, &params).await?;
+    let remote_authenticated = conn.origin.web_class() && conn.auth.authenticated();
+    let verdict = hub.person_check(conn.is_person(), remote_authenticated, m, &params).await?;
     let resolved = super::session_key(&params).ok().and_then(|key| hub.resolve(key).ok());
     super::trust_gate::check(hub, conn.origin, m, &params, resolved.as_ref()).await?; // the folder-trust gate
     let key = super::session_key(&params).ok().map(str::to_owned);
@@ -227,7 +228,7 @@ async fn dispatch_request(
                 if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                     m.remove("peer");
                 }
-                super::remote_guard::mark_forwarded(conn.origin, &params, &mut p);
+                super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 let mut result = peer.request(method::SESSION_NEW, p).await?;
                 if let Some(id) = result.get("sessionId").and_then(Value::as_str) {
                     attach(hub, conn, id);
@@ -369,7 +370,7 @@ async fn dispatch_request(
                     notify.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v))
                 })),
                 resend: flag("resend") == Some(true),
-                control: super::remote_guard::control_of(conn.origin, &params),
+                control: super::remote_guard::control_of(conn.origin, conn.auth, &params),
                 trust_gate: super::trust_gate::gated(conn.origin, &params),
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
@@ -1002,7 +1003,7 @@ async fn dispatch_request(
         }
         method::MUX_QUEUE_EDIT => {
             let s = hub.resolve(session_key(&params)?)?;
-            let control = super::remote_guard::control_of(conn.origin, &params);
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             hub.queue_edit(&s, &params, control, super::trust_gate::gated(conn.origin, &params))
                 .await
         }
@@ -1019,7 +1020,7 @@ async fn dispatch_request(
         }
         method::MUX_PERMISSION_GROUP_RESPOND => {
             let s = hub.resolve(session_key(&params)?)?;
-            let control = super::remote_guard::control_of(conn.origin, &params);
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             hub.respond_permission_group(&s, params, control).await
         }
         method::MUX_PERMISSION_CHAT_REVOKE => {
@@ -1033,7 +1034,7 @@ async fn dispatch_request(
             let option = str_param(&params, "optionId").map(str::to_owned);
             let answers = params.get("answers").cloned();
             let answered_by = crate::hub::person::answered_by(&params)?;
-            let control = super::remote_guard::control_of(conn.origin, &params);
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             // Who answers, for the person rule under the prompt's lock
             // (`hub/person.rs`): an allow that is not the person's counts
             // only on its decision proof, which the answer spends.
@@ -1100,7 +1101,7 @@ async fn dispatch_request(
         method::MUX_HANDOFF_GET => hub.handoff_get(&params),
         method::MUX_HANDOFF_DRAFT => hub.handoff_draft(&params).await,
         method::MUX_HANDOFF_START => {
-            let control = super::remote_guard::control_of(conn.origin, &params);
+            let control = super::remote_guard::control_of(conn.origin, conn.auth, &params);
             hub.handoff_start(&params, control).await
         }
         method::MUX_HANDOFF_DISCARD => hub.handoff_discard(&params).await,
