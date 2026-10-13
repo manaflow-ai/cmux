@@ -107,8 +107,10 @@ struct FileExplorerPanelView: NSViewRepresentable {
         private var styleObserver: Any?
         private var isUpdatingOutlineProgrammatically = false
         private var needsReloadAfterContextMenu = false
+        /// The most recently queued file mutation. Each mutation waits for the
+        /// previous one, so none is cancelled mid-flight and each reports its
+        /// own failure.
         private var mutationTask: Task<Void, Never>?
-        private var mutationTaskID: UUID?
         // Keep one coordinator-level record for the promoted native source.
         // The source view can be replaced during SwiftUI reconstruction, so
         // view-local markers alone cannot reclaim a lost endedAt callback.
@@ -1061,21 +1063,13 @@ struct FileExplorerPanelView: NSViewRepresentable {
         }
 
         private func performMutation(_ operation: @escaping @MainActor () async throws -> Void) {
-            mutationTask?.cancel()
-            let taskID = UUID()
-            mutationTaskID = taskID
+            let previous = mutationTask
             mutationTask = Task { @MainActor [weak self] in
-                defer {
-                    if let self, self.mutationTaskID == taskID {
-                        self.mutationTask = nil
-                        self.mutationTaskID = nil
-                    }
-                }
+                await previous?.value
+                guard self != nil else { return }
                 do {
-                    try Task.checkCancellation()
                     try await operation()
                 } catch {
-                    guard !Task.isCancelled else { return }
                     self?.showMutationError(error)
                 }
             }

@@ -427,6 +427,42 @@ struct FileExplorerStoreTests {
     }
 
     @Test
+    func testLocalCreateAndRenameRejectExistingNamesWithoutTouchingThem() async throws {
+        let rootURL = try Self.makeTemporaryDirectory("cmux-file-explorer-collision")
+        defer { try? FileManager.default.removeItem(at: rootURL) }
+        let existingURL = rootURL.appendingPathComponent("notes.txt")
+        try Data("keep".utf8).write(to: existingURL)
+        let otherURL = rootURL.appendingPathComponent("other.txt")
+        try Data("other".utf8).write(to: otherURL)
+        let folderURL = rootURL.appendingPathComponent("folder", isDirectory: true)
+        try FileManager.default.createDirectory(at: folderURL, withIntermediateDirectories: false)
+
+        let store = FileExplorerStore()
+        store.setProviderForTesting(LocalFileExplorerProvider(), reloadIfAvailable: false)
+        store.rootPath = rootURL.path
+
+        await #expect(throws: FileExplorerError.mutationTargetExists) {
+            try await store.createEntry(kind: .file, in: rootURL.path, named: "notes.txt")
+        }
+        #expect(try String(contentsOf: existingURL, encoding: .utf8) == "keep")
+
+        await #expect(throws: FileExplorerError.mutationTargetExists) {
+            try await store.createEntry(kind: .directory, in: rootURL.path, named: "notes.txt")
+        }
+        await #expect(throws: FileExplorerError.mutationTargetExists) {
+            try await store.createEntry(kind: .directory, in: rootURL.path, named: "folder")
+        }
+        await #expect(throws: FileExplorerError.mutationTargetExists) {
+            try await store.createEntry(kind: .file, in: rootURL.path, named: "folder")
+        }
+        await #expect(throws: FileExplorerError.mutationTargetExists) {
+            try await store.renameEntry(path: otherURL.path, toName: "notes.txt")
+        }
+        #expect(try String(contentsOf: existingURL, encoding: .utf8) == "keep")
+        #expect(try String(contentsOf: otherURL, encoding: .utf8) == "other")
+    }
+
+    @Test
     func testLocalStoreRemovalMovesSelectionToTrash() async throws {
         let rootURL = try Self.makeTemporaryDirectory("cmux-file-explorer-trash-root")
         defer { try? FileManager.default.removeItem(at: rootURL) }

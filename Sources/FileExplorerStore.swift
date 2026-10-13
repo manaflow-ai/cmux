@@ -455,9 +455,13 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
     @Sendable
     #endif
     func createFile(path: String) async throws {
-        guard FileManager.default.createFile(atPath: path, contents: nil) else {
-            throw FileExplorerError.mutationFailed
+        // O_EXCL fails on an existing name instead of truncating that file,
+        // which FileManager.createFile would do.
+        let descriptor = open(path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0o644)
+        guard descriptor >= 0 else {
+            throw FileExplorerError.mutationError(posixCode: errno)
         }
+        close(descriptor)
     }
 
     #if compiler(>=6.2)
@@ -473,7 +477,7 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
                 attributes: nil
             )
         } catch {
-            throw FileExplorerError.mutationFailed
+            throw FileExplorerError.mutationError(from: error)
         }
     }
 
@@ -500,7 +504,7 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
             }
             try FileManager.default.moveItem(atPath: path, toPath: destinationPath)
         } catch {
-            throw FileExplorerError.mutationFailed
+            throw FileExplorerError.mutationError(from: error)
         }
     }
 
@@ -513,7 +517,7 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
         do {
             try FileManager.default.removeItem(atPath: path)
         } catch {
-            throw FileExplorerError.mutationFailed
+            throw FileExplorerError.mutationError(from: error)
         }
     }
 
@@ -528,7 +532,7 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
             // replaces another entry.
             try FileManager.default.copyItem(atPath: path, toPath: destinationPath)
         } catch {
-            throw FileExplorerError.mutationFailed
+            throw FileExplorerError.mutationError(from: error)
         }
     }
 
@@ -541,7 +545,7 @@ final class LocalFileExplorerProvider: FileExplorerProvider {
         do {
             try trashItem(URL(fileURLWithPath: path))
         } catch {
-            throw FileExplorerError.mutationFailed
+            throw FileExplorerError.mutationError(from: error)
         }
     }
 }
@@ -743,13 +747,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         path: String,
         connection: SSHFileExplorerConnection
     ) async throws {
-        let target = Self.remoteShellPathWord(path)
-        try await Self.runSSHMutationCommand(
-            connection: connection,
-            // POSIX noclobber makes the redirection fail when the path already
-            // exists instead of truncating an existing remote file.
-            command: "set -C; : > \(target)"
-        )
+        try await Self.runSSHMutationCommand(.createFile(path: path), connection: connection)
     }
 
     #if compiler(>=6.2)
@@ -761,10 +759,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         path: String,
         connection: SSHFileExplorerConnection
     ) async throws {
-        try await Self.runSSHMutationCommand(
-            connection: connection,
-            command: "mkdir -- \(Self.remoteShellPathWord(path))"
-        )
+        try await Self.runSSHMutationCommand(.createDirectory(path: path), connection: connection)
     }
 
     #if compiler(>=6.2)
@@ -777,16 +772,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         to destinationPath: String,
         connection: SSHFileExplorerConnection
     ) async throws {
-        let source = Self.remoteShellPathWord(path)
-        let destination = Self.remoteShellPathWord(destinationPath)
         try await Self.runSSHMutationCommand(
-            connection: connection,
-            // Reject any existing destination before `mv`; otherwise a
-            // destination directory would receive the source as a child.
-            // `mv -n` also keeps a concurrent destination from being replaced.
-            command: "[ ! -e \(destination) ] && [ ! -L \(destination) ] && "
-                + "mv -n -- \(source) \(destination) && "
-                + "[ ! -e \(source) ] && [ ! -L \(source) ]"
+            .rename(path: path, to: destinationPath),
+            connection: connection
         )
     }
 
@@ -799,12 +787,7 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         path: String,
         connection: SSHFileExplorerConnection
     ) async throws {
-        let target = Self.remoteShellPathWord(path)
-        try await Self.runSSHMutationCommand(
-            connection: connection,
-            command: "if [ ! -e \(target) ] && [ ! -L \(target) ]; then exit 74; fi; "
-                + "rm -rf -- \(target)"
-        )
+        try await Self.runSSHMutationCommand(.delete(path: path), connection: connection)
     }
 
     #if compiler(>=6.2)
@@ -817,14 +800,9 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         to destinationPath: String,
         connection: SSHFileExplorerConnection
     ) async throws {
-        let source = Self.remoteShellPathWord(path)
-        let destination = Self.remoteShellPathWord(destinationPath)
         try await Self.runSSHMutationCommand(
-            connection: connection,
-            // Like rename, never write into or over an existing destination;
-            // `cp -R` into an existing directory would nest the copy inside it.
-            command: "[ ! -e \(destination) ] && [ ! -L \(destination) ] && "
-                + "cp -R -p -- \(source) \(destination)"
+            .copy(path: path, to: destinationPath),
+            connection: connection
         )
     }
 
@@ -1009,6 +987,17 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 
     private static func runSSHCommand(connection: SSHFileExplorerConnection, command: String) async throws -> String {
+        let result = try await runSSHProcess(connection: connection, command: command)
+        guard result.terminationStatus == 0 else {
+            throw FileExplorerError.sshCommandFailed(result.stderr)
+        }
+        return result.stdout
+    }
+
+    private static func runSSHProcess(
+        connection: SSHFileExplorerConnection,
+        command: String
+    ) async throws -> SSHCommandResult {
         let commandProcess = SSHCommandProcess(connection: connection, command: command)
         let result = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -1019,18 +1008,23 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
         } onCancel: {
             commandProcess.terminate()
         }
-
-        guard result.terminationStatus == 0 else {
-            throw FileExplorerError.sshCommandFailed(result.stderr)
-        }
-        return result.stdout
+        return result
     }
 
     private static func runSSHMutationCommand(
-        connection: SSHFileExplorerConnection,
-        command: String
+        _ mutation: SSHFileExplorerMutationCommand,
+        connection: SSHFileExplorerConnection
     ) async throws {
-        _ = try await runSSHCommand(connection: connection, command: command)
+        let result = try await runSSHProcess(connection: connection, command: mutation.command)
+        switch result.terminationStatus {
+        case 0:
+            return
+        case 255:
+            // ssh itself failed (connection, auth); keep its diagnostics.
+            throw FileExplorerError.sshCommandFailed(result.stderr)
+        default:
+            throw FileExplorerError.mutationError(exitStatus: result.terminationStatus)
+        }
     }
 
     private static func sshArguments(connection: SSHFileExplorerConnection, command: String) -> [String] {
@@ -1109,12 +1103,16 @@ final class ProcessSSHFileExplorerTransport: SSHFileExplorerTransport {
     }
 }
 
-enum FileExplorerError: LocalizedError {
+enum FileExplorerError: LocalizedError, Equatable {
     case providerUnavailable
     case sshCommandFailed(String)
     case remoteCommandFailed(String)
     case mutationFailed
     case invalidMutationName
+    /// A create, rename or duplicate target name is already taken.
+    case mutationTargetExists
+    /// The containing folder is not writable.
+    case mutationPermissionDenied
     case previewCapacity
     case remoteFileTooLarge
 
@@ -1134,6 +1132,10 @@ enum FileExplorerError: LocalizedError {
             return String(localized: "fileExplorer.error.mutationFailed", defaultValue: "Unable to update this file or folder.")
         case .invalidMutationName:
             return String(localized: "fileExplorer.error.invalidName", defaultValue: "Enter a single file or folder name.")
+        case .mutationTargetExists:
+            return String(localized: "fileExplorer.error.alreadyExists", defaultValue: "An item with that name already exists.")
+        case .mutationPermissionDenied:
+            return String(localized: "fileExplorer.error.permissionDenied", defaultValue: "You don't have permission to change this folder.")
         }
     }
 }

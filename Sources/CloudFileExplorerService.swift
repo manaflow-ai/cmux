@@ -216,11 +216,37 @@ sys.exit(0 if exit_code in (0, 1) else exit_code)
         path: String,
         destinationPath: String? = nil
     ) async throws {
+        let command = Self.mutationCommand(
+            operation: operation,
+            path: path,
+            destinationPath: destinationPath
+        )
+        let result = try await commandRunner.run(vmID: vmID, command: command, timeoutMs: 30_000)
+        guard result.exitCode == 0 else {
+            throw FileExplorerError.mutationError(exitStatus: Int32(clamping: result.exitCode))
+        }
+    }
+
+    /// The shell command for one Cloud mutation. The script exits with the
+    /// shared ``SSHFileExplorerMutationCommand`` statuses for an existing
+    /// target and a permission failure.
+    static func mutationCommand(
+        operation: String,
+        path: String,
+        destinationPath: String?
+    ) -> String {
         let script = #"""
 import os, shutil, sys
+EXISTS = 73
+DENIED = 77
 operation = sys.argv[1]
 path = sys.argv[2]
 destination = sys.argv[3] if len(sys.argv) > 3 else None
+def taken(target):
+    # A case-only rename may see the source itself under the new name.
+    if not os.path.lexists(target):
+        return False
+    return not (operation == "rename" and os.path.samestat(os.lstat(path), os.lstat(target)))
 try:
     if operation == "create_file":
         descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
@@ -232,12 +258,14 @@ try:
             sys.exit(74)
         # Keep rename consistent with local and SSH providers: never replace
         # an existing destination (including a dangling symlink).
-        if os.path.lexists(destination):
-            sys.exit(74)
+        if taken(destination):
+            sys.exit(EXISTS)
         os.rename(path, destination)
     elif operation == "copy":
-        if destination is None or os.path.lexists(destination):
+        if destination is None:
             sys.exit(74)
+        if taken(destination):
+            sys.exit(EXISTS)
         if os.path.isdir(path) and not os.path.islink(path):
             shutil.copytree(path, destination, symlinks=True)
         else:
@@ -249,6 +277,10 @@ try:
             os.unlink(path)
     else:
         sys.exit(74)
+except FileExistsError:
+    sys.exit(EXISTS)
+except PermissionError:
+    sys.exit(DENIED)
 except OSError:
     sys.exit(74)
 """#
@@ -256,12 +288,8 @@ except OSError:
         if let destinationPath {
             arguments.append(destinationPath)
         }
-        let command = "python3 -c \(Self.shellQuote(script)) "
-            + arguments.map(Self.shellQuote).joined(separator: " ")
-        let result = try await commandRunner.run(vmID: vmID, command: command, timeoutMs: 30_000)
-        guard result.exitCode == 0 else {
-            throw FileExplorerError.remoteCommandFailed("")
-        }
+        return "python3 -c \(shellQuote(script)) "
+            + arguments.map(shellQuote).joined(separator: " ")
     }
 
     private static func shellQuote(_ value: String) -> String {
