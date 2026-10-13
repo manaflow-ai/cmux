@@ -92,6 +92,7 @@ run --dry-run
 expect "dry run builds a Swift package once" 0 "^BUILD swift build --build-tests --package-path Packages/Shared/CmuxHomeRender$"
 if [ "$(grep -c '^BUILD swift build' <<<"$out")" -ne 1 ]; then echo "FAIL: one build per Swift package" >&2; printf '%s\n' "$out" >&2; exit 1; fi
 expect "dry run tests each Swift entry against the built package" 0 "^RUN tokens: swift test --skip-build --package-path Packages/Shared/CmuxHomeRender --filter MotionTokenTests$"
+expect "dry run builds cargo test binaries once, outside the cap" 0 "^BUILD cargo test --locked --no-run -p cmux-motion \\(in cmux-tui\\)$"
 expect "dry run tests a cargo entry" 0 "^RUN clock: cargo test --locked -p cmux-motion \(in cmux-tui\)$"
 
 echo "fast-tier.test: ok"
