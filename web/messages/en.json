@@ -7338,5 +7338,89 @@
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
     "errorGeneric": "Something went wrong. Try again."
+  },
+  "opsCloudVmHealth": {
+    "eyebrow": "Staff · Operations",
+    "title": "Cloud VM health",
+    "description": "Whether any Cloud VM needs an operator. A read-only sweep of the provider account runs every five minutes; this page shows the latest one.",
+    "noSnapshotTitle": "No sweep yet",
+    "noSnapshotBody": "The health cron has not stored a sweep. It runs every five minutes once deployed and migrated.",
+    "attentionYes": "Needs attention: yes",
+    "attentionNo": "Needs attention: no",
+    "sweptAt": "Swept {age}, in {seconds, plural, one {# second} other {# seconds}}.",
+    "coverage": "Probed {probed} of {running} running VMs. Not probed: {skippedBudget} past the time budget, {skippedIdle} with an idle timeout. {probeErrors, plural, =0 {No probe errors.} one {# probe error.} other {# probe errors.}}",
+    "reason": {
+      "stale": "The latest sweep is from {age}; the health cron may be failing.",
+      "hung_vms": "{count, plural, one {# running VM does not answer its control path} other {# running VMs do not answer their control path}}",
+      "stuck_transitions": "{count, plural, one {# VM is stuck in a transition} other {# VMs are stuck in a transition}}",
+      "drift": "{count, plural, one {# VM differs between the database and the provider} other {# VMs differ between the database and the provider}}",
+      "tls_over_limit": "TLS rules are at or over the account limit: {count} of {limit}. Network policy domain additions fail.",
+      "tls_near_limit": "TLS rules are near the account limit: {count} of {limit}.",
+      "sweep_incomplete": "The sweep was incomplete: {unprobed, plural, one {# running VM was} other {# running VMs were}} not probed, or the VM list was partial.",
+      "sweep_errors": "{count, plural, one {# sweep stage failed} other {# sweep stages failed}}."
+    },
+    "hung": {
+      "title": "Hung VMs ({count})",
+      "body": "Provider state is running, but a 10-second file system probe timed out or the provider answered 409 or 5xx."
+    },
+    "stuck": {
+      "title": "Stuck transitions ({count})",
+      "body": "VMs starting or pausing at the provider, or provisioning in the database, for longer than 15 minutes."
+    },
+    "drift": {
+      "title": "Database and provider drift ({count})",
+      "body": "cmux Cloud VMs whose database status disagrees with the provider for longer than 10 minutes. The reconcile cron repairs drift; this page only reports it."
+    },
+    "tls": {
+      "title": "TLS rule budget",
+      "body": "Account-wide TLS rules count against one limit shared by every workload on the provider account.",
+      "unavailable": "The sweep could not read TLS rules.",
+      "usage": "{count} of {limit} rules in use.",
+      "over": "{over, plural, =0 {At the limit.} other {# over the limit.}}",
+      "partial": "Only {listed} rules were listed, so the breakdown is partial.",
+      "pausedTitle": "Held by VMs paused for more than {days} days: {rules, plural, one {# rule} other {# rules}} on {vms, plural, one {# VM} other {# VMs}}"
+    },
+    "tlsOwner": {
+      "account_level": "Account level (no VM)",
+      "vpc_unattributed": "Private network (no VM)",
+      "unknown_vm": "Deleted or unlisted VM",
+      "managed": "Provider managed"
+    },
+    "errors": {
+      "title": "Sweep errors",
+      "body": "Stages of the last sweep that failed. Sections that depend on them may be empty."
+    },
+    "driftKind": {
+      "provider_missing": "Missing at the provider",
+      "db_running_provider_paused": "Running in the database, paused at the provider",
+      "db_paused_provider_running": "Paused in the database, running at the provider",
+      "db_destroyed_provider_present": "Destroyed in the database, present at the provider",
+      "provider_untracked": "At the provider with no database row"
+    },
+    "source": {
+      "provider": "Provider",
+      "db": "Database"
+    },
+    "col": {
+      "vm": "VM",
+      "workload": "Workload",
+      "owner": "Owner",
+      "image": "Image and size",
+      "firstSeenHung": "First seen hung",
+      "updated": "Last updated",
+      "detail": "Probe result",
+      "state": "State",
+      "source": "Source",
+      "since": "Since",
+      "drift": "Drift",
+      "dbStatus": "Database",
+      "providerState": "Provider",
+      "pausedSince": "Paused since",
+      "rules": "Rules"
+    },
+    "size": "{cpu} vCPU · {memory} GiB · {disk} GB disk",
+    "dbUpdated": "Database: {time}",
+    "noOwner": "No cmux owner",
+    "none": "None."
   }
 }

@@ -7248,5 +7248,89 @@
     "errorSignUpNotAllowed": "現在、新しいアカウントは作成できません。",
     "errorPasskey": "パスキーでのサインインが完了しませんでした。もう一度試すか、別の方法を使用してください。",
     "errorGeneric": "問題が発生しました。もう一度お試しください。"
+  },
+  "opsCloudVmHealth": {
+    "eyebrow": "スタッフ · 運用",
+    "title": "Cloud VM の状態",
+    "description": "オペレーターの対応が必要な Cloud VM があるかを示します。プロバイダーアカウントの読み取り専用スイープが 5 分ごとに実行され、このページは最新の結果を表示します。",
+    "noSnapshotTitle": "スイープはまだありません",
+    "noSnapshotBody": "ヘルス cron はまだスイープを保存していません。デプロイとマイグレーションの後、5 分ごとに実行されます。",
+    "attentionYes": "対応が必要: はい",
+    "attentionNo": "対応が必要: いいえ",
+    "sweptAt": "スイープ: {age}（所要 {seconds} 秒）。",
+    "coverage": "実行中の VM {running} 台のうち {probed} 台をプローブしました。未プローブ: 時間予算超過 {skippedBudget} 台、アイドルタイムアウト設定あり {skippedIdle} 台。プローブエラー {probeErrors} 件。",
+    "reason": {
+      "stale": "最新のスイープは {age} のものです。ヘルス cron が失敗している可能性があります。",
+      "hung_vms": "実行中の VM {count} 台が制御経路に応答しません",
+      "stuck_transitions": "VM {count} 台が状態遷移の途中で止まっています",
+      "drift": "VM {count} 台でデータベースとプロバイダーの状態が一致しません",
+      "tls_over_limit": "TLS ルールがアカウント上限に達しているか超えています: {limit} 件中 {count} 件。ネットワークポリシーのドメイン追加は失敗します。",
+      "tls_near_limit": "TLS ルールがアカウント上限に近づいています: {limit} 件中 {count} 件。",
+      "sweep_incomplete": "スイープが不完全です。実行中の VM {unprobed} 台がプローブされなかったか、VM 一覧が部分的でした。",
+      "sweep_errors": "スイープの {count} 段階が失敗しました。"
+    },
+    "hung": {
+      "title": "応答しない VM（{count}）",
+      "body": "プロバイダー上の状態は running ですが、10 秒のファイルシステムプローブがタイムアウトしたか、プロバイダーが 409 または 5xx を返しました。"
+    },
+    "stuck": {
+      "title": "止まった状態遷移（{count}）",
+      "body": "プロバイダーで starting または pausing のまま、またはデータベースで provisioning のまま 15 分を超えた VM です。"
+    },
+    "drift": {
+      "title": "データベースとプロバイダーの不一致（{count}）",
+      "body": "データベースの状態がプロバイダーと 10 分以上一致しない cmux Cloud VM です。修復は reconcile cron が行い、このページは報告のみです。"
+    },
+    "tls": {
+      "title": "TLS ルールの予算",
+      "body": "アカウント全体の TLS ルールは、プロバイダーアカウント上のすべてのワークロードで共有される 1 つの上限に数えられます。",
+      "unavailable": "スイープは TLS ルールを読み取れませんでした。",
+      "usage": "{limit} 件中 {count} 件を使用中。",
+      "over": "{over, plural, =0 {上限ちょうどです。} other {上限を # 件超えています。}}",
+      "partial": "一覧できたルールは {listed} 件のみのため、内訳は部分的です。",
+      "pausedTitle": "{days} 日以上一時停止中の VM が保持: VM {vms} 台で {rules} 件"
+    },
+    "tlsOwner": {
+      "account_level": "アカウントレベル（VM なし）",
+      "vpc_unattributed": "プライベートネットワーク（VM なし）",
+      "unknown_vm": "削除済みまたは一覧にない VM",
+      "managed": "プロバイダー管理"
+    },
+    "errors": {
+      "title": "スイープのエラー",
+      "body": "前回のスイープで失敗した段階です。それに依存するセクションは空の場合があります。"
+    },
+    "driftKind": {
+      "provider_missing": "プロバイダーに存在しない",
+      "db_running_provider_paused": "データベースでは実行中、プロバイダーでは一時停止",
+      "db_paused_provider_running": "データベースでは一時停止、プロバイダーでは実行中",
+      "db_destroyed_provider_present": "データベースでは削除済み、プロバイダーには存在",
+      "provider_untracked": "プロバイダーに存在し、データベースの行がない"
+    },
+    "source": {
+      "provider": "プロバイダー",
+      "db": "データベース"
+    },
+    "col": {
+      "vm": "VM",
+      "workload": "ワークロード",
+      "owner": "所有者",
+      "image": "イメージとサイズ",
+      "firstSeenHung": "初回検出",
+      "updated": "最終更新",
+      "detail": "プローブ結果",
+      "state": "状態",
+      "source": "出所",
+      "since": "開始",
+      "drift": "不一致",
+      "dbStatus": "データベース",
+      "providerState": "プロバイダー",
+      "pausedSince": "一時停止開始",
+      "rules": "ルール"
+    },
+    "size": "{cpu} vCPU · メモリ {memory} GiB · ディスク {disk} GB",
+    "dbUpdated": "データベース: {time}",
+    "noOwner": "cmux の所有者なし",
+    "none": "なし。"
   }
 }
