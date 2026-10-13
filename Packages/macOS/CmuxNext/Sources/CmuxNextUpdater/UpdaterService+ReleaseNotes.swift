@@ -1,3 +1,4 @@
+import CmuxUpdater
 public import Foundation
 
 extension UpdaterService {
@@ -16,8 +17,8 @@ extension UpdaterService {
     }
 
     /// The notes the changelog page lists: ``releaseNotes``, except that a DEV
-    /// build with no feed of its own (no `SUFeedURL`, so the stable fallback,
-    /// which publishes no notes) lists the cmux-next nightly notes, built
+    /// build (its bundle names the stable feed, or none, and the stable feed
+    /// publishes no notes) lists the cmux-next nightly notes, built
     /// from the same branch: its page shows the newest real notes, not "No
     /// release notes yet" (cx-7rone). Offline with an empty cache the page
     /// keeps that empty state.
@@ -29,9 +30,10 @@ extension UpdaterService {
     }
 
     /// Whether ``changelogNotes`` reads the cmux-next nightly notes (a DEV build
-    /// with no feed of its own, no test feed, not a harness copy with notes).
+    /// not on the nightly-next feed, no test feed, not a harness copy with notes).
     public var changelogReadsDevelopmentNotes: Bool {
-        guard testFeedURL == nil, identity.track == .development, identity.feed().usedFallback else { return false }
+        // A DEV bundle carries the stable feed URL (or none): neither publishes notes.
+        guard testFeedURL == nil, identity.track == .development, identity.feed().channel != .nightlyNext else { return false }
         #if DEBUG
         if UpdateHarness.current?.contentKey != nil { return false }
         #endif
