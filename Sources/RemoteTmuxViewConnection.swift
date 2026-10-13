@@ -536,18 +536,17 @@ final class RemoteTmuxViewConnection {
                 self.bootstrapWritesAcknowledged += 1
             }) else { return false }
         }
-        guard let lines = await reconcileListQuery(
-            conn,
-            "list-windows -t \(quoted(view.sessionName)) -F '#{window_id} #{window_linked}'"
-        ) else { return false }
+        guard let lines = await reconcileListQuery(conn, "list-windows -t \(quoted(view.sessionName)) -F "
+            + quoted(Self.markedBringupListFormat(viewSessionName: view.sessionName))) else { return false }
         // No separate wait for the writes: tmux answers commands in the order it received
         // them, so their blocks have already resolved by the time this reply arrives. A
         // stream that reset in between fails every pending tracked send, which lands here
         // as a missing acknowledgement.
         guard bootstrapWritesAcknowledged == writes.count else { return false }
-        let read = Self.readBringupRows(lines)
+        let read = Self.readMarkedBringupRows(lines)
         placeholderWindowId = read.placeholder
         ownedWindowIds = read.adopted
+        markLinkedWindows(conn, read.unmarkedLinked)
         return true
     }
 
@@ -792,7 +791,7 @@ final class RemoteTmuxViewConnection {
         for action in plan.reconcileActions {
             switch action {
             case let .link(windowId):
-                if conn.send("link-window -s \(windowId) -t \(quoted(view.sessionName))") {
+                if linkIntoView(conn, windowId: windowId) {
                     ownedWindowIds.insert(windowId)
                 }
             case let .unlinkFromView(windowId):
