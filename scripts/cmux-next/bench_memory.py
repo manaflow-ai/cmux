@@ -329,6 +329,10 @@ def launch(bundle: str):
         raise
 
 
+def interrupted(_signum, _frame):
+    raise KeyboardInterrupt
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="the .app bundle")
@@ -343,6 +347,8 @@ def main():
     parser.add_argument("--top", type=int, default=15)
     parser.add_argument("--out")
     args = parser.parse_args()
+    # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
+    signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
         raise SystemExit("bench-memory: macOS only (run it on a fleet or capture mini)")
 
