@@ -464,7 +464,8 @@ refetch `keybindings.get`.
 | since | protocol 12 additive extension; capability `local-conversations-v1` |
 
 Published after a `conversation-create` or `conversation-op` commits, never
-for a replay, and only to trusted local connections. Payload:
+for a replay, and only to trusted local connections and (with
+`ws-conversations-v1`) authenticated WebSocket connections. Payload:
 
 ```text
 object{
