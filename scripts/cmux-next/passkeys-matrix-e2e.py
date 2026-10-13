@@ -12,7 +12,8 @@ CEF (a Release build). Both engines report the page's availability probe first (
 The script attaches to the app through its socket and never launches or quits it.
 
 `--k16` (cx-d0d.47, passkeys.md K16) runs instead: in a CEF tab, create-platform with the page
-uncovered, then with the command palette open over part of it. Chromium runs a ceremony only
+uncovered, then with the command palette open over part of it, then (the control) in a
+background tab, which Chromium must refuse. Chromium runs a ceremony only
 while the tab's WebContents is VISIBLE, so a partly covered tab must still complete it.
 
 Usage: passkeys-matrix-e2e.py --socket SOCK [--engines cef,webkit] [--only a,b] [--no-virtual-authenticator] [--k16]
@@ -166,6 +167,14 @@ def k16(tab):
     row("cef", "k16 palette over the tab", status if still else "FAIL",
         detail if still else f"the palette closed during the ceremony ({detail})")
     run("commandPalette")
+    # The control: a tab in the background is not VISIBLE, so Chromium refuses its ceremony.
+    other = (run("openBrowser", {"url": "about:blank", "engine": "cef"}) or {}).get("created") or []
+    time.sleep(2)  # test harness: the new tab takes the pane
+    status, detail = scenario("cef", tab, "create-platform", spec)
+    refused = status == "FAIL" and "NotAllowedError" in str(detail)
+    row("cef", "k16 control: hidden tab is refused", "PASS" if refused else "FAIL", detail)
+    if other:
+        run("closeTab")
 
 
 def main():
