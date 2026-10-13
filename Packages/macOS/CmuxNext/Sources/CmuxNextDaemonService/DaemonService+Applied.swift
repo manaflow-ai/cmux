@@ -1,5 +1,5 @@
 import CmuxNextActions
-import CmuxNextDaemon
+public import CmuxNextDaemon
 
 extension DaemonService {
     /// Runs `body` once the store holds the result of the command that
@@ -8,7 +8,7 @@ extension DaemonService {
     /// after the command's reply.
     /// `body` keeps the view-change permission of the action run that
     /// called this (`ActionRunScope`), though the store runs it later.
-    func whenApplied(_ transaction: ClientTransactionID, _ body: @escaping @MainActor () -> Void) {
+    public func whenApplied(_ transaction: ClientTransactionID, _ body: @escaping @MainActor () -> Void) {
         let run = ActionRunScope.current
         let body = { @MainActor in ActionRunScope.carrying(run, body) }
         guard let connection else { return body() }

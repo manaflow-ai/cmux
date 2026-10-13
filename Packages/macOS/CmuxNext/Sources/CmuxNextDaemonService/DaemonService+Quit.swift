@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 
 extension DaemonService {
@@ -17,7 +17,7 @@ extension DaemonService {
     ///   workspace store records each with its shell's directory, and the
     ///   next launch restarts a shell in each with the same splits and
     ///   ratios (`relaunchKeptLayoutIfNeeded`). Older daemons remove the tabs.
-    func endSessionsAndStop(_ choice: QuitSessionsChoice) async -> [EndSessionsFailure] {
+    public func endSessionsAndStop(_ choice: QuitSessionsChoice) async -> [EndSessionsFailure] {
         guard isLocal, choice.ends, let connection = endingConnection ?? connection else { return [] }
         guard supports(DaemonCapabilities.shared.terminalReap) || endingConnection != nil else {
             logger.error("end sessions: the daemon lacks \(DaemonCapabilities.shared.terminalReap, privacy: .public)")
