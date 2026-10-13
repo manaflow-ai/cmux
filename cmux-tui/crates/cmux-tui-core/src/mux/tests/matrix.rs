@@ -245,13 +245,17 @@ fn apply(seed: &Seed, step: &Value) -> Result<(), String> {
                 state.panes.get(&pane).map(|model| model.tabs.clone()).unwrap_or_default()
             });
             let (first, rest) = tabs.split_first().ok_or_else(|| failed("the pane has no tabs"))?;
+            let known = Snapshot::of(mux).workspaces;
             mux.move_tab_to_new_workspace(*first, None, None, None)
                 .map_err(|error| failed(&error.to_string()))?;
-            let target = mux
-                .with_state(|state| state.pane_of(*first))
-                .ok_or_else(|| failed("the moved tab has no pane"))?;
-            for (offset, tab) in rest.iter().enumerate() {
-                mux.move_tab(*tab, target, offset + 1);
+            let workspace = Snapshot::of(mux)
+                .workspaces
+                .into_iter()
+                .find(|workspace| !known.contains(workspace))
+                .ok_or_else(|| failed("no new workspace"))?;
+            for tab in rest {
+                mux.move_tab_to_workspace(*tab, Some(workspace))
+                    .map_err(|error| failed(&error.to_string()))?;
             }
             Ok(())
         }
@@ -293,7 +297,8 @@ fn apply(seed: &Seed, step: &Value) -> Result<(), String> {
             let mode = match step["mode"].as_str() {
                 Some("on") => ZoomMode::On,
                 Some("off") => ZoomMode::Off,
-                _ => ZoomMode::Toggle,
+                Some("toggle") => ZoomMode::Toggle,
+                other => return Err(failed(&format!("unknown zoom mode {other:?}"))),
             };
             mux.zoom_pane(Some(pane), mode).map(|_| ()).map_err(|error| failed(&error.to_string()))
         }
@@ -395,7 +400,7 @@ fn check(seed: &Seed, before: &Snapshot, after: &Snapshot, expect: &Value) -> Re
         "count-delta" => {
             let container = resolve(seed, before, after, &expect["in"], "workspace")?;
             let delta = count(after, of, container)? as i64 - count(before, of, container)? as i64;
-            let by = expect["by"].as_i64().unwrap_or(0);
+            let by = expect["by"].as_i64().ok_or("count-delta: no by")?;
             if delta == by {
                 Ok(())
             } else {
@@ -432,7 +437,7 @@ fn check(seed: &Seed, before: &Snapshot, after: &Snapshot, expect: &Value) -> Re
             }
         }
         "selected-is" => {
-            let wanted = raw(resolve(seed, before, after, &expect["id"], kind_of(of))?);
+            let wanted = raw(resolve(seed, before, after, arg(expect, "id")?, kind_of(of))?);
             let actual = match (of, resolve(seed, before, after, &expect["in"], "pane")?) {
                 ("workspace", _) => after.active_workspace,
                 ("tab", Some(Object::Pane(pane))) => {
@@ -443,7 +448,7 @@ fn check(seed: &Seed, before: &Snapshot, after: &Snapshot, expect: &Value) -> Re
             if actual == wanted { Ok(()) } else { fail(format!("{actual:?}, expected {wanted:?}")) }
         }
         "focus-on" => {
-            let wanted = raw(resolve(seed, before, after, &expect["id"], kind_of(of))?);
+            let wanted = raw(resolve(seed, before, after, arg(expect, "id")?, kind_of(of))?);
             let actual = match of {
                 "pane" => after.focused_pane,
                 "tab" => after
@@ -454,12 +459,17 @@ fn check(seed: &Seed, before: &Snapshot, after: &Snapshot, expect: &Value) -> Re
             if actual == wanted { Ok(()) } else { fail(format!("{actual:?}, expected {wanted:?}")) }
         }
         "zoomed-is" => {
-            let wanted = raw(resolve(seed, before, after, &expect["id"], "pane")?);
+            let wanted = raw(resolve(seed, before, after, arg(expect, "id")?, "pane")?);
             let actual = after.zoomed_pane;
             if actual == wanted { Ok(()) } else { fail(format!("{actual:?}, expected {wanted:?}")) }
         }
         other => fail(format!("{other} has no headless check")),
     }
+}
+
+/// A required argument; `null` is a value, a missing key is a typo.
+fn arg<'a>(expect: &'a Value, key: &str) -> Result<&'a Value, String> {
+    expect.get(key).ok_or_else(|| format!("no {key}"))
 }
 
 /// Runs one case; returns its failures.
@@ -470,6 +480,14 @@ fn run_case(case: &Value) -> Vec<String> {
     let steps = case["steps"].as_array().cloned().unwrap_or_default();
     let start = Snapshot::of(&seed.mux);
     let mut failures = Vec::new();
+    // A headless case without core steps would check its end against its own start.
+    if core.is_empty() {
+        return vec![format!("MATRIX {id}: a headless case needs core steps")];
+    }
+    // Step expectations pair each step with its core step; unpaired ones would never run.
+    if steps.iter().any(|step| step.get("expect").is_some()) && core.len() != steps.len() {
+        return vec![format!("MATRIX {id}: step expectations need one core step per step")];
+    }
     for (index, step) in core.iter().enumerate() {
         let before_layout = seed.mux.with_state(layout_invariants::project);
         let before = Snapshot::of(&seed.mux);
@@ -498,11 +516,6 @@ fn run_case(case: &Value) -> Vec<String> {
         }
         // A step's own expectations hold after its core step (one core step per step).
         if let Some(expects) = steps.get(index).and_then(|step| step["expect"].as_array()) {
-            assert_eq!(
-                core.len(),
-                steps.len(),
-                "MATRIX {id}: step expectations need one core step per step"
-            );
             let after = Snapshot::of(&seed.mux);
             for expect in expects {
                 if let Err(error) = check(&seed, &before, &after, expect) {
@@ -522,7 +535,10 @@ fn run_case(case: &Value) -> Vec<String> {
 
 #[test]
 fn matrix_cases_hold_on_the_core() {
-    let Some(file) = case_file() else { return };
+    let Some(file) = case_file() else {
+        eprintln!("MATRIX: no Packages/macOS/CmuxNext in this tree; skipped");
+        return;
+    };
     let cases: Vec<&Value> = file["cases"]
         .as_array()
         .expect("MATRIX: no cases")
