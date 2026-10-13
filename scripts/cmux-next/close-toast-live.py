@@ -2,7 +2,10 @@
 """Live behavior proof of the close toast rule (Lawrence 2026-10-12, "this toast
 shows up too often"), through a tagged app's own sockets: closing Settings or an
 idle terminal shows no toast; closing a terminal running `sleep` shows the undo
-toast, and Undo runs. Run on cmux-lawrence-2 (GUI host), never the laptop.
+toast, and Undo runs. cx-lb4al follow-ups: a pane's close others over three
+panes with one idle tab each is one costly gesture (one toast for 3 tabs); a tab
+group whose only tab runs `sleep` closes with the toast (its program is read
+before the close). Run on cmux-lawrence-2 (GUI host), never the laptop.
 Usage: close-toast-live.py TAG APP OUT_DIR
 """
 import json, os, pwd, signal, socket, subprocess, sys, tempfile, time
@@ -195,6 +198,71 @@ try:
         reply = rpc("debug.toast", {"undo": True})
         check("busy-undo-ran", reply.get("undone"), reply)
         check("busy-undo-restores", wait(lambda: pane_tabs(pane) == before, 10), (before, pane_tabs(pane)))
+
+    def tab_rows():
+        try:
+            rows = json.loads(cli("tab", "list", "--json"))
+        except ValueError:
+            return []
+        rows = rows.get("value", rows) if isinstance(rows, dict) else rows
+        return [row for row in rows if isinstance(row, dict)]
+
+    def dismiss_toasts():
+        """The next case starts with no close toast to join (a toast lasts a few seconds)."""
+        return wait(lambda: not tab_closed_toasts(), 20)
+
+    # cx-lb4al item 1: close others over 3 panes with one idle tab each shows ONE toast for 3 tabs.
+    dismiss_toasts()
+    made = cli("workspace", "create", "--name", "ct-others", "--json")
+    first = (json.loads(made).get("value") or {}) if made.startswith("{") else {}
+    p0 = first.get("pane_id")
+    print("others workspace:", made[:300], flush=True)
+    if p0:
+        rpc("action.run", {"action": "tab.focus", "target": "tab:%s" % first.get("tab_id"), "focus": True, "wait": True})
+        known = {p0}
+
+        def split(target, side):
+            out = cli("pane", target, "split", side, "--json")
+            print("split %s %s:" % (target, side), out[:300], flush=True)
+            new_pane = ((json.loads(out).get("value") or {}).get("pane_id")) if out.startswith("{") else None
+            # A reply without the new pane's id: take it from the tab list of this workspace.
+            ws = first.get("workspace_id")
+            found = {new_pane} if new_pane else {r.get("pane_id") for r in tab_rows() if ws and r.get("workspace_id") == ws}
+            known.update(p for p in found if p)
+            return new_pane
+
+        right = split(p0, "--right")
+        split(p0, "--down")
+        split(right or p0, "--down")
+        panes = sorted(known)
+        in_ws = lambda: sum(1 for r in tab_rows() if r.get("pane_id") in known)
+        check("others-setup", len(panes) == 4, panes)
+        time.sleep(2)  # test harness: the shells start and the pane controllers are made
+        before = in_ws()
+        reply = rpc("debug.toast", {"perform": "pane.closeOthers", "target_kind": "pane", "target_id": p0})
+        check("others-close-ran", reply.get("performed"), reply)
+        check("others-close-closes", wait(lambda: in_ws() == 1, 10), (before, in_ws()))
+        # Each pane's records join the showing toast: it ends as one "Closed 3 tabs" toast.
+        shown = wait(lambda: [t for t in tab_closed_toasts() if "3" in t.get("message", "")], 10)
+        check("others-close-one-toast", shown and len(tab_closed_toasts()) == 1, toasts())
+
+    # cx-lb4al item 2: a tab group whose one tab runs `sleep` closes with the toast.
+    dismiss_toasts()
+    pane, value = second_tab("ct-group")
+    check("group-setup", value.get("tab_id"), value)
+    if value.get("tab_id"):
+        cli("terminal", value["terminal_id"], "write", "--text", "sleep 1000\n")
+        made = cli("tab", "group", "create", "--tabs", value["tab_id"], "--name", "busy", "--json")
+        print("group:", made[:300], flush=True)
+        group = ((json.loads(made).get("value") or {}).get("group") or {}).get("id") if made.startswith("{") else None
+        check("group-created", group, made)
+        time.sleep(2)  # test harness: sleep becomes the foreground program
+        before = pane_tabs(pane)
+        reply = rpc("debug.toast", {"perform": "tabGroup.close", "target_kind": "tab-group", "target_id": group or ""})
+        check("group-close-ran", reply.get("performed"), reply)
+        check("group-close-closes", wait(lambda: pane_tabs(pane) == before - 1, 10), (before, pane_tabs(pane)))
+        shown = wait(lambda: tab_closed_toasts(), 10)
+        check("group-close-toast", shown, toasts())
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "end.png")}, timeout=60)
 finally:
     print("teardown quit:", json.dumps(rpc("action.run", {"id": "quit", "args": {"endSessions": True}}, timeout=10))[:200])
