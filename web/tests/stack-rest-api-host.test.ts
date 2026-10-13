@@ -38,6 +38,8 @@ const originalFetch = globalThis.fetch;
  * the same Stack host as the SDK for every configuration.
  */
 function sdkServerBaseUrl(_: undefined): string {
+  // The SDK starts a background backend-URL lookup; keep it off the network.
+  globalThis.fetch = (async () => { throw new TypeError("network disabled in test"); }) as unknown as typeof fetch;
   const app = new StackServerApp({
     projectId: "00000000-0000-4000-8000-000000000001",
     publishableClientKey: "pck_test",
