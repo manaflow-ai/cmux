@@ -72,6 +72,28 @@ struct CloudManualMirrorHandshakeTests {
         #expect(fixture.connectionCount() == 1)
     }
 
+    /// Closing the pane while the adopted registration is still unanswered
+    /// releases the stream; a late acknowledgement sends nothing more.
+    @Test @MainActor
+    func stoppingWhileTheRegistrationIsPendingSendsNoAttach() async throws {
+        let fixture = try CloudManualMirrorSocketFixture()
+        defer { fixture.close() }
+        let handshake = Self.handshake()
+        handshake.start { fixture.socketPath }
+        let identify = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        fixture.send(["id": identify.id, "ok": true, "data": ["capabilities": Self.capabilities]])
+        let registration = try #require(await fixture.nextCommand(timeout: .seconds(5)))
+        #expect(registration.cmd == "set-client-info")
+
+        let session = Self.session(terminalID: "term_closed")
+        session.reconnect(socketPath: fixture.socketPath, handshake: handshake)
+        session.stop()
+        fixture.send(["id": registration.id, "ok": true, "data": [:]])
+        let late = await fixture.nextCommand(timeout: .milliseconds(400))
+        #expect(late == nil, "sent \(late?.cmd ?? "nothing") after the pane closed")
+        #expect(fixture.connectionCount() == 1)
+    }
+
     /// A link that reconnected while the terminal was created has a new socket;
     /// the stale registration is dropped and the session registers afresh.
     @Test @MainActor

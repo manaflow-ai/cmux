@@ -30,8 +30,24 @@ struct CLIChildEnvironment {
 
     private static func isInside(_ path: String?, home: String) -> Bool {
         guard let path, !path.isEmpty else { return false }
-        let root = URL(fileURLWithPath: home, isDirectory: true).standardizedFileURL.path
-        let candidate = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL.path
+        // Compare real locations: an in-home symlink to a shared directory is
+        // not inside the fixture.
+        let root = resolvedPath(home)
+        let candidate = resolvedPath(path)
         return candidate.hasPrefix(root.hasSuffix("/") ? root : root + "/")
+    }
+
+    /// Resolves symlinks through the deepest existing ancestor, then appends
+    /// the components that do not exist yet.
+    private static func resolvedPath(_ path: String) -> String {
+        var existing = URL(fileURLWithPath: path, isDirectory: true).standardizedFileURL
+        var missing: [String] = []
+        while !FileManager.default.fileExists(atPath: existing.path), existing.path != "/" {
+            missing.insert(existing.lastPathComponent, at: 0)
+            existing.deleteLastPathComponent()
+        }
+        var resolved = existing.resolvingSymlinksInPath()
+        for component in missing { resolved.appendPathComponent(component, isDirectory: true) }
+        return resolved.path
     }
 }
