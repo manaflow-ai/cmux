@@ -62,6 +62,22 @@ public enum ConversationHeaderGeometry {
 
     /// Messages centers the back chevron 1/3 pt below the circle's middle.
     public static let backChevronDrop: CGFloat = 1.0 / 3
+
+    /// A layer shadow: black at `opacity`, blurred by `radius`, moved by
+    /// `offset`, cast by a circle of `pathDiameter` at the layer origin.
+    public struct AvatarShadow: Equatable, Sendable {
+        public let opacity: Float
+        public let radius: CGFloat
+        public let offset: CGSize
+        public let pathDiameter: CGFloat
+    }
+
+    /// ChatKit's CKAvatarButton shadow (iOS 27.0): black 30 %, radius 3,
+    /// offset (5, 10), a 50 pt circle at the origin, so it hides behind the
+    /// 60 pt photo but for a faint lower-right rim. UIKit's zoom morph carries
+    /// the source's shadow; a source without one closes the details as a
+    /// frosted glass card with a wide shadow, which Messages never shows.
+    public static let avatarShadow = AvatarShadow(opacity: 0.3, radius: 3, offset: CGSize(width: 5, height: 10), pathDiameter: 50)
 }
 
 /// Messages' top scroll edge on iOS 26 (UIKit's pocket with a color): the

@@ -1,4 +1,5 @@
 #if canImport(UIKit)
+import CmuxConversationGeometry
 import Photos
 import UIKit
 
@@ -7,6 +8,14 @@ import UIKit
 @MainActor
 final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
     var onToggle: ((PHAsset, Bool) -> Void)?
+    /// A pull on the sheet: its offset below rest (down positive).
+    var onDrag: ((CGFloat) -> Void)?
+    /// The pull let go: the offset and the finger's speed (points per
+    /// second, down positive).
+    var onRelease: ((CGFloat, CGFloat) -> Void)?
+    /// The finger's travel past the grid's top while pulling the sheet.
+    private var pullTranslation: CGFloat = 0
+    private var isSettingOffset = false
     private var assets: PHFetchResult<PHAsset>?
     private var selection: [String] = []
     private let imageManager = PHCachingImageManager()
@@ -17,6 +26,8 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         view.dataSource = self
         view.delegate = self
         view.register(Cell.self, forCellWithReuseIdentifier: "p")
+        // Pulled down at its top, the grid moves the sheet as Messages' does.
+        view.alwaysBounceVertical = true
         view.accessibilityIdentifier = "conversation.photoGrid"
         return view
     }()
@@ -71,6 +82,36 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
             layout.minimumLineSpacing = gutter
             layout.itemSize = CGSize(width: side, height: side)
         }
+    }
+
+    // MARK: Pull to close
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard !isSettingOffset, scrollView.isTracking else { return }
+        let top = -scrollView.adjustedContentInset.top
+        let past = top - scrollView.contentOffset.y
+        guard past > 0 || pullTranslation != 0 else { return }
+        // The sheet takes the pull; the grid stays at its top.
+        pullTranslation = max(0, pullTranslation + past)
+        isSettingOffset = true
+        scrollView.contentOffset.y = top
+        isSettingOffset = false
+        onDrag?(PhotoDrawerGeometry.dragOffset(translation: pullTranslation))
+    }
+
+    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        guard pullTranslation > 0 else { return }
+        targetContentOffset.pointee.y = -scrollView.adjustedContentInset.top
+        let offset = PhotoDrawerGeometry.dragOffset(translation: pullTranslation)
+        pullTranslation = 0
+        onRelease?(offset, -velocity.y * 1000)
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        guard pullTranslation > 0 else { return }
+        let offset = PhotoDrawerGeometry.dragOffset(translation: pullTranslation)
+        pullTranslation = 0
+        onRelease?(offset, 0)
     }
 
     private func load() {

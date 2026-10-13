@@ -36,6 +36,15 @@ public enum ComposerBarGeometry {
     /// `plus` image is 0.67 pt taller than 26.5's, and Messages 27 draws the
     /// glyph one pixel higher than a centered image (26.5: centered).
     public static func plusGlyphOffsetY(iOS27: Bool) -> CGFloat { iOS27 ? -1.0 / 3 : 0 }
+
+    /// Whether the empty field shows the record waveform rather than the
+    /// microphone. Messages 26.5 shows dictation's microphone until audio
+    /// has been sent; Messages 27.0 keeps dictation on the keyboard and shows
+    /// the waveform (New Message, iOS 27.0 simulator).
+    public static func showsRecordGlyph(iOS27: Bool, sentAudio: Bool) -> Bool { iOS27 || sentAudio }
+    /// The disabled plus's ink opacity (New Message before a recipient):
+    /// 190 (26.5) and 176 (27.0) on the light glass.
+    public static func disabledPlusAlpha(iOS27: Bool) -> CGFloat { iOS27 ? 0.3 : 0.24 }
     /// The send glyph: SF Symbol `arrow.up`, bold, medium scale: 13 by 16 pt
     /// of ink with a 2.33 pt stroke. The size is the best pixel fit to
     /// Messages' arrow in place (16.6 to 18 pt searched in 0.1 pt steps).

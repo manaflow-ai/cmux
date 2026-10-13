@@ -1,6 +1,8 @@
 #if canImport(UIKit)
 import CmuxConversationCore
 import CmuxConversationGeometry
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import UIKit
 
 /// Messages "Send with effect": a long press on the send button opens a
@@ -23,7 +25,10 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     private let sendButtonFrame: CGRect
     private let reduceMotion: Bool
 
-    private let backdrop = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+    /// Messages' backdrop (`EffectPickerBackdrop`): the conversation behind,
+    /// tinted and blurred at radius 64, under a black (light: white) wash.
+    private let backdrop = UIImageView()
+    private let backdropWash = UIView()
     private let titleLabel = UILabel()
     private let modeControl = UISegmentedControl(items: [ConversationEffectStrings.bubble, ConversationEffectStrings.screen])
     private let cancelButton = UIButton(type: .custom)
@@ -62,7 +67,14 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         super.viewDidLoad()
         view.backgroundColor = .clear
         view.accessibilityViewIsModal = true
+        backdrop.contentMode = .scaleToFill
         view.addSubview(backdrop)
+        backdropWash.backgroundColor = UIColor {
+            let backdrop = EffectPickerBackdrop(dark: $0.userInterfaceStyle == .dark)
+            return UIColor(white: backdrop.washWhite, alpha: backdrop.washAlpha)
+        }
+        backdropWash.isUserInteractionEnabled = false
+        view.addSubview(backdropWash)
 
         screenPreview.alpha = 0
         view.addSubview(screenPreview)
@@ -201,6 +213,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         backdrop.frame = view.bounds
+        backdropWash.frame = view.bounds
         screenPreview.frame = view.bounds
         let g = geometry
         titleLabel.frame = g.title
@@ -363,6 +376,67 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     private func cancel() {
         previewGeneration += 1
         onCancel?()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        renderBackdrop(afterScreenUpdates: false)
+    }
+
+    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        guard previousTraitCollection?.userInterfaceStyle != traitCollection.userInterfaceStyle, backdrop.image != nil else { return }
+        renderBackdrop(afterScreenUpdates: true)
+    }
+
+    /// The conversation behind holds still while the picker is up, so one
+    /// small snapshot carries Messages' radius-64 blur, which no public
+    /// material reaches. Reduce Transparency keeps the system material.
+    private func renderBackdrop(afterScreenUpdates: Bool) {
+        if !UIAccessibility.isReduceTransparencyEnabled,
+           let source = presentingViewController?.view,
+           let image = Self.blurredSnapshot(of: source, afterScreenUpdates: afterScreenUpdates) {
+            backdrop.image = image
+            backdropMaterial?.removeFromSuperview()
+            backdropMaterial = nil
+            return
+        }
+        guard backdropMaterial == nil else { return }
+        let material = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+        material.frame = view.bounds
+        material.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.insertSubview(material, aboveSubview: backdrop)
+        backdropMaterial = material
+    }
+
+    private var backdropMaterial: UIVisualEffectView?
+
+    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+
+    static func blurredSnapshot(of source: UIView, afterScreenUpdates: Bool) -> UIImage? {
+        let bounds = source.bounds
+        guard bounds.width > 0, bounds.height > 0 else { return nil }
+        let format = UIGraphicsImageRendererFormat(for: source.traitCollection)
+        format.scale = EffectPickerBackdrop.renderScale
+        format.opaque = true
+        let snapshot = UIGraphicsImageRenderer(bounds: bounds, format: format).image { context in
+            UIColor.systemBackground.resolvedColor(with: source.traitCollection).setFill()
+            context.fill(bounds)
+            source.drawHierarchy(in: bounds, afterScreenUpdates: afterScreenUpdates)
+        }
+        guard let cgImage = snapshot.cgImage else { return nil }
+        let content = CIImage(cgImage: cgImage)
+        let extent = content.extent
+        let tint = EffectPickerBackdrop.tint
+        let blend = CIFilter.linearLightBlendMode()
+        blend.inputImage = CIImage(color: CIColor(red: tint.red / 255, green: tint.green / 255, blue: tint.blue / 255, alpha: tint.alpha)).cropped(to: extent)
+        blend.backgroundImage = content
+        let blur = CIFilter.gaussianBlur()
+        blur.inputImage = blend.outputImage?.clampedToExtent()
+        blur.radius = Float(EffectPickerBackdrop.pixelRadius)
+        guard let output = blur.outputImage?.cropped(to: extent),
+              let rendered = ciContext.createCGImage(output, from: extent) else { return nil }
+        return UIImage(cgImage: rendered, scale: EffectPickerBackdrop.renderScale, orientation: .up)
     }
 
     override func accessibilityPerformEscape() -> Bool {

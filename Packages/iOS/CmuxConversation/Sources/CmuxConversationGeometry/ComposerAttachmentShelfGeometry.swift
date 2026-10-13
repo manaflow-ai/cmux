@@ -136,4 +136,22 @@ public enum PhotoDrawerGeometry {
         let keyboard = keyboardHeight >= 200 ? keyboardHeight : typicalKeyboardHeight
         return keyboard - keyboardTopOffset - inset
     }
+
+    /// How far the sheet sits below its rest for a finger `translation`
+    /// (down positive): 1:1 down, rubber-banded up (UIScrollView's curve,
+    /// 50 pt at most).
+    public static func dragOffset(translation: CGFloat) -> CGFloat {
+        guard translation < 0 else { return translation }
+        let limit: CGFloat = 50
+        return -(1 - 1 / (-translation * 0.55 / limit + 1)) * limit
+    }
+
+    /// Whether a released pull closes the sheet: the offset plus its glide
+    /// at the normal deceleration rate (0.998/ms) passes half the sheet.
+    /// `velocity` is in points per second, down positive.
+    public static func shouldClose(offset: CGFloat, velocity: CGFloat, height: CGFloat) -> Bool {
+        let rate: CGFloat = 0.998
+        let glide = velocity / 1000 * rate / (1 - rate)
+        return offset + glide > height / 2
+    }
 }

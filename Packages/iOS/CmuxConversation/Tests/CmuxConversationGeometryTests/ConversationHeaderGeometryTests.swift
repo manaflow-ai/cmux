@@ -71,3 +71,17 @@ import Testing
         #expect(ramp.allSatisfy { $0.wash <= 0.6 + 0.0001 })
     }
 }
+
+/// ChatKit's CKAvatarButton carries a shadow: black 30 %, radius 3, offset
+/// (5, 10) under a 50 pt circle path (iOS 27.0). UIKit's zoom close morphs
+/// that source shadow; without one, the details close as a frosted glass
+/// card with a wide shadow, which Messages never shows.
+@Suite struct ConversationHeaderAvatarShadowTests {
+    @Test func avatarShadowMatchesChatKitAvatarButton() {
+        let shadow = ConversationHeaderGeometry.avatarShadow
+        #expect(shadow.opacity == 0.3)
+        #expect(shadow.radius == 3)
+        #expect(shadow.offset == CGSize(width: 5, height: 10))
+        #expect(shadow.pathDiameter == 50)
+    }
+}
