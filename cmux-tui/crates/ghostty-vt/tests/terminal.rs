@@ -1207,3 +1207,15 @@ fn empty_kitty_graphics_probe_keeps_checkpoint_replay_readable() {
     term.vt_replay_bounded(1024 * 1024)
         .expect("an empty Kitty capability probe must not poison replay capture");
 }
+
+#[test]
+fn oversized_kitty_upload_is_not_resumable() {
+    let mut term = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+    term.set_kitty_inflight_storage_limit(64);
+    let mut upload = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+    upload.resize(1024, b'A');
+    term.vt_write(&upload);
+
+    assert!(term.discard_unreplayable_replay().is_some());
+    assert!(term.vt_replay_resumes_stream());
+}
