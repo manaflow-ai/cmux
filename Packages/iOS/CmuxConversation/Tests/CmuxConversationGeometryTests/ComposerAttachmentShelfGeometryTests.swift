@@ -116,8 +116,11 @@ import Testing
         #expect(abs(height - 313.3) < 0.8)
     }
 
-    @Test func picksUpToFiftyItems() {
-        #expect(PhotoDrawerGeometry.selectionLimit == 50)
+    /// The picker's title: "Select up to 50 items." in Messages 27,
+    /// "Select up to 20 items." in Messages 26.5.
+    @Test func picksUpToEachOSsLimit() {
+        #expect(PhotoDrawerGeometry.selectionLimit(iOS27: true) == 50)
+        #expect(PhotoDrawerGeometry.selectionLimit(iOS27: false) == 20)
     }
 
     @Test func composerRidesTheSheetAtTheKeyboardDetent() {
