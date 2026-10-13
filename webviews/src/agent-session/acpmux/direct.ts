@@ -1986,6 +1986,11 @@ export class AcpmuxDirectClient {
     if (!sessionId) throw new Error(translate("error.notOpen"));
     await this.request("_acpmux/markUnread", { sessionId });
   }
+  /// New side chat: acpmux tags the fork `sessionId` as a side chat of `chat` (the `side` tag),
+  /// which keeps it off the lists (cx-jlzsf).
+  async markSide(sessionId: string, chat: string): Promise<void> {
+    await this.request("_acpmux/side", { sessionId, chat });
+  }
   /// This Mac's acpmux health row for harness `id` (`_acpmux/harness/health`, cx-ny85), or
   /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
   /// install from the Harnesses page).

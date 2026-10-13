@@ -3539,8 +3539,13 @@ function AcpmuxPane() {
           },
           "chat.ask": ({ question }) => client.ask(String(question ?? "")),
           "chat.side": async ({ throughSeq }) => {
+            // The chat it is beside, read before the fork (the reader may open another chat meanwhile).
+            const chat = client.selectedSession;
             const sessionId = await client.forkAside(Number(throughSeq));
-            if (sessionId) await postNative("chat.sideChat", { sessionId });
+            if (!sessionId || !chat) return;
+            // acpmux marks it the chat's side chat; the app only opens it beside the chat.
+            await client.markSide(sessionId, chat);
+            await postNative("chat.sideChat", { sessionId });
           },
           "chat.handoff.prepare": async ({ harness }) => {
             harnessSwitch.cancel();
