@@ -42,11 +42,13 @@ struct PinnedPageTests {
         }
     }
 
-    /// Polls `condition` (the store follows the daemon's events) up to a deadline.
-    static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(20)) async throws {
+    /// Polls `condition` (the store follows the daemon's events) up to a
+    /// deadline. A timeout is reported at the caller's line: which wait it was.
+    static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(20),
+                      sourceLocation: SourceLocation = #_sourceLocation) async throws {
         let deadline = ContinuousClock.now + timeout
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
-        try #require(condition(), "timed out")
+        try #require(condition(), "timed out", sourceLocation: sourceLocation)
     }
 
     /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
