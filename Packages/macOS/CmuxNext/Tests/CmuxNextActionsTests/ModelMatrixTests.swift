@@ -35,6 +35,10 @@ import Testing
         #expect(Set(table.keys) == Self.codes, "the invariant table and this suite's codes differ")
         let entries = try #require(file["entries"] as? [String: [String: Any]])
         let presets = try #require(file["presets"] as? [String: [String: Any]])
+        let words = try #require(file["vocabulary"] as? [String: Any])
+        let vocabulary = try #require(words["of"] as? [String: String])
+        let arguments = try #require(words["args"] as? [String: [String]])
+        #expect(Set(arguments.keys) == Self.codes, "the argument table and this suite's codes differ")
         var ids = Set<String>()
         for item in cases {
             let id = item["id"] as? String ?? "?"
@@ -54,10 +58,18 @@ import Testing
                 expects += step["expect"] as? [[String: Any]] ?? []
             }
             for expect in expects {
-                #expect(Self.codes.contains(expect["code"] as? String ?? ""), "MATRIX \(id): unknown code \(expect["code"] ?? "nil")")
+                let code = expect["code"] as? String ?? ""
+                #expect(Self.codes.contains(code), "MATRIX \(id): unknown code \(code)")
+                // Exactly the arguments the code takes ("in?" is optional), and an `of` from the vocabulary.
+                let args = arguments[code] ?? []
+                let given = Set(expect.keys).subtracting(["code"])
+                let required = Set(args.filter { !$0.hasSuffix("?") })
+                let allowed = required.union(args.filter { $0.hasSuffix("?") }.map { String($0.dropLast()) })
+                #expect(required.isSubset(of: given) && given.isSubset(of: allowed), "MATRIX \(id): \(code) takes \(args), got \(given.sorted())")
+                if let of = expect["of"] as? String { #expect(vocabulary[of] != nil, "MATRIX \(id): \(code) of \(of)") }
             }
             if tiers.contains("headless") {
-                #expect(item["core"] is [[String: Any]], "MATRIX \(id): a headless case needs core steps")
+                #expect((item["core"] as? [[String: Any]])?.isEmpty == false, "MATRIX \(id): a headless case needs core steps")
                 let live = expects.compactMap { $0["code"] as? String }.filter(Self.liveOnlyCodes.contains)
                 #expect(live.isEmpty, "MATRIX \(id): \(live) has no headless meaning")
             }
@@ -83,7 +95,7 @@ import Testing
                 if let fixed = spec["actions"] as? [String] {
                     if !fixed.contains(action) { failures.append("MATRIX \(id): \(entry) does not run \(action)") }
                     // A fixed entry's action is a catalog action unless the entry says it bypasses the registry.
-                    if catalog[action] == nil, !action.hasPrefix("\(entry).") { failures.append("MATRIX \(id): \(action) is no action") }
+                    if catalog[action] == nil, spec["bypassesRegistry"] as? Bool != true { failures.append("MATRIX \(id): \(action) is no action") }
                     continue
                 }
                 guard let descriptor = catalog[action] else {

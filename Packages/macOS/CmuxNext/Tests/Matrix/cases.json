@@ -34,7 +34,7 @@
   },
   "cli": {
    "surface": "cli",
-   "note": "The action's named CLI verb (`cmux <noun> <verb>`)."
+   "note": "`cmux action run <id> --focus` with the target: a user-origin run. Without --focus the CLI never changes the view (ActionInvocation.allowsViewChange)."
   },
   "strip-plus": {
    "actions": [
@@ -46,7 +46,8 @@
    "actions": [
     "sidebar.newWorkspace"
    ],
-   "note": "The sidebar's + button. It calls WindowManager.newWorkspace directly, not an action (SidebarBridge+Intents)."
+   "note": "The sidebar's + button. It calls WindowManager.newWorkspace directly, not an action (SidebarBridge+Intents).",
+   "bypassesRegistry": true
   },
   "drag": {
    "actions": [
@@ -113,7 +114,7 @@
    }
   },
   "ws3": {
-   "workspaces": "1",
+   "workspaces": "3",
    "panes": "single",
    "focus": "terminal",
    "objects": {
@@ -396,18 +397,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "above"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.newAbove.palette",
@@ -453,18 +447,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "above"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.newAbove.cli",
@@ -510,18 +497,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "above"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.newBelow.context-menu",
@@ -567,18 +547,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "below"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.newBelow.palette",
@@ -624,18 +597,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "below"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.newBelow.cli",
@@ -681,18 +647,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "below"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.newAtTop.context-menu",
@@ -738,18 +697,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "atTop"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.newAtTop.palette",
@@ -795,18 +747,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "atTop"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.newAtTop.cli",
@@ -852,18 +797,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "atTop"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.newAtBottom.context-menu",
@@ -909,18 +847,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "atBottom"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.newAtBottom.palette",
@@ -966,18 +897,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "atBottom"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.newAtBottom.cli",
@@ -1023,18 +947,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "relative_to": "$w2",
-     "position": "atBottom"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.create.likeThis.palette",
@@ -1072,8 +989,7 @@
    ],
    "core": [
     {
-     "op": "new_workspace",
-     "like": "$w2"
+     "op": "new_workspace"
     }
    ],
    "tiers": [
@@ -1117,8 +1033,7 @@
    ],
    "core": [
     {
-     "op": "new_workspace",
-     "kind": "browser"
+     "op": "new_workspace"
     }
    ],
    "tiers": [
@@ -1163,8 +1078,7 @@
    ],
    "core": [
     {
-     "op": "new_workspace",
-     "like": "$w2"
+     "op": "new_workspace"
     }
    ],
    "tiers": [
@@ -1208,8 +1122,7 @@
    ],
    "core": [
     {
-     "op": "new_workspace",
-     "kind": "browser"
+     "op": "new_workspace"
     }
    ],
    "tiers": [
@@ -1725,18 +1638,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 0
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.up.shortcut",
@@ -1772,18 +1678,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 0
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.up.menu",
@@ -1819,18 +1718,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 0
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.down.palette",
@@ -1866,18 +1758,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 2
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.down.shortcut",
@@ -1913,18 +1798,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 2
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.down.menu",
@@ -1960,18 +1838,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 2
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.up.context-menu",
@@ -2007,18 +1878,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 0
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.down.context-menu",
@@ -2054,18 +1918,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 2
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.up.cli",
@@ -2101,18 +1958,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 0
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.down.cli",
@@ -2148,18 +1998,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 2
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.up.drag",
@@ -2198,18 +2041,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 0
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.down.drag",
@@ -2248,18 +2084,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 2
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.up.atTop",
@@ -2290,19 +2119,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w1",
-     "index": 0
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
    ],
-   "note": "Moving the top workspace up changes nothing."
+   "note": "Moving the top workspace up changes nothing. Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.toBottom.context-menu",
@@ -2338,18 +2159,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 2
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.drag20",
@@ -2382,21 +2196,39 @@
      "code": "selected-is",
      "of": "workspace",
      "id": "$w1"
-    }
-   ],
-   "core": [
+    },
     {
-     "op": "move_workspace",
-     "workspace": "$w20",
-     "index": 0
+     "code": "order-is",
+     "of": "workspaces",
+     "ids": [
+      "$w20",
+      "$w1",
+      "$w2",
+      "$w3",
+      "$w4",
+      "$w5",
+      "$w6",
+      "$w7",
+      "$w8",
+      "$w9",
+      "$w10",
+      "$w11",
+      "$w12",
+      "$w13",
+      "$w14",
+      "$w15",
+      "$w16",
+      "$w17",
+      "$w18",
+      "$w19"
+     ]
     }
    ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
    ],
-   "note": "The last of 20 workspaces dragged to the top."
+   "note": "The last of 20 workspaces dragged to the top. Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "workspace.reorder.pinned.palette",
@@ -2431,7 +2263,7 @@
     "hid",
     "monkey"
    ],
-   "note": "A workspace never moves above a pinned one. Groups and pinning live in the app's sidebar layout, not the daemon core: no headless core run."
+   "note": "A workspace never moves above a pinned one. Groups and pinning live in the app's sidebar layout, not the daemon core: no headless core run. Sidebar order is the app's personal order: the app computes the index (AppActions+PersonalOrder) and the core only stores it, so no headless core run; a headless Swift runner for it is cx-gkyi1 follow-up."
   },
   {
    "id": "tab.reorder.left.palette",
@@ -3380,10 +3212,6 @@
      "of": "tabs",
      "in": "$w3",
      "by": 1
-    },
-    {
-     "code": "items-kept",
-     "of": "workspaces"
     }
    ],
    "core": [
@@ -3398,7 +3226,7 @@
     "hid",
     "monkey"
    ],
-   "note": "The source workspace keeps existing or closes per the empty-workspace rule; layout-valid covers both."
+   "note": "$t1 is $w2's only tab: whether $w2 then closes follows the empty-workspace rule; this case checks only the tab's move."
   },
   {
    "id": "tab.move.toWorkspace.context-menu",
@@ -3424,10 +3252,6 @@
      "of": "tabs",
      "in": "$w3",
      "by": 1
-    },
-    {
-     "code": "items-kept",
-     "of": "workspaces"
     }
    ],
    "core": [
@@ -3442,7 +3266,7 @@
     "hid",
     "monkey"
    ],
-   "note": "The source workspace keeps existing or closes per the empty-workspace rule; layout-valid covers both."
+   "note": "$t1 is $w2's only tab: whether $w2 then closes follows the empty-workspace rule; this case checks only the tab's move."
   },
   {
    "id": "tab.move.toWorkspace.cli",
@@ -3468,10 +3292,6 @@
      "of": "tabs",
      "in": "$w3",
      "by": 1
-    },
-    {
-     "code": "items-kept",
-     "of": "workspaces"
     }
    ],
    "core": [
@@ -3486,7 +3306,7 @@
     "hid",
     "monkey"
    ],
-   "note": "The source workspace keeps existing or closes per the empty-workspace rule; layout-valid covers both."
+   "note": "$t1 is $w2's only tab: whether $w2 then closes follows the empty-workspace rule; this case checks only the tab's move."
   },
   {
    "id": "tab.move.toWorkspace.drag",
@@ -3515,10 +3335,6 @@
      "of": "tabs",
      "in": "$w3",
      "by": 1
-    },
-    {
-     "code": "items-kept",
-     "of": "workspaces"
     }
    ],
    "core": [
@@ -3533,7 +3349,7 @@
     "hid",
     "monkey"
    ],
-   "note": "The source workspace keeps existing or closes per the empty-workspace rule; layout-valid covers both."
+   "note": "$t1 is $w2's only tab: whether $w2 then closes follows the empty-workspace rule; this case checks only the tab's move."
   },
   {
    "id": "tab.move.toNewSplit.palette",
@@ -4201,7 +4017,8 @@
     "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "The HID seed needs a window wide enough for a fifth pane; a split without room is refused."
   },
   {
    "id": "split.close.palette",
@@ -4338,11 +4155,13 @@
    "core": [
     {
      "op": "zoom_pane",
-     "pane": "$p1"
+     "pane": "$p1",
+     "mode": "toggle"
     },
     {
      "op": "zoom_pane",
-     "pane": "$p1"
+     "pane": "$p1",
+     "mode": "toggle"
     }
    ],
    "tiers": [
@@ -4401,11 +4220,13 @@
    "core": [
     {
      "op": "zoom_pane",
-     "pane": "$p1"
+     "pane": "$p1",
+     "mode": "toggle"
     },
     {
      "op": "zoom_pane",
-     "pane": "$p1"
+     "pane": "$p1",
+     "mode": "toggle"
     }
    ],
    "tiers": [
@@ -4464,11 +4285,13 @@
    "core": [
     {
      "op": "zoom_pane",
-     "pane": "$p1"
+     "pane": "$p1",
+     "mode": "toggle"
     },
     {
      "op": "zoom_pane",
-     "pane": "$p1"
+     "pane": "$p1",
+     "mode": "toggle"
     }
    ],
    "tiers": [
@@ -4522,7 +4345,8 @@
    "core": [
     {
      "op": "zoom_pane",
-     "pane": "$p2"
+     "pane": "$p2",
+     "mode": "toggle"
     },
     {
      "op": "close_pane",
@@ -4571,7 +4395,8 @@
    "core": [
     {
      "op": "zoom_pane",
-     "pane": "$p1"
+     "pane": "$p1",
+     "mode": "toggle"
     },
     {
      "op": "split",
@@ -4586,5 +4411,57 @@
    ],
    "note": "Splitting a zoomed pane keeps the layout valid."
   }
- ]
+ ],
+ "vocabulary": {
+  "of": {
+   "workspaces": "workspaces in sidebar order",
+   "panes": "panes in the layout",
+   "tabs": "tabs placed in the layout (a closed pane's terminals may survive detached; they don't count)",
+   "groups": "workspace groups",
+   "workspace": "the selected workspace",
+   "pane": "a pane",
+   "tab": "a tab"
+  },
+  "target": "The object the action acts on. palette, menu, shortcut and strip-plus runners focus or select it first; context-menu right-clicks it; cli passes it; drag drags it.",
+  "args": {
+   "items-kept": [
+    "of"
+   ],
+   "item-set-kept": [
+    "of"
+   ],
+   "count-delta": [
+    "of",
+    "by",
+    "in?"
+   ],
+   "order-is": [
+    "of",
+    "ids",
+    "in?"
+   ],
+   "pane-has": [
+    "pane",
+    "tab"
+   ],
+   "selected-is": [
+    "of",
+    "id",
+    "in?"
+   ],
+   "focus-on": [
+    "of",
+    "id"
+   ],
+   "zoomed-is": [
+    "id"
+   ],
+   "answers-within-ms": [
+    "ms"
+   ],
+   "no-crash": [],
+   "layout-valid": [],
+   "restored-equal": []
+  }
+ }
 }
