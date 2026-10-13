@@ -18,6 +18,7 @@
 		8BD72848E6A45991B1C19C64 /* PairView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C8AFBCE0EE78C73DD21C6A38 /* PairView.swift */; };
 		8FD25FE9777F3A124516AA7F /* SeedImport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3FF8B403BAE7CCD08C35184D /* SeedImport.swift */; };
 		8FD3A62EEE7F8AEEF1933A18 /* HostEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F7C179D5FF8893AF8F176074 /* HostEditorView.swift */; };
+		9B1B726D7E853D9963B1F5C3 /* PerfLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18DCFFBB41E2FD5373FDEDBC /* PerfLog.swift */; };
 		A7799914403C1BF49AB9B6F7 /* Autopilot.swift in Sources */ = {isa = PBXBuildFile; fileRef = E34218DA8A55EF28C184DB10 /* Autopilot.swift */; };
 		BCD401C9770E76EF2FF5C7B5 /* RemoteScreenViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 62BAA2524031412BF3038399 /* RemoteScreenViewController.swift */; };
 		DAFDB8F94A293A9DFA7EDE96 /* HostStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 763951F27B0C01E5C5523742 /* HostStore.swift */; };
@@ -28,6 +29,7 @@
 
 /* Begin PBXFileReference section */
 		0C21C1DFEAB881D45F4FB21E /* CmuxVNCiOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CmuxVNCiOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		18DCFFBB41E2FD5373FDEDBC /* PerfLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerfLog.swift; sourceTree = "<group>"; };
 		37AA48D52635C68ECBAB9E01 /* MacShortcutsBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacShortcutsBar.swift; sourceTree = "<group>"; };
 		3922A291E66A69D6BB43CE46 /* KeyInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyInputView.swift; sourceTree = "<group>"; };
 		3E1DB2147CBCD84F34A58FA3 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -117,6 +119,7 @@
 			children = (
 				E34218DA8A55EF28C184DB10 /* Autopilot.swift */,
 				763951F27B0C01E5C5523742 /* HostStore.swift */,
+				18DCFFBB41E2FD5373FDEDBC /* PerfLog.swift */,
 				516E107D77ED1D54537104D0 /* RemoteSession.swift */,
 				3FF8B403BAE7CCD08C35184D /* SeedImport.swift */,
 				789676ADCF30DB0BD93352BC /* Snapshotter.swift */,
@@ -227,6 +230,7 @@
 				21AD5EC1C4EEF48DEACB62D6 /* KeyInputView.swift in Sources */,
 				26C0895F7E142FEE54DF3D90 /* MacShortcutsBar.swift in Sources */,
 				8BD72848E6A45991B1C19C64 /* PairView.swift in Sources */,
+				9B1B726D7E853D9963B1F5C3 /* PerfLog.swift in Sources */,
 				BCD401C9770E76EF2FF5C7B5 /* RemoteScreenViewController.swift in Sources */,
 				0C245512448B1DAA5C94B60A /* RemoteSession.swift in Sources */,
 				E7EAC332991CE8DC79002A0D /* RemoteSessionView.swift in Sources */,

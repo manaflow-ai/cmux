@@ -39,6 +39,9 @@ final class RemoteSession {
     var credentials: VNCCredentials
 
     @ObservationIgnored var onFrame: ((VNCFrame) -> Void)?
+    @ObservationIgnored let perf = PerfLog()
+    /// The session's latest counters (for the perf log).
+    @ObservationIgnored private(set) var clientStats = VNCSessionStats()
     @ObservationIgnored var onCursor: ((VNCCursor) -> Void)?
     /// The server's own screen layout (ExtendedDesktopSize), when it sends one.
     @ObservationIgnored var onScreens: (([CGRect]) -> Void)?
@@ -135,6 +138,7 @@ final class RemoteSession {
             for await frame in client.frames {
                 guard let self else { return }
                 frameSize = CGSize(width: frame.width, height: frame.height)
+                clientStats = await client.stats
                 onFrame?(frame)
                 await updateStats(client)
             }
@@ -207,12 +211,14 @@ final class RemoteSession {
 
     func press(_ button: VNCButtons, down: Bool) {
         guard let client else { return }
+        if down { perf.input("press") }
         if down { heldButtons.insert(button) } else { heldButtons.remove(button) }
         Task { await client.button(button, down: down) }
     }
 
     func click(_ button: VNCButtons = .left) {
         guard let client else { return }
+        perf.input(button == .right ? "right-click" : "click")
         Task {
             await client.button(button, down: true)
             await client.button(button, down: false)
@@ -221,11 +227,13 @@ final class RemoteSession {
 
     func scroll(dx: Int, dy: Int) {
         guard let client, dx != 0 || dy != 0 else { return }
+        perf.input("scroll")
         Task { await client.scroll(dx: dx, dy: dy) }
     }
 
     func type(_ text: String, modifiers: [VNCKeysym] = []) {
         guard let client else { return }
+        perf.input("type")
         if modifiers.isEmpty {
             Task { await client.type(text) }
         } else {
@@ -237,6 +245,7 @@ final class RemoteSession {
 
     func tap(_ key: VNCKeysym, modifiers: [VNCKeysym] = []) {
         guard let client else { return }
+        perf.input(modifiers.isEmpty ? "key" : "shortcut")
         Task { await client.chord(modifiers, key) }
     }
 

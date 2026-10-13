@@ -105,7 +105,11 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
 
     private func show(_ frame: VNCFrame) {
         let size = CGSize(width: frame.width, height: frame.height)
+        let copyStart = CACurrentMediaTime()
         guard let image = frame.makeImage() else { return }
+        let copyMs = (CACurrentMediaTime() - copyStart) * 1000
+        let drawStart = CACurrentMediaTime()
+        defer { session.perf.frame(frame, stats: session.clientStats, copyMs: copyMs, drawMs: (CACurrentMediaTime() - drawStart) * 1000) }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if size != frameSize {

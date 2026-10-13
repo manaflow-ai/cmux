@@ -12,6 +12,8 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         case open
         case message(Data)
         case closed
+        /// The ICE pair in use: each side's candidate type (host, srflx, prflx, relay).
+        case path(local: String, remote: String)
     }
 
     // libwebrtc's factory is thread-safe and owns its threads; one per process.
@@ -35,7 +37,8 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     private var drained: [CheckedContinuation<Void, Never>] = []
     private var ended = false
 
-    init(iceServers: [ICEServerConfig]) throws {
+    /// `relayOnly` forces the TURN relay (measurements).
+    init(iceServers: [ICEServerConfig], relayOnly: Bool = false) throws {
         (events, sink) = AsyncStream.makeStream(of: Event.self)
         super.init()
         let configuration = RTCConfiguration()
@@ -43,12 +46,29 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         configuration.bundlePolicy = .maxBundle
         configuration.rtcpMuxPolicy = .require
         configuration.continualGatheringPolicy = .gatherContinually
-        configuration.iceServers = iceServers.map { RTCIceServer(urlStrings: $0.urls, username: $0.username, credential: $0.credential) }
+        if relayOnly { configuration.iceTransportPolicy = .relay }
+        configuration.iceServers = Self.preferringStreamRelays(iceServers)
+            .map { RTCIceServer(urlStrings: $0.urls, username: $0.username, credential: $0.credential) }
         let constraints = RTCMediaConstraints(mandatoryConstraints: nil, optionalConstraints: nil)
         guard let connection = Self.factory.peerConnection(with: configuration, constraints: constraints, delegate: self) else {
             throw VNCWebRTCError.peer("could not create a peer connection")
         }
         self.connection = connection
+    }
+
+    /// Drops UDP TURN when a TCP or TLS relay is offered. Measured on
+    /// cmux-vnc-signal's Cloudflare TURN (two peers forced through the relay,
+    /// 20 MB): UDP 1.8 MB/s or no path, TCP 3.1 MB/s, TLS 5.4-5.9 MB/s; relay
+    /// loss on UDP collapses the data channel's SCTP congestion window.
+    /// Direct paths (host and STUN candidates) are unaffected.
+    static func preferringStreamRelays(_ servers: [ICEServerConfig]) -> [ICEServerConfig] {
+        let hasStreamRelay = servers.contains { $0.urls.contains { $0.hasPrefix("turns:") || ($0.hasPrefix("turn:") && $0.contains("transport=tcp")) } }
+        guard hasStreamRelay else { return servers }
+        return servers.compactMap { server in
+            var copy = server
+            copy.urls = server.urls.filter { !($0.hasPrefix("turn:") && !$0.contains("transport=tcp")) }
+            return copy.urls.isEmpty ? nil : copy
+        }
     }
 
     // MARK: Negotiation
@@ -147,6 +167,34 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         }
     }
 
+    /// A snapshot of the transport: the selected pair's RTT, the estimated
+    /// send bandwidth, bytes each way, and the data channel's send backlog.
+    struct Metrics: Sendable {
+        var rttMs: Double?
+        var availableOutgoingKbps: Double?
+        var bytesSent: Double = 0
+        var bytesReceived: Double = 0
+        var backlogBytes: UInt64 = 0
+    }
+
+    func metrics() async -> Metrics {
+        let backlog = lock.withLock { channel?.bufferedAmount ?? 0 }
+        return await withCheckedContinuation { continuation in
+            connection.statistics { report in
+                var metrics = Metrics(backlogBytes: backlog)
+                for stats in report.statistics.values where stats.type == "candidate-pair" {
+                    let values = stats.values
+                    guard (values["nominated"] as? NSNumber)?.boolValue == true || (values["state"] as? String) == "succeeded" else { continue }
+                    if let rtt = values["currentRoundTripTime"] as? NSNumber { metrics.rttMs = rtt.doubleValue * 1000 }
+                    if let rate = values["availableOutgoingBitrate"] as? NSNumber { metrics.availableOutgoingKbps = rate.doubleValue / 1000 }
+                    metrics.bytesSent = max(metrics.bytesSent, (values["bytesSent"] as? NSNumber)?.doubleValue ?? 0)
+                    metrics.bytesReceived = max(metrics.bytesReceived, (values["bytesReceived"] as? NSNumber)?.doubleValue ?? 0)
+                }
+                continuation.resume(returning: metrics)
+            }
+        }
+    }
+
     func close() {
         let (channel, waiters, first) = lock.withLock { () -> (RTCDataChannel?, [CheckedContinuation<Void, Never>], Bool) in
             let waiters = drained
@@ -216,6 +264,18 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     func peerConnection(_ peerConnection: RTCPeerConnection, didGenerate candidate: RTCIceCandidate) {
         sink.yield(.candidate(SignalMessage(type: "candidate", candidate: candidate.sdp, sdpMid: candidate.sdpMid,
                                             sdpMLineIndex: candidate.sdpMLineIndex)))
+    }
+
+    func peerConnection(_ peerConnection: RTCPeerConnection, didChangeLocalCandidate local: RTCIceCandidate,
+                        remoteCandidate remote: RTCIceCandidate, lastReceivedMs lastDataReceivedMs: Int32, changeReason reason: String) {
+        sink.yield(.path(local: Self.type(of: local.sdp), remote: Self.type(of: remote.sdp)))
+    }
+
+    /// `typ host|srflx|prflx|relay` from a candidate line.
+    static func type(of sdp: String) -> String {
+        let parts = sdp.split(separator: " ")
+        guard let index = parts.firstIndex(of: "typ"), index + 1 < parts.count else { return "unknown" }
+        return String(parts[index + 1])
     }
 
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {

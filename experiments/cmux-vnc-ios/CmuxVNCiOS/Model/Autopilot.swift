@@ -32,6 +32,29 @@ struct Autopilot {
                              preferences: SessionPreferences())
     }
 
+    /// `-perfScript`: realistic actions on a real Mac, paced like a person,
+    /// so `perf.log` records input → frame for each: Spotlight, typing,
+    /// Escape, clicks, scrolls. Five rounds.
+    @MainActor
+    func playPerfScript(on session: RemoteSession) async {
+        guard await session.waitUntilConnected() else { return }
+        try? await Task.sleep(for: .seconds(3)) // let the first full frame settle
+        let size = session.frameSize
+        for round in 0 ..< 5 {
+            session.tap(.space, modifiers: [.command])
+            try? await Task.sleep(for: .seconds(2)) // pacing
+            session.type("term")
+            try? await Task.sleep(for: .seconds(2)) // pacing
+            session.tap(.escape)
+            try? await Task.sleep(for: .seconds(2)) // pacing
+            session.movePointer(to: CGPoint(x: size.width * (0.3 + 0.1 * Double(round)), y: size.height * 0.5))
+            session.click(.left)
+            try? await Task.sleep(for: .seconds(2)) // pacing
+            session.scroll(dx: 0, dy: -3)
+            try? await Task.sleep(for: .seconds(2)) // pacing
+        }
+    }
+
     /// Paints a stroke, types a line and scrolls, with pauses a viewer can follow.
     @MainActor
     func play(on session: RemoteSession) async {

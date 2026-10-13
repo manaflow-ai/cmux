@@ -1,4 +1,4 @@
-import CmuxVNCWebRTC
+@testable import CmuxVNCWebRTC
 import Foundation
 import Testing
 
@@ -18,5 +18,20 @@ struct PairingTests {
     ])
     func rejectsBadLinks(_ raw: String) {
         #expect(VNCPairing(link: URL(string: raw)!) == nil)
+    }
+}
+
+struct RelayPreferenceTests {
+    @Test func udpRelaysDropWhenStreamRelaysExist() {
+        let servers = [ICEServerConfig(urls: ["stun:stun.cloudflare.com:3478", "turn:turn.cloudflare.com:3478?transport=udp",
+                                              "turn:turn.cloudflare.com:3478?transport=tcp", "turns:turn.cloudflare.com:443?transport=tcp"],
+                                       username: "u", credential: "c")]
+        #expect(VNCPeerLink.preferringStreamRelays(servers).first?.urls == ["stun:stun.cloudflare.com:3478",
+            "turn:turn.cloudflare.com:3478?transport=tcp", "turns:turn.cloudflare.com:443?transport=tcp"])
+    }
+
+    @Test func udpOnlyRelaysStay() {
+        let servers = [ICEServerConfig(urls: ["turn:turn.example.com:3478?transport=udp"])]
+        #expect(VNCPeerLink.preferringStreamRelays(servers).first?.urls == ["turn:turn.example.com:3478?transport=udp"])
     }
 }

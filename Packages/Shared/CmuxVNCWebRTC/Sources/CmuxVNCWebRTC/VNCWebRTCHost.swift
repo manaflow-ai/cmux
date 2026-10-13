@@ -13,6 +13,9 @@ public final class VNCWebRTCHost: @unchecked Sendable {
     private let log: @Sendable (String) -> Void
     private let lock = NSLock()
     private var current: (link: VNCPeerLink, tcp: NWConnection?, task: Task<Void, Never>)?
+    /// Bytes from the VNC server to the viewer, and the other way, this session.
+    private var serverBytes = 0
+    private var viewerBytes = 0
 
     public init(pairing: VNCPairing, targetHost: String = "127.0.0.1", targetPort: UInt16 = 5900,
                 log: @escaping @Sendable (String) -> Void = { print($0) }) {
@@ -48,6 +51,16 @@ public final class VNCWebRTCHost: @unchecked Sendable {
                 guard let sdp = message.sdp else { continue }
                 try await accept(offer: sdp, socket: socket)
             case "candidate":
+                if let sdp = message.candidate {
+                    // Type and address class only (no addresses): why a path is or is not direct.
+                    let parts = sdp.split(separator: " ")
+                    let address = parts.count > 4 ? String(parts[4]) : "?"
+                    let kind = address.hasPrefix("10.") || address.hasPrefix("192.168.") || address.hasPrefix("172.") ? "private"
+                        : address.contains(":") ? "ipv6" : address.hasSuffix(".local") ? "mdns" : "public"
+                    let octets = address.split(separator: ".").compactMap { Int($0) }
+                    let officeLAN = octets.count == 4 && octets[0] == 172 && octets[1] == 20 && (20 ... 23).contains(octets[2])
+                    log("viewer candidate: \(VNCPeerLink.type(of: sdp)) \(parts.count > 2 ? String(parts[2]).lowercased() : "?") \(kind)\(kind == "private" ? (officeLAN ? " same-LAN" : " other-LAN") : "")")
+                }
                 await lock.withLock({ current?.link })?.add(candidate: message)
             case "peer-left":
                 log("viewer left")
@@ -65,9 +78,12 @@ public final class VNCWebRTCHost: @unchecked Sendable {
             for await event in link.events {
                 switch event {
                 case let .candidate(message): try? await socket.send(message)
-                case .open: self?.bridge(link)
+                case .open:
+                    self?.bridge(link)
+                    self?.startMetrics(link)
                 case let .message(data): self?.forwardToServer(data, from: link)
                 case .closed: self?.end(link)
+                case let .path(local, remote): self?.log("path: this Mac \(local) ↔ viewer \(remote)\(local == "relay" || remote == "relay" ? " (TURN relay)" : " (direct)")")
                 }
             }
         }
@@ -98,6 +114,7 @@ public final class VNCWebRTCHost: @unchecked Sendable {
         tcp.receive(minimumIncompleteLength: 1, maximumLength: 256 * 1024) { [weak self] data, _, complete, error in
             guard let self else { return }
             if let data, !data.isEmpty {
+                lock.withLock { serverBytes += data.count }
                 Task {
                     do {
                         try await link.send(data)
@@ -116,8 +133,33 @@ public final class VNCWebRTCHost: @unchecked Sendable {
 
     private func forwardToServer(_ data: Data, from link: VNCPeerLink) {
         // The channel may deliver before TCP is up: NWConnection queues sends until ready.
-        guard let tcp = lock.withLock({ current?.link === link ? current?.tcp : nil }) else { return }
+        guard let tcp = lock.withLock({ () -> NWConnection? in
+            guard current?.link === link else { return nil }
+            viewerBytes += data.count
+            return current?.tcp
+        }) else { return }
         tcp.send(content: data, completion: .idempotent)
+    }
+
+    /// Every 2 s while `link` is the session: RTT, bandwidth estimate, backlog,
+    /// and the Mac's VNC output rate (`metrics:` lines in the host log).
+    private func startMetrics(_ link: VNCPeerLink) {
+        lock.withLock {
+            serverBytes = 0
+            viewerBytes = 0
+        }
+        Task { [weak self] in
+            var last = 0
+            while let self, lock.withLock({ current?.link === link }) {
+                try? await Task.sleep(for: .seconds(2)) // sampling period
+                let m = await link.metrics()
+                let (server, viewer) = lock.withLock { (serverBytes, viewerBytes) }
+                let rate = Double(server - last) / 2 / 1024
+                last = server
+                func f(_ v: Double?) -> String { v.map { String(format: "%.0f", $0) } ?? "-" }
+                log("metrics: rtt \(f(m.rttMs)) ms, est \(f(m.availableOutgoingKbps)) kbit/s, server→viewer \(String(format: "%.0f", rate)) KB/s (\(server / 1024) KB total), backlog \(m.backlogBytes / 1024) KB, viewer→server \(viewer) B")
+            }
+        }
     }
 
     private func end(_ link: VNCPeerLink) {

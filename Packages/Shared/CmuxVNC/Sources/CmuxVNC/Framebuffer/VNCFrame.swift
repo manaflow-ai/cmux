@@ -15,6 +15,8 @@ public struct VNCFrame: @unchecked Sendable {
     public let sequence: UInt64
     /// What changed since the previous frame, in framebuffer pixels.
     public let dirtyRect: CGRect
+    /// `DispatchTime.now().uptimeNanoseconds` when the session published it.
+    public var publishedAt: UInt64 = DispatchTime.now().uptimeNanoseconds
 
     /// A `CGImage` over a copy of the pixels (for UIKit/AppKit views that
     /// do not take pixel buffers).
