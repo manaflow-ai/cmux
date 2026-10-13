@@ -1593,7 +1593,6 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
 
     public func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         if velocity.y < 0 { maybeLoadOlder(targetOffsetY: targetContentOffset.pointee.y) }
-        if velocity.y != 0 { decelerationFill.flingBegan() }
         #if DEBUG
         transcriptDynamics?.dragEnded(targetOffsetY: targetContentOffset.pointee.y)
         #endif
