@@ -206,6 +206,18 @@ final class GhosttySurfaceView: UIView {
         requestFrame()
     }
 
+    /// VoiceOver reads the last lines of the terminal (only computed when
+    /// VoiceOver asks).
+    override var accessibilityValue: String? {
+        get {
+            let lines = readAllText().split(separator: "\n", omittingEmptySubsequences: false)
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+            let recent = lines.suffix(30).filter { !$0.isEmpty }
+            return recent.isEmpty ? String(localized: "Empty") : recent.joined(separator: "\n")
+        }
+        set {}
+    }
+
     /// Text of the whole screen and scrollback (for copy and file references).
     func readAllText() -> String {
         guard let surface else { return "" }

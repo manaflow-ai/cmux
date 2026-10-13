@@ -413,6 +413,9 @@ struct SidebarItemRow: View {
     let selected: Bool
     let action: () -> Void
     @Environment(\.isEnabled) private var isEnabled
+    /// Icons grow with Dynamic Type (a fixed 17 pt stayed tiny next to
+    /// accessibility-size titles).
+    @ScaledMetric(relativeTo: .body) private var iconWidth: CGFloat = 24
 
     var body: some View {
         Button {
@@ -421,8 +424,8 @@ struct SidebarItemRow: View {
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: systemImage)
-                    .font(.system(size: 17, weight: .regular))
-                    .frame(width: 24)
+                    .font(.body)
+                    .frame(width: iconWidth)
                 Text(title).font(.body)
                 Spacer(minLength: 0)
                 if badge > 0 {

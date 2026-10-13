@@ -56,3 +56,25 @@ struct DiffPayloadTests {
         #expect(DiffPayload.lineCount("") == 0)
     }
 }
+
+struct TabTitleTests {
+    private func tab(title: String?, cwd: String?, name: String? = nil) -> DaemonTab {
+        DaemonTab(surface: 7, kind: "pty", name: name, title: title, size: nil, dead: nil, pinned: nil, cwd: cwd, gitBranch: nil)
+    }
+
+    @Test func homeFolderShellReadsTerminal() {
+        #expect(tab(title: "~", cwd: "/Users/aziz").displayTitle == "Terminal")
+    }
+
+    @Test func folderTitleUsesTheFolderName() {
+        #expect(tab(title: "~/code/cmux", cwd: "/Users/aziz/code/cmux").displayTitle == "cmux")
+    }
+
+    @Test func programTitleWins() {
+        #expect(tab(title: "vim notes.md", cwd: "/Users/aziz").displayTitle == "vim notes.md")
+    }
+
+    @Test func promptTitleFallsBackToTheFolder() {
+        #expect(tab(title: "aziz@mac:~/code/cmux", cwd: "/Users/aziz/code/cmux").displayTitle == "cmux")
+    }
+}

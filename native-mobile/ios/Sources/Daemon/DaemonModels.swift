@@ -89,11 +89,18 @@ struct DaemonTab: Codable, Sendable, Hashable, Identifiable {
     var isTerminal: Bool { kind == nil || kind == "pty" || kind == "remote-terminal" }
     var displayTitle: String {
         // Shells title themselves `user@host:dir`; the folder says more.
-        if let title, !title.isEmpty, !Self.isPromptTitle(title) { return title }
-        if let short = shortCwd { return short == "~" ? "~" : String(short.split(separator: "/").last ?? Substring(short)) }
-        if let title, !title.isEmpty { return title }
+        // A title that is only the folder ("~", "~/code") says nothing the
+        // subtitle doesn't; a shell in the home folder reads "Terminal".
+        if let title, !title.isEmpty, !Self.isPromptTitle(title), !isFolderTitle(title) { return title }
         if let name, !name.isEmpty { return name }
-        return "Terminal \(surface)"
+        if let short = shortCwd, short != "~" { return String(short.split(separator: "/").last ?? Substring(short)) }
+        if shortCwd == "~" { return String(localized: "Terminal") }
+        if let title, !title.isEmpty { return title }
+        return String(localized: "Terminal \(surface)")
+    }
+
+    private func isFolderTitle(_ title: String) -> Bool {
+        title == "~" || title == cwd || title == shortCwd
     }
 
     static func isPromptTitle(_ title: String) -> Bool {

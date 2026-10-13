@@ -100,6 +100,7 @@ struct ComposerBar: View {
                 .autocorrectionDisabled()
                 .padding(.vertical, 10)
                 .padding(.leading, 16)
+                .accessibilityLabel(String(localized: "Message"))
                 .accessibilityIdentifier("composer.text")
             if let progress = model.uploadProgress {
                 ProgressView(value: progress).frame(width: 36).tint(.secondary).padding(.bottom, 17)
@@ -229,6 +230,8 @@ struct ComposerBar: View {
         }
         .buttonStyle(.plain)
         .glassEffect(active ? .regular.tint(.white).interactive() : .regular.interactive(), in: .rect(cornerRadius: 10))
+        .accessibilityLabel(TerminalKeyNames.spoken(title))
+        .accessibilityAddTraits(active ? .isSelected : [])
     }
 
     private func keyIcon(_ systemImage: String, action: @escaping () -> Void) -> some View {

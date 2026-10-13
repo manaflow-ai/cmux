@@ -181,6 +181,7 @@ final class TerminalKeyBarView: UIInputView {
             let button = UIButton(configuration: Self.configuration(title: title, prominent: false))
             button.addAction(UIAction { [weak self] _ in self?.handler(action) }, for: .touchUpInside)
             if case .ctrl = action { ctrlButton = button }
+            button.accessibilityLabel = TerminalKeyNames.spoken(title)
             stack.addArrangedSubview(button)
         }
         let dismiss = UIButton(configuration: {
@@ -225,5 +226,29 @@ final class TerminalKeyBarView: UIInputView {
         }
         if prominent { configuration.baseBackgroundColor = .white }
         return configuration
+    }
+}
+
+/// What VoiceOver says for the terminal key buttons ("esc" was read as a
+/// word, "⌃C" as "control C" only by luck, "~" as "tilde").
+enum TerminalKeyNames {
+    static func spoken(_ title: String) -> String {
+        switch title {
+        case "esc": String(localized: "Escape")
+        case "tab": String(localized: "Tab")
+        case "ctrl": String(localized: "Control")
+        case "⌃C": String(localized: "Control C, interrupt")
+        case "↑": String(localized: "Up")
+        case "↓": String(localized: "Down")
+        case "←": String(localized: "Left")
+        case "→": String(localized: "Right")
+        case "/": String(localized: "Slash")
+        case "-": String(localized: "Dash")
+        case "|": String(localized: "Pipe")
+        case "~": String(localized: "Tilde")
+        case "$": String(localized: "Dollar")
+        case "*": String(localized: "Asterisk")
+        default: title
+        }
     }
 }

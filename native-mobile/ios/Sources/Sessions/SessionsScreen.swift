@@ -339,6 +339,7 @@ struct TerminalRow: View {
     let agent: DaemonAgent?
     var query = ""
     @ScaledMetric(relativeTo: .body) private var tile: CGFloat = 38
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(spacing: 12) {
@@ -355,7 +356,8 @@ struct TerminalRow: View {
             .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
-                    Text(highlighted(tab.displayTitle, query)).font(.body.weight(.medium)).lineLimit(1)
+                    Text(highlighted(tab.displayTitle, query)).font(.body.weight(.medium))
+                        .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
                     if let agent, agent.status != .idle, agent.status != .unknown {
                         AgentStatusDot(status: agent.status)
                     }
@@ -382,7 +384,11 @@ struct TerminalRow: View {
     }
 
     @ViewBuilder private var cwdText: some View {
-        if let cwd = tab.shortCwd { Text(highlighted(cwd, query)).lineLimit(1).truncationMode(.head) }
+        if let cwd = tab.shortCwd {
+            Text(highlighted(cwd, query)).lineLimit(1).truncationMode(.head)
+                // VoiceOver read "~" as "tilde".
+                .accessibilityLabel(cwd == "~" ? String(localized: "Home folder") : cwd)
+        }
     }
 
     @ViewBuilder private var branchText: some View {
@@ -391,6 +397,8 @@ struct TerminalRow: View {
                 Image(systemName: "arrow.triangle.branch").font(.caption2).accessibilityHidden(true)
                 Text(highlighted(branch, query)).lineLimit(1)
             }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(String(localized: "branch \(branch)"))
         }
     }
 }
