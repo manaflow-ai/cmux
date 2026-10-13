@@ -71,7 +71,7 @@ enum AgentHandlers {
         registry.bindAgentPane { invocation in
             if let pane = context.scope(invocation).pane,
                openNewAgentChatWorkspace(from: pane, invocation: invocation, context: context) { return }
-            withAgentPane(invocation, context: context) { pane in
+            withAgentPane(invocation, context: context, seed: AgentPaneSeed()) { pane in
                 openNewAgentChat(in: pane, invocation: invocation, context: context)
             }
         }
@@ -229,49 +229,6 @@ enum AgentHandlers {
         view.zoom = AgentPaneZoomSetting.fallback
         context.writeSetting("reset agent chat zoom", agentPaneZoomPath, nil, reloadOnFailure: true)
         SurfaceZoomIndicator.show(percent: 100, in: context.services.windows.active?.window)
-    }
-
-    /// The pane a new agent chat opens in (New Agent Chat, Add Harness…): the invocation's pane,
-    /// else, while the active workspace has no mounted pane yet (Home, a settling workspace),
-    /// Cmd-T's shared path repairs or creates its first usable pane and `open` runs once its
-    /// controller mounts. Explicit targets still fail normally instead of switching panes.
-    static func withAgentPane(_ invocation: ActionInvocation, context: AppActionContext,
-                              _ open: @escaping @MainActor (PaneController) -> Void) {
-        if let pane = context.scope(invocation).pane { return open(pane) }
-        guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
-        guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
-        _ = context.registry.perform("newTab.default", invocation: invocation)
-        context.registry.track(Task { @MainActor in
-            let pane = try? await ControlDeadline.shared.run(
-                method: "agent-pane.mount",
-                deadline: .now + .seconds(10)
-            ) { @MainActor in
-                await Self.waitForPaneController(in: workspace, context: context)
-            }
-            guard let pane else {
-                context.refuse(MiscHandlerStrings.noPane)
-                return ActionWorkFailure(MiscHandlerStrings.noPane)
-            }
-            open(pane)
-            return nil
-        })
-    }
-
-    @MainActor
-    private static func waitForPaneController(in workspace: WorkspaceModel, context: AppActionContext) async -> PaneController? {
-        // The store's panes are observable; mounted controllers are not, so
-        // the mount generation stands in for them (`PaneMounts`).
-        let services = context.services
-        func mounted() -> PaneController? {
-            workspace.screens.flatMap(\.panes).lazy.compactMap(services.paneController(for:)).first
-        }
-        for await isMounted in ObservationStream({ () -> Bool in
-            _ = services.paneMounts.generation
-            return mounted() != nil
-        }) where isMounted {
-            return mounted()
-        }
-        return nil
     }
 
     /// A person's New Agent Chat (Cmd-I, the menu, the palette) opens a new
