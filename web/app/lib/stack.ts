@@ -240,13 +240,15 @@ async function updateStackUserViaApi(
           signal: AbortSignal.timeout(10_000),
         },
       );
-      span.setAttribute("http.response.status_code", response.status);
-      span.setAttribute("cmux.external.success", response.ok);
+      span.setAttribute("http.response.status_code", stackActualStatus(response));
+      span.setAttribute("cmux.external.success", stackActualStatus(response) < 400);
       return response;
     },
     { "cmux.auth.flow": "server_user_update" },
   );
-  if (!response.ok) {
+  const status = stackActualStatus(response);
+  if (status >= 400) {
+    await response.body?.cancel().catch(() => undefined);
     // Do not include response bodies: Stack can echo account data or provider
     // details, and this helper is called from webhook/recovery code paths.
     const error = new Error(failureMessage) as Error & {
@@ -257,9 +259,20 @@ async function updateStackUserViaApi(
       response.headers.get("x-hexclave-known-error") ??
       response.headers.get("x-stack-known-error");
     if (knownError) error.code = knownError;
-    error.status = response.status;
+    error.status = status;
     throw error;
   }
+}
+
+/**
+ * The request sets override-error-status, so Stack answers a failure with
+ * HTTP 200 and names the real status in a header.
+ */
+function stackActualStatus(response: Response): number {
+  const header = response.headers.get("x-hexclave-actual-status") ??
+    response.headers.get("x-stack-actual-status");
+  const status = header === null || header.trim() === "" ? Number.NaN : Number(header);
+  return Number.isInteger(status) && status >= 100 && status <= 599 ? status : response.status;
 }
 
 export const stackServerApp = isStackConfigured() ? getStackServerApp() : null;
