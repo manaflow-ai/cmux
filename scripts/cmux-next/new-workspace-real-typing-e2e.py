@@ -184,8 +184,9 @@ def plan(action):
 def focus_terminal_tab():
     """A terminal tab in the focused pane, so the next New Tab really opens a page (not measured)."""
     print("  setup newSurface:", rpc("action.run", {"action": "newSurface", "args": {}, "focus": True}), flush=True)
-    wait(lambda: field_text() is None, 5)
+    made = wait(lambda: field_text() is None, 5)
     time.sleep(1)  # test harness: the terminal takes the keyboard
+    return made is not None
 
 
 def focused_tab():
@@ -198,8 +199,9 @@ def fresh_page_workspace():
     # A person's Cmd-N (the app's own key dispatch): a socket newTab would make a terminal workspace.
     before = focused_tab()
     print("  setup Cmd-N:", rpc("debug.key", {"key": "n", "modifiers": ["command"]}), flush=True)
-    wait(lambda: focused_tab() not in (None, before) and field_text() == "", 8)
+    made = wait(lambda: focused_tab() not in (None, before) and field_text() == "", 8)
     time.sleep(1)  # test harness: the page settles
+    return made is not None
 
 
 def window_tabs():
@@ -230,19 +232,33 @@ def run_window(name, helper):
     got = wait(lambda: (lambda t: t if t == opts.text else None)(new_window_field(before)), 8)
     text = got if got is not None else new_window_field(before)
     focus = rpc("debug.focus") or {}
-    ok = got is not None and len(window_tabs()) > count and "error" not in timing
+    ok = got is not None and len(window_tabs()) > count and "error" not in timing and drained(focus)
     if not ok:
         print("  hold log:", json.dumps((focus.get("new_tab_key_log") or [])[-20:]), flush=True)
-    row = {"run": name, "field": text, "pass": ok, "windows_before": count, "windows_after": len(window_tabs()),
+    row = {"run": name, "field": text, "pass": ok, "drained": drained(focus), "windows_before": count, "windows_after": len(window_tabs()),
            "holds_after": focus.get("new_tab_key_holds"), **timing}
     print(("PASS" if ok else "FAIL"), json.dumps(row), flush=True)
     return row
 
 
-def run(name, helper, steps, setup=None):
-    if setup:
-        setup()
+def panes():
+    windows = (rpc("debug.focus") or {}).get("windows") or []
+    return len(windows[0].get("topology") or []) if windows else 0
+
+
+def drained(focus):
+    """The run's hold ended by the field's readiness (not the limit or a fallback release)."""
+    ends = [e for e in focus.get("new_tab_key_log") or [] if e.startswith("drained") or e.startswith("release:")]
+    return bool(ends) and ends[-1].startswith("drained")
+
+
+def run(name, helper, steps, setup=None, new_pane=False):
+    if setup and not setup():
+        row = {"run": name, "pass": False, "error": "setup failed"}
+        print("FAIL", json.dumps(row), flush=True)
+        return row
     pid = app_pid()
+    panes_before = panes()
     # The field read after must be a NEW page's: the tab focused before (maybe the last run's page,
     # holding the same text) does not count.
     before = focused_tab()
@@ -257,10 +273,11 @@ def run(name, helper, steps, setup=None):
     after = focused_tab()
     focus = rpc("debug.focus") or {}
     holds = focus.get("new_tab_key_holds")
-    ok = got is not None and "error" not in timing
+    ok = got is not None and "error" not in timing and drained(focus) and (not new_pane or panes() == panes_before + 1)
     if not ok:
         print("  hold log:", json.dumps((focus.get("new_tab_key_log") or [])[-20:]), flush=True)
-    row = {"run": name, "field": text, "pass": ok, "tab_before": before, "tab_after": after, "holds_after": holds, **timing}
+    row = {"run": name, "field": text, "pass": ok, "tab_before": before, "tab_after": after, "drained": drained(focus),
+           "panes": [panes_before, panes()], "holds_after": holds, **timing}
     print(("PASS" if ok else "FAIL"), json.dumps(row), flush=True)
     return row
 
@@ -293,7 +310,7 @@ def main():
         for index in range(opts.others):
             rows.append(run(f"warm-cmdt-{index + 1}", helper, CMD_T, setup=focus_terminal_tab))
             # Cmd-D on a fresh New Tab page: the new pane opens its own New Tab page.
-            rows.append(run(f"warm-split-{index + 1}", helper, CMD_D, setup=fresh_page_workspace))
+            rows.append(run(f"warm-split-{index + 1}", helper, CMD_D, setup=fresh_page_workspace, new_pane=True))
             rows.append(run(f"warm-palette-{index + 1}", helper, PALETTE, setup=focus_terminal_tab))
     rpc("debug.quit", {"press": "end-everything"})
     with open(os.path.join(opts.out, "new-workspace-real-typing.json"), "w") as handle:

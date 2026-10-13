@@ -22,6 +22,7 @@ final class NewTabInputBuffer {
     }
 
     var hasPending: Bool { !events.isEmpty }
+    var count: Int { events.count }
 
     func capture(_ event: NSEvent) -> Bool {
         guard !replaying else { return false }

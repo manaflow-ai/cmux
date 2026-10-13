@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
 /// readiness acknowledgement: every key typed from the shortcut on waits here, in order, and goes to
@@ -81,6 +82,9 @@ final class NewTabInputCoordinator {
         /// hold takes the keys of whatever window is key until then and follows the page there.
         var followsNewWindow = false
         weak var pageWindow: NSWindow?
+        /// The page's view, taken when it reported ready: a split's provisional tab key stops
+        /// resolving once the store's tab replaces it, the view does not.
+        weak var view: AgentPaneView?
     }
 
     init(router: KeyRouter) { self.router = router }
@@ -124,8 +128,9 @@ final class NewTabInputCoordinator {
         let buffer = NewTabInputBuffer(began: now(), focusField: { [weak services, weak window] in
             // The page shows in this window (its workspace joined it; FirstTabHold), or in the new
             // window of a New Window, before it takes keys.
-            guard let services, let window, let key = target.key, services.agentTabs.isNewTabPage(key),
-                  let view = services.agentTabs.existingView(key), let shown = view.window,
+            guard let services, let window, let key = target.key,
+                  let view = target.view ?? (services.agentTabs.isNewTabPage(key) ? services.agentTabs.existingView(key) : nil),
+                  view.model.newTab != nil, let shown = view.window,
                   shown === window || target.followsNewWindow, !view.isHiddenOrHasHiddenAncestor else { return false }
             // A Chromium page window, or the old window, may be key: the page's window takes it, so
             // later keys follow.
@@ -170,6 +175,7 @@ final class NewTabInputCoordinator {
     func pageReady(_ token: String, key: String) {
         guard let entry = buffers.values.first(where: { $0.buffer.token == token }), let window = entry.window else { return }
         entry.incoming?.key = key
+        entry.incoming?.view = router?.services?.agentTabs.existingView(key)
         note("ready incoming \(key)", entry)
         entry.buffer.acknowledge(token)
         flush(in: window)
@@ -254,7 +260,8 @@ final class NewTabInputCoordinator {
             release(entry, why: expired(entry) ? "limit at key" : "not owned at key (tab \(entry.pane?.currentTabKey ?? "-"))")
             return false
         }
-        note("hold key \(event.characters ?? "?")", entry)
+        // Never the characters: this log reaches desync reports (InputJournal's rule).
+        note("hold key #\(entry.buffer.count + 1)", entry)
         return entry.buffer.capture(event)
     }
 
