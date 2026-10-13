@@ -42,6 +42,9 @@ def load_retired():
             raise SystemExit("%s: duplicate key %r" % (RETIRED_SOURCE, key))
         if not entry["reason"].strip():
             raise SystemExit("%s: empty reason for %r" % (RETIRED_SOURCE, key))
+        for field in ("key", "reason", "why"):
+            if any(ord(ch) < 0x20 for ch in entry.get(field, "")):
+                raise SystemExit("%s: control character in %s of %r" % (RETIRED_SOURCE, field, key))
         seen.add(key)
     return entries
 
