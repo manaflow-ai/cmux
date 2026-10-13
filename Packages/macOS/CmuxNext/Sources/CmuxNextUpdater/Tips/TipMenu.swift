@@ -5,13 +5,13 @@ public import Foundation
 nonisolated public enum UpdaterSetting: Sendable {
     /// `updates.downloadAutomatically` (the update card's checkbox).
     case automaticUpdates
-    /// `sidebar.cards.tips` ("Never Show Tips" writes false).
+    /// `sidebar.cards.tips` ("Never Show Hints" writes false).
     case tips
 }
 
 /// What the tip card's x and right-click menu offer (Lawrence 2026-10-13):
 /// hide this tip only, mute every tip for a day or a week, or turn tips
-/// off. "Never Show Tips" writes `sidebar.cards.tips` = false (Settings,
+/// off. "Never Show Hints" writes `sidebar.cards.tips` = false (Settings,
 /// the schema and MDM show it; Settings > Show Tips turns tips back on).
 nonisolated public enum TipMenuOption: String, CaseIterable, Sendable {
     case hide = "tip-hide"
@@ -22,9 +22,9 @@ nonisolated public enum TipMenuOption: String, CaseIterable, Sendable {
     public var title: String {
         switch self {
         case .hide: UpdaterStrings.tipDismiss
-        case .muteDay: UpdaterStrings.text("updater.tip.muteDay", "Mute Tips for 1 Day")
-        case .muteWeek: UpdaterStrings.text("updater.tip.muteWeek", "Mute Tips for 1 Week")
-        case .never: UpdaterStrings.text("updater.tip.never", "Never Show Tips")
+        case .muteDay: UpdaterStrings.text("updater.tip.muteDay", "Mute Hints for 1 Day")
+        case .muteWeek: UpdaterStrings.text("updater.tip.muteWeek", "Mute Hints for 1 Week")
+        case .never: UpdaterStrings.text("updater.tip.never", "Never Show Hints")
         }
     }
 
@@ -42,11 +42,23 @@ extension UpdaterService {
     /// The x's menu, in order: (action id, title).
     public static var tipMenu: [(id: String, title: String)] { TipMenuOption.allCases.map { ($0.rawValue, $0.title) } }
     /// The x's tooltip and VoiceOver label (it opens ``tipMenu``).
-    public static var tipMenuLabel: String { UpdaterStrings.text("updater.tip.options", "Hide or Mute Tips") }
+    public static var tipMenuLabel: String { UpdaterStrings.text("updater.tip.options", "Hide or Mute Hints") }
 
-    /// A tip card button or menu item: "Try It" (`try`) or a ``TipMenuOption``.
+    /// The action the hint card sends once its hint is on screen (``markTipSeen(_:)``).
+    public static let tipShownAction = "shown"
+    /// The action the hint card sends when a hint it showed leaves the card
+    /// (another card took the slot): a seen hint does not come back.
+    public static let tipHiddenAction = "hidden"
+
+    /// A tip card button or menu item: "Try It" (`try`), a ``TipMenuOption``,
+    /// or ``tipShownAction``.
     public func tipCardAction(_ id: String, _ action: String) {
         if action == "try" { return tryTip(id) }
+        if action == Self.tipShownAction { return markTipSeen(id) }
+        if action == Self.tipHiddenAction {
+            if tip?.id == id, tipState.seen.contains(id) { tip = nil }
+            return
+        }
         guard let option = TipMenuOption(rawValue: action) else { return }
         if let length = option.muteLength {
             muteTips(until: now().addingTimeInterval(length))
@@ -78,6 +90,15 @@ extension UpdaterService {
         return false
     }
 
+    /// The person saw hint `id` on the card: it is never picked again (it
+    /// stays on the card for now).
+    func markTipSeen(_ id: String) {
+        guard !tipState.seen.contains(id), TipCatalog.all.contains(where: { $0.id == id }) else { return }
+        var state = tipState
+        state.seen.insert(id)
+        storeTipState(state)
+    }
+
     /// `sidebar.cards.tips` turned on again: a timed mute ends too.
     func tipsTurnedOn() {
         guard tipState.mutedUntil != nil else { return }
@@ -89,10 +110,14 @@ extension UpdaterService {
     /// `debug.updater {action: "tips", press?, at?}` (socket proofs): presses
     /// `press` on the shown tip (`try` or a ``TipMenuOption`` id) like its
     /// card does, or else picks as at launch at `at` (epoch seconds, default
-    /// now); returns the tip shown, `sidebar.cards.tips` and the mute's end
-    /// (`error` when `press` finds no tip shown).
+    /// now); returns the tip shown, `sidebar.cards.tips`, the mute's end and
+    /// the seen hints (`error` when `press` finds no tip shown). `press:
+    /// "reset"` forgets everything the hints remember (a fresh install).
     public func debugTips(press: String?, at epoch: Double?) -> [String: String] {
-        if let press {
+        if press == "reset" {
+            tip = nil
+            storeTipState(TipState())
+        } else if let press {
             guard let id = tip?.id else { return ["error": "no tip shown to press \(press) on"] }
             tipCardAction(id, press)
         } else {
@@ -101,6 +126,7 @@ extension UpdaterService {
         var state = ["enabled": tipsEnabled.map(String.init) ?? "unknown"]
         state["tip"] = tip?.id
         state["mutedUntil"] = tipState.mutedUntil.map { ISO8601DateFormatter().string(from: $0) }
+        state["seen"] = tipState.seen.sorted().joined(separator: ",")
         return state
     }
 }
