@@ -825,11 +825,7 @@ export function Composer({
     }
     if (matches.length === 0) return;
     const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
-    if (
-      event.key === "ArrowDown" ||
-      event.key === "ArrowUp" ||
-      (control && (event.key === "j" || event.key === "k"))
-    ) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || (control && (event.key === "j" || event.key === "k"))) {
       event.preventDefault();
       const step = event.key === "ArrowDown" || event.key === "j" ? 1 : -1;
       setActive((selected + step + matches.length) % matches.length);
