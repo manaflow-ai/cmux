@@ -39,7 +39,7 @@ export const capUsd = (env: Env, line: BudgetLine): number => {
 
 export type PlanResult =
   | { readonly ok: true; readonly provider: ProviderId; readonly reservedMicros: number }
-  | { readonly ok: false; readonly code: "budget.exhausted" | "provider.unavailable" | "concurrency.limit" | "team.daily_cap"; readonly line?: BudgetLine }
+  | { readonly ok: false; readonly code: "budget.exhausted" | "provider.unavailable" | "concurrency.limit" | "team.daily_cap" | "team.cap_not_configured"; readonly line?: BudgetLine }
 
 /** A team's own daily line: its owner key (`team:<id>`). */
 type TeamLine = `team:${string}`
@@ -111,6 +111,7 @@ export class SpendGuardDO extends DurableObject<Env> {
     const fits = (line: BudgetLine) => this.used(day, line) + maxMicros <= Math.round(capUsd(this.env, line) * MICROS)
     if (free && !fits("free")) return { ok: false, code: "budget.exhausted", line: "free" }
     const teamLine = !free && isTeamLine(owner) ? owner : undefined
+    if (teamLine && teamCapUsd(this.env) === 0) return { ok: false, code: "team.cap_not_configured" }
     if (teamLine && this.used(day, teamLine) + maxMicros > Math.round(teamCapUsd(this.env) * MICROS)) return { ok: false, code: "team.daily_cap" }
     const ordered = [...candidates.filter((p) => !this.cooled(p, now)), ...candidates.filter((p) => this.cooled(p, now))]
     let exhausted: BudgetLine | undefined
