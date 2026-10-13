@@ -232,6 +232,96 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
     assert_eq!(st["peers"][0]["connected"], true);
 }
 
+/// Two daemons peered both ways (big-red <-> cosmic-gray on 10-14 grew names
+/// like `a/b/a/b/.../cycle` to 346k characters): a daemon serves only its own
+/// sessions to a peer, both in the watch snapshot and in later changes, so a
+/// mirror never comes back as `b/a/cycle` and never nests.
+#[tokio::test]
+async fn bidirectional_peers_do_not_reexport_mirrored_sessions() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (a_port, a_peer_token) = listen_with_peer_token(a.clone(), "cycle-a").await;
+    let (b_port, b_peer_token) = listen_with_peer_token(b.clone(), "cycle-b").await;
+
+    let mut owner = client(a.clone()).await;
+    let created = owner
+        .call(
+            method::SESSION_NEW,
+            json!({
+                "cwd": std::env::temp_dir(),
+                "mcpServers": [],
+                "_meta": {"acpmux": {"name": "cycle"}}
+            }),
+        )
+        .await
+        .unwrap();
+    let id = created["sessionId"].as_str().unwrap().to_owned();
+
+    a.add_peer(
+        "b",
+        &format!("ws://127.0.0.1:{b_port}"),
+        Some("tok".into()),
+        Some(b_peer_token),
+        true,
+    )
+    .await
+    .unwrap();
+    b.add_peer(
+        "a",
+        &format!("ws://127.0.0.1:{a_port}"),
+        Some("tok".into()),
+        Some(a_peer_token),
+        true,
+    )
+    .await
+    .unwrap();
+    let mut mirror = client(b.clone()).await;
+
+    let rows = |v: &Value| {
+        v["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| {
+                (
+                    s["sessionId"].as_str().unwrap_or("").to_owned(),
+                    s["name"].as_str().unwrap_or("").to_owned(),
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+
+    // A change after the snapshot travels as `session_changed`, the path that
+    // ping-ponged: rename on A, then wait until B shows the new name.
+    owner.call(method::MUX_RENAME, json!({"sessionId": id, "newName": "renamed"})).await.unwrap();
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let b_now = mirror.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+        if rows(&b_now).iter().any(|(_, n)| n == "a/renamed") {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "B never mirrored the rename: {b_now}");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    // An echo needs one more round trip each way; give it several before
+    // taking the public views. Each list must hold exactly one row for the
+    // one session, under its exact name.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let a_rows = rows(&owner.call(method::MUX_SESSIONS, json!({})).await.unwrap());
+    let b_rows = rows(&mirror.call(method::MUX_SESSIONS, json!({})).await.unwrap());
+    assert_eq!(
+        a_rows,
+        vec![(id.clone(), "renamed".to_owned())],
+        "owner re-imported its own session from the peer"
+    );
+    assert_eq!(
+        b_rows,
+        vec![(id.clone(), "a/renamed".to_owned())],
+        "peer exposed recursive mirrors"
+    );
+}
+
 #[tokio::test]
 async fn watchers_learn_peer_sessions_that_arrive_after_their_snapshot() {
     let b = hub(config(PermissionPolicy::Ask)).await;
