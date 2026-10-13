@@ -83,7 +83,9 @@ No `fullScreenCover` or hidden navigation bar remains on a drill-down, except tw
 blocks: the text block, if there is text, then one `{type: "image", mimeType, data: base64}` per image.
 The MIME type comes from the data's signature (PNG, JPEG, GIF or WebP). The composer re-encodes other
 formats, such as HEIC, as JPEG. File chips carry no contents yet, so they are not sent. Unit tests:
-`PromptBlockTests` in `Tests/CnxLiveTests`.
+`PromptBlockTests` in `Tests/CnxLiveTests`. `CnxLiveTests` passed on the iOS 26.5 simulator with
+`xcodebuild test -scheme CnxKit-Package -only-testing:CnxLiveTests`: 23 tests in 9 suites. The tests ran
+locally because `nx-remote` could not resolve `cmux-lawrence-2`.
 
 ## Dead controls (no-op audit)
 
