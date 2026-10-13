@@ -29,8 +29,8 @@ use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::session_journal::{JournalAppend, append_journal_record};
 use super::personal_browser_profiles::resolve_browser_profile_id_in;
+use super::session_journal::{JournalAppend, append_journal_record};
 use super::{
     JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, JournalSubject,
     WorkspaceRegistry, new_uuid_v4, unix_epoch_ms,
