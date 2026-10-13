@@ -19,6 +19,9 @@ import CmuxNextDaemon
 ///
 /// Scripts and agents use the daemon directly: `cmux tab <tab> emulate`.
 enum BrowserDeviceHandlers {
+    /// The device menu while it is open (diagnostics: `debug.menu`).
+    @MainActor static weak var presentedMenu: NSMenu?
+
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("browserDevice", run: { invocation in
             let entry = try context.page(invocation)
@@ -58,6 +61,7 @@ enum BrowserDeviceHandlers {
                         daemon.send("browser.tab.emulate.clear") { try await $0.state.clearTabEmulation(resource) }
                     }
                 }
+                presentedMenu = menu
                 chrome.toolbarButtons.present(menu, from: .overflow)
             }
         })
