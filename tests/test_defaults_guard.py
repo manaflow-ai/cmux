@@ -213,6 +213,16 @@ class DefaultsGuardTests(unittest.TestCase):
 
     # The snapshot itself.
 
+    def test_a_branch_from_before_the_snapshot_is_judged_by_its_sources(self):
+        self.repo.git("rm", "-q", "schemas/defaults/cmux-next.json")
+        self.base = self.repo.commit("base before the snapshot", snapshot=False)
+        head = self.head(settings=[{"key": "terminal.showJumpToBottomButton", "default": True}, BASE_SETTINGS[1]],
+                         snapshot=False)
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("DEFAULTS setting.terminal.showJumpToBottomButton: false -> true", result.stdout)
+        self.assertNotIn("snapshot", result.stdout.replace("defaults_guard.py snapshot", ""))
+
     def test_no_default_change_passes_without_a_review(self):
         actions = [*BASE_ACTIONS[:3], {**action("toggleEditor"), "title": "Toggle Editor"}]
         result = self.check(self.head(actions))
