@@ -53,6 +53,8 @@ final class PageRelayChannel {
     private let identity: PageRelayIdentity
     private var starting: Task<DaemonConnection, any Error>?
     private var warned = false
+    /// The event uptime of the last gesture a call spent (``spendGesture(_:)``).
+    private var spentGesture: TimeInterval?
 
     init(service: DaemonService, page: String?) {
         self.service = service
@@ -74,14 +76,22 @@ final class PageRelayChannel {
         let relay = try await relayConnection(service)
         var origin = CmuxNextDaemon.JSONValue.object(["claim": .string("page")])
         // A native sheet, or the person's own key or pointer event on a call the page's list
-        // marks `gesture` (a History delete): the daemon then takes it as the user's.
-        let gesture = context.userGesture && identity.gestureOperations.contains(operation)
+        // marks `gesture` (a History delete): the daemon then takes it as the user's. One event
+        // backs one such call; a `confirm` call (an app change) needs the sheet.
+        let gesture = identity.gestureOperations.contains(operation) && spendGesture(context)
         if context.isConfirmedUser || gesture {
             let token = try await confirmationToken(main: main, relay: relay, operation: operation, params: params)
             origin = .object(["claim": .string("user"), "confirmation": .string(token)])
         }
         return try await ResourceRelayClient(connection: relay).send(
             operation: operation, params: params, idempotencyKey: idempotencyKey, origin: origin)
+    }
+
+    /// Whether `context` carries a key or pointer event no earlier call spent.
+    private func spendGesture(_ context: PageCallContext) -> Bool {
+        guard context.userGesture, let event = context.gestureEvent, event != spentGesture else { return false }
+        spentGesture = event
+        return true
     }
 
     /// The relay connection; it takes page calls only after its `client-hello` result.

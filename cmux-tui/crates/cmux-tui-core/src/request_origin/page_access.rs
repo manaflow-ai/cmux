@@ -365,32 +365,39 @@ pub(super) fn page_refusal(
         Access::DeniedWithCwd => params.get("cwd").is_some_and(|cwd| !cwd.is_null()),
     };
     if hard {
-        return refusal(operation, params);
+        // The connection's own origin (a WebSocket page derives agent).
+        let mut error = refusal(operation, params)?;
+        error.details["derived"] = json!(origin.wire_name());
+        return Some(error);
     }
-    let reason = match page_router_table::grant(page, operation.wire_name()) {
-        PageGrant::Read => return None,
-        PageGrant::Gesture if origin == RequestOrigin::User => return None,
-        PageGrant::Gesture => "gesture_required",
-        PageGrant::None => "page_not_allowed",
-    };
+    let grant = page_router_table::grant(page, operation.wire_name());
+    if matches!(grant, PageGrant::Gesture | PageGrant::Confirm) && origin == RequestOrigin::User {
+        return None;
+    }
+    let reason = page_router_table::missing_confirmation_reason(grant)?;
     Some(page_forbidden(page, operation.wire_name(), reason, origin))
 }
 
 /// `origin.forbidden` for page `page`: `page_not_allowed` (not on its
-/// list) or `gesture_required` (on its list, without the person's gesture).
+/// list), `gesture_required` or `confirmation_required` (on its list,
+/// without the person's gesture or confirmation).
 pub(crate) fn page_forbidden(
     page: &str,
     operation: &str,
     reason: &str,
     origin: RequestOrigin,
 ) -> ResourceError {
-    let message = if reason == "gesture_required" {
-        format!("page {page} may call {operation} only on the person's gesture")
-    } else {
-        format!("page {page} may not call {operation}")
+    let message = match reason {
+        "gesture_required" => {
+            format!("page {page} may call {operation} only on the person's gesture")
+        }
+        "confirmation_required" => {
+            format!("page {page} may call {operation} only after the person confirms it")
+        }
+        _ => format!("page {page} may not call {operation}"),
     };
     let mut details = json!({"derived": origin.wire_name(), "reason": reason});
-    if reason == "gesture_required" {
+    if reason != "page_not_allowed" {
         details["required"] = json!(RequestOrigin::User.wire_name());
     }
     ResourceError::new(super::ORIGIN_FORBIDDEN, message, details, false)

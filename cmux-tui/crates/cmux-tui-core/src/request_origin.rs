@@ -327,13 +327,12 @@ impl ConnectionOrigin {
         use page_router_table::PageGrant;
         let origin = self.narrow(operation, params, claim, now_ms)?;
         if let Some(page) = self.page.as_deref() {
-            let reason = match page_router_table::grant(page, operation) {
-                PageGrant::Read => None,
-                PageGrant::Gesture if origin == RequestOrigin::User => None,
-                PageGrant::Gesture => Some("gesture_required"),
-                PageGrant::None => Some("page_not_allowed"),
-            };
-            if let Some(reason) = reason {
+            let grant = page_router_table::grant(page, operation);
+            let confirmed = matches!(grant, PageGrant::Gesture | PageGrant::Confirm)
+                && origin == RequestOrigin::User;
+            if let Some(reason) = page_router_table::missing_confirmation_reason(grant)
+                && !confirmed
+            {
                 return Err(page_forbidden(page, operation, reason, origin));
             }
         } else if self.role == HelloRole::PageRelay || origin == RequestOrigin::Page {

@@ -33,11 +33,13 @@ public struct ClientHelloRequest: DaemonRequest {
         }
     }
 
-    /// What a page may call (cmux-tui/spec/page-router.json): `gesture` operations need the
-    /// person's gesture, proven with a confirmation token for exactly that request.
+    /// What a page may call (cmux-tui/spec/page-router.json): `gesture` operations need one real
+    /// key or pointer event, `confirm` operations a native sheet; the host proves either with a
+    /// confirmation token for exactly that request.
     public struct PageOperations: Decodable, Sendable, Equatable {
         public var read: [String]
         public var gesture: [String]
+        public var confirm: [String]?
     }
 
     public static let command = "client-hello"

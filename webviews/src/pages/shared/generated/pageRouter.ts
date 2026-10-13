@@ -6,6 +6,7 @@ export const PAGE_ROUTER_CAPABILITY = "page-router-v1";
 export interface PageOperations {
   readonly read: readonly string[];
   readonly gesture: readonly string[];
+  readonly confirm: readonly string[];
 }
 
 export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
@@ -15,7 +16,8 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "apps.catalog.list",
       "apps.installed.list"
     ],
-    "gesture": [
+    "gesture": [],
+    "confirm": [
       "apps.install",
       "apps.set",
       "apps.uninstall"
@@ -30,11 +32,13 @@ export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
       "history.clear",
       "history.entries.remove",
       "history.site.remove"
-    ]
+    ],
+    "confirm": []
   },
   "home-channels": {
     "read": [],
-    "gesture": []
+    "gesture": [],
+    "confirm": []
   }
 };
 
@@ -60,11 +64,12 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
   }
 };
 
-/** What `page` may do with the v2 operation `operation`: `read`, `gesture`, or `none`. */
-export function pageGrant(page: string, operation: string): "read" | "gesture" | "none" {
+/** What `page` may do with the v2 operation `operation`: `read`, `gesture`, `confirm`, or `none`. */
+export function pageGrant(page: string, operation: string): "read" | "gesture" | "confirm" | "none" {
   const entry = PAGE_OPERATIONS[page];
   if (!entry) return "none";
   if (entry.read.includes(operation)) return "read";
   if (entry.gesture.includes(operation)) return "gesture";
+  if (entry.confirm.includes(operation)) return "confirm";
   return "none";
 }

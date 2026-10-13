@@ -13,18 +13,33 @@
 //! with a host confirmation for exactly it). Transport: the Unix socket and
 //! authenticated WebSocket connections, as for the person's conversations.
 
-use serde_json::{Map, Value, json};
+use serde::Deserialize;
+use serde_json::{Value, json};
 
 use super::{MessageWriter, Mux};
 use crate::request_origin::page_router_table::{self, Routed};
-use crate::request_origin::{OriginClaim, RequestOrigin, forbidden};
+use crate::request_origin::{HelloRole, OriginClaim, RequestOrigin, forbidden};
 use crate::resource::{PROTOCOL, RequestId, ResourceError, ResponseEnvelope};
 use std::sync::Arc;
 
-/// Envelope members a routed request may carry (no launch credential: a
-/// routed owner never acts as a terminal).
-const MEMBERS: [&str; 7] =
-    ["protocol", "type", "id", "operation", "params", "idempotency_key", "origin"];
+/// A routed request's envelope: the catalog envelope's members (no launch
+/// credential: a routed owner never acts as a terminal). Like the catalog
+/// parse it refuses unknown and duplicate members, so a line that is not
+/// exactly one routed request gets the catalog parse's answer.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Envelope {
+    protocol: String,
+    #[serde(rename = "type")]
+    envelope_type: String,
+    id: Value,
+    operation: String,
+    params: Value,
+    #[serde(default)]
+    idempotency_key: Option<Value>,
+    #[serde(default)]
+    origin: Option<Value>,
+}
 
 /// `Some(keep_open)` when `message`, a v2 line the catalog parse refused,
 /// is a request of a routed operation (answered here), else `None`.
@@ -37,12 +52,9 @@ pub(super) fn try_handle(
     if message.len() > crate::resource::MAX_MESSAGE_BYTES {
         return None;
     }
-    let value: Value = serde_json::from_str(message).ok()?;
-    let object = value.as_object()?;
-    object.get("protocol")?;
-    let operation = object.get("operation")?.as_str()?;
-    let route = page_router_table::routed(operation)?;
-    let id = object.get("id").and_then(Value::as_str).and_then(|id| RequestId::parse(id).ok());
+    let envelope: Envelope = serde_json::from_str(message).ok()?;
+    let route = page_router_table::routed(&envelope.operation)?;
+    let id = envelope.id.as_str().and_then(|id| RequestId::parse(id).ok());
     let Some(id) = id else {
         let error = ResourceError::validation_invalid(
             Some("id"),
@@ -51,7 +63,7 @@ pub(super) fn try_handle(
         let response = crate::resource_router::malformed_resource_response(message, error);
         return Some(writer.send_control(&response).is_ok());
     };
-    let response = match run(mux, client, object, operation, route) {
+    let response = match run(mux, client, envelope, route) {
         Ok(result) => ResponseEnvelope::success(id, result),
         Err(error) => ResponseEnvelope::failure(id, error),
     };
@@ -62,45 +74,31 @@ pub(super) fn try_handle(
 fn run(
     mux: &Arc<Mux>,
     client: u64,
-    object: &Map<String, Value>,
-    operation: &str,
+    envelope: Envelope,
     route: Routed,
 ) -> Result<Value, ResourceError> {
-    if let Some(member) = object.keys().find(|key| !MEMBERS.contains(&key.as_str())) {
-        return Err(ResourceError::validation_invalid(
-            Some(member),
-            "routed requests carry only protocol, type, id, operation, params, idempotency_key and origin",
-        ));
-    }
-    if object.get("protocol").and_then(Value::as_str) != Some(PROTOCOL) {
+    let operation = envelope.operation.as_str();
+    if envelope.protocol != PROTOCOL {
         return Err(ResourceError::validation_invalid(Some("protocol"), "unsupported protocol"));
     }
-    if object.get("type").and_then(Value::as_str) != Some("request") {
+    if envelope.envelope_type != "request" {
         return Err(ResourceError::validation_invalid(Some("type"), "type must be request"));
     }
-    let mut params = match object.get("params") {
-        Some(Value::Object(params)) => params.clone(),
-        _ => {
-            return Err(ResourceError::validation_invalid(
-                Some("params"),
-                "params must be an object",
-            ));
-        }
+    let Value::Object(mut params) = envelope.params else {
+        return Err(ResourceError::validation_invalid(Some("params"), "params must be an object"));
     };
-    let claim = match object.get("origin") {
+    let claim = match envelope.origin {
         None => None,
-        Some(origin) => {
-            Some(serde_json::from_value::<OriginClaim>(origin.clone()).map_err(|_| {
-                ResourceError::validation_invalid(
-                    Some("origin"),
-                    "origin must be {claim, confirmation?}",
-                )
-            })?)
-        }
+        Some(origin) => Some(serde_json::from_value::<OriginClaim>(origin).map_err(|_| {
+            ResourceError::validation_invalid(
+                Some("origin"),
+                "origin must be {claim, confirmation?}",
+            )
+        })?),
     };
-    let key = match object.get("idempotency_key") {
+    let key = match envelope.idempotency_key {
         None => None,
-        Some(Value::String(key)) if (1..=128).contains(&key.len()) => Some(key.clone()),
+        Some(Value::String(key)) if (1..=128).contains(&key.len()) => Some(key),
         Some(_) => {
             return Err(ResourceError::validation_invalid(
                 Some("idempotency_key"),
@@ -119,14 +117,28 @@ fn run(
                 json!({"derived": RequestOrigin::Agent.wire_name(), "reason": "connection_not_registered"}),
             ));
         };
-        record.origin.routed_origin(
+        let origin = record.origin.routed_origin(
             operation,
             route.mutation,
             &Value::Object(params.clone()),
             claim.as_ref(),
             now_ms,
-        )?
+        )?;
+        (origin, record.origin.role == HelloRole::PageRelay)
     };
+    let (origin, relay) = origin;
+    // Origin user on the connection itself (the verified app, not a page
+    // relay's confirmed request) also needs a connection that is not bound
+    // to an agent, as on the raw `apps-store` door.
+    if origin == RequestOrigin::User && !relay {
+        let facts = super::origin_gate::app_connection(mux, client);
+        if facts.agent || !facts.verified_app {
+            return Err(forbidden(
+                "an agent connection cannot act with origin user",
+                json!({"derived": origin.wire_name(), "reason": "agent_bound"}),
+            ));
+        }
+    }
     if !mux.control_clients.is_owner_client(client) {
         return Err(ResourceError::operation_failed(
             operation,

@@ -28,6 +28,7 @@ struct Table {
 struct PageEntry {
     read: Vec<String>,
     gesture: Vec<String>,
+    confirm: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -50,8 +51,13 @@ pub(crate) enum PageGrant {
     /// The page may call it.
     Read,
     /// The page may call it only with the person's gesture: a host
-    /// confirmation for exactly this request (`origin.confirmation.issue`).
+    /// confirmation for exactly this request (`origin.confirmation.issue`),
+    /// which the host mints on one real key or pointer event.
     Gesture,
+    /// The page may call it only after the person approved it on a native
+    /// sheet: the same confirmation, which the host mints only after the
+    /// sheet (never on a click alone).
+    Confirm,
     /// Not on the page's list (or the page has no entry).
     None,
 }
@@ -77,17 +83,31 @@ pub(crate) fn grant(page: &str, operation: &str) -> PageGrant {
         PageGrant::Read
     } else if entry.gesture.iter().any(|name| name == operation) {
         PageGrant::Gesture
+    } else if entry.confirm.iter().any(|name| name == operation) {
+        PageGrant::Confirm
     } else {
         PageGrant::None
     }
 }
 
-/// `page`'s entry for the `client-hello` reply: `{read, gesture}` (both
-/// empty for a page with no entry).
+/// `page`'s entry for the `client-hello` reply: `{read, gesture, confirm}`
+/// (all empty for a page with no entry).
 pub(crate) fn page_operations(page: &str) -> Value {
     match table().pages.get(page) {
-        Some(entry) => json!({"read": entry.read, "gesture": entry.gesture}),
-        None => json!({"read": [], "gesture": []}),
+        Some(entry) => {
+            json!({"read": entry.read, "gesture": entry.gesture, "confirm": entry.confirm})
+        }
+        None => json!({"read": [], "gesture": [], "confirm": []}),
+    }
+}
+
+/// The refusal reason of a grant without the person's confirmation.
+pub(crate) const fn missing_confirmation_reason(grant: PageGrant) -> Option<&'static str> {
+    match grant {
+        PageGrant::Read => None,
+        PageGrant::Gesture => Some("gesture_required"),
+        PageGrant::Confirm => Some("confirmation_required"),
+        PageGrant::None => Some("page_not_allowed"),
     }
 }
 

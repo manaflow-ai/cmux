@@ -21,7 +21,11 @@ OUTPUT = CMUX_TUI.parent / "webviews" / "src" / "pages" / "shared" / "generated"
 
 def render(spec: dict) -> str:
     pages = {
-        page: {"read": sorted(entry["read"]), "gesture": sorted(entry["gesture"])}
+        page: {
+            "read": sorted(entry["read"]),
+            "gesture": sorted(entry["gesture"]),
+            "confirm": sorted(entry["confirm"]),
+        }
         for page, entry in sorted(spec["pages"].items())
     }
     namespaces = {
@@ -41,6 +45,7 @@ def render(spec: dict) -> str:
         "export interface PageOperations {",
         "  readonly read: readonly string[];",
         "  readonly gesture: readonly string[];",
+        "  readonly confirm: readonly string[];",
         "}",
         "",
         f"export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {json.dumps(pages, indent=2)};",
@@ -53,12 +58,13 @@ def render(spec: dict) -> str:
         "",
         f"export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {json.dumps(namespaces, indent=2)};",
         "",
-        "/** What `page` may do with the v2 operation `operation`: `read`, `gesture`, or `none`. */",
-        'export function pageGrant(page: string, operation: string): "read" | "gesture" | "none" {',
+        "/** What `page` may do with the v2 operation `operation`: `read`, `gesture`, `confirm`, or `none`. */",
+        'export function pageGrant(page: string, operation: string): "read" | "gesture" | "confirm" | "none" {',
         "  const entry = PAGE_OPERATIONS[page];",
         '  if (!entry) return "none";',
         '  if (entry.read.includes(operation)) return "read";',
         '  if (entry.gesture.includes(operation)) return "gesture";',
+        '  if (entry.confirm.includes(operation)) return "confirm";',
         '  return "none";',
         "}",
         "",

@@ -6,7 +6,8 @@
     "home-channels": {
       "description": "Channels (Home). It reads conversations through the raw conversation commands of its authenticated WebSocket, so it needs no v2 operation.",
       "read": [],
-      "gesture": []
+      "gesture": [],
+      "confirm": []
     },
     "history": {
       "description": "History. Reads the merged history; a delete needs the person's gesture (hq-99 rule on cmux#13742).",
@@ -18,16 +19,18 @@
         "history.entries.remove",
         "history.site.remove",
         "history.clear"
-      ]
+      ],
+      "confirm": []
     },
     "apps": {
-      "description": "App Store. Reads the catalog; an install, uninstall or change needs the person's confirmation.",
+      "description": "App Store. Reads the catalog; an install, uninstall or change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox).",
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
         "apps.installed.list"
       ],
-      "gesture": [
+      "gesture": [],
+      "confirm": [
         "apps.set",
         "apps.install",
         "apps.uninstall"

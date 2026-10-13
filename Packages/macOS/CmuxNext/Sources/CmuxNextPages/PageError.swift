@@ -20,16 +20,21 @@ public nonisolated struct PageCallContext: Sendable, Hashable {
     /// record, never the page's word): the call is backed by the person's gesture. Only a provider
     /// that serves the app's own trusted UI (the bundled Settings page) may treat that as the user.
     public let userGesture: Bool
+    /// When that key or mouse event happened (`systemUptime`), with ``userGesture``: a provider
+    /// that spends a gesture once (a confirmation token) keys on it. Nil without a gesture.
+    public let gestureEvent: TimeInterval?
 
     /// The user's own call: approved on a native sheet. Nothing a page sends can make this true.
     public var isConfirmedUser: Bool { origin == "user" && confirmed }
 
-    public init(page: String, origin: String = "page", confirmed: Bool = false, opid: String? = nil, userGesture: Bool = false) {
+    public init(page: String, origin: String = "page", confirmed: Bool = false, opid: String? = nil, userGesture: Bool = false,
+                gestureEvent: TimeInterval? = nil) {
         self.page = page
         self.origin = origin
         self.confirmed = confirmed
         self.opid = opid
         self.userGesture = userGesture
+        self.gestureEvent = userGesture ? gestureEvent : nil
     }
 
     /// Whether `text` is a valid operation id: 1-128 characters of `[A-Za-z0-9._:-]`.
