@@ -116,6 +116,7 @@ on:
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
+      - scripts/cmux-next/gen-settings-sources.py
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -244,6 +245,7 @@ on:
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
+      - scripts/cmux-next/gen-settings-sources.py
       - scripts/ci/cargo-test-selected.sh
       - scripts/cmux-next/herdr-sync.py
       - scripts/cmux-next/bundle-ghostty-resources.sh
@@ -782,8 +784,9 @@ jobs:
     # + 20% of the budget, so a new type past 1200 lines) the step writes a
     # warning and passes. Other style ratchets warn under a hard ceiling and fail
     # over it: l10n style errors and custom scrollbars (by count).
-    # A warning is ratchet debt: an annotation here, and the ratchet-debt job
-    # keeps one issue of it for feat-cmux-next. Concurrency, notification
+    # A warning is ratchet debt: an annotation on the PR run (the issue-writing
+    # ratchet-debt job was removed 2026-10-13: it needed a push run, which skips
+    # this job, and never filed an issue). Concurrency, notification
     # centers and crash safety have no warning tier. Each ceiling is set on its
     # own step only: the script tests below expect every hit to fail.
     steps:
@@ -926,6 +929,13 @@ jobs:
         continue-on-error: true
         run: python3 -I scripts/cmux-next/gen-protected-folders.py --check
 
+      # The hand-edited settings sources in schemas/settings (retired keys so
+      # far, cx-d5b5d) and their generated Swift copies; the daemon embeds the JSON.
+      - name: Settings source copies
+        id: settings-sources
+        continue-on-error: true
+        run: python3 -I scripts/cmux-next/gen-settings-sources.py --check
+
       - name: Stale scheme PCM cleanup
         id: stale-pcm-cleanup
         continue-on-error: true
@@ -979,7 +989,6 @@ jobs:
           bash scripts/cmux-next/tests/check-scrollbars.test.sh
           bash scripts/cmux-next/tests/check-test-notification-centers.test.sh
           bash scripts/cmux-next/tests/ratchet-tiers.test.sh
-          bash scripts/cmux-next/tests/ratchet-debt-issue.test.sh
           bash scripts/cmux-next/tests/base-autofix.test.sh
           bash scripts/cmux-next/tests/pr-autofix.test.sh
           bash scripts/ci/tests/cmux-tui-rust-check.test.sh
@@ -1107,16 +1116,6 @@ jobs:
         id: capability-text
         continue-on-error: true
         run: bash scripts/cmux-next/tests/capability-text.test.sh
-      # The style ratchets' warnings, for the ratchet-debt job.
-      - name: Upload the ratchet debt
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: cmux-next-ratchet-debt
-          path: ${{ runner.temp }}/ratchet-debt
-          if-no-files-found: ignore
-          retention-days: 7
-
       # `outcome`, not `conclusion`: continue-on-error makes every conclusion success.
       - name: Fail on any red check
         if: always()
@@ -1135,6 +1134,7 @@ jobs:
             ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
+            ${{ steps.settings-sources.outcome }}|Settings source copies
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
             ${{ steps.script-tests.outcome }}|Script tests (pin-cmux-tui, embed-cef, ensure-cef store)
             ${{ steps.ghostty-resources-bundle.outcome }}|Ghostty resources bundle
@@ -1167,39 +1167,6 @@ jobs:
             echo "Each check's own step log has the details."
           } | tee -a "$GITHUB_STEP_SUMMARY"
           exit 1
-
-  # Keeps one open issue (label ratchet-debt) listing the style ratchets'
-  # warnings on the feat-cmux-next tip: the checks job's annotations, rewritten
-  # on each push, closed when the debt is paid. Only base code runs here, and
-  # only this job can write issues.
-  ratchet-debt:
-    needs: checks
-    if: ${{ always() && github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.checks.result != 'skipped' }}
-    name: ratchet debt issue
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    permissions:
-      contents: read
-      issues: write
-    concurrency:
-      group: cmux-next-ratchet-debt
-      cancel-in-progress: true
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          sparse-checkout: scripts/cmux-next/ratchet-debt-issue.py
-          sparse-checkout-cone-mode: false
-      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-        continue-on-error: true
-        with:
-          name: cmux-next-ratchet-debt
-          path: ${{ runner.temp }}/ratchet-debt
-      - name: Rewrite the ratchet debt issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: python3 -I scripts/cmux-next/ratchet-debt-issue.py --repo "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --run-url "$RUN_URL" "$RUNNER_TEMP/ratchet-debt"
 
   # Reports a same-tree cmux-tui that nothing will publish, in red, at once.
   # It waits for nothing: path routing probed the tree (tree_state=failed), or
