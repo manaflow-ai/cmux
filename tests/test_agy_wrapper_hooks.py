@@ -92,6 +92,11 @@ def main() -> int:
         if "CMUX_AGENT_LAUNCH_KIND" in result["real"]["env"]:
             raise AssertionError(f"management command unexpectedly captured launch metadata: {result}")
 
+    with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-prompt-") as directory:
+        result = run_case(Path(directory), ("-i", "models"))
+        if len(result["calls"]) != 2 or "CMUX_AGENT_LAUNCH_KIND" not in result["real"]["env"]:
+            raise AssertionError(f"initial prompt was mistaken for a management command: {result}")
+
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-outside-") as directory:
         result = run_case(Path(directory), ("--prompt-interactive", "hello"), in_cmux=False)
         if result["calls"]:

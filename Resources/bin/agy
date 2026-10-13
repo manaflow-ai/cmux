@@ -63,8 +63,9 @@ encode_launch_argv() {
 
 agy_option_consumes_value() {
     case "$1" in
-        --add-dir|--agent|--effort|--input-format|--json-schema|--log-file|\
-        --mode|--model|--output-format|--print-timeout|--project|--prompt|--sandbox)
+        --add-dir|--agent|--conversation|--effort|--input-format|--json-schema|\
+        --log-file|--mode|--model|--output-format|--print|--print-timeout|\
+        --prompt|--prompt-interactive|--project|--sandbox|-i|-p)
             return 0
             ;;
     esac

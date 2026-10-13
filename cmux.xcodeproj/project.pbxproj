@@ -256,6 +256,7 @@
 		FC23B4F0173B55B06DFE8DD4 /* AgentWakeVerificationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 80DB6B39B8F616E8930F0A44 /* AgentWakeVerificationTests.swift */; };
 		A42100010000000000000001 /* AggregateMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = A42100010000000000000002 /* AggregateMemoryPressureResponder.swift */; };
 		B11371000000000000000001 /* AggregateMemoryRetentionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B11371000000000000000002 /* AggregateMemoryRetentionTests.swift */; };
+		C1ADE80002A1B2C3D4E5F719 /* agy in Copy CLI */ = {isa = PBXBuildFile; fileRef = C1ADE80001A1B2C3D4E5F719 /* agy */; };
 		A115C0DE0000000000000002 /* AllShortcutsPopover.swift in Sources */ = {isa = PBXBuildFile; fileRef = A115C0DE0000000000000001 /* AllShortcutsPopover.swift */; };
 		9758A0000000000000000002 /* AmpVaultRegistrationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9758A0000000000000000001 /* AmpVaultRegistrationTests.swift */; };
 		A54730000000000000000002 /* AntigravityHookSessionSnapshotRestoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54730000000000000000001 /* AntigravityHookSessionSnapshotRestoreTests.swift */; };
@@ -4681,6 +4682,7 @@
 			dstPath = bin;
 			dstSubfolderSpec = 7;
 			files = (
+				C1ADE80002A1B2C3D4E5F719 /* agy in Copy CLI */,
 				B900000BA1B2C3D4E5F60719 /* cmux in Copy CLI */,
 				9758A0029758A0029758A002 /* cmux-amp-wrapper in Copy CLI */,
 				C1ADE20002A1B2C3D4E5F719 /* cmux-claude-wrapper in Copy CLI */,
@@ -4969,6 +4971,7 @@
 		80DB6B39B8F616E8930F0A44 /* AgentWakeVerificationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentWakeVerificationTests.swift"; sourceTree = "<group>"; };
 		A42100010000000000000002 /* AggregateMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/AggregateMemoryPressureResponder.swift; sourceTree = "<group>"; };
 		B11371000000000000000002 /* AggregateMemoryRetentionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AggregateMemoryRetentionTests.swift; sourceTree = "<group>"; };
+		C1ADE80001A1B2C3D4E5F719 /* agy */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = Resources/bin/agy; sourceTree = SOURCE_ROOT; };
 		A115C0DE0000000000000001 /* AllShortcutsPopover.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AllShortcutsPopover.swift; sourceTree = "<group>"; };
 		9758A0000000000000000001 /* AmpVaultRegistrationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmpVaultRegistrationTests.swift; sourceTree = "<group>"; };
 		A54730000000000000000001 /* AntigravityHookSessionSnapshotRestoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AntigravityHookSessionSnapshotRestoreTests.swift; sourceTree = "<group>"; };
@@ -9423,6 +9426,7 @@
 					C1ADE60001A1B2C3D4E5F719 /* cmux-hermes-sitecustomize.py */,
 					9758A0019758A0019758A001 /* cmux-amp-wrapper */,
 					C1ADE10001A1B2C3D4E5F719 /* grok */,
+					C1ADE80001A1B2C3D4E5F719 /* agy */,
 					C1ADE10003A1B2C3D4E5F719 /* muse */,
 					C0DE70500000000000000001 /* start-cmux-profiling */,
 					C0DE70530000000000000001 /* submit-cmux-profile */,
