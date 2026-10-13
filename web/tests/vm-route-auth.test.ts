@@ -704,6 +704,7 @@ describe("VM REST auth", () => {
     });
     runVmWorkflow.mockResolvedValue({
       tunnelId: "tunnel-test", provider: "freestyle", deviceFingerprint: "device-test",
+      clientConfig: "[Interface]\\nMTU = 1380\\n",
       routes: [], network: { id: "home", cidr: "10.1.0.0/24", cidrV6: null },
       networks: [], created: false, rotated: false,
     });
@@ -717,6 +718,7 @@ describe("VM REST auth", () => {
     const enrollInput = (enrollVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as { teamIds?: readonly string[]; teamIdsComplete?: boolean };
     expect(enrollInput.teamIds).toEqual(["team-1", "team-2"]);
     expect(enrollInput.teamIdsComplete).toBe(true);
+    expect(await posted.json()).toMatchObject({ mtu: 1380 });
     const read = await tunnelGET(new Request("https://cmux.test/api/vm/tunnel?deviceFingerprint=device-test&tunnelPurpose=browser", { headers }));
     expect(read.status).toBe(200);
     const readInput = (readVmTunnel as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]?.[0] as { teamIds?: readonly string[]; teamIdsComplete?: boolean };

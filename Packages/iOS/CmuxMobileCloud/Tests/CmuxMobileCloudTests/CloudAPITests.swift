@@ -274,6 +274,7 @@ import Testing
         #expect(enrollment.routes == ["10.0.0.0/8", "fd00::/8"])
         #expect(enrollment.addressV6 == "fd7a:7570:6c6b::7")
         #expect(enrollment.endpointPort == 51820)
+        #expect(enrollment.mtu == 1200)
         #expect(enrollment.created)
         #expect(enrollment.clientConfig.hasPrefix("[Interface]"))
     }
