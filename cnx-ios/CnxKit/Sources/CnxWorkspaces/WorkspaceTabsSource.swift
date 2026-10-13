@@ -15,7 +15,15 @@ import UIKit
 @Observable
 public final class WorkspaceTabsSource: TabsDataSource {
     public let workspaceID: String
-    public private(set) var activeTabID: String?
+    /// The tab chosen on this screen. When it disappears (a new workspace
+    /// whose placeholder tab became the Mac's real tab), the active tab
+    /// falls back to the workspace's opening tab.
+    private var selectedTabID: String?
+    public var activeTabID: String? {
+        guard let workspace else { return nil }
+        if let selectedTabID, workspace.tabs.contains(where: { $0.id == selectedTabID }) { return selectedTabID }
+        return store.openingTab(for: workspace)?.id
+    }
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let terminal: any TerminalTabContent
     @ObservationIgnored let sessions: AgentSessionDirectory
@@ -36,7 +44,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         self.terminal = terminal
         self.sessions = sessions
         if let workspace = store.workspace(id: workspaceID), let tab = store.openingTab(for: workspace) {
-            activeTabID = tab.id
+            selectedTabID = tab.id
             store.noteOpened(tabID: tab.id, in: workspaceID)
         }
         for tab in store.workspace(id: workspaceID)?.tabs ?? [] where tab.kind == .browser {
@@ -108,7 +116,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func activate(_ id: TabsKitTab.ID) {
         guard workspaceTab(id) != nil else { return }
-        activeTabID = id
+        selectedTabID = id
         store.noteOpened(tabID: id, in: workspaceID)
         CnxTheme.standard.haptics.selection()
     }
@@ -117,8 +125,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let next = store.removeTab(id, from: workspaceID)
         surfaces[id] = nil
         browsers[id] = nil
-        if activeTabID == id || workspaceTab(activeTabID ?? "") == nil {
-            activeTabID = next?.id
+        if selectedTabID == id || workspaceTab(selectedTabID ?? "") == nil {
+            selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         }
     }

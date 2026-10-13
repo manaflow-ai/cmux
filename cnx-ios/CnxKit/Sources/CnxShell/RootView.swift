@@ -21,6 +21,9 @@ public struct ShellLaunchOptions: Sendable {
     public var demo: String?
     public var forceSetup = false
     public var initialEmail: String?
+    /// DEBUG: open setup on the Connect your Mac step, with no Mac until a
+    /// few seconds in (the presence flip, for recordings).
+    public var setupPairDemo = false
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         func value(_ flag: String) -> String? {
@@ -33,6 +36,8 @@ public struct ShellLaunchOptions: Sendable {
         demo = value("-cnx-demo") ?? DeveloperOptions.launchDemo.flatMap { DemoDriver.names.contains($0) ? $0 : nil }
         forceSetup = arguments.contains("-cnx-setup")
         initialEmail = value("-cnx-email")
+        setupPairDemo = arguments.contains("-cnx-setup-pair")
+        if setupPairDemo { forceSetup = true }
         #endif
     }
 }
@@ -106,6 +111,15 @@ public struct RootView: View {
             } else {
                 withAnimation(theme.motion.gentle.animation) { launchFinished = true }
             }
+            #if DEBUG
+            if options.setupPairDemo, let index = store.teams.firstIndex(where: { $0.id == store.activeTeamID }) {
+                // Recording pace, not synchronization: the Mac "comes online" 4 s in.
+                let macs = store.teams[index].macs
+                store.teams[index].macs = []
+                try? await Task.sleep(for: .seconds(4))
+                store.teams[index].macs = macs
+            }
+            #endif
         }
         .onChange(of: launchFinished) { _, finished in handoffDone = finished }
         .onChange(of: auth.teams) { _, _ in syncTeams() }
@@ -118,6 +132,7 @@ public struct RootView: View {
     }
 
     private var setupSteps: [SetupFlow.Step] {
+        if options.setupPairDemo { return [.pairMac, .notifications] }
         var steps: [SetupFlow.Step] = []
         if store.teams.isEmpty || store.teams.count >= 2 { steps.append(.team) }
         if store.activeTeam?.macs.isEmpty ?? true { steps.append(.pairMac) }
@@ -232,6 +247,7 @@ extension ShellView {
         )
         shell.live = live
         shell.terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
+        shell.creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link)
         live.applyAccountTeams(auth.teams, selectedID: auth.selectedTeamID)
         log.info("live data on \(base.host() ?? "", privacy: .public)")
     }
