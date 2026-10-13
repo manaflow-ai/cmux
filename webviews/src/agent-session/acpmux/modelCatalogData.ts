@@ -329,7 +329,9 @@ function catalogHarness(harness: CatalogHarness, members: AcpmuxHarness[], join:
   // where only the subrouter is signed in), never a bare harness its chats only failed on.
   const chosen =
     members.find((entry) => entry.id === session?.harness) ??
-    join.worked.map((id) => members.find((entry) => entry.id === id)).find((entry) => entry !== undefined) ??
+    join.worked
+      .map((id) => members.find((entry) => entry.id === id && (!entry.unavailable || entry.probeFailed)))
+      .find((entry) => entry !== undefined) ??
     members.find((entry) => entry.id === harness.id) ??
     members[0];
   const probed = chosen?.models ?? [];

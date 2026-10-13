@@ -280,6 +280,18 @@ test("a provider's pick starts the profile this person's chats last completed a 
   expect(sent).toEqual([{ method: "harness", value: "claude-sr/claude-opus-5-5" }]);
 });
 
+test("a profile that completed turns but no longer runs here never stands in for its provider", async () => {
+  const { sent } = await mount({
+    harness: "codex",
+    extra: [{ id: "claude-sr", name: "Claude Code (subrouter)", family: "claude", unavailable: "sr is not installed" }],
+    sessions: [{ sessionId: "lane", displayTitle: "cg-next-reds", harness: "claude-sr", updatedAt: 2, worked: true }],
+  });
+  await openOn("Claude Code");
+  const opus = rows().find((row) => row.dataset.key === "model:claude-opus-5-5")!;
+  await act(async () => opus.click());
+  expect(sent).toEqual([{ method: "harness", value: "claude/claude-opus-5-5" }]);
+});
+
 /// The New Tab page: no chat yet, so a pick starts a deferred switch (`chat.new {deferred}`) that
 /// acpmux runs behind the page. The chips are the page's own (App.tsx); the host's actions are
 /// the pane's `chat.new` and `chat.model` (App.tsx), on a real HarnessSwitch.

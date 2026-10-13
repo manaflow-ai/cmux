@@ -186,7 +186,10 @@ export function ComposerPickers({
         ...snapshot.catalog.filter((entry) => entry.folder),
       ]
     : snapshot.catalog;
-  const pickerEntries = locked ? allEntries.filter((entry) => entry.id === summary?.harness) : allEntries;
+  // A harness acpmux has not listed yet (the first open after launch) keeps the whole list rather
+  // than an empty picker.
+  const ownEntries = locked ? allEntries.filter((entry) => entry.id === summary?.harness) : [];
+  const pickerEntries = ownEntries.length > 0 ? ownEntries : allEntries;
   const switchHarness = locked ? undefined : onHarness;
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
