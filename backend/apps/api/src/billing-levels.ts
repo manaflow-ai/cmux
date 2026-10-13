@@ -102,6 +102,7 @@ export const handleBillingSync = async (request: Request, env: Env): Promise<Res
     } catch {
       return json({ error: "body must be JSON" }, 400)
     }
+    if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "body must be a JSON object" }, 400)
   }
   if (body.subscription !== undefined && (typeof body.subscription !== "string" || !/^sub_[A-Za-z0-9]{1,64}$/.test(body.subscription))) return json({ error: "subscription must be a subscription id" }, 400)
   const { syncUsage } = await import("./billing-usage-sync.ts")

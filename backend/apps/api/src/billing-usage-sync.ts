@@ -23,6 +23,9 @@ import { isUsagePlan, USAGE_METER_EVENT, USAGE_PLANS, USAGE_PRODUCT_ID, usagePri
  * every environment (live objects and live subscriptions are Lawrence's step).
  */
 const STRIPE = "https://api.stripe.com"
+/** Stripe API version, pinned (the web billing code uses the same one): items carry current_period_*. */
+export const STRIPE_API_VERSION = "2026-06-24.dahlia"
+
 const ACTIVE = new Set(["active", "trialing", "past_due"])
 const MAX_PAGES = 50
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -47,11 +50,11 @@ export interface SyncReport {
   failed: number
 }
 
-type StripeItem = { id: string; price: { id: string; product: string | { id: string } }; current_period_start?: number; current_period_end?: number }
+type StripeItem = { id: string; price: { id: string; product: string | { id: string }; lookup_key?: string | null; recurring?: { interval?: string } | null }; current_period_start?: number; current_period_end?: number }
 type StripeSubscription = { id: string; status: string; customer: string | { id: string }; metadata?: Record<string, string>; items: { data: StripeItem[] } }
 
 const stripeFetch = async (key: string, method: "GET" | "POST", path: string, form?: Record<string, string>, idempotencyKey?: string): Promise<any> => {
-  const headers: Record<string, string> = { authorization: `Bearer ${key}` }
+  const headers: Record<string, string> = { authorization: `Bearer ${key}`, "stripe-version": STRIPE_API_VERSION }
   if (form) headers["content-type"] = "application/x-www-form-urlencoded"
   if (idempotencyKey) headers["idempotency-key"] = idempotencyKey
   const res = await fetch(`${STRIPE}${path}`, { method, headers, ...(form ? { body: new URLSearchParams(form).toString() } : {}) })
@@ -63,11 +66,43 @@ const stripeFetch = async (key: string, method: "GET" | "POST", path: string, fo
 const idOf = (v: string | { id: string }) => (typeof v === "string" ? v : v.id)
 
 /** The team a cmux subscription bills, from its metadata (web checkout writes it). */
-export const teamOfSubscription = (env: Env, sub: StripeSubscription): string | null => {
+export const teamOfSubscription = (env: Env, sub: StripeSubscription, plan: UsagePlan): string | null => {
   const m = sub.metadata ?? {}
   // As stack-webhook.ts names a shared team (UUIDs lowercased) and auth.ts a person (the id as issued).
-  if (m.plan === "team") return m.stackTeamId ? stackTeamIdFor(env.STACK_PROJECT_ID, UUID.test(m.stackTeamId) ? m.stackTeamId.toLowerCase() : m.stackTeamId) : null
+  if (plan === "team") return m.stackTeamId ? stackTeamIdFor(env.STACK_PROJECT_ID, UUID.test(m.stackTeamId) ? m.stackTeamId.toLowerCase() : m.stackTeamId) : null
+  if (m.stackTeamId) return null
   return m.stackUserId ? personalTeamIdFor(userIdFor(env.STACK_PROJECT_ID, m.stackUserId)) : null
+}
+
+/** The plan of a cmux subscription from its plan item's lookup key, as web reads it (subscriptionPlan.ts); metadata only without one. */
+export const planOfSubscription = (sub: StripeSubscription, planItem: StripeItem | undefined): UsagePlan | null => {
+  const lookup = planItem?.price.lookup_key
+  if (typeof lookup === "string" && lookup.trim()) {
+    if (lookup.startsWith("cmux-go-")) return "go"
+    if (lookup.startsWith("cmux-max-")) return "max"
+    if (lookup.startsWith("cmux-pro-")) return "pro"
+    if (lookup.startsWith("cmux-team-")) return "team"
+    return null
+  }
+  const meta = sub.metadata?.plan
+  return isUsagePlan(meta) ? meta : null
+}
+
+const listActive = async (key: string): Promise<{ subs: StripeSubscription[]; truncated: boolean }> => {
+  const subs: StripeSubscription[] = []
+  let truncated = false
+  for (const status of ACTIVE) {
+    let after: string | undefined
+    let page = 0
+    for (; page < MAX_PAGES; page++) {
+      const list = await stripeFetch(key, "GET", `/v1/subscriptions?status=${status}&limit=100${after ? `&starting_after=${after}` : ""}`)
+      subs.push(...(list.data as StripeSubscription[]))
+      if (!list.has_more || list.data.length === 0) break
+      after = list.data.at(-1).id
+    }
+    if (page === MAX_PAGES) truncated = true
+  }
+  return { subs, truncated }
 }
 
 export const syncUsage = async (env: Env, only?: { readonly subscription?: string }): Promise<SyncReport> => {
@@ -82,62 +117,71 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
   const priceOf = new Map<UsagePlan, string>()
   for (const p of priceList.data as Array<{ id: string; lookup_key: string }>) for (const plan of USAGE_PLANS) if (p.lookup_key === usagePriceLookupKey(plan)) priceOf.set(plan, p.id)
   const usagePrices = new Set(priceOf.values())
+  const isUsageItem = (i: StripeItem) => usagePrices.has(i.price.id) || idOf(i.price.product) === USAGE_PRODUCT_ID
 
-  const subs: StripeSubscription[] = []
-  if (only?.subscription) subs.push(await stripeFetch(key, "GET", `/v1/subscriptions/${encodeURIComponent(only.subscription)}`))
-  else {
-    let after: string | undefined
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const list = await stripeFetch(key, "GET", `/v1/subscriptions?status=all&limit=100${after ? `&starting_after=${after}` : ""}`)
-      subs.push(...(list.data as StripeSubscription[]))
-      if (!list.has_more || list.data.length === 0) break
-      after = list.data.at(-1).id
+  const listed = only?.subscription ? { subs: [(await stripeFetch(key, "GET", `/v1/subscriptions/${encodeURIComponent(only.subscription)}`)) as StripeSubscription], truncated: false } : await listActive(key)
+  if (listed.truncated) console.error(JSON.stringify({ msg: "billing.usage_sync.truncated", pages: MAX_PAGES }))
+  const cmux = listed.subs.filter((sub) => sub.metadata?.app === "cmux" && ACTIVE.has(sub.status))
+  // One usage subscription per customer: meter events are per customer, so two would bill one total twice (review P2).
+  const perCustomer = new Map<string, number>()
+  for (const sub of cmux) perCustomer.set(idOf(sub.customer), (perCustomer.get(idOf(sub.customer)) ?? 0) + 1)
+
+  /** Sends the level of [start, end) for this subscription when it changed; `final` = a closed period's last push. */
+  const pushLevel = async (team: string, sub: StripeSubscription, start: number, end: number) => {
+    const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
+    const level = await meter.level(team, start * 1000, end * 1000)
+    const identifier = `ai:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}`
+    const sent = await meter.pushedLevel(team, sub.id, start)
+    if (sent === identifier || (sent === null && level.facts === 0)) return false
+    const timestamp = Math.min(Math.floor(Date.now() / 1000), end - 1)
+    try {
+      await stripeFetch(key, "POST", "/v1/billing/meter_events", { event_name: USAGE_METER_EVENT, "payload[stripe_customer_id]": idOf(sub.customer), "payload[value]": (level.micros / 1_000_000).toFixed(6), identifier, timestamp: String(timestamp) }, identifier)
+    } catch (e) {
+      // The same identifier was already accepted (a run that died before it recorded the push).
+      const err = e as { status?: number; stripeMessage?: string }
+      if (!(err.status === 400 && /identifier/i.test(err.stripeMessage ?? "") && /(already|duplicate|exists)/i.test(err.stripeMessage ?? ""))) throw e
     }
+    await meter.recordPush(team, sub.id, start, end, identifier, level.micros)
+    return true
   }
 
-  for (const sub of subs) {
-    const plan = sub.metadata?.plan
-    if (sub.metadata?.app !== "cmux" || !ACTIVE.has(sub.status) || !isUsagePlan(plan)) continue
+  for (const sub of cmux) {
+    const planItem = sub.items.data.find((i) => !isUsageItem(i))
+    const plan = planOfSubscription(sub, planItem)
+    if (!plan) continue
     report.checked++
-    const team = teamOfSubscription(env, sub)
+    const team = teamOfSubscription(env, sub, plan)
     const want = priceOf.get(plan)
-    if (!team || !want) {
+    const why = !team ? "no_team" : !want ? "no_usage_price" : !planItem ? "no_plan_item" : planItem.price.recurring?.interval !== "month" ? "not_monthly" : (perCustomer.get(idOf(sub.customer)) ?? 0) > 1 ? "customer_has_several" : null
+    if (why) {
       report.skipped++
+      console.warn(JSON.stringify({ msg: "billing.usage_sync.skipped", subscription: sub.id, why }))
       continue
     }
     try {
-      // The usage item only: an item on a usage price or the usage product. The plan item is never touched.
-      let item = sub.items.data.find((i) => usagePrices.has(i.price.id) || idOf(i.price.product) === USAGE_PRODUCT_ID)
+      // The usage item only: an item on a usage price or the usage product. The plan item is never written.
+      let item = sub.items.data.find(isUsageItem)
+      const periodStart = planItem!.current_period_start
       if (!item) {
-        item = (await stripeFetch(key, "POST", "/v1/subscription_items", { subscription: sub.id, price: want, proration_behavior: "none" }, `usage-item:${sub.id}:${want}`)) as StripeItem
+        item = (await stripeFetch(key, "POST", "/v1/subscription_items", { subscription: sub.id, price: want!, proration_behavior: "none" }, `usage-item:${sub.id}:${want}`)) as StripeItem
         report.items_added++
       } else if (item.price.id !== want) {
-        item = (await stripeFetch(key, "POST", `/v1/subscription_items/${item.id}`, { price: want, proration_behavior: "none" }, `usage-item-move:${sub.id}:${item.id}:${want}`)) as StripeItem
+        item = (await stripeFetch(key, "POST", `/v1/subscription_items/${item.id}`, { price: want!, proration_behavior: "none" }, `usage-item-move:${sub.id}:${item.id}:${want}:${periodStart ?? 0}`)) as StripeItem
         report.items_moved++
       }
-      const start = item.current_period_start ?? sub.items.data[0]?.current_period_start
-      const end = item.current_period_end ?? sub.items.data[0]?.current_period_end
+      const start = item.current_period_start ?? periodStart
+      const end = item.current_period_end ?? planItem!.current_period_end
       if (!start || !end) {
         report.skipped++
         continue
       }
-      const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team))
-      const level = await meter.level(team, start * 1000, end * 1000)
-      const identifier = `ai:${sub.id}:${start}:${level.micros}:${level.facts}:${level.last_at ?? 0}`
-      const sent = await meter.pushedLevel(team, sub.id, start)
-      if (sent === identifier || (sent === null && level.facts === 0)) {
-        report.unchanged++
-        continue
-      }
-      const timestamp = Math.min(Math.floor(Date.now() / 1000), end - 1)
-      try {
-        await stripeFetch(key, "POST", "/v1/billing/meter_events", { event_name: USAGE_METER_EVENT, "payload[stripe_customer_id]": idOf(sub.customer), "payload[value]": (level.micros / 1_000_000).toFixed(6), identifier, timestamp: String(timestamp) }, identifier)
-      } catch (e) {
-        // The same identifier was already accepted (a run that died before it recorded the push).
-        if (!((e as { status?: number }).status === 400 && /identifier/i.test((e as { stripeMessage?: string }).stripeMessage ?? ""))) throw e
-      }
-      await meter.recordPush(team, sub.id, start, identifier, level.micros)
-      report.pushed++
+      const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team!))
+      // Period close (review P2): after a renewal, the closed period gets its final level once more,
+      // dated inside it, while its invoice is still a draft (Stripe waits about an hour).
+      const prev = await meter.previousPush(team!, sub.id, start)
+      if (prev && (await pushLevel(team!, sub, prev.period_start, prev.period_end))) report.pushed++
+      if (await pushLevel(team!, sub, start, end)) report.pushed++
+      else report.unchanged++
     } catch (e) {
       report.failed++
       console.error(JSON.stringify({ msg: "billing.usage_sync.failed", subscription: sub.id, error: String(e).slice(0, 200) }))

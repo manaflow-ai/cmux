@@ -75,7 +75,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     }
     ensureUserTables(ctx.storage.sql)
     // The last level the usage sync sent to the payment service, per subscription and period (cx-y79zh S4).
-    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_push (subscription TEXT NOT NULL, period_start INTEGER NOT NULL, identifier TEXT NOT NULL, micros INTEGER NOT NULL, pushed_at INTEGER NOT NULL, PRIMARY KEY (subscription, period_start))`)
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_push (subscription TEXT NOT NULL, period_start INTEGER NOT NULL, period_end INTEGER NOT NULL, identifier TEXT NOT NULL, micros INTEGER NOT NULL, pushed_at INTEGER NOT NULL, PRIMARY KEY (subscription, period_start))`)
   }
 
   /** The usage sync's last sent identifier for a subscription period, or null (never sent, or the team never used the meter). */
@@ -85,13 +85,20 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     return row?.identifier ?? null
   }
 
-  /** The usage sync sent `identifier` (level `micros`) for this subscription period. */
-  async recordPush(entity: string, subscription: string, periodStart: number, identifier: string, micros: number): Promise<void> {
+  /** The usage sync sent `identifier` (level `micros`) for this subscription period [start, end) (seconds). */
+  async recordPush(entity: string, subscription: string, periodStart: number, periodEnd: number, identifier: string, micros: number): Promise<void> {
     this.bind(entity)
     this.ctx.storage.sql.exec(
-      `INSERT INTO usage_push (subscription, period_start, identifier, micros, pushed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (subscription, period_start) DO UPDATE SET identifier = excluded.identifier, micros = excluded.micros, pushed_at = excluded.pushed_at`,
-      subscription, periodStart, identifier, micros, Date.now()
+      `INSERT INTO usage_push (subscription, period_start, period_end, identifier, micros, pushed_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (subscription, period_start) DO UPDATE SET period_end = excluded.period_end, identifier = excluded.identifier, micros = excluded.micros, pushed_at = excluded.pushed_at`,
+      subscription, periodStart, periodEnd, identifier, micros, Date.now()
     )
+  }
+
+  /** The latest period before `beforeStart` that the sync sent for this subscription (its final push after renewal). */
+  async previousPush(entity: string, subscription: string, beforeStart: number): Promise<{ period_start: number; period_end: number } | null> {
+    if (!this.isBound(entity)) return null
+    const row = this.ctx.storage.sql.exec<{ period_start: number; period_end: number }>(`SELECT period_start, period_end FROM usage_push WHERE subscription = ? AND period_start < ? ORDER BY period_start DESC LIMIT 1`, subscription, beforeStart).toArray()[0]
+    return row ? { period_start: Number(row.period_start), period_end: Number(row.period_end) } : null
   }
 
   /** Model router (inference/route.ts): reserve `maxMicros` of the member's monthly limit before the upstream call (usage-user.ts). */

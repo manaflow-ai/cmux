@@ -154,45 +154,50 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
 /**
  * cx-y79zh S4 (plans/cmux-next/usage-billing.md section 3): the usage sync in the API Worker, driven
  * at its route POST /v1/internal/billing/sync with the payment service faked at its HTTP boundary
- * (api.stripe.com) and the model provider faked as in inference-spend-facts.test.ts.
+ * (api.stripe.com) and the model provider faked as above.
  */
 
-const PLAN_PRICE = "price_plan_pro"
+const SYNC_KEY = "test-billing-levels-key-0123456789abcdef"
 const USAGE_PRICES: Record<string, string> = { "cmux-ai-usage-go-incl5-v1": "price_u_go", "cmux-ai-usage-pro-incl20-v1": "price_u_pro", "cmux-ai-usage-max-incl100-v1": "price_u_max", "cmux-ai-usage-team-incl20-v1": "price_u_team" }
 
-type Call = { method: string; path: string; form: Record<string, string>; idempotency: string | null }
+type Call = { method: string; path: string; form: Record<string, string>; idempotency: string | null; version: string | null }
+type FakeSub = { id: string; status: string; customer: string; metadata: Record<string, string>; items: { data: Array<any> } }
 
-/** An in-memory payment service: prices by lookup key, one subscription, subscription items, meter events. */
-const fakeStripe = (stackUser: string, period: { start: number; end: number }) => {
+/** An in-memory payment service: prices by lookup key, subscriptions, subscription items, meter events. */
+const fakeStripe = (period: { start: number; end: number }) => {
   const calls: Call[] = []
   const events: Array<Record<string, string>> = []
-  const sub = {
-    id: "sub_test_1",
-    status: "active",
-    customer: "cus_test_1",
-    metadata: { app: "cmux", plan: "pro", stackUserId: stackUser },
-    items: { data: [{ id: "si_plan", quantity: 1, price: { id: PLAN_PRICE, product: "prod_pro" }, current_period_start: period.start, current_period_end: period.end }] as Array<any> }
+  const subs: FakeSub[] = []
+  const seen = new Map<string, unknown>()
+  const addSub = (id: string, customer: string, metadata: Record<string, string>, planLookup: string, extra: Array<any> = []) => {
+    const sub: FakeSub = { id, status: "active", customer, metadata: { app: "cmux", ...metadata }, items: { data: [{ id: `si_plan_${id}`, quantity: 1, price: { id: `price_plan_${id}`, product: "prod_plan", lookup_key: planLookup, recurring: { interval: "month" } } }, ...extra] } }
+    subs.push(sub)
+    return sub
   }
-  const seenIdempotency = new Map<string, unknown>()
+  const withPeriod = (sub: FakeSub) => ({ ...structuredClone(sub), items: { data: sub.items.data.map((i) => ({ ...structuredClone(i), current_period_start: period.start, current_period_end: period.end })) } })
   const handle = async (url: URL, init: RequestInit): Promise<Response> => {
     const method = (init.method ?? "GET").toUpperCase()
     const form = Object.fromEntries(new URLSearchParams(typeof init.body === "string" ? init.body : ""))
-    const idempotency = new Headers(init.headers).get("idempotency-key")
-    calls.push({ method, path: url.pathname, form, idempotency })
-    if (idempotency && seenIdempotency.has(idempotency)) return Response.json(seenIdempotency.get(idempotency))
+    const headers = new Headers(init.headers)
+    const idempotency = headers.get("idempotency-key")
+    calls.push({ method, path: url.pathname, form, idempotency, version: headers.get("stripe-version") })
+    if (idempotency && seen.has(idempotency)) return Response.json(seen.get(idempotency))
     const ok = (body: unknown) => {
-      if (idempotency) seenIdempotency.set(idempotency, body)
+      if (idempotency) seen.set(idempotency, body)
       return Response.json(body)
     }
-    if (method === "GET" && url.pathname === "/v1/prices") {
-      const keys = url.searchParams.getAll("lookup_keys[]")
-      return ok({ data: keys.filter((k) => USAGE_PRICES[k]).map((k) => ({ id: USAGE_PRICES[k], lookup_key: k })) })
-    }
-    if (method === "GET" && url.pathname === "/v1/subscriptions") return ok({ data: [structuredClone(sub)], has_more: false })
+    if (method === "GET" && url.pathname === "/v1/prices") return ok({ data: url.searchParams.getAll("lookup_keys[]").filter((k) => USAGE_PRICES[k]).map((k) => ({ id: USAGE_PRICES[k], lookup_key: k })) })
+    if (method === "GET" && url.pathname === "/v1/subscriptions") return ok({ data: subs.filter((x) => x.status === url.searchParams.get("status")).map(withPeriod), has_more: false })
     if (method === "POST" && url.pathname === "/v1/subscription_items") {
-      const item = { id: "si_usage", price: { id: form.price, product: "cmux_ai_usage" }, current_period_start: period.start, current_period_end: period.end }
-      sub.items.data.push(item)
-      return ok(item)
+      const item = { id: `si_usage_${form.subscription}`, price: { id: form.price, product: "cmux_ai_usage", recurring: { interval: "month" } } }
+      subs.find((x) => x.id === form.subscription)!.items.data.push(item)
+      return ok({ ...item, current_period_start: period.start, current_period_end: period.end })
+    }
+    const moved = url.pathname.match(/^\/v1\/subscription_items\/(.+)$/)
+    if (method === "POST" && moved) {
+      const item = subs.flatMap((x) => x.items.data).find((i) => i.id === moved[1])
+      item.price = { ...item.price, id: form.price }
+      return ok({ ...structuredClone(item), current_period_start: period.start, current_period_end: period.end })
     }
     if (method === "POST" && url.pathname === "/v1/billing/meter_events") {
       events.push(form)
@@ -200,7 +205,7 @@ const fakeStripe = (stackUser: string, period: { start: number; end: number }) =
     }
     return Response.json({ error: { code: "resource_missing", message: `no fake for ${method} ${url.pathname}` } }, { status: 404 })
   }
-  return { calls, events, sub, handle }
+  return { calls, events, subs, addSub, period, handle }
 }
 
 /** Fakes both boundaries: the model provider answers `cost`, the payment service is `stripe`. */
@@ -215,17 +220,21 @@ const fakeBoundaries = (stripe: ReturnType<typeof fakeStripe>, cost: number) => 
 }
 
 /** One usage sync run through the Worker's fetch handler (POST /v1/internal/billing/sync). */
-const sync = async (runEnv: unknown = env) => {
+const sync = async (runEnv: unknown = env, body = "{}") => {
   const ctx = createExecutionContext()
-  const res = await worker.fetch!(new Request("https://api.test/v1/internal/billing/sync", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${LEVELS_KEY}` }, body: "{}" }) as any, runEnv as any, ctx)
-  const body = (await res.json()) as any
+  const res = await worker.fetch!(new Request("https://api.test/v1/internal/billing/sync", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${SYNC_KEY}` }, body }) as any, runEnv as any, ctx)
+  const out = (await res.json()) as any
   await waitOnExecutionContext(ctx)
-  return { status: res.status, body }
+  return { status: res.status, body: out }
 }
+
+const nowS = () => Math.floor(Date.now() / 1000)
+/** No call of the run wrote a plan item or named a plan price. */
+const planItemsUntouched = (stripe: ReturnType<typeof fakeStripe>) => stripe.calls.every((c) => !c.path.includes("si_plan") && !Object.values(c.form).some((v) => v.startsWith("price_plan")))
 
 describe("usage sync (cx-y79zh S4)", () => {
   it("refuses a live payment key before any call to the payment service", async () => {
-    const stripe = fakeStripe("usage-sync-live", { start: 1, end: 2 })
+    const stripe = fakeStripe({ start: 1, end: 2 })
     fakeBoundaries(stripe, 0)
     for (const live of ["sk_live_0123456789abcdef", "rk_live_0123456789abcdef"]) {
       const r = await sync({ ...(env as object), STRIPE_USAGE_KEY: live })
@@ -233,38 +242,65 @@ describe("usage sync (cx-y79zh S4)", () => {
       expect(r.body).toMatchObject({ mode: "live", refused: "live_key", checked: 0, pushed: 0 })
     }
     expect(stripe.calls).toHaveLength(0)
+    expect((await sync(env, "null")).status).toBe(400)
   })
 
   it("adds the usage item once, never changes the plan item, and sends each new level once", async () => {
-    const stackUser = "usage-sync-person"
-    const { t } = await paidPerson(stackUser)
-    const now = Math.floor(Date.now() / 1000)
-    const stripe = fakeStripe(stackUser, { start: now - 3600, end: now + 30 * 86_400 })
+    const { t } = await paidPerson("usage-sync-person")
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    stripe.addSub("sub_p1", "cus_p1", { plan: "pro", stackUserId: "usage-sync-person" }, "cmux-pro-monthly-50")
     fakeBoundaries(stripe, 0.000007)
     expect((await chat(t)).status).toBe(200)
 
     const first = await sync()
-    expect(first.status).toBe(200)
     expect(first.body).toMatchObject({ mode: "test", checked: 1, items_added: 1, pushed: 1, failed: 0 })
-    const added = stripe.calls.filter((c) => c.path === "/v1/subscription_items")
-    expect(added).toEqual([expect.objectContaining({ method: "POST", idempotency: `usage-item:sub_test_1:price_u_pro`, form: expect.objectContaining({ subscription: "sub_test_1", price: "price_u_pro" }) })])
-    // The plan item is never written: no call names si_plan or the plan price.
-    expect(stripe.calls.some((c) => c.path.includes("si_plan") || Object.values(c.form).includes(PLAN_PRICE))).toBe(false)
-    expect(stripe.events).toHaveLength(1)
-    expect(stripe.events[0]).toMatchObject({ event_name: "cmux_ai_usage", "payload[stripe_customer_id]": "cus_test_1", "payload[value]": "0.000007" })
+    expect(stripe.calls.filter((c) => c.path === "/v1/subscription_items")).toEqual([expect.objectContaining({ idempotency: "usage-item:sub_p1:price_u_pro", form: expect.objectContaining({ subscription: "sub_p1", price: "price_u_pro" }) })])
+    expect(stripe.events).toEqual([expect.objectContaining({ event_name: "cmux_ai_usage", "payload[stripe_customer_id]": "cus_p1", "payload[value]": "0.000007" })])
 
-    // Nothing changed: no new item, no new event.
     const second = await sync()
     expect(second.body).toMatchObject({ checked: 1, items_added: 0, pushed: 0, unchanged: 1 })
     expect(stripe.events).toHaveLength(1)
 
-    // A new fact: the new period level (the whole level, not a delta) is sent with a new identifier.
     expect((await chat(t)).status).toBe(200)
     const third = await sync()
     expect(third.body).toMatchObject({ pushed: 1, items_added: 0 })
-    expect(stripe.events).toHaveLength(2)
     expect(stripe.events[1]!["payload[value]"]).toBe("0.000014")
     expect(stripe.events[1]!.identifier).not.toBe(stripe.events[0]!.identifier)
     expect(stripe.calls.filter((c) => c.path === "/v1/billing/meter_events").every((c) => c.idempotency === c.form.identifier)).toBe(true)
+    expect(stripe.calls.every((c) => c.version === "2026-06-24.dahlia")).toBe(true)
+    expect(planItemsUntouched(stripe)).toBe(true)
+  })
+
+  it("reads the plan from the plan item, moves a usage item to the right plan's price, and skips a customer with two subscriptions", async () => {
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 30 * 86_400 })
+    // Upgraded to Max in the portal: the metadata still says pro, the plan item says max.
+    stripe.addSub("sub_m1", "cus_m1", { plan: "pro", stackUserId: "usage-sync-max" }, "cmux-max-monthly-200", [{ id: "si_usage_m1", price: { id: "price_u_pro", product: "cmux_ai_usage", recurring: { interval: "month" } } }])
+    stripe.addSub("sub_d1", "cus_dup", { plan: "pro", stackUserId: "usage-sync-dup-a" }, "cmux-pro-monthly-50")
+    stripe.addSub("sub_d2", "cus_dup", { plan: "pro", stackUserId: "usage-sync-dup-b" }, "cmux-pro-monthly-50")
+    fakeBoundaries(stripe, 0)
+    const r = await sync()
+    expect(r.body).toMatchObject({ checked: 3, items_moved: 1, items_added: 0, skipped: 2, failed: 0 })
+    const writes = stripe.calls.filter((c) => c.method === "POST")
+    expect(writes).toEqual([expect.objectContaining({ path: "/v1/subscription_items/si_usage_m1", form: expect.objectContaining({ price: "price_u_max" }) })])
+    expect(planItemsUntouched(stripe)).toBe(true)
+  })
+
+  it("after a renewal, the closed period gets its final level once more, dated inside that period", async () => {
+    const { t } = await paidPerson("usage-sync-renew")
+    const stripe = fakeStripe({ start: nowS() - 3600, end: nowS() + 120 })
+    stripe.addSub("sub_r1", "cus_r1", { plan: "pro", stackUserId: "usage-sync-renew" }, "cmux-pro-monthly-50")
+    fakeBoundaries(stripe, 0.000005)
+    expect((await chat(t)).status).toBe(200)
+    expect((await sync()).body).toMatchObject({ pushed: 1 })
+    // Usage in the last minutes of the period, then the renewal before the next run.
+    expect((await chat(t)).status).toBe(200)
+    const closedEnd = stripe.period.end
+    stripe.period.start = closedEnd
+    stripe.period.end = closedEnd + 30 * 86_400
+    const after = await sync()
+    expect(after.body).toMatchObject({ pushed: 1, failed: 0 })
+    expect(stripe.events).toHaveLength(2)
+    expect(stripe.events[1]).toMatchObject({ "payload[value]": "0.000010" })
+    expect(Number(stripe.events[1]!.timestamp)).toBeLessThan(closedEnd)
   })
 })
