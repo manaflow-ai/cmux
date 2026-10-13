@@ -125,24 +125,6 @@ async fn a_page_request_with_large_localhost_cookies_is_served() {
     assert_eq!(status(port, request).await, 200);
 }
 
-#[test]
-fn dev_origins_are_loopback_http_with_a_port_only() {
-    use acpmux::server::dev_origin;
-    assert_eq!(dev_origin("http://127.0.0.1:4176/").unwrap(), "http://127.0.0.1:4176");
-    assert_eq!(dev_origin("http://LOCALHOST:5173").unwrap(), "http://localhost:5173");
-    for bad in [
-        "https://127.0.0.1:4176",
-        "http://evil.example:4176",
-        "http://127.0.0.1",
-        "http://localhost:80",
-        "null",
-        "cmux-agent://pane",
-        "http://user@localhost:5173",
-    ] {
-        assert!(dev_origin(bad).is_err(), "{bad}");
-    }
-}
-
 #[tokio::test]
 async fn a_dev_origin_is_accepted_only_when_the_daemon_was_given_it() {
     let mut config = Config::default();

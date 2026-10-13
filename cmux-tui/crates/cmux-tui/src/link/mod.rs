@@ -2,11 +2,14 @@
 //! endpoint (plans/cmux-next/transport.md 3 and 12a). Slice 1: direct paths
 //! to paired peers only, no relay.
 
+mod access_cli;
+mod agent_cli;
 mod cloud;
 mod cloud_fs;
 mod control;
 mod dial;
 mod dial_cli;
+mod sync_cli;
 // Wired into `serve` when Cloud hosts run the link (needs the TeamDO peer
 // map and a token format); tested now.
 #[cfg_attr(not(test), allow(dead_code))]
@@ -58,7 +61,8 @@ fn locked<T>(mutex: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 /// `enabled` (`--link-entry`): only the link may connect, and its gate
 /// ([`link_entry_gate`]) admits only the seven `fs-v1` ops. On a Cloud host
 /// this also installs the daemon's file owner (`cloud_fs`); elsewhere the
-/// admitted fs ops answer `fs.unavailable`.
+/// admitted fs ops answer `fs.unavailable`. Every host also learns how it
+/// guards chats moved in (`agent-transfer-v1`).
 pub(crate) fn start_link_entry(
     enabled: bool,
     mux: &Arc<cmux_tui_core::Mux>,
@@ -66,6 +70,7 @@ pub(crate) fn start_link_entry(
 ) -> anyhow::Result<Option<cmux_tui_core::server::RemoteEntryServer>> {
     use cmux_tui_core::server::{LinkVerifier, serve_remote_entry};
     cloud_fs::install_if_cloud_host();
+    mux.set_agent_transfer_host(cloud_fs::agent_transfer_host());
     // What a stamp's `check` means is fixed here, at daemon start, from the
     // config `main` took from the environment (G4); a real verifier is
     // refused until G1 and G2 hold. The mode is logged once (G3).
@@ -94,6 +99,17 @@ pub(crate) fn run(args: &[String]) -> i32 {
     // `dial` has its own exit codes and always one JSON line on stderr.
     if args.first().map(String::as_str) == Some("dial") {
         return dial_cli::run(&args[1..]);
+    }
+    // `sync` answers one JSON line on stdout and has its own exit codes too.
+    if args.first().map(String::as_str) == Some("sync") {
+        return sync_cli::run(&args[1..]);
+    }
+    // So do `agent` and `access`.
+    if args.first().map(String::as_str) == Some("agent") {
+        return agent_cli::run(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("access") {
+        return access_cli::run(&args[1..]);
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {

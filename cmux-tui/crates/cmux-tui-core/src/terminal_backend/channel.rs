@@ -208,14 +208,6 @@ impl<M: Clone> ChannelTable<M> {
             .map(|body| Frame { channel: channel.to_owned(), body }))
     }
 
-    /// One data frame within the channel's credit (no waiting).
-    pub(crate) fn send(&self, channel: &str, bytes: Vec<u8>) -> Result<Frame, BackendError> {
-        let mut state = self.state.lock().unwrap();
-        let c = state.channels.get_mut(channel).filter(|c| c.end.is_none());
-        let body = c.ok_or_else(BackendError::not_open)?.to_app.send(bytes)?;
-        Ok(Frame { channel: channel.to_owned(), body })
-    }
-
     /// Sends all of `bytes` as data frames of at most 64 KiB, waiting for
     /// the app's credit between frames; each frame goes to `emit` outside
     /// the lock, in order. `invalid` once the channel ended.

@@ -1,4 +1,5 @@
 import type { AcpmuxRow } from "../model";
+import { childRows, type ChildEntry } from "./childRows";
 
 /// The transcript row of a batch of subagents (SubagentGroup.tsx).
 export const SUBAGENTS = "subagents";
@@ -20,7 +21,7 @@ export type Subagent = {
   action?: string;
 };
 
-type Event = { seq: number; at: number; msg?: any };
+export type Event = { seq: number; at: number; msg?: any };
 type Group = { id: string; at: number; version: number; ids: string[] };
 
 /// Folds a session's subagent records out of its transcript. Subagents the session spawns
@@ -32,6 +33,11 @@ export class SubagentFold {
   private readonly spawnCalls = new Set<string>();
   private readonly changed = new Set<Group>();
   private open: Group | undefined;
+  /// Each subagent's own updates and the points where it spawned subagents, in order: its view.
+  private readonly own = new Map<string, ChildEntry[]>();
+  /// Each subagent view's rows, while its version holds.
+  private readonly drawn = new Map<string, { version: number; rows: AcpmuxRow[] }>();
+  private readonly versions = new Map<string, number>();
 
   /// Folds one session/update record; true when it belongs to subagents and draws no row.
   reduce(event: Event, update: any): boolean {
@@ -42,6 +48,8 @@ export class SubagentFold {
     if (owner) {
       if ((update?.sessionUpdate === "tool_call" || update?.sessionUpdate === "tool_call_update") && update.title)
         owner.action = String(update.title);
+      const kind = update?.sessionUpdate;
+      if (kind !== "subagent_spawned" && kind !== "subagent_state_update") this.record(owner.id, { event, update });
       this.touch(owner);
       return true;
     }
@@ -75,6 +83,33 @@ export class SubagentFold {
     return [...this.agents.values()];
   }
 
+  /// Each subagent's own view (its text, thoughts and tool calls, and the subagents it spawned
+  /// as group rows), for the child view. Unchanged views keep their rows.
+  views(): Record<string, AcpmuxRow[]> {
+    const views: Record<string, AcpmuxRow[]> = {};
+    for (const [id, entries] of this.own) {
+      const version = this.versions.get(id) ?? 0;
+      let drawn = this.drawn.get(id);
+      if (drawn?.version !== version) {
+        drawn = { version, rows: childRows(id, entries, this.agents, version) };
+        this.drawn.set(id, drawn);
+      }
+      views[id] = drawn.rows;
+    }
+    return views;
+  }
+
+  private record(id: string, entry: ChildEntry): void {
+    const entries = this.own.get(id) ?? [];
+    entries.push(entry);
+    this.own.set(id, entries);
+    this.bump(id);
+  }
+
+  private bump(id: string): void {
+    this.versions.set(id, (this.versions.get(id) ?? 0) + 1);
+  }
+
   private apply(change: any, event: Event): void {
     if (typeof change?.id !== "string") return;
     if (typeof change.toolCallId === "string") this.spawnCalls.add(change.toolCallId);
@@ -88,7 +123,7 @@ export class SubagentFold {
         this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
         this.open.ids.push(agent.id);
         this.groupOf.set(agent.id, this.open);
-      }
+      } else this.record(parent, { event, spawned: agent.id });
     } else {
       agent.name = text(change.name) ?? agent.name;
       agent.task = text(change.task) ?? agent.task;
@@ -101,8 +136,9 @@ export class SubagentFold {
     this.touch(agent);
   }
 
-  /// Redraws the group row a subagent is listed in.
+  /// Redraws the group row a subagent is listed in, or its parent's view.
   private touch(agent: Subagent): void {
+    if (agent.parent !== null) this.bump(agent.parent);
     const group = this.groupOf.get(agent.id);
     if (!group) return;
     group.version += 1;

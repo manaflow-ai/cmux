@@ -25,6 +25,11 @@ pub(super) enum ServerAction {
         /// Private app contract (P8 3b-2): read the app's install key from
         /// stdin and hand it to an owner this call spawns.
         install_key_stdin: bool,
+        /// Private app contract (cx-n3bs): while the owner restores, print
+        /// one `{"progress":"restoring",...}` JSON line per progress interval
+        /// on stdout before the result, so the app bounds its wait by
+        /// progress instead of a fixed timeout.
+        progress: bool,
     },
     Stop {
         force: bool,
@@ -60,7 +65,16 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     let expected_session = global.session.clone();
     let (socket, socket_is_derived) = match super::wire::resolve_socket_with_origin(&global) {
         Ok(resolved) => resolved,
-        Err(_error) => {
+        Err(error) => {
+            // The resolver's typed refusal passes through unchanged.
+            let failure = super::wire::resolve_failure(&error);
+            if failure["code"] == "socket.no_daemon" {
+                return super::wire::print_local_error(
+                    &failure,
+                    global.output,
+                    super::wire::RESOLVE_FAILURE_EXIT,
+                );
+            }
             if let Some(session) = global.session.as_deref()
                 && cmux_tui_core::server::validate_session_name(session).is_err()
             {
@@ -82,7 +96,7 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
         }
     };
     let socket_output = socket.to_string_lossy().into_owned();
-    if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin } = plan.action {
+    if let ServerAction::Ensure { terminal_reap_grace, install_key_stdin, progress } = plan.action {
         // Read before anything else: stdin is the app's pipe, never argv/env.
         let install_key = match install_key_stdin.then(read_install_key_from_stdin).transpose() {
             Ok(key) => key,
@@ -96,8 +110,8 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             terminal_reap_grace,
             install_key,
             socket,
-            socket_output,
             socket_is_derived,
+            progress,
             global.output,
         );
     }
@@ -221,7 +235,14 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
                 Ok(stats) => print_success(stats, global.output),
                 Err(ExchangeError::Rejected(_error)) if !supports_stats => local_error(
                     "server.stats_unsupported",
-                    crate::localization::catalog().local_server.stats_unsupported,
+                    &format!(
+                        "{} {}",
+                        crate::localization::catalog().local_server.stats_unsupported,
+                        super::fix_command::restart_daemon(
+                            &super::fix_command::this_cli(),
+                            std::path::Path::new(&socket_output),
+                        )
+                    ),
                     global.output,
                     1,
                 ),
@@ -287,7 +308,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.end_terminals_unsupported",
-                    crate::localization::catalog().local_server.end_terminals_unsupported,
+                    &refused_with_fix(
+                        crate::localization::catalog().local_server.end_terminals_unsupported,
+                        &super::fix_command::this_cli(),
+                        std::path::Path::new(&socket_output),
+                    ),
                     global.output,
                     1,
                 );
@@ -302,7 +327,11 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
             {
                 return local_error(
                     "server.force_unsupported",
-                    crate::localization::catalog().local_server.force_unsupported,
+                    &refused_with_fix(
+                        crate::localization::catalog().local_server.force_unsupported,
+                        &super::fix_command::this_cli(),
+                        std::path::Path::new(&socket_output),
+                    ),
                     global.output,
                     1,
                 );
@@ -391,11 +420,12 @@ fn run_ensure(
     terminal_reap_grace: Option<Duration>,
     install_key: Option<cmux_tui_core::server::FrontendKey>,
     socket: std::path::PathBuf,
-    socket_output: String,
     socket_is_derived: bool,
+    progress: bool,
     output: OutputMode,
 ) -> i32 {
     let messages = &crate::localization::catalog().local_server;
+    let socket_output = socket.to_string_lossy().into_owned();
     let spec = crate::local_owner::OwnerSpec {
         session: expected_session.clone().unwrap_or_else(|| "main".to_string()),
         socket,
@@ -410,7 +440,16 @@ fn run_ensure(
         chief_tools_socket: crate::startup_env::chief_tools_socket(),
     };
     let deadline = Instant::now() + crate::local_owner::ENSURE_DEADLINE;
-    match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline) {
+    let report = |restoring: &crate::local_owner::Restoring| {
+        print_progress(&spec.session, restoring);
+    };
+    let reporter = if progress {
+        crate::local_owner::RestoreProgress::new(&report)
+    } else {
+        crate::local_owner::RestoreProgress::silent()
+    };
+    match crate::local_owner::ensure_owner(&spec, expected_session.as_deref(), deadline, &reporter)
+    {
         Ok(ensured) => {
             let (status, message, ready) = match &ensured {
                 crate::local_owner::Ensured::Running(ready) => ("running", messages.running, ready),
@@ -434,11 +473,17 @@ fn run_ensure(
         Err(crate::local_owner::EnsureError::NotReady) => {
             local_error("server.unavailable", messages.owner_not_ready, output, 3)
         }
+        Err(crate::local_owner::EnsureError::RestoreTimeout) => {
+            local_error("server.restore_timeout", messages.owner_restore_timeout, output, 3)
+        }
         Err(crate::local_owner::EnsureError::WrongOwner) => {
             local_error("server.wrong_owner", messages.wrong_owner, output, 1)
         }
         Err(crate::local_owner::EnsureError::DifferentSession) => {
             local_error("server.different_session", messages.different_session, output, 1)
+        }
+        Err(crate::local_owner::EnsureError::DifferentState) => {
+            local_error("server.different_state", messages.different_state, output, 1)
         }
         Err(crate::local_owner::EnsureError::InvalidIdentity) => {
             local_error("server.invalid_identity", messages.invalid_identity, output, 3)
@@ -447,6 +492,21 @@ fn run_ensure(
             local_error("server.unsupported_protocol", messages.unsupported_protocol, output, 3)
         }
     }
+}
+
+/// One restore progress line on stdout (`server ensure --restore-progress`). The
+/// result stays the last JSON line, so a reader that takes the last line
+/// still reads the result.
+fn print_progress(session: &str, restoring: &crate::local_owner::Restoring) {
+    use std::io::Write as _;
+    let line = json!({
+        "progress": "restoring",
+        "session": session,
+        "pid": restoring.pid,
+        "waited_ms": u64::try_from(restoring.waited.as_millis()).unwrap_or(u64::MAX),
+    });
+    let mut stdout = std::io::stdout().lock();
+    let _ = writeln!(stdout, "{line}").and_then(|()| stdout.flush());
 }
 
 fn valid_session_name(session: &str) -> bool {
@@ -609,6 +669,13 @@ fn local_error_with_details(
 
 fn print_success(value: Value, output: OutputMode) -> i32 {
     super::wire::print_local_success(&value, output)
+}
+
+/// A stop this daemon refuses (another build): `text` and the one command
+/// that restarts the daemon at `socket` with `cli`'s build
+/// (plans/cmux-next/version-skew.md).
+fn refused_with_fix(text: &str, cli: &std::path::Path, socket: &std::path::Path) -> String {
+    format!("{text} {}", super::fix_command::restart_daemon(cli, socket))
 }
 
 #[cfg(test)]

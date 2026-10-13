@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
 import Foundation
@@ -55,7 +56,7 @@ final class SSHMachineSession {
         let daemon = daemon, link = link
         // task-owner: follows the daemon's first-connect state for the session's life; cancelled in close()
         startupTask = Task { [weak self] in
-            for await startup in Observations({ daemon.startup }) {
+            for await startup in ObservationStream({ daemon.startup }) {
                 guard case .unavailable(let error) = startup else {
                     self?.startupError = nil
                     self?.daemonFailure = nil
@@ -103,7 +104,7 @@ final class SSHMachineSession {
                 // task-owner: one actor hop to read the link's output
                 Task { [weak self] in await self?.updateDaemonFailure(link: link) }
             }
-        case .connecting, .failed: break
+        case .connecting, .reconnecting, .failed: break
         case .offline, .authFailed, .hostKeyUntrusted, .unreachable, .needsInstall, .installing, .installFailed:
             linkReached = false
             daemonFailure = nil

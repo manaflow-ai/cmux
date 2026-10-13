@@ -459,6 +459,11 @@ pub(crate) fn public_terminal_snapshot(
     if let Some(status) = surface.and_then(|surface| surface.terminal_program_status(running)) {
         extra.insert("program_status".into(), status);
     }
+    // `terminal-activity-v1`: a shell command runs (OSC 133 C..D). An
+    // exited terminal publishes none.
+    if running && let Some(since) = surface.and_then(crate::Surface::terminal_busy_since_ms) {
+        extra.insert("busy".into(), crate::terminal_activity::busy_json(since));
+    }
     if !extra.is_empty() {
         terminal["extra"] = Value::Object(extra);
     }
@@ -842,6 +847,3 @@ fn public_browser_snapshot(
         },
     })
 }
-
-#[cfg(test)]
-mod tests;

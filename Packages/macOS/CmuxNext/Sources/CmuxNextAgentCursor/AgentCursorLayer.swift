@@ -61,11 +61,25 @@ public final class AgentCursorLayer {
         }
     }
 
+    /// Idle hide (agent-cursor.md): one opacity animation that begins `delay`
+    /// seconds from now and holds the cursor hidden; every agent action arms
+    /// it again, which shows the cursor at once. No timer.
+    func armIdleHide(after delay: CFTimeInterval) {
+        root.add(Motion.scheduledFade(.cursorHide, "opacity", from: 1, to: 0, after: delay, on: root), forKey: Self.idleHideKey)
+    }
+
+    static let idleHideKey = "agentCursor.idleHide"
+
     /// Click feedback: the ripple grows and fades (`MotionFade.clickPulse`,
     /// 0.25 s at the fast speed, cmux-cua timing). Reduce Motion keeps only
-    /// the fade; speed "off" shows no ripple.
+    /// the fade, at the ring's full size; speed "off" shows no ripple.
     func pulse() {
-        Motion.set(ripple, "transform.scale", to: 1.6, movementFade: .clickPulse, from: 0.4)
+        if Motion.set(ripple, "transform.scale", to: 1.6, movementFade: .clickPulse, from: 0.4) == nil {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            ripple.transform = CATransform3DMakeScale(1.6, 1.6, 1)
+            CATransaction.commit()
+        }
         Motion.set(ripple, "opacity", to: 0, fade: .clickPulse, from: 0.9)
     }
 }

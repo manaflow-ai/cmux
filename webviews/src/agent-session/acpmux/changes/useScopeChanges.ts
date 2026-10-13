@@ -1,8 +1,10 @@
 // Loads a git scope's changes for the changes view; Last turn needs none, since the
 // transcript holds the turn's files. A scope picked while another loads replaces it, and a
 // result shows only for the pick or Retry that asked for it. The Branch scope also asks
-// `git.status` for the branch and base it compares; without them it shows no names.
+// `git.status` for the branch and base it compares; without them it shows no names. It also asks
+// for the branch's pull request review threads (reviewThreads.ts), and shows none until they come.
 import { useCallback, useEffect, useState } from "react";
+import { readReviewThreads, type ReviewThread } from "./reviewThreads";
 import { readBranch, readChangeSet, type ChangeScope, type ChangesLoad, type ChangesSource } from "./model";
 
 export function useScopeChanges(source: ChangesSource | undefined, scope: ChangeScope) {
@@ -17,6 +19,7 @@ export function useScopeChanges(source: ChangesSource | undefined, scope: Change
   const key = `${scope}\u0000${attempt}`;
   const [result, setResult] = useState<{ key: string; load: ChangesLoad }>();
   const [named, setNamed] = useState<{ key: string; branch: ReturnType<typeof readBranch> }>();
+  const [reviewed, setReviewed] = useState<{ key: string; threads: ReviewThread[] }>();
   useEffect(() => {
     if (scope === "lastTurn") return;
     let current = true;
@@ -27,6 +30,13 @@ export function useScopeChanges(source: ChangesSource | undefined, scope: Change
       source.status().then(
         (value) => {
           if (current) setNamed({ key, branch: readBranch(value) });
+        },
+        () => undefined,
+      );
+    if (scope === "branch" && source?.reviewThreads)
+      source.reviewThreads().then(
+        (value) => {
+          if (current) setReviewed({ key, threads: readReviewThreads(value) });
         },
         () => undefined,
       );
@@ -46,5 +56,6 @@ export function useScopeChanges(source: ChangesSource | undefined, scope: Change
   const retry = useCallback(() => setAttempt((count) => count + 1), []);
   const load: ChangesLoad = result?.key === key ? result.load : { state: "loading" };
   const branch = named?.key === key ? named.branch : undefined;
-  return { load, retry, branch };
+  const threads = reviewed?.key === key ? reviewed.threads : undefined;
+  return { load, retry, branch, threads };
 }

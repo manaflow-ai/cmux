@@ -59,7 +59,6 @@ public final class PageHostPool {
         timer = DemandTimer(owner: "PageHostPool.build", clock: clock)
     }
 
-    public var spareHost: PageWebView? { spare }
     public var isSpareReady: Bool { spare != nil && spareReady }
     public var isBuilding: Bool { building }
     public var claimedHosts: [PageWebView] {
@@ -67,7 +66,6 @@ public final class PageHostPool {
         return claimed.values.compactMap(\.view)
     }
     public var hostCount: Int { (spare == nil ? 0 : 1) + claimedHosts.count }
-    public var mayBuild: Bool { shouldBuild }
 
     /// Claims the ready spare in this main-actor turn. A nil result means the caller should open
     /// the page with its ordinary initializer while the next spare continues warming.

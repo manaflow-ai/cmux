@@ -2120,8 +2120,6 @@ impl Inner {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(target_os = "macos")]
-    use std::os::unix::fs::PermissionsExt;
     use std::sync::Mutex as StdMutex;
     use std::sync::atomic::Ordering as AtomicOrdering;
 

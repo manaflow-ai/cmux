@@ -12,7 +12,9 @@ import Foundation
 /// the page's favicon, else the browser icon (no favicon yet, none, or its
 /// fetch failed). Pure.
 enum BrowserTabIconState: Equatable {
-    case throbber
+    /// `waiting`: the request is out with no response yet (Chromium's waiting throbber,
+    /// turning the other way), else the page loads.
+    case throbber(waiting: Bool)
     case favicon(TabImage)
     case globe
     /// A cmux page (`cmux://history`, ...) shown in the browser tab.
@@ -21,12 +23,13 @@ enum BrowserTabIconState: Equatable {
     /// `isLoading` is the live page's load state; a hibernated tab has no
     /// live page, so it shows its favicon and never the throbber. `url` is
     /// the tab's address: a cmux page's address wears that page's icon.
+    /// `isWaiting`: the page's request has no response yet (the waiting throbber).
     /// `showsLoading` off (`appearance.statusIndicator.showPageLoading`, the
     /// default reads the live setting) keeps the favicon while the page loads.
-    static func resolve(isLoading: Bool, isDormant: Bool, favicon: TabImage?, url: URL? = nil,
+    static func resolve(isLoading: Bool, isDormant: Bool, favicon: TabImage?, url: URL? = nil, isWaiting: Bool = false,
                         showsLoading: Bool = DesignSettings.shared.statusIndicator.showsPageLoading) -> BrowserTabIconState {
         if let page = pageIcon(url) { return .page(page) }
-        if isLoading, !isDormant, showsLoading { return .throbber }
+        if isLoading, !isDormant, showsLoading { return .throbber(waiting: isWaiting) }
         return favicon.map(BrowserTabIconState.favicon) ?? .globe
     }
 
@@ -44,7 +47,9 @@ enum BrowserTabIconState: Equatable {
     /// spinner in place of the icon; the browser icon is the item's default).
     func apply(to item: inout TabItem) {
         switch self {
-        case .throbber: item.isBusy = true
+        case .throbber(let waiting):
+            item.isBusy = true
+            item.isWaiting = waiting
         case .favicon(let image): item.icon = .image(image)
         case .globe: item.icon = .icon(.browser)
         case .page(let name): item.icon = .icon(name)

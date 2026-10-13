@@ -112,10 +112,4 @@ public nonisolated enum StatusStack {
         guard let top = visible.first else { return .idle }
         return StatusSummary(state: top.state, style: honoring.contains(top.source) ? top.style : nil, reports: visible)
     }
-
-    /// A parent's summary (a workspace over its tabs, a collapsed group over
-    /// its workspaces): every child's reports merged.
-    public static func rollUp(_ children: [StatusSummary], own: [StatusReport] = []) -> StatusSummary {
-        resolve(children.flatMap(\.reports) + own)
-    }
 }

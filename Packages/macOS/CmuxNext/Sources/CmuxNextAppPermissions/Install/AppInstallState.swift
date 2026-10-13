@@ -15,7 +15,6 @@ public nonisolated struct AppHiddenAccess: Sendable, Hashable, Codable {
     public var automations: Bool
 
     public static let all = AppHiddenAccess(cli: true, mcp: true, automations: true)
-    public static let noChannels = AppHiddenAccess(cli: false, mcp: false, automations: false)
 
     public init(cli: Bool, mcp: Bool, automations: Bool) {
         self.cli = cli

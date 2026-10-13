@@ -44,6 +44,8 @@ public final class UpdateController {
     private var noUpdateDismissTask: Task<Void, Never>?
     var pendingCheckIntent: UpdateCheckIntent?
     var activeCheckIntent: UpdateCheckIntent?
+    /// A ``checkInBackground()`` that waits for the running session to end.
+    var pendingBackgroundCheck = false
     /// Armed when the user asks to install; fires a visible "Update Didn't Start" error if the
     /// flow never reaches downloading/installing (or another visible outcome). See
     /// ``attemptUpdate`` in `UpdateController+InstallAttempt.swift` (internal for that file).

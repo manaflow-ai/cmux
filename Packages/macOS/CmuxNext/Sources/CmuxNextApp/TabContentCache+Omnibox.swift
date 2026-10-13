@@ -17,7 +17,7 @@ extension TabContentCache {
 
     /// The incognito engine, offering incognito tabs only.
     func incognitoSuggestions(_ memory: IncognitoPageMemory) -> OmniboxSuggestionEngine {
-        let engine = memory.suggestions
+        let engine = memory.announcedSuggestions { onSuggestionEngineCreated?($0, .default) }
         // A private profile follows the remote setting, over an ephemeral session.
         engine.remote.fetcher = URLSessionSuggestFetcher()
         engine.remote.isPrivate = true

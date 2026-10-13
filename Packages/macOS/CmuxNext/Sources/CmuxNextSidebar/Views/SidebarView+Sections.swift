@@ -5,8 +5,8 @@ import CmuxNextDesign
 // (plans/cmux-next/sidebar-sections.md). The footer section
 // (`SidebarLayoutDocument.bottomSectionID`: the profile control, with the
 // space dots in its row) is outside the capped, scrolling band below the
-// list: it is pinned at the sidebar's bottom, so a tall bottom section (the
-// Chats section) scrolls above it and never pushes it out of view.
+// list: it is pinned at the sidebar's bottom. The band below the list draws
+// nothing since cx-n0i9 (no bottom-left sections; All chats is on the New Tab page).
 extension SidebarView {
     /// Every region that draws layout items, the footer first.
     var bandRegions: [SidebarRegionView] { [footerRegion, belowRegion, aboveRegion] }
@@ -25,7 +25,7 @@ extension SidebarView {
             region.liftHost = self
             region.onActivateWithModifiers = { [weak self, weak region] id, flags in
                 // The profile control opens its menu over itself.
-                if let view = region?.itemView(id), view.showsAvatar, self?.showProfileMenu(from: view) == true { return }
+                if let view = region?.itemView(id), view.showsAvatar, self?.footerBand.showProfileMenu(from: view) == true { return }
                 self?.model.send(.activateItem(id, opensWorkspace: flags.contains(.option)))
             }
             region.onToggleSection = { [weak self] id in self?.model.send(.toggleLayoutSection(id)) }
@@ -40,6 +40,7 @@ extension SidebarView {
         // drag and drop for now (SIDEBAR-FOOTER-AND-SPACE-MENU amendment 3).
         // The band below keeps the same rule it had while it held the footer.
         footerRegion.allowsDrag = false
+        footerRegion.emptySpaceTarget = .footer
         belowRegion.allowsDrag = false
         addSubview(aboveFade)
         addSubview(belowFade)
@@ -54,7 +55,11 @@ extension SidebarView {
     /// alone (when it is in the band below).
     func updateBands() {
         let width = bounds.width
-        let hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
+        var hidden = Set(model.resolvedItemInfo.filter(\.value.isHidden).keys)
+        // `sidebar.showProfileControl` off (cx-wab7m): the profile button draws in no band.
+        if !design.sidebarSections.showProfileControl {
+            for section in model.layout.sections { hidden.formUnion(section.items.filter { $0.ref == .builtIn(.account) }.map(\.id)) }
+        }
         let (above, below) = model.layout.bands(room: model.activeProfileID?.rawValue)
         let apps = model.suppressedApps
         let shownAbove = (model.transientTopSection.map { [$0] } ?? []) + above.presenting(hidingItems: hidden, apps: apps)
@@ -71,9 +76,13 @@ extension SidebarView {
                                       look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width))
         }
         aboveRegion.update(content(shownAbove), width: width)
-        belowRegion.update(content(shownBelow.filter { !isFooter($0) }), width: width)
-        footerRegion.update(content(shownBelow.filter(isFooter)), width: width)
-        releaseAppSections(shown: shownAbove + shownBelow)
+        // No bottom-left sections (Lawrence 2026-10-10, cx-n0i9: "no more bottom left stuff"): the
+        // band below the list draws nothing; only the footer row stays. A stored layout keeps
+        // its sections there (no user data is removed); they just do not draw.
+        belowRegion.update(content([]), width: width)
+        let footer = shownBelow.filter(isFooter)
+        footerRegion.update(content(footer), width: width)
+        releaseAppSections(shown: shownAbove + footer)
     }
 
     /// App sections no band shows any more release their content; one that
@@ -161,23 +170,6 @@ extension SidebarView {
         guard let cards = footerCards else { return 0 }
         if cards.superview !== self { addSubview(cards) }
         return cards.isHidden ? 0 : cards.fittingSize.height
-    }
-
-    func layoutFooter(_ slots: [(SidebarAccessorySlot, NSView)]) {
-        let f = footer.bounds
-        // Account and cloud lead; status fills the remaining space. Help is
-        // in the Help menu and the account menu, not here
-        // (SIDEBAR-FOOTER-MINIMAL).
-        let side = Metrics.sidebarRowHeight
-        var x = Metrics.space4
-        for (slot, view) in slots {
-            let width: CGFloat = switch slot {
-            case .account, .cloud: side
-            case .status: max(0, f.width - x - Metrics.space4)
-            }
-            view.frame = NSRect(x: x, y: (f.height - side) / 2, width: width, height: side)
-            x += width + Metrics.space2
-        }
     }
 
     /// A space switch (R99): after a swipe the real list takes the page's

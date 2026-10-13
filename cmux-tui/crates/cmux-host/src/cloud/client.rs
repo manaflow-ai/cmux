@@ -8,7 +8,8 @@ use serde_json::{Value, json};
 
 use super::sender::{Answer, OpRequest};
 use super::wire::{
-    BIND_FILE, BOUND_FILE, Bound, DaemonInfo, INSTALL_KEY_FILE, WG_KEY_FILE, parse_bind_file,
+    BIND_FILE, BOUND_FILE, Bound, DaemonInfo, INSTALL_KEY_FILE, VM_KIND_FILE, WG_KEY_FILE,
+    parse_bind_file,
 };
 
 /// One JSON POST: `(status, body)`, or a transport error.
@@ -180,8 +181,26 @@ pub fn bind_machine(
     if let Err(e) = store.write(BOUND_FILE, &format!("{saved}\n"), 0o600) {
         return BindResult::Retry(format!("bound.json write: {e}"));
     }
+    // Best effort: the token is spent, so a retry would be refused and lose
+    // bind.json. The agent writes the kind again (and logs a failure) once
+    // bound and at every restart (role.rs).
+    let _ = record_owner_kind(store);
     store.remove(BIND_FILE);
     BindResult::Bound(Box::new(bound))
+}
+
+/// Records this machine as an owner VM ([`VM_KIND_FILE`]) unless it is a
+/// team VM: a team record, or a team enroll or binding on disk (so a failed
+/// read or an older team enroll never turns `team` into `owner`).
+pub fn record_owner_kind(store: &mut dyn Store) -> Result<(), String> {
+    use crate::team_ssh::enroll::{TEAM_BOUND_FILE, TEAM_ENROLL_FILE};
+    if store.read(VM_KIND_FILE).is_some_and(|kind| kind.trim() == "team")
+        || store.read(TEAM_ENROLL_FILE).is_some()
+        || store.read(TEAM_BOUND_FILE).is_some()
+    {
+        return Ok(());
+    }
+    store.write(VM_KIND_FILE, "owner\n", 0o644)
 }
 
 /// Tokens through `/v1/auth/challenge` + `/v1/auth/token` (signing the

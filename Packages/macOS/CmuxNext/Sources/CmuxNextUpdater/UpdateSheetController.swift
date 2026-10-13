@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import Observation
 import SwiftUI
@@ -34,7 +35,16 @@ public final class UpdateSheetController {
         panel.onCancel = { [weak self] in self?.cancel() }
         let hosting = NSHostingView(rootView: UpdateSheetView(source: source, dismiss: { [weak self] in self?.dismiss() }))
         hosting.translatesAutoresizingMaskIntoConstraints = false
-        let glass = Glass.makePanel(content: hosting)
+        // The solid popup surface, never glass: the update notes are text. The hosting view keeps
+        // its constraints, so its fitting size still sizes the sheet.
+        let glass = Glass.makeOverlayPanel()
+        glass.contentView.addSubview(hosting)
+        NSLayoutConstraint.activate([
+            hosting.leadingAnchor.constraint(equalTo: glass.contentView.leadingAnchor),
+            hosting.trailingAnchor.constraint(equalTo: glass.contentView.trailingAnchor),
+            hosting.topAnchor.constraint(equalTo: glass.contentView.topAnchor),
+            hosting.bottomAnchor.constraint(equalTo: glass.contentView.bottomAnchor),
+        ])
         let root = NSView()
         root.addSubview(glass)
         NSLayoutConstraint.activate([
@@ -85,7 +95,7 @@ public final class UpdateSheetController {
         let source = source
         watch = Task { [weak self] in
             var shown = false
-            for await content in Observations({ source.content }) {
+            for await content in ObservationStream({ source.content }) {
                 guard let self, !Task.isCancelled else { return }
                 if content == nil {
                     if shown { self.dismiss() }

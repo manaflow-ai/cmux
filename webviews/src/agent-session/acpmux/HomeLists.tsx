@@ -1,6 +1,6 @@
 import React from "react";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
-import { type AcpmuxSessionEntry, projectLabel, sessionMark } from "./sessionList";
+import { type AcpmuxSessionEntry, listed, projectLabel, sessionMark } from "./sessionList";
 
 /// Home-list copy: keys of the pane's string table.
 export const HOME_LABELS = {
@@ -15,13 +15,13 @@ export const HOME_ROWS = 3;
 
 /// What a new chat's home offers besides the composer (its welcome screen):
 /// the other sessions waiting on the user, and the open pull requests ready for
-/// review. A session can sit in both lists. The current session and archived ones never show.
+/// review. A session can sit in both lists. The current session, archived ones and side chats never show.
 export function homeLists(
   sessions: AcpmuxSessionEntry[],
   currentId?: string,
 ): { input: AcpmuxSessionEntry[]; review: AcpmuxSessionEntry[] } {
   const others = sessions
-    .filter((session) => session.sessionId !== currentId && !session.archived)
+    .filter((session) => session.sessionId !== currentId && listed(session))
     .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
   return {
     input: others.filter((session) => sessionMark(session, false) === "input").slice(0, HOME_ROWS),

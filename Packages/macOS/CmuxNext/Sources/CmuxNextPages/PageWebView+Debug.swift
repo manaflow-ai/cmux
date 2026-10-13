@@ -4,7 +4,7 @@ import CmuxNextDesign
 public import Foundation
 import AppKit
 import ObjectiveC
-import WebKit
+public import WebKit
 
 /// The generic page debug verb (`debug.page {page, state | snapshot}`): what any page shows, read
 /// from the DOM, and the page as WebKit rendered it. Absorbed from the Settings lead's
@@ -36,7 +36,7 @@ extension PageWebView {
         return value
     }
 
-    /// SCROLLBARS-FOLLOW-MACOS audit: the page's `data-scrollers` and every element that would show
+    /// SCROLLBARS-THIN audit: the page's `data-scrollers` and every element that would show
     /// a scroller at rest under "Always" (its overflow is auto or scroll on an axis whose content is
     /// larger than its box), with the overflow in CSS pixels. An overflow of a few pixels is a
     /// layout bug that "Always" makes visible.
@@ -139,7 +139,7 @@ extension PageWebView {
     /// (`CMUX_NEXT_NO_ACTIVATE=1` or `CMUX_NEXT_SOCKET_MODE=automation`).
     /// `CMUX_NEXT_PAGES_WEBKIT_OCCLUSION=1` keeps WebKit's own throttling in an automation launch,
     /// so a live check can prove the user path (a covered window that comes back redraws).
-    nonisolated static func rendersWhenCovered(_ environment: [String: String]) -> Bool {
+    nonisolated public static func rendersWhenCovered(_ environment: [String: String]) -> Bool {
         guard environment["CMUX_NEXT_PAGES_WEBKIT_OCCLUSION"] != "1" else { return false }
         // The one automation rule for every window surface (terminals, pages).
         return WindowDrawPolicy.isAutomationLaunch(environment)
@@ -148,6 +148,11 @@ extension PageWebView {
     /// `-[WKWebView _setWindowOcclusionDetectionEnabled:]`, when this WebKit has it, so a tagged
     /// build behind other windows still renders.
     func keepRenderingWhenCovered() {
+        Self.keepRenderingWhenCovered(webView)
+    }
+
+    /// The same for a web view no `PageWebView` owns (the agent pane's own, cx-zjtn.6).
+    public static func keepRenderingWhenCovered(_ webView: WKWebView) {
         let selector = NSSelectorFromString("_setWindowOcclusionDetectionEnabled:")
         guard let method = class_getInstanceMethod(WKWebView.self, selector) else { return }
         typealias SetEnabled = @convention(c) (AnyObject, Selector, Bool) -> Void

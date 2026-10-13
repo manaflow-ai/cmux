@@ -48,12 +48,19 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     /// `debug.home.drive` {action: focus | type | send | tapback | video | scroll
-    /// | menu | geometry, text, dy, mine}: drives the shown Home through its own entry points (the
+    /// | menu | geometry | link | texts | typing | rows | resize | nudge, text, dx, dy, trims, mine, tab, prefix, limit}: drives the shown Home through its own entry points (the
     /// field's text system, Return's send, the tapback picker's react, the
     /// scroll view) for screenshots and recordings on a window that is
-    /// never key.
+    /// never key. `tab` (a key from `debug.home` page.tabs) drives that Home tab.
     static func drive(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        guard let view = HomeNativeTranscriptView.shown(in: services.windows.active?.window) else {
+        let view: HomeNativeTranscriptView?
+        if let tab = params["tab"]?.stringValue {
+            view = (services.pages.provider(.homeTab) as? HomePageTab)?.tabs.first { $0.key == tab }?.view.host
+                .flatMap(HomePageTab.transcript(in:))
+        } else {
+            view = HomeNativeTranscriptView.shown(in: services.windows.active?.window)
+        }
+        guard let view else {
             return .object(["error": .string("no Home conversation is shown")])
         }
         let ok: Bool
@@ -61,26 +68,109 @@ final class DebugHomeNativeFixture: InternalPageProvider {
         case "menu":
             let titles = view.debugMenuTitles(mine: params["mine"]?.boolValue ?? false) ?? []
             return .object(["ok": .bool(!titles.isEmpty), "items": .array(titles.map { .string($0) })])
+        case "link":
+            // A click on the first shown link with this prefix (a Chief subagent's `cmux://chief/`).
+            let url = view.debugClickLink(prefix: params["prefix"]?.stringValue ?? "https://")
+            return .object(["ok": .bool(url != nil), "url": url.map { .string($0) } ?? .null])
+        case "typing":
+            // The typing bubble's body in window points (bottom-left origin) and the window's size,
+            // for a pixel check of a window snapshot (scripts/cmux-next/home-typing-still.py).
+            guard let r = view.debugTypingBubbleFrame(), let size = view.window?.frame.size else {
+                return .object(["ok": .bool(false), "error": .string("no typing row shows")])
+            }
+            let o = view.debugHostOrigin
+            return .object(["ok": .bool(true), "x": .number(Double(r.minX)), "y": .number(Double(r.minY)), "width": .number(Double(r.width)),
+                            "height": .number(Double(r.height)), "windowWidth": .number(Double(size.width)), "windowHeight": .number(Double(size.height)),
+                            "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
+        case "rows":
+            // The visible rows as drawn, in window points (bottom-left origin), top to bottom, and the
+            // window's size: the half-point pixel check of message rows (home-typing-still.py, home-hidden-messages.py).
+            guard let size = view.window?.frame.size else { return .object(["ok": .bool(false), "error": .string("no window")]) }
+            let o = view.debugHostOrigin
+            let rows: [JSONValue] = view.debugRowFrames().map { r in
+                .object(["kind": .string(r.kind), "key": .string(r.key), "outgoing": .bool(r.outgoing),
+                         "x": .number(Double(r.frame.minX)), "y": .number(Double(r.frame.minY)),
+                         "width": .number(Double(r.frame.width)), "height": .number(Double(r.frame.height)),
+                         "balloon": .object(["x": .number(Double(r.balloon.minX)), "y": .number(Double(r.balloon.minY)),
+                                             "width": .number(Double(r.balloon.width)), "height": .number(Double(r.balloon.height))])])
+            }
+            return .object(["ok": .bool(!rows.isEmpty), "rows": .array(rows), "windowWidth": .number(Double(size.width)),
+                            "scale": .number(Double(view.window?.backingScaleFactor ?? 0)), "trim": .number(Double(view.debugTranscriptWidthTrim)),
+                            "hostRight": .number(Double(view.debugHostFrame.maxX)),
+                            "windowHeight": .number(Double(size.height)), "hostX": .number(Double(o.x)), "hostY": .number(Double(o.y))])
+        case "resize":
+            // Width changes of the transcript, one after another in this one main-thread turn (so in one
+            // display frame, as a divider drag or a live resize can make): after each, the width pass
+            // counters and the rows as drawn (home-resize-pace.py; MessagesLab f11642b resize-pace).
+            let trims = params["trims"]?.arrayValue?.compactMap(\.doubleValue) ?? []
+            func rowsJSON() -> JSONValue {
+                .array(view.debugRowFrames().map { r in
+                    .object(["kind": .string(r.kind), "key": .string(r.key), "outgoing": .bool(r.outgoing),
+                             "x": .number(Double(r.balloon.minX)), "maxX": .number(Double(r.balloon.maxX)),
+                             "y": .number(Double(r.balloon.minY))])
+                })
+            }
+            var steps: [JSONValue] = []
+            for trim in trims {
+                // The step's main-thread time (its width pass with the layout it causes), to tell a deferral the
+                // frame budget asks for (a pass of 2 ms or more, e.g. a Debug build) from one it does not.
+                let t0 = CACurrentMediaTime()
+                view.debugTrimWidth(CGFloat(trim))
+                let ms = (CACurrentMediaTime() - t0) * 1000
+                let c = view.debugWidthPasses
+                steps.append(.object(["trim": .number(trim), "passes": .number(Double(c.passes)), "deferred": .number(Double(c.deferred)),
+                                      "ms": .number(ms), "rows": rowsJSON()]))
+            }
+            let c0 = view.debugWidthPasses
+            return .object(["ok": .bool(!trims.isEmpty), "steps": .array(steps), "budgetMs": .number(view.debugWidthPassBudget * 1000),
+                            "passes": .number(Double(c0.passes)), "deferred": .number(Double(c0.deferred))])
+        case "nudge":
+            // The transcript moves by dx, dy points in its pane (a pane on a fraction of a point).
+            view.debugNudge(dx: CGFloat(params["dx"]?.doubleValue ?? 0.5), dy: CGFloat(params["dy"]?.doubleValue ?? 0))
+            ok = true
         case "geometry":
             return .object(["ok": .bool(true), "geometry": .object(view.debugGeometry().mapValues { .number($0) })])
+        case "texts":
+            // What the transcript view itself holds (its MessagesLab store), oldest first, to compare
+            // with the HomeStore transcript and the owner's snapshot (a message in both but not here is hidden).
+            let texts = view.debugMessageTexts(limit: params["limit"]?.intValue ?? 50)
+            return .object(["ok": .bool(true), "texts": .array(texts.map { .string($0) })])
         case "focus": ok = view.window?.makeFirstResponder(view.primaryInput) ?? false
         case "type":
             guard let field = view.primaryInput as? NSTextView else { return .object(["error": .string("no field")]) }
             field.insertText(params["text"]?.stringValue ?? "", replacementRange: field.selectedRange())
             ok = true
-        case "send": view.sendDraft(); ok = true
-        case "tapback": ok = view.debugTapbackNewestIncoming()
+        case "send":
+            // A refused send is never ok: a test cannot pass on a dropped send (cx-ebm.55).
+            if let refusal = view.sendDraft() { return .object(["ok": .bool(false), "refused": .string(refusal)]) }
+            ok = true
+        case "thread", "escape":
+            // "thread": a click on the newest "N Replies" or thread preview; "escape": Esc in the field.
+            // Both answer with the open thread's root (null: no thread is open).
+            let root = params["action"]?.stringValue == "thread" ? view.debugOpenNewestThread() : { view.debugEscape(); return view.debugOpenThread }()
+            return .object(["ok": .bool(true), "open_thread": root.map { .string($0) } ?? .null])
+        case "reply", "post_escape", "thread_state":
+            // "reply": Reply… in the newest text bubble's menu; "post_escape": a real Esc key press
+            // (`outside`: the key focus on the window, not the pane); "thread_state": no input.
+            switch params["action"]?.stringValue {
+            case "reply": _ = view.debugReplyNewest(mine: params["mine"]?.boolValue ?? false)
+            case "post_escape": view.debugPostEscape(outside: params["outside"]?.boolValue ?? false)
+            default: break
+            }
+            return .object(["ok": .bool(true), "open_thread": view.debugOpenThread.map { .string($0) } ?? .null])
+        case "tapback": ok = view.debugTapbackNewestIncoming(mine: params["mine"]?.boolValue ?? false)
         case "video": ok = view.debugToggleNewestVideo()
         case "scroll": view.debugScroll(by: CGFloat(params["dy"]?.doubleValue ?? -400)); ok = true
-        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu or geometry")])
+        default: return .object(["error": .string("action must be focus, type, send, tapback, video, scroll, menu, geometry, link, texts, typing, nudge, thread, escape, reply, post_escape or thread_state")])
         }
         return .object(["ok": .bool(ok)])
     }
 
-    static func open(services: AppServices, attachments: Bool = false) -> JSONValue {
+    static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {
         if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture()) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments
-        let view = services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
+        let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
+            : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)
         return .object(["ok": .bool(view != nil), "page": .string(InternalPageID.homeNativeFixture.rawValue)])
     }
 }

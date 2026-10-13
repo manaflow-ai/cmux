@@ -30,7 +30,9 @@ public final class TerminalSession {
     public let view: TerminalHostView
     /// The find bar over this terminal and the search it drives.
     public let find = TerminalFindController()
-    public weak var delegate: (any TerminalSessionDelegate)?
+    public weak var delegate: (any TerminalSessionDelegate)? {
+        didSet { linkCheck = delegate?.terminalSessionLinkCheck(self) }
+    }
 
     /// The live surface. Replaced when a later VT replay arrives; a GHOSTSNP
     /// snapshot restores in place.
@@ -49,6 +51,12 @@ public final class TerminalSession {
     /// panicked), shown after the reason. Set it before `hostLoss`.
     public var hostLossCause: TerminalHostLossCause? {
         didSet { if hostLossCause != oldValue { view.showHostLoss(hostLoss, cause: hostLossCause) } }
+    }
+
+    /// The daemon reports the shell's host link down (tab `terminal_state`):
+    /// the banner names it instead of leaving a silent last screen.
+    public var shellStall: TerminalShellStall? {
+        didSet { if shellStall != oldValue { view.showShellStall(shellStall) } }
     }
 
     /// Pauses rendering while the terminal is scrolled off-screen (strip
@@ -116,6 +124,7 @@ public final class TerminalSession {
 
         view = TerminalHostView()
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil)
+        surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
         view.install(surfaceView)
@@ -151,7 +160,9 @@ public final class TerminalSession {
         surfaceView.updateSurfaceSize(forceReport: true)
     }
 
-    isolated deinit {
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Sendable cleanup only, so it runs on whatever thread releases the session.
+    nonisolated deinit {
         eventsTask?.cancel()
         writerTask?.cancel()
         input.finish()
@@ -162,6 +173,30 @@ public final class TerminalSession {
     /// Makes the surface first responder.
     public func focus() {
         surfaceView.window?.makeFirstResponder(surfaceView)
+    }
+
+    /// Whether a text Ghostty detected as a link under a Cmd-hover is one (cx-do47.1): a path
+    /// that names no file is plain text, with no underline and no open. Gets the text and the
+    /// folder the shell last reported; runs off the main thread. Nil: every detected link is one.
+    public private(set) var linkCheck: TerminalLinkCheck? {
+        didSet { surfaceView.bridge.takeUnretainedValue().linkFilter.setCheck(linkCheck) }
+    }
+
+    #if DEBUG
+    /// Moves the pointer over viewport cell (`column`, `row`) with Cmd held, as a mouse
+    /// does (live checks).
+    public func hoverLinkForTesting(column: Int, row: Int) {
+        guard let surface = surfaceView.surface else { return }
+        let cell = surfaceView.cellPointSize
+        let point = CGPoint(x: (Double(column) + 0.5) * cell.width, y: (Double(row) + 0.5) * cell.height)
+        ghostty_surface_mouse_pos(surface, point.x, point.y, GhosttyInput.mods(.command))
+    }
+    #endif
+
+    /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
+    @discardableResult
+    public func activateLink(_ text: String) -> Bool {
+        surfaceView.applyAction(.openURL(text))
     }
 
     /// Sends text as if pasted (Ghostty applies bracketed paste when the
@@ -181,12 +216,6 @@ public final class TerminalSession {
     /// ``snapshot(maxPixelSize:)`` rendered off the main thread (it waits on the GPU).
     public func snapshotInBackground(maxPixelSize: CGFloat = 480) async -> CGImage? {
         await surfaceView.snapshotInBackground(maxPixelSize: maxPixelSize)
-    }
-
-    /// A live, zero-copy scaled mirror for hover previews. See
-    /// ``TerminalMirrorView``.
-    public func makeMirrorView() -> TerminalMirrorView {
-        TerminalMirrorView(session: self)
     }
 
     /// Stops consuming events and detaches the surface. The IO owner decides
@@ -272,6 +301,7 @@ public final class TerminalSession {
         fresh.isRenderingSuspended = isRenderingSuspended
         fresh.mirrorDemand = mirrorDemand
         surfaceView = fresh
+        fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
         view.install(fresh)
         applyTheme(to: fresh, clearing: false)
         // Nothing was parsed into the fresh surface yet: no drain needed.

@@ -23,7 +23,7 @@ use std::time::Duration;
 
 use cmux_conversation::{Message, Op, Part, ParticipantKind, Summary};
 
-use super::{Brain, Input, now_ms, reply_entry};
+use super::{Brain, Input, now_ms};
 use crate::daemon::{LINK_PREVIEW_CAPABILITY, PreviewPort};
 use crate::link_preview::{self, Fetcher};
 use crate::state::OutboxEntry;
@@ -44,16 +44,11 @@ impl Brain {
         self.previewer = Some(fetcher);
     }
 
-    /// A turn reply's outbox entry: its text, held while the preview thread
-    /// works when it has URL lines and the owner takes cards. Every other
-    /// reply is its text, unchanged and not held.
-    pub(super) fn reply_with_previews(
-        &mut self,
-        conversation: String,
-        key: &str,
-        text: &str,
-    ) -> OutboxEntry {
-        let mut entry = reply_entry(conversation.clone(), key, text);
+    /// A turn reply's outbox entry (`answer_entry`): its text, held while the
+    /// preview thread works when it has URL lines and the owner takes cards.
+    /// Every other reply is returned unchanged and not held.
+    pub(super) fn reply_with_previews(&mut self, mut entry: OutboxEntry) -> OutboxEntry {
+        let conversation = entry.conversation.clone();
         let Some(fetcher) = self.previewer.clone() else {
             return entry;
         };
@@ -79,7 +74,11 @@ impl Brain {
         let Some(port) = daemon.preview_port() else {
             return entry;
         };
-        let (tx, owned_key, log) = (self.tx.clone(), key.to_owned(), self.log.clone());
+        let (tx, owned_key, log) = (
+            self.tx.clone(),
+            entry.idempotency_key.clone(),
+            self.log.clone(),
+        );
         let thread_reply = reply.clone();
         let spawned = std::thread::Builder::new()
             .name("optchat-link-previews".into())

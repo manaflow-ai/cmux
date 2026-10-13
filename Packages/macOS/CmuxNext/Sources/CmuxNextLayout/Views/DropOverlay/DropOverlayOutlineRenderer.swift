@@ -17,7 +17,6 @@ final class OutlineRenderer: DropOverlayRenderer {
     /// The ring's model state (debug and tests).
     var ringFrame: CGRect { ring.layer.frame }
     var ringWidth: CGFloat { ring.layer.borderWidth }
-    var ringHasFill: Bool { ring.layer.backgroundColor != nil }
     var ringOpacity: Float { ring.layer.opacity }
     var showsChip: Bool { !chip.isHidden }
 

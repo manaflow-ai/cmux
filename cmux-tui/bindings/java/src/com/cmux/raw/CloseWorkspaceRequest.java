@@ -18,6 +18,8 @@ public final class CloseWorkspaceRequest implements WireValue {
     private final Field<String> key;
     private final Field<String> mutationId;
     private final Field<String> origin;
+    /** With end_terminals: the close is not recorded in the closed history (session_end). */
+    private final Field<CloseReason> reason;
     private final Field<UInt64> workspace;
 
     private CloseWorkspaceRequest(Builder builder) {
@@ -27,6 +29,7 @@ public final class CloseWorkspaceRequest implements WireValue {
         this.key = builder.key;
         this.mutationId = builder.mutationId;
         this.origin = builder.origin;
+        this.reason = builder.reason;
         this.workspace = builder.workspace;
     }
 
@@ -38,6 +41,7 @@ public final class CloseWorkspaceRequest implements WireValue {
     public Field<String> key() { return key; }
     public Field<String> mutationId() { return mutationId; }
     public Field<String> origin() { return origin; }
+    public Field<CloseReason> reason() { return reason; }
     public Field<UInt64> workspace() { return workspace; }
 
     public static CloseWorkspaceRequest fromWire(Object value) {
@@ -67,6 +71,10 @@ public final class CloseWorkspaceRequest implements WireValue {
         if (!Wire.isMissing(rawOrigin)) {
             builder.origin(rawOrigin == null ? null : Wire.string(rawOrigin, "CloseWorkspaceRequest.origin"));
         }
+        Object rawReason = Wire.optional(object, "reason");
+        if (!Wire.isMissing(rawReason)) {
+            builder.reason(rawReason == null ? null : CloseReason.fromWire(rawReason));
+        }
         Object rawWorkspace = Wire.optional(object, "workspace");
         if (!Wire.isMissing(rawWorkspace)) {
             builder.workspace(rawWorkspace == null ? null : Wire.uint64(rawWorkspace, "CloseWorkspaceRequest.workspace"));
@@ -83,6 +91,7 @@ public final class CloseWorkspaceRequest implements WireValue {
         Wire.put(object, "key", key);
         Wire.put(object, "mutation_id", mutationId);
         Wire.put(object, "origin", origin);
+        Wire.put(object, "reason", reason);
         Wire.put(object, "workspace", workspace);
         return Collections.unmodifiableMap(object);
     }
@@ -90,11 +99,11 @@ public final class CloseWorkspaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloseWorkspaceRequest that)) return false;
-        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(workspace, that.workspace);
+        return Objects.equals(endTerminals, that.endTerminals) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedRevision, that.expectedRevision) && Objects.equals(key, that.key) && Objects.equals(mutationId, that.mutationId) && Objects.equals(origin, that.origin) && Objects.equals(reason, that.reason) && Objects.equals(workspace, that.workspace);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(endTerminals, expectedGeneration, expectedRevision, key, mutationId, origin, workspace); }
+    public int hashCode() { return Objects.hash(endTerminals, expectedGeneration, expectedRevision, key, mutationId, origin, reason, workspace); }
 
     @Override
     public String toString() { return "CloseWorkspaceRequest" + toWire(); }
@@ -106,6 +115,7 @@ public final class CloseWorkspaceRequest implements WireValue {
         private Field<String> key = Field.omitted();
         private Field<String> mutationId = Field.omitted();
         private Field<String> origin = Field.omitted();
+        private Field<CloseReason> reason = Field.omitted();
         private Field<UInt64> workspace = Field.omitted();
 
         public Builder endTerminals(Boolean value) {
@@ -130,6 +140,10 @@ public final class CloseWorkspaceRequest implements WireValue {
         }
         public Builder origin(String value) {
             this.origin = Field.ofNullable(value);
+            return this;
+        }
+        public Builder reason(CloseReason value) {
+            this.reason = Field.ofNullable(value);
             return this;
         }
         public Builder workspace(UInt64 value) {

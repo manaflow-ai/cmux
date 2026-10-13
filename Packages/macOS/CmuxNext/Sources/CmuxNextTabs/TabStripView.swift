@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextWakeups
 import Observation
@@ -36,11 +37,6 @@ public final class TabStripView: NSView {
 
     /// Metrics in effect. Re-read from the tokens on every settings change.
     public private(set) var metrics: TabStripMetrics = .standard
-
-    public var hoverCardPolicy: HoverCardPolicy {
-        get { hoverCard.policy }
-        set { hoverCard.policy = newValue }
-    }
 
     /// Empty strip space in the window's top row acts as a titlebar (`actsAsTitlebar`).
     public var dragsWindowFromEmptySpace = true
@@ -117,6 +113,7 @@ public final class TabStripView: NSView {
     var drag: TabStripDrag?
     /// Order shown after a local reorder until the model's order changes.
     var orderOverride: [TabID]?
+    let reorderSettle = DemandTimer(owner: "TabStrip.reorderSettle")  // ends a reorder the model never shows
     /// Tab torn out of this strip and handed to the App's drag session. Its
     /// slot stays collapsed until the model drops it or the App restores it.
     var detachedID: TabID?
@@ -277,7 +274,7 @@ public final class TabStripView: NSView {
         guard observationTask == nil else { return }
         let model = model
         observationTask = Task { [weak self] in
-            let changes = Observations {
+            let changes = ObservationStream {
                 ModelSnapshot(
                     tabs: model.tabs,
                     groups: model.groups,
@@ -299,7 +296,7 @@ public final class TabStripView: NSView {
     func startObservingTokens() {
         guard tokenObservationTask == nil else { return }
         tokenObservationTask = Task { [weak self] in
-            let changes = Observations { TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.body.pointSize) }
+            let changes = ObservationStream { TokenSnapshot(metrics: TabStripMetrics(), titleFont: Typography.body.pointSize) }
             for await snapshot in changes {
                 guard let self else { return }
                 if snapshot.metrics != self.metrics || snapshot.titleFont != self.tabTitleFontSize {
@@ -347,8 +344,8 @@ public final class TabStripView: NSView {
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             lastViewportWidth = viewport
-            // Tabs resize with the window instantly.
-            relayout(animated: false)
+            // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5).
+            relayout(animated: !dying.isEmpty && !inLiveResize && !reduceMotion)
         } else {
             applyFrames()
         }

@@ -36,9 +36,9 @@ extension PaletteController {
     public func query(scope: PaletteScopeID, text: String, limit: Int) async -> [PaletteQueryRow]? {
         guard let (page, state) = await loadedPage(scope) else { return nil }
         let ranked: [PaletteRankedSection]
-        if FuzzyQuery(text).isEmpty {
-            ranked = model.ranker.rankEmpty(entries: state.entries, sectionOrders: state.sectionOrders, frecency: model.frecency,
-                                             now: model.now(), showsRecent: page.showsRecent)
+        if text.allSatisfy(\.isWhitespace) {
+            ranked = await model.searcher.rankEmpty(entries: state.entries, version: state.version, sectionOrders: state.sectionOrders,
+                                                    frecency: model.frecency, now: model.now(), showsRecent: page.showsRecent) ?? []
         } else {
             // Reuse the model's bridge and index cache. The versioned install
             // keeps this headless query from rebuilding the JavaScript context.

@@ -39,6 +39,8 @@ export type PageFixtureStep = {
 export type SettingsPageVariant = VariantBase & {
   section: string;
   focus?: string;
+  /** The workspace the page was opened for (Change Background… on a workspace). */
+  workspace?: string;
   options?: MockOptions;
   host?: Partial<HostLists>;
   accounts?: AccountsState;
@@ -137,13 +139,17 @@ export type AgentPaneVariant = VariantBase & {
   ready?: Record<string, unknown>;
   /** The snapshot the bridge delivers after `ready`. */
   snapshot: AcpmuxSnapshot;
-  /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null. */
+  /** Answers for native page methods (`turn.undo`, ...) by name; any other method answers null.
+   * `{ nativeError: {code, userMessage?} }` answers as the app refusing the call. */
   native?: Record<string, unknown>;
   /** Gallery-only answers for the reply chips and preview card's host calls. */
   chipHost?: ChipHostFixture;
   /** The snapshot the bridge delivers after the pane makes a host call, by method: what acpmux
    *  would send next (`chat.cancel`: the turn ends and the next queued prompt starts). */
-  then?: Record<string, AcpmuxSnapshot>;
+  afterCall?: Record<string, AcpmuxSnapshot>;
+  /** Milliseconds a native method's answer waits, by method: a slow host call the pane shows as
+   *  in progress (New Worktree's "Creating worktree…"). */
+  nativeDelayMs?: Record<string, number>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */
@@ -214,6 +220,8 @@ export type ChangelogPageVariant = VariantBase & {
   error?: { code: string; message: string };
   current?: string;
   notes: ReleaseNotes[];
+  /** The page route the host opens it on (`#/?from=<v>&to=<v>`, an update's span). */
+  route?: string;
 };
 
 /** The icon picker page on an in-page cmuxPage host serving a picker session. */
@@ -356,59 +364,25 @@ export type GalleryEntry =
   | PasswordsPageEntry
   | ComponentEntry<any>
   | NativeEntry;
-export const settingsPageEntry = (entry: Omit<SettingsPageEntry, "host">): SettingsPageEntry => ({
-  ...entry,
-  host: "settings-page",
-});
-export const passwordsPageEntry = (entry: Omit<PasswordsPageEntry, "host">): PasswordsPageEntry => ({
-  ...entry,
-  host: "passwords-page",
-});
 export type HostKind = GalleryEntry["host"];
 
-/** Identity helpers that check an entry against its host's variant type. */
-export const agentPaneEntry = (entry: Omit<AgentPaneEntry, "host">): AgentPaneEntry => ({
-  ...entry,
-  host: "agent-pane",
-});
-export const markdownPageEntry = (entry: Omit<MarkdownPageEntry, "host">): MarkdownPageEntry => ({
-  ...entry,
-  host: "markdown-page",
-});
-export const diffPageEntry = (entry: Omit<DiffPageEntry, "host">): DiffPageEntry => ({ ...entry, host: "diff-page" });
-export const appsPageEntry = (entry: Omit<AppsPageEntry, "host">): AppsPageEntry => ({ ...entry, host: "apps-page" });
-export const cloudPageEntry = (entry: Omit<CloudPageEntry, "host">): CloudPageEntry => ({
-  ...entry,
-  host: "cloud-page",
-});
-export const codeRouterPageEntry = (entry: Omit<CodeRouterPageEntry, "host">): CodeRouterPageEntry => ({
-  ...entry,
-  host: "coderouter-page",
-});
-export const changelogPageEntry = (entry: Omit<ChangelogPageEntry, "host">): ChangelogPageEntry => ({
-  ...entry,
-  host: "changelog-page",
-});
-export const iconPickerPageEntry = (entry: Omit<IconPickerPageEntry, "host">): IconPickerPageEntry => ({
-  ...entry,
-  host: "icon-picker-page",
-});
-export const editorPageEntry = (entry: Omit<EditorPageEntry, "host">): EditorPageEntry => ({
-  ...entry,
-  host: "editor-page",
-});
-export const historyPageEntry = (entry: Omit<HistoryPageEntry, "host">): HistoryPageEntry => ({
-  ...entry,
-  host: "history-page",
-});
-export const keybindingsPageEntry = (entry: Omit<KeybindingsPageEntry, "host">): KeybindingsPageEntry => ({
-  ...entry,
-  host: "keybindings-page",
-});
-export function componentEntry<P>(entry: Omit<ComponentEntry<P>, "host">): ComponentEntry<P> {
-  return { ...entry, host: "component" };
-}
-export const nativeEntry = (entry: Omit<NativeEntry, "host">): NativeEntry => ({ ...entry, host: "native" });
+export {
+  settingsPageEntry,
+  passwordsPageEntry,
+  agentPaneEntry,
+  markdownPageEntry,
+  diffPageEntry,
+  appsPageEntry,
+  cloudPageEntry,
+  codeRouterPageEntry,
+  changelogPageEntry,
+  iconPickerPageEntry,
+  editorPageEntry,
+  historyPageEntry,
+  keybindingsPageEntry,
+  componentEntry,
+  nativeEntry,
+} from "./entry";
 
 export const DEFAULT_STAGE_HEIGHT = 520;
 

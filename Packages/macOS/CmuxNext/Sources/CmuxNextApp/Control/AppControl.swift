@@ -47,6 +47,7 @@ final class AppControl {
         service.router.register(ServerReachControl.methods(services: services))
         service.router.register(KeybindingControl.methods(services: services))
         service.router.register(SettingsControl.methods(services: services))
+        service.router.register(SessionTransferControl.methods(services: services))
         service.router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
             .async("resources") { [weak services] call in
@@ -71,6 +72,14 @@ final class AppControl {
             .mainActor("debug.motion") { call in .value(DebugMotion.handle(call.params)) },
             // Launch, palette-open and terminal-creation spans (bench-stalls.py).
             .mainActor("debug.timings") { call in .value(DebugTimings.handle(call.params)) },
+            // Work per layout change: pane snapshots, applies, topology sends (bench_pane_scale.py).
+            .mainActor("debug.layout_counters") { call in .value(DebugLayoutCounters.handle(call.params)) },
+            // Click by Hint labels (hint-mode-e2e.py).
+            .mainActor("debug.hints") { [weak services] call in
+                guard let services else { return .value(.null) }
+                DebugHints.watchMenus()
+                return .value(DebugHints.report(services.windowHints, params: call.params))
+            },
             .mainActor("debug.page_host_pool") { [weak services] call in
                 .value(DebugPageHostPool.handle(call.params, services: services))
             },
@@ -118,8 +127,10 @@ final class AppControl {
                 return .value(DebugNotifications.handle(call.params, services: services))
             },
             // App overlays vs content child windows (Chromium pages).
-            .mainActor("debug.layers") { [weak services] _ in
+            // `reset_layout_passes: true` clears the layout pass counts first.
+            .mainActor("debug.layers") { [weak services] call in
                 guard let services else { return .value(.null) }
+                if call.params["reset_layout_passes"]?.boolValue == true { LayoutPassGuard.shared.reset() }
                 return .value(DebugLayers.report(services: services))
             },
             // The one hover card: machine phase, card window, timer, monitor.
@@ -233,6 +244,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
             },
+            // The app's resign and become-active path without activating it (DebugAppActivation).
+            .mainActor("debug.app_activation") { call in
+                .value(DebugAppActivation.send(call.params))
+            },
             .mainActor("debug.palette.capture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
@@ -257,7 +272,10 @@ final class AppControl {
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let attachments = call.params["attachments"]?.boolValue ?? false
-                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments))
+                // `new`: one more fixture tab, also when the window lists one already (a fixture tab the daemon
+                // restored from an earlier run of the same tag shows no transcript).
+                let fresh = call.params["new"]?.boolValue ?? false
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
             },
             // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
             // files enter the shown Home composer through the same intake as
@@ -270,6 +288,7 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugWindowList.list(services: services))
             },
+            .mainActor("debug.page_popup") { _ in .value(DebugPagePopup.list()) },
             .async("debug.window_snapshot") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugWindowSnapshot.captureAsync(call.params, services: services)
@@ -286,13 +305,27 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugLayers.dropHighlight(call.params, services: services))
             },
-            .mainActor("debug.sidebar_rows") { [weak services] _ in
+            .mainActor("debug.sidebar_rows") { [weak services] call in
                 guard let services else { return .value(.null) }
-                return .value(DebugSidebarRows.report(services: services))
+                return .value(DebugSidebarRows.report(call.params, services: services))
+            },
+            .mainActor("debug.sidebar_wheel") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugSidebarWheel.post(call.params, services: services))
             },
             .mainActor("debug.sidebar_rename") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.beginSidebarRename(call.params, services: services))
+            },
+            // `debug.view_key {view, key, modifiers?, window?}`: a real key-down/up into a
+            // named view made first responder; `debug.focus_ring`: the sidebar's ring (cx-tupd).
+            .mainActor("debug.view_key") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewKey.send(call.params, services: services))
+            },
+            .mainActor("debug.focus_ring") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugViewKey.focusRingReport(call.params, services: services))
             },
             .async("debug.cef.devtools") { [weak services] call in
                 await DebugExtensions.devTools(call.params, services)
@@ -311,6 +344,12 @@ final class AppControl {
                 guard let services else { return .null }
                 return await DebugHoverSweep.run(call.params, services: services)
             }.withDeadline(.fixed(.seconds(15))),
+            // `debug.pointer_hover {point: [x, y] | null, window?}`: real tracking-area
+            // enter/move/exit at a window point (cx-tupd; a headless host cannot hover).
+            .mainActor("debug.pointer_hover") { [weak services] call in
+                guard let services else { return .value(.null) }
+                return .value(DebugPointerHover.run(call.params, services: services))
+            },
             .mainActor("debug.menu") { [weak services] call in
                 .value(DebugExtensions.menu(call.params, presenter: services?.contextMenus))
             },
@@ -345,6 +384,10 @@ final class AppControl {
             // The quit sheet (Quit and the local terminals).
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
+            },
+            // Every window's toasts (R96): list, a person's action run, the undo key.
+            .mainActor("debug.toast") { [weak services] call in
+                .value(services.map { DebugToast.run(call.params, $0) } ?? .null)
             },
             // Every open cmux dialog (R96): list, fixtures, keys, presses.
             .mainActor("debug.dialog") { [weak services] call in
@@ -382,11 +425,6 @@ final class AppControl {
         let publisher = ControlSnapshotPublisher(router: service.router, services: services, frames: frames)
         self.publisher = publisher
         publisher.start()
-    }
-
-    /// Publishes the control snapshot synchronously (after compat intents).
-    func publishSnapshotNow() {
-        publisher?.publishNow()
     }
 
     func stop() {

@@ -5,8 +5,6 @@
 # goes through app-ffi-release.yml's app-ffi-repin pull request).
 cmux.xcodeproj/project.pbxproj
 Packages/macOS/CmuxNext/Package.swift
-plans/cmux-next/actions.md
-plans/cmux-next/action-surfaces.json
 schemas/settings/*
 Packages/macOS/CmuxNext/Sources/CmuxNextSettings/*
 webviews/src/pages/settings/*

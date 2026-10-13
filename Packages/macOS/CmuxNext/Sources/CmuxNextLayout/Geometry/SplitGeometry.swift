@@ -29,11 +29,43 @@ public nonisolated enum SplitGeometry {
     /// Edges are rounded to `scale` so panes never straddle device pixels.
     public static func layout(_ node: SplitNode, in rect: CGRect, style: LayoutStyle, scale: CGFloat = 2) -> SplitLayoutResult {
         var result = SplitLayoutResult()
-        layout(node, in: rect, style: style, scale: scale, into: &result)
+        // Child minimums of every split in one bottom-up pass: asking
+        // `minimumSize` at each split walked its whole subtree again, so a
+        // deep tree cost O(N * depth), a same-axis chain O(N^2).
+        // A split id can repeat in one tree (`split@<firstPane>` from a daemon
+        // without split ids, LayoutHandleMap): those splits use the recursive path.
+        var minimums: [SplitID: (a: CGSize, b: CGSize)] = [:]
+        var repeated: Set<SplitID> = []
+        _ = collectMinimums(node, style: style, into: &minimums, repeated: &repeated)
+        for id in repeated { minimums[id] = nil }
+        layout(node, in: rect, style: style, scale: scale, minimums: minimums, into: &result)
         return result
     }
 
-    private static func layout(_ node: SplitNode, in rect: CGRect, style: LayoutStyle, scale: CGFloat, into result: inout SplitLayoutResult) {
+    private static func collectMinimums(_ node: SplitNode, style: LayoutStyle, into minimums: inout [SplitID: (a: CGSize, b: CGSize)],
+                                        repeated: inout Set<SplitID>) -> CGSize {
+        switch node {
+        case .leaf:
+            return style.minimumPaneSize
+        case let .split(id, axis, _, a, b):
+            let first = collectMinimums(a, style: style, into: &minimums, repeated: &repeated)
+            let second = collectMinimums(b, style: style, into: &minimums, repeated: &repeated)
+            if minimums.updateValue((first, second), forKey: id) != nil { repeated.insert(id) }
+            return combine(first, second, axis: axis, divider: style.dividerThickness)
+        }
+    }
+
+    private static func combine(_ first: CGSize, _ second: CGSize, axis: SplitAxis, divider t: CGFloat) -> CGSize {
+        switch axis {
+        case .horizontal:
+            CGSize(width: first.width + t + second.width, height: max(first.height, second.height))
+        case .vertical:
+            CGSize(width: max(first.width, second.width), height: first.height + t + second.height)
+        }
+    }
+
+    private static func layout(_ node: SplitNode, in rect: CGRect, style: LayoutStyle, scale: CGFloat,
+                               minimums: [SplitID: (a: CGSize, b: CGSize)], into result: inout SplitLayoutResult) {
         switch node {
         case let .leaf(pane):
             result.panes[pane] = rect
@@ -41,8 +73,9 @@ public nonisolated enum SplitGeometry {
             let t = style.dividerThickness
             let extent = axis == .horizontal ? rect.width : rect.height
             let available = max(0, extent - t)
-            let minimumA = minimumSize(of: a, style: style).extent(along: axis)
-            let minimumB = minimumSize(of: b, style: style).extent(along: axis)
+            let childMinimums = minimums[id] ?? (minimumSize(of: a, style: style), minimumSize(of: b, style: style))
+            let minimumA = childMinimums.a.extent(along: axis)
+            let minimumB = childMinimums.b.extent(along: axis)
             let aExtent = firstExtent(ratio: ratio, available: available, minimumA: minimumA, minimumB: minimumB, scale: scale)
             let aRect: CGRect
             let divider: CGRect
@@ -61,8 +94,8 @@ public nonisolated enum SplitGeometry {
             let hit = axis == .horizontal ? divider.insetBy(dx: -grow, dy: 0) : divider.insetBy(dx: 0, dy: -grow)
             result.dividers.append(DividerGeometry(id: id, axis: axis, frame: divider, hitFrame: hit, container: rect,
                                                    minimumA: minimumA, minimumB: minimumB))
-            layout(a, in: aRect, style: style, scale: scale, into: &result)
-            layout(b, in: bRect, style: style, scale: scale, into: &result)
+            layout(a, in: aRect, style: style, scale: scale, minimums: minimums, into: &result)
+            layout(b, in: bRect, style: style, scale: scale, minimums: minimums, into: &result)
         }
     }
 
@@ -74,15 +107,8 @@ public nonisolated enum SplitGeometry {
         case .leaf:
             return style.minimumPaneSize
         case let .split(_, axis, _, a, b):
-            let first = minimumSize(of: a, style: style)
-            let second = minimumSize(of: b, style: style)
-            let t = style.dividerThickness
-            switch axis {
-            case .horizontal:
-                return CGSize(width: first.width + t + second.width, height: max(first.height, second.height))
-            case .vertical:
-                return CGSize(width: max(first.width, second.width), height: first.height + t + second.height)
-            }
+            return combine(minimumSize(of: a, style: style), minimumSize(of: b, style: style), axis: axis,
+                           divider: style.dividerThickness)
         }
     }
 
@@ -110,7 +136,9 @@ public nonisolated enum SplitGeometry {
     /// split axis, same space as `container`). `grabOffset` is where inside
     /// the divider the drag started, so the divider does not jump on press.
     /// `minimumA` and `minimumB` are the children's minimum extents
-    /// (`DividerGeometry`); nil means a single pane on that side.
+    /// (`DividerGeometry`); nil means a single pane on that side. A divider
+    /// within `snapDistance` points of one of `snaps` (ratios) lands on it,
+    /// if both sides keep their minimums there.
     public static func ratio(
         forPointer pointer: CGFloat,
         grabOffset: CGFloat = 0,
@@ -118,7 +146,9 @@ public nonisolated enum SplitGeometry {
         axis: SplitAxis,
         style: LayoutStyle,
         minimumA: CGFloat? = nil,
-        minimumB: CGFloat? = nil
+        minimumB: CGFloat? = nil,
+        snaps: [Double] = [],
+        snapDistance: CGFloat = 0
     ) -> Double {
         let start = axis == .horizontal ? container.minX : container.minY
         let extent = axis == .horizontal ? container.width : container.height
@@ -130,7 +160,10 @@ public nonisolated enum SplitGeometry {
         if available >= minA + minB {
             aExtent = min(max(aExtent, minA), available - minB)
         }
-        let ratio = Double(aExtent / available)
+        let snap = snaps.map { (ratio: $0, at: CGFloat($0) * available) }
+            .filter { abs($0.at - aExtent) <= snapDistance && $0.at >= minA && available - $0.at >= minB }
+            .min { abs($0.at - aExtent) < abs($1.at - aExtent) }
+        let ratio = snap?.ratio ?? Double(aExtent / available)
         return min(max(ratio, SplitRatio.range.lowerBound), SplitRatio.range.upperBound)
     }
 

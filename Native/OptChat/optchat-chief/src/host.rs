@@ -512,6 +512,12 @@ fn start(
     // The acpmux daemon this host starts runs the children: pinned too. Its
     // model probes start only the harnesses this Chief can use.
     let mut daemon_env = pinned.clone();
+    // The Chief home whose codex homes acpmux's built-in codex presets use
+    // (acpmux `config/chief_builtins.rs`): in the daemon's own environment.
+    daemon_env.insert(
+        "ACPMUX_CHIEF_MUX_HOME".to_owned(),
+        home.display().to_string(),
+    );
     daemon_env.insert(
         "ACPMUX_PROBE_HARNESSES".to_owned(),
         probe_harnesses(
@@ -1028,14 +1034,16 @@ fn start(
     };
     let workspaces: Option<Arc<dyn crate::workspaces::Workspaces>> = if workspaces_off {
         None
-    } else if let Some(app) = crate::workspaces::AppWorkspaces::from_env(daemon_socket) {
-        // E17: the app while it runs, else the Chief's owner daemon.
-        Some(Arc::new(crate::workspaces::TargetWorkspaces::new(
-            app,
-            daemon_socket.into(),
-            home,
-            Some(sub_harness.clone()),
-        )))
+    } else if crate::workspaces::AppWorkspaces::from_env(daemon_socket).is_some() {
+        // hq-6d 2026-10-09: always the Chief's owner daemon (`--daemon-socket`), also when the
+        // app started this host: one place, the Chief's machine row in the app, and the
+        // workspaces outlive the app. The tabs name the Chief home's acpmux (`chief:<home id>`).
+        Some(Arc::new(crate::workspaces::DaemonWorkspaces {
+            daemon: daemon_socket.into(),
+            host: crate::workspaces::chief_host(home),
+            host_name: crate::workspaces::host_name(),
+            harness: Some(sub_harness.clone()),
+        }) as Arc<dyn crate::workspaces::Workspaces>)
     } else {
         cloud_install.map(|install| {
             Arc::new(crate::workspaces::DaemonWorkspaces {
@@ -1576,8 +1584,9 @@ pub fn probe_notice(route: CompactRoute, error: &str) -> Option<String> {
         }
     };
     Some(format!(
-        "The memory compactor cannot build summaries ({} route: {error}). Messages \
-         that need a summary wait, and so does every reply, until it can. {remedy}",
+        "The memory compactor cannot build summaries ({} route: {error}). Replies \
+         go on and read the lines it cannot summarize unsummarized (a turn waits at most \
+         10 s on compaction) until it can. {remedy}",
         route.name()
     ))
 }

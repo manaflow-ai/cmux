@@ -1,5 +1,11 @@
-//! `cmux open <url>` and `cmux open -` against an app that serves only the
-//! methods the real cmux-next app serves (cx-i2iu, cx-jon0).
+//! `cmux open <url>`, `cmux open -`, `cmux open <file>` and `cmux open <dir>`
+//! against an app that serves only the methods the real cmux-next app serves
+//! (cx-i2iu, cx-jon0, cx-bmie).
+//!
+//! cx-bmie: `cmux open <file>` failed with `Unknown method file.open`, and
+//! `cmux open <dir>` sent `workspace.create`, which the app does not serve.
+//! The app now serves `file.open` (each file through the `file.open` action,
+//! in the caller's terminal pane); a folder is `action.run newTab --cwd`.
 //!
 //! nxdog71-v2: `cmux open <url>` opened nothing, because the app answered
 //! `Unknown method browser.open_split`. cmux-chat (271491197ee3) opens its
@@ -23,6 +29,19 @@ const NEW_TAB: &str = "tab_77777777777777777777777777777777";
 const WORKSPACE: &str = "ws_11111111111111111111111111111111";
 const CHAT_CODE: &str = "Zx9k2LqP4wQe";
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
+
+/// The params the real app's `file.open` takes (ControlRouter+FileOpen).
+const FILE_OPEN_PARAMS: [&str; 9] = [
+    "paths",
+    "path",
+    "where",
+    "workspace_id",
+    "terminal_id",
+    "focus",
+    "idempotency_key",
+    "origin",
+    "after",
+];
 
 /// The params the real app's `browser.open_split` takes; any other is
 /// refused. `after` is the router's read barrier, which every CLI call sends.
@@ -111,6 +130,71 @@ fn open_with_a_workspace_names_it_and_keeps_the_view() {
     assert_eq!(call["params"]["focus"], false, "{call}");
 }
 
+#[test]
+fn open_of_a_relative_file_opens_it_by_absolute_path_in_the_callers_pane() {
+    let project = scratch_dir("file");
+    std::fs::write(project.join("README.md"), "# readme\n").unwrap();
+    let run = run_in(&["open", "README.md"], Some(CALLER_TERMINAL), None, Some(&project));
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["method"], "file.open", "{call}");
+    let expected = project.join("README.md");
+    assert_eq!(call["params"]["paths"], json!([expected.to_string_lossy()]), "{call}");
+    assert_eq!(call["params"]["terminal_id"], CALLER_TERMINAL, "{call}");
+    assert_eq!(call["params"]["focus"], false, "{call}");
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+#[test]
+fn open_of_a_folder_creates_a_workspace_there_through_new_tab() {
+    let project = scratch_dir("dir");
+    std::fs::create_dir_all(project.join("app")).unwrap();
+    let run = run_in(&["open", "--focus", "app"], None, None, Some(&project));
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let [call] = run.app.as_slice() else { panic!("one app call expected: {:?}", run.app) };
+    assert_eq!(call["method"], "action.run", "{call}");
+    assert_eq!(call["params"]["action"], "newTab", "{call}");
+    let expected = project.join("app");
+    assert_eq!(call["params"]["args"]["cwd"], expected.to_string_lossy().as_ref(), "{call}");
+    assert_eq!(call["params"]["args"]["focus"], true, "{call}");
+    assert_eq!(call["params"]["focus"], true, "{call}");
+    assert_eq!(call["params"]["wait"], true, "{call}");
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+#[test]
+fn open_of_files_a_folder_and_a_url_opens_each_in_order() {
+    let project = scratch_dir("mixed");
+    std::fs::write(project.join("a.txt"), "a\n").unwrap();
+    std::fs::write(project.join("b.png"), [0x89, b'P', b'N', b'G']).unwrap();
+    std::fs::create_dir_all(project.join("src")).unwrap();
+    let run = run_in(
+        &["open", "a.txt", "b.png", "src", "https://example.com/"],
+        Some(CALLER_TERMINAL),
+        None,
+        Some(&project),
+    );
+    assert!(run.output.status.success(), "{}", run.stderr());
+    let methods: Vec<_> = run.app.iter().map(|call| call["method"].clone()).collect();
+    assert_eq!(methods, vec![json!("file.open"), json!("action.run"), json!("browser.open_split")]);
+    assert_eq!(
+        run.app[0]["params"]["paths"],
+        json!([project.join("a.txt").to_string_lossy(), project.join("b.png").to_string_lossy()])
+    );
+    let _ = std::fs::remove_dir_all(&project);
+}
+
+/// A folder to run `cmux open` in, canonical so it matches the CLI's
+/// working directory (on macOS /tmp is a link to /private/tmp).
+fn scratch_dir(name: &str) -> PathBuf {
+    let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+    let sequence = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
+    let dir = std::env::temp_dir()
+        .join(format!("cmux-openfile-{name}-{}-{stamp}-{sequence}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.canonicalize().unwrap()
+}
+
 struct Finished {
     output: Output,
     app: Vec<Value>,
@@ -127,6 +211,15 @@ impl Finished {
 }
 
 fn run(args: &[&str], caller_terminal: Option<&str>, stdin: Option<&str>) -> Finished {
+    run_in(args, caller_terminal, stdin, None)
+}
+
+fn run_in(
+    args: &[&str],
+    caller_terminal: Option<&str>,
+    stdin: Option<&str>,
+    cwd: Option<&Path>,
+) -> Finished {
     let stamp = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let sequence = NEXT_DIR.fetch_add(1, Ordering::Relaxed);
     let dir: PathBuf =
@@ -142,11 +235,15 @@ fn run(args: &[&str], caller_terminal: Option<&str>, stdin: Option<&str>) -> Fin
         .args(args)
         .env_remove("CMUX_TUI_TERMINAL_ID")
         .env_remove("CMUX_FOCUS_NEW")
+        .env_remove("CMUX_AGENT_SESSION")
         .stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some(terminal) = caller_terminal {
         command.env("CMUX_TUI_TERMINAL_ID", terminal);
+    }
+    if let Some(cwd) = cwd {
+        command.current_dir(cwd);
     }
     let mut child = command.spawn().unwrap();
     if let Some(text) = stdin {
@@ -161,14 +258,21 @@ fn run(args: &[&str], caller_terminal: Option<&str>, stdin: Option<&str>) -> Fin
 }
 
 /// The real app's answer: `browser.open_split` opens a tab unless the URL is
-/// not http(s), a param is unknown, or the host is `refuse.example`; every
-/// other method is `method_not_found`, as the real router answers.
+/// not http(s), a param is unknown, or the host is `refuse.example`;
+/// `file.open` opens absolute paths (the `file.open` action refuses a
+/// relative one); `action.run` runs a catalog action; every other method is
+/// `method_not_found`, as the real router answers.
 fn app_response(request: &Value) -> Value {
     let method = request["method"].as_str().unwrap_or_default();
     let params = &request["params"];
     let error = |code: &str, message: String| json!({"id": request["id"], "ok": false, "error": {"code": code, "message": message}});
-    if method != "browser.open_split" {
-        return error("method_not_found", format!("Unknown method {method}"));
+    match method {
+        "browser.open_split" => {}
+        "file.open" => return file_open_response(request),
+        "action.run" => {
+            return json!({"id": request["id"], "ok": true, "result": {"ran": true, "created": [WORKSPACE], "replayed": false}});
+        }
+        _ => return error("method_not_found", format!("Unknown method {method}")),
     }
     if let Some(unknown) = params
         .as_object()
@@ -194,6 +298,36 @@ fn app_response(request: &Value) -> Value {
     }
     json!({"id": request["id"], "ok": true, "result": {"tab_id": NEW_TAB, "created": [NEW_TAB],
         "placement": "caller_terminal", "revealed": false, "replayed": false}})
+}
+
+/// The real app's `file.open`: unknown params are refused, and each path
+/// runs the `file.open` action, which opens only an absolute path.
+fn file_open_response(request: &Value) -> Value {
+    let params = &request["params"];
+    let error = |code: &str, message: String| json!({"id": request["id"], "ok": false, "error": {"code": code, "message": message}});
+    if let Some(unknown) = params
+        .as_object()
+        .into_iter()
+        .flatten()
+        .map(|(key, _)| key)
+        .find(|key| !FILE_OPEN_PARAMS.contains(&key.as_str()))
+    {
+        return error("invalid_params", format!("file.open does not take params.{unknown}"));
+    }
+    let paths: Vec<&str> =
+        params["paths"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+    if paths.is_empty() {
+        return error("invalid_params", "file.open requires params.paths".into());
+    }
+    if let Some(relative) = paths.iter().find(|path| !path.starts_with('/')) {
+        return error(
+            "unavailable",
+            format!("file.open unavailable: {relative} is not an absolute path"),
+        );
+    }
+    let opened: Vec<Value> =
+        paths.iter().map(|path| json!({"path": path, "replayed": false})).collect();
+    json!({"id": request["id"], "ok": true, "result": {"opened": opened, "placement": "caller_terminal"}})
 }
 
 fn strict_app(socket: &Path, done: Arc<AtomicBool>) -> JoinHandle<Vec<Value>> {

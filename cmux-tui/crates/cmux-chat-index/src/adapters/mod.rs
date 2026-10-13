@@ -16,6 +16,7 @@ mod grok;
 mod grok_cli;
 mod kimi;
 mod opencode;
+pub use opencode::find_session as find_opencode_session;
 mod openhands;
 mod pi;
 mod qwen;
@@ -164,6 +165,12 @@ pub fn classify_path(kind: AdapterKind, root: &Path, path: &Path) -> PathRole {
     let Ok(rel) = path.strip_prefix(root) else { return PathRole::Ignore };
     let parts: Vec<&str> = rel.iter().filter_map(|part| part.to_str()).collect();
     if parts.is_empty() {
+        return PathRole::Ignore;
+    }
+    // SQLite's shared-memory index changes when a reader (this index
+    // included) opens or reads a WAL database; it never holds chat data.
+    // Treating it as a store change made every scan trigger the next one.
+    if parts.last().is_some_and(|name| name.ends_with("-shm")) {
         return PathRole::Ignore;
     }
     match kind {

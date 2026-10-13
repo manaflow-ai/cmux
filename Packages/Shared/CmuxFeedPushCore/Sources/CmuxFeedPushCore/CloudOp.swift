@@ -67,12 +67,14 @@ extension Data {
 public enum JSONValue: Hashable, Sendable {
     case string(String)
     case bool(Bool)
+    case integer(Int64)
     case object([String: JSONValue])
 
     var foundation: Any {
         switch self {
         case .string(let value): value
         case .bool(let value): value
+        case .integer(let value): NSNumber(value: value)
         case .object(let value): value.mapValues(\.foundation)
         }
     }

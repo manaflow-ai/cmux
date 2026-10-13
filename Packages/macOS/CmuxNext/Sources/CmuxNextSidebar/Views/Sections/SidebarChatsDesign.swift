@@ -3,7 +3,8 @@ public import Foundation
 
 /// The All chats row design (TEMPORARY Debug Settings picker `sidebar.allChats.design`, cx-xub5):
 /// Lawrence tries the three minimal gallery designs in a tagged build and votes; then the picker
-/// and the two losers are deleted.
+/// and the two losers are deleted. All chats is on the New Tab page since cx-n0i9; the page's list
+/// reads this value with each `chats.page` answer. The key keeps its name so a saved choice stays.
 public nonisolated enum SidebarChatsDesign: String, Sendable, CaseIterable, Hashable, TunableChoice {
     /// The harness glyph, then the title.
     case quiet

@@ -70,7 +70,8 @@ public final class SessionStateStore {
                     for tab in pane.tabs {
                         tab.applyState(tab.resourceID.flatMap { state?.tabs[$0] },
                                        progress: tab.terminalResourceID.flatMap { state?.terminalProgress[$0] },
-                                       programStatus: tab.terminalResourceID.flatMap { state?.terminalProgramStatus[$0] } ?? [])
+                                       programStatus: tab.terminalResourceID.flatMap { state?.terminalProgramStatus[$0] } ?? [],
+                                       commandSinceMs: tab.terminalResourceID.flatMap { state?.terminalBusySinceMs[$0] })
                     }
                 }
             }
@@ -87,7 +88,7 @@ public final class SessionStateStore {
             let start = group.screenIDs.compactMap { order.firstIndex(of: $0) }.min() ?? 0
             return ScreenGroupSnapshot(id: ScreenGroupID(rawValue: group.id), name: group.name, color: group.color,
                                        collapsed: group.collapsed, savedID: group.savedID.map(SavedScreenGroupID.init(rawValue:)),
-                                       start: start, screens: members)
+                                       start: start, screens: members, icon: group.icon)
         }
     }
 }

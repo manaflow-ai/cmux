@@ -46,8 +46,8 @@ LOOKS = [
     ("dark-narrow", "dark", 180, None),
     ("light-wide", "light", 300, None),
     ("light-narrow", "light", 180, None),
-    ("dark-painting", "dark", 240, "met-sunflowers-436524"),
-    ("light-painting", "light", 240, "wheat-field-with-cypresses"),
+    ("dark-painting", "dark", 240, "van-gogh-starry-night"),
+    ("light-painting", "light", 240, "van-gogh-wheat-field-cypresses"),
 ]
 SPACES = [("Work", "blue", None), ("Play", "green", "gamecontroller"), ("Ops", "red", None),
           ("Music", "purple", "🎵"), ("Reading", "orange", None), ("Admin", "cyan", None),

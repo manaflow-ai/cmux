@@ -30,6 +30,18 @@ nonisolated enum FeedSecretScrubber {
         pattern: #"(?i)(\b[a-z0-9_.-]*(?:api[_-]?key|token|secret|passw(?:or)?d|pwd|credential|auth(?:orization)?)[a-z0-9_.-]*["']?\s*[:=]\s*["']?)([^\s"',;]{4,})"#
     )
 
+    /// Characters of a text the feed hand-off scrubs: above the 4096 the
+    /// post keeps, with room for redactions that shorten it. 13 regex passes
+    /// over unbounded program output ran on the main actor (cx-9c8m); a
+    /// secret cut at the edge is still redacted (the PEM pattern runs to the
+    /// end of input).
+    static let window = 16 * 1024
+
+    /// `scrub` of the first `window` characters of `text`.
+    static func scrubPrefix(_ text: String) -> String {
+        scrub(String(text.prefix(window)))
+    }
+
     static func scrub(_ text: String) -> String {
         guard !text.isEmpty else { return text }
         var out = text

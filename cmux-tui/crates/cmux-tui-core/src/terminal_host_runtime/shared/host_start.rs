@@ -18,6 +18,8 @@ use ghostty_vt::Terminal;
 use super::super::sys::{
     self, AcceptWaker, HostChild, HostStream, wait_for_pty_readable_or_forced_drain,
 };
+#[cfg(unix)]
+use super::super::unix::session_cleanup;
 use super::super::*;
 use super::clipboard_read::{ClipboardReads, SystemClock};
 use super::codec::HostLaunch;
@@ -28,13 +30,15 @@ use super::host_state::*;
 
 /// Start the host runtime on `master` and `child`. `seed` is VT replay of
 /// an adopted session's screen, applied to the parser before any PTY byte;
-/// it is empty for a spawned child.
+/// it is empty for a spawned child. `program_status` is the OSC 7501
+/// records its owner kept, likewise in place before any PTY byte.
 pub(crate) fn start_host_runtime(
     launch: &HostLaunch,
     bootstrapped: &crate::terminal_host::BootstrappedHost,
     master: Box<dyn MasterPty + Send>,
     mut child: HostChild,
     seed: &[u8],
+    program_status: Option<ProgramStatusSnapshot>,
 ) -> anyhow::Result<Arc<HostShared>> {
     let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
     let pid = child.process_id();
@@ -65,9 +69,16 @@ pub(crate) fn start_host_runtime(
         signals.pending_responses.lock().unwrap_or_else(PoisonError::into_inner).clear();
         signals.bell.store(false, Ordering::Release);
     }
+    if let Some(snapshot) = program_status {
+        // `restore` re-applies the record rules and keeps `updated_seq`, so
+        // a daemon that later adopts this host shows what the owner showed.
+        signals.program_status.lock().unwrap_or_else(PoisonError::into_inner).restore(snapshot);
+    }
     // The seed's OSC 9;4 progress (the owner appends its last value) reaches
     // this host's metadata too, so later snapshots keep it.
-    let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::default();
+    let mut terminal_metadata = crate::terminal_metadata::TerminalMetadata::with_program_status(
+        signals.program_status.clone(),
+    );
     if !seed.is_empty() {
         terminal_metadata.observe_output(seed);
         let _ = terminal_metadata.take_notifications();
@@ -122,6 +133,9 @@ pub(crate) fn start_host_runtime(
         child_signal_lock: Mutex::new(()),
         child_reaped: AtomicBool::new(false),
         group_escalation_complete: AtomicBool::new(false),
+        group_escalation_failed: AtomicBool::new(false),
+        #[cfg(unix)]
+        session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: child.adopted_session(),
         #[cfg(test)]
         fail_next_resize_publication: AtomicBool::new(false),
@@ -200,10 +214,20 @@ pub(crate) fn start_host_runtime(
                 let signal = child_host.child_signal_lock.lock().unwrap();
                 let escalation_complete =
                     child_host.group_escalation_complete.load(Ordering::Acquire);
+                #[cfg(unix)]
+                let escalation_failed = child_host.group_escalation_failed.load(Ordering::Acquire);
+                #[cfg(not(unix))]
+                let escalation_failed = false;
                 let termination_started = child_host.termination_started.load(Ordering::Acquire);
                 let pty_drained = child_host.pty_drained.load(Ordering::Acquire);
-                if escalation_complete || (!termination_started && pty_drained) {
-                    let exit = child.wait_and_disarm();
+                if escalation_complete || escalation_failed || (!termination_started && pty_drained)
+                {
+                    let mut exit = child.wait_and_disarm();
+                    #[cfg(unix)]
+                    if escalation_failed {
+                        exit =
+                            TerminalExit::unknown(session_cleanup::SESSION_CLEANUP_FAILED_REASON);
+                    }
                     child_host.child_reaped.store(true, Ordering::Release);
                     drop(signal);
                     *child_host.child_exit.0.lock().unwrap() = Some(exit);

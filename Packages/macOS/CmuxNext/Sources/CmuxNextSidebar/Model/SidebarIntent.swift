@@ -21,13 +21,17 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     /// Create a group holding the given workspaces. The UI mints the id.
     /// The group forms where `anchor` is (a row dropped onto another forms
     /// it at the target row), else at the first workspace in tree order.
-    /// `collapsed` restores a group folded (undo of Ungroup).
-    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil, collapsed: Bool = false)
+    /// `collapsed` restores a group folded (undo of Ungroup). `index`, a
+    /// section node index counted without the joining workspaces, places it
+    /// instead (`Int.max`: last); New Workspace in New Group forms it at its
+    /// final slot that way, never at the new row's slot first (cx-f6i7).
+    case createGroup(GroupID, name: String, color: GroupColor, workspaces: [WorkspaceID], anchor: WorkspaceID? = nil, collapsed: Bool = false,
+                     index: Int? = nil)
     case renameGroup(GroupID, String)
     /// The group's name editor closed (commit or cancel). The App removes a
     /// group made with no member that is still empty (cx-rcby). No local change.
     case groupEditorEnded(GroupID)
-    case setGroupColor(GroupID, GroupColor)
+    case setGroupColor(GroupID, GroupTint)
     /// Dissolve a group, leaving its workspaces in place.
     case ungroup(GroupID)
     /// Pin (save) or unpin a group.
@@ -55,6 +59,8 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case switchProfile(ProfileKey)
     /// Create a profile (the bar's "+").
     case newProfile
+    /// Show agent history: every chat on this device (the bar's History dot, cx-zlnl).
+    case openHistory
     /// Move a profile to an insertion index (dot drag).
     case reorderProfile(ProfileKey, index: Int)
     /// Run an item of a pinned section (a built-in's action, a pinned

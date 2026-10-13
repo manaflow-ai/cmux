@@ -1,4 +1,6 @@
+import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// `list`: grouped list (apps, health, devices) with inline actions.
 struct ListPanel: View {
@@ -10,11 +12,11 @@ struct ListPanel: View {
         VStack(alignment: .leading, spacing: 2) {
             ServerDivider().padding(.bottom, 2)
             if let offer = snapshot.pairing.offer {
-                MetricRow(symbol: "qrcode", title: ServerStrings.pairThisServer, value: offer.displayCode)
+                MetricRow(icon: .mobilePairQr, title: ServerStrings.pairThisServer, value: offer.displayCode)
             } else if case .unpaired(nil) = snapshot.pairing {
-                MetricRow(symbol: "qrcode", title: ServerStrings.pairThisServer, value: "", action: model.showPairingCode)
+                MetricRow(icon: .mobilePairQr, title: ServerStrings.pairThisServer, value: "", action: model.showPairingCode)
             }
-            MetricRow(symbol: "terminal", title: ServerStrings.terminals, value: "\(snapshot.terminals)")
+            MetricRow(icon: .terminal, title: ServerStrings.terminals, value: "\(snapshot.terminals)")
             if !snapshot.appServers.isEmpty {
                 GroupTitle(text: ServerStrings.apps)
                 ForEach(snapshot.appServers) { AppServerRow(app: $0) }
@@ -50,8 +52,8 @@ struct AppServerRow: View {
                 StateDot(color: color, size: 6).frame(width: 18)
                 Text(app.name).font(.system(size: 12.5)).foregroundStyle(app.holdsLease ? colors.primary : colors.secondary)
                 if app.durability == .zeroLoss {
-                    Image(systemName: "checkmark.icloud").font(.system(size: 10)).foregroundStyle(colors.tertiary)
-                        .help(ServerStrings.zeroLoss)
+                    Icon(.cloudSynced, size: 12).foregroundStyle(colors.tertiary)
+                        .themedHelp(ServerStrings.zeroLoss)
                 }
                 Spacer(minLength: 8)
                 Text(app.holdsLease ? ServerStrings.state(app.state) : ServerStrings.elsewhere)
@@ -80,7 +82,7 @@ struct DeviceRow: View {
     var body: some View {
         HoverRow {
             HStack(spacing: 8) {
-                Image(systemName: symbol).font(.system(size: 11)).foregroundStyle(colors.secondary).frame(width: 18)
+                Icon(icon, size: 15).foregroundStyle(colors.secondary).frame(width: 18)
                 Text(device.name).font(.system(size: 12.5)).foregroundStyle(colors.primary)
                 Spacer(minLength: 8)
                 if hovering {
@@ -93,12 +95,12 @@ struct DeviceRow: View {
         .onHover { hovering = $0 }
     }
 
-    private var symbol: String {
+    private var icon: IconName {
         switch device.kind {
-        case .mac: "laptopcomputer"
-        case .phone: "iphone"
-        case .web: "globe"
-        case .cli: "terminal"
+        case .mac: .machineLocal
+        case .phone: .devicePhone
+        case .web: .browser
+        case .cli: .terminal
         }
     }
 }

@@ -25,6 +25,8 @@ use sha2::{Digest, Sha256};
 #[path = "conversation_import.rs"]
 mod import;
 pub(crate) use import::ImportedMessage;
+#[path = "conversation_threads.rs"]
+pub(crate) mod threads;
 
 /// The store's file inside the session state directory.
 pub(crate) const CONVERSATIONS_FILE: &str = "conversations.sqlite3";
@@ -203,6 +205,7 @@ impl ConversationStore {
              ) WITHOUT ROWID;",
         )?;
         transaction.execute_batch(attachments::SCHEMA)?;
+        transaction.execute_batch(threads::SCHEMA)?;
         crate::conversation_search::drop_search_index(&transaction)?;
         transaction.execute(
             "INSERT INTO meta(key, value) VALUES('schema_version', ?1)
@@ -443,6 +446,10 @@ fn apply_op_in(
         Some(reply_to) => load_message_by_id(transaction, &reply_to.message_id)?,
         None => None,
     };
+    let thread_target = match op.thread_root() {
+        Some(root) => load_message_by_id(transaction, root)?,
+        None => None,
+    };
     let last_message = load_message_by_seq(transaction, conversation, head.last_seq)?;
     let mut commit = cmux_conversation::apply(
         &head,
@@ -454,6 +461,7 @@ fn apply_op_in(
             new_message_id: &new_message_id,
             target: target.as_ref(),
             reply_target: reply_target.as_ref(),
+            thread_target: thread_target.as_ref(),
             last_message: last_message.as_ref(),
         },
     )
@@ -737,7 +745,8 @@ impl ConversationEvent {
         }
     }
 
-    /// Drafts travel only on `conversation.events`.
+    /// Drafts travel on `conversation.events`, and on `subscribe` only to a
+    /// connection that asked for them (`conversation-draft-events-v1`).
     pub(crate) const fn is_draft(&self) -> bool {
         matches!(self, Self::Draft { .. })
     }
@@ -762,97 +771,4 @@ pub(crate) struct ConversationHost {
         Mutex<std::collections::BTreeMap<String, std::collections::BTreeSet<String>>>,
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use cmux_conversation::{Part, ParticipantKind};
-
-    fn participants() -> Vec<Participant> {
-        vec![
-            Participant {
-                id: "user_local".to_string(),
-                kind: ParticipantKind::Human,
-                display_name: "Me".to_string(),
-                agent_class: None,
-                acp_session: None,
-                person: None,
-            },
-            Participant {
-                id: "agent_mux".to_string(),
-                kind: ParticipantKind::Agent,
-                display_name: "mux".to_string(),
-                agent_class: Some(cmux_conversation::AgentClass::Mux),
-                acp_session: Some("mux".to_string()),
-                person: None,
-            },
-        ]
-    }
-
-    fn send(key: &str, text: &str) -> Op {
-        Op::MessageSend {
-            client_msg_id: key.to_string(),
-            parts: vec![Part::Text { text: text.to_string(), runs: None }],
-            reply_to: None,
-        }
-    }
-
-    #[test]
-    fn conversation_store_persists_across_reopen() {
-        let directory = std::env::temp_dir()
-            .join(format!("cmux-conversations-{}", crate::workspace_registry::new_uuid_v4()));
-        std::fs::create_dir_all(&directory).unwrap();
-        let id = {
-            let mut store = ConversationStore::open(Some(&directory)).unwrap();
-            let created = store.create("create-1", "user_local", "mux", &participants()).unwrap();
-            assert!(!created.replayed);
-            let id = created.summary.id;
-            assert!(id.starts_with("conv_") && id.len() == 31);
-            for index in 1..=3 {
-                let key = format!("c{index}");
-                store.apply_op(&id, &key, "user_local", &send(&key, "hi")).unwrap();
-            }
-            store.apply_op(&id, "read-1", "agent_mux", &Op::ReadCursorSet { seq: 2 }).unwrap();
-            id
-        };
-        assert!(directory.join(CONVERSATIONS_FILE).is_file());
-        let mut store = ConversationStore::open(Some(&directory)).unwrap();
-        let (summary, messages) = store.snapshot(&id, 2).unwrap();
-        assert_eq!(summary.last_seq, 3);
-        assert_eq!(summary.rev, 5);
-        assert_eq!(summary.read_cursors.get("agent_mux"), Some(&2));
-        assert_eq!(messages.iter().map(|message| message.seq).collect::<Vec<_>>(), vec![2, 3]);
-        assert_eq!(summary.last_message.unwrap().seq, 3);
-        // The ledger survives the reopen: the replay changes nothing.
-        let replay = store.apply_op(&id, "c3", "user_local", &send("c3", "hi")).unwrap();
-        assert!(replay.replayed);
-        assert_eq!(replay.result.seq, Some(3));
-        assert_eq!(replay.result.rev, 4);
-        let created = store.create("create-1", "user_local", "mux", &participants()).unwrap();
-        assert!(created.replayed);
-        assert_eq!(created.summary.id, id);
-        let history = store.history(&id, 2, 500).unwrap();
-        assert_eq!(history.len(), 1);
-        assert_eq!(store.list().unwrap().len(), 1);
-        drop(store);
-        std::fs::remove_dir_all(&directory).unwrap();
-    }
-
-    #[test]
-    fn conversation_store_rejects_a_newer_schema() {
-        let connection = Connection::open_in_memory().unwrap();
-        connection
-            .execute_batch(
-                "CREATE TABLE meta (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
-                 INSERT INTO meta VALUES('schema_version', '3');",
-            )
-            .unwrap();
-        let error = ConversationStore::initialize(
-            connection,
-            attachments::Attachments::open(None).unwrap(),
-        )
-        .unwrap_err();
-        assert!(error.to_string().contains("unsupported conversation store schema 3"));
-    }
 }

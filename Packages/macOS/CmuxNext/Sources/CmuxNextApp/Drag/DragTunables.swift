@@ -20,7 +20,14 @@ enum DragTunables {
         "tabDrag.ghostPanelPad", .tabDrag, "Ghost shadow room", help: "Padding around the ghost card inside its panel, room for the shadow (next drag).",
         default: 32, range: 0...96, step: 1, unit: .points, code: "DragTunables.ghostPanelPad")
 
+    /// A pane edge splits only once the pointer has stayed on it this long (cmuxterm-hq#1829:
+    /// Chrome's split targets were too eager); before that the drop joins the pane.
+    static let splitDwell = Tunable<Double>.number(
+        "tabDrag.splitDwell", .tabDrag, "Split dwell",
+        help: "How long a dragged tab rests on a pane edge before the drop splits the pane; before that it joins the pane. 0 splits at once.",
+        default: 0.25, range: 0...1.5, step: 0.05, unit: .seconds, code: "DragTunables.splitDwell")
+
     static var all: [TunableDescriptor] {
-        [ghostTargetScale, ghostLandScale, ghostCardInset, ghostPanelPad].map(\.descriptor)
+        [ghostTargetScale, ghostLandScale, ghostCardInset, ghostPanelPad].map(\.descriptor) + [splitDwell.descriptor]
     }
 }

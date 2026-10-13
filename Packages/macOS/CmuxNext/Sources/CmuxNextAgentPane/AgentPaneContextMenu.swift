@@ -17,27 +17,31 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
     var links: [URL]
     /// The pointer is on an image the page opens on click.
     var opensImage: Bool
+    /// The code block, command, path or link under the pointer (webviews conversation/menuParts.ts).
+    var part: AgentPaneMenuPart?
 
     init(text: String, markdown: String? = nil, forkSeq: Int? = nil, retryRowId: String? = nil, links: [URL] = [],
-         opensImage: Bool = false) {
+         opensImage: Bool = false, part: AgentPaneMenuPart? = nil) {
         self.text = text
         self.markdown = markdown
         self.forkSeq = forkSeq
         self.retryRowId = retryRowId
         self.links = links
         self.opensImage = opensImage
+        self.part = part
     }
 
     /// A prompt (the person's own message) has no Markdown source.
     var isPrompt: Bool { markdown == nil }
 
-    /// The page's report; nil for anything but a message with text or an image (the pointer was
-    /// elsewhere).
+    /// The page's report; nil for anything but a message with text, an image or a part (the
+    /// pointer was elsewhere).
     init?(report body: Any?) {
         guard let object = body as? [String: Any] else { return nil }
         let text = object["text"] as? String ?? ""
         opensImage = (object["openImage"] as? NSNumber)?.boolValue ?? false
-        guard !text.isEmpty || opensImage else { return nil }
+        part = AgentPaneMenuPart(report: object["part"])
+        guard !text.isEmpty || opensImage || part != nil else { return nil }
         self.text = text
         markdown = (object["markdown"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         forkSeq = (object["forkSeq"] as? NSNumber).map(\.intValue)
@@ -53,7 +57,9 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 }
 
 /// The agent pane's native context menu. The pane is app chrome, so WebKit's default menu (Reload,
-/// Back, Look Up, Share...) never shows: Open Image and WebKit's Copy Image on an image; Cut, Copy and Paste where WebKit offers them (Copy on a
+/// Back, Look Up, Share...) never shows: Open Image and WebKit's Copy Image on an image; the items
+/// of the code block, command, path or link under the pointer (``AgentPaneMenuPart``, cx-2lm4);
+/// Cut, Copy and Paste where WebKit offers them (Copy on a
 /// selection, Cut and Paste in the composer); for the message under the pointer Copy Message (a
 /// reply's Markdown) and Copy as Plain Text, Retry on a prompt that was not sent, Edit and Resend
 /// on a prompt, Fork from Here when its turn can be forked, and Open Link for its links and images;
@@ -76,7 +82,8 @@ enum AgentPaneContextMenu {
         var edit: (String) -> Void = { _ in }
         var open: (URL) -> Void = { _ in }
         var search: (String) -> Void = { _ in }
-        var openImage: () -> Void = {}
+        /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
+        var page: (String, [String: String]) -> Void = { _, _ in }
     }
 
     /// The selected transcript text the page reported with the menu (it reports a selection only
@@ -113,9 +120,10 @@ enum AgentPaneContextMenu {
         }
         var image: [NSMenuItem] = []
         if target?.opensImage == true {
-            image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openImage) { actions.openImage() })
+            image.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.openImage) { actions.page("chat.menu.openImage", [:]) })
         }
         if let copyImage { image.append(copyImage) }
+        let part = target?.part?.items(copy: actions.copy, openPath: { actions.page("chat.menu.openPath", ["path": $0]) }, open: actions.open) ?? []
         var copies = edits
         var message: [NSMenuItem] = []
         var links: [NSMenuItem] = []
@@ -135,11 +143,12 @@ enum AgentPaneContextMenu {
             if let seq = target.forkSeq {
                 message.append(AgentPaneMenuAction.item(AgentPaneMenuStrings.forkFromHere) { actions.fork(seq) })
             }
-            links = linkItems(target.links, open: actions.open)
+            // On a link, the part's Open Link stands for the message's.
+            links = target.part?.link == nil ? linkItems(target.links, open: actions.open) : []
         }
         // Empty space (no message, no image, nothing to edit) gets the chat's own menu, its sections kept.
         let chat = target == nil && edits.isEmpty && image.isEmpty ? chatMenu.filter { $0.menu == nil } : []
-        add([image, copies, message, links, chat, inspect.map { [$0] } ?? []], to: menu)
+        add([image, part, copies, message, links, chat, inspect.map { [$0] } ?? []], to: menu)
     }
 
     /// Adds the non-empty groups, split by separators.
@@ -157,10 +166,24 @@ enum AgentPaneContextMenu {
         let parent = NSMenuItem(title: AgentPaneMenuStrings.openLinks, action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: parent.title)
         for link in links {
-            submenu.addItem(AgentPaneMenuAction.item(link.absoluteString) { open(link) })
+            let item = AgentPaneMenuAction.item(linkTitle(link)) { open(link) }
+            item.toolTip = link.absoluteString
+            submenu.addItem(item)
         }
         parent.submenu = submenu
         return [parent]
+    }
+
+    /// A link as its address without `http(s)://` (port, query and fragment kept, so two links stay
+    /// apart), cut in the middle past 60 characters; the full address is the item's tooltip.
+    static func linkTitle(_ link: URL) -> String {
+        let limit = 60
+        let address = link.absoluteString
+        let web = link.scheme == "http" || link.scheme == "https"
+        let bare = web ? String(address.drop(while: { $0 != ":" }).dropFirst(3)) : address
+        guard bare.count > limit else { return bare }
+        let tail = limit / 3
+        return String(bare.prefix(limit - tail - 1)) + "…" + String(bare.suffix(tail))
     }
 }
 
@@ -188,6 +211,30 @@ enum AgentPaneMenuStrings {
 
     static var openLink: String {
         String(localized: "agentPane.menu.openLink", defaultValue: "Open Link", bundle: .module)
+    }
+
+    static var copyLink: String {
+        String(localized: "agentPane.menu.copyLink", defaultValue: "Copy Link", bundle: .module)
+    }
+
+    static var copyCode: String {
+        String(localized: "agentPane.menu.copyCode", defaultValue: "Copy Code", bundle: .module)
+    }
+
+    static var copyCommand: String {
+        String(localized: "agentPane.menu.copyCommand", defaultValue: "Copy Command", bundle: .module)
+    }
+
+    static var copyOutput: String {
+        String(localized: "agentPane.menu.copyOutput", defaultValue: "Copy Output", bundle: .module)
+    }
+
+    static var open: String {
+        String(localized: "agentPane.menu.open", defaultValue: "Open", bundle: .module)
+    }
+
+    static var copyPath: String {
+        String(localized: "agentPane.menu.copyPath", defaultValue: "Copy Path", bundle: .module)
     }
 
     static var openLinks: String {

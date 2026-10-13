@@ -37,7 +37,8 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
     bridge.receive(structuredClone(snapshot));
   };
   const next = (method: string | undefined) => {
-    const after = method && state.then && Object.hasOwn(state.then, method) ? state.then[method] : undefined;
+    const after =
+      method && state.afterCall && Object.hasOwn(state.afterCall, method) ? state.afterCall[method] : undefined;
     // In a task after the answer, as the app's transport sends a snapshot.
     if (after) setTimeout(() => window.cmuxAcpmuxBridge?.receive(structuredClone(after)), 0);
   };
@@ -52,13 +53,26 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
         return answer({ protocolVersion: 1, transport: "preview", machineName: "This Mac", ...state.ready });
       case "project.list":
       case "file.search":
-        return answer([]);
-      default:
-        return answer(state.native?.[message.method ?? ""] ?? null);
+        return answer(state.native?.[message.method] ?? []);
+      default: {
+        const value = state.native?.[message.method ?? ""] ?? null;
+        // `{ nativeError: {code, userMessage?} }` answers as the app's refusal of the call.
+        if (value && typeof value === "object" && "nativeError" in value)
+          return { ok: false, error: (value as { nativeError: unknown }).nativeError };
+        return answer(value);
+      }
     }
   };
   (window as unknown as { webkit: unknown }).webkit = {
-    messageHandlers: { agentSession: { postMessage: (message: Message) => Promise.resolve(handle(message)) } },
+    messageHandlers: {
+      agentSession: {
+        postMessage: (message: Message) => {
+          const reply = handle(message);
+          const delay = state.nativeDelayMs?.[message.method ?? ""];
+          return delay ? new Promise((resolve) => setTimeout(() => resolve(reply), delay)) : Promise.resolve(reply);
+        },
+      },
+    },
   };
   document.documentElement.dataset.cmuxWebviewKind = "acpmux-agent-session";
   await import("virtual:cmux-gallery/agent-pane.css");

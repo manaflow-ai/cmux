@@ -21,11 +21,3 @@ struct LoopbackOpenResponse: Decodable, Sendable {
     /// The daemon's receive window.
     var window: Int
 }
-
-/// `loopback-status`: limits and the daemon's audit ring (diagnostics).
-public struct LoopbackStatusRequest: DaemonRequest {
-    public typealias Response = LoopbackStatus
-    public static let command = "loopback-status"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.loopbackForward
-    public init() {}
-}

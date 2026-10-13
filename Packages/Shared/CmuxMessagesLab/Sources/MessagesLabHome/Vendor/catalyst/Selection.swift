@@ -127,7 +127,7 @@ struct ShortTextGeometry: RowTextGeometry {
             attr = tl.attributed(color: .white, linkColor: .white)
             Self.attrCache.setObject(attr, forKey: key)
         }
-        // cmux: a line outside the text (or measured for another text) is an empty line.
+        // a line outside the text (or measured for another text) is an empty line.
         guard let range = lines[checked: i]?.range, NSMaxRange(range) <= attr.length else { return CTLineCreateWithAttributedString(NSAttributedString()) }
         return CTLineCreateWithAttributedString(attr.attributedSubstring(from: range))
     }
@@ -135,17 +135,17 @@ struct ShortTextGeometry: RowTextGeometry {
         let x = p.x - Fixture.bubblePadX, y = p.y - Fixture.bubblePadY
         if y < 0 { return x <= 0 ? 0 : offsetInLine(0, x: x) }
         if y >= CGFloat(lines.count) * Fixture.lineHeight { return length }
-        return offsetInLine(min(lines.count - 1, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange)), x: x) // cmux
+        return offsetInLine(min(lines.count - 1, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange)), x: x)
     }
     /// The character UNDER a body-local point (AppKit's characterIndex: a double-click on the
     /// right half of a glyph is still that glyph), not the nearest caret position.
     func characterIndex(at p: CGPoint) -> Int {
         let x = p.x - Fixture.bubblePadX, y = p.y - Fixture.bubblePadY
         guard y >= 0, y < CGFloat(lines.count) * Fixture.lineHeight else { return offset(at: p) }
-        let i = min(lines.count - 1, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange)) // cmux: no trap on NaN
-        guard let r = lines[checked: i]?.range else { return 0 } // cmux: checked
+        let i = min(lines.count - 1, CrashGuard.int(floor(y / Fixture.lineHeight), in: CrashGuard.countRange)) // no trap on NaN
+        guard let r = lines[checked: i]?.range else { return 0 } // checked
         guard r.length > 0 else { return r.location }
-        guard NSMaxRange(r) <= length else { return min(r.location, length) } // cmux: a line measured for another text (NSRangeException)
+        guard NSMaxRange(r) <= length else { return min(r.location, length) } // a line measured for another text (NSRangeException)
         let ct = ctLine(i)
         let ns = text as NSString
         // The composed character whose glyph span holds x (both directions: RTL runs too).
@@ -160,7 +160,7 @@ struct ShortTextGeometry: RowTextGeometry {
         return offsetInLine(i, x: x)
     }
     private func offsetInLine(_ i: Int, x: CGFloat) -> Int {
-        guard let r = lines[checked: i]?.range else { return 0 } // cmux: checked
+        guard let r = lines[checked: i]?.range else { return 0 } // checked
         guard r.length > 0 else { return r.location }
         let idx = CTLineGetStringIndexForPosition(ctLine(i), CGPoint(x: max(0, x), y: 0))
         return idx == kCFNotFound ? r.location : r.location + min(max(0, idx), r.length)
@@ -244,7 +244,7 @@ struct LongTextGeometry: RowTextGeometry {
         var end = NSMaxRange(p) + base
         while NSMaxRange(p) == s.length, s.length > 0, s.character(at: s.length - 1) != 10, b + 1 < layout.blockCount {
             b += 1
-            s = layout.selectionString(b); base = layout.index.selStarts[checked: b] ?? base // cmux: checked
+            s = layout.selectionString(b); base = layout.index.selStarts[checked: b] ?? base // checked
             p = SelWords.paragraph(in: s, at: 0)
             end = base + NSMaxRange(p)
         }
@@ -343,7 +343,7 @@ enum SelectionCopy {
             if p.sender != last { runs.append([(String(format: SelText.senderFormat, names(p.sender)), false)]); last = p.sender }
             // Messages: text parts get a tab; an attachment is its own (empty) line. Other parts
             // (a link card: its URL; locations, custom rows) copy their text with a tab like text.
-            runs.update(at: runs.count - 1) { $0.append(p.isAttachment ? (p.text, true) : ("\t" + p.text, false)) } // cmux: checked
+            runs.update(at: runs.count - 1) { $0.append(p.isAttachment ? (p.text, true) : ("\t" + p.text, false)) } // checked
         }
         return runs
     }

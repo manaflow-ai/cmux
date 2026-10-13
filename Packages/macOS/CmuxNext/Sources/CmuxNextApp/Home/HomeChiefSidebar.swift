@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 import Foundation
+import CmuxNextCompat
 
 /// The Chief's settings, a right sidebar inside the Home page that the
 /// header's "Chief >" name pill toggles (Lawrence, 2026-10-05: per-Chief
@@ -15,21 +17,23 @@ import Foundation
 final class HomeChiefSidebar: NSView {
     static let width: CGFloat = 280
     private let muxHome: URL
-    private let harness = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let model = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let effort = NSPopUpButton(frame: .zero, pullsDown: false)
-    private let stats = NSTextField(wrappingLabelWithString: "")
-    private let replies = NSTextField(wrappingLabelWithString: "")
-    private let nameField = NSTextField(string: "")
-    private let avatarField = NSTextField(string: "")
+    private let harness = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    private let model = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    private let effort = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    private let stats = ThemedLabel(wrappingLabelWithString: "")
+    private let replies = ThemedLabel(wrappingLabelWithString: "")
+    private let nameField = ThemedTextField(string: "")
+    private let avatarField = ThemedTextField(string: "")
+    /// The avatar text the field last showed, so an unchanged commit writes nothing.
+    private var shownAvatar = ""
     private let stack = NSStackView()
     /// This Mac's brain only (its mux home, traces, memory): hidden for a
     /// Chief whose brain runs on a paired server.
     private var localViews: [NSView] = []
     /// Where a paired server's brain runs.
-    private let place = NSTextField(wrappingLabelWithString: "")
+    private let place = ThemedLabel(wrappingLabelWithString: "")
     /// Why the engine could not be read or set.
-    private let failure = NSTextField(wrappingLabelWithString: "")
+    private let failure = ThemedLabel(wrappingLabelWithString: "")
     private var source: any HomeChiefEngineSource
     /// Renames the Chief conversation (the daemon's set-title op).
     var onRename: (String) -> Void = { _ in }
@@ -53,10 +57,9 @@ final class HomeChiefSidebar: NSView {
         self.source = source
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.6).cgColor
         setAccessibilityRole(.group)
         setAccessibilityLabel(HomeEngineStrings.title)
-        let title = NSTextField(labelWithString: HomeEngineStrings.title)
+        let title = ThemedLabel(labelWithString: HomeEngineStrings.title)
         title.font = .systemFont(ofSize: 15, weight: .semibold)
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -66,59 +69,61 @@ final class HomeChiefSidebar: NSView {
         // Name and avatar of this Chief.
         for (field, label, action) in [(nameField, HomeEngineStrings.name, #selector(renamed)),
                                        (avatarField, HomeEngineStrings.avatar, #selector(avatarChanged))] {
-            let caption = NSTextField(labelWithString: label)
+            let caption = ThemedLabel(labelWithString: label)
             caption.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-            caption.textColor = .secondaryLabelColor
+            caption.ink = .secondary
             field.target = self
             field.action = action
             field.setAccessibilityLabel(label)
             field.placeholderString = label
+            field.font = Typography.body
+            let box = ThemedFieldBox(field: field, height: Metrics.tabHeight)
             stack.addArrangedSubview(caption)
-            stack.addArrangedSubview(field)
-            field.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
+            stack.addArrangedSubview(box)
+            box.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
         }
         for (button, label) in [(harness, HomeEngineStrings.harness), (model, HomeEngineStrings.model), (effort, HomeEngineStrings.effort)] {
             button.target = self
             button.action = #selector(picked(_:))
             button.setAccessibilityLabel(label)
-            let caption = NSTextField(labelWithString: label)
+            let caption = ThemedLabel(labelWithString: label)
             caption.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-            caption.textColor = .secondaryLabelColor
+            caption.ink = .secondary
             stack.addArrangedSubview(caption)
             stack.addArrangedSubview(button)
             button.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
         }
-        let note = NSTextField(wrappingLabelWithString: HomeEngineStrings.nextTurn)
+        let note = ThemedLabel(wrappingLabelWithString: HomeEngineStrings.nextTurn)
         note.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        note.textColor = .secondaryLabelColor
+        note.ink = .secondary
         stack.addArrangedSubview(note)
         stats.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        stats.textColor = .secondaryLabelColor
+        stats.ink = .secondary
         stack.addArrangedSubview(stats)
         replies.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        replies.textColor = .secondaryLabelColor
+        replies.ink = .secondary
         stack.addArrangedSubview(replies)
-        let brain = NSTextField(wrappingLabelWithString: String(format: HomeEngineStrings.brainFormat, muxHome.path))
+        let brain = ThemedLabel(wrappingLabelWithString: String(format: HomeEngineStrings.brainFormat, muxHome.path))
         brain.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        brain.textColor = .secondaryLabelColor
+        brain.ink = .secondary
         stack.addArrangedSubview(brain)
-        let traces = NSButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
+        let traces = ThemedBezelButton(title: HomeEngineStrings.openTraces, target: self, action: #selector(openTraces))
         traces.bezelStyle = .push
         stack.addArrangedSubview(traces)
         // The memory inspector (DEV and nightly, like its palette action).
         if DevTools.isEnabled {
-            let memory = NSButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory))
+            let memory = ThemedBezelButton(title: HomeEngineStrings.showMemory, target: self, action: #selector(showMemory))
             memory.bezelStyle = .push
             stack.addArrangedSubview(memory)
             localViews.append(memory)
         }
         localViews += [brain, traces]
         place.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        place.textColor = .secondaryLabelColor
+        place.ink = .secondary
         place.isHidden = true
         stack.insertArrangedSubview(place, at: stack.arrangedSubviews.firstIndex(of: brain) ?? 0)
         failure.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        failure.textColor = .systemRed
+        failure.ink = .danger
         failure.isHidden = true
         stack.insertArrangedSubview(failure, at: stack.arrangedSubviews.firstIndex(of: note) ?? 0)
         for view in [note, stats, replies, brain, place, failure] {
@@ -132,6 +137,22 @@ final class HomeChiefSidebar: NSView {
     required init?(coder: NSCoder) { nil }
 
     override var isFlipped: Bool { true }
+
+    /// The theme's sidebar step (a panel apart from the Home content), or the user's sidebar
+    /// background (`appearance.surfaces`), like the window's left sidebar; re-resolved on a theme change.
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyThemeFill()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyThemeFill()
+    }
+
+    private func applyThemeFill() {
+        layer?.backgroundColor = performWithTheme { Palette.fill(for: .sidebar, default: Palette.sidebarStep).cgColor }
+    }
 
     override func layout() {
         super.layout()
@@ -165,6 +186,9 @@ final class HomeChiefSidebar: NSView {
     @objc private func avatarChanged() {
         let text = String(avatarField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines).prefix(2))
         avatarField.stringValue = text
+        // Return on an unchanged field keeps the avatar (a picture shows as "").
+        guard text != shownAvatar else { return }
+        shownAvatar = text
         let files = HomeChiefFiles(muxHome: muxHome)
         // task-owner: one file write off the main actor; ends with it
         Task.detached { files.writeAvatar(text) }
@@ -176,7 +200,7 @@ final class HomeChiefSidebar: NSView {
     }
 
     @objc private func openTraces() {
-        NSWorkspace.shared.activateFileViewerSelecting([HomeChiefFiles(muxHome: muxHome).traceDirectory])
+        NSWorkspace.shared.revealInBackground([HomeChiefFiles(muxHome: muxHome).traceDirectory])
     }
 
     /// Re-reads the engine and the last turns (a new message or a turn's
@@ -226,7 +250,11 @@ final class HomeChiefSidebar: NSView {
         fill(harness, Self.harnesses(routeConfigured: snapshot.routeConfigured), current: snapshot.harness)
         fill(model, Self.models, current: snapshot.model)
         fill(effort, Self.efforts, current: snapshot.effort)
-        if avatarField.currentEditor() == nil { avatarField.stringValue = snapshot.avatar ?? "" }
+        // A picture's file name is not avatar text; the field stays empty for it.
+        if avatarField.currentEditor() == nil {
+            shownAvatar = snapshot.avatar.flatMap { HomeChiefFiles.namesPicture($0) ? nil : $0 } ?? ""
+            avatarField.stringValue = shownAvatar
+        }
         stats.stringValue = snapshot.turns.first.map(HomeEngineStrings.lastTurn) ?? HomeEngineStrings.noTurn
         // Which engine answered each recent reply (the trace's turn.end).
         replies.stringValue = snapshot.turns.isEmpty ? ""

@@ -26,6 +26,16 @@ enum NotificationHandlers {
             }
         })
         registry.bind("jumpToUnread", run: { _ in try open(latestUnread(context), context) })
+        // The live tab whose agent was prompted last (a closed one is no longer in the tree),
+        // shown as a user jump: its window comes forward and its pane takes focus.
+        registry.bind("jumpToLastPrompt", run: { _ in
+            _ = try context.requireConnection()
+            let store = context.daemon.store
+            let prompted = context.allTabs.compactMap { located in store.agents.lastPromptBySurface[located.tab.surface].map { (located, $0) } }
+            guard let last = prompted.max(by: { $0.1 < $1.1 })?.0 else { throw ActionFailure(message: MiscHandlerStrings.noPrompt) }
+            guard ActionRunScope.viewChangeAllowed() else { return }
+            context.services.revealTab(last.tab.id)
+        })
         registry.bind("markOldestUnreadAndJumpNext", requires: ack, daemon: context.daemon, run: { _ in
             let tabs = unread(context)
             guard let oldest = tabs.first else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
@@ -74,6 +84,7 @@ enum NotificationHandlers {
             }
         })
         NotificationSettingsHandlers.bind(into: registry, context: context)
+        AgentChatMuteHandlers.bind(into: registry, context: context)
     }
 
     /// Removes a panel row. The daemon clears by terminal, so this removes

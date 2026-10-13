@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 
 /// The omnibar's leading page-info button (the location icon): the
 /// tune icon for secure pages, a "Not secure" / "Dangerous" chip with text,
@@ -59,13 +60,12 @@ final class PageInfoChipButton: NSView {
     }
 
     private func apply() {
-        icon.image = NSImage(systemSymbolName: indicator.symbol, accessibilityDescription: nil)?
-            .withSymbolConfiguration(.init(pointSize: OmnibarStyle.iconPointSize, weight: .regular))
+        icon.image = NSImage.icon(symbol: indicator.symbol, size: .iconRowSize(forLabelPointSize: OmnibarStyle.iconPointSize))
         applyTint()
         text.font = OmnibarStyle.font
         text.stringValue = labelText ?? ""
         text.isHidden = labelText == nil
-        toolTip = indicator.isTriggerable ? PageInfoStrings.viewSiteInformation : nil
+        themedToolTip = indicator.isTriggerable ? PageInfoStrings.viewSiteInformation : nil
         setAccessibilityLabel([PageInfoStrings.viewSiteInformation, labelText].compactMap(\.self).joined(separator: ", "))
         setAccessibilityEnabled(indicator.isTriggerable)
         if !indicator.isTriggerable { isHovering = false; isPressed = false }

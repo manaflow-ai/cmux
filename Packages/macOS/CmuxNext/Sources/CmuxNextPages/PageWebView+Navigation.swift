@@ -9,8 +9,9 @@ extension PageWebView {
         _ = claimState.end()
         loaded = false
         paintedUptime = nil
-        let bridge = bridge
-        router.send = { envelope in bridge.evaluate(PageRouter.receiveScript(envelope)) }
+        repaintsAtNextLayout = false
+        let scripts = scripts
+        router.send = { envelope in scripts.send(envelope) }
     }
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// An app's icon: an SF Symbol on a quiet tile, or the bundle's image.
@@ -30,8 +31,7 @@ struct AppIconView: View {
     }
 
     private func symbol(_ name: String) -> some View {
-        Image(systemName: name)
-            .font(.system(size: size * 0.46, weight: .regular))
+        Icon(symbol: name, size: size * 0.46)
             .foregroundStyle(colors.primary)
     }
 }
@@ -80,7 +80,7 @@ struct AppInstallButton: View {
                 Color.clear.frame(width: 0)
             } else if model.state(of: id)?.isDefault == true {
                 AppStoreBadge(text: AppsStrings.installedForEveryone)
-                    .help(AppsStrings.installedForEveryoneHelp)
+                    .themedHelp(AppsStrings.installedForEveryoneHelp)
                     .accessibilityIdentifier("appStore.install.\(id)")
             } else if model.state(of: id)?.installed == true {
                 textButton(AppsStrings.remove, color: colors.danger) { await model.requestRemove(id) }

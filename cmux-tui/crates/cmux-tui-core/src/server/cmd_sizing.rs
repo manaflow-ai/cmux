@@ -10,8 +10,8 @@ use super::SHARED_SIZING_CAPABILITY;
 use super::ViewLeaseStatus;
 use super::ViewReleasePreparation;
 use super::ViewResizePreparation;
+use super::detached_terminals::accepts_view_sizing;
 use super::get_surface;
-use super::surface_has_view_placement;
 use crate::Mux;
 use crate::MuxEvent;
 use crate::SurfaceId;
@@ -233,7 +233,7 @@ pub(super) fn resize_surface(
 ) -> anyhow::Result<Value> {
     let (cols, rows) = clamp_terminal_size(cols, rows);
     if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
-        || (!surface_has_view_placement(mux, surface)
+        || (!accepts_view_sizing(mux, surface)
             && mux.control_clients.surface_attachment_is_current_or_retired(client, surface))
     {
         return Ok(json!({
@@ -254,7 +254,7 @@ pub(super) fn resize_surface(
                 if mux
                     .control_clients
                     .surface_attachment_is_retired_without_current(client, surface)
-                    || (!surface_has_view_placement(mux, surface)
+                    || (!accepts_view_sizing(mux, surface)
                         && mux
                             .control_clients
                             .surface_attachment_is_current_or_retired(client, surface)) =>
@@ -318,7 +318,7 @@ pub(super) fn resize_attached_view(
                 "outcome": "superseded",
             }));
         }
-        ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+        ViewLeaseStatus::Current { .. } if !accepts_view_sizing(mux, surface) => {
             return Ok(json!({
                 "accepted": false,
                 "reservation_id": null,
@@ -354,7 +354,7 @@ pub(super) fn resize_attached_view(
                         &lease,
                         previous_view_size,
                     );
-                    if !surface_has_view_placement(mux, surface) {
+                    if !accepts_view_sizing(mux, surface) {
                         return Ok(json!({
                             "accepted": false,
                             "reservation_id": null,
@@ -383,7 +383,7 @@ pub(super) fn release_surface_size(
 ) -> anyhow::Result<Value> {
     let _lifecycle = mux.lock_client_sizing_lifecycle();
     if mux.control_clients.surface_attachment_is_retired_without_current(client, surface)
-        || (!surface_has_view_placement(mux, surface)
+        || (!accepts_view_sizing(mux, surface)
             && mux.control_clients.surface_attachment_is_current_or_retired(client, surface))
     {
         return Ok(json!({"outcome": "superseded"}));
@@ -428,7 +428,7 @@ pub(super) fn release_attached_view_size(
         ViewLeaseStatus::Superseded => {
             return Ok(json!({"outcome": "superseded"}));
         }
-        ViewLeaseStatus::Current { .. } if !surface_has_view_placement(mux, surface) => {
+        ViewLeaseStatus::Current { .. } if !accepts_view_sizing(mux, surface) => {
             return Ok(json!({"outcome": "superseded"}));
         }
         ViewLeaseStatus::Current { .. } => {}
@@ -455,4 +455,20 @@ fn validate_relay_view(view: &str) -> anyhow::Result<()> {
         "bad request: view must be 1-128 printable characters"
     );
     Ok(())
+}
+
+pub(super) fn optional_surface_size(cols: Option<u16>, rows: Option<u16>) -> Option<(u16, u16)> {
+    cols.zip(rows).map(|(cols, rows)| (cols.max(1), rows.max(1)))
+}
+
+pub(super) fn paired_surface_size(
+    command: &str,
+    cols: Option<u16>,
+    rows: Option<u16>,
+) -> anyhow::Result<Option<(u16, u16)>> {
+    match (cols, rows) {
+        (Some(cols), Some(rows)) => Ok(Some((cols.max(1), rows.max(1)))),
+        (None, None) => Ok(None),
+        _ => anyhow::bail!("{command} cols and rows must be supplied together"),
+    }
 }

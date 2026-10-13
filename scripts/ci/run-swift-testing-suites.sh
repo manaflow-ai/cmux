@@ -121,10 +121,20 @@ case "$(cd "$package_path" && pwd -P)" in
       (
         cd "$script_dir/../.." || exit 0
         export CMUX_TUI_TREE_WAIT_SECONDS="${CMUX_TUI_TREE_WAIT_SECONDS:-0}"
-        tree_path="$(bash scripts/cmux-next/pin-cmux-tui.sh path 2>/dev/null)" || exit 0
-        if [ -n "$tree_path" ] && [ ! -x "$tree_path" ]; then
-          bash scripts/cmux-next/pin-cmux-tui.sh fetch >&2 \
-            || echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
+        pin="${CMUX_PIN_CMUX_TUI:-scripts/cmux-next/pin-cmux-tui.sh}"
+        tree_path="$(bash "$pin" path 2>/dev/null)" || exit 0
+        if [ -n "$tree_path" ] && [ ! -x "$tree_path" ] && ! bash "$pin" fetch >&2; then
+          # The head's own tree publishes late (or never, for an unmerged PR head).
+          # A head that changes no cmux-tui input tests the newest published tree,
+          # as PR CI does; one that does change it skips the live-daemon suites.
+          if key="$(bash "$pin" fallback-key)" && [ -n "$key" ] \
+              && CMUX_TUI_TREE_KEY="$key" bash "$pin" fetch >&2; then
+            tree_path="$(CMUX_TUI_TREE_KEY="$key" bash "$pin" path 2>/dev/null)" || exit 0
+            printf '%s' "$key" > "$evidence_dir/tui-tree-key"
+            echo "This head changes no cmux-tui input and its tree is not published; the live-daemon suites use the newest published tree $key." >&2
+          else
+            echo "pin-cmux-tui.sh fetch failed; the live-daemon suites will skip." >&2
+          fi
         fi
         printf '%s' "$tree_path" > "$evidence_dir/tui-tree-path"
       ) &
@@ -190,20 +200,25 @@ if [ -n "${tree_path_job:-}" ]; then
   wait "$tree_path_job" || true
   tree_path="$(cat "$evidence_dir/tui-tree-path" 2>/dev/null || true)"
   [ -z "$tree_path" ] || export CMUX_NEXT_TUI_TREE_PATH="$tree_path"
+  # Suites that ask pin-cmux-tui.sh for acpmux or the daemon get the same tree.
+  tree_key="$(cat "$evidence_dir/tui-tree-key" 2>/dev/null || true)"
+  [ -z "$tree_key" ] || export CMUX_TUI_TREE_KEY="$tree_key"
 fi
 if [ "$direct" -eq 1 ]; then
   # Everything else the suites need from the toolchain, resolved once: the
-  # test bundle, and the two runners with the platform paths SwiftPM sets.
+  # test bundles, and the two runners with the platform paths SwiftPM sets.
+  # SwiftPM 6.3 builds one bundle for the package; SwiftPM 6.4 (Xcode 27)
+  # builds one per test target, and run_swift_test_bundle.py picks each
+  # test's bundle by its module name.
   phase direct-tools
-  bundles=()
+  bundle_args=()
   for candidate in "$bin_path"/*.xctest; do
-    [ -d "$candidate" ] && bundles+=("$candidate")
+    [ -d "$candidate" ] && bundle_args+=(--bundle "$candidate")
   done
-  if [ "${#bundles[@]}" -ne 1 ]; then
-    echo "error: expected one .xctest bundle in $bin_path, found ${#bundles[@]}; no .xctest bundle to run directly (set CMUX_SWIFT_TEST_DIRECT=0 to use swift test)." >&2
+  if [ "${#bundle_args[@]}" -eq 0 ]; then
+    echo "error: no .xctest bundle in $bin_path to run directly (set CMUX_SWIFT_TEST_DIRECT=0 to use swift test)." >&2
     exit 1
   fi
-  test_bundle="${bundles[0]}"
   xctest_tool="$(xcrun --find xctest)"
   testing_helper="$(dirname "$(xcrun --find swift-test)")/../libexec/swift/pm/swiftpm-testing-helper"
   platform_path="$(xcrun --sdk macosx --show-sdk-platform-path)"
@@ -215,7 +230,7 @@ if [ "$direct" -eq 1 ]; then
     fi
   done
   package_dir="$(cd "$package_path" && pwd -P)"
-  echo "Running suites directly from $test_bundle (CMUX_SWIFT_TEST_DIRECT=1)."
+  echo "Running suites directly from $((${#bundle_args[@]} / 2)) test bundle(s) in $bin_path (CMUX_SWIFT_TEST_DIRECT=1)."
 fi
 
 # Run every suite, so one early failure or hang does not hide the rest, then
@@ -250,7 +265,7 @@ attempt_suite() {
   local command
   if [ "$direct" -eq 1 ]; then
     command=(python3 "$script_dir/run_swift_test_bundle.py"
-      --bundle "$test_bundle" --xctest "$xctest_tool" --helper "$testing_helper"
+      "${bundle_args[@]}" --xctest "$xctest_tool" --helper "$testing_helper"
       --platform "$platform_path" --sdk "$sdk_path" --cwd "$package_dir"
       --tests "$evidence_dir/discovered-tests.txt" --xctest-tests "$evidence_dir/xctest-tests.txt"
       --filter "$suite")

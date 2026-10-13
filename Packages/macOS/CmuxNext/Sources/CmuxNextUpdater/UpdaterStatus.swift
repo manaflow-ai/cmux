@@ -28,6 +28,9 @@ nonisolated public struct UpdaterStatus: Sendable, Equatable {
     public var testFeedURL: String? = nil
     /// The notice card's update status (``UpdaterService/card``), or nil.
     public var card: UpdateCard? = nil
+    /// The card as shown: with a found update's version, date and changelog
+    /// lines (``UpdaterService/cardPresentation``), or nil.
+    public var cardPresentation: UpdateCardPresentation? = nil
     /// The footer pill's label ("Update Ready" for a staged update), or nil
     /// when it does not show.
     public var badge: String? = nil

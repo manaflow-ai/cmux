@@ -49,7 +49,7 @@ Discovery (`app_identity.rs`):
   `CFBundleIdentifier` and `LSEnvironment.CMUX_TAG`). The path table mirrors
   `ControlSocketPath`; the Rust tests pin it.
 - Daemon socket: `--socket`/`--session`, `CMUX_TUI_SOCKET`, then (macOS) the app's session
-  `cmux-app[-tag]` under the Darwin per-user temp directory the app starts it with, then
+  `cmux-app[-tag]` (`cmux-app-nightly`, `-rc`, `-staging` for an untagged channel build) under the Darwin per-user temp directory the app starts it with, then
   cmux-tui's `main`.
 - acpmux: `ACPMUX_HOME`, else `~/.acpmux/tags/<tag>` under `CMUX_TAG`, else `~/.acpmux`
   (shared with a standalone acpmux). The home is passed to the daemon it starts.
@@ -159,6 +159,29 @@ On the merges of `feat-cmux-next` (2026-10-02, owner after feat-cmux-next-99):
   before `:` is not a session (the `name:` escape hung the hosted tests); tab-less
   terminals carry `lifecycle` on every published record.
 
+On `feat-cmux-next-browser-tabs` (browser group 2):
+
+- `browser.page.tabs` (snapshot lane: the app browser tabs of the named tab's workspace,
+  the focused one, or `all`) and `browser.page.new_tab|select_tab|close`, which check that the tab
+  is an app browser tab and then run `openBrowser`, `tab.focus` or `closeTab` through
+  `action.run` (same work queue, wait, idempotency key, `sequence` and `created` ids as
+  the keyboard and `cmux tab …`). CLI: `cmux browser <tab_…|page> tabs [--all] | new-tab
+  [URL] | select | close [--no-wait]`, the old `cmux browser tab list|new|switch|close`
+  (by tab id; the old index form is gone).
+
+On `feat-cmux-next-browser-input` (browser group 4):
+
+- `browser.page.press|hover|scroll|scroll_into_view|select|check|uncheck` and the CLI verbs
+  `press KEY [--selector S]`, `hover`, `scroll [SELECTOR] [--dx N] [--dy N]`,
+  `scroll-into-view`, `select SELECTOR VALUE`, `check`, `uncheck`: page scripts like
+  `click`, with the old app's events and errors (`not_checkable`, `disabled`,
+  `not_changed`). `press` is the old app's page-world fallback for every key, with its key table
+  (`BrowserPressKey`: names, punctuation codes, legacy keyCode, location; unknown names pass
+  through); the old app replayed mapped keys as trusted native
+  events, which needs engine input support (not done; temporary until browser step e routes
+  `press` to the host's `input.key`). `select` with words is this verb; bare `select` is the
+  tab verb. Selector actions do not retry for an element that has not appeared yet.
+
 On `feat-cmux-next-mcp` (PR into `feat-cmux-next-acpmux`):
 
 - `cmux mcp serve` and `cmux mcp tools [--json]`: MCP tools from the v2 catalog and the
@@ -209,7 +232,7 @@ the CLI requests that came with the merge, with the decision taken.
 | 17dee8d2801 | Lawrence Chen | Open Terminal on Machine Here | ported: `remote open-terminal-here` (`cli: true`) |
 | 63ae925e97f | Lawrence Chen | history queries | ported: `history list|search [--kind] [--range] [--limit]` (`history.list`); `history back|forward|last|locations|closed|show|search-in-palette|resume|reopen|clear` and `layout undo` run as app actions (`cli: true` for show, resume, reopen, clear, layout undo) |
 | 6ed2890368a | Lawrence Chen | terminal command history (`set-terminal-command-history`) | deferred: no CLI verb yet (app setting `history.terminalCommands`) |
-| c8779bdd6f3 | Lawrence Chen | `tab new` of the focused pane's kind | ported: `tab new` (`newTab.sameKind`) and `tab new-terminal` (`newSurface`) are app actions with `cli: true` |
+| c8779bdd6f3 | Lawrence Chen | `tab new` of the focused pane's kind | ported: `tab new` (`newTab.default`) and `tab new-terminal` (`newSurface`) are app actions with `cli: true` |
 | quit flags | Lawrence Chen | `app quit --keep-sessions|--end-sessions|--end-everything` | ported: `quit` is `cli: true`; a bare flag is true and flags map to camelCase arguments |
 | 43478eb63bd | docked-column lead | `column make-dock|make-dock-left|unstick|toggle-dock-overlay`, `settings toggle-column-scrollbar` | ported: app actions with `cli: true`; `column` reaches the app fallback and `settings <verb>` other than get/set/unset falls through to actions; `sticky-columns-v1` stays awaiting the pin |
 | ca831d42829, fa5e63276d5, 61128c6ca92, 7ba97404a02 | Lawrence Chen, Leo, Austin Wang | compile fix, test timing, SSH/Mosh launcher, pool VMs | not needed: Swift CLI internals and verbs outside the curated surface |
@@ -225,14 +248,58 @@ the CLI requests that came with the merge, with the decision taken.
 | d13dde39006 | Lawrence Chen | diff viewer review labels | not needed: no diff viewer CLI |
 | 7b2979e6345, 5f7699ecd26, 6eaa946e7b5 | Lawrence Chen | team invites and roster verbs | deferred: app-owned team service; add app control methods and an `auth team` scope |
 
+On `feat-cmux-next-browser-wait` (browser group 1):
+
+- `browser.page.wait` and `cmux browser <tab_…|page> wait [SELECTOR] [--text T]
+  [--url-contains U] [--load-state interactive|complete] [--function JS] [--timeout-ms N]`:
+  the old CLI's one-condition precedence and 5 s default (at most 120 s). The page
+  rechecks on DOM mutations and load/navigation events, and for `--function` and URLs on a
+  100 ms page timer (`BrowserTab.evaluateAsync`, an awaited async function). Page waits last
+  at most 4 s each (Chromium's DevTools calls end at 5 s) and restart for the rest of the
+  time, as does a navigation, spaced by `Backoff`. Timeout is `timeout` with `timeout_ms`
+  and the page's `last_error`.
+- `browser.page.screenshot` (`png_base64`, `width`, `height`) and `cmux browser … screenshot
+  [--out PATH|-] [--selector S|--full-page]`: viewport by default, an element cropped from
+  the viewport after scrolling it into view, or the whole document
+  (`BrowserTab.fullPageSnapshot`: Chromium `captureBeyondViewport`, WebKit stitched tiles
+  like the old app's fallback; at most 25M CSS px and 48 tiles). The app saves the PNG in
+  its temporary directory and returns `path`, as the old app did, with `png_base64` only
+  under 4 MiB (the control socket drops answers over 8 MiB); the CLI copies it for `--out`.
+
+On `feat-cmux-next-browser-storage` (browser group 3):
+
+- `browser.page.cookies.get|set|clear` and `cmux browser <tab_…|page> cookies
+  [get|set NAME VALUE|clear]`: the old CLI's fields (`hostOnly`, `httpOnly`,
+  `session_only`, `expires` in Unix seconds) and filters. `get` and `clear` match `name`,
+  `value`, `path`, `secure`, `httpOnly` and `expires` exactly and `url` as the cookies a
+  request there carries (RFC 6265 domain, path, secure and expiry); `get` matches
+  `domain` as a substring, `clear` as that domain and its subdomains. `set` takes one
+  cookie or `cookies: […]`, its domain from `domain`, else `url`'s host, else the tab's
+  page; HttpOnly goes through a parsed `Set-Cookie` header on WebKit (the old #10530). The
+  store is the person's profile, so, as the driver's `cookies.clear`: `clear` needs a scope
+  and stays on the tab's site (its host, parent domains and subdomains; `invalid_state`
+  without an http(s) page), `all` and an already expired `set` are `invalid_params`. A
+  filter of the wrong type, or a url without a host, is `invalid_params`, never ignored.
+  A hibernated tab is `unavailable`: its engine store is reached through its page. Cookies come from the tab's
+  profile store (`BrowserTab.cookies|setCookie|deleteCookie`: `WKHTTPCookieStore`, or
+  Chromium's `Network` domain).
+- `browser.page.storage.get|set|clear` and `cmux browser … storage [local|session] [get
+  [KEY]|set KEY VALUE|clear]` (`type` or the old `storage` param), run in the page;
+  storage the page cannot reach is `invalid_state`.
+
 ## Remaining
 
 1. App windows get typed ids (`win_<32 hex>`); today they are bare lowercase UUIDs.
-2. Nightly and release apps both use daemon session `cmux-app` when untagged
-   (`DaemonLauncher.sessionName`); give each channel its own session.
+2. Done: each untagged channel has its own daemon session and state
+   (`DaemonLauncher.daemonTag`): release keeps `cmux-app` and cmux-tui's default state
+   root; nightly, rc and staging use `cmux-app-<channel>` and
+   `~/Library/Application Support/cmux/tags/<channel>/tui`, like a tagged build. Existing
+   `cmux-app` state stays release's; nightly starts with its own (no copy, see cx-6so.41).
 3. acpmux CLI output is English only; the rest of `cmux` is English and Japanese.
-4. Browser waits, screenshots, cookies and downloads have no new-CLI equivalent yet
-   (the compat layer had partial ones). Workspace status/log/progress are done.
+4. Browser downloads and the remaining input verbs have no new-CLI equivalent yet (the
+   compat layer had partial ones). Waits, screenshots, tab verbs, cookies and storage
+   are done (below). Workspace status/log/progress are done. A screenshot of an app tab no
+   window shows fails with `unavailable`; the old app rendered it offscreen.
 5. `Resources/Localizable.xcstrings` (987 `cli.*` keys plus legacy app keys) is probably
    unused by the cmux-next app; prove it and remove it from the Resources phase.
 6. The daemon forwards page commands for frontend browser tabs to their app, so a CLI on

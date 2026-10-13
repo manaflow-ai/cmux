@@ -1,6 +1,6 @@
 import Darwin
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// Why one sidecar request produced no reply.
 nonisolated enum DiffSidecarError: Error, Equatable, Sendable {

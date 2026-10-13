@@ -48,11 +48,6 @@ extension DaemonConnection {
         return try await request(DeleteProfileRequest(profile: id, moveTo: moveTo))
     }
 
-    public func setFollows(_ id: ProfileID, sessions: [String]) async throws {
-        try requireProfiles()
-        _ = try await request(SetProfileFollowsRequest(profile: id, sessionIDs: sessions))
-    }
-
     public func pinWorkspace(session: String, key: WorkspaceKey, to room: ProfileID) async throws {
         try requireProfiles()
         _ = try await request(PinWorkspaceRequest(sessionID: session, workspaceKey: key, profile: room))

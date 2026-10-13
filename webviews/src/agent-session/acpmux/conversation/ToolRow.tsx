@@ -1,6 +1,7 @@
 // One tool call drawn on its own row: its glyph, its title, and, when it has any, its
 // output, Shell block or diff below once opened.
-import { useId, useMemo, useState, type ReactNode } from "react";
+import { useFindReveal } from "./chatFind";
+import { useContext, useId, useMemo, useState, type ReactNode } from "react";
 import { toolFiles } from "../diff";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
@@ -9,8 +10,12 @@ import { mediaKind, ReplyMedia } from "../chips/ReplyMedia";
 import { pathName } from "../chips/paths";
 import { toolImages } from "../toolImages";
 import { toolLabel } from "../toolPaths";
+import { SessionCwdContext } from "../turnChanges/sessionRows";
 import { EditDiff } from "./EditDiff";
+import { CopyButton } from "./CopyButton";
+import { menuPartRef } from "./menuParts";
 import { ShellBlock } from "./ShellBlock";
+import { OutputMore, useOutput } from "./toolOutput";
 import { ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 
 /// ACP tool kinds (`ToolKind`) to row glyphs.
@@ -40,12 +45,22 @@ export function toolIcon(kind?: string): ReactNode {
 export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  // Find in Chat counts matches in the whole output, so a call it reveals shows all of it.
+  const [reveal, setReveal] = useState(0);
+  useFindReveal(
+    useMemo(() => [item], [item]),
+    () => {
+      setOpen(true);
+      setReveal((count) => count + 1);
+    },
+  );
   const detailsId = useId();
   const tool = item.tool!;
   const hasDiff = Boolean(tool.diffs?.length);
   // Diffed only while open: a closed edit row costs nothing on each transcript update.
   const files = useMemo(() => (open && hasDiff ? toolFiles([tool]) : []), [open, hasDiff, tool]);
-  const label = toolLabel(tool, item.text, (command) => t("tools.ranCommand", { command }));
+  const cwd = useContext(SessionCwdContext);
+  const label = toolLabel(tool, item.text, (command) => t("tools.ranCommand", { command }), cwd);
   const running = tool.status === "pending" || tool.status === "in_progress";
   const failed = tool.status === "failed";
   const body = tool.output?.replace(/\n$/, "");
@@ -55,7 +70,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const content = (
     <>
       <span className="cv-tool__icon">{toolIcon(tool.kind)}</span>
-      <span className="cv-tool__text">
+      <span className="cv-tool__text" data-find-skip={(open && shell) || undefined}>
         {label}
         {failed && <span className="cv-tool__detail"> {t("tools.failed")}</span>}
       </span>
@@ -82,7 +97,9 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
       )}
       {images.length > 0 && <ToolImages sources={images} />}
-      {open && shell && <ShellBlock id={detailsId} command={tool.command} output={body} exitCode={tool.exitCode} />}
+      {open && shell && (
+        <ShellBlock id={detailsId} command={tool.command} output={body} exitCode={tool.exitCode} reveal={reveal} />
+      )}
       {open && !shell && files.length > 0 && (
         <div id={detailsId}>
           {files.map((file) => (
@@ -90,12 +107,32 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
           ))}
         </div>
       )}
-      {open && !shell && files.length === 0 && body && (
-        <pre id={detailsId} className="cv-tool-output selectable">
-          {body}
-        </pre>
-      )}
+      {open && !shell && files.length === 0 && body && <ToolOutput id={detailsId} output={body} reveal={reveal} />}
     </>
+  );
+}
+
+/// A call's output when it is not a shell's: copyable whole, the end of a long one shown.
+function ToolOutput({ id, output, reveal }: { id: string; output: string; reveal: number }) {
+  const t = useT();
+  const shown = useOutput(output, reveal);
+  return (
+    <div id={id} className="cv-tool-output-card" ref={menuPartRef({ output: shown.text })}>
+      <CopyButton
+        text={shown.text ?? ""}
+        label={t("turn.copy")}
+        className="cv-codeblock__action cv-tool-output__copy"
+      />
+      <pre className="cv-tool-output selectable">
+        {shown.cut && (
+          <span className="cv-output-cut" aria-hidden="true">
+            …{"\n"}
+          </span>
+        )}
+        {shown.shown}
+      </pre>
+      <OutputMore output={shown} />
+    </div>
   );
 }
 

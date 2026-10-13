@@ -7,8 +7,10 @@ import Foundation
 /// foreground at a low alpha, so they read as a slightly lighter (dark
 /// themes) or darker (light themes) version of the same surface. Text is
 /// the foreground, muted toward the background only as far as WCAG contrast
-/// allows. No accent hue: blue appears only if the theme's own colors are
-/// blue, and the status colors come from the theme's ANSI palette.
+/// allows. No accent hue by default: blue appears only if the theme's own
+/// colors are blue, and the status colors come from the theme's ANSI palette.
+/// With a ``ThemeAccent`` (`appearance.accent`), selection, the focus ring and
+/// `highlight` take the app theme's accent, the theme's own hue.
 public struct ThemeTokens: Hashable, Sendable {
     /// Dark when the background is darker than the foreground.
     public var isDark: Bool
@@ -67,6 +69,12 @@ public struct ThemeTokens: Hashable, Sendable {
     /// Selected text in chrome text fields (the terminal's selection color
     /// when the config sets one).
     public var textSelection: ThemeRGB
+    /// The config's own selection color (`selection-background`); nil when it names none or
+    /// the primary text would not read on it (an inverse-video selection).
+    public var terminalSelection: ThemeRGB?
+    /// Text carets: the terminal's cursor color when the config names one, else the primary
+    /// text, at least 3:1 on the background.
+    public var caret: ThemeRGB
 
     // Status, from the ANSI palette
     /// Needs-attention marks (ANSI yellow).
@@ -81,6 +89,12 @@ public struct ThemeTokens: Hashable, Sendable {
     /// Glyphs and labels on `highlight`, at least 4.5:1: the opaque
     /// background or foreground, whichever contrasts more, else black or white.
     public var highlightText: ThemeRGB
+    /// Selected and active marks (unread dots, the user's messages, Send in the agent pane):
+    /// the primary text by default (no hue), the app theme's accent with `appearance.accent`.
+    public var accent: ThemeRGB
+    /// Glyphs and labels on `accent`, opaque: the background by default, the app theme's
+    /// `onAccent` (at least 4.5:1) with an accent.
+    public var onAccent: ThemeRGB
     /// The theme names its own ANSI palette, so `highlight` is the theme's
     /// accent; false when it fell back to Ghostty's default palette.
     public var hasThemeAccent: Bool
@@ -127,21 +141,33 @@ public struct ThemeTokens: Hashable, Sendable {
         let bg = input.background
         let isDark = bg.relativeLuminance < input.foreground.relativeLuminance
         let fg = input.foreground
+        let app = AppTheme.derive(from: input)
+        // The app accent when the setting or the theme names one; nil keeps the neutral fills.
+        let accent = input.accent == .neutral && input.accentColor == nil ? nil : app[.accent]
 
         let hover = fg.withAlpha(isDark ? 0.06 : 0.05)
-        let selection = fg.withAlpha(isDark ? 0.10 : 0.08)
+        // An accent selection is the app theme's (`AppTheme` .selection: the accent over the background).
+        let selection = accent?.withAlpha(isDark ? 0.26 : 0.16) ?? fg.withAlpha(isDark ? 0.10 : 0.08)
         let pressed = fg.withAlpha(isDark ? 0.14 : 0.11)
         // Text must hold its contrast on the strongest fill it can sit on.
-        let worstSurface = pressed.composited(over: bg)
+        let worstSurface = [pressed, selection].map { $0.composited(over: bg) }
+            .min { fg.contrast(with: $0) < fg.contrast(with: $1) }!
         let primary = readable(fg, over: worstSurface, minimum: minimumTextContrast)
         let secondary = muted(primary, toward: bg, upTo: 0.38, over: worstSurface, minimum: minimumTextContrast)
         let tertiary = muted(primary, toward: bg, upTo: 0.55, over: worstSurface, minimum: minimumMarkContrast)
+
+        // The config's selection fill, when text reads on it. Many themes select by inverse video
+        // (the foreground as the fill, with a dark `selection-foreground`); chrome and pages draw
+        // only the fill, which would hide the text, so those keep the derived selection.
+        let configSelection = input.selectionBackground.flatMap {
+            primary.contrast(with: $0.composited(over: bg)) >= minimumMarkContrast ? $0 : nil
+        }
 
         let palette = input.palette.count >= 8 ? input.palette : ThemeInput.ghosttyDefault.palette
         func status(_ index: Int) -> ThemeRGB { readable(palette[index], over: bg, minimum: minimumMarkContrast) }
 
         let surface = bg.withAlpha(input.backgroundOpacity)
-        let highlight = status(4)
+        let highlight = accent ?? status(4)
         func best(_ candidates: [ThemeRGB]) -> ThemeRGB {
             candidates.max { $0.contrast(with: highlight) < $1.contrast(with: highlight) }!
         }
@@ -172,20 +198,24 @@ public struct ThemeTokens: Hashable, Sendable {
             badgeFill: fg.withAlpha(isDark ? 0.14 : 0.10),
             separator: fg.withAlpha(isDark ? 0.08 : 0.07),
             paneBorder: fg.withAlpha(isDark ? 0.07 : 0.09),
-            focusRing: fg.withAlpha(0.40),
+            focusRing: accent ?? fg.withAlpha(0.40),
             glassTint: bg.withAlpha(isDark ? 0.40 : 0.30),
             shadow: bg.mixed(toward: .black, 0.85),
-            textSelection: input.selectionBackground ?? bg.mixed(toward: fg, 0.22),
+            textSelection: configSelection ?? bg.mixed(toward: fg, 0.22),
+            terminalSelection: configSelection,
+            caret: input.cursor.map { readable($0, over: bg, minimum: minimumMarkContrast) } ?? primary,
             attention: status(3),
             danger: status(1),
             success: status(2),
             highlight: highlight,
             highlightText: highlightText,
+            accent: accent ?? primary,
+            onAccent: accent == nil ? bg.withAlpha(1) : app[.onAccent],
             hasThemeAccent: input.palette.count >= 8,
             ansi: palette,
             backgroundOpacity: input.backgroundOpacity,
             backgroundBlur: input.backgroundBlur,
-            app: AppTheme.derive(from: input)
+            app: app
         )
     }
 

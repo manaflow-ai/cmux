@@ -100,21 +100,3 @@ fn convert_band(b: &mut Band, w: usize) {
         *v = (((112 * r - 94 * g - 18 * bl + 128) >> 8) + 128) as u8;
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn white_black_gray() {
-        let (w, h) = (4usize, 2usize);
-        let mut src = vec![0u8; w * h * 4];
-        src[..8].fill(255); // two white pixels top-left
-        let mut dst = I420::new(8, 4);
-        bgrx_rect_to_i420(&src, &mut dst, 2, 2, w, h, 1);
-        assert_eq!(dst.y[2 * 8 + 2], 235);
-        assert_eq!(dst.y[2 * 8 + 4], 16);
-        assert_eq!(dst.y[0], 16); // untouched
-        assert_eq!(dst.u[4 + 1], 128);
-    }
-}

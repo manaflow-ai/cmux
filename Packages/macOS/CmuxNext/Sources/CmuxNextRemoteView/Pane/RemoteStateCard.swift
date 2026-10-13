@@ -46,7 +46,7 @@ final class RemoteStateCard: NSView {
     func configure(overlay: RemotePaneOverlay, host: String, colors: RemotePaneColors) {
         for view in content { column.removeArrangedSubview(view); view.removeFromSuperview() }
         let spec = Self.spec(for: overlay, host: host)
-        let icon: NSView = spec.spinner ? Self.spinner(colors: colors) : {
+        let icon: NSView = spec.spinner ? Self.spinner() : {
             let image = RemoteChrome.symbol(spec.symbol, size: 24)
             image.contentTintColor = spec.symbolIsAttention ? colors.attention : colors.textSecondary
             return image
@@ -134,23 +134,15 @@ final class RemoteStateCard: NSView {
         }
     }
 
-    /// A spinner, or a still glyph when loops are off (Reduce Motion).
-    private static func spinner(colors: RemotePaneColors) -> NSView {
-        guard Motion.animatesLoops else {
-            let image = RemoteChrome.symbol("ellipsis.circle", size: 24)
-            image.contentTintColor = colors.textSecondary
-            return image
-        }
-        let indicator = NSProgressIndicator()
-        indicator.style = .spinning
-        indicator.controlSize = .regular
-        indicator.isIndeterminate = true
+    /// The themed spinner in the card's scope; it stills itself when loops are off (Reduce Motion).
+    private static func spinner() -> NSView {
+        let indicator = StatusIndicatorView.spinner()
         indicator.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             indicator.widthAnchor.constraint(equalToConstant: 26),
             indicator.heightAnchor.constraint(equalToConstant: 26),
         ])
-        indicator.startAnimation(nil)
+        indicator.spin(true)
         return indicator
     }
 }

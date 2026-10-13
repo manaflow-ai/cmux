@@ -63,6 +63,9 @@ final class BrowserTabService {
     /// `get-frontend-browser-history`; nil when there is none or the daemon
     /// does not store it.
     var fetchHistory: @MainActor (DaemonService, SurfaceID) async -> FrontendBrowserHistory?
+    /// True once for a tab whose page already restored its history in
+    /// memory (`ClosedBrowserHistories`): the daemon's copy is not applied.
+    var restoredInMemory: @MainActor (String, BrowserEngineKind) -> Bool = { _, _ in false }
     /// Whether `daemon` serves `frontend-browser-tabs-v1`.
     var serves: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.frontendBrowserTabs) }
     /// Why Chromium cannot open a tab now; nil when it can (or may still
@@ -78,8 +81,8 @@ final class BrowserTabService {
     var writeBackDelay: Duration = .milliseconds(500)
     // wakeup-allow: one-shot debounce of browser record write-back (injected for tests)
     var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
-    private var writers: [String: BrowserRecordWriter] = [:]
-    private var historyWriters: [String: BrowserHistoryWriter] = [:]
+    private(set) var writers: [String: BrowserRecordWriter] = [:]
+    private(set) var historyWriters: [String: BrowserHistoryWriter] = [:]
     /// Stored-history reads in flight, by tab id (cancelled with the page).
     private var historyFetches: [String: Task<Void, Never>] = [:]
     /// True for a pane of an incognito window (the App sets it).
@@ -154,6 +157,7 @@ final class BrowserTabService {
             }
             return nil
         }
+        DaemonService.prepareClose = { [weak self] machine, surfaces in await self?.flushHistory(machine: machine, surfaces: surfaces) }
     }
 
     /// The daemon that owns `tab`.
@@ -193,13 +197,18 @@ final class BrowserTabService {
     static let incognitoPlaceholderURL = "about:blank"
 
     /// The URL a new page of `tab` starts on: an incognito tab's from app
-    /// memory, else its record's.
-    func startURL(for tab: TabModel) -> String? { incognitoURLs[key(daemonForTab(tab), tab.surface)] ?? tab.url }
+    /// memory, a restored pinned tab's pinned page (cx-lle.6), else its record's.
+    func startURL(for tab: TabModel) -> String? {
+        incognitoURLs[key(daemonForTab(tab), tab.surface)] ?? PinnedPage.restoreURL(tab, openedHere: wasOpenedHere(tab)) ?? tab.url
+    }
+
+    /// The page `tab` was last on: an incognito tab's from app memory, else its record's.
+    func lastURL(for tab: TabModel) -> String? {
+        incognitoURLs[key(daemonForTab(tab), tab.surface)] ?? tab.url
+    }
 
     /// Forgets incognito start URLs (the incognito session ended).
     func forgetIncognitoURLs() { incognitoURLs.removeAll() }
-
-    func cefAvailable() -> Bool { cefUnavailable() == nil }
 
     /// Why Chromium cannot open a tab (localized), nil when it can.
     func cefUnavailableReason() -> String? {
@@ -281,6 +290,19 @@ final class BrowserTabService {
     /// An incognito tab is never written back: its page's URL, title and
     /// favicon stay in memory (the tab strip reads the live page).
     /// A page restores the zoom its record keeps.
+    /// A page that runs (or waits to run) on a machine keeps its machine
+    /// record with the page's address (relaunch reopens it there); this
+    /// Mac's page of that tab (Open Locally Instead) writes its own address.
+    private func machineRecordURL(_ page: any BrowserTab, tab: TabModel) -> (@MainActor (URL) -> URL)? {
+        guard let record = tab.url.flatMap(URL.init(string:)).flatMap(MachineBrowserRecord.init(url:)) else { return nil }
+        var onMachine = page is MachineBrowserPageTab
+        #if DEBUG
+        onMachine = onMachine || RemoteBrowserPages.runsOnMachine(tab.id)
+        #endif
+        guard onMachine else { return nil }
+        return { url in MachineBrowserRecord.matches(url) ? url : MachineBrowserRecord(machine: record.machine, initialURL: url).url }
+    }
+
     func track(_ page: any BrowserTab, for tab: TabModel) {
         guard tab.isFrontendOwned, writers[tab.id] == nil, !isIncognitoTab(tab.id) else { return }
         let update = update, updateState = updateState, id = tab.id, daemonForTab = daemonForTab
@@ -293,6 +315,7 @@ final class BrowserTabService {
         let writer = BrowserRecordWriter(
             tab: page, recorded: BrowserRecord(tab: tab), tracksState: keeps,
             daemonRecord: { [weak self] in self?.tabModel(id).map(BrowserRecord.init(tab:)) },
+            recordURL: machineRecordURL(page, tab: tab),
             delay: writeBackDelay, sleep: sleep
         ) { [weak self] fields in
             guard let tab = self?.tabModel(id) else { return false }
@@ -313,6 +336,7 @@ final class BrowserTabService {
                               while record: BrowserRecordWriter) {
         guard let restoring = page as? any BrowserTab & BrowserSessionRestoring else { return }
         let fetchHistory = fetchHistory, storeHistory = storeHistory, daemonForTab = daemonForTab
+        let restored = restoredInMemory(id, page.engineKind)
         historyFetches[id]?.cancel()
         historyFetches[id] = Task { [weak self, weak record] in
             let saved = await fetchHistory(daemon, surface)
@@ -324,7 +348,7 @@ final class BrowserTabService {
             guard let self, let record, self.writers[id] === record, self.historyWriters[id] == nil else { return }
             // The saved page is the one the tab reopened at, and the user
             // has not gone elsewhere while the daemon answered.
-            if let saved, let session = BrowserHistoryWriter.session(saved),
+            if !restored, let saved, let session = BrowserHistoryWriter.session(saved),
                session.entries[session.current].url.absoluteString == recordURL,
                restoring.state.url.map({ $0.absoluteString == recordURL }) ?? true {
                 restoring.restoreSession(session.entries, current: session.current)

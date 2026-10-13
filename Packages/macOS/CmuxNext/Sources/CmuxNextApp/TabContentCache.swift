@@ -16,7 +16,7 @@ import Observation
 final class TabContentCache {
     private let daemon: DaemonService
     var terminals: [String: TerminalEntry] = [:]
-    var browsers: [String: BrowserEntry] = [:]
+    var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
     var presenters: [ObjectIdentifier: WeakPresenter] = [:]
     /// Every tab's content phase and visibility generation (plans/cmux-next/tab-lifecycle.md):
@@ -200,7 +200,7 @@ final class TabContentCache {
             Task { @MainActor [weak self] in self?.pageRequests.closeTab(key) }
             return nil
         }
-        if let adopted = pageRequests.takeAdoption(for: tab.surface) {
+        if let adopted = pageRequests.takeAdoption(for: tab) {
             return tracked(install(adopted, for: key), tab)
         }
         let url = MachineBrowserPages(cache: self).recordURL(tab) ?? recordURL(tab)
@@ -355,7 +355,7 @@ final class TabContentCache {
     func swapPage(_ key: String, with page: any BrowserTab) {
         browserTabs.untrack(key)
         browsers.removeValue(forKey: key)?.close()
-        install(page, for: key)
+        installReplacement(page, for: key)
         if !(page is HibernatedBrowserTab) {
             browserTabs.track(page, tabID: key)
         }

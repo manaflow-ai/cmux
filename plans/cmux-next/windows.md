@@ -29,7 +29,7 @@ what each shortcut means. Nothing else may decide those.
 ## Model
 
 - `WindowKind` (CmuxNextDesign, `CaseIterable`): `main`, `settings`,
-  `debugSettings`, `appStore`, `onboarding`, `onboardingGallery`,
+  `debugSettings`, `appStore`, `onboarding`,
   `browserPopup`, `devTools`, `pageInfo`, `terminalDebug`, `browserDebug`.
   Overlay panels (palette, hover cards, omnibox suggestions, notifications,
   appearance studio, tab group editor, drag ghosts, divider catchers,
@@ -114,6 +114,7 @@ pane does this in `AgentPaneTheme.script`). Payload:
   "variables": {
     "--cmux-surface-background": "rgba(30, 30, 46, 1.0)",
     "--cmux-surface-token": "rgba(30, 30, 46, 0.6)",
+    "--cmux-surface-solid": "rgba(30, 30, 46, 1.0)",
     "--cmux-elevated-background": "rgba(...)",
     "--cmux-text": "rgba(...)",
     "--cmux-text-secondary": "rgba(...)",
@@ -128,7 +129,9 @@ pane does this in `AgentPaneTheme.script`). Payload:
 `--cmux-surface-background` is the page background: the opaque token in an
 opaque window, `rgba(..., 0.0)` over a see-through window (the window's one
 backdrop shows through). `--cmux-surface-token` is the token itself with its
-opacity. A page listens to `cmux-theme` events (`detail` = payload) for live
+opacity. `--cmux-surface-solid` is the page color made opaque (a page's own
+`appearance.surfaces` background over the token): rings, pills and glyphs on
+fills use it, so nothing shows through them. A page listens to `cmux-theme` events (`detail` = payload) for live
 changes. The React Settings page is transparent over it.
 
 ## One keyboard table
@@ -194,7 +197,7 @@ windows (Chromium page windows, panels) are not included. Use
 | Settings fallback | `SettingsWindowController` | background before content (74324ca921f) | install(.settings) |
 | Debug Settings fallback | `DebugSettingsWindowController` | same | install(.debugSettings) |
 | App Store | `AppStoreWindowController` (becomes a page tab) | content before background | install(.appStore) until the page lands |
-| onboarding, gallery | `OnboardingWindowController`, `OnboardingGalleryController` | hand-built | install(.onboarding / .onboardingGallery) |
+| onboarding (Import from Browser, Computer Use setup) | `OnboardingWindowController` | hand-built | install(.onboarding) |
 | browser popup | `BrowserPopupPanel` | own Cmd-W interception (`popups.interceptKeyDown`) | install(.browserPopup) (done); the key router's popup Cmd-W step is still in place, Close Tab from the menu and palette goes through the table (both tested) |
 | DevTools | `CEFDevToolsWindow` | hand-built | install(.devTools) |
 | page info, terminal/browser debug | `PageInfoWindows`, `TerminalDebugWindow`, `BrowserDebugWindow` | hand-built | install(kind) |

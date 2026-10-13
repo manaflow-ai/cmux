@@ -75,12 +75,12 @@ extension HomeStore {
     /// like a text send; `cancelSend` stops it
     /// (`CancellationError`). Throws like `perform`, and
     /// `HomeAttachmentError` (nothing logged) for a file the owner would
-    /// refuse.
+    /// refuse. `threadRoot` set: the message is a reply in that thread.
     public func send(conversation: ConversationID, text: String, attachments: [LocalAttachment],
-                     key: IdempotencyKey = .make()) async throws {
+                     key: IdempotencyKey = .make(), threadRoot: MessageID? = nil) async throws {
         var parts = attachments.map { MessagePart.attachment($0.ref) }
         if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { parts.append(.text(text)) }
-        try await send(conversation: conversation, parts: parts, uploads: attachments, key: key)
+        try await send(conversation: conversation, parts: parts, uploads: attachments, key: key, threadRoot: threadRoot)
     }
 
     /// Sends `parts` as one message, uploading `uploads` first exactly as
@@ -92,7 +92,7 @@ extension HomeStore {
     /// uploads, `prepareLinkPreviewImage`). Attachment parts and link
     /// preview pictures take the owner's stored mime type and byte count.
     public func send(conversation: ConversationID, parts: [MessagePart], uploads: [LocalAttachment],
-                     key: IdempotencyKey = .make()) async throws {
+                     key: IdempotencyKey = .make(), threadRoot: MessageID? = nil) async throws {
         guard !stopped else { throw HomeRejection.ownerUnreachable }
         // The owner's spelling and ranges, also for refs built outside prepare.
         let attachments = uploads.map { attachment -> LocalAttachment in
@@ -112,7 +112,7 @@ extension HomeStore {
             try HomeAttachmentPolicy.check(mimeType: attachment.ref.mimeType, byteCount: attachment.ref.byteCount,
                                            name: attachment.ref.name)
         }
-        let op = HomeOp.sendMessage(conversation: conversation, parts: parts)
+        let op = HomeOp.sendMessage(conversation: conversation, parts: parts, threadRoot: threadRoot)
         guard !attachments.isEmpty else {
             try await perform(op, key: key)
             return

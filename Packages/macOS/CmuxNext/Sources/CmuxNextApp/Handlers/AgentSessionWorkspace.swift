@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -49,6 +50,13 @@ enum AgentSessionWorkspace {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
         let logger = daemon.logger
+        // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
+        // workspace the window shows, when it is in one (cx-caoh). A caller's
+        // key that names a listed workspace leaves that workspace where it is.
+        let windows = services.windows
+        if services.machines.workspace(id: key.rawValue) == nil {
+            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
+        }
         return Task { @MainActor in
             do {
                 _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
@@ -80,7 +88,7 @@ enum AgentSessionWorkspace {
     }
 
     /// The first pane of workspace `key` once the store mirrors it (10 s at most).
-    @MainActor private static func mirroredPane(of key: WorkspaceKey, in store: DaemonStore) async -> PaneModel? {
+    @MainActor static func mirroredPane(of key: WorkspaceKey, in store: DaemonStore) async -> PaneModel? {
         if let pane = firstPane(of: key, in: store) { return pane }
         // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
         let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
@@ -101,7 +109,7 @@ enum AgentSessionWorkspace {
     }
 
     @MainActor private static func waitForPane(of key: WorkspaceKey, in store: DaemonStore) async -> Bool {
-        for await ready in Observations({ firstPane(of: key, in: store) != nil }) where ready { return true }
+        for await ready in ObservationStream({ firstPane(of: key, in: store) != nil }) where ready { return true }
         return false
     }
 }

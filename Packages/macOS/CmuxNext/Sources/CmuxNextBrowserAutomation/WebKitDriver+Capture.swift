@@ -8,9 +8,6 @@ extension WebKitDriver {
     /// at the page's CSS scale, as Playwright screenshots at scale 1.
     func tabScreenshot(_ params: DriverParams) async throws(DriverError) -> DriverJSON {
         let (tab, _) = try target(params)
-        if try params.bool("fullPage") {
-            throw DriverError(.unsupported, "tab.screenshot: fullPage is not supported by the WebKit driver yet")
-        }
         let format = try params.optionalString("format") ?? "png"
         guard format == "png" || format == "jpeg" else {
             throw DriverError(.unsupported, "tab.screenshot: format \(format) is not supported by the WebKit driver")
@@ -19,7 +16,20 @@ extension WebKitDriver {
         let zoom = tab.webView.pageZoom * tab.webView.magnification
         let scale = zoom > 0 ? zoom : 1
         // The clip is CSS pixels; the snapshot rect is view points.
-        if case .object(let clip) = params["clip"] ?? .null {
+        if try params.bool("fullPage") {
+            // The whole document: its size and the scroll offset put the
+            // rect over content outside the visible area (WebKit renders it).
+            let size = try await run("""
+            const d = document.documentElement, b = document.body;
+            return [Math.max(d.scrollWidth, b ? b.scrollWidth : 0, innerWidth), Math.max(d.scrollHeight, b ? b.scrollHeight : 0, innerHeight), scrollX, scrollY];
+            """, [:], nil, AgentWorld.hostWorld, tab)
+            guard case .array(let values) = size, values.count == 4, case .number(let width) = values[0], case .number(let height) = values[1],
+                  case .number(let x) = values[2], case .number(let y) = values[3] else {
+                throw DriverError(.unsupported, "tab.screenshot: the page size could not be read")
+            }
+            configuration.rect = CGRect(x: -x * scale, y: -y * scale, width: width * scale, height: height * scale)
+            configuration.snapshotWidth = NSNumber(value: width)
+        } else if case .object(let clip) = params["clip"] ?? .null {
             let css = CGRect(x: clip["x"]?.numberValue ?? 0, y: clip["y"]?.numberValue ?? 0,
                              width: clip["width"]?.numberValue ?? 0, height: clip["height"]?.numberValue ?? 0)
             configuration.rect = CGRect(x: css.minX * scale, y: css.minY * scale, width: css.width * scale, height: css.height * scale)

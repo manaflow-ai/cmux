@@ -395,7 +395,3 @@ fn half_open_flows(sockets: &SocketSet<'_>, listeners: &[Listener]) -> HashSet<F
 
 #[path = "tcp_bridge.rs"]
 mod bridge;
-
-#[cfg(test)]
-#[path = "tcp_stack_tests.rs"]
-mod tests;

@@ -1,6 +1,9 @@
 //! The local app starts a preset by its id only, and no connection but the
 //! unix socket reads a preset's args, env or system prompt.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

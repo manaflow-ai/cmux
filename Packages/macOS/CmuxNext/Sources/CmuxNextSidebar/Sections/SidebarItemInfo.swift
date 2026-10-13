@@ -34,6 +34,10 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// amendment 2): an icon-only item with an avatar draws its initial in
     /// a circle with a small chevron, and a click opens the profile menu.
     public var avatar: SidebarAvatar?
+    /// A workspace item's merged status (its row's `activity`), drawn by the shared indicator.
+    public var activity: StatusIndicatorState = .idle
+    /// The winning report's style hint; nil uses `appearance.statusIndicator.style`.
+    public var activityStyle: StatusIndicatorStyle?
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
                 isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,

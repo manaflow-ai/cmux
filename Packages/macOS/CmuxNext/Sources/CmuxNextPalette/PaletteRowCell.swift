@@ -50,23 +50,64 @@ final class PaletteKeycapsView: NSView {
 }
 
 /// Row background: a rounded gray fill for selection and hover, never the
-/// system accent.
+/// system accent. A fill layer under the cell, so a hover eases in and
+/// clears at once (`ChromeHover.fade`); selection, reuse and redraws paint
+/// at once.
 final class PaletteTableRowView: NSTableRowView {
+    private let fill = CALayer()
+    private var fadesNextFill = false
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        // A fade asked for before the row was reused belongs to its old row.
+        fadesNextFill = false
+    }
+
     var isPaletteSelected = false {
         didSet { if isPaletteSelected != oldValue { needsDisplay = true } }
     }
+
+    /// The table's selection only tells VoiceOver which row is selected (`syncTableSelection`);
+    /// the row's text keeps its own colors.
+    override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
 
     var isHovered = false {
         didSet { if isHovered != oldValue { needsDisplay = true } }
     }
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        fill.cornerRadius = PaletteLayout.rowCornerRadius
+        fill.cornerCurve = .continuous
+        fill.actions = ["bounds": NSNull(), "position": NSNull()]
+        fill.autoresizingMask = [.layerWidthSizable, .layerHeightSizable]
+        layer?.insertSublayer(fill, at: 0)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) is not supported")
+    }
+
+    /// A pointer hover change; `animated` fades it.
+    func setHovered(_ hovered: Bool, animated: Bool) {
+        guard hovered != isHovered else { return }
+        fadesNextFill = animated
+        isHovered = hovered
+    }
+
+    override func layout() {
+        super.layout()
+        fill.frame = bounds.insetBy(dx: PaletteLayout.listInset, dy: 0)
+    }
+
     override func drawBackground(in dirtyRect: NSRect) {
-        guard isPaletteSelected || isHovered else { return }
         performWithTheme {
-            (isPaletteSelected ? Palette.selectionFill : Palette.hoverFill).setFill()
-            let rect = bounds.insetBy(dx: PaletteLayout.listInset, dy: 0)
-            NSBezierPath(roundedRect: rect, xRadius: PaletteLayout.rowCornerRadius, yRadius: PaletteLayout.rowCornerRadius).fill()
+            let color = isPaletteSelected ? Palette.selectionFill : isHovered ? Palette.hoverFill : nil
+            ChromeHover.paint(fill, color, animated: fadesNextFill && window != nil)
         }
+        fadesNextFill = false
     }
 
     override func drawSelection(in dirtyRect: NSRect) {}
@@ -78,7 +119,7 @@ final class PaletteRowCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("palette.row")
 
     private let icon = NSImageView()
-    private let swatch = PaletteSwatchView()
+    let swatch = PaletteSwatchView()
     private let title = PaletteText.label(Typography.body, tone: nil)
     private let subtitle = PaletteText.label(Typography.caption, tone: .secondary)
     private let accessory = PaletteText.label(Typography.caption, tone: .tertiary)
@@ -87,6 +128,8 @@ final class PaletteRowCell: NSTableCellView {
     private var titleText = ""
     private var highlights: [Int] = []
     private var isSelected = false
+    private var swatches: [ThemeRGB] = []
+    private var ball: PaletteBall?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -101,16 +144,20 @@ final class PaletteRowCell: NSTableCellView {
 
     func configure(_ row: PaletteRow, isSelected: Bool) {
         let item = row.item
-        let iconKey = item.brand.map { "brand:\($0)" } ?? item.symbol
+        let iconKey = item.image.map { "image:\(ObjectIdentifier($0).hashValue)" } ?? item.brand.map { "brand:\($0)" } ?? item.symbol
         if symbolName != iconKey {
             symbolName = iconKey
-            // An agent row draws its brand mark as a template, tinted like the symbols.
-            icon.image = item.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
+            // A page's favicon draws as is; an agent row draws its brand mark as a template,
+            // tinted like the symbols.
+            icon.image = item.image.map { NSImage(cgImage: $0, size: NSSize(width: Metrics.iconSize, height: Metrics.iconSize)) }
+                ?? item.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
                 ?? PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
         }
-        swatch.colors = item.swatches
-        swatch.isHidden = item.swatches.isEmpty
-        icon.isHidden = !item.swatches.isEmpty
+        swatches = item.swatches
+        ball = item.ball
+        let drawsColor = !item.swatches.isEmpty || item.ball != nil
+        swatch.isHidden = !drawsColor
+        icon.isHidden = drawsColor
         self.isSelected = isSelected
         titleText = item.title
         highlights = row.highlights
@@ -145,6 +192,7 @@ final class PaletteRowCell: NSTableCellView {
         performWithTheme {
             icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
             title.attributedStringValue = Self.highlighted(titleText, highlights)
+            swatch.colors = ball.map { [$0.color.ballRGB(marksContent: $0.marksContent)] } ?? swatches
         }
     }
 
@@ -159,7 +207,7 @@ final class PaletteRowCell: NSTableCellView {
         if !keycaps.isHidden {
             let size = keycaps.intrinsicContentSize
             right -= size.width
-            keycaps.frame = NSRect(x: right, y: midY - size.height / 2, width: size.width, height: size.height)
+            keycaps.frame = pixelAligned(NSRect(x: right, y: midY - size.height / 2, width: size.width, height: size.height))
             right -= Metrics.space4
         }
         if !accessory.isHidden {
@@ -179,8 +227,8 @@ final class PaletteRowCell: NSTableCellView {
     }
 
     private func centered(x: CGFloat, width: CGFloat, field: NSTextField) -> NSRect {
-        let height = field.intrinsicContentSize.height
-        return NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height)
+        let height = PaletteText.height(field)
+        return pixelAligned(NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height))
     }
 
     /// Matched characters in full label color and the emphasized weight; the

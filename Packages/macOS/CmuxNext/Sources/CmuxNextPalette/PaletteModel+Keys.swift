@@ -172,6 +172,13 @@ extension PaletteModel {
         handle(.submit)
     }
 
+    /// Points the Actions menu's selection at the row under the pointer (mouse).
+    public func hoverActionsMenuCommand(at index: Int) {
+        guard var menu = actionsMenu, menu.selectedIndex != index, menu.visibleCommands.indices.contains(index) else { return }
+        menu.selectedIndex = index
+        actionsMenu = menu
+    }
+
     public func closeActionsMenu() {
         actionsMenu = nil
     }

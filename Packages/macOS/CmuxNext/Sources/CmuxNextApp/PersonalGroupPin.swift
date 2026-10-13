@@ -51,7 +51,7 @@ struct PersonalGroupPin {
     }
 
     /// One home-daemon request; a failure re-syncs the sidebar.
-    private func send(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+    private func send(_ label: String, _ body: @escaping DaemonCommandBody) {
         let home = home, bridge = bridge
         Task {
             if await home.request(label, body) == nil { bridge.resync() }

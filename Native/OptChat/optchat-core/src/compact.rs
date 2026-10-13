@@ -12,7 +12,8 @@ use crate::{NODE, STEP_MESSAGE, TRIES};
 /// starting "[id] "). A compaction sends the same prompt as a turn, so it
 /// reads it from the turns' cache entry. Credit:
 /// <https://github.com/VictorTaelin/OptMem> grew into it.
-pub const TAELIN_PROMPT: &str = "You are {agent}, an AI agent that works for one user in a single chat that never
+pub const TAELIN_PROMPT: &str =
+    "You are {agent}, an AI agent that works for one user in a single chat that never
 ends. Each call to you is a turn or a compaction: the view below is followed by
 the user's new message, or by a task starting \"Compaction:\".
 
@@ -156,7 +157,9 @@ impl CompactPrompt {
     pub fn text(&self, agent: &str) -> String {
         let template = match self {
             CompactPrompt::Taelin => system_prompt(agent, MIDRUN),
-            CompactPrompt::Cmux => format!("{}{CMUX_PROMPT_ADDITIONS}", system_prompt(agent, MIDRUN)),
+            CompactPrompt::Cmux => {
+                format!("{}{CMUX_PROMPT_ADDITIONS}", system_prompt(agent, MIDRUN))
+            }
             CompactPrompt::Custom(text) => text.clone(),
         };
         template.replace("{agent}", agent)

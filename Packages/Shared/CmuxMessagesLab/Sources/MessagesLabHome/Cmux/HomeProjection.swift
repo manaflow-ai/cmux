@@ -2,6 +2,7 @@ import AppKit
 import CmuxHomeCore
 import CmuxHomeRender
 import Observation
+import os
 
 /// The adapter between HomeStore (the single writer of the transcript,
 /// plans/cmux-next/home-mac.md section 2) and the vendored MessagesLab
@@ -26,12 +27,19 @@ final class HomeProjection: @preconcurrency ChatIntents {
     let conversation: ConversationID
     let me: ParticipantID
     let controller: ChatController
-    /// False while the owner is unreachable (H17: Send and tapbacks off).
+    /// False while the owner is unreachable (H17: tapbacks off). A send then
+    /// waits in HomeStore's offline queue as "sending" (cx-ebm.55).
     var isSendEnabled = true
     /// The host's notice, MessagesLab's system row under the newest message (nil: none).
     var notice: String? {
-        didSet { if notice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(notice)) } }
+        didSet { if notice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(shownNotice)) } }
     }
+    /// The send's own notice (a held send, text carried from a gone
+    /// conversation: cx-ebm.55); it shows over the host's notice.
+    private var sendNotice: String? {
+        didSet { if sendNotice != oldValue, controller.store != nil { controller.dispatch(.cmuxNotice(shownNotice)) } }
+    }
+    private var shownNotice: String? { sendNotice ?? notice }
     /// The window is key and visible: the read cursor may advance.
     var isVisibleToUser = false { didSet { if isVisibleToUser { reportReadIfNeeded() } } }
     var onSummaryChange: (ConversationSummary?) -> Void = { _ in }
@@ -71,6 +79,11 @@ final class HomeProjection: @preconcurrency ChatIntents {
     private var olderRequested = false
     private var reportedRead: Seq = 0
     private var stopped = false
+    /// Return was pressed while only the cache knew this conversation: the
+    /// send goes once the owner confirms it (`refresh`), in the thread that
+    /// was open at the Return (`deferredThreadRoot`, nil: the conversation).
+    private var sendWhenConfirmed = false
+    private var deferredThreadRoot: MessageID?
     /// Rebuilds and applied (changed) updates, for tests.
     private(set) var rebuilds = 0
     private(set) var appliedUpdates = 0
@@ -108,8 +121,15 @@ final class HomeProjection: @preconcurrency ChatIntents {
     // MARK: HomeStore -> projection
 
     private func refresh() {
+        if sendWhenConfirmed, homeStore.isConfirmed(conversation) {
+            sendWhenConfirmed = false
+            sendNotice = nil
+            _ = send(root: .some(deferredThreadRoot))
+            deferredThreadRoot = nil
+        }
         apply(items: homeStore.transcript(for: conversation), summary: homeStore.summary(conversation),
-              typing: homeStore.typing[conversation] ?? [], hasOlder: homeStore.hasOlderMessages(in: conversation))
+              typing: homeStore.typing[conversation] ?? [], hasOlder: homeStore.hasOlderMessages(in: conversation),
+              draft: homeStore.drafts[conversation])
     }
 
     /// One update per store change (Observation, no polling), as HomeStoreBinding does.
@@ -119,6 +139,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         withObservationTracking {
             _ = homeStore.transcriptVersion[id, default: 0] // // crash program: a dictionary read the ratchet can type
             _ = homeStore.typing[id, default: []]
+            _ = homeStore.drafts[id] // the agent's running reply grows its bubble
+            _ = homeStore.isConfirmed(id) // a send held for the owner goes once it names this conversation
             _ = homeStore.rows
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
@@ -130,25 +152,30 @@ final class HomeProjection: @preconcurrency ChatIntents {
     }
 
     /// The whole current value; unchanged values return before any work.
-    func apply(items: [TranscriptItem], summary: ConversationSummary?, typing: Set<ParticipantID>, hasOlder newHasOlder: Bool) {
+    func apply(items: [TranscriptItem], summary: ConversationSummary?, typing wantedTyping: Set<ParticipantID>,
+               hasOlder newHasOlder: Bool, draft: HomeTurnDraft? = nil) {
+        // The agent whose running reply shows has its bubble instead of the typing dots.
+        let typing = wantedTyping.subtracting(core.draftAuthors(draft))
         guard let store = controller.store else {
             install(items: items, summary: summary, typing: typing, hasOlder: newHasOlder)
             restoreDraft()
             return
         }
         let typingChanged = Set(store.state.ui.typing) != Set(typing.filter { $0 != me }.map(\.rawValue))
-        guard items != shown || summary != shownSummary || typingChanged || newHasOlder != hasOlder else { return }
+        guard items != shown || summary != shownSummary || typingChanged || newHasOlder != hasOlder
+                || core.draftDiffers(draft) else { return }
         appliedUpdates += 1
         if newHasOlder != hasOlder { olderRequested = false }
         hasOlder = newHasOlder
         let titleChanged = HomeMapping.title(summary, me: me) != HomeMapping.title(shownSummary, me: me)
         let summaryChanged = summary != shownSummary
         let diff = core.step(items: items, summary: summary)
+        let drafted = core.draft(draft, state: store.state)
         // MessagesLab bd65bbf: a keystroke goes first. Statuses and typing that arrive in a
         // keystroke frame are committed at the start of the next display frame; anything
         // else (a message, a tapback, a page) is committed now, in order.
         let typingActions = core.typing(store.state, wanted: typing)
-        let ambient = !diff.rebuild && (diff.actions + typingActions).allSatisfy {
+        let ambient = !diff.rebuild && drafted.isEmpty && (diff.actions + typingActions).allSatisfy {
             switch $0 { case .status, .typing: return true; default: return false }
         }
         if ambient, controller.inKeystrokeFrame, !(diff.actions + typingActions).isEmpty {
@@ -161,14 +188,13 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 self.onRowsChange()
             }
         } else {
-            if diff.rebuild {
-                rebuild()
-            } else {
-                for a in diff.actions {
-                    if case .prependPage = a { olderRequested = false }
-                    controller.dispatch(a)
-                }
+            for a in diff.actions {
+                if case .prependPage = a { olderRequested = false }
+                controller.dispatchTimingTapback(a) // my tapback chosen in the menu: from its input (MessagesLab 7518134)
             }
+            // After the new messages, so the running reply stays the newest bubble.
+            for a in drafted.actions { controller.dispatch(a) }
+            if diff.rebuild || drafted.rebuild { rebuild() }
             for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
         }
         if titleChanged { applyHeader() }
@@ -196,7 +222,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
         applyHeader()
         for a in core.typing(store.state, wanted: typing) { controller.dispatch(a) }
-        if notice != nil { controller.dispatch(.cmuxNotice(notice)) }
+        if homeStore.takeCarriedDraft(conversation) { sendNotice = CmuxStrings.chiefRestarted }
+        if shownNotice != nil { controller.dispatch(.cmuxNotice(shownNotice)) }
         refreshAttachments()
         onSummaryChange(summary)
         onRowsChange()
@@ -210,11 +237,12 @@ final class HomeProjection: @preconcurrency ChatIntents {
         rebuilds += 1
         let pinned = store.state.ui.scroll.pinnedToBottom
         let anchor = demo.anchorProbe
-        let msgs = shown.map { HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary, media: core.media, links: core.links) }
+        let roots = HomeMapping.roots(in: shown, aliases: aliases, summary: shownSummary, media: core.media, links: core.links)
+        let msgs = shown.map { HomeMapping.message($0, aliases: aliases, me: me, summary: shownSummary, media: core.media, links: core.links, roots: roots) }
         let pendingLocal = store.state.conversation.messages.filter { m in
             aliases.contains { $0.value == m.id } && !msgs.contains { $0.id == m.id }
         }
-        controller.dispatch(.replaceWindow(msgs + pendingLocal, start: HomeMapping.window(shown, summary: shownSummary).start))
+        controller.dispatch(.replaceWindow(msgs + pendingLocal, start: HomeMapping.window(shown).start))
         if pinned {
             controller.dispatch(.setScroll(offset: 0, pinned: true))
             demo.pinToBottom()
@@ -226,6 +254,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
 
     /// A chosen avatar text (the Home Chief's avatar), over the initials.
     var initialsOverride: String? { didSet { applyHeader() } }
+    /// A chosen avatar picture (the Home Chief's), over the initials.
+    var pictureOverride: NSImage? { didSet { controller.host.paneHeader.picture = pictureOverride } }
 
     private func applyHeader() {
         controller.host.paneHeader.title = HomeMapping.title(shownSummary, me: me)
@@ -235,21 +265,71 @@ final class HomeProjection: @preconcurrency ChatIntents {
     // MARK: Projection -> HomeStore (intents)
 
     var canReact: Bool { isSendEnabled }
-    /// HomeOp has no reply (no reply_to on message.send, no thread
-    /// rendering from HomeStore): swipe-to-reply stays off.
-    var canReply: Bool { false }
+    /// A reply goes out as `HomeOp.sendMessage(threadRoot:)` (swipe-to-reply,
+    /// Reply… in the menu, "N Replies" opens the thread view). Offline it
+    /// waits in HomeStore's queue like any send.
+    var canReply: Bool { true }
 
-    func send() {
-        guard isSendEnabled, homeStore.isOnline, let store = controller.store else { return }
+    /// Sends the field's draft. Nil when it went to HomeStore: committed, or
+    /// waiting for the owner as "sending" (HomeStore's offline queue: a
+    /// send made while the owner or its connection is still starting goes
+    /// at the reconnect, or fails "Not Delivered" at the deadline, never
+    /// silently). Else why nothing was sent; the text stays in the field.
+    @discardableResult
+    func send() -> String? { send(root: nil) }
+
+    /// `deferred`: the thread a held send was made in (`refresh`); nil reads the open view.
+    private func send(root deferred: MessageID??) -> String? {
+        guard let store = controller.store else { return noteSend("refused: transcript_not_ready") }
         let draft = store.state.ui.draft
         let text = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let attachments = draft.attachments.compactMap { drafts[$0.id] }
-        guard !text.isEmpty || !attachments.isEmpty, store.state.atNewest else { return }
+        // MessagesLab d0017ba: the reducer's own rule first (Return with nothing to send does nothing:
+        // no .send, no flash, no jump, nothing to HomeStore); then a chip whose attachment is not prepared.
+        guard Reducer.canSend(draft), !text.isEmpty || !attachments.isEmpty else { return noteSend("refused: empty_draft") }
+        // The open thread or reply view: the send is a reply in that thread (HomeStore's root id).
+        let threadRoot: MessageID?
+        if let deferred {
+            threadRoot = deferred
+        } else if let resolved = self.threadRoot(of: draft.replyTo ?? store.state.ui.openThread) {
+            threadRoot = resolved
+        } else {
+            // The root has no message id yet (my send still going) or is not loaded: the view
+            // closes with a notice; the text stays, and the next Return sends to the conversation.
+            controller.dispatch(.closeThread)
+            sendNotice = CmuxStrings.threadRootNotReady
+            return noteSend("refused: thread_root_unknown")
+        }
+        // Only the cache knows this conversation so far: the owner has not
+        // answered since launch, and a Chief home made again at the same path
+        // has other conversations (cx-ebm.55). The text stays; Home shows the
+        // owner's conversation (and carries the text there) once it answers.
+        if homeStore.isCacheOnly(conversation) {
+            sendWhenConfirmed = true
+            deferredThreadRoot = threadRoot
+            let chief = homeStore.summary(conversation)?.participants.contains(where: \.isChief) == true
+            sendNotice = chief ? CmuxStrings.waitingForChief : CmuxStrings.waitingToConnect
+            return noteSend("waiting_for_owner: sends once the owner confirms this conversation")
+        }
+        sendNotice = nil
         let key = IdempotencyKey.make()
         linkPreviews?.allowSend(text)
-        controller.dispatch(.send)
+        // The paths that used to drop a send without a word (cx-ebm.55), one line each,
+        // so a lost send in dogfood says which one it took.
+        if !homeStore.isOnline { _ = noteSend("queued: the store is offline") }
+        if homeStore.summary(conversation) == nil { _ = noteSend("sent: the store has not listed this conversation") }
+        if !store.state.atNewest { _ = noteSend("sent: an older window shows, no local bubble") }
+        if store.state.atNewest {
+            controller.dispatch(.send)
+            // The local bubble morphs into HomeStore's item; without it the item shows on its own.
+            _ = core.recordSend(key, in: store.state)
+        } else {
+            // A window of older messages: no local bubble here, HomeStore's
+            // item shows at the newest.
+            for a in draft.attachments { controller.dispatch(.removeDraftAttachment(a.id)) }
+            controller.dispatch(.setDraft(""))
+        }
         homeStore.setDraft("", for: conversation)
-        guard core.recordSend(key, in: store.state) else { return }
         for a in attachments {
             media.useLocal(a.files, for: a.ref.hash)
             drafts[a.ref.hash] = nil
@@ -267,14 +347,15 @@ final class HomeProjection: @preconcurrency ChatIntents {
                     // the previews fill it before it goes, as the local message flies with the grey card.
                     let files: [MessagePart] = attachments.map { .attachment($0.ref) }
                     let plain = files + [.text(text)]
-                    try await homeStore.send(conversation: conversation, parts: plain, uploads: attachments, key: key) {
+                    try await homeStore.send(conversation: conversation, parts: plain, uploads: attachments, key: key,
+                                             threadRoot: threadRoot) {
                         guard let filled = await links.parts(shown) else { return (plain, []) }
                         return (files + filled.parts, filled.uploads)
                     }
                 } else if attachments.isEmpty {
-                    _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)]), key: key)
+                    _ = try await homeStore.perform(.sendMessage(conversation: conversation, parts: [.text(text)], threadRoot: threadRoot), key: key)
                 } else {
-                    try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key)
+                    try await homeStore.send(conversation: conversation, text: text, attachments: attachments, key: key, threadRoot: threadRoot)
                 }
             } catch let refusal as HomeAttachmentError {
                 self?.sendRefused(key, text: text, attachments: attachments, notice: refusal)
@@ -285,7 +366,16 @@ final class HomeProjection: @preconcurrency ChatIntents {
                 // CancellationError: Cancel Upload removed the row.
             }
         }
+        return nil
     }
+
+    /// Logs one send outcome with the store's state; returns `outcome` (a refusal's reason).
+    private func noteSend(_ outcome: String) -> String {
+        Self.log.notice("home send \(outcome, privacy: .public): conversation \(self.conversation.rawValue, privacy: .public), store_online \(self.homeStore.isOnline), listed \(self.homeStore.summary(self.conversation) != nil)")
+        return outcome
+    }
+
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "home")
 
     /// Refused before it reached the log (offline, nothing queues, or an
     /// attachment the owner would refuse): the local message goes and the
@@ -382,10 +472,22 @@ final class HomeProjection: @preconcurrency ChatIntents {
         shown.first { HomeMapping.id($0, aliases: aliases) == message }
     }
 
+    /// The HomeStore root of the thread a send from the view at `ref` replies in:
+    /// `.some(nil)` with no view open; nil when the root has no message id yet. A reply
+    /// names its own root (its root may be out of the window or retracted, so the
+    /// view's ref can be the reply itself).
+    private func threadRoot(of ref: PartRef?) -> MessageID?? {
+        guard let ref else { return .some(nil) }
+        let found = item(ref.messageId)
+            ?? homeStore.transcript(for: conversation).first { HomeMapping.id($0, aliases: aliases) == ref.messageId }
+        return found.flatMap { $0.threadRoot ?? $0.messageID }.map { Optional.some($0) }
+    }
+
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
     func draftChanged() {
+        if sendNotice == CmuxStrings.threadRootNotReady { sendNotice = nil }  // the user moved on
         homeStore.setDraft(controller.store?.state.ui.draft.text ?? "", for: conversation)
         onDraftTextChange()
     }
@@ -471,6 +573,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
         }
     }
 
+    func rowsPlaced() {
+        video.place()
+    }
+
     func scrolled() {
         video.place()
         if let previews = linkPreviews?.previews {
@@ -523,6 +629,8 @@ struct ProjectionCore {
     var media: HomeMapping.Media = { _ in nil }
     /// Link previews already fetched (`LinkPreviews.cached`); none in the harness.
     var links: HomeMapping.Links = { _ in nil }
+    /// The agent's running reply on screen (`draft(_:state:)`).
+    var shownDraft: ShownDraft?
 
     init(me: ParticipantID) { self.me = me }
 
@@ -531,10 +639,11 @@ struct ProjectionCore {
         -> (Conversation, (start: Int, total: Int)) {
         shown = items
         self.summary = summary
+        let roots = HomeMapping.roots(in: items, aliases: aliases, summary: summary, media: media, links: links)
         let conv = Conversation(id: id.rawValue, title: HomeMapping.title(summary, me: me),
                                 participants: HomeMapping.participants(summary, me: me),
-                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links) })
-        return (conv, HomeMapping.window(items, summary: summary))
+                                messages: items.map { HomeMapping.message($0, aliases: aliases, me: me, summary: summary, media: media, links: links, roots: roots) })
+        return (conv, HomeMapping.window(items))
     }
 
     /// The actions from the shown snapshot to this one.

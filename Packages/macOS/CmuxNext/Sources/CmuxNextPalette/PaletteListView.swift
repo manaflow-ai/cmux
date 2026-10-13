@@ -58,8 +58,12 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 
     private var boundsObserver: (any NSObjectProtocol)?
 
-    isolated deinit {
-        if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let boundsObserver { NotificationCenter.default.removeObserver(boundsObserver) }
+        }
     }
 
     // MARK: Updates from the model
@@ -77,6 +81,7 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         self.rows = rows
         rowIndexByID = index
         table.reloadData()
+        syncTableSelection()
         // Size the table now, not at the next display, so the rubber band
         // matches the new results before the next scroll event.
         table.tile()
@@ -87,13 +92,25 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         selectedID = id
         refresh(old)
         refresh(id)
+        syncTableSelection()
+    }
+
+    /// The table's own selection follows the palette's, so VoiceOver reads and announces the
+    /// selected row (cx-9ce.44). Nothing draws it (`selectionHighlightStyle` is `.none`), and
+    /// clicks never select (`shouldSelectRow`): the search field keeps the keyboard.
+    private func syncTableSelection() {
+        let rows = selectedID.flatMap { rowIndexByID[$0] }.map { IndexSet(integer: $0) } ?? IndexSet()
+        if table.selectedRowIndexes != rows { table.selectRowIndexes(rows, byExtendingSelection: false) }
     }
 
     func setHover(_ id: String?) {
         let old = hoveredID
         hoveredID = id
-        refresh(old)
-        refresh(id)
+        // Moving from one row to the next retargets at once, with no fade gap; only entering the
+        // list and leaving it fade.
+        let animated = old == nil || id == nil
+        refresh(old, hoverAnimated: animated)
+        refresh(id, hoverAnimated: animated)
     }
 
     func scrollToSelection() {
@@ -107,11 +124,11 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
         table.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<rows.count))
     }
 
-    private func refresh(_ id: String?) {
+    private func refresh(_ id: String?, hoverAnimated: Bool = true) {
         guard let id, let row = rowIndexByID[id] else { return }
         if let rowView = table.rowView(atRow: row, makeIfNecessary: false) as? PaletteTableRowView {
             rowView.isPaletteSelected = id == selectedID
-            rowView.isHovered = id == hoveredID
+            rowView.setHovered(id == hoveredID, animated: hoverAnimated)
         }
         (table.view(atColumn: 0, row: row, makeIfNecessary: false) as? PaletteRowCell)?.setSelected(id == selectedID)
     }
@@ -185,11 +202,13 @@ final class PaletteListView: NSScrollView, NSTableViewDataSource, NSTableViewDel
 }
 
 /// Table that never takes keyboard focus (the search field keeps it) and
-/// reports pointer movement and clicks by row.
+/// reports pointer movement and clicks by row. A click is a press, drag and release (`PalettePress`).
 final class PaletteTableView: NSTableView {
     var onMouseMoved: ((NSPoint) -> Void)?
     var onMouseExited: (() -> Void)?
     var onClick: ((Int) -> Void)?
+    /// The press's following mouse events; nil reads the window's queue. Tests feed a press here.
+    var pressEvents: (() -> NSEvent?)?
     private var trackingArea: NSTrackingArea?
 
     override var acceptsFirstResponder: Bool { false }
@@ -211,8 +230,17 @@ final class PaletteTableView: NSTableView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        let row = row(at: convert(event.locationInWindow, from: nil))
-        if row >= 0 { onClick?(row) }
+        PalettePress.track(event, in: self, row: { point in
+            // A point over the search bar or footer still maps to a row scrolled out of view.
+            guard self.visibleRect.contains(point) else { return nil }
+            let index = self.row(at: point)
+            return index >= 0 ? index : nil
+        }, select: { index in
+            let rect = self.rect(ofRow: index)
+            self.onMouseMoved?(NSPoint(x: rect.midX, y: rect.midY))
+        }, release: { index in
+            self.onClick?(index)
+        }, next: pressEvents)
     }
 }
 
@@ -237,8 +265,8 @@ final class PaletteSectionHeaderCell: NSTableCellView {
 
     override func layout() {
         super.layout()
-        let height = label.intrinsicContentSize.height
+        let height = PaletteText.height(label)
         let x = PaletteLayout.listInset + Metrics.space4
-        label.frame = NSRect(x: x, y: Metrics.space1, width: bounds.width - 2 * x, height: height)
+        label.frame = pixelAligned(NSRect(x: x, y: Metrics.space1, width: bounds.width - 2 * x, height: height))
     }
 }

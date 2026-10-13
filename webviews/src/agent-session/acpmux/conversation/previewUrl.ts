@@ -10,6 +10,7 @@
 // loopback host and port, its path and query, no fragment. The frame stays sandboxed without
 // forms and takes no input.
 import type { AcpmuxRow } from "../model";
+import { stripAnsi } from "./toolOutput";
 
 /// Height of the card's thumbnail (`.acpmux-turn-preview-frame` in styles.css, and the unloaded
 /// placeholder in conversation.css); the page draws at four
@@ -20,10 +21,6 @@ export const PREVIEW_FRAME_HEIGHT = 180;
 // a colon after it must start a port.
 const LOCAL_URL =
   /\bhttps?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0)(?![\w-]|\.[\w-])(?::\d{1,5}(?!\d)|(?!:))(?:[/?#][^\s"'`<>()[\]{}]*)?/gi;
-/// Terminal colour codes, which dev servers print inside the address (`localhost:\x1b[1m5173`),
-/// and terminal hyperlinks (OSC 8, `\x1b]8;;URL\x07text\x1b]8;;\x07`).
-// eslint-disable-next-line no-control-regex
-const ANSI = /\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)/g;
 
 /// The latest loopback page in `texts`, normalized (trailing punctuation dropped, 0.0.0.0 as
 /// localhost), or nil.
@@ -31,7 +28,8 @@ export function latestLocalUrl(texts: readonly (string | undefined)[]): string |
   let found: string | undefined;
   for (const text of texts) {
     if (!text) continue;
-    for (const match of text.replace(ANSI, "").matchAll(LOCAL_URL)) {
+    // Dev servers colour the address itself (`localhost:\x1b[1m5173`).
+    for (const match of stripAnsi(text).matchAll(LOCAL_URL)) {
       const url = parse(match[0].replace(/[.,;:!?*_]+$/, ""));
       if (url) found = url;
     }

@@ -40,10 +40,6 @@ public final class ProcessEnvironmentGuard: Sendable {
     /// True after ``freeze()``: no environment write may follow.
     public var isFrozen: Bool { frozen.load(ordering: .acquiring) }
 
-    /// The write sites that ran (or, without `performsWrites`, would have
-    /// run) before the freeze.
-    public var writesBeforeFreeze: Int { checkedWrites.load(ordering: .acquiring) }
-
     /// Ends the window for environment writes. Idempotent.
     public func freeze() {
         frozen.store(true, ordering: .releasing)

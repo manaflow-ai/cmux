@@ -1,137 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "cli.button.installAsCmuxNext" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Install as cmux-next"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "التثبيت باسم cmux-next"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Instaliraj kao cmux-next"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installer som cmux-next"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Als cmux-next installieren"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Instalar como cmux-next"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installer en tant que cmux-next"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installa come cmux-next"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux-next としてインストール"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ដំឡើងជា cmux-next"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux-next로 설치"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Installer som cmux-next"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zainstaluj jako cmux-next"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Instalar como cmux-next"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Установить как cmux-next"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ติดตั้งเป็น cmux-next"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux-next olarak yükle"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Установити як cmux-next"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cài đặt dưới tên cmux-next"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安装为 cmux-next"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "安裝為 cmux-next"
-          }
-        }
-      }
-    },
     "cli.button.replace" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -1442,530 +1311,6 @@
         }
       }
     },
-    "cli.install.adminRequired" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Administrator privileges were required to write to /usr/local/bin."
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "كانت صلاحيات المسؤول مطلوبة للكتابة في /usr/local/bin."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Potrebne su administratorske privilegije za pisanje u /usr/local/bin."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Administratorrettigheder var nødvendige for at skrive til /usr/local/bin."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zum Schreiben in /usr/local/bin waren Administratorrechte erforderlich."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se requirieron privilegios de administrador para escribir en /usr/local/bin."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Des privilèges d'administrateur étaient nécessaires pour écrire dans /usr/local/bin."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sono stati richiesti i privilegi di amministratore per scrivere in /usr/local/bin."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "/usr/local/binへの書き込みに管理者権限が必要でした。"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ត្រូវការសិទ្ធិអ្នកគ្រប់គ្រង ដើម្បីសរសេរទៅ /usr/local/bin។"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "/usr/local/bin에 기록하기 위해 관리자 권한이 필요합니다."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Administratorrettigheter var nødvendig for å skrive til /usr/local/bin."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Do zapisu w /usr/local/bin wymagane były uprawnienia administratora."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Privilégios de administrador foram necessários para gravar em /usr/local/bin."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Для записи в /usr/local/bin потребовались права администратора."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ต้องใช้สิทธิ์ผู้ดูแลระบบเพื่อเขียนไปยัง /usr/local/bin"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "/usr/local/bin dizinine yazmak için yönetici ayrıcalıkları gerekiyordu."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Для запису в /usr/local/bin потрібні права адміністратора."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Cần quyền quản trị viên để ghi vào /usr/local/bin."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "写入 /usr/local/bin 需要管理员权限。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "寫入 /usr/local/bin 需要管理者權限。"
-          }
-        }
-      }
-    },
-    "cli.install.replacedFile" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "It replaced the file that was at %@."
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "لقد استبدل الملف الذي كان في %@."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zamijenio je datoteku koja je bila na %@."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Det erstattede filen, der lå i %@."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dabei wurde die Datei unter %@ ersetzt."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reemplazó el archivo que estaba en %@."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il a remplacé le fichier qui se trouvait à %@."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ha sostituito il file che si trovava in %@."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ にあったファイルを置き換えました。"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "វាបានជំនួសឯកសារដែលនៅ %@។"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@에 있던 파일을 대체했습니다."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Den erstattet filen som lå i %@."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zastąpiono plik, który był w %@."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Substituiu o arquivo que estava em %@."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Заменён файл, находившийся в %@."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "แทนที่ไฟล์ที่อยู่ที่ %@ แล้ว"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ konumundaki dosyanın yerini aldı."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Замінено файл, що був у %@."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Đã thay thế tệp ở %@."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已替换位于 %@ 的文件。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已取代位於 %@ 的檔案。"
-          }
-        }
-      }
-    },
-    "cli.install.replacedLink" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "It replaced the previous link to %@."
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "لقد استبدل الرابط السابق إلى %@."
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zamijenio je prethodnu vezu na %@."
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Det erstattede det tidligere link til %@."
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Dabei wurde der vorherige Link auf %@ ersetzt."
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Reemplazó el enlace anterior a %@."
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Il a remplacé le lien précédent vers %@."
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Ha sostituito il collegamento precedente a %@."
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "以前の %@ へのリンクを置き換えました。"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "វាបានជំនួសតំណមុនទៅ %@។"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "이전의 %@ 링크를 대체했습니다."
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Den erstattet den forrige lenken til %@."
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zastąpiono poprzednie dowiązanie do %@."
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Substituiu o link anterior para %@."
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Заменена предыдущая ссылка на %@."
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "แทนที่ลิงก์เดิมที่ชี้ไปยัง %@ แล้ว"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ hedefine giden önceki bağlantının yerini aldı."
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Замінено попереднє посилання на %@."
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Đã thay thế liên kết trước đó tới %@."
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已替换之前指向 %@ 的链接。"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已取代先前指向 %@ 的連結。"
-          }
-        }
-      }
-    },
-    "cli.install.symlinkCreated" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Created symlink:\n\n%1$@ -> %2$@"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "تم إنشاء رابط رمزي:\n\n%1$@ -> %2$@"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Kreirana simbolička veza:\n\n%1$@ -> %2$@"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Symbolsk link oprettet:\n\n%1$@ -> %2$@"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Symbolische Verknüpfung erstellt:\n\n%1$@ -> %2$@"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Enlace simbólico creado:\n\n%1$@ -> %2$@"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Lien symbolique créé :\n\n%1$@ -> %2$@"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Collegamento simbolico creato:\n\n%1$@ -> %2$@"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "シンボリックリンクを作成しました:\n\n%1$@ -> %2$@"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "បានបង្កើត symlink៖\n\n%1$@ -> %2$@"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "심볼릭 링크 생성 완료:\n\n%1$@ -> %2$@"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Opprettet symbolsk lenke:\n\n%1$@ -> %2$@"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Utworzono dowiązanie symboliczne:\n\n%1$@ -> %2$@"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Link simbólico criado:\n\n%1$@ -> %2$@"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Создана символическая ссылка:\n\n%1$@ -> %2$@"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "สร้างลิงก์สัญลักษณ์แล้ว:\n\n%1$@ -> %2$@"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sembolik bağ oluşturuldu:\n\n%1$@ -> %2$@"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Створено символічне посилання:\n\n%1$@ -> %2$@"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Đã tạo liên kết tượng trưng:\n\n%1$@ -> %2$@"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已创建符号链接：\n\n%1$@ -> %2$@"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "已建立符號連結：\n\n%1$@ -> %2$@"
-          }
-        }
-      }
-    },
     "cli.installFailed" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -2097,395 +1442,395 @@
         }
       }
     },
-    "cli.installed" : {
+    "cli.toast.failed" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "cmux CLI Installed"
+            "value" : "%1$@: %2$@"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "تم تثبيت واجهة أوامر cmux"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI instaliran"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI installeret"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI installiert"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "CLI de cmux instalada"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "CLI cmux installée"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "CLI di cmux installata"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI がインストールされました"
+            "state" : "needs_review",
+            "value" : "%1$@：%2$@"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បានដំឡើង cmux CLI"
+            "value" : "%1$@: %2$@"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI 설치 완료"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI installert"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "CLI cmux zainstalowane"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "CLI do cmux Instalado"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI установлен"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "ติดตั้ง cmux CLI แล้ว"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI Yüklendi"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI встановлено"
+            "state" : "needs_review",
+            "value" : "%1$@: %2$@"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Đã cài đặt cmux CLI"
+            "value" : "%1$@: %2$@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI 已安装"
+            "state" : "needs_review",
+            "value" : "%1$@：%2$@"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI 已安裝"
+            "state" : "needs_review",
+            "value" : "%1$@：%2$@"
           }
         }
       }
     },
-    "cli.occupied.title" : {
+    "cli.toast.installed" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Another cmux CLI Is Installed"
+            "value" : "cmux CLI installed at %@"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "تم تثبيت واجهة سطر أوامر cmux أخرى"
+            "state" : "needs_review",
+            "value" : "تم تثبيت واجهة cmux CLI في %@"
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Instaliran je drugi cmux CLI"
+            "state" : "needs_review",
+            "value" : "cmux CLI je instaliran u %@"
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Et andet cmux CLI er installeret"
+            "state" : "needs_review",
+            "value" : "cmux CLI er installeret i %@"
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Eine andere cmux-CLI ist installiert"
+            "state" : "needs_review",
+            "value" : "cmux CLI installiert unter %@"
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hay otra CLI de cmux instalada"
+            "state" : "needs_review",
+            "value" : "CLI de cmux instalada en %@"
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Une autre CLI cmux est installée"
+            "state" : "needs_review",
+            "value" : "CLI cmux installée dans %@"
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "È installata un'altra CLI di cmux"
+            "state" : "needs_review",
+            "value" : "CLI di cmux installata in %@"
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "別の cmux CLI がインストールされています"
+            "state" : "needs_review",
+            "value" : "cmux CLI を %@ にインストールしました"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "CLI cmux ផ្សេងទៀតត្រូវបានដំឡើង"
+            "state" : "needs_review",
+            "value" : "បានដំឡើង cmux CLI នៅ %@"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "다른 cmux CLI가 설치되어 있습니다"
+            "state" : "needs_review",
+            "value" : "cmux CLI를 %@에 설치함"
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Et annet cmux CLI er installert"
+            "state" : "needs_review",
+            "value" : "cmux CLI er installert i %@"
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zainstalowano inne CLI cmux"
+            "state" : "needs_review",
+            "value" : "Zainstalowano cmux CLI w %@"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Outra CLI do cmux está instalada"
+            "state" : "needs_review",
+            "value" : "CLI do cmux instalada em %@"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Установлен другой CLI cmux"
+            "state" : "needs_review",
+            "value" : "cmux CLI установлен в %@"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "มี cmux CLI อื่นติดตั้งอยู่"
+            "state" : "needs_review",
+            "value" : "ติดตั้ง cmux CLI ที่ %@ แล้ว"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Başka bir cmux CLI yüklü"
+            "state" : "needs_review",
+            "value" : "cmux CLI %@ konumuna kuruldu"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Установлено інший CLI cmux"
+            "state" : "needs_review",
+            "value" : "cmux CLI встановлено в %@"
           }
         },
         "vi" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Đã cài một CLI cmux khác"
+            "state" : "needs_review",
+            "value" : "Đã cài cmux CLI tại %@"
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "已安装另一个 cmux CLI"
+            "state" : "needs_review",
+            "value" : "已将 cmux CLI 安装到 %@"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "已安裝另一個 cmux CLI"
+            "state" : "needs_review",
+            "value" : "已將 cmux CLI 安裝到 %@"
           }
         }
       }
     },
-    "cli.uninstall.adminRequired" : {
+    "cli.toast.installedBeside" : {
       "extractionState" : "manual",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Administrator privileges were required to modify /usr/local/bin."
+            "value" : "Installed as %1$@. Another app's cmux CLI stays at %2$@."
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "كانت صلاحيات المسؤول مطلوبة لتعديل /usr/local/bin."
+            "state" : "needs_review",
+            "value" : "تم التثبيت باسم %1$@. تبقى واجهة cmux CLI لتطبيق آخر في %2$@."
           }
         },
         "bs" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Potrebne su administratorske privilegije za izmjenu /usr/local/bin."
+            "state" : "needs_review",
+            "value" : "Instalirano kao %1$@. cmux CLI druge aplikacije ostaje u %2$@."
           }
         },
         "da" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Administratorrettigheder var nødvendige for at ændre /usr/local/bin."
+            "state" : "needs_review",
+            "value" : "Installeret som %1$@. En anden apps cmux CLI bliver i %2$@."
           }
         },
         "de" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Zum Ändern von /usr/local/bin waren Administratorrechte erforderlich."
+            "state" : "needs_review",
+            "value" : "Als %1$@ installiert. Die cmux CLI einer anderen App bleibt unter %2$@."
           }
         },
         "es" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Se requirieron privilegios de administrador para modificar /usr/local/bin."
+            "state" : "needs_review",
+            "value" : "Instalada como %1$@. La CLI de cmux de otra app sigue en %2$@."
           }
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Des privilèges d'administrateur étaient nécessaires pour modifier /usr/local/bin."
+            "state" : "needs_review",
+            "value" : "Installée sous %1$@. La CLI cmux d’une autre app reste dans %2$@."
           }
         },
         "it" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Sono stati richiesti i privilegi di amministratore per modificare /usr/local/bin."
+            "state" : "needs_review",
+            "value" : "Installata come %1$@. La CLI di cmux di un'altra app resta in %2$@."
           }
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "/usr/local/binの変更に管理者権限が必要でした。"
+            "state" : "needs_review",
+            "value" : "%1$@ としてインストールしました。別のアプリの cmux CLI は %2$@ に残ります。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "ត្រូវការសិទ្ធិអ្នកគ្រប់គ្រង ដើម្បីកែប្រែ /usr/local/bin។"
+            "value" : "បានដំឡើងជា %1$@។ cmux CLI របស់កម្មវិធីផ្សេងនៅតែនៅ %2$@។"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "/usr/local/bin을 수정하기 위해 관리자 권한이 필요합니다."
+            "state" : "needs_review",
+            "value" : "%1$@(으)로 설치함. 다른 앱의 cmux CLI는 %2$@에 그대로 있습니다."
           }
         },
         "nb" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Administratorrettigheter var nødvendig for å endre /usr/local/bin."
+            "state" : "needs_review",
+            "value" : "Installert som %1$@. En annen apps cmux CLI blir værende i %2$@."
           }
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Do modyfikacji /usr/local/bin wymagane były uprawnienia administratora."
+            "state" : "needs_review",
+            "value" : "Zainstalowano jako %1$@. cmux CLI innej aplikacji pozostaje w %2$@."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Privilégios de administrador foram necessários para modificar /usr/local/bin."
+            "state" : "needs_review",
+            "value" : "Instalada como %1$@. A CLI do cmux de outro app continua em %2$@."
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Для изменения /usr/local/bin потребовались права администратора."
+            "state" : "needs_review",
+            "value" : "Установлен как %1$@. cmux CLI другого приложения остаётся в %2$@."
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "ต้องใช้สิทธิ์ผู้ดูแลระบบเพื่อแก้ไข /usr/local/bin"
+            "state" : "needs_review",
+            "value" : "ติดตั้งเป็น %1$@ แล้ว cmux CLI ของแอปอื่นยังอยู่ที่ %2$@"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "/usr/local/bin dizinini değiştirmek için yönetici ayrıcalıkları gerekiyordu."
+            "state" : "needs_review",
+            "value" : "%1$@ olarak kuruldu. Başka bir uygulamanın cmux CLI'ı %2$@ konumunda kalıyor."
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "Для зміни /usr/local/bin потрібні права адміністратора."
+            "state" : "needs_review",
+            "value" : "Встановлено як %1$@. cmux CLI іншої програми залишається в %2$@."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Cần quyền quản trị viên để sửa đổi /usr/local/bin."
+            "value" : "Đã cài thành %1$@. cmux CLI của ứng dụng khác vẫn ở %2$@."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "修改 /usr/local/bin 需要管理员权限。"
+            "state" : "needs_review",
+            "value" : "已安装为 %1$@。另一个应用的 cmux CLI 仍在 %2$@。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "translated",
-            "value" : "修改 /usr/local/bin 需要管理者權限。"
+            "state" : "needs_review",
+            "value" : "已安裝為 %1$@。另一個 App 的 cmux CLI 仍在 %2$@。"
           }
         }
       }
@@ -2879,399 +2224,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "無法解除安裝 cmux CLI"
-          }
-        }
-      }
-    },
-    "cli.uninstalled" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI Uninstalled"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "تم إلغاء تثبيت واجهة أوامر cmux"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI deinstaliran"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI afinstalleret"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI deinstalliert"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CLI de cmux desinstalada"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CLI cmux désinstallée"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CLI di cmux disinstallata"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI がアンインストールされました"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "បានលុប cmux CLI"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI 제거 완료"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI avinstallert"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CLI cmux odinstalowane"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "CLI do cmux Desinstalado"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI удален"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ถอนการติดตั้ง cmux CLI แล้ว"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI Kaldırıldı"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI видалено"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Đã gỡ cài đặt cmux CLI"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI 已卸载"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "cmux CLI 已解除安裝"
-          }
-        }
-      }
-    },
-    "common.cancel" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cancel"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "إلغاء"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Otkaži"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Annuller"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Abbrechen"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cancelar"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Annuler"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Annulla"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "キャンセル"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "បោះបង់"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "취소"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Avbryt"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Anuluj"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Cancelar"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Отменить"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "ยกเลิก"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Vazgeç"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Скасувати"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Hủy"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "取消"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "取消"
-          }
-        }
-      }
-    },
-    "common.ok" : {
-      "extractionState" : "manual",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "ar" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "موافق"
-          }
-        },
-        "bs" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "da" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "de" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "es" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "D'ACCORD"
-          }
-        },
-        "it" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "ja" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "km" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "យល់ព្រម"
-          }
-        },
-        "ko" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "확인"
-          }
-        },
-        "nb" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "pl" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "pt-BR" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "ru" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "th" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "tr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Tamam"
-          }
-        },
-        "uk" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "OK"
-          }
-        },
-        "vi" : {
-          "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "OK"
-          }
-        },
-        "zh-Hans" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "确定"
-          }
-        },
-        "zh-Hant" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "確定"
           }
         }
       }

@@ -312,15 +312,64 @@ fn app_store_changes_need_the_user_and_first_party_apps_are_hide_only() {
 /// registration (`<daemon state dir>/link.json`) while that link runs.
 #[test]
 fn host_link_get_answers_from_the_link_registration() {
-    let apps = Apps::new("link");
-    // A running link: a live pid (this test) and a socket that accepts.
+    // A running link: a live pid (this test) that serves the socket.
+    let (reply, hub) = host_link_get("link", |state, hub| {
+        cmux_link::registration::write(
+            state,
+            &cmux_link::registration::Registration::new(hub.to_path_buf(), std::process::id()),
+        )
+        .unwrap();
+    });
+    assert_eq!(reply["value"]["hub_socket"], json!(hub), "{reply}");
+}
+
+/// A registration that names a live process which does not serve the
+/// socket is not a link: the daemon answers no hub socket, so a process
+/// cannot point first-party apps at a socket it serves by naming another
+/// process. Only where the system names the peer pid (Linux, macOS); the
+/// other BSDs check the uid only.
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+#[test]
+fn host_link_get_refuses_a_socket_served_by_another_process() {
+    let mut bystander = Command::new("sleep").arg("60").spawn().unwrap();
+    let bystander_pid = bystander.id();
+    let (reply, _hub) = host_link_get("linkpid", |state, hub| {
+        cmux_link::registration::write(
+            state,
+            &cmux_link::registration::Registration::new(hub.to_path_buf(), bystander_pid),
+        )
+        .unwrap();
+    });
+    let _ = bystander.kill();
+    let _ = bystander.wait();
+    assert_eq!(reply["value"]["hub_socket"], Value::Null, "{reply}");
+}
+
+/// A registration file that another user could have written (mode 0666)
+/// is not trusted, even when its pid serves the socket.
+#[test]
+fn host_link_get_refuses_a_world_writable_registration() {
+    let (reply, _hub) = host_link_get("linkmode", |state, hub| {
+        cmux_link::registration::write(
+            state,
+            &cmux_link::registration::Registration::new(hub.to_path_buf(), std::process::id()),
+        )
+        .unwrap();
+        let file = cmux_link::registration::path(state);
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o666)).unwrap();
+    });
+    assert_eq!(reply["value"]["hub_socket"], Value::Null, "{reply}");
+}
+
+/// Start a daemon whose state dir holds the link registration `register`
+/// writes (given the state dir and a socket this test serves), with a
+/// first-party app whose always-on server asks `cmux.host.link.get` at
+/// start. The app's recorded `host.result` and the served socket.
+fn host_link_get(name: &str, register: impl FnOnce(&Path, &Path)) -> (Value, PathBuf) {
+    let apps = Apps::new(name);
     let hub = apps.dir.join("hub.sock");
     let _listener = UnixListener::bind(&hub).unwrap();
-    cmux_link::registration::write(
-        &apps.dir.join("state"),
-        &cmux_link::registration::Registration::new(hub.clone(), std::process::id()),
-    )
-    .unwrap();
+    register(&apps.dir.join("state"), &hub);
     // A first-party app whose always-on server asks for the link at start
     // and records the answer.
     write_script(
@@ -354,13 +403,13 @@ fn host_link_get_answers_from_the_link_registration() {
     apps.start();
     ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
 
-    let reply = &apps.lines("link.jsonl", 1)[0];
+    let reply = apps.lines("link.jsonl", 1).swap_remove(0);
     assert_eq!(
         (reply["t"].clone(), reply["id"].clone()),
         (json!("host.result"), json!(7)),
         "{reply}"
     );
-    assert_eq!(reply["value"]["hub_socket"], json!(hub), "{reply}");
+    (reply, hub)
 }
 
 /// An app holding the family scope still never reaches an op only a
@@ -416,4 +465,160 @@ fn person_only_and_money_ops_never_reach_an_app() {
             call["name"],
         );
     }
+}
+
+/// A first-party app whose always-on server asks `cmux.host.link.get` at
+/// start and again once `<dir>/again` exists, recording each answer in
+/// `<dir>/link.jsonl` (cx-wmd8x).
+fn write_linked_app(apps: &Apps) {
+    write_script(
+        &apps.dir.join("servers").join("host-probe"),
+        "#!/bin/sh\nprintf '{\"t\":\"host.request\",\"id\":7,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n'\n(while [ ! -e \"$2\" ]; do sleep 0.05; done; printf '{\"t\":\"host.request\",\"id\":8,\"op\":\"cmux.host.link.get\",\"params\":{}}\\n') &\nwaiter=$!\nwhile IFS= read -r line; do\n  printf '%s\\n' \"$line\" >> \"$1\"\ndone\nkill $waiter 2>/dev/null\n",
+    );
+    let app = apps.dir.join("first-party").join("linked");
+    std::fs::create_dir_all(&app).unwrap();
+    let catalog = json!({ "family": "linked", "operations": [{
+        "name": "linked.ping", "owner": "app:cmux/linked", "class": "read", "risk": "read",
+        "idempotency": "forbidden", "input": { "type": "object" }, "docs": "d", "since": "linked/1"
+    }] });
+    std::fs::write(app.join("catalog.json"), catalog.to_string()).unwrap();
+    write_app(
+        &apps.dir.join("first-party"),
+        "cmux",
+        "linked",
+        json!({
+            "catalog": "catalog.json", "files": ["catalog.json"],
+            "scopes": { "linked:read": "Read." },
+            "server": {
+                "kind": "native",
+                "binaries": { "darwin-arm64": "host-probe", "darwin-x64": "host-probe", "linux-arm64": "host-probe", "linux-x64": "host-probe" },
+                "args": [apps.dir.join("link.jsonl").to_string_lossy(), apps.dir.join("again").to_string_lossy()],
+                "instances": "machine", "hosts": ["local"], "lifecycle": { "start": "always" },
+                "scopes": { "op:cmux.host.link.get": "Read where the link helper lives." }
+            }
+        }),
+    );
+}
+
+/// Stops the daemon and waits until its socket refuses connections, so the
+/// next `ensure` of the same session never meets an owner that is still ending.
+fn stop_daemon(apps: &Apps) {
+    let output = apps.command("stop").output().unwrap();
+    assert!(output.status.success(), "stop failed: {}", String::from_utf8_lossy(&output.stderr));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while UnixStream::connect(&apps.socket).is_ok() {
+        assert!(Instant::now() < deadline, "the daemon did not stop");
+        std::thread::sleep(Duration::from_millis(25));
+    }
+}
+
+/// The `apps-logs` lines of `app` once one holds `needle` (or every line after 20 s).
+fn log_with(apps: &Apps, app: &str, needle: &str) -> Vec<String> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let reply = apps.agent().rpc(json!({ "cmd": "apps-logs", "app": app }));
+        let lines: Vec<String> = ok(&reply)["lines"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|l| l["message"].as_str().unwrap_or_default().to_string())
+            .collect();
+        if lines.iter().any(|l| l.contains(needle)) || Instant::now() > deadline {
+            return lines;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// cx-wmd8x: the app server's temporary folder is also its socket folder
+/// (`socket_dir` of `cmux.host.link.get`), a trust boundary. Through the
+/// daemon: a folder that is a symlink, or that other users may open, is never
+/// emptied or used; the server does not start and nothing it would have
+/// answered is sent. A clean start answers a 0700 folder short enough for the
+/// link socket; once that folder opens to other users, the next link answer
+/// refuses.
+#[test]
+fn app_socket_folder_refuses_a_symlink_or_an_open_folder() {
+    for case in ["symlink", "open"] {
+        let apps = Apps::new(&format!("sd{case}{}", std::process::id()));
+        write_linked_app(&apps);
+        // A first start names the folder this daemon's app uses.
+        apps.start();
+        ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+        let first = apps.lines("link.jsonl", 1).swap_remove(0);
+        let leaf = PathBuf::from(first["value"]["socket_dir"].as_str().unwrap());
+        // The person turns the app off: its server stops and its folder goes with it.
+        let mut app = apps.app();
+        let set = |app: &mut Client, enabled: bool, key: &str| {
+            let args = json!({ "app": "cmux/linked", "enabled": enabled, "idempotency_key": key });
+            ok(&app.store("cmux.apps.set", args, "user")).clone()
+        };
+        set(&mut app, false, &format!("{case}-off"));
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while std::fs::symlink_metadata(&leaf).is_ok() {
+            assert!(Instant::now() < deadline, "{case}: the stopped server's folder stays");
+            std::thread::sleep(Duration::from_millis(25));
+        }
+        std::fs::remove_file(apps.dir.join("link.jsonl")).unwrap();
+        // Then another process of the user puts a folder of its own there.
+        let elsewhere = apps.dir.join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("keep"), "x").unwrap();
+        if case == "symlink" {
+            std::os::unix::fs::symlink(&elsewhere, &leaf).unwrap();
+        } else {
+            std::fs::create_dir(&leaf).unwrap();
+            std::fs::set_permissions(&leaf, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::write(leaf.join("keep"), "x").unwrap();
+        }
+        // Turned on again, the server's start refuses that folder.
+        set(&mut app, true, &format!("{case}-on"));
+        let lines = log_with(&apps, "cmux/linked", "app socket folder");
+        assert!(
+            lines.iter().any(|l| l.contains("app socket folder")),
+            "{case}: the server start must refuse the folder: {lines:?}"
+        );
+        assert!(!apps.dir.join("link.jsonl").exists(), "{case}: a refused server answered nothing");
+        let kept = if case == "symlink" { elsewhere.join("keep") } else { leaf.join("keep") };
+        assert!(kept.exists(), "{case}: a refused folder is never emptied");
+        // The planted folder may be outside the test dir (macOS: the per-user temp dir).
+        if case == "symlink" {
+            std::fs::remove_file(&leaf).unwrap();
+        } else {
+            std::fs::remove_dir_all(&leaf).unwrap();
+        }
+    }
+
+    let apps = Apps::new(&format!("sdclean{}", std::process::id()));
+    write_linked_app(&apps);
+    apps.start();
+    ok(&apps.agent().rpc(json!({ "cmd": "apps-list" })));
+    let first = apps.lines("link.jsonl", 1).swap_remove(0);
+    assert_eq!(
+        (first["t"].clone(), first["id"].clone()),
+        (json!("host.result"), json!(7)),
+        "{first}"
+    );
+    let socket_dir = PathBuf::from(first["value"]["socket_dir"].as_str().unwrap());
+    assert!(socket_dir.as_os_str().len() <= 104 - 1 - 27, "{}", socket_dir.display());
+    let meta = std::fs::symlink_metadata(&socket_dir).unwrap();
+    assert!(meta.is_dir() && !meta.file_type().is_symlink());
+    assert_eq!(meta.permissions().mode() & 0o777, 0o700, "{}", socket_dir.display());
+    std::fs::set_permissions(&socket_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+    std::fs::write(apps.dir.join("again"), "").unwrap();
+    let second = apps.lines("link.jsonl", 2).swap_remove(1);
+    assert_eq!(
+        (second["t"].clone(), second["id"].clone(), second["code"].clone()),
+        (json!("host.error"), json!(8), json!("apps.socket_dir_unsafe")),
+        "{second}"
+    );
+    // And the server stops: it never keeps binding in a folder that failed its check.
+    let lines =
+        log_with(&apps, "cmux/linked", "server stopping: its socket folder failed its check");
+    assert!(
+        lines.iter().any(|l| l.contains("server stopping: its socket folder failed its check")),
+        "{lines:?}"
+    );
+    stop_daemon(&apps);
+    let _ = std::fs::remove_dir_all(&socket_dir);
 }

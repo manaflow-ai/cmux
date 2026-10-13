@@ -53,6 +53,8 @@ export interface ToolbarButtonProps {
   tooltip?: boolean;
   /** The button marks the current item of a set (`aria-current`), e.g. the visible section. */
   current?: boolean;
+  /** A toggle's state (`aria-pressed`), e.g. a format that is on at the selection. */
+  pressed?: boolean;
   /** A pointer press leaves focus where it was (the button acts on another view). */
   keepsFocus?: boolean;
   onPress?(): void;
@@ -65,6 +67,7 @@ export function ToolbarButton({
   disabled,
   tooltip = true,
   current,
+  pressed,
   keepsFocus,
   onPress,
   children,
@@ -76,6 +79,7 @@ export function ToolbarButton({
         className={cx("ui-button ui-toolbar-button", className)}
         aria-label={label}
         aria-current={current || undefined}
+        aria-pressed={pressed}
         disabled={disabled}
         onMouseDown={keepsFocus ? (event) => event.preventDefault() : undefined}
         // A disabled toolbar button stays focusable so arrows do not skip over it silently.

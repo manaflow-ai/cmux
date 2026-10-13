@@ -62,6 +62,9 @@ public protocol BrowserTab: AnyObject, Observable, Sendable {
 
     func showDevTools()
 
+    /// The favicon at `url` fetched as this tab would (the default is the app's cookieless fetch).
+    func fetchFavicon(_ url: URL) async -> NSImage?
+
     /// An agent is driving this tab (browser automation): saved passwords
     /// stop filling in it for the rest of its life, so a page script cannot
     /// read one after an automated click. Agents sign in only through the
@@ -84,6 +87,12 @@ extension BrowserTab {
     public func thumbnail() async throws -> CGImage { try await snapshot() }
 
     /// Engines without Chromium password autofill have nothing to withhold.
+    /// The favicon at `url` as this tab fetches it: the app's cookieless fetch, unless the
+    /// engine can fetch through the tab's own context (a Chromium tab, cx-d0d.8).
+    public func fetchFavicon(_ url: URL) async -> NSImage? {
+        await BrowserFaviconLoader.shared.favicon(at: url, profile: profileID)
+    }
+
     public func markAgentDriven() {}
     public var isAgentDriven: Bool { false }
     public func setPasswordFillAllowedByProfile(_ allowed: Bool) {}
@@ -94,5 +103,43 @@ extension BrowserTab {
 
     public func evaluate(_ script: String) async throws -> BrowserJSValue {
         try await evaluate(script, world: .page)
+    }
+
+    /// Runs `body` as an async function in the page world and returns what
+    /// it resolves to (automation waits). WebKit's `evaluateJavaScript` does
+    /// not await a promise, so a WebKit tab calls the function instead; CEF's
+    /// `evaluate` awaits one.
+    public func evaluateAsync(_ body: String) async throws -> BrowserJSValue {
+        if let tab = self as? WebKitTab { return try await WebKitPageAutomation(tab: tab).evaluateAsync(body) }
+        return try await evaluate("(async () => {\n\(body)\n})()", world: .page)
+    }
+
+    /// Pixels of the whole document, not only the viewport (automation
+    /// screenshots).
+    public func fullPageSnapshot() async throws -> CGImage {
+        if let tab = self as? WebKitTab { return try await WebKitPageAutomation(tab: tab).fullPageSnapshot() }
+        if let tab = self as? CEFTab { return try await CEFFullPageCapture(tab: tab).run() }
+        throw BrowserTabError.snapshotUnavailable
+    }
+
+    /// Every cookie of the tab's profile (automation).
+    public func cookies() async throws -> [BrowserCookie] {
+        if let tab = self as? WebKitTab { return await WebKitCookieStore(tab: tab).cookies() }
+        if let tab = self as? CEFTab { return try await CEFCookieStore(tab: tab).cookies() }
+        throw BrowserTabError.unsupported("cookies")
+    }
+
+    /// Stores `cookie` in the tab's profile.
+    public func setCookie(_ cookie: BrowserCookie) async throws {
+        if let tab = self as? WebKitTab { return try await WebKitCookieStore(tab: tab).set(cookie) }
+        if let tab = self as? CEFTab { return try await CEFCookieStore(tab: tab).set(cookie) }
+        throw BrowserTabError.unsupported("cookies")
+    }
+
+    /// Deletes the cookies with each one's name, domain and path.
+    public func deleteCookies(_ cookies: [BrowserCookie]) async throws {
+        if let tab = self as? WebKitTab { return await WebKitCookieStore(tab: tab).delete(cookies) }
+        if let tab = self as? CEFTab { return try await CEFCookieStore(tab: tab).delete(cookies) }
+        throw BrowserTabError.unsupported("cookies")
     }
 }

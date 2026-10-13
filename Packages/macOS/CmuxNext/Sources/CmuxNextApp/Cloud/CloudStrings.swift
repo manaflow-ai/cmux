@@ -69,7 +69,10 @@ enum CloudStrings {
         String(localized: "cloud.create.approveInFeed", defaultValue: "Approve this machine in your cmux feed, then try again.", table: "Cloud", bundle: .module)
     }
     static var cancel: String { String(localized: "cloud.button.cancel", defaultValue: "Cancel", table: "Cloud", bundle: .module) }
-    static var ok: String { String(localized: "cloud.button.ok", defaultValue: "OK", table: "Cloud", bundle: .module) }
+    /// A result toast: "<title>: <first line>".
+    static func result(_ title: String, _ summary: String) -> String {
+        String(format: String(localized: "cloud.toast.result", defaultValue: "%1$@: %2$@", table: "Cloud", bundle: .module), title, summary)
+    }
     static var rename: String { String(localized: "cloud.button.rename", defaultValue: "Rename", table: "Cloud", bundle: .module) }
     static var select: String { String(localized: "cloud.button.select", defaultValue: "Select", table: "Cloud", bundle: .module) }
     static var copy: String { String(localized: "cloud.button.copy", defaultValue: "Copy", table: "Cloud", bundle: .module) }

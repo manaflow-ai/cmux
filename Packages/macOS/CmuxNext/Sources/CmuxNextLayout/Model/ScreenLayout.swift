@@ -180,11 +180,14 @@ public nonisolated struct LayoutScreen: Hashable, Sendable, Identifiable {
     public var id: ScreenID
     public var name: String
     public var layout: ScreenLayout
+    /// The layout is one zoomed pane; the screen's other panes are hidden, not closed.
+    public var zoomed: Bool
 
-    public init(id: ScreenID, name: String, layout: ScreenLayout) {
+    public init(id: ScreenID, name: String, layout: ScreenLayout, zoomed: Bool = false) {
         self.id = id
         self.name = name
         self.layout = layout
+        self.zoomed = zoomed
     }
 
     /// Every screen is a column strip: a screen stored as one split tree is

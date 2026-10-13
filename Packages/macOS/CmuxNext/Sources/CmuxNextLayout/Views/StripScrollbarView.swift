@@ -5,9 +5,9 @@ import QuartzCore
 
 /// The thin scrollbar under the column strip (dock-column.md, B1 to B5):
 /// a neutral thumb showing the visible range, no track color. Dragging the
-/// thumb scrolls, a click beside it pages. `system` (the default) is `auto`
-/// for overlay scrollers and `always` for legacy ones, live on a change of the
-/// macOS setting (``SystemScrollers``). `auto` fades it in while the
+/// thumb scrolls, a click beside it pages. `system` (the default) follows
+/// ``SystemScrollers/nativeStyle``: `auto`, as every scroller in cmux is thin and
+/// shown only while scrolling (SCROLLBARS-THIN). `auto` fades it in while the
 /// strip scrolls or the pointer is over it and out after a one-shot
 /// deadline; `always` keeps it while columns overflow; `off` hides it.
 /// It takes the mouse only while shown, so clicks pass to the panes below.
@@ -64,7 +64,7 @@ final class StripScrollbarView: NSView {
 
     /// The mode applied now: `system` resolved against the macOS scroller style.
     private static func applied(_ mode: StripScrollbarMode) -> StripScrollbarMode {
-        mode.resolved(legacyScrollers: SystemScrollers.preferredStyle == .legacy)
+        mode.resolved(legacyScrollers: SystemScrollers.nativeStyle == .legacy)
     }
     /// The mode the last `update` applied (a style change compares against it).
     private var appliedMode: StripScrollbarMode?

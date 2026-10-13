@@ -138,8 +138,6 @@ final class BrowserCookieImportCard: NSView {
         [titleLabel.stringValue, detailLabel.stringValue] + (offer.neverTitle.map { [$0] } ?? []) + [offer.notNowTitle, offer.importTitle]
     }
 
-    var shownIconCount: Int { icons.arrangedSubviews.count }
-
     @objc private func importCookies() { onChoice?(.importCookies) }
     @objc private func notNow() { onChoice?(.notNow) }
     @objc private func never() { onChoice?(.never) }

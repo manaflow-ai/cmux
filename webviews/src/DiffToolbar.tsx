@@ -530,11 +530,14 @@ export function FloatingToolbar({
             aria-label={label(button.labelKey)}
             aria-pressed={button.pressed}
             aria-expanded={button.expanded}
+            aria-disabled={button.unavailable || undefined}
             aria-haspopup={button.id === "options" ? "menu" : undefined}
             aria-controls={button.id === "options" && button.expanded ? "options-menu" : undefined}
             tabIndex={index === focusIndex ? 0 : -1}
             onFocus={() => setFocusIndex(index)}
-            onClick={() => onButton(button.id)}
+            onClick={() => {
+              if (!button.unavailable) onButton(button.id);
+            }}
           >
             <Icon name={button.icon} />
           </button>

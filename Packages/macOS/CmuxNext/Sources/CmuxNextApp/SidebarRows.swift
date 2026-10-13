@@ -20,20 +20,25 @@ final class SidebarRows {
     /// fast run of clicks toggles once per click.
     private var folds: [GroupID: (collapsed: Bool, serial: Int)] = [:]
     private var foldSerial = 0
+    /// The rows of creates the daemon has not reported yet, at their slots
+    /// over the edits (`PendingWorkspaceRows`), and the home workspace.
+    private var creating: (rows: [PendingWorkspaceRows.Row], home: String?) = ([], nil)
 
     init(model: SidebarModel) {
         self.model = model
     }
 
-    /// The layout the sidebar draws: the store's with the Chats setting.
+    /// The layout the sidebar draws: the store's without a stored All chats section (cx-n0i9).
     static func visibleLayout(_ document: SidebarLayoutDocument) -> SidebarLayoutDocument {
-        document.chatsLayout(enabled: DesignSettings.shared.sidebarSections.showChats)
+        document.withoutChats
     }
 
-    /// Shows `live` (when given) with the pending edits applied.
-    func show(_ live: [SidebarRowSection]? = nil) {
+    /// Shows `live` (when given) with the pending edits applied, then the
+    /// rows of the creates in flight (`creating`, when given).
+    func show(_ live: [SidebarRowSection]? = nil, creating: (rows: [PendingWorkspaceRows.Row], home: String?)? = nil) {
         if let live { self.live = live }
-        var sections = pending.apply(to: self.live)
+        if let creating { self.creating = creating }
+        var sections = PendingWorkspaceRows.adding(self.creating.rows, to: pending.apply(to: self.live), home: self.creating.home)
         for (group, fold) in folds {
             guard let (s, n) = SidebarEdits.locateGroup(group, in: sections),
                   case var .group(shown) = sections[s].nodes[n], shown.isCollapsed != fold.collapsed else { continue }
@@ -46,7 +51,7 @@ final class SidebarRows {
     /// Folds or opens `group` at once and keeps that look until `body`
     /// replied and the home store holds it, or failed (then `resync`).
     func fold(_ group: GroupID, collapsed: Bool, on home: DaemonService, resync: @escaping @MainActor () -> Void,
-              _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+              _ body: @escaping DaemonCommandBody) {
         foldSerial += 1
         let serial = foldSerial
         folds[group] = (collapsed, serial)
@@ -94,7 +99,7 @@ final class SidebarRows {
 
     /// Sends one personal-state command to `home` for `edit`.
     func send(_ label: String, edit: SidebarPendingEdits.Token?, on home: DaemonService, resync: @escaping @MainActor () -> Void,
-              _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+              _ body: @escaping DaemonCommandBody) {
         let (failed, applied) = outcome(edit, resync: resync)
         let transaction = ClientTransactionID.generate()
         // task-owner: one personal command; settles its edit

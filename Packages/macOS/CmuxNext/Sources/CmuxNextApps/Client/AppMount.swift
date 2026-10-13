@@ -50,7 +50,7 @@ extension AppsClient {
     public func mount(_ app: String, implementation: AppImplementation, surface: String, preview: Bool = false) -> AppMount {
         let mount = AppMount(id: "mnt-\(keyPrefix)-\(nextMount)", appID: app,
                              implementation: implementation, isPreview: preview, surface: surface,
-                             bundleDirectory: self.app(app)?.bundleDirectory ?? AppBundleLocator.directory(for: app), client: self)
+                             bundleDirectory: bundleDirectory(for: app), client: self)
         nextMount += 1
         mounts[mount.id] = mount
         send(mount)
@@ -72,8 +72,6 @@ extension AppsClient {
             await operation(transport)
         }
     }
-
-    var liveMounts: [AppMount] { Array(mounts.values) }
 
     /// Ends every mount on the supervisor and keeps it here (an
     /// administrator turned apps off on this Mac): the app hosts stop once

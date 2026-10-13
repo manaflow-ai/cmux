@@ -207,24 +207,26 @@ public nonisolated struct AgentPaneTurnUndo: Equatable, Sendable, CustomStringCo
     }
 }
 
-extension AgentPaneModel {
+extension AgentPaneTurnUndo {
     /// `turn.undo` arrived without a real click or key press in the pane.
-    static var turnUndoNeedsGestureMessage: String {
+    static var needsGestureMessage: String {
         String(localized: "agentPane.error.turnUndoGesture", defaultValue: "Undo needs a click or key press in the pane.", bundle: .module)
     }
 
     /// `turn.undo` whose params break its contract.
-    static var turnUndoInvalidMessage: String {
+    static var invalidMessage: String {
         String(localized: "agentPane.error.turnUndoInvalid", defaultValue: "The app refused the undo request.", bundle: .module)
     }
 
-    /// `turn.undo`: spends the GRANT credit, then runs the request against the pane's roots.
-    func respondToTurnUndo(_ undo: AgentPaneTurnUndo) async -> [String: Any] {
-        guard transport.gestures.consume() else {
+    /// `turn.undo` (nil: params that break its contract): spends `model`'s GRANT credit, then runs
+    /// the request against the pane's roots.
+    @MainActor static func reply(to undo: AgentPaneTurnUndo?, in model: AgentPaneModel) async -> [String: Any] {
+        guard let undo else { return AgentPaneReply.failure(code: "native.invalid_request", message: invalidMessage) }
+        guard model.transport.gestures.consume() else {
             return AgentPaneReply.failure(code: AgentPaneTransportError.gestureRequired.rawValue,
-                                          message: Self.turnUndoNeedsGestureMessage, details: nil, retryable: nil, origin: "native")
+                                          message: needsGestureMessage, details: nil, retryable: nil, origin: "native")
         }
-        let results = await AgentPaneTurnUndo.run(undo, roots: roots() + transport.addedRoots, trash: trashFile)
+        let results = await run(undo, roots: model.fileOpenRoots(), trash: model.trashFile)
         return AgentPaneReply.success(["files": results.map { ["path": $0.path, "status": $0.status.rawValue] }])
     }
 }

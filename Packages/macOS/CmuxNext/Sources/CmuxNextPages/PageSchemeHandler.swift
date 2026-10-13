@@ -15,8 +15,6 @@ import WebKit
 /// Absorbed from the Settings lead's `SettingsPageSchemeHandler` (branch
 /// feat-cmux-next-settings-react), generalized to every page.
 final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
-    /// The strict policy every page starts with (``PageCSP/strict``).
-    nonisolated static var contentSecurityPolicy: String { PageCSP.strict.header }
 
     /// Where a request goes.
     nonisolated enum Route: Equatable {

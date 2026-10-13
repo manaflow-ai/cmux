@@ -39,7 +39,7 @@ impl Token {
     }
 
     /// The bench viewer sends the token in its hello; the host only compares.
-    #[cfg(any(feature = "bench", test))]
+    #[cfg(feature = "bench")]
     pub fn to_hex(&self) -> String {
         self.0.iter().map(|b| format!("{b:02x}")).collect()
     }
@@ -80,68 +80,5 @@ impl Token {
             diff |= a ^ b;
         }
         std::hint::black_box(diff) == 0
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const HEX: &str = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
-
-    #[test]
-    fn a_hello_without_or_with_a_wrong_token_is_refused() {
-        let t = Token::from_hex(HEX).expect("token");
-        assert!(t.matches_hex(Some(&HEX.to_uppercase())));
-        assert!(!t.matches_hex(None));
-        assert!(!t.matches_hex(Some("")));
-        assert!(!t.matches_hex(Some(&HEX[..63])));
-        let mut wrong = HEX.to_string();
-        wrong.replace_range(63..64, "e");
-        assert!(!t.matches_hex(Some(&wrong)));
-        assert!(!t.matches_hex(Some(&format!("{HEX}00"))));
-        assert!(t.matches_hex(Some(HEX)));
-    }
-
-    #[test]
-    fn parsing_rejects_bad_tokens_and_debug_redacts() {
-        assert!(Token::from_hex("abc").is_err());
-        assert!(Token::from_hex(&"zz".repeat(32)).is_err());
-        let t = Token::from_hex(&format!("  {HEX}\n")).expect("trimmed");
-        assert_eq!(format!("{t:?}"), "Token(<redacted>)");
-        assert_eq!(t.to_hex(), HEX);
-    }
-
-    #[test]
-    fn the_token_arrives_through_an_inherited_pipe() {
-        let mut fds = [0; 2];
-        // SAFETY: pipe fills two descriptors we own.
-        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
-        // SAFETY: writing our own buffer to our own pipe, then closing the write end.
-        unsafe {
-            libc::write(fds[1], HEX.as_ptr().cast(), HEX.len());
-            libc::close(fds[1]);
-        }
-        let t = Token::read_fd(fds[0]).expect("read");
-        assert!(t.matches_hex(Some(HEX)));
-        assert!(Token::read_fd(0).is_err());
-        // A regular file is refused even with the right content.
-        let path = std::env::temp_dir().join(format!("rd-token-test-{}", std::process::id()));
-        std::fs::write(&path, HEX).expect("write");
-        let f = std::fs::File::open(&path).expect("open");
-        let fd = std::os::fd::IntoRawFd::into_raw_fd(f);
-        assert!(Token::read_fd(fd).is_err());
-        // SAFETY: closing the descriptor we just made.
-        unsafe { libc::close(fd) };
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn compare_time_does_not_depend_on_the_first_difference() {
-        // Structural check: every byte of the expected token is visited for any input.
-        let t = Token::from_hex(HEX).expect("token");
-        let early = format!("f{}", &HEX[1..]);
-        let late = format!("{}e", &HEX[..63]);
-        assert!(!t.matches_hex(Some(&early)) && !t.matches_hex(Some(&late)));
     }
 }

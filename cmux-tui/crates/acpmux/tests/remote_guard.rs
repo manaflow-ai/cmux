@@ -3,6 +3,9 @@
 //! path of its choice (`server/remote_guard.rs`); the unix socket keeps
 //! today's behavior.
 
+// Unix only until the Windows port runs the daemon (cmux::local_socket).
+#![cfg(unix)]
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

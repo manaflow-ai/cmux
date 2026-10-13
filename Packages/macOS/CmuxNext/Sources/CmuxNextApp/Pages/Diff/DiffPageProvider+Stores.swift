@@ -33,6 +33,8 @@ extension DiffPageProvider {
     static let viewedSetOp = "cmux.diff.viewed.set"
     static let viewedClearOp = "cmux.diff.viewed.clear"
     static let storeOps = [prefsGetOp, prefsSetOp, viewedListOp, viewedSetOp, viewedClearOp]
+    /// The prefs after each change made elsewhere (Settings): `{prefs}`.
+    static let prefsStream = "cmux.diff.prefs"
 
     /// Answers a store op; nil for any other op.
     func storeCall(_ op: String, params: JSONValue) async throws -> JSONValue? {

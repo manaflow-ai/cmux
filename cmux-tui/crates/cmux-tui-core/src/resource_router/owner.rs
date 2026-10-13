@@ -12,7 +12,12 @@ pub(super) enum OperationOwner {
     Auxiliary,
     State,
     Git,
+    /// The daemon history module (history_ops.rs).
+    History,
+    Credential,
     Connection,
+    /// Settings (the settings file): the config owner (resource_router/config.rs).
+    Config,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -22,6 +27,9 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SessionList
         | ResourceOperation::SessionOpen
         | ResourceOperation::SessionGet => OperationOwner::Machine,
+        ResourceOperation::CredentialVerify
+        | ResourceOperation::CredentialMint
+        | ResourceOperation::CredentialRotate => OperationOwner::Credential,
         ResourceOperation::SessionCreationResolve
         | ResourceOperation::SessionReloadConfig
         | ResourceOperation::SessionTerminalDefaultsUpdate
@@ -119,11 +127,29 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitCheckpointList
         | ResourceOperation::GitCheckpointPin
         | ResourceOperation::GitCheckpointUnpin
+        | ResourceOperation::GitCommit
         | ResourceOperation::GitDiff
+        | ResourceOperation::GitFilesList
         | ResourceOperation::GitFilesSearch
+        | ResourceOperation::GitPush
+        | ResourceOperation::GitWorktreeCreate
+        | ResourceOperation::GitWorktreeApply
+        | ResourceOperation::GitWorktreeRemove
         | ResourceOperation::GitStatus => OperationOwner::Git,
+        ResourceOperation::HistoryEntriesList
+        | ResourceOperation::HistoryEntriesRemove
+        | ResourceOperation::HistorySiteRemove
+        | ResourceOperation::HistoryClear
+        | ResourceOperation::HistoryRestore
+        | ResourceOperation::HistoryBackupsPurge
+        | ResourceOperation::HistoryVisitRecord
+        | ResourceOperation::HistoryVisitTitle
+        | ResourceOperation::HistoryVisitRemove
+        | ResourceOperation::HistoryVisitSummaries
+        | ResourceOperation::HistoryVisitImport => OperationOwner::History,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
+        | ResourceOperation::WorkspaceAgentStartGet
         | ResourceOperation::TabPin
         | ResourceOperation::TabUnpin
         | ResourceOperation::TabUpdate
@@ -136,6 +162,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::TabGroupMove
         | ResourceOperation::TabGroupUngroup
         | ResourceOperation::TabGroupClose
+        | ResourceOperation::LayoutBulk
         | ResourceOperation::WorkspaceGroupList
         | ResourceOperation::WorkspaceGroupCreate
         | ResourceOperation::WorkspaceGroupUpdate
@@ -170,6 +197,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WindowRecordList
         | ResourceOperation::WindowRecordPut
         | ResourceOperation::WorkspaceEnsureHome
+        | ResourceOperation::WorkspaceEnsureApp
         | ResourceOperation::WindowRecordDelete
         | ResourceOperation::SidebarLayoutGet
         | ResourceOperation::SidebarLayoutUpdate
@@ -239,6 +267,17 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ConversationDraft
         | ResourceOperation::ConversationEvents
         | ResourceOperation::OriginConfirmationIssue => OperationOwner::Connection,
+        ResourceOperation::SettingsSchema
+        | ResourceOperation::SettingsList
+        | ResourceOperation::SettingsGet
+        | ResourceOperation::SettingsSnapshot
+        | ResourceOperation::SettingsSet
+        | ResourceOperation::SettingsReset
+        | ResourceOperation::SettingsResetAll
+        | ResourceOperation::KeybindingsGet
+        | ResourceOperation::KeybindingsSet
+        | ResourceOperation::KeybindingsRemove
+        | ResourceOperation::KeybindingsReset => OperationOwner::Config,
     }
 }
 

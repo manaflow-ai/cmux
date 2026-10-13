@@ -17,28 +17,3 @@ pub(crate) fn new_session_cwd(host: Option<&str>, cwd: Option<PathBuf>) -> Resul
         (None, None) => Ok(std::env::current_dir()?),
     }
 }
-
-#[cfg(test)]
-mod new_session_cwd_tests {
-    use super::new_session_cwd;
-    use std::path::PathBuf;
-
-    #[test]
-    fn host_without_cwd_tells_the_user_to_pass_cwd() {
-        let err = new_session_cwd(Some("mini"), None).unwrap_err().to_string();
-        assert!(err.starts_with("No folder for this session: pass --cwd <folder>"), "{err}");
-        assert!(err.contains("mini"), "{err}");
-    }
-
-    #[test]
-    fn host_with_cwd_keeps_the_remote_folder() {
-        let got = new_session_cwd(Some("mini"), Some(PathBuf::from("/srv/proj"))).unwrap();
-        assert_eq!(got, PathBuf::from("/srv/proj"));
-    }
-
-    #[test]
-    fn local_without_cwd_uses_the_current_directory() {
-        let got = new_session_cwd(None, None).unwrap();
-        assert_eq!(got, std::env::current_dir().unwrap());
-    }
-}

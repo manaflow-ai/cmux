@@ -4,9 +4,12 @@
 //! - `adopt`: a Claude/Codex chat in the store of a configured profile. The
 //!   plan carries ready `session/new` params (that profile, `_meta.acpmux.adopt`),
 //!   so the trust gate and every other `session/new` rule still apply.
+//!   A Claude/Codex chat in a store no profile uses (a subrouter account
+//!   home) adopts on its family's profile, which acpmux runs on that store
+//!   (cx-vx54).
 //! - `terminal`: every other resumable chat. The client opens a terminal tab
-//!   that runs `argv` with `env` in `cwd`. A Claude/Codex chat in a store no
-//!   profile uses (a subrouter account home) gets that store as env.
+//!   that runs `argv` with `env` in `cwd`; a Claude/Codex chat when no
+//!   profile of its family is configured.
 //! - `readOnly`: no resume path; the client shows the transcript.
 //!
 //! A chat opens in its recorded folder. When the folder is gone, guarded or
@@ -34,7 +37,7 @@ pub struct StoreProfile {
     pub codex: Option<PathBuf>,
 }
 
-/// The Claude and Codex profiles that can adopt, with the stores their
+/// The Claude, Codex and OpenCode profiles that can adopt, with the stores their
 /// spawn env names: the profile's env, then its own defaults entry, then its
 /// family's defaults, then the daemon's homes.
 pub fn store_profiles(config: &Config, homes: &HarnessHomes) -> Vec<StoreProfile> {
@@ -45,7 +48,7 @@ pub fn store_profiles(config: &Config, homes: &HarnessHomes) -> Vec<StoreProfile
         .filter(|(_, profile)| profile.kind != HarnessKind::Terminal)
         .filter_map(|(name, profile)| {
             let family = derive_family(name, profile);
-            if family != "claude" && family != "codex" {
+            if family != "claude" && family != "codex" && family != "opencode" {
                 return None;
             }
             let layers = [
@@ -83,7 +86,12 @@ pub fn plan_open(
     match (&entry.resume, bare) {
         (Resume::Adopt, true) => {
             let stores = store_dirs(chat);
-            if let Some(profile) = adopting_profile(entry.harness, &stores, profiles) {
+            // A store no profile uses (a subrouter account home, a root the
+            // person added) still adopts, on the family's profile: acpmux
+            // runs it on that store, found in its own index (cx-vx54).
+            let profile = adopting_profile(entry.harness, &stores, profiles)
+                .or_else(|| family_profile(entry.harness, profiles));
+            if let Some(profile) = profile {
                 let adopt = json!({"harness": profile, "agentSessionId": entry.session_id});
                 plan["kind"] = json!("adopt");
                 plan["adopt"] = adopt.clone();
@@ -142,7 +150,7 @@ fn folder(
 /// The harness homes of the roots that hold the chat (a Claude root is
 /// `<home>/projects`; a Codex root is the home), the root of the chat's own
 /// file first.
-fn store_dirs(chat: &IndexedChat) -> Vec<PathBuf> {
+pub(crate) fn store_dirs(chat: &IndexedChat) -> Vec<PathBuf> {
     let prefix = format!("{}:", chat.entry.harness.id());
     let source = std::fs::canonicalize(&chat.entry.source_path).ok();
     let mut roots: Vec<PathBuf> =
@@ -155,6 +163,23 @@ fn store_dirs(chat: &IndexedChat) -> Vec<PathBuf> {
             _ => Some(root),
         })
         .collect()
+}
+
+/// The family's profile when none's store holds the chat: the one named like
+/// the family first, then the others in name order.
+fn family_profile(harness: AdapterKind, profiles: &[StoreProfile]) -> Option<&str> {
+    let family = match harness {
+        AdapterKind::ClaudeCode => "claude",
+        AdapterKind::Codex => "codex",
+        // OpenCode keeps every chat in one data dir: any opencode profile loads it.
+        AdapterKind::OpenCode => "opencode",
+        _ => return None,
+    };
+    profiles
+        .iter()
+        .filter(|profile| profile.family == family)
+        .min_by_key(|profile| (profile.name != family, profile.name.clone()))
+        .map(|profile| profile.name.as_str())
 }
 
 /// The profile whose store holds the chat: the one named like the family

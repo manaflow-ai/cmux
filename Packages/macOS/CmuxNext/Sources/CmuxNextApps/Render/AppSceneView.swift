@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import SwiftUI
+import CmuxNextIcons
 
 extension EnvironmentValues {
     /// The mounted app's bundle directory (resolves `Image(src)` paths).
@@ -44,7 +45,7 @@ struct AppSceneFailureRow: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Metrics.space2) {
-            Image(systemName: symbol)
+            Icon(symbol: symbol, size: 13)
                 .foregroundStyle(colors[keyPath: tone])
             Text(reason)
                 .font(Font(Typography.caption))

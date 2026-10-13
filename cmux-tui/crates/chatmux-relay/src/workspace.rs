@@ -2827,4 +2827,61 @@ mod tests {
     }
 
     // --- dispatch --------------------------------------------------------
+
+    fn request_json(op: Value, trust: &str) -> Value {
+        serde_json::json!({
+            "version": 6,
+            "type": "workspace_request",
+            "requestId": "req_1",
+            "op": op,
+            "timeoutMs": 30_000,
+            "allowedRoots": Value::Null,
+            "trust": trust,
+            "actorId": "user_1",
+            "threadId": Value::Null,
+        })
+    }
+    async fn dispatch(root: &Path, request: Value) -> Value {
+        let roots = vec![root.to_string_lossy().into_owned()];
+        let runtime = Arc::new(SharedRuntime::new(Some(roots.clone())));
+        let mut patched = request;
+        patched["allowedRoots"] = serde_json::json!(roots);
+        let (sink, mut critical, _watch) = OutboundSink::channels();
+        let connection = Connection::new(runtime, sink);
+        connection.handle_frame(patched);
+        let frame = tokio::time::timeout(Duration::from_secs(15), critical.recv())
+            .await
+            .expect("no answer within 15s")
+            .expect("channel open");
+        serde_json::from_str(&frame.text).expect("valid json frame")
+    }
+    #[tokio::test]
+    async fn dispatch_answers_the_wire_shape_and_gates_trust() {
+        let root = scratch("dispatch");
+        write(&root, "file.txt", "content\n");
+        let read_op = serde_json::json!({"op": "fs_read", "path": "file.txt", "maxBytes": 1000});
+        let answer = dispatch(&root, request_json(read_op.clone(), "supervised")).await;
+        assert_eq!(answer["type"], "workspace_result");
+        assert_eq!(answer["requestId"], "req_1");
+        assert_eq!(answer["ok"], true);
+        assert_eq!(answer["result"]["op"], "fs_read");
+        assert_eq!(answer["result"]["content"], "content\n");
+        // observe trust still reads...
+        let observed = dispatch(&root, request_json(read_op, "observe")).await;
+        assert_eq!(observed["ok"], true);
+        // ...but refuses every mutating op with the typed code.
+        let write_op = serde_json::json!({
+            "op": "fs_write", "path": "file.txt", "content": "no"
+        });
+        let refused = dispatch(&root, request_json(write_op, "observe")).await;
+        assert_eq!(refused["ok"], false);
+        assert_eq!(refused["code"], "trust_refused");
+        let preview_op = serde_json::json!({"op": "preview_open", "targetPort": 5173});
+        let refused = dispatch(&root, request_json(preview_op, "observe")).await;
+        assert_eq!(refused["code"], "trust_refused");
+        let delete_op = serde_json::json!({"op": "fs_delete", "path": "file.txt"});
+        let refused = dispatch(&root, request_json(delete_op, "observe")).await;
+        assert_eq!(refused["code"], "trust_refused");
+        assert!(root.join("file.txt").exists());
+    }
 }

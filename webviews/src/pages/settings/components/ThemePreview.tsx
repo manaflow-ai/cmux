@@ -62,7 +62,7 @@ const SELECTED = { line: 3, column: 14, length: 12 };
 const CURSOR = { line: 9, column: 21 };
 
 const title = (key: string) => (rowsByKey.get(key) ? text(rowsByKey.get(key)!.title) : key);
-const help = (key: string) => text(rowsByKey.get(key)?.help);
+const summary = (key: string) => text(rowsByKey.get(key)?.summary);
 const section = (id: string) => text(sections.find((item) => item.id === id)?.title);
 
 export function ThemePreview({
@@ -182,7 +182,7 @@ export function ThemePreview({
             />
             <circle cx={APP_W - 110 - 32} cy="125" r="6" fill={a.icon} />
             <text x="0" y="146" fontSize="10" fill={a.textSecondary}>
-              {truncate(help("app.globalHotKey"), 34)}
+              {truncate(summary("app.globalHotKey"), 34)}
             </text>
             <rect y="160" width={APP_W - 124} height="1" fill={a.separator} />
             <text x="0" y="184" fontSize="11" fill={a.accentText}>
@@ -195,62 +195,6 @@ export function ThemePreview({
           </g>
         </g>
         <rect x="0.5" y="0.5" width={APP_W - 1} height={H - 1} rx="9" fill="none" stroke={a.separator} />
-      </g>
-    </svg>
-  );
-}
-
-/** The 16 ANSI colors and the four named colors of a theme, labeled. */
-export function ThemePalette({ theme, separator }: { theme: GhosttyTheme; separator: string }) {
-  const swatch = 30;
-  const step = 34;
-  const left = 64;
-  const named: Array<[string, string]> = [
-    [t("settingsPage.theme.background"), theme.background],
-    [t("settingsPage.theme.foreground"), theme.foreground],
-    [t("settingsPage.theme.cursor"), theme.cursorColor ?? theme.foreground],
-    [t("settingsPage.theme.selection"), theme.selectionBackground ?? mixHex(theme.background, theme.foreground, 0.25)],
-  ];
-  return (
-    <svg
-      className="theme-palette"
-      viewBox={`0 0 ${W} 72`}
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline SVG drawing; an <img> cannot draw the theme.
-      role="img"
-      aria-label={t("settingsPage.theme.palette")}
-    >
-      <g fontFamily="-apple-system, BlinkMacSystemFont, system-ui, sans-serif" fontSize="11" fill="currentColor">
-        <text x="0" y="20" className="theme-palette-label">
-          {t("settingsPage.theme.normal")}
-        </text>
-        <text x="0" y="56" className="theme-palette-label">
-          {t("settingsPage.theme.bright")}
-        </text>
-        {Array.from({ length: 16 }, (_, index) => (
-          <rect
-            key={index}
-            x={left + (index % 8) * step}
-            y={index < 8 ? 2 : 38}
-            width={swatch}
-            height={swatch}
-            rx="6"
-            fill={theme.palette[index] ?? theme.foreground}
-            stroke={separator}
-          >
-            <title>{`${index} ${theme.palette[index] ?? ""}`}</title>
-          </rect>
-        ))}
-        {named.map(([name, value], index) => (
-          <g key={name} transform={`translate(${left + 8 * step + 24 + (index % 2) * 170} ${index < 2 ? 2 : 38})`}>
-            <rect width={swatch} height={swatch} rx="6" fill={value} stroke={separator} />
-            <text x="40" y="13">
-              {name}
-            </text>
-            <text x="40" y="27" className="theme-palette-hex">
-              {value}
-            </text>
-          </g>
-        ))}
       </g>
     </svg>
   );

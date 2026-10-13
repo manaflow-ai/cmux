@@ -78,7 +78,8 @@ public final class PaletteRankerBridge {
         ranksPrefixFirst: Bool = false,
         recentLimit: Int = 5,
         rowLimit: Int = 400,
-        highlightLimit: Int = 60
+        highlightLimit: Int = 60,
+        settings: PaletteRankSettings = PaletteRankSettings()
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(index.entries, version: version) }
         return try invoke(PaletteRankerBridgeRequest(
@@ -93,24 +94,35 @@ public final class PaletteRankerBridge {
             keepsSectionOrder: keepsSectionOrder,
             ranksPrefixFirst: ranksPrefixFirst,
             recentLimit: recentLimit,
+            aliases: settings.aliases.isEmpty ? nil : settings.aliases,
+            pins: nil,
+            pinnedSectionIndex: nil,
             rowLimit: rowLimit,
             highlightLimit: highlightLimit
         ))
     }
 
     /// Ranks an empty palette query through the shared TypeScript implementation.
+    ///
+    /// - Parameter version: The snapshot identifier of `entries`. With one, the entries go to the
+    ///   context once per version (`__cmuxPaletteInstall`), shared with the typed queries of the
+    ///   same snapshot; without one, every call sends them all.
     nonisolated public func rankEmpty(
         entries: [PaletteSearchEntry],
+        version: Int? = nil,
         sectionOrders: [Int],
         frecency: FrecencyStore,
         now: Date,
         showsRecent: Bool,
-        recentLimit: Int = 5
+        recentLimit: Int = 5,
+        settings: PaletteRankSettings = PaletteRankSettings(),
+        pinnedSectionIndex: Int? = nil
     ) throws -> [PaletteRankedSection] {
-        try invoke(PaletteRankerBridgeRequest(
+        if let version, version != installedVersion { try install(entries, version: version) }
+        return try invoke(PaletteRankerBridgeRequest(
             operation: "rankEmpty",
-            entries: entries.map(PaletteRankerBridgeEntry.init),
-            version: nil,
+            entries: version == nil ? entries.map(PaletteRankerBridgeEntry.init) : nil,
+            version: version,
             query: nil,
             sectionOrders: sectionOrders,
             frecency: PaletteRankerBridgeFrecency(frecency),
@@ -119,6 +131,9 @@ public final class PaletteRankerBridge {
             keepsSectionOrder: false,
             ranksPrefixFirst: false,
             recentLimit: recentLimit,
+            aliases: nil,
+            pins: settings.pins.isEmpty ? nil : settings.pins,
+            pinnedSectionIndex: pinnedSectionIndex,
             rowLimit: 400,
             highlightLimit: 60
         ))

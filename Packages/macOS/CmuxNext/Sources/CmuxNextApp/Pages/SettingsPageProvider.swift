@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSettings
@@ -42,6 +43,13 @@ final class SettingsPageProvider: PageProvider {
     /// The cmux picker for folders (R89): the paths the person chose (`~/` for home), nil when
     /// they left it.
     var pickFolders: (@MainActor () async -> [String]?)?
+    /// Save as Ghostty Theme and Import Theme File (`cmux.settings.theme.save`/`.import`).
+    var themeFiles: SettingsThemeFiles?
+    /// The backgrounds folder and its image picker (`cmux.settings.backdrop.choose_image`).
+    var backdropImages: SettingsBackdropImages?
+    /// Browse more art: the museum search's results for this page.
+    var museumArt: MuseumArtSession?
+    var workspaceBackgrounds: SettingsWorkspaceBackgrounds?
     /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
     /// and whether it can run now.
     var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
@@ -65,7 +73,7 @@ final class SettingsPageProvider: PageProvider {
             "palette": .array(colors.palette.map { $0.map { .string(AppTheme.hex($0)) } ?? .null }),
         ]
         for (key, color) in [("selectionBackground", colors.selectionBackground), ("selectionForeground", colors.selectionForeground),
-                             ("cursorColor", colors.cursorColor), ("cursorText", colors.cursorText)] {
+                             ("cursorColor", colors.cursorColor), ("cursorText", colors.cursorText), ("accent", colors.accent)] {
             if let color { object[key] = .string(AppTheme.hex(color)) }
         }
         return .object(object)
@@ -122,6 +130,9 @@ final class SettingsPageProvider: PageProvider {
         case "cmux.settings.theme.colors":
             guard let themeColors else { throw PageError(code: "cmux.page.unavailable", message: "no theme colors") }
             return ["themes": .array(themeColors().map(Self.json))]
+        case "cmux.settings.theme.save", "cmux.settings.theme.import":
+            guard let themeFiles else { throw PageError(code: "cmux.page.unavailable", message: "no theme files") }
+            return try await themeFiles.call(op, params: params, edits: settings.applied.themeEdits, writer: Self.writer(context))
         case "cmux.settings.theme.accepts":
             return ["accepts": .bool(acceptsTheme?(params["text"]?.stringValue ?? "") ?? false)]
         case "cmux.settings.folders.add":
@@ -143,13 +154,19 @@ final class SettingsPageProvider: PageProvider {
                 try await write(descriptor, .array((current + added).map(JSONValue.string)), by: .user)
             }
             return ["added": .array(added.map(JSONValue.string))]
+        case "cmux.settings.backdrop.choose_image":
+            return try await chooseBackdropImage()
+        case "cmux.settings.art.search", "cmux.settings.art.use":
+            return try await museumArt(op, params: params)
+        case "cmux.settings.backdrop.workspace", "cmux.settings.backdrop.workspace.set", "cmux.settings.backdrop.workspace.preview":
+            return try workspaceBackground(op, params: params, context: context)
         case "cmux.settings.section.actions":
             guard let name = params["section"]?.stringValue, let section = SettingsSection(rawValue: name) else {
                 throw PageError.invalidParams("section is required")
             }
             return sectionActions?(section) ?? .array([])
         case "cmux.settings.file.reveal":
-            NSWorkspace.shared.activateFileViewerSelecting([settings.file.url])
+            NSWorkspace.shared.revealInBackground([settings.file.url])
             return .object([:])
         case "cmux.settings.preview":
             // Live preview (R82 commit 5): the value applies to every window without a write;
@@ -211,7 +228,7 @@ final class SettingsPageProvider: PageProvider {
             var last = initialRoot
             var lastFileRoots = initialFileRoots
             var lastManagedRoots = initialManagedRoots
-            for await (count, root, fileRoots, managedRoots) in Observations({
+            for await (count, root, fileRoots, managedRoots) in ObservationStream({
                 (settings.loadCount, settings.snapshot.root, settings.fileRoot.value(at: ChatSettings.rootsPath), settings.managedChatRoots)
             }) {
                 let keys = SettingsSchema.all.filter {
@@ -233,7 +250,7 @@ final class SettingsPageProvider: PageProvider {
                               onEvent: @escaping @MainActor (JSONValue) -> Void) -> PageSubscription {
         let task = Task { @MainActor in
             var last = read()
-            for await value in Observations({ read() }) where value != last {
+            for await value in ObservationStream({ read() }) where value != last {
                 last = value
                 onEvent(value)
             }
@@ -321,7 +338,7 @@ final class SettingsPageProvider: PageProvider {
         PageError(code: "cmux.settings.user_only", message: String(describing: refusal), details: ["key": .string(refusal.key)])
     }
 
-    private func write(_ descriptor: SettingDescriptor, _ value: JSONValue?, by writer: SettingWriter) async throws {
+    func write(_ descriptor: SettingDescriptor, _ value: JSONValue?, by writer: SettingWriter) async throws {
         do {
             try await settings.setSetting(descriptor, to: value, by: writer)
         } catch let managed as SettingManaged {

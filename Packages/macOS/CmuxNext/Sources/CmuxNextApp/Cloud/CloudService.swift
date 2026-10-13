@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCloud
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 import Observation
@@ -43,6 +44,21 @@ final class CloudService {
     /// New Cloud Workspace runs from the click to the open terminal: each
     /// window's progress view and sidebar row (cx-lu8f).
     let creations = CloudCreations()
+    /// Move to Cloud's CLI and machine folders.
+    @ObservationIgnored var move = CloudMoveSetup()
+    /// What Retry does for each chat whose move stopped.
+    @ObservationIgnored let moveRetries = CloudMoveRetries()
+    /// What Retry does for each machine chat whose Bring Back Local stopped, by its tab there.
+    @ObservationIgnored let bringBackRetries = CloudMoveRetries()
+    /// The chats moved from this Mac, for Bring Back Local.
+    @ObservationIgnored let movedChats = CloudMovedChats()
+    /// Agents' asks to move their chats, and the cards they raise in chats.
+    @ObservationIgnored let moveAsks = CloudMoveAsks()
+    @ObservationIgnored let toolCards = AgentToolCards()
+    /// Moved chats' file requests for this Mac, asked in their chats.
+    @ObservationIgnored let accessAsks = CloudAccessAsks()
+    /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
+    @ObservationIgnored let uploads = CloudUploads()
 
     init(machines: MachineRegistry, isDebugBuild: Bool) {
         self.machines = machines
@@ -79,9 +95,14 @@ final class CloudService {
             }
         ))
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
+        move.cli = binary
+        move.ledger = .standard
         if let binary {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
+        movedChats.defaults = { [weak self] in self?.move.ledger }
+        moveAsks.defaults = { [weak self] in self?.move.ledger }
+        CloudMovedChats.app = movedChats
     }
 
     /// `cmux-<host>`, as the old app named its link device. Reads the kernel
@@ -132,7 +153,7 @@ final class CloudService {
             // task-owner: observers; cancelled in stop()
             observers.append(Task {
                 // A reconnected local connection is a new daemon client: subscribe it again.
-                for await state in Observations({ machines.local.store.connectionState }) {
+                for await state in ObservationStream({ machines.local.store.connectionState }) {
                     guard case .connected = state, machines.cloud.contains(where: { $0.appLink != nil }) else { continue }
                     await CloudAppLinks.resubscribe(local: machines.local)
                 }
@@ -141,12 +162,14 @@ final class CloudService {
         observers.append(Task { [weak self] in
             guard let self else { return }
             await auth.awaitRestored()
-            for await signedIn in Observations({ self.auth.isSignedIn }) {
+            for await signedIn in ObservationStream({ self.auth.isSignedIn }) {
                 if signedIn {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
-                    await self.refresh()
+                    // The install first: the app server path's first list goes
+                    // through the credential relay, which sends the install token.
                     await self.installSignedIn()
+                    await self.refresh()
                 } else {
                     self.dropAllMachines()
                     await self.installIdentity.unbind()
@@ -184,8 +207,8 @@ final class CloudService {
             Task { [weak self] in
                 guard let self, auth.isSignedIn else { return }
                 await hub?.resume()
-                await refresh()
                 await installSignedIn()
+                await refresh()
             }
         }
     }
@@ -218,7 +241,7 @@ final class CloudService {
         }
         // task-owner: observers; cancelled in stop()
         observers.append(Task {
-            for await state in Observations({ local.store.connectionState }) {
+            for await state in ObservationStream({ local.store.connectionState }) {
                 guard case .connected = state, let connection = local.connection else { continue }
                 provider.stop()
                 let allowed = await connection.userOriginAllowed

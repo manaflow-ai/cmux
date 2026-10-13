@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import { useSettingsState, useStore } from "../context";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -16,37 +17,34 @@ export function ChatRootsEditor({ row, value, disabled, labelId }: EditorProps) 
   return (
     <span className="folder-list" aria-labelledby={labelId}>
       {folders.map((folder) => (
-        <span
-          key={folder.path}
-          className="folder-item"
-          data-folder={folder.path}
-          data-locked={folder.managed || undefined}
-        >
-          <span className="folder-path selectable">
-            {folder.path}
-            {folder.reason && <output className="row-error">{folder.reason}</output>}
-          </span>
-          {folder.managed ? (
-            <span className="row-managed" title={t("settingsWindow.managed.device")}>
-              <Icon name="lock" />
+        <Fragment key={folder.path}>
+          <span className="folder-item" data-folder={folder.path} data-locked={folder.managed || undefined}>
+            <span className="folder-path selectable" title={folder.path}>
+              {folder.path}
             </span>
-          ) : (
-            <button
-              type="button"
-              className="button"
-              disabled={disabled}
-              aria-label={`${t("settingsPage.remove")} ${folder.path}`}
-              onClick={() =>
-                void store.set(
-                  row.key,
-                  userRoots.filter((path) => path !== folder.path),
-                )
-              }
-            >
-              {t("settingsPage.remove")}
-            </button>
-          )}
-        </span>
+            {folder.managed ? (
+              <span className="row-managed" title={t("settingsWindow.managed.device")}>
+                <Icon name="lock" />
+              </span>
+            ) : (
+              <button
+                type="button"
+                className="button"
+                disabled={disabled}
+                aria-label={`${t("settingsPage.remove")} ${folder.path}`}
+                onClick={() =>
+                  void store.set(
+                    row.key,
+                    userRoots.filter((path) => path !== folder.path),
+                  )
+                }
+              >
+                {t("settingsPage.remove")}
+              </button>
+            )}
+          </span>
+          {folder.reason && <output className="row-error folder-reason">{folder.reason}</output>}
+        </Fragment>
       ))}
       <button
         type="button"

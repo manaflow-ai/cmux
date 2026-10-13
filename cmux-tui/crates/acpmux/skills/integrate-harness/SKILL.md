@@ -24,8 +24,10 @@ until every step passes.
    runs `initialize`, `session/new` and one prompt, and prints PASS/WARN/FAIL
    per step with a `fix:` line. Do what the fix says, then run doctor again.
    Use `--no-prompt` when the user does not want a model call.
-5. When doctor says `ready`, tell the user the harness now shows in the cmux
-   model picker. `cmux harness list` shows every harness and its source.
+5. When doctor says `ready`, confirm one real chat:
+   `cmux acp exec -m <id> "Reply with the single word OK."` prints the reply.
+   Then tell the user the harness now shows in the cmux model picker.
+   `cmux harness list` shows every harness and its source.
 
 ## Rules
 

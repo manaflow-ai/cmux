@@ -20,7 +20,11 @@ final class ProfileBarView: NSView {
     private(set) var hovered: Int?
     private var pressed: Int?
     private var swipeTracker = ProfileSwipeTracker()
+    private var wheel = SpaceWheelPager()
+    private var paging = false
     static let plusIndex = -1
+    /// The History dot, always the strip's last (cx-zlnl): agent history, every chat on this device.
+    static let historyIndex = -2
 
     /// The current space's chip; it slides on a switch.
     let indicator = ProfileBarLayerView()
@@ -29,6 +33,12 @@ final class ProfileBarView: NSView {
 
     /// Called once for a qualifying horizontal trackpad swipe over the bar.
     var onHorizontalSwipe: ((Int) -> Void)?
+    /// A horizontal trackpad gesture over the bar, 1:1 like over the list
+    /// (`SidebarScrollView.onHorizontalScroll`). When set, it replaces the
+    /// one-step swipe.
+    var onHorizontalScroll: ((ProfileSwipeTracker.Phase, CGFloat, TimeInterval) -> Void)?
+    /// A mouse wheel notch over the bar, either axis: -1 or +1.
+    var onWheelPage: ((Int) -> Void)?
 
     init(model: SidebarModel) {
         self.model = model
@@ -80,7 +90,7 @@ final class ProfileBarView: NSView {
 
     /// Where every space and the "+" sit now.
     var strip: SpaceStrip {
-        ProfileBarLogic.strip(count: model.profiles.count, active: activeIndex, width: Double(bounds.width),
+        ProfileBarLogic.strip(count: model.profiles.count + 1, active: activeIndex, width: Double(bounds.width),
                               center: Double(centerX ?? bounds.width / 2),
                               minLeading: Double(leadingInset ?? SidebarStyle.horizontalInset),
                               slot: Double(slot), plus: Double(slot),
@@ -89,7 +99,7 @@ final class ProfileBarView: NSView {
 
     private var activeIndex: Int? { model.profiles.firstIndex { $0.id == model.activeProfileID } }
 
-    /// One rect per space (in order), then the "+" rect.
+    /// One rect per space (in order), the History dot's, then the "+" rect.
     func slotRects() -> [NSRect] {
         let strip = strip
         return (strip.slots + [strip.plus]).map { NSRect(x: $0.x, y: 0, width: $0.width, height: bounds.height) }
@@ -98,7 +108,8 @@ final class ProfileBarView: NSView {
     private func index(at point: NSPoint) -> Int? {
         let rects = slotRects()
         guard let hit = rects.firstIndex(where: { $0.contains(point) }) else { return nil }
-        guard hit == model.profiles.count else { return hit }
+        if hit == model.profiles.count { return Self.historyIndex }
+        guard hit == model.profiles.count + 1 else { return hit }
         return isPointerInside ? Self.plusIndex : nil
     }
 
@@ -142,10 +153,6 @@ final class ProfileBarView: NSView {
         guard rects.indices.contains(active) else { return nil }
         return ProfileBarLogic.chipRect(slot: rects[active], inset: Metrics.space1)
     }
-
-    /// The current space's chip fill: the row selection token (never the
-    /// system blue).
-    var indicatorFill: NSColor { performWithTheme { Palette.selectionFill } }
 
     // theme-scoped: indicator.draw runs inside the bar's theme scope
     private func drawIndicator() {
@@ -193,7 +200,8 @@ final class ProfileBarView: NSView {
                 draw(profile: profile, in: rects[offset], active: active, hovered: hovered == offset,
                      compact: strip.compact && !active)
             }
-            if isPointerInside { drawPlus(in: rects[model.profiles.count]) }
+            drawHistory(in: rects[model.profiles.count])
+            if isPointerInside { drawPlus(in: rects[model.profiles.count + 1]) }
         }
     }
 
@@ -220,14 +228,14 @@ final class ProfileBarView: NSView {
     }
 
     private func rebuildToolTips() {
-        removeAllToolTips()
         let rects = slotRects()
-        for (offset, profile) in model.profiles.enumerated() {
+        var regions: [(rect: NSRect, text: String)] = model.profiles.enumerated().map { offset, profile in
             // The emoji is shown here, not on the dot.
-            let tip = profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name
-            addToolTip(rects[offset], owner: tip as NSString, userData: nil)
+            (rects[offset], profile.iconIsEmoji ? [profile.icon, profile.name].compactMap(\.self).joined(separator: " ") : profile.name)
         }
-        if isPointerInside { addToolTip(rects[model.profiles.count], owner: Strings.newProfile as NSString, userData: nil) }
+        regions.append((rects[model.profiles.count], Strings.history))
+        if isPointerInside { regions.append((rects[model.profiles.count + 1], Strings.newProfile)) }
+        setThemedToolTipRegions(regions)
     }
 
     // MARK: Mouse
@@ -261,7 +269,11 @@ final class ProfileBarView: NSView {
     var hoverChip: (rect: NSRect, fill: NSColor)? {
         guard let hovered else { return nil }
         let rects = slotRects()
-        let index = hovered == Self.plusIndex ? model.profiles.count : hovered
+        let index = switch hovered {
+        case Self.historyIndex: model.profiles.count
+        case Self.plusIndex: model.profiles.count + 1
+        default: hovered
+        }
         guard rects.indices.contains(index) else { return nil }
         let fill = performWithTheme { pressed == hovered ? Palette.pressedFill : Palette.hoverFill }
         return (ProfileBarLogic.chipRect(slot: rects[index], inset: Metrics.space1), fill)
@@ -289,12 +301,29 @@ final class ProfileBarView: NSView {
         activate(pressed)
     }
 
+    /// The bar is the pager's dots: a trackpad pages over it like over the
+    /// list, and a mouse wheel pages on either axis (nothing here scrolls).
     override func scrollWheel(with event: NSEvent) {
         guard event.hasPreciseScrollingDeltas, let phase = Self.phase(of: event) else {
+            if let onWheelPage, !event.hasPreciseScrollingDeltas {
+                switch wheel.feed(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, time: event.timestamp, pagesVertically: true) {
+                case .pass, .hold: return
+                case .page(let step): return onWheelPage(step)
+                }
+            }
             super.scrollWheel(with: event)
             return
         }
-        if let step = swipeTracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase) {
+        let step = swipeTracker.feed(deltaX: Double(event.scrollingDeltaX), deltaY: Double(event.scrollingDeltaY), phase: phase)
+        if let onHorizontalScroll {
+            if phase == .ended || phase == .momentum {
+                if paging, phase == .ended { onHorizontalScroll(.ended, 0, event.timestamp) }
+                paging = false
+            } else if swipeTracker.isHorizontal {
+                onHorizontalScroll(paging ? .changed : .began, event.scrollingDeltaX, event.timestamp)
+                paging = true
+            }
+        } else if let step {
             onHorizontalSwipe?(step)
         }
         if !swipeTracker.isHorizontal { super.scrollWheel(with: event) }
@@ -309,7 +338,9 @@ final class ProfileBarView: NSView {
     }
 
     private func activate(_ index: Int) {
-        if index == Self.plusIndex {
+        if index == Self.historyIndex {
+            model.send(.openHistory)
+        } else if index == Self.plusIndex {
             model.send(.newProfile)
         } else if model.profiles.indices.contains(index), model.profiles[index].id != model.activeProfileID {
             model.send(.switchProfile(model.profiles[index].id))
@@ -317,7 +348,7 @@ final class ProfileBarView: NSView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        guard let index = index(at: convert(event.locationInWindow, from: nil)), index != Self.plusIndex else { return nil }
+        guard let index = index(at: convert(event.locationInWindow, from: nil)), index >= 0 else { return nil }
         return contextMenuProvider?(.profile(model.profiles[index].id))
     }
 
@@ -332,7 +363,10 @@ final class ProfileBarView: NSView {
             element.setAccessibilitySelected(active)
             return element
         }
-        children.append(ProfileDotElement(label: Strings.newProfile, frame: rects[model.profiles.count], parent: self) { [weak self] in
+        children.append(ProfileDotElement(label: Strings.history, frame: rects[model.profiles.count], parent: self) { [weak self] in
+            self?.activate(Self.historyIndex)
+        })
+        children.append(ProfileDotElement(label: Strings.newProfile, frame: rects[model.profiles.count + 1], parent: self) { [weak self] in
             self?.activate(Self.plusIndex)
         })
         setAccessibilityChildren(children)

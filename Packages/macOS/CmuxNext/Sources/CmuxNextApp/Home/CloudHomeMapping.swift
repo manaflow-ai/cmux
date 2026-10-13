@@ -81,7 +81,7 @@ nonisolated enum CloudHomeMapping {
                        reactions: message.reactions.map {
                            Reaction(author: identity.toHome($0.author.rawValue), partIndex: $0.partIndex, kind: $0.kind)
                        },
-                       replyTo: wire.replyTo.map { PartRef(message: MessageID($0.messageID), partIndex: $0.partIndex) })
+                       replyTo: message.replyTo, threadRoot: message.threadRoot)
     }
 
     /// A cloud head. Participants who left are not members any more.

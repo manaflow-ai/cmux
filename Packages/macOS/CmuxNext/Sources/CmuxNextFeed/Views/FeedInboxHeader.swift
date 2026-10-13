@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// Connection tabs and compact inbox triage controls, driven by host callbacks.
 struct FeedInboxHeader: View {
@@ -38,7 +39,7 @@ struct FeedInboxHeader: View {
             HStack(spacing: 10) {
                 Icon(.search, size: Self.glyphSide).foregroundStyle(colors.tertiary)
                 TextField(FeedStrings.filterInbox, text: $filter.query)
-                    .textFieldStyle(.plain).font(.system(size: 12))
+                    .textFieldStyle(.plain).font(.system(size: 12)).focusEffectDisabled()
                     .foregroundStyle(colors.primary)
                 Menu {
                     Picker(FeedStrings.filterInbox, selection: $filter.category) {
@@ -53,12 +54,12 @@ struct FeedInboxHeader: View {
                         .renderingMode(.template)
                 }
                 .menuStyle(.borderlessButton).menuIndicator(.hidden)
-                .frame(width: 16).help(FeedStrings.filterInbox)
-                Button(action: markRead) { Image(systemName: "checkmark.circle") }
-                    .buttonStyle(.plain).disabled(!hasUnread).help(FeedStrings.markAllRead)
+                .frame(width: 16).themedHelp(FeedStrings.filterInbox)
+                Button(action: markRead) { Icon(.actionConfirm, size: Self.glyphSide) }
+                    .buttonStyle(.plain).disabled(!hasUnread).themedHelp(FeedStrings.markAllRead)
                 if canRefresh {
                     Button(action: refresh) { Icon(.actionReload, size: Self.glyphSide) }
-                        .buttonStyle(.plain).help(FeedStrings.refresh)
+                        .buttonStyle(.plain).themedHelp(FeedStrings.refresh)
                 }
             }
             .font(.system(size: 12)).foregroundStyle(colors.secondary)

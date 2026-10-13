@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextIcons
 import SwiftUI
 
 /// Why nothing can change: the supervisor is unreachable. Every control
@@ -9,7 +10,7 @@ struct AppsDisconnectedBanner: View {
 
     var body: some View {
         HStack(spacing: Metrics.space2) {
-            Image(systemName: "bolt.horizontal").font(.system(size: 11))
+            Icon(.statusDisconnected, size: 13)
             Text(AppsStrings.unavailable(reason)).font(Font(Typography.bodyEmphasized))
             Text(AppsStrings.unavailableHelp).font(Font(Typography.caption)).foregroundStyle(colors.tertiary)
             Spacer()

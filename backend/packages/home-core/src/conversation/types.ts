@@ -143,6 +143,8 @@ export interface Message {
   readonly author: string
   readonly parts: ReadonlyArray<Part>
   readonly reply_to?: PartRef
+  /** The root of the thread this message replies in; a root has none (one level). */
+  readonly thread_root?: string
   readonly created_at: string
   readonly edited_at?: string
   readonly retracted_at?: string
@@ -278,7 +280,7 @@ export interface Summary {
 
 /** The local subset: the ops of the Rust crate (also valid on a cloud head). */
 export type LocalOp =
-  | { readonly kind: "message.send"; readonly client_msg_id: string; readonly parts: ReadonlyArray<Part>; readonly reply_to?: PartRef }
+  | { readonly kind: "message.send"; readonly client_msg_id: string; readonly parts: ReadonlyArray<Part>; readonly reply_to?: PartRef; readonly thread_root?: string }
   | { readonly kind: "message.edit"; readonly message_id: string; readonly parts: ReadonlyArray<Part> }
   | { readonly kind: "message.retract"; readonly message_id: string }
   | { readonly kind: "reaction.add"; readonly message_id: string; readonly part_index: number; readonly reaction: ReactionKind }

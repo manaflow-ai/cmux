@@ -61,6 +61,10 @@ public enum BrowserTabIntent {
     /// or Shift-Tab past its first. The host moves focus to the tab's
     /// omnibar.
     case takeFocus(forward: Bool)
+    /// The page showed a web notification its site may show (WebKit:
+    /// `new Notification(...)` with notifications allowed). The host shows
+    /// a banner and runs `notification.click` when it is clicked.
+    case webNotification(BrowserWebNotification)
     /// The page's popup window asked for a new size or position
     /// (`chrome.windows.update` with bounds). A popup panel follows; a tab
     /// ignores it.

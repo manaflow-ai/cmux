@@ -79,7 +79,7 @@ final class PaletteScopeChipView: NSView {
         setAccessibilityElement(true)
         setAccessibilityRole(.button)
         setAccessibilityLabel(PaletteStrings.chipAccessibility(chip.title))
-        toolTip = isTop ? PaletteStrings.chipAccessibility(chip.title) : PaletteStrings.backTo(chip.title)
+        themedToolTip = isTop ? PaletteStrings.chipAccessibility(chip.title) : PaletteStrings.backTo(chip.title)
         setAccessibilityIdentifier("palette.scopeChip.\(chip.scope.rawValue)")
     }
 
@@ -92,7 +92,7 @@ final class PaletteScopeChipView: NSView {
     static var iconBox: CGFloat { Metrics.smallIconSize + Metrics.space1 }
 
     var preferredHeight: CGFloat {
-        style == .token ? label.intrinsicContentSize.height + Metrics.space2 * 2 : max(label.intrinsicContentSize.height, Metrics.iconSize)
+        style == .token ? PaletteText.height(label) + Metrics.space2 * 2 : max(PaletteText.height(label), Metrics.iconSize)
     }
 
     var fittingWidth: CGFloat {
@@ -123,11 +123,11 @@ final class PaletteScopeChipView: NSView {
         let inset = style == .token ? Metrics.space3 : 0
         let iconSize = Self.iconBox
         icon.frame = NSRect(x: inset, y: (bounds.height - iconSize) / 2, width: iconSize, height: iconSize)
-        let labelHeight = label.intrinsicContentSize.height
+        let labelHeight = PaletteText.height(label)
         let ruleSpace = rule.isHidden ? 0 : Metrics.space4 + Metrics.dividerThickness
         let labelX = icon.frame.maxX + Metrics.space2
-        label.frame = NSRect(x: labelX, y: (bounds.height - labelHeight) / 2, width: max(0, bounds.width - labelX - inset - ruleSpace),
-                             height: labelHeight)
+        label.frame = pixelAligned(NSRect(x: labelX, y: (bounds.height - labelHeight) / 2,
+                                          width: max(0, bounds.width - labelX - inset - ruleSpace), height: labelHeight))
         let ruleHeight = Metrics.iconSize
         rule.frame = NSRect(x: bounds.width - Metrics.dividerThickness, y: (bounds.height - ruleHeight) / 2,
                             width: Metrics.dividerThickness, height: ruleHeight)
@@ -178,9 +178,10 @@ final class PaletteKeywordHintView: NSView {
 
     override func layout() {
         super.layout()
-        let labelSize = NSSize(width: PaletteText.fittingWidth(label), height: label.intrinsicContentSize.height)
+        let labelSize = NSSize(width: PaletteText.fittingWidth(label), height: PaletteText.height(label))
         let keySize = keys.intrinsicContentSize
-        label.frame = NSRect(x: 0, y: (bounds.height - labelSize.height) / 2, width: labelSize.width, height: labelSize.height)
-        keys.frame = NSRect(x: labelSize.width + Metrics.space2, y: (bounds.height - keySize.height) / 2, width: keySize.width, height: keySize.height)
+        label.frame = pixelAligned(NSRect(x: 0, y: (bounds.height - labelSize.height) / 2, width: labelSize.width, height: labelSize.height))
+        keys.frame = pixelAligned(NSRect(x: labelSize.width + Metrics.space2, y: (bounds.height - keySize.height) / 2,
+                                         width: keySize.width, height: keySize.height))
     }
 }

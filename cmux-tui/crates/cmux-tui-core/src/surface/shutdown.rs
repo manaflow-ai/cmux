@@ -128,7 +128,7 @@ impl Surface {
     pub fn kill(&self) {
         match self {
             Surface::Pty(pty) => {
-                #[cfg(unix)]
+                #[cfg(any(unix, windows))]
                 let mut terminate_fallback = None;
                 // Removal is authoritative. Prevent the mirror reader from
                 // racing termination by reconnecting a Surface that no longer
@@ -140,7 +140,7 @@ impl Surface {
                         PtyRuntime::Local { killer, .. } => {
                             let _ = killer.kill();
                         }
-                        #[cfg(unix)]
+                        #[cfg(any(unix, windows))]
                         PtyRuntime::Hosted(host) => {
                             // The host owns record cleanup and removes it only
                             // after the PTY process has actually exited. Unlinking
@@ -150,12 +150,12 @@ impl Surface {
                                 terminate_fallback = Some(host.identity());
                             }
                         }
-                        #[cfg(unix)]
+                        #[cfg(any(unix, windows))]
                         PtyRuntime::ExitedHosted => {}
                     }
                 }
                 if let Some(mux) = pty.mux.upgrade() {
-                    #[cfg(unix)]
+                    #[cfg(any(unix, windows))]
                     if let Some(identity) = terminate_fallback {
                         mux.terminate_discovered_terminal_host(
                             &identity.terminal_id,
@@ -171,7 +171,7 @@ impl Surface {
 
     pub(crate) fn disconnect_for_daemon_shutdown(&self) {
         match self {
-            #[cfg(unix)]
+            #[cfg(any(unix, windows))]
             Surface::Pty(pty) => {
                 if let PtyRuntime::Hosted(host) = &*pty.runtime.lock().unwrap() {
                     pty.owner_detaching.store(true, Ordering::Release);
@@ -183,7 +183,7 @@ impl Surface {
                 }
                 self.kill();
             }
-            #[cfg(not(unix))]
+            #[cfg(not(any(unix, windows)))]
             Surface::Pty(_) => self.kill(),
             Surface::Browser(browser) => browser.kill(),
         }
@@ -194,7 +194,7 @@ impl Surface {
             self.kill();
             return None;
         }
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         if let Some(pty) = self.as_pty() {
             let runtime = pty.runtime.lock().unwrap();
             if let PtyRuntime::Hosted(host) = &*runtime {
@@ -225,7 +225,7 @@ impl Surface {
     }
 
     pub(crate) fn persist_host_workspace(&self, workspace_key: &str) -> anyhow::Result<()> {
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         if let Some(pty) = self.as_pty()
             && let PtyRuntime::Hosted(host) = &mut *pty.runtime.lock().unwrap()
         {
@@ -238,14 +238,14 @@ impl Surface {
     /// public topology. Adoption and local PTYs are already active, making
     /// this idempotent for shared creation paths.
     pub(crate) fn activate_hosted_launch_stream(&self) -> anyhow::Result<bool> {
-        #[cfg(unix)]
+        #[cfg(any(unix, windows))]
         {
             let Some(pty) = self.as_pty() else { return Ok(false) };
             let mut runtime = pty.runtime.lock().unwrap();
             let PtyRuntime::Hosted(host) = &mut *runtime else { return Ok(false) };
             host.activate_launched_host().map_err(anyhow::Error::new)
         }
-        #[cfg(not(unix))]
+        #[cfg(not(any(unix, windows)))]
         Ok(false)
     }
 }

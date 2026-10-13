@@ -65,7 +65,7 @@ impl Mux {
         let mut state = self.lock_state_pinned(&registry).unwrap();
         self.resolve_resource_path_in_state(&state, &registry, ResourceTarget::Session, &selectors)
             .map_err(anyhow::Error::new)?;
-        let reserved_name = name.unwrap_or_else(|| Self::default_workspace_name(&state));
+        let reserved_name = name.unwrap_or_else(|| self.default_workspace_name(&state));
         let proposed_intent = json!({
             "workspace_public_id":WorkspacePublicId::random()?,
             "workspace_key":Self::new_workspace_key()?,
@@ -214,6 +214,7 @@ impl Mux {
             *self.resource_mutation_metrics.lock().unwrap() = Some(plan.metrics);
         }
         let marked = public_id.as_str().to_string();
+        let writes = mark.writes();
         let write_mark = move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
         let (commit, workspace_revision) = registry.commit_resource_creation_patch(
             correlation_key,
@@ -225,7 +226,7 @@ impl Mux {
             &created_path,
             &plan.deltas,
             plan.workspace_ledger.as_ref(),
-            mark.writes()
+            writes
                 .then_some(&write_mark as crate::workspace_registry::RegistryTransactionWrite<'_>),
         )?;
         plan.apply(&mut state, &commit, workspace_revision);

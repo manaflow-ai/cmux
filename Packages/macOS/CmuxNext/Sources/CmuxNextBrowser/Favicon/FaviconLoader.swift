@@ -78,6 +78,15 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         return image
     }
 
+    /// Keeps an icon a tab's engine fetched itself (a Chromium tab's own request context,
+    /// cx-d0d.8), decoded and capped as a fetch here is, so every reader of `url` for
+    /// `profile` gets it without a second, cookieless fetch. Nil when it does not decode.
+    public func store(_ data: Data, at url: URL, profile: BrowserProfileID) -> NSImage? {
+        guard let image = Self.decode(data) else { return nil }
+        caches[profile, default: LRUCache(capacity: Self.entriesPerProfile)].set(image, for: url)
+        return image
+    }
+
     /// Drops every icon cached for `profile` (a profile deleted, an
     /// incognito session ended).
     public func forget(profile: BrowserProfileID) {

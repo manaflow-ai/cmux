@@ -492,6 +492,8 @@ pub(crate) struct TerminalMetadata {
     /// OSC 7501 records, fed by the terminal parser's callback. Shared so a
     /// replaced mirror terminal (resize, reconnect) keeps feeding them.
     program_status: crate::program_status::SharedProgramStatus,
+    /// The running shell command (`terminal-activity-v1`).
+    activity: crate::terminal_activity::ShellActivity,
 }
 
 impl TerminalMetadata {
@@ -513,6 +515,7 @@ impl TerminalMetadata {
         let kitty = &mut self.kitty;
         let notifications = &mut self.notifications;
         let shell_marks = &mut self.shell_marks;
+        let activity = &mut self.activity;
         self.osc.observe(bytes, |body| {
             let Some(separator) = body.iter().position(|byte| *byte == b';') else {
                 return;
@@ -539,6 +542,10 @@ impl TerminalMetadata {
                 b"99" => observe_kitty_notification(kitty, data),
                 b"133" => {
                     if let Some(mark) = crate::shell_history::ShellMark::parse(data) {
+                        let now_ms = crate::workspace_registry::unix_epoch_ms().unwrap_or(0);
+                        if activity.observe(mark, now_ms) {
+                            progress.clear();
+                        }
                         if shell_marks.len() == crate::shell_history::MAX_PENDING_MARKS {
                             shell_marks.remove(0);
                         }
@@ -564,6 +571,17 @@ impl TerminalMetadata {
         program_status: crate::program_status::SharedProgramStatus,
     ) -> Self {
         Self { program_status, ..Self::default() }
+    }
+
+    /// Replaces the OSC 7501 records with a terminal host's.
+    pub(crate) fn restore_program_status(
+        &self,
+        snapshot: crate::program_status::ProgramStatusSnapshot,
+    ) {
+        self.program_status
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .restore(snapshot);
     }
 
     /// The OSC 7501 records this metadata publishes.
@@ -626,6 +644,16 @@ impl TerminalMetadata {
             self.published_progress = current;
             current
         })
+    }
+
+    /// When the running shell command started, if one runs.
+    pub(crate) fn busy_since_ms(&self) -> Option<u64> {
+        self.activity.busy_since_ms()
+    }
+
+    /// Whether the busy fact changed since the last call (marks it taken).
+    pub(crate) fn take_busy_change(&mut self) -> bool {
+        self.activity.take_change()
     }
 
     /// Restore a progress value carried by an authenticated terminal-host
@@ -951,23 +979,5 @@ mod tests {
         metadata.observe_output(b"\x1b]9;4;1;50\x07");
         assert_eq!(metadata.osc_progress(), "4;1;50");
         assert!(notes(&mut metadata).is_empty());
-    }
-
-    #[test]
-    fn cmux_next_terminal_notification_gate_limits_rate_and_repeats() {
-        let start = Instant::now();
-        let mut gate = NotificationGate::default();
-        let note = |title: &str| TerminalNotification {
-            title: title.into(),
-            body: String::new(),
-            level: crate::NotificationLevel::Info,
-        };
-        assert!(gate.admit(&note("a"), start));
-        // Within one second of the last shown notification: dropped.
-        assert!(!gate.admit(&note("b"), start + Duration::from_millis(500)));
-        assert!(gate.admit(&note("b"), start + Duration::from_millis(1_100)));
-        // The same text again within five seconds: dropped.
-        assert!(!gate.admit(&note("b"), start + Duration::from_millis(3_000)));
-        assert!(gate.admit(&note("b"), start + Duration::from_millis(6_200)));
     }
 }

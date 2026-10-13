@@ -75,6 +75,7 @@ import {
   splitStyles,
 } from "./markdownHost";
 import { galleryHost, galleryModules } from "./galleryHost";
+import { viteCacheDir } from "./viteCacheDir.mjs";
 
 const webviewsRoot = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const repoRoot = path.join(webviewsRoot, "..");
@@ -142,11 +143,14 @@ const indexPage = `<!doctype html>
 <li><a href="/apps/?mock">/apps/?mock</a>: App Store page against the in-page mock provider (<code>#/discover?layout=list|split</code>, <code>#/installed</code>)</li>
 <li><a href="/cloud/?mock">/cloud/?mock</a>: Cloud page against the in-page mock provider (<code>&amp;layout=cards</code> for the cards layout)</li>
 <li><a href="/keybindings/?mock">/keybindings/?mock</a>: Keyboard Shortcuts page against the in-page mock provider</li>
+<li><a href="/debug-settings/?mock">/debug-settings/?mock</a>: Debug Settings page against the in-page mock tunables</li>
 <li><a href="/gallery/">/gallery/</a>: every component and page in named fixture states, with locale, theme, font, scale and width controls</li>
 <li><a href="/agent-pane/?mock">/agent-pane/?mock</a>: agent pane against the in-page mock daemon (<code>dev-slot.sh</code> prints a real-daemon URL); <a href="/agent-pane/prototype.html?mock">prototype.html</a></li>
 </ul>
 </body></html>`;
 
+// The gallery pages too: its registry globs every *.gallery file, so a stage (and the browser tests
+// that load one first, text-field-focus) never waits on a late re-optimize (cx-c332z).
 const devEntries = [
   "src/diff/dev.ts",
   "src/diff-worker.ts",
@@ -158,6 +162,8 @@ const devEntries = [
   "src/pages/editor/devBridge.ts",
   "src/pages/editor/main.tsx",
   "src/pages/editor/view.ts",
+  "src/gallery/index.html",
+  "src/gallery/frame.html",
 ];
 
 /// The index page, dev React and the dependency cache.
@@ -172,8 +178,10 @@ function devServerShell(): Plugin {
       return {
         // One dependency cache per server. A cache shared with another server on the same
         // node_modules (vite.config.acpmux-pane.mjs, another slot) is re-optimized under it, and
-        // open pages then fail to load modules and requests mid-load.
-        cacheDir: `node_modules/${dependencyCacheName(config.server?.port ?? DEV_SERVER_PORT)}`,
+        // open pages then fail to load modules and requests mid-load. The webviews test runner
+        // names one of its own (CMUX_VITE_CACHE_DIR), a copy of a warm one, for fresh browsers
+        // only, so its modules skip the no-cache revalidation below.
+        cacheDir: viteCacheDir ?? `node_modules/${dependencyCacheName(config.server?.port ?? DEV_SERVER_PORT)}`,
         // Every surface's entry, so the first scan finds all dependencies instead of a page
         // discovering one late and triggering an optimizer reload.
         // Monaco stays unbundled: its language configurations (pages/editor/view.ts) import its API
@@ -271,10 +279,12 @@ function agentPaneHost(): Plugin {
 // The React pages under src/pages/<page>/index.html (scripts/cmux-next/build-pages-web.sh PAGES).
 const DEV_PAGES = [
   "history",
+  "home-channels",
   "apps",
   "coderouter",
   "cloud",
   "keybindings",
+  "debug-settings",
   "icon-picker",
   "settings",
   "passwords",

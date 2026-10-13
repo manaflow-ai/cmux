@@ -3095,6 +3095,13 @@
             "name": "HomePartRef"
           }
         },
+        "thread_root": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "MessageId"
+          }
+        },
         "created_at": {
           "required": true,
           "type": {
@@ -3610,6 +3617,55 @@
         }
       },
       "description": "A styled range of a text part, in UTF-16 code units."
+    },
+    "HomeThreadSummary": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "MessageId"
+          }
+        },
+        "reply_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "int64"
+          }
+        },
+        "last_reply_seq": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "last_reply_at": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "inner": {
+              "kind": "ref",
+              "name": "Timestamp"
+            }
+          }
+        },
+        "authors": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "ParticipantId"
+            }
+          }
+        }
+      }
     },
     "Host": {
       "kind": "object",
@@ -22121,6 +22177,9 @@
               "reply_to": {
                 "$ref": "#/$defs/HomePartRef"
               },
+              "thread_root": {
+                "$ref": "#/$defs/MessageId"
+              },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
               },
@@ -22454,6 +22513,16 @@
               }
             }
           },
+          "threads": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HomeThreadSummary"
+              }
+            }
+          },
           "next_before_seq": {
             "required": true,
             "type": {
@@ -22545,6 +22614,12 @@
             "type": "array",
             "items": {
               "$ref": "#/$defs/HomeMessage"
+            }
+          },
+          "threads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/HomeThreadSummary"
             }
           },
           "next_before_seq": {
@@ -22987,6 +23062,9 @@
               "reply_to": {
                 "$ref": "#/$defs/HomePartRef"
               },
+              "thread_root": {
+                "$ref": "#/$defs/MessageId"
+              },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
               },
@@ -23012,6 +23090,54 @@
               "parts",
               "created_at",
               "reactions"
+            ],
+            "additionalProperties": true
+          },
+          "HomeThreadSummary": {
+            "type": "object",
+            "properties": {
+              "root": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "reply_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "last_reply_seq": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "last_reply_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "authors": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ParticipantId"
+                },
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "root",
+              "reply_count",
+              "last_reply_seq",
+              "last_reply_at",
+              "authors"
             ],
             "additionalProperties": true
           }
@@ -23719,6 +23845,16 @@
               }
             }
           },
+          "threads": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HomeThreadSummary"
+              }
+            }
+          },
           "revision": {
             "required": true,
             "type": {
@@ -23799,6 +23935,12 @@
             "type": "array",
             "items": {
               "$ref": "#/$defs/HomeMessage"
+            }
+          },
+          "threads": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/HomeThreadSummary"
             }
           },
           "revision": {
@@ -24286,6 +24428,9 @@
               "reply_to": {
                 "$ref": "#/$defs/HomePartRef"
               },
+              "thread_root": {
+                "$ref": "#/$defs/MessageId"
+              },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
               },
@@ -24566,6 +24711,732 @@
               "created_at",
               "updated_at",
               "read_cursors"
+            ],
+            "additionalProperties": true
+          },
+          "HomeThreadSummary": {
+            "type": "object",
+            "properties": {
+              "root": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "reply_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "last_reply_seq": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "last_reply_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "authors": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ParticipantId"
+                },
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "root",
+              "reply_count",
+              "last_reply_seq",
+              "last_reply_at",
+              "authors"
+            ],
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "conversation.thread": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "conversation",
+      "ancestors": [
+        "user"
+      ],
+      "params": {
+        "selectors": {},
+        "fields": {
+          "conversation": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "ConversationId"
+            }
+          },
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "MessageId"
+            }
+          },
+          "after_seq": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "int64"
+            }
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "object",
+        "fields": {
+          "root": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HomeMessage"
+            }
+          },
+          "replies": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HomeMessage"
+              }
+            }
+          },
+          "has_more": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            }
+          },
+          "thread": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HomeThreadSummary"
+            }
+          }
+        }
+      },
+      "errors": [
+        "archived",
+        "auth.forbidden",
+        "auth.unauthenticated",
+        "forbidden",
+        "idempotency.conflict",
+        "kind_forbids",
+        "not_participant",
+        "owner.unreachable",
+        "unknown_conversation",
+        "unknown_message",
+        "validation.invalid"
+      ],
+      "owner": "cloud:ConversationDO",
+      "risk": "read",
+      "principals": [
+        "session",
+        "install"
+      ],
+      "focuses": false,
+      "queue_offline": false,
+      "remote_relay": "deny",
+      "transport": {
+        "http": {
+          "method": "POST",
+          "path": "/v1/read"
+        }
+      },
+      "cli": {
+        "path": "chat thread",
+        "visible": true
+      },
+      "mcp": {
+        "expose": "default",
+        "group": "home"
+      },
+      "docs": "Read one thread: its root and the replies after after_seq (ascending, exact has_more), with the root's stats. A root that is unknown, is itself a reply, or is hidden by since_join is unknown_message.",
+      "since": "cloud-1",
+      "input_json_schema": {
+        "type": "object",
+        "properties": {
+          "conversation": {
+            "$ref": "#/$defs/ConversationId"
+          },
+          "root": {
+            "$ref": "#/$defs/MessageId"
+          },
+          "after_seq": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "required": [
+          "conversation",
+          "root"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          }
+        }
+      },
+      "output_json_schema": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "$ref": "#/$defs/HomeMessage"
+          },
+          "replies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/HomeMessage"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "thread": {
+            "$ref": "#/$defs/HomeThreadSummary"
+          }
+        },
+        "required": [
+          "root",
+          "replies",
+          "has_more",
+          "thread"
+        ],
+        "additionalProperties": true,
+        "$defs": {
+          "MessageId": {
+            "type": "string",
+            "pattern": "^msg_[0-9A-Za-z]{1,64}$"
+          },
+          "ConversationId": {
+            "type": "string",
+            "pattern": "^conv_(dm_)?[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "conv_<26> (group or chief) or conv_dm_<26> (one-to-one, derived from the pair)."
+          },
+          "ClientToken": {
+            "type": "string",
+            "pattern": "^[\\x21-\\x7e]{1,128}$",
+            "description": "1 to 128 printable ASCII characters (idempotency key, client_msg_id)."
+          },
+          "ParticipantId": {
+            "type": "string",
+            "pattern": "^((user|agent)_[A-Za-z0-9_.-]{1,64}|addr_[0-9A-HJKMNP-TV-Z]{26})$",
+            "description": "user_<id>, agent_<name> or addr_<26> (an invited address)."
+          },
+          "HomeTextRun": {
+            "type": "object",
+            "properties": {
+              "start": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "length": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "mention": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "link": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "start",
+              "length"
+            ],
+            "additionalProperties": true,
+            "description": "A styled range of a text part, in UTF-16 code units."
+          },
+          "HomeSha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "SHA-256 of the bytes, lowercase hex."
+          },
+          "HomeAttachmentPoster": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 2000000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}."
+          },
+          "HomeAttachmentPreview": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."
+          },
+          "HomeLinkPreviewImage": {
+            "type": "object",
+            "properties": {
+              "hash": {
+                "$ref": "#/$defs/HomeSha256"
+              },
+              "mime_type": {
+                "type": "string",
+                "enum": [
+                  "image/jpeg",
+                  "image/webp"
+                ]
+              },
+              "byte_count": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 512000
+              }
+            },
+            "required": [
+              "hash",
+              "mime_type",
+              "byte_count"
+            ],
+            "additionalProperties": true,
+            "description": "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}."
+          },
+          "HomePart": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "text"
+                    ]
+                  },
+                  "text": {
+                    "type": "string"
+                  },
+                  "runs": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/HomeTextRun"
+                    }
+                  }
+                },
+                "required": [
+                  "type",
+                  "text"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "work"
+                    ]
+                  },
+                  "session": {
+                    "type": "string"
+                  },
+                  "host": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "running",
+                      "done",
+                      "failed",
+                      "waiting"
+                    ]
+                  },
+                  "preview": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type",
+                  "session",
+                  "status"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "attachment"
+                    ]
+                  },
+                  "hash": {
+                    "$ref": "#/$defs/HomeSha256"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "mime_type": {
+                    "type": "string",
+                    "maxLength": 255
+                  },
+                  "byte_count": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "width": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "height": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0
+                  },
+                  "duration_ms": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "poster": {
+                    "$ref": "#/$defs/HomeAttachmentPoster"
+                  },
+                  "preview": {
+                    "$ref": "#/$defs/HomeAttachmentPreview"
+                  }
+                },
+                "required": [
+                  "type",
+                  "hash",
+                  "name",
+                  "mime_type",
+                  "byte_count"
+                ],
+                "additionalProperties": true,
+                "description": "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold."
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "link_preview"
+                    ]
+                  },
+                  "url": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048
+                  },
+                  "title": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 600
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "site": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 506
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "image": {
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/HomeLinkPreviewImage"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "type",
+                  "url"
+                ],
+                "additionalProperties": true,
+                "description": "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters."
+              }
+            ]
+          },
+          "HomePartRef": {
+            "type": "object",
+            "properties": {
+              "message_id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "part_index": {
+                "type": "integer",
+                "minimum": 0,
+                "exclusiveMaximum": 16
+              }
+            },
+            "required": [
+              "message_id",
+              "part_index"
+            ],
+            "additionalProperties": true
+          },
+          "Timestamp": {
+            "type": "string",
+            "description": "RFC 3339 UTC with milliseconds."
+          },
+          "HomeReactionKind": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "tapback": {
+                    "type": "string",
+                    "enum": [
+                      "love",
+                      "like",
+                      "dislike",
+                      "laugh",
+                      "emphasize",
+                      "question"
+                    ]
+                  }
+                },
+                "required": [
+                  "tapback"
+                ],
+                "additionalProperties": true
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "emoji": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  }
+                },
+                "required": [
+                  "emoji"
+                ],
+                "additionalProperties": true
+              }
+            ]
+          },
+          "HomeReaction": {
+            "type": "object",
+            "properties": {
+              "author": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "part_index": {
+                "type": "integer",
+                "minimum": 0,
+                "exclusiveMaximum": 16
+              },
+              "kind": {
+                "$ref": "#/$defs/HomeReactionKind"
+              },
+              "at": {
+                "$ref": "#/$defs/Timestamp"
+              }
+            },
+            "required": [
+              "author",
+              "part_index",
+              "kind",
+              "at"
+            ],
+            "additionalProperties": true
+          },
+          "HomeMessage": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "conversation": {
+                "$ref": "#/$defs/ConversationId"
+              },
+              "seq": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "client_msg_id": {
+                "$ref": "#/$defs/ClientToken"
+              },
+              "author": {
+                "$ref": "#/$defs/ParticipantId"
+              },
+              "parts": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/HomePart"
+                }
+              },
+              "reply_to": {
+                "$ref": "#/$defs/HomePartRef"
+              },
+              "thread_root": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "created_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "edited_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "retracted_at": {
+                "$ref": "#/$defs/Timestamp"
+              },
+              "reactions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/HomeReaction"
+                }
+              }
+            },
+            "required": [
+              "id",
+              "conversation",
+              "seq",
+              "client_msg_id",
+              "author",
+              "parts",
+              "created_at",
+              "reactions"
+            ],
+            "additionalProperties": true
+          },
+          "HomeThreadSummary": {
+            "type": "object",
+            "properties": {
+              "root": {
+                "$ref": "#/$defs/MessageId"
+              },
+              "reply_count": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "last_reply_seq": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "last_reply_at": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "authors": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/ParticipantId"
+                },
+                "maxItems": 3
+              }
+            },
+            "required": [
+              "root",
+              "reply_count",
+              "last_reply_seq",
+              "last_reply_at",
+              "authors"
             ],
             "additionalProperties": true
           }
@@ -25229,6 +26100,9 @@
               },
               "reply_to": {
                 "$ref": "#/$defs/HomePartRef"
+              },
+              "thread_root": {
+                "$ref": "#/$defs/MessageId"
               },
               "created_at": {
                 "$ref": "#/$defs/Timestamp"
@@ -42842,6 +43716,13 @@
               "name": "HomePartRef"
             }
           },
+          "thread_root": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "MessageId"
+            }
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -42875,6 +43756,7 @@
         "idempotency_conflict",
         "invalid_client_msg_id",
         "invalid_parts",
+        "invalid_thread_root",
         "kind_forbids",
         "not_participant",
         "owner.unreachable",
@@ -42904,7 +43786,7 @@
         "expose": "default",
         "group": "home"
       },
-      "docs": "Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message.",
+      "docs": "Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -42925,6 +43807,9 @@
           },
           "reply_to": {
             "$ref": "#/$defs/HomePartRef"
+          },
+          "thread_root": {
+            "$ref": "#/$defs/MessageId"
           }
         },
         "required": [

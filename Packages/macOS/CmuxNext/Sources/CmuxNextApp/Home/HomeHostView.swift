@@ -1,5 +1,6 @@
 import AppKit
 import CmuxHomeCore
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextActions
 import CmuxNextDesign
@@ -25,9 +26,15 @@ final class HomeHostView: NSView {
     private var slideClient: FrameClient?
     private var isChief = false
     private var engineWatch: Task<Void, Never>?
+    private var agentsWatch: Task<Void, Never>?
     private var toggleObserver: (any NSObjectProtocol)?
     /// `home.toggleChiefSettings` (palette, `cmux action run`, preflight).
     static let toggleSettings = Notification.Name("HomeHostView.toggleChiefSettings")
+    /// The Chief's avatar when its profile sets none: the bundled cat
+    /// (160 px, sharp on the 40 pt header disc up to 4x).
+    static let defaultAvatar = Bundle.module.image(forResource: "ChiefAvatar")
+    /// The same cat for the Chief's tile in the conversation list.
+    static let defaultTileAvatar = Bundle.module.url(forResource: "ChiefAvatar", withExtension: "png").map(HomeChiefAvatar.picture)
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
     private let control: HomeChiefControl
@@ -49,10 +56,15 @@ final class HomeHostView: NSView {
         let files = HomeChiefFiles(muxHome: HomeBrainHost.muxHome(tag: services.environment.tag))
         // task-owner: one profile read off the main actor; ends when it is shown
         Task { [weak self] in
-            let avatar = await Task.detached { files.avatar() }.value
-            self?.transcript.avatarText = avatar
+            let avatar = await Task.detached { files.headerAvatar() }.value
+            self?.transcript.avatarPicture = avatar.picture.flatMap(NSImage.init(data:)) ?? (avatar.text == nil ? Self.defaultAvatar : nil)
+            self?.transcript.avatarText = avatar.text
         }
-        sidebar.onAvatar = { [weak self] text in self?.transcript.avatarText = text }
+        sidebar.onAvatar = { [weak self, weak service] text in
+            self?.transcript.avatarPicture = text == nil ? Self.defaultAvatar : nil
+            self?.transcript.avatarText = text
+            service?.directory.chiefAvatar = text.map(HomeChiefAvatar.text) ?? Self.defaultTileAvatar
+        }
         sidebar.onShowMemory = { [weak services] in
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: ActionInvocation(origin: .user))
         }
@@ -83,7 +95,7 @@ final class HomeHostView: NSView {
         // whether this is the Chief conversation, and a refresh of the
         // sidebar's last turn on each new message.
         engineWatch = Task { [weak self] in
-            for await (isChief, _, title, cloud, typing) in Observations({ () -> (Bool, Int, String, Bool, Bool) in
+            for await (isChief, _, title, cloud, typing) in ObservationStream({ () -> (Bool, Int, String, Bool, Bool) in
                 let row = store.rows.first { $0.summary.id == id }
                 let chief = row?.summary.participants.contains { $0.agentClass == .chief } ?? false
                 // A cloud Chief's brain runs on its paired server, never on
@@ -117,6 +129,23 @@ final class HomeHostView: NSView {
             }
             _ = registry.perform(id, invocation: ActionInvocation(origin: .user))
         }
+        // The first-run panel's agent rows open the agent's tab like a jump (Search Tabs).
+        transcript.onFirstRunAgent = { [weak services] tab in _ = services?.revealTab(tab) }
+        // task-owner: lives as long as this view; event-driven (Observation):
+        // the user's agents for the first-run glance, only while it can show
+        // (the Chief with no messages yet): otherwise no tab is read, so tab
+        // changes never wake a Chief with history.
+        agentsWatch = Task { [weak self] in
+            var shown: [HomeAgentGlance] = []
+            for await agents in ObservationStream({ () -> [HomeAgentGlance] in
+                guard let summary = store.rows.first(where: { $0.summary.id == id })?.summary,
+                      summary.lastSeq == 0, summary.participants.contains(where: { $0.agentClass == .chief }) else { return [] }
+                return HomeAgentGlances(services: services).current
+            }) where agents != shown {
+                shown = agents
+                self?.transcript.setFirstRunAgents(agents)
+            }
+        }
         transcript.setFirstRunShortcuts(terminal: registry.shortcutDisplay(for: Self.openTerminalAction),
                                         agent: registry.shortcutDisplay(for: Self.startAgentAction),
                                         tabs: registry.shortcutDisplay(for: Self.selectTabByNumberAction))
@@ -134,6 +163,10 @@ final class HomeHostView: NSView {
         // over the pane next to Home.
         clipsToBounds = true
         message.alignment = .center
+        // A long reason (a migration notice) wraps in a narrow pane instead of clipping.
+        message.maximumNumberOfLines = 0
+        message.lineBreakMode = .byWordWrapping
+        message.cell?.wraps = true
         message.stringValue = HomeStrings.unavailable
         addSubview(transcript)
         addSubview(message)
@@ -143,7 +176,7 @@ final class HomeHostView: NSView {
         availability = Task { [weak self] in
             // Usable when its own owner answers: a cloud conversation (a Chief
             // placed on a server) needs no local Chief owner.
-            for await (available, online, why, notice) in Observations({
+            for await (available, online, why, notice) in ObservationStream({
                 (service.isAvailable || service.isCloudConversation(id), service.homeStore.isOnline, service.unavailableMessage,
                  service.conversationNotice(for: id))
             }) {
@@ -152,7 +185,7 @@ final class HomeHostView: NSView {
                 self?.message.stringValue = why
                 self?.transcript.showConversationNotice(notice)
                 self?.needsLayout = true
-                // H17: offline the user can type, but Send is off.
+                // H17: offline the user can type; tapbacks are off and a send waits as "sending".
                 self?.transcript.isSendEnabled = online
             }
         }
@@ -166,14 +199,19 @@ final class HomeHostView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    isolated deinit {
-        availability?.cancel()
-        engineWatch?.cancel()
-        slideClient?.deactivate()
-        if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
-        if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
-        firstPage?.cancel()
-        transcript.stop()
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            availability?.cancel()
+            engineWatch?.cancel()
+            agentsWatch?.cancel()
+            slideClient?.deactivate()
+            if let toggleObserver { NotificationCenter.default.removeObserver(toggleObserver) }
+            if let stopObserver { NotificationCenter.default.removeObserver(stopObserver) }
+            firstPage?.cancel()
+            transcript.stop()
+        }
     }
 
     override var wantsUpdateLayer: Bool { true }
@@ -191,8 +229,12 @@ final class HomeHostView: NSView {
         // A layout pass mid-slide (a resize, a notice) keeps the presented
         // place: it never snaps the slide to its end.
         placeSidebar()
-        let size = message.intrinsicContentSize
-        message.frame = NSRect(x: 0, y: (bounds.height - size.height) / 2, width: bounds.width, height: size.height)
+        let inset: CGFloat = 24
+        let width = max(0, bounds.width - 2 * inset)
+        message.preferredMaxLayoutWidth = width
+        let height = ceil(message.cell?.cellSize(forBounds: NSRect(x: 0, y: 0, width: width, height: .greatestFiniteMagnitude)).height
+            ?? message.intrinsicContentSize.height)
+        message.frame = NSRect(x: inset, y: (bounds.height - height) / 2, width: width, height: height)
     }
 
     /// The header avatar's click: the sidebar slides in from the right

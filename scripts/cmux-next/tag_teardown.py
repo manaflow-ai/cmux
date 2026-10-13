@@ -38,8 +38,13 @@ class TagTeardown:
         found = []
         for line in out.splitlines():
             parts = line.strip().split(None, 1)
-            if len(parts) == 2 and (parts[1].startswith(self.app + "/") or parts[1].startswith(self.app + " ")):
-                found.append((int(parts[0]), parts[1]))
+            if len(parts) != 2:
+                continue
+            # The app names some helpers by /var/... or /tmp/... without the /private its realpath
+            # carries (an app copy in $TMPDIR); match them by the resolved spelling.
+            command = "/private" + parts[1] if parts[1].startswith(("/var/", "/tmp/")) else parts[1]
+            if command.startswith(self.app + "/") or command.startswith(self.app + " "):
+                found.append((int(parts[0]), command))
         return found
 
     @staticmethod

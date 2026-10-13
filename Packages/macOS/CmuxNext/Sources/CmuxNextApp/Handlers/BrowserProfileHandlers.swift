@@ -49,7 +49,10 @@ enum BrowserProfileHandlers {
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
                 try history.change(id, from: record.icon, to: icon, origin: invocation.origin)
             } else if let anchor = context.services.iconPicker.activeWindowAnchor() {
-                context.services.iconPicker.pick(current: record.icon, target: "browserProfile:\(id)", at: anchor) { result in
+                // Browser profiles live in the local daemon, which stores their image and SVG icons.
+                let assets = IconAssetStore.owner(context.services.machines.local)
+                context.services.iconPicker.pick(current: record.icon, target: "browserProfile:\(id)", at: anchor,
+                                                 assets: assets) { result in
                     // The record is a value: read the icon the profile shows when the pick lands.
                     let current = profiles.record(id)?.icon
                     switch result {
@@ -72,6 +75,7 @@ enum BrowserProfileHandlers {
             try profiles.delete(record.id)
         }
         BrowserProfileOpenHandlers.bind(bind, context: context)
+        BrowsingDataClear.bind(bind, context: context)
     }
 
     /// A new profile: the given name, color and icon, else "Profile N" and

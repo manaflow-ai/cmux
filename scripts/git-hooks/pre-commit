@@ -66,6 +66,25 @@ if git diff --cached --name-only --diff-filter=ACMRT | grep -Fxq "$PBXPROJ"; the
     fi
 fi
 
+# A missing formatter is a hard failure for agents and CI, never a silent skip
+# (lanes committed unformatted Rust and web code for days because rustfmt and
+# vp were missing on the agent host). People get a warning instead. Codex
+# shells set CODEX_CI and CODEX_THREAD_ID; Claude Code shells set CLAUDECODE.
+REQUIRE_FORMATTERS=0
+for var in CMUX_AGENT CMUX_REQUIRE_FORMATTERS CI CLAUDECODE CODEX_CI CODEX_THREAD_ID CODEX_SANDBOX; do
+    if [[ -n "${!var:-}" && "${!var}" != 0 ]]; then
+        REQUIRE_FORMATTERS=1
+    fi
+done
+formatter_missing() { # message
+    if (( REQUIRE_FORMATTERS )); then
+        echo "pre-commit: $1" >&2
+        echo "pre-commit: refusing to commit unformatted files (an agent or CI environment requires formatters; do not pass --no-verify)." >&2
+        exit 1
+    fi
+    echo "pre-commit: $1; skipping (CI will check it)." >&2
+}
+
 # Keep the formatters on the fast path: only invoke them for files that are in
 # this commit, and never build or inspect the rest of the checkout. A formatter
 # rewrites its input in place, so refuse a file with unstaged edits rather than
@@ -76,7 +95,7 @@ STAGED_SWIFT_PATHS=()
 while IFS= read -r -d '' path; do
     if ! git diff --quiet -- "$path"; then
         case "$path" in
-            webviews/*|cmux-tui/*|*.swift)
+            webviews/*|*.rs|*.swift)
                 echo "pre-commit: $path has unstaged changes; stage or stash them before formatting." >&2
                 exit 1
                 ;;
@@ -91,10 +110,8 @@ while IFS= read -r -d '' path; do
                     ;;
             esac
             ;;
-        cmux-tui/*)
-            if [[ "$path" == *.rs ]]; then
-                STAGED_RUST_PATHS+=("$path")
-            fi
+        *.rs)
+            STAGED_RUST_PATHS+=("$path")
             ;;
         *.swift)
             STAGED_SWIFT_PATHS+=("$path")
@@ -103,66 +120,113 @@ while IFS= read -r -d '' path; do
 done < <(git diff --cached --name-only --diff-filter=ACMRT -z)
 
 if (( ${#STAGED_WEB_PATHS[@]} > 0 )); then
-    VP_BIN="$(command -v vp || true)"
-    if [[ -z "$VP_BIN" && -x "$REPO_ROOT/webviews/node_modules/.bin/vp" ]]; then
-        VP_BIN="$REPO_ROOT/webviews/node_modules/.bin/vp"
+    # The checkout's own vp (vp fmt reads webviews/vite.config.ts, which needs
+    # webviews' packages). Without them, install them: bun's cache makes that
+    # about a second, and lifecycle scripts never run.
+    VP_BIN="$REPO_ROOT/webviews/node_modules/.bin/vp"
+    if [[ ! -x "$VP_BIN" ]] && command -v bun >/dev/null 2>&1; then
+        echo "pre-commit: installing webviews packages for vp (bun install --frozen-lockfile --ignore-scripts)" >&2
+        (cd "$REPO_ROOT/webviews" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
     fi
-    if [[ -z "$VP_BIN" ]]; then
-        echo "pre-commit: vp is unavailable; skipping webviews formatting (CI will run vp check)." >&2
+    if [[ ! -x "$VP_BIN" ]]; then
+        formatter_missing "vp is unavailable (install bun, then run bun install in webviews)"
     else
         (
             cd "$REPO_ROOT/webviews"
-            "$VP_BIN" fmt "${STAGED_WEB_PATHS[@]}"
+            # A commit of only fmt-ignored files (webviews CSS) matches nothing.
+            "$VP_BIN" fmt --no-error-on-unmatched-pattern "${STAGED_WEB_PATHS[@]}"
         )
         git add -- "${STAGED_WEB_PATHS[@]/#/webviews/}"
     fi
 fi
 
+# Rust: every staged .rs file is formatted as `cargo fmt` would, with its Cargo
+# package's edition and the nearest rustfmt.toml above it inside the checkout.
+# With none, an empty config pins rustfmt's defaults, so a stray rustfmt.toml
+# above the checkout (rustfmt keeps searching up to /) never decides the
+# format. Bash 3.2 compatible (macOS): no associative arrays.
+rust_package_root() { # repository-relative path -> nearest directory with a [package] Cargo.toml
+    local dir="${1%/*}"
+    [[ "$dir" == "$1" ]] && dir=""
+    while :; do
+        if [[ -f "$REPO_ROOT/${dir:+$dir/}Cargo.toml" ]] && grep -q '^\[package\]' "$REPO_ROOT/${dir:+$dir/}Cargo.toml"; then
+            echo "$dir"
+            return 0
+        fi
+        [[ -z "$dir" ]] && return 1
+        if [[ "$dir" == */* ]]; then dir="${dir%/*}"; else dir=""; fi
+    done
+}
+rust_edition() { # package root -> its edition, following edition.workspace = true
+    local manifest="$REPO_ROOT/${1:+$1/}Cargo.toml" dir="$1" edition
+    edition="$(sed -nE 's/^edition[[:space:]]*=[[:space:]]*"([0-9]{4})".*/\1/p' "$manifest" | head -n 1)"
+    if [[ -z "$edition" ]] && grep -qE '^edition([[:space:]]*\.[[:space:]]*workspace[[:space:]]*=[[:space:]]*true|[[:space:]]*=[[:space:]]*\{[[:space:]]*workspace[[:space:]]*=[[:space:]]*true)' "$manifest"; then
+        while [[ -n "$dir" ]]; do
+            if [[ "$dir" == */* ]]; then dir="${dir%/*}"; else dir=""; fi
+            manifest="$REPO_ROOT/${dir:+$dir/}Cargo.toml"
+            if [[ -f "$manifest" ]] && grep -q '^\[workspace\.package\]' "$manifest"; then
+                edition="$(awk '/^\[/{section=$0} section=="[workspace.package]" && /^edition[[:space:]]*=/{gsub(/[^0-9]/,"",$0); print; exit}' "$manifest")"
+                break
+            fi
+        done
+    fi
+    echo "${edition:-2015}"
+}
+rust_config() { # package root -> nearest rustfmt.toml or .rustfmt.toml at or above it in the checkout, or nothing
+    local dir="$1"
+    while :; do
+        for name in rustfmt.toml .rustfmt.toml; do
+            if [[ -f "$REPO_ROOT/${dir:+$dir/}$name" ]]; then
+                echo "$REPO_ROOT/${dir:+$dir/}$name"
+                return 0
+            fi
+        done
+        [[ -z "$dir" ]] && return 0
+        if [[ "$dir" == */* ]]; then dir="${dir%/*}"; else dir=""; fi
+    done
+}
+
 if (( ${#STAGED_RUST_PATHS[@]} > 0 )); then
+    # One "root<TAB>path" line per staged file inside a Cargo package; a .rs
+    # file outside every package (a build script fixture, say) is left alone.
+    RUST_ENTRIES=""
+    for path in "${STAGED_RUST_PATHS[@]}"; do
+        if package_root="$(rust_package_root "$path")"; then
+            RUST_ENTRIES+="$package_root"$'\t'"$path"$'\n'
+        fi
+    done
+    RUST_ROOTS="$(printf '%s' "$RUST_ENTRIES" | cut -f1 | sort -u)"
     # rustfmt can follow `mod` declarations from a staged module and rewrite
     # its children. Refuse that case within the affected Cargo package rather
     # than touching an unstaged Rust file in the worktree.
-    RUST_PACKAGE_ROOTS=()
-    for path in "${STAGED_RUST_PATHS[@]}"; do
-        package_dir="${path%/*}"
-        package_root=""
-        while [[ "$package_dir" == cmux-tui* && -n "$package_dir" ]]; do
-            if [[ -f "$REPO_ROOT/$package_dir/Cargo.toml" ]]; then
-                package_root="$package_dir"
-                break
-            fi
-            if [[ "$package_dir" == */* ]]; then
-                package_dir="${package_dir%/*}"
-            else
-                package_dir=""
-            fi
-        done
-        if [[ -n "$package_root" ]]; then
-            RUST_PACKAGE_ROOTS+=("$package_root")
-        fi
-    done
-    for package_root in "${RUST_PACKAGE_ROOTS[@]}"; do
+    while IFS= read -r package_root; do
+        [[ -n "$RUST_ENTRIES" ]] || break
         if {
-            git diff --name-only --diff-filter=ACMRT -- "$package_root"
-            git ls-files --others --exclude-standard -- "$package_root"
+            git diff --name-only --diff-filter=ACMRT -- "${package_root:-.}"
+            git ls-files --others --exclude-standard -- "${package_root:-.}"
         } | grep -Eq '\.rs$'; then
-            echo "pre-commit: $package_root has unstaged Rust edits; stage or stash them before formatting." >&2
+            echo "pre-commit: ${package_root:-.} has unstaged Rust edits; stage or stash them before formatting." >&2
             exit 1
         fi
-    done
-    RUSTFMT_BIN="$(command -v rustfmt || true)"
-    if [[ -z "$RUSTFMT_BIN" ]]; then
-        echo "pre-commit: rustfmt is unavailable; skipping cmux-tui formatting (CI will run cargo fmt --check)." >&2
-    else
-        RUSTFMT_PATHS=()
-        for path in "${STAGED_RUST_PATHS[@]}"; do
-            RUSTFMT_PATHS+=("${path#cmux-tui/}")
-        done
-        (
-            cd "$REPO_ROOT/cmux-tui"
-            "$RUSTFMT_BIN" --edition 2024 --config-path "$REPO_ROOT/cmux-tui/rustfmt.toml" "${RUSTFMT_PATHS[@]}"
-        )
-        git add -- "${STAGED_RUST_PATHS[@]}"
+    done <<<"$RUST_ROOTS"
+    if [[ -n "$RUST_ENTRIES" ]]; then
+        RUSTFMT_BIN="$(command -v rustfmt || true)"
+        if [[ -z "$RUSTFMT_BIN" ]]; then
+            formatter_missing "rustfmt is unavailable (rustup component add rustfmt, and put it on PATH)"
+        else
+            RUSTFMT_DEFAULTS="$(mktemp "${TMPDIR:-/tmp}/cmux-rustfmt-defaults.XXXXXX")"
+            trap 'rm -f "$RUSTFMT_DEFAULTS"' EXIT
+            while IFS= read -r package_root; do
+                config="$(rust_config "$package_root")"
+                RUSTFMT_ARGS=(--edition "$(rust_edition "$package_root")" --config-path "${config:-$RUSTFMT_DEFAULTS}")
+                PACKAGE_PATHS=()
+                while IFS=$'\t' read -r root path; do
+                    [[ "$root" == "$package_root" ]] && PACKAGE_PATHS+=("$REPO_ROOT/$path")
+                done <<<"$RUST_ENTRIES"
+                "$RUSTFMT_BIN" "${RUSTFMT_ARGS[@]}" "${PACKAGE_PATHS[@]}"
+                git add -- "${PACKAGE_PATHS[@]}"
+            done <<<"$RUST_ROOTS"
+        fi
     fi
 fi
 
@@ -171,7 +235,7 @@ fi
 if (( ${#STAGED_SWIFT_PATHS[@]} > 0 )) && [[ -f "$REPO_ROOT/.swift-format" ]]; then
     SWIFT_FORMAT_BIN="$(command -v swift-format || true)"
     if [[ -z "$SWIFT_FORMAT_BIN" ]]; then
-        echo "pre-commit: swift-format is unavailable; skipping Swift formatting (CI will report it)." >&2
+        formatter_missing "swift-format is unavailable"
     else
         for path in "${STAGED_SWIFT_PATHS[@]}"; do
             "$SWIFT_FORMAT_BIN" format --in-place --configuration "$REPO_ROOT/.swift-format" "$path"

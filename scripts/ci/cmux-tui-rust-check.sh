@@ -13,6 +13,9 @@
 # rb-testhost: fmt, clippy and tests of cmux-tui/crates/cmux-remote-browser-testhost
 # (its own workspace), then its release binary at .build/artifacts/cmux-remote-browser-testhost
 # (macOS arm64; fetch it with --artifact) for the remote tab's GUI proofs.
+# optchat-chief: fmt, clippy and tests of Native/OptChat/optchat-chief (its own workspace)
+# on macOS, where the Chief host runs: its macOS-only code (the acpmux socket peer check,
+# cx-ggai: LOCAL_PEERPID, proc_pidpath, the Security framework) runs only here.
 # The fleet may run cargo through cmux-ci (coordinator, 2026-10-04); a developer
 # Mac never runs it (the laptop and the minis by hand stay off limits), so
 # outside a step (CMUX_CI_STEP_KEY) it refuses. The target dir is the step's
@@ -111,6 +114,18 @@ if [[ "$mode" == rb-testhost ]]; then
   mkdir -p "$root/.build/artifacts"
   cp "$CARGO_TARGET_DIR/release/cmux-remote-browser-testhost" "$root/.build/artifacts/cmux-remote-browser-testhost"
   ls -l "$root/.build/artifacts/cmux-remote-browser-testhost"
+  exit 0
+fi
+if [[ "$mode" == optchat-chief ]]; then
+  export CARGO_TARGET_DIR="$root/.build/optchat-chief-target"
+  # Its tests bind unix sockets in temp dirs; the step's own TMPDIR is too deep
+  # for macOS's 104-byte socket paths (SUN_LEN), so they get a short one.
+  TMPDIR="$(mktemp -d /tmp/optchat.XXXXXX)"
+  export TMPDIR
+  cd "$root/Native/OptChat/optchat-chief"
+  cargo fmt --check
+  cargo clippy --locked --all-targets -- -D warnings
+  cargo test --locked ${filter:+"$filter"}
   exit 0
 fi
 if [[ "$mode" == fmt || "$mode" == all ]]; then

@@ -82,6 +82,7 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | Workspace identity (title, color, icon) | shared | `workspace.update`, `workspace.create` |
 | Workspace `ephemeral` flag (set only at creation) | shared | `workspace.create`, moves into a new workspace |
 | Home workspace (`workspace-kind-v1`, one per store, created by the store) | shared | `workspace.ensure_home` |
+| App workspaces (`app-screens-v1`, one per installed app), app tabs | shared | `workspace.ensure_app` |
 | Workspace agent folder (where new agent chats start; set only by the user) | shared | `workspace.agent_folder.set` |
 | Tab pin, zoom, user icon, browser back/forward, browser owner | shared | `tab.pin`, `tab.unpin`, `tab.update` |
 | Tab groups | shared | `tab_group.*` |
@@ -90,6 +91,8 @@ lowercase hexadecimal digits. Older records keep the IDs they already have
 | Workspace status (64 entries), progress, log (newest 200 lines) | shared | `workspace_status.*`, `workspace_progress.*`, `workspace_log.*` |
 | Workspace groups, sidebar order, rooms, saved tab groups | personal (home session) | `workspace_group.*`, `workspace.place`, `workspace.placement.list`, `room.*`, `saved_tab_group.*` |
 | Window records (one per app window, keyed install id and window id, one writer) | personal (home session) | `window_record.list`, `window_record.put`, `window_record.delete` |
+| Settings (the settings file `cmux-next.json`, managed layers; one owner per daemon, `settings-v1`) | machine (config owner) | `settings.*` |
+| Keybindings (`keybindings.json` beside the settings file, edited in place; one owner per daemon, `keybindings-v1`) | machine (config owner) | `keybindings.*` |
 | Sidebar section layout (one per user: sections in top, middle and bottom regions; plans/cmux-next/sidebar-sections.md) | personal (home session) | `sidebar_layout.get`, `sidebar_layout.update` |
 | Palette usage history (one per user: used rows and learned picks per query start; plans/cmux-next/palette-ranking.md 5.2) | personal (home session) | `palette_usage.get`, `palette_usage.record`, `palette_usage.import`, `palette_usage.hide`, `palette_usage.forget` |
 | Project list (the folders the user works in, imported from agent and editor sources, with the user's rename, pin, hide and order; plans/cmux-next/projects.md) | personal (home session) | `project.list`, `project.observe`, `project.add`, `project.update`, `project.remove`, `project.sync` |
@@ -124,7 +127,9 @@ it only for a terminal the user cannot see) posts one rate-limited `terminal`
 notification on its terminal; a primary
 prompt start removes `working`, `blocked` and `idle` records, an exited
 terminal shows only `done` and `error`, at most 256 records; absent when
-there are none; `cmux terminal <selector> status` prints it). Other state resources travel as `state_upsert` and
+there are none; `cmux terminal <selector> status` prints it; the strongest
+non-idle record is the tab's `program_status` in `list-workspaces` and the
+`program-status-changed` subscribe event). Other state resources travel as `state_upsert` and
 `state_delete` changes whose `resource` is a `StateResourceKind`, and the
 session snapshot lists them under `extra.state`. Clients that predate them
 decode these changes as `Unknown`.
@@ -153,6 +158,14 @@ refuses with `home.not_closable` before it ends a terminal (raw `error_code`
 position or into a group, or puts another workspace before it, refuses with
 `home.pinned_first` (raw `home_pinned_first`). `workspace.create` never
 accepts `kind`, so TUI and CLI sessions never have a home workspace.
+`workspace.ensure_app {app, route?, name?}` (`app-screens-v1`) is the only
+writer of `extra.kind: app`. It makes the one workspace of an installed and
+enabled app (`extra.app`) holding exactly one app tab, in one commit, and
+replays the live workspace after that; an app that is not installed and
+enabled refuses with `validation.invalid` (field `app`). The app tab is a
+frontend-rendered tab (raw `Tab.app {app, route}`); the raw tree reports the
+workspace as `Workspace.kind: "app"` with `Workspace.app`. `workspace.close`
+closes the app; the next call makes a new workspace.
 `personal-mixed-order-v1` puts personal groups and loose workspaces in one
 sidebar order. A group's place is a position in the personal workspace order:
 `workspace_group.update {top_index}` puts it right before the personal
@@ -202,12 +215,35 @@ again with its id, name, color, icon, pin, collapse, room and place, and puts ba
 member whose personal row still exists and that is still ungrouped; a group
 that exists again is left as it is. Its result names the session's active
 workspace.
+A window record put with `open: false` (`window_record.put`; the app closed
+the window and keeps its workspaces) after an open one stores one closed-history
+item of `kind: "window"` with no member, `window` naming the record
+(`install/window`) and `name` the window's workspace. A put with `open` true
+(or absent), and `window_record.delete`, remove the window's items. A window
+whose record says `open: false` is not live: its groups and its window item
+are in scope for every window (`closed.list`/`closed.reopen` with `window`).
+`closed.reopen` of a window item reopens nothing in the daemon; its result's
+`window` names the record for the app to show again and `workspace_id` the
+session's active workspace.
+`closed.reopen` with neither `closed` nor `window` skips window items: only
+an app can show a window again, and it names its window.
 `workspace-group-icon-v1` gives a personal group an icon:
-`workspace_group.update {icon}` sets it to the shared icon string (one emoji
-or an SF Symbol name, the rule every icon field uses) and `icon: null` clears
-it; anything else refuses with `validation.invalid`. `WorkspaceGroupSnapshot.icon`
-and the raw `list-personal` groups report it (null: no icon, and clients draw
-their default group glyph). Older daemons omit the field.
+`workspace_group.update {icon}` sets it to the shared icon string (one emoji,
+an SF Symbol name, or a stored `image:sha256-<hex>` or `svg:sha256-<hex>`
+asset, the rule every icon field uses) and `icon: null` clears it; anything
+else, or an asset the daemon does not store, refuses with `validation.invalid`.
+`WorkspaceGroupSnapshot.icon` and the raw `list-personal` groups report it
+(null: no icon, and clients draw their default group glyph). Older daemons
+omit the field.
+`screen-group-icon-v1` and `tab-group-icon-v1` give screen groups and tab
+groups the same icon: `screen_group.update {icon}` and `tab_group.update
+{icon}` set it to the shared icon string and `icon: null` clears it, with the
+same refusals. `ScreenGroupSnapshot.icon`, `TabGroupSnapshot.icon` and the
+`state_upsert` changes on `session.events` report it. A saved group keeps its
+live group's icon (`SavedTabGroupSnapshot.icon`, the raw saved screen
+groups), and reopening a saved group, or the closed record of an ungrouped
+tab group, restores it. The blob sweep keeps every asset a group or saved
+group names. Older daemons omit the fields.
 `workspace-group-pin-v1` pins (saves) a personal group:
 `workspace_group.update {pinned: true}` pins it and `false` unpins it;
 `WorkspaceGroupSnapshot.pinned` and the raw `list-personal` groups report it.
@@ -226,7 +262,20 @@ app sends it after a real user gesture, and an agent, a page or an app is
 refused. The value is saved with the workspace state, so it survives a restart,
 and travels as `extra.agent_folder`. The daemon never creates, moves or deletes
 the folder. A workspace without one gets an app-owned agent-home folder for its
-chats; that folder is not stored here.
+chats; that folder is not stored here. Neither the user's home folder nor a
+folder above it is accepted (`validation.invalid`): an agent there could read
+the whole home folder.
+`workspace.agent_start.get {workspace, cwd?}` (capability
+`workspace-agent-start-v1`, cx-9aps) is the one answer for where a new agent
+chat of the workspace starts: `{cwd, kind, agent_home, skipped?}`. Rules, first
+match wins: the proposed `cwd` (`seed`), the agent folder (`chosen`), the first
+folder of the workspace's terminal tabs (`workspace`), the workspace's
+agent-home folder `<data dir>/cmux/agent-home/<workspace key>` (`agent_home`).
+A candidate counts only when it is an existing folder that is not the home
+folder, above it, or inside agent-home; a proposed `cwd` that does not count is
+returned in `skipped` with its reason (`home`, `above_home`, `agent_home`,
+`missing`). Clients show the answer and start the chat there; they never decide
+the folder themselves.
 `closed.reopen` and `saved_tab_group.reopen` compose several creations; the request's key records the whole result, so a retry replays it.
 
 A window record holds one app window's state (shown workspace, listed
@@ -384,6 +433,18 @@ Failure:
 }
 ```
 
+A request may carry `credential`, the caller's launch credential
+(`CMUX_LAUNCH_CREDENTIAL` in a cmux terminal or ACP session). Only a local
+Unix connection may present one. The server verifies it before any owner
+sees the request and records the terminal or ACP session it names as the
+request's actor beside `origin`; a caller can never send an actor. A
+credential that is tampered, malformed, for another session, or for a closed
+terminal is refused with `validation.invalid` on field `credential`
+(`details.reason` `credential_invalid`, `credential_malformed`,
+`credential_foreign_host`, `credential_closed` or `credential_not_local`); a
+credential whose key was rotated away counts as absent. It is never part of
+the idempotency fingerprint, so a replay keeps the first actor.
+
 Reads omit `idempotency_key`. Every mutation requires a key containing 1 to
 128 UTF-8 bytes, at least one Unicode scalar outside the Unicode `White_Space`
 property, and no Unicode `Cc` control scalar. Leading, trailing, and internal
@@ -524,7 +585,8 @@ has its own delivery receipt, which starts `queued`. The message and its
 receipts live in the session registry, so they survive a daemon restart.
 `agent.message.mark` moves a receipt to `delivered`, `acknowledged` or
 `failed` and records the delivery path in `via`; receipts only move forward,
-except that a queued or failed delivery may fail again or be delivered. A
+except that a queued or failed delivery may fail again or be delivered, and a
+delivered one may fail when the path that claimed it could not hand it over. A
 reply without recipients goes to its parent's sender and stays in the
 parent's thread. `agent.message.list` returns the newest messages first (or
 the oldest, with `oldest_first`), filtered by recipient, sender, thread and the
@@ -751,8 +813,8 @@ operations after the server socket is bound.
 
 | Class | Operations |
 | --- | --- |
-| read | `agent.list`, `agent.message.list`, `browser.get`, `browser.list`, `chief.engine.get`, `client.get`, `client.list`, `closed.list`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `frontend_projection.get`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.diff`, `git.files.search`, `git.status`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `palette_usage.get`, `pane.get`, `pane.list`, `pane.neighbor.get`, `project.list`, `room.list`, `saved_tab_group.list`, `screen.get`, `screen.layout.export`, `screen.list`, `screen_group.get`, `screen_group.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `sidebar_layout.get`, `sidebar_view.get`, `tab.get`, `tab.list`, `tab_group.get`, `tab_group.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `window_record.list`, `workspace.get`, `workspace.list`, `workspace.placement.list`, `workspace_group.list`, `workspace_log.list`, `workspace_status.list` |
-| mutation | `agent.message.mark`, `agent.message.send`, `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `chief.engine.set`, `chief.stop`, `closed.delete`, `closed.reopen`, `column.update`, `conversation.draft`, `conversation.send`, `conversation.typing`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `palette_usage.forget`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `project.add`, `project.observe`, `project.remove`, `project.sync`, `project.update`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `sidebar_layout.update`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.agent_folder.set`, `workspace.close`, `workspace.create`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
+| read | `agent.list`, `agent.message.list`, `browser.get`, `browser.list`, `chief.engine.get`, `client.get`, `client.list`, `closed.list`, `conversation.get`, `conversation.history`, `conversation.list`, `conversation.search`, `credential.mint`, `credential.verify`, `frontend_projection.get`, `git.checkpoint.diff`, `git.checkpoint.get`, `git.checkpoint.list`, `git.diff`, `git.files.list`, `git.files.search`, `git.status`, `history.entries.list`, `history.visit.summaries`, `keybindings.get`, `machine.get`, `machine.list`, `notification.list`, `pairing_request.list`, `palette_usage.get`, `pane.get`, `pane.list`, `pane.neighbor.get`, `project.list`, `room.list`, `saved_tab_group.list`, `screen.get`, `screen.layout.export`, `screen.list`, `screen_group.get`, `screen_group.list`, `session.creation.resolve`, `session.get`, `session.journal.checkpoint.list`, `session.journal.hook.list`, `session.journal.producer.list`, `session.journal.restore.preview`, `session.journal.segment.list`, `session.list`, `session.ping`, `session.snapshot`, `settings.get`, `settings.list`, `settings.schema`, `settings.snapshot`, `sidebar_layout.get`, `sidebar_view.get`, `tab.get`, `tab.list`, `tab_group.get`, `tab_group.list`, `terminal.copy`, `terminal.get`, `terminal.history.read`, `terminal.list`, `terminal.output_read`, `terminal.process.get`, `terminal.screen.read`, `terminal.state.read`, `terminal.wait`, `terminal.wait_exit`, `window_record.list`, `workspace.agent_start.get`, `workspace.get`, `workspace.list`, `workspace.placement.list`, `workspace_group.list`, `workspace_log.list`, `workspace_status.list` |
+| mutation | `agent.message.mark`, `agent.message.send`, `agent.report`, `browser.activate`, `browser.back`, `browser.close`, `browser.forward`, `browser.input.key`, `browser.input.mouse`, `browser.input.text`, `browser.input.wheel`, `browser.navigate`, `browser.reload`, `chief.engine.set`, `chief.stop`, `closed.delete`, `closed.reopen`, `column.update`, `conversation.draft`, `conversation.send`, `conversation.typing`, `credential.rotate`, `frontend_projection.put`, `git.checkpoint.create`, `git.checkpoint.pin`, `git.checkpoint.unpin`, `git.commit`, `git.push`, `git.worktree.apply`, `git.worktree.create`, `git.worktree.remove`, `history.backups.purge`, `history.clear`, `history.entries.remove`, `history.restore`, `history.site.remove`, `history.visit.import`, `history.visit.record`, `history.visit.remove`, `history.visit.title`, `keybindings.remove`, `keybindings.reset`, `keybindings.set`, `layout.bulk`, `notification.ack`, `notification.clear`, `notification.create`, `pairing_request.resolve`, `palette_usage.forget`, `palette_usage.hide`, `palette_usage.import`, `palette_usage.record`, `pane.close`, `pane.create`, `pane.focus`, `pane.focus_direction`, `pane.rename`, `pane.run`, `pane.split`, `pane.split_ratio.set`, `pane.swap`, `pane.viewport_width.set`, `pane.zoom`, `project.add`, `project.observe`, `project.remove`, `project.sync`, `project.update`, `room.create`, `room.delete`, `room.follow`, `room.move`, `room.pin`, `room.unpin`, `room.update`, `saved_tab_group.delete`, `saved_tab_group.reopen`, `saved_tab_group.save`, `screen.close`, `screen.create`, `screen.focus`, `screen.layout.undo`, `screen.move`, `screen.rename`, `screen.update`, `screen_group.add_screens`, `screen_group.create`, `screen_group.remove_screens`, `screen_group.ungroup`, `screen_group.update`, `session.journal.append`, `session.journal.checkpoint.create`, `session.journal.hook.put`, `session.journal.producer.put`, `session.journal.segment.seal`, `session.open`, `session.reload_config`, `session.shutdown`, `session.terminal_defaults.update`, `session.window.title.clear`, `session.window.title.set`, `settings.reset`, `settings.reset_all`, `settings.set`, `sidebar_layout.update`, `sidebar_view.ensure`, `sidebar_view.input`, `sidebar_view.reload`, `sidebar_view.resize`, `tab.close`, `tab.create_browser`, `tab.create_terminal`, `tab.focus`, `tab.move`, `tab.pin`, `tab.rename`, `tab.unpin`, `tab.update`, `tab_group.add_tabs`, `tab_group.close`, `tab_group.create`, `tab_group.move`, `tab_group.remove_tabs`, `tab_group.ungroup`, `tab_group.update`, `terminal.close`, `terminal.history.clear`, `terminal.input.focus`, `terminal.input.keys`, `terminal.input.mouse`, `terminal.input.write`, `terminal.move`, `terminal.project`, `terminal.viewport.scroll`, `window_record.delete`, `window_record.put`, `workspace.agent_folder.set`, `workspace.close`, `workspace.create`, `workspace.ensure_app`, `workspace.ensure_home`, `workspace.focus`, `workspace.layout.apply`, `workspace.move`, `workspace.place`, `workspace.rename`, `workspace.run`, `workspace.update`, `workspace_group.create`, `workspace_group.delete`, `workspace_group.move`, `workspace_group.update`, `workspace_log.append`, `workspace_log.clear`, `workspace_progress.clear`, `workspace_progress.set`, `workspace_status.clear`, `workspace_status.set` |
 | stream_open | `browser.attach`, `conversation.events`, `session.events`, `session.journal.subscribe`, `sidebar_view.attach`, `terminal.attach` |
 | connection_control | `browser.viewer.release`, `browser.viewer.resize`, `client.cell_pixels.set`, `client.detach`, `client.metadata.update`, `client.sizing.release`, `client.sizing.set`, `origin.confirmation.issue`, `request.cancel`, `stream.cancel`, `terminal.renderer_grant.create`, `terminal.viewer.release`, `terminal.viewer.resize` |
 | local | `sidebar_plugin.install`, `sidebar_plugin.list`, `sidebar_plugin.remove`, `sidebar_plugin.update`, `sidebar_plugin.use`, `sidebar_plugin.use_builtin` |
@@ -985,6 +1047,19 @@ reason `not_configured`; a brain refusal keeps the brain's code as
 `details.reason` and its text as `extra.message`. An app reaches a brain on
 a paired server through its link to that server's daemon. They are not MCP
 tools.
+
+## Launch credentials
+
+`credential.verify {credential}` answers `{valid, actor?, reason?}` and never
+fails for a bad credential. `credential.mint {acp_session, agent?}` returns a
+credential for one acpmux ACP session, and `credential.rotate` makes a new
+current launch key, keeps one previous key, and drops the oldest. Mint and
+rotate are the owner's: a request that carries any credential, or comes from
+an agent-bound, relayed, WebSocket or page connection, gets
+`origin.forbidden`. A retry of the last rotation's idempotency key answers its
+key id with `replayed: true`. None of them is an MCP tool or a CLI verb.
+Every terminal the daemon starts gets its own credential in
+`CMUX_LAUNCH_CREDENTIAL`; acpmux, its agents and hooks never inherit one.
 
 ## CLI
 

@@ -524,6 +524,7 @@ export type HomeMessage = {
   readonly author: ParticipantId
   readonly parts: ReadonlyArray<HomePart>
   readonly reply_to?: HomePartRef
+  readonly thread_root?: MessageId
   readonly created_at: Timestamp
   readonly edited_at?: Timestamp
   readonly retracted_at?: Timestamp
@@ -607,6 +608,14 @@ export type HomeTextRun = {
   readonly length: number
   readonly mention?: ParticipantId
   readonly link?: string
+}
+
+export type HomeThreadSummary = {
+  readonly root: MessageId
+  readonly reply_count: number
+  readonly last_reply_seq: number | null
+  readonly last_reply_at: Timestamp | null
+  readonly authors: ReadonlyArray<ParticipantId>
 }
 
 export type Host = {
@@ -1659,6 +1668,7 @@ export interface CloudOps {
     }
     readonly result: {
       readonly messages: ReadonlyArray<HomeMessage>
+      readonly threads?: ReadonlyArray<HomeThreadSummary>
       readonly next_before_seq: number | null
       readonly revision: string
     }
@@ -1711,7 +1721,23 @@ export interface CloudOps {
     readonly result: {
       readonly conversation: HomeConversationSummary
       readonly messages: ReadonlyArray<HomeMessage>
+      readonly threads?: ReadonlyArray<HomeThreadSummary>
       readonly revision: string
+    }
+  }
+  /** Read one thread: its root and the replies after after_seq (ascending, exact has_more), with the root's stats. A root that is unknown, is itself a reply, or is hidden by since_join is unknown_message. */
+  readonly "conversation.thread": {
+    readonly params: {
+      readonly conversation: ConversationId
+      readonly root: MessageId
+      readonly after_seq?: number
+      readonly limit?: number
+    }
+    readonly result: {
+      readonly root: HomeMessage
+      readonly replies: ReadonlyArray<HomeMessage>
+      readonly has_more: boolean
+      readonly thread: HomeThreadSummary
     }
   }
   /** Open the one-to-one conversation with a user or chief, or with an email or phone (which invites the address). Idempotent: an existing DM with the peer is returned. With a user peer it spends the conversation.create budget (home.rate_limited), except when it reopens an existing DM; home.user_not_ready (not retryable) until the caller ran user.ensure once. */
@@ -2476,13 +2502,14 @@ export interface CloudOps {
     }
     readonly result: HomeConversationCommit
   }
-  /** Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. */
+  /** Send a message. client_msg_id must equal the idempotency key; a retry with the same key returns the original message. thread_root replies in the thread of a top-level message (one level). A send moves the sender's read cursor to the new message when the sender had read everything before it. */
   readonly "message.send": {
     readonly params: {
       readonly conversation: ConversationId
       readonly client_msg_id: ClientToken
       readonly parts: ReadonlyArray<HomePart>
       readonly reply_to?: HomePartRef
+      readonly thread_root?: MessageId
     }
     readonly result: HomeConversationCommit
   }
@@ -3261,6 +3288,7 @@ export const cloudOpMeta = {
   "conversation.import.commit": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.settings.set": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "conversation.snapshot": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
+  "conversation.thread": { class: "read", owner: "cloud:ConversationDO", risk: "read" },
   "dm.open": { class: "mutation", owner: "cloud:ConversationDO", risk: "mutate-shared" },
   "domain.claim": { class: "mutation", owner: "cloud:TeamDO", risk: "mutate-shared" },
   "domain.list": { class: "read", owner: "cloud:TeamDO", risk: "read" },

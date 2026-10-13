@@ -232,3 +232,25 @@ where
     stream.read_exact(&mut port).await?;
     Ok(u16::from_be_bytes(port))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn client_and_server_halves_agree_on_the_wire() {
+        let (mut client, mut server) = tokio::io::duplex(256);
+        let target: SocketAddr = "[fd7a::10]:1337".parse().unwrap();
+        let server_side = async {
+            assert!(server_greet(&mut server).await.unwrap());
+            let request = server_read_request(&mut server).await.unwrap();
+            assert_eq!(request.command, COMMAND_CONNECT);
+            assert_eq!(request.target, Target::Ip(target));
+            server_reply(&mut server, REPLY_SUCCEEDED, Some("100.64.0.1:50000".parse().unwrap()))
+                .await
+                .unwrap();
+        };
+        let client_side = async { client_connect(&mut client, target).await.unwrap() };
+        tokio::join!(server_side, client_side);
+    }
+}

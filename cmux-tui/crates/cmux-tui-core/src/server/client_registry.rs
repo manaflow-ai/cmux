@@ -421,6 +421,11 @@ impl ClientRegistry {
         }
     }
 
+    /// The daemon's app supervisor slot (`app-screens-v1` checks installs).
+    pub(crate) fn apps(&self) -> &crate::apps::AppsSlot {
+        &self.apps
+    }
+
     pub(super) fn register(&self, transport: ClientTransport, writer: MessageWriter) -> u64 {
         let client = self.next_id.fetch_add(1, Ordering::Relaxed);
         let mut state = self.state.lock().unwrap();
@@ -662,6 +667,7 @@ impl ClientRegistry {
                     || browser_runtime_capability(capability)
                     || capability == TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY
                     || conversation_tabs_wire::negotiable(capability)
+                    || capability == super::conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }

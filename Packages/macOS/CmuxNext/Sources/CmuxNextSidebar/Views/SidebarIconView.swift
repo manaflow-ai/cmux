@@ -6,17 +6,18 @@ import QuartzCore
 
 /// Workspace icon: the user's choice, an SF Symbol (tinted with the
 /// workspace color), one emoji (on a chip of the workspace color) or a color
-/// alone shown as a small dot; else the row's type glyph from the icon
+/// alone shown as a small dot; a browser workspace's page icon, untinted;
+/// else the row's type glyph from the icon
 /// registry, or the brand mark of the agent it shows, at row size.
 final class SidebarIconView: NSView {
     private let imageView = NSImageView()
     private let swatch = CALayer()
     private let emoji = SidebarEmojiGlyphView()
     private var icon: WorkspaceIcon?
-    /// A symbol without a color draws in the primary text color (a group's
-    /// icon inside its colored label, next to the name) instead of the
-    /// secondary one.
-    var drawsUncoloredSymbolAsText = false { didSet { needsDisplay = true } }
+    /// One ink for every symbol, tinted or not (the solid group header's
+    /// glyph ink, cx-qno.22: a red icon must not vanish on a red bar); nil
+    /// keeps a symbol's tint and draws an uncolored one in the secondary text color.
+    var symbolInk: NSColor? { didSet { if symbolInk != oldValue { needsDisplay = true } } }
 
     /// Rows reserve room for a chosen icon or a built-in type glyph.
     static func showsIcon(_ icon: WorkspaceIcon?, fallback: IconName? = nil) -> Bool {
@@ -41,9 +42,6 @@ final class SidebarIconView: NSView {
     /// The chip behind a colored emoji: the color, light enough that the emoji reads.
     static let chipAlpha: CGFloat = 0.35
 
-    /// The emoji drawn now, or nil (tests).
-    var emojiText: String? { emoji.isHidden ? nil : emoji.text }
-
     /// Whether the emoji sits on a color chip (tests).
     var showsChip: Bool {
         if case .emoji(_, _?)? = icon { !swatch.isHidden } else { false }
@@ -62,7 +60,10 @@ final class SidebarIconView: NSView {
         case let .symbol(name, tint)?:
             let config = SidebarStyle.glyphConfig
             imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(config)
-                ?? NSImage(systemSymbolName: "terminal", accessibilityDescription: nil)?.withSymbolConfiguration(config)
+                ?? NSImage.icon(.terminal, size: SidebarStyle.kindGlyphSize)
+            imageView.isHidden = false
+        case let .favicon(favicon)?:
+            imageView.image = NSImage(cgImage: favicon.image, size: NSSize(width: SidebarStyle.kindGlyphSize, height: SidebarStyle.kindGlyphSize))
             imageView.isHidden = false
         case .swatch?:
             imageView.isHidden = true
@@ -81,7 +82,7 @@ final class SidebarIconView: NSView {
         CATransaction.setDisableActions(true)
         performWithTheme {
             let tint: NSColor? = if case let .symbol(_, tint)? = icon {
-                tint.map(SidebarStyle.color) ?? (drawsUncoloredSymbolAsText ? Palette.textPrimary : Palette.textSecondary)
+                symbolInk ?? tint.map(SidebarStyle.color) ?? Palette.textSecondary
             } else if icon == nil {
                 Palette.textSecondary
             } else {

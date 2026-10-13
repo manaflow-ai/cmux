@@ -27,8 +27,12 @@ nonisolated public enum PaletteNavEvent: Equatable, Sendable {
     /// A batch from the source of `levelID` for `generation`.
     /// `emptyQuerySelection` overrides the scope's index for this batch (a
     /// page that decides it from its rows, such as Search Tabs).
+    /// `provisional` rows stand in until their ranked batch lands (the
+    /// empty query's cached or unranked rows): a pending reset survives
+    /// them, so the ranked batch selects its own default row unless the
+    /// user chose one meanwhile.
     case results(levelID: Int, generation: Int, rows: [PaletteNavRow], replace: Bool, isFinal: Bool,
-                 emptyQuerySelection: Int? = nil)
+                 emptyQuerySelection: Int? = nil, provisional: Bool = false)
     /// The owner of the top level's data changed: reload, keep selection.
     case refresh
     /// The top level shows another page in its place (a tree page moved,

@@ -13,6 +13,7 @@ import { statusApplied } from "./cloud-do-core.ts"
 import { CloudIdle } from "./cloud-do-idle.ts"
 import { deliverCloudAnswers, readCloudApproval } from "./cloud-approvals.ts"
 import type { DeliverResult, TargetItem } from "./do-outbox.ts"
+import { acpmuxKeyedStartOn, acpmuxPersonHoldsOn, type AcpmuxHost, type AcpmuxReply } from "./cloud-acpmux-do.ts"
 
 /** How often connect_info and link_token may read a machine's real state from the provider. */
 const STATE_CHECK_EVERY_MS = 30_000
@@ -192,6 +193,42 @@ export class CloudDO extends CloudIdle {
     const environment = this.envTag()
     if (!environment) return { ok: false, code: "owner.unreachable", message: "this deployment has no Cloud environment tag" }
     return mintLinkToken({ entity, rows, p: principal, params, request, environment, keys }, () => this.teamConnectServices(entity), () => this.audit)
+  }
+
+  /**
+   * cx-kvmz, RPC from POST /v1/cloud/machines/{machine}/acpmux/keyed-start and person-holds
+   * (cloud-acpmux.ts): NOT ops. No submit, no op-log row, no ledger row, no param kept; the audit
+   * row holds {action, machine, who, at, outcome} (cloud-acpmux-do.ts).
+   */
+  async acpmuxKeyedStart(entity: string, principal: Principal, machine: string, keyLine: Uint8Array): Promise<AcpmuxReply<{ personInstance: string }>> {
+    const host = this.acpmuxHost(entity)
+    if (!host) return (keyLine.fill(0), { ok: false, refusal: "not_found" })
+    return acpmuxKeyedStartOn(host, principal, machine, keyLine)
+  }
+
+  async acpmuxPersonHolds(entity: string, principal: Principal, machine: string, nonce: string): Promise<AcpmuxReply<{ instance: string; proof: string }>> {
+    const host = this.acpmuxHost(entity)
+    return host ? acpmuxPersonHoldsOn(host, principal, machine, nonce) : { ok: false, refusal: "not_found" }
+  }
+
+  private readonly acpmuxStarting = new Set<string>()
+  /** null for an object nobody created (it is never created here). */
+  private acpmuxHost(entity: string): AcpmuxHost | null {
+    if (!this.isBound(entity)) return null
+    const rows = this.bind(entity).rows
+    return {
+      team: entity,
+      machine: (id) => rows.get<MachineRow>(TABLE_MACHINE, id)?.row,
+      driver: () => cloudDriver(this.env, this.sqlStore),
+      members: async (team, user) => {
+        const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean; value?: { member_count?: unknown; members?: Array<{ user?: unknown }> } }> }
+        const r = await stub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team.members.list", { limit: 2 })
+        if (!r.ok || typeof r.value?.member_count !== "number" || !Array.isArray(r.value.members)) return null
+        return { count: r.value.member_count, users: r.value.members.map((m) => (typeof m.user === "string" ? m.user : "")) }
+      },
+      audit: (e) => this.audit.record(e),
+      starting: this.acpmuxStarting
+    }
   }
 
   /** The team's cloud.connectServices from its TeamDO (fail closed: a failed RPC fails the read). */

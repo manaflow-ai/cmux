@@ -9,13 +9,21 @@ extension AgentTabStore {
     /// Tab `key`'s roots, agent-home and Choose Folder… on its page's model. Each resolves the
     /// tab's current id when it runs.
     func wireAgentFolder(_ model: AgentPaneModel, key provisional: String) {
-        model.workspaceRoots = { [weak self] in
-            guard let self else { return [] }
-            return workspaceRoots(of: resolve(provisional))
-        }
-        model.workspaceAgentHome = { [weak self] in
-            guard let self else { return nil }
-            return agentHome(of: resolve(provisional))
+        model.workspaceRoots = { [weak self] in self.map { $0.workspaceRoots(of: $0.resolve(provisional)) } ?? [] }
+        model.workspaceAgentHome = { [weak self] in self.flatMap { $0.agentHome(of: $0.resolve(provisional)) } }
+        // Stage and Commit (cx-tcwj) run git on this Mac: never in a Cloud or SSH chat's same-named folder here.
+        model.gitWritesHere = { [weak self] in self.flatMap { $0.gitLink?($0.resolve(provisional)) }?.isLocal == true }
+        model.startFolders.resolve = { [weak self] proposed in
+            guard let self, let workspace = workspace(holding: resolve(provisional)), let resource = workspace.resourceID else { return nil }
+            guard var answer = await daemonForTab(resolve(provisional))?.agentStart(proposed, workspace: resource) else { return nil }
+            // The relay roots and makes agent-home: only this app's own agent-home folders, the
+            // workspace's, or the one a chat opened here already ran in (cx-djoj7: the store names
+            // it, so the adopt resumes there). Never a folder outside the base or deeper in it.
+            if let named = answer.agentHome, named != Self.agentHomes?.path(for: workspace.id),
+               Self.agentHomes?.path(for: (named as NSString).lastPathComponent) != named {
+                answer.agentHome = nil
+            }
+            return answer
         }
         model.onChooseFolder = { [weak self] in
             guard let self else { return .cancelled }
@@ -59,14 +67,16 @@ extension AgentTabStore {
     /// workspace's agent folder (`workspace.agent_folder.set`, which only this verified app may
     /// send). An older background service is told before the sheet opens.
     func chooseAgentFolder(for key: String) async -> AgentPaneFolderChoice {
-        guard servesAgentFolder(key) else { return .unavailable(AgentPaneFolderChoice.restartServiceMessage) }
+        guard let daemon = daemonForTab(key), daemon.supports(DaemonCapabilities.shared.workspaceAgentFolder) else {
+            return .unavailable(AgentPaneFolderChoice.restartServiceMessage)
+        }
         guard let view = views[key], let url = await view.pickFolder() else { return .cancelled }
         let picked = url.path
         let folder = await Task.detached { AgentHome.canonicalFolder(picked) }.value
         // The home folder (or above it) would open the whole home folder to the page: refused.
         guard let folder, !AgentHome.isHomeOrAbove(folder), let workspace = workspace(holding: key),
               let resource = workspace.resourceID else { return .unavailable(AgentPaneFolderChoice.notSavedMessage) }
-        return await persistAgentFolder(key, resource, folder)
+        return await Self.saveAgentFolder(folder, workspace: resource, on: daemon)
     }
 
     /// Saves `path` as `workspace`'s agent folder on `daemon`. A daemon without

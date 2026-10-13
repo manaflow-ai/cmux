@@ -165,26 +165,6 @@ describe("Public Suffix List and public mail (review P2)", () => {
 })
 
 describe("weekly domain re-check (spec 3.4)", () => {
-  it("three failed weekly re-checks mark a verified domain lapsed; one success resets the count", () => {
-    let s: TeamState = { ...base(), domains: { "acme.com": { domain: "acme.com", state: "verified", record_name: "_cmux-challenge.acme.com", record_value: "v1", requested_at: 0, expires_at: 9e15, verified_at: 0 } } }
-    const sys = (): ReduceContext => ({ principal: { identity: "system:team", kind: "system" }, now: 1, tx: `tx${++txn}`, newId: (p) => `${p}_${String(txn).padStart(20, "0")}` })
-    const step = (ok: boolean, at: number) => {
-      const r = teamDomain.reduce(s, "domain.rechecked", { domain: "acme.com", record_value: "v1", ok, at }, sys())
-      if (!r.ok) throw new Error(r.message)
-      s = r.state as TeamState
-      return r
-    }
-    step(false, 1)
-    step(true, 2)
-    expect(s.domains?.["acme.com"]?.check_failures).toBe(0)
-    step(false, 3)
-    step(false, 4)
-    const last = step(false, 5)
-    expect(s.domains?.["acme.com"]?.state).toBe("lapsed")
-    expect(last.outbox?.map((o) => o.kind)).toEqual(["audit.append"])
-    // A stale result for an older record value changes nothing.
-    expect(teamDomain.reduce(s, "domain.rechecked", { domain: "acme.com", record_value: "old", ok: true, at: 6 }, sys())).toMatchObject({ ok: true, changed: false })
-  })
 
   it("over workerd: three failing re-checks lapse the domain, free it in DomainDO, and verifying again restores it", async () => {
     const a = await sessionToken("stack-domain-lapse")

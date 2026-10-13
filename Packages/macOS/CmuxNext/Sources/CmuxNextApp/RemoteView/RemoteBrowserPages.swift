@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextControl
+import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
 #if DEBUG
@@ -38,9 +39,9 @@ enum RemoteBrowserPages {
 
     #if DEBUG
     /// Live sessions by tab key, for the debug socket (weak: tabs own them).
-    @MainActor private static var sessions: [String: WeakSession] = [:]
+    @MainActor static var sessions: [String: WeakSession] = [:]
 
-    private struct WeakSession {
+    struct WeakSession {
         weak var value: RemoteBrowserSession?
     }
 
@@ -82,10 +83,8 @@ enum RemoteBrowserPages {
             } catch {
                 lastLocalFailure = String(describing: error)
                 guard let window = pane?.view.window else { return }
-                let alert = NSAlert()
-                alert.messageText = RemoteBrowserStrings.hostDidNotStart
-                alert.informativeText = RemoteBrowserStrings.hostFailure(error)
-                alert.beginSheetModal(for: window, completionHandler: nil)
+                CmuxDialogCenter.shared.present(CmuxDialogSpec(title: RemoteBrowserStrings.hostDidNotStart, lines: [RemoteBrowserStrings.hostFailure(error)],
+                                                               buttons: [.ok()]), in: .window(window)) { _ in }
             }
         }
     }
@@ -95,9 +94,9 @@ enum RemoteBrowserPages {
     /// serves only a viewer with its per-launch secret). The record keeps
     /// the file's path; the secret is read when the tab connects.
     @MainActor
-    static func open(address: String, url: String?, secretFile: String? = nil, in pane: PaneController) throws {
+    static func open(address: String, url: String?, secretFile: String? = nil, machine: String? = nil, in pane: PaneController) throws {
         let first = url.flatMap(URL.init(string:))
-        guard let record = RemoteBrowserTabRecord(address: address, initialURL: first, secretFile: secretFile) else {
+        guard let record = RemoteBrowserTabRecord(address: address, initialURL: first, secretFile: secretFile, machine: machine) else {
             throw ActionFailure(message: RemoteBrowserStrings.addressNotRecognized(address))
         }
         if let path = record.secretFile {
@@ -115,7 +114,7 @@ enum RemoteBrowserPages {
     /// is the tab's failure (it then does not connect).
     @MainActor
     private static func hostToken(for record: RemoteBrowserTabRecord) -> Result<String?, RemoteBrowserFailure> {
-        if let secret = localHosts[record.endpoint.port]?.secret { return .success(secret) }
+        if record.machine == nil, let secret = localHosts[record.endpoint.port]?.secret { return .success(secret) }
         guard let path = record.secretFile else { return .success(nil) }
         do {
             return .success(try RemoteBrowserSecretFile(path: path).read())
@@ -132,10 +131,12 @@ enum RemoteBrowserPages {
         // started gives it, else the record's secret file.
         guard let record = RemoteBrowserTabRecord(url: url) else { return nil }
         let credential = hostToken(for: record)
+        // A host on another machine: its loopback over the machine's daemon link.
+        let carrier = record.machine.map { services.remoteLocalhost.browserCarrier(machine: $0, port: record.endpoint.port) }
         guard let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
-                                                     viewer: "cmux-next", token: try? credential.get()),
+                                                     viewer: "cmux-next", token: try? credential.get(), carrier: carrier),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
-        let localHost = localHosts[record.endpoint.port]
+        let localHost = record.machine == nil ? localHosts[record.endpoint.port] : nil
         session.openTab = { [weak services] target, disposition, answer in
             // A page's new tab is a remote tab on the same runtime host (RT1).
             guard let services, let holder = pane(holding: key, services: services) else { return answer(nil) }
@@ -149,7 +150,7 @@ enum RemoteBrowserPages {
                 }
                 return
             }
-            let child = RemoteBrowserTabRecord(endpoint: record.endpoint, initialURL: target, secretFile: record.secretFile)
+            let child = RemoteBrowserTabRecord(endpoint: record.endpoint, initialURL: target, secretFile: record.secretFile, machine: record.machine)
             holder.newBrowserTab(url: child.url, background: background) { surface in
                 answer(String(describing: surface))
             }
@@ -173,7 +174,7 @@ enum RemoteBrowserPages {
     }
 
     @MainActor
-    private static func pane(holding key: String, services: AppServices) -> PaneController? {
+    static func pane(holding key: String, services: AppServices) -> PaneController? {
         for window in services.windows.controllers {
             for pane in window.content?.panes.values.map({ $0 }) ?? [] where pane.pane.tabs.contains(where: { $0.id == key }) {
                 return pane
@@ -182,7 +183,7 @@ enum RemoteBrowserPages {
         return nil
     }
 
-    /// `debug.remote_browser`. Actions: `open` (`address`, `url`?, `secret_file`?, `pane`?)
+    /// `debug.remote_browser`. Actions: `open` (`address`, `url`?, `secret_file`?, `machine`?, `pane`?)
     /// runs the shared open path in that pane or the focused one; `open_local`
     /// (`url`?, `pane`?) runs `openLocal`; `state` (default) lists live
     /// sessions; `navigate` (`url`, `tab`?) loads a page the way the omnibar
@@ -211,7 +212,7 @@ enum RemoteBrowserPages {
                     return ["starting": true]
                 }
                 try open(address: params["address"]?.stringValue ?? "", url: params["url"]?.stringValue,
-                         secretFile: params["secret_file"]?.stringValue, in: pane)
+                         secretFile: params["secret_file"]?.stringValue, machine: params["machine"]?.stringValue, in: pane)
                 return ["opened": true]
             } catch {
                 return ["error": .string(String(describing: error))]
@@ -228,13 +229,32 @@ enum RemoteBrowserPages {
                     "failure": session.tab?.pane.view.failureMessage.map(JSONValue.string) ?? .null,
                     "cursor": session.nativeUI.cursorKind.map(JSONValue.string) ?? .null,
                     "surfaces": .array(session.surfaces.surfaceIDs.map { .number(Double($0)) }),
+                    // `frame`: the anchor in page CSS pixels; `panel`: the
+                    // surface's child panel (window number, screen frame
+                    // x,y w x h from the bottom left, parent window number,
+                    // shown, key).
                     "surface_info": .array(session.surfaces.surfaceIDs.map { id in
-                        let frame = session.surfaces.view(of: id)?.frame ?? .zero
+                        let frame = session.surfaces.anchor(of: id) ?? .zero
+                        let panel: JSONValue = session.surfaces.panel(of: id).map { panel -> JSONValue in
+                            let f = panel.frame
+                            return .object([
+                                "window_number": .number(Double(panel.windowNumber)),
+                                "screen_frame": .string("\(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))"),
+                                "parent": panel.parent.map { JSONValue.number(Double($0.windowNumber)) } ?? .null,
+                                "visible": .bool(panel.isVisible), "key": .bool(panel.isKeyWindow),
+                            ])
+                        } ?? .null
                         return .object([
                             "id": .number(Double(id)), "kind": session.surfaces.kind(of: id).map(JSONValue.string) ?? .null,
                             "frame": .string("\(Int(frame.minX)),\(Int(frame.minY)) \(Int(frame.width))x\(Int(frame.height))"),
+                            "panel": panel,
                         ])
                     }),
+                    "page_screen_frame": session.pane.view.window.map { window -> JSONValue in
+                        let f = window.convertToScreen(session.pane.view.convert(session.pane.view.bounds, to: nil))
+                        return .string("\(Int(f.minX)),\(Int(f.minY)) \(Int(f.width))x\(Int(f.height))")
+                    } ?? .null,
+                    "key_window": NSApp.keyWindow.map { JSONValue.number(Double($0.windowNumber)) } ?? .null,
                     "frame": .string("\(Int(session.pane.view.frame.width))x\(Int(session.pane.view.frame.height))"),
                 ])
             }
@@ -246,7 +266,10 @@ enum RemoteBrowserPages {
                 hosts.append(.object(row))
             }
             let failure: JSONValue = lastLocalFailure.map(JSONValue.string) ?? .null
-            return ["sessions": .array(rows), "local_hosts": .array(hosts),
+            let pages: [String: JSONValue] = services.cache.browsers.compactMapValues { entry in
+                (entry.tab as? MachineBrowserPageTab).map { JSONValue.string($0.messageText) }
+            }
+            return ["sessions": .array(rows), "local_hosts": .array(hosts), "machine_pages": .object(pages),
                     "local_starting": .number(Double(startingLocalHosts)), "local_failure": failure]
         case "navigate":
             guard let target, let url = params["url"]?.stringValue.flatMap(URL.init(string:)) else { return ["error": "tab and url are required"] }
@@ -281,8 +304,9 @@ enum RemoteBrowserPages {
             return ["clicked": true]
         case "surface_click":
             // A left click at `x`,`y` (the surface's CSS pixels from its top
-            // left) on open popup surface `surface`, through the surface
-            // view's own pointer path.
+            // left) on open popup surface `surface`, sent to the surface's
+            // panel as AppKit delivers a click (hit test, first mouse in a
+            // panel that is never key, the view's pointer path).
             guard let target, let id = params["surface"]?.intValue,
                   let view = target.surfaces.view(of: UInt32(clamping: id)) else { return ["error": "no such surface"] }
             guard let window = view.window else { return ["error": "the surface is not in a window"] }
@@ -291,7 +315,7 @@ enum RemoteBrowserPages {
                 guard let event = NSEvent.mouseEvent(
                     with: type, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                     windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
-                view.eventTarget?.handlePointer(event)
+                window.sendEvent(event)
             }
             return ["clicked": true]
         case "type":

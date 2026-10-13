@@ -82,7 +82,7 @@ extension AppActionContext {
     }
 
     /// Runs a daemon command off the main actor; failures are logged.
-    func send(_ label: String, _ body: @escaping @Sendable (DaemonConnection) async throws -> Void) {
+    func send(_ label: String, _ body: @escaping DaemonCommandBody) {
         guard connection() != nil else { return }
         services.activeDaemon.send(label, body)
     }

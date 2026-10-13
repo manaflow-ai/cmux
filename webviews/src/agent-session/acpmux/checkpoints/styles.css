@@ -24,7 +24,7 @@
 .acpmux-checkpoint-review button:hover { background: color-mix(in srgb, currentColor 8%, transparent); }
 .acpmux-checkpoint-review button:disabled { opacity: .45; cursor: default; }
 .acpmux-checkpoint-review button:focus-visible,
-.acpmux-checkpoint-review input:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
+.acpmux-checkpoint-review input[type="checkbox"]:focus-visible { outline: 1px solid currentColor; outline-offset: 2px; }
 .acpmux-checkpoint-review fieldset { border: 0; padding: 0; margin: 10px 0; min-width: 0; }
 .acpmux-checkpoint-review legend,
 .acpmux-checkpoint-hint,

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextSettings
@@ -35,12 +36,27 @@ final class ThemeCoordinator {
     /// like its handler (`ThemeHandlers`), for picker previews.
     var previewTarget: (@MainActor (ActionID, ActionTargetRef?) -> ThemePreview.Target?)?
     private var observation: Task<Void, Never>?
+    /// Each workspace's own background (`ThemeCoordinator+Backgrounds`).
+    let workspaceBackgrounds: WorkspaceBackgroundStore
+    /// Each workspace's own glass tint over art, as text ("0.6").
+    let workspaceOpacities: WorkspaceBackgroundStore
+    /// A workspace background the picker shows without saving it; the inner nil follows the app's.
+    var backgroundPreview: (workspace: String, value: String?)?
+    /// A workspace tint the picker's slider shows without saving it; nil follows the work's.
+    var opacityPreview: (workspace: String, value: Double?)?
+    /// Shows a Shuffle Daily workspace's next work when the day turns.
+    var dayObservers: [any NSObjectProtocol] = []
     /// The scopes whose theme this coordinator set.
     private let themed = NSHashTable<ThemeScope>.weakObjects()
 
-    init(services: AppServices, terminalThemes: TerminalThemeStore) {
+    init(services: AppServices, terminalThemes: TerminalThemeStore, workspaceBackgrounds: WorkspaceBackgroundStore? = nil,
+         workspaceOpacities: WorkspaceBackgroundStore? = nil) {
         self.services = services
         self.terminalThemes = terminalThemes
+        self.workspaceBackgrounds = workspaceBackgrounds
+            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID)
+        self.workspaceOpacities = workspaceOpacities
+            ?? .forApplication(bundleIdentifier: services.environment.launch.bundleID, file: "workspace-background-opacity.json")
         resolver.onChange = { [weak self] in
             self?.apply(forceSurfaces: true)
             self?.applyChromeTheme()
@@ -52,15 +68,33 @@ final class ThemeCoordinator {
     /// `appearance.appTheme` as last read; nil follows the terminal theme.
     private var chromeTheme: String?
     private var chromeObservation: Task<Void, Never>?
+    private var accentObservation: Task<Void, Never>?
+    private var artAccentObservation: Task<Void, Never>?
 
     /// Follows `appearance.appTheme`: the app theme pages get (`--cmux-app-*`, `WebTheme`),
     /// resolved like the other theme levels (the variant for the system appearance, the user's
     /// explicit config colors over it). `followTerminal` leaves each scope on its own theme.
     func followChromeTheme(_ settings: SettingsController) {
-        chromeTheme = settings.snapshot.chromeTheme
+        // `applied`: a live preview (a theme picker's highlighted row) shows too.
+        chromeTheme = settings.applied.chromeTheme
+        ThemeStore.shared.setAccent(settings.applied.accent)
+        ThemeStore.shared.setAccentFollowsArt(AccentSetting.followsArt(settings.applied.root))
         applyChromeTheme()
+        artAccentObservation = Task { [weak self] in
+            for await follows in ObservationStream({ AccentSetting.followsArt(settings.applied.root) }) {
+                guard ThemeStore.shared.setAccentFollowsArt(follows) else { continue }
+                self?.applyChromeTheme()
+            }
+        }
+        // `appearance.accent` re-derives the terminal-theme tokens (the store) and the app theme.
+        accentObservation = Task { [weak self] in
+            for await accent in ObservationStream({ settings.applied.accent }) {
+                guard let self, ThemeStore.shared.setAccent(accent) else { continue }
+                self.applyChromeTheme()
+            }
+        }
         chromeObservation = Task { [weak self] in
-            for await theme in Observations({ settings.snapshot.chromeTheme }) {
+            for await theme in ObservationStream({ settings.applied.chromeTheme }) {
                 guard let self, theme != self.chromeTheme else { continue }
                 self.chromeTheme = theme
                 self.applyChromeTheme()
@@ -70,7 +104,13 @@ final class ThemeCoordinator {
 
     private func applyChromeTheme() {
         let resolved = chromeTheme.flatMap(ThemeSpec.init).flatMap(resolver.resolve)
-        ThemeStore.shared.setAppTheme(resolved.map { AppTheme.derive(from: $0.input) })
+        ThemeStore.shared.setAppTheme(resolved.map {
+            var input = $0.input
+            input.accent = ThemeStore.shared.accent
+            // Art Color: pages take the app's art hue (a workspace's own art tints its chrome only).
+            if ThemeStore.shared.accentFollowsArt, let hue = ThemeScope.app.backdropArt?.accentHue { input.accentColor = hue }
+            return AppTheme.derive(from: input)
+        })
     }
 
     func start() {
@@ -79,8 +119,20 @@ final class ThemeCoordinator {
             self?.pickerPreview(action, value: value, target: target)
         }
         registry.choiceState = { [weak self] action, target in self?.currentChoice(action, target: target) }
-        catalog.load()
         let catalog = catalog
+        // A theme's own accent: its `<theme>/accent` edit, else its file's `# cmux-accent`.
+        ThemeBridge.accent = { name in ThemeBridge.edited(name) ?? catalog.colors[name]?.accent }
+        // File accents arrive with the catalog's colors, which no config reload reports; only a
+        // change in them re-derives (and re-applies the surfaces).
+        var fileAccents: [String: ThemeRGB] = [:]
+        catalog.onRead = { [weak self] in
+            let read = catalog.colors.compactMapValues(\.accent)
+            guard read != fileAccents else { return }
+            fileAccents = read
+            ThemeBridge.refresh()
+            self?.resolver.changed()
+        }
+        catalog.load()
         registry.argumentSuggestions = { source in
             source == ActionSuggestions.ghosttyThemes ? catalog.names.map { ActionEnumCase(value: $0, title: $0) } : []
         }
@@ -88,19 +140,24 @@ final class ThemeCoordinator {
         let store = services.machines.local.store
         let terminalThemes = terminalThemes
         let local = services.machines.local
+        let workspaceBackgrounds = self.workspaceBackgrounds, workspaceOpacities = self.workspaceOpacities
+        Task { await workspaceBackgrounds.load() }
+        Task { await workspaceOpacities.load() }
+        dayObservers = observeDayChanges()
         Task { [weak self] in
             await terminalThemes.load()
             // Once per launch, after the home daemon's first tree: drop the
             // themes of its terminals that closed while the app was away.
-            for await loaded in Observations({ local.store.isLoaded }) where loaded {
+            for await loaded in ObservationStream({ local.store.isLoaded }) where loaded {
                 self?.pruneTerminalThemes()
                 return
             }
         }
         observation = Task { [weak self] in
-            for await _ in Observations({ () -> [String?] in
+            for await _ in ObservationStream({ () -> [String?] in
                 store.profiles.map(\.theme) + store.personal.workspaces.map(\.theme)
                     + [String(describing: store.personal.terminalThemes), String(describing: terminalThemes.themes),
+                       String(describing: workspaceBackgrounds.backgrounds), String(describing: workspaceOpacities.backgrounds),
                        String(store.identity?.supports(DaemonCapabilities.shared.personalTerminals) ?? false)]
             }) {
                 self?.migrateTerminalThemes()
@@ -119,6 +176,7 @@ final class ThemeCoordinator {
     /// A workspace content was created or shown in `controller`'s window.
     func contentDidShow(_ content: WorkspaceContentController) {
         setTheme(of: content.themeScope, to: workspaceTheme(content.workspace.id))
+        applyWorkspaceBackground(content)
     }
 
     /// A terminal surface was created for a tab.
@@ -264,6 +322,10 @@ final class TerminalThemeBinding: ThemeResponsive {
     weak var coordinator: ThemeCoordinator?
     private unowned let scope: ThemeScope
     private weak var session: TerminalSession?
+
+    // cx-qxxu: released with its terminal, which Cmd-T's New Tab page can withdraw while its
+    // action runs; a main-actor deinit's hop traps there (cx-t7hu).
+    nonisolated deinit {}
 
     init(scope: ThemeScope, session: TerminalSession) {
         self.scope = scope

@@ -77,6 +77,13 @@ const importMessage = (head: ConversationHead, raw: unknown, seq: number, previo
     const target = findById(reply.message_id)
     if (!target || target.seq >= seq || (reply.part_index as number) < 0 || (reply.part_index as number) >= target.parts.length) return bad()
   }
+  const threadRoot = raw.thread_root ?? undefined
+  if (threadRoot !== undefined) {
+    // As message.send: an earlier top-level message of this conversation (a thread has one level).
+    if (typeof threadRoot !== "string") return bad()
+    const root = findById(threadRoot)
+    if (!root || root.seq >= seq || root.thread_root !== undefined) return bad()
+  }
   return {
     id,
     conversation: head.id,
@@ -85,6 +92,7 @@ const importMessage = (head: ConversationHead, raw: unknown, seq: number, previo
     author,
     parts: checkedParts,
     ...(reply === undefined ? {} : { reply_to: { message_id: reply.message_id as string, part_index: reply.part_index as number } }),
+    ...(threadRoot === undefined ? {} : { thread_root: threadRoot }),
     created_at: createdAt,
     ...(raw.edited_at === undefined ? {} : { edited_at: notBefore(raw.edited_at) }),
     ...(retracted === undefined ? {} : { retracted_at: retracted }),

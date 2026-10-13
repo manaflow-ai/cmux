@@ -855,40 +855,6 @@ impl Inner {
         Ok(Value::Null)
     }
 
-    fn cookies_get(&self, params: &Value) -> Result<Value, DriverError> {
-        let cookies = self.conn.call(
-            None,
-            "Storage.getCookies",
-            self.cookie_store(params),
-            INTERNAL_TIMEOUT,
-        )?;
-        let all = cookies["cookies"].as_array().cloned().unwrap_or_default();
-        let urls: Vec<url::Url> = params
-            .get("urls")
-            .and_then(Value::as_array)
-            .map(|list| {
-                list.iter()
-                    .filter_map(Value::as_str)
-                    .filter_map(|u| url::Url::parse(u).ok())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let matching = all
-            .iter()
-            .filter(|cookie| urls.is_empty() || urls.iter().any(|url| cookie_matches(cookie, url)))
-            .map(playwright_cookie)
-            .collect();
-        Ok(Value::Array(matching))
-    }
-
-    fn cookies_set(&self, params: &Value) -> Result<Value, DriverError> {
-        let cookies = params.get("cookies").cloned().unwrap_or_else(|| json!([]));
-        let mut args = self.cookie_store(params);
-        args["cookies"] = cookies;
-        self.conn.call(None, "Storage.setCookies", args, INTERNAL_TIMEOUT)?;
-        Ok(Value::Null)
-    }
-
     /// Raw CDP on a tab's session (capability `cdp`). The host grants it per
     /// session; the driver only routes allowlisted domains. Domains that could
     /// navigate around the policy, read other origins' cookies, write files,
@@ -941,7 +907,7 @@ pub(super) fn raw_cdp_allowed(method: &str) -> bool {
 }
 
 /// RFC 6265 domain and path match, plus `secure` on non-https URLs.
-fn cookie_matches(cookie: &Value, url: &url::Url) -> bool {
+pub(super) fn cookie_matches(cookie: &Value, url: &url::Url) -> bool {
     let Some(host) = url.host_str() else {
         return false;
     };
@@ -961,7 +927,7 @@ fn cookie_matches(cookie: &Value, url: &url::Url) -> bool {
 }
 
 /// CDP cookie -> Playwright cookie (`storageState` shape).
-fn playwright_cookie(cookie: &Value) -> Value {
+pub(super) fn playwright_cookie(cookie: &Value) -> Value {
     json!({
         "name": cookie["name"],
         "value": cookie["value"],

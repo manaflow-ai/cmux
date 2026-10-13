@@ -12,9 +12,15 @@ public nonisolated enum SidebarSectionsSetting {
     static let legacyScrollPath = ["sidebar", "stickyBandsScroll"]
     public static let showWorkspaceTabsPath = ["sidebar", "showWorkspaceTabs"]
     public static let minimalModePath = ["sidebar", "minimalMode"]
+    /// Minimal mode (cx-w1r5): rows draw only icon, name and marks; section
+    /// headers become thin lines.
+    public static let minimalPath = ["sidebar", "minimal"]
+    public static let densityPath = ["sidebar", "density"]
     public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let groupByPath = ["sidebar", "groupBy"]
     public static let showChatsPath = ["sidebar", "showChats"]
+    public static let showSpacesPath = ["sidebar", "showSpaces"]
+    public static let showProfileControlPath = ["sidebar", "showProfileControl"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -22,13 +28,38 @@ public nonisolated enum SidebarSectionsSetting {
                           title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
                           help: SettingsText.keyed("settings.sidebar.cards.tips.help",
                                                    "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet."),
+                          summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showsTips),
                           keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"])
     }
 
+    static func minimalDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(minimalPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.minimal", "Minimal Mode"),
+                          help: SettingsText.keyed("settings.sidebar.minimal.help",
+                                                   "Workspace rows show only their icon, name and unread mark, and section titles become thin lines."),
+                          summary: SettingsText.keyed("settings.sidebar.minimal.summary", "Rows show only icon, name and unread mark"),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.minimal),
+                          keywords: ["sidebar", "minimal", "compact", "dense", "rows", "simple", "clean"])
+    }
+
+    static func densityDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(densityPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.density", "Sidebar Density"),
+                          help: SettingsText.keyed("settings.sidebar.density.help",
+                                                   "Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer."),
+                          kind: .choice(SidebarDensity.allCases.map { density in
+                              SettingChoice(density.rawValue, density == .compact
+                                  ? SettingsText.keyed("settings.choice.compact", "Compact")
+                                  : SettingsText.keyed("settings.choice.expanded", "Expanded"))
+                          }),
+                          default: .string(SidebarSectionsPreferences.defaults.density.rawValue),
+                          keywords: ["sidebar", "density", "expanded", "compact", "rows", "preview", "two lines", "t3", "codex"])
+    }
+
     static func minimalModeDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(minimalModePath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.minimalMode", "Minimal Mode"),
+                          title: SettingsText.keyed("settings.sidebar.minimalMode", "Hide Bands Until Hover"),
                           help: SettingsText.keyed("settings.sidebar.minimalMode.help",
                                                    "Hides the chosen sections until the pointer is over the sidebar."),
                           kind: .choice([
@@ -66,6 +97,15 @@ public nonisolated enum SidebarSectionsSetting {
                               ]),
                               default: .string(SidebarSectionsPreferences.defaults.groupBy.rawValue),
                               keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"]),
+            // The bottom band's pieces (cx-wab7m): right-click hides each, the band shows it again.
+            SettingDescriptor(showSpacesPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.showSpaces", "Show Spaces"),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showSpaces),
+                              keywords: ["sidebar", "spaces", "dots", "profiles", "footer", "hide", "show"]),
+            SettingDescriptor(showProfileControlPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.showProfileControl", "Show Profile Button"),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showProfileControl),
+                              keywords: ["sidebar", "profile", "account", "avatar", "footer", "hide", "show"]),
         ]
     }
 
@@ -135,12 +175,23 @@ public nonisolated enum SidebarSectionsSetting {
         SidebarNavigationSetting.parse(root, into: &result.navigation, diagnostics: &diagnostics)
         result.workspaceRow = WorkspaceRowSetting().parse(root, diagnostics: &diagnostics)
         result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
+        result.showSpaces = flag(root, showSpacesPath, fallback: result.showSpaces, &diagnostics)
+        result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
+        result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         if let value = root.value(at: groupByPath) {
             if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
                 result.groupBy = groupBy
             } else {
                 let choices = SidebarGroupBy.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.groupBy", message: "expected one of " + choices))
+            }
+        }
+        if let value = root.value(at: densityPath) {
+            if let text = value.stringValue, let density = SidebarDensity(rawValue: text) {
+                result.density = density
+            } else {
+                let choices = SidebarDensity.allCases.map { "\"\($0.rawValue)\"" }.joined(separator: ", ")
+                diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.density", message: "expected one of " + choices))
             }
         }
         if let value = root.value(at: showChatsPath) {
