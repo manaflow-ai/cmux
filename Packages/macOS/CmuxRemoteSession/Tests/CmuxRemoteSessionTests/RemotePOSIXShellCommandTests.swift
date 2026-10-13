@@ -16,6 +16,10 @@ struct RemotePOSIXShellCommandTests {
         var stdout: String
     }
 
+    // A runner without one of these shells skips the tests that need it.
+    static let hasTcsh = FileManager.default.isExecutableFile(atPath: "/bin/tcsh")
+    static let hasDash = FileManager.default.isExecutableFile(atPath: "/bin/dash")
+
     static let loginShells = ["/bin/sh", "/bin/bash", "/bin/zsh", "/bin/ksh", "/bin/csh", "/bin/tcsh"]
         .filter { FileManager.default.isExecutableFile(atPath: $0) }
 
@@ -53,9 +57,12 @@ struct RemotePOSIXShellCommandTests {
         #expect(try run(loginShell, ["-c", command], input: input) == expected)
     }
 
-    @Test("a script runs the same under tcsh, whatever its startup file sets", arguments: cshStartupFiles, scripts)
+    @Test(
+        "a script runs the same under tcsh, whatever its startup file sets",
+        .enabled(if: hasTcsh),
+        arguments: cshStartupFiles, scripts
+    )
     func scriptRunsTheSameUnderConfiguredTcsh(startupFile: String, script: String) throws {
-        try #require(FileManager.default.isExecutableFile(atPath: "/bin/tcsh"))
         let input = "first line\nsecond 'line'\n"
         let expected = try runDirectly(script, input: input)
         let command = RemotePOSIXShellCommand(script: script).commandLine
@@ -110,10 +117,9 @@ struct RemotePOSIXShellCommandTests {
     }
 
     /// Linux hosts usually have dash as `sh`, with its own `printf` and `eval`.
-    @Test("a script runs the same when the remote sh is dash", arguments: scripts)
+    @Test("a script runs the same when the remote sh is dash", .enabled(if: hasTcsh && hasDash), arguments: scripts)
     func scriptRunsTheSameUnderDash(script: String) throws {
         let dash = "/bin/dash"
-        try #require(FileManager.default.isExecutableFile(atPath: dash))
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux-remote-sh-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -130,9 +136,8 @@ struct RemotePOSIXShellCommandTests {
     }
 
     /// The scripts the bootstrap really sends, under the shell from the report.
-    @Test("the bootstrap probe reports the platform to a tcsh account")
+    @Test("the bootstrap probe reports the platform to a tcsh account", .enabled(if: hasTcsh))
     func bootstrapProbeRunsUnderTcsh() throws {
-        try #require(FileManager.default.isExecutableFile(atPath: "/bin/tcsh"))
         let script = RemoteSessionCoordinator.remotePlatformProbeScript(version: "1.2.3")
         #expect(script.contains("\n"))
         let command = RemotePOSIXShellCommand(script: script).commandLine
