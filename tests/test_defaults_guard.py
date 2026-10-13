@@ -252,6 +252,15 @@ class DefaultsGuardTests(unittest.TestCase):
         self.assertIn("is a symbolic link", result.stdout + result.stderr)
         self.assertNotIn("runner file", result.stdout + result.stderr)
 
+    def test_backticks_in_head_text_cannot_end_its_code_span(self):
+        key = "x``@someone [a](http://e)``y"
+        result = self.check(self.head(settings=[*BASE_SETTINGS, {"key": key, "default": True}]))
+        line = next(l for l in result.summary.splitlines() if "@someone" in l)
+        span = line[2:line.index(": ")]
+        fence = span[:len(span) - len(span.lstrip("`"))]
+        self.assertGreater(len(fence), 2, line)
+        self.assertEqual(span.count(fence), 2, line)  # opened once, closed once, never inside
+
     # The snapshot itself.
 
     def test_a_branch_from_before_the_snapshot_is_judged_by_its_sources(self):
