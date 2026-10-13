@@ -32,6 +32,7 @@ writes the same lines as plain text into the build's appcast <description>.
   release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
+  release-notes.py since --index index.json [--not SHA]  prints the newest build's head commit (the next span's start)
   release-notes.py sign --key KEY.pem FILE...       writes FILE.sig
   release-notes.py verify --public-key BASE64 FILE  checks FILE.sig
 """
@@ -48,16 +49,20 @@ INTERNAL_TYPES = {"ci", "test", "tests", "refactor", "docs", "doc", "chore", "st
 # Scopes of fix/feat commits that are about the pipeline or plumbing, not the app.
 INTERNAL_SCOPES = {"ci", "nightly", "fleet", "release", "build", "tests", "test", "gallery", "crash", "lint", "docs",
                    "feat-cmux-next", "browser-parity", "first-party-apps", "browser-automation", "automation", "daemon",
-                   "protocol", "sdk", "cmux-tui", "app-ffi", "backend"}
+                   "protocol", "sdk", "cmux-tui", "app-ffi", "backend", "nightly-next", "e2e", "harness", "deps"}
 # Subject words that mark internal work even without a type.
 INTERNAL_WORDS = re.compile(
     r"\b(red|unit tests?|tests?|godfile|crash ratchet|baseline|index_subscript|int_conversion|lint|repin|re-pin|pin|"
     r"canary|fleet|review findings|move-only|ci|testbox|bisect|fixture|snapshot tests?|tree key|r2|ffi pin|budget|"
-    r"isolated|wiring|socket|daemon|capabilit\w*|struct|type|owner|protocol|schema|sdk|refactor|smoke|acpmux|optchat-chief)\b", re.I)
+    r"isolated|wiring|socket|daemon|capabilit\w*|struct|type|owner|protocol|schema|sdk|refactor|smoke|acpmux|optchat-chief|"
+    r"e2e|gallery|release notes?|publish\w*|pipeline|workflow|telemetry|crash reporting|exception reporting|benchmark|"
+    r"frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|"
+    r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
+    r"boundary)\b", re.I)
 # Code-looking subjects (dotted names, snake_case, versioned ids, backticks) are internal.
-CODE_LIKE = re.compile(r"`|\b\w+\.\w+\b|\w_\w|\w-v\d\b|\[cx-")
+CODE_LIKE = re.compile(r"`|\b\w+\.\w+\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*")
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
-AREA_PREFIX = re.compile(r"^(cmux-next|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+)\s*:\s*", re.I)
+AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+)?|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
 # "(#123)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)": references, anywhere in the subject.
 REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|#\d+|red)\)", re.I)
 
@@ -135,6 +140,8 @@ def parse_highlight(path, text):
     if "title" not in meta:
         raise SystemExit(f"{path}: a highlight needs a 'title:' line")
     item = {"id": os.path.splitext(os.path.basename(path))[0], "title": meta["title"], "body": body.strip(), "media": []}
+    if meta.get("category", "").lower() in {"new", "improved", "fixed", "security"}:
+        item["category"] = meta["category"].lower()
     if meta.get("action"):
         action_id, _, title = meta["action"].partition("|")
         item["action"] = {"id": action_id.strip(), "title": (title.strip() or "Try it")}
@@ -164,6 +171,16 @@ def whats_new_digest(args):
     except (ImportError, ValueError, subprocess.CalledProcessError) as error:
         print(f"whats-new digest skipped: {error}", file=sys.stderr)
         return None
+    # One entry the validator refuses (most often: no try-it action or docs link) drops only that
+    # entry, not the whole digest; the notes' highlights still carry every file.
+    kept = []
+    for entry in document.get("entries", []):
+        found = validate.validate_document(f"{args.short}.json", {**document, "entries": [entry]})
+        if found:
+            print(f"whats-new digest: dropped {entry.get('id')}:\n" + "\n".join(found), file=sys.stderr)
+        else:
+            kept.append(entry)
+    document = {**document, "entries": kept}
     problems = validate.validate_document(f"{args.short}.json", document)
     if problems:
         print("whats-new digest skipped:\n" + "\n".join(problems), file=sys.stderr)
@@ -192,7 +209,9 @@ def build(args):
     highlights = []
     for path in sorted(set(p for p in added if p.endswith(".md"))):
         highlights.append(parse_highlight(path, git("show", f"{args.head}:{path}")))
-    notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date,
+    # "head": the commit these notes end at; the next build's span starts there (`since`), so a
+    # build whose notes never published loses no change to the build after it.
+    notes = {"version": 1, "build": args.build, "shortVersion": args.short, "date": args.date, "head": args.head,
              "highlights": highlights, "changes": changes, "items": items, "summary": summarize_changes(changes)}
     digest = whats_new_digest(args)
     if digest is not None:
@@ -224,10 +243,25 @@ def index(args):
             builds = json.load(f).get("builds", [])
     entry = {"build": notes["build"], "shortVersion": notes["shortVersion"], "date": notes["date"],
              "highlights": len(notes["highlights"])}
+    if re.fullmatch(r"[0-9a-f]{40}", notes.get("head") or ""):
+        entry["head"] = notes["head"]
     builds = [entry] + [b for b in builds if b.get("build") != notes["build"]]
     with open(args.out, "w", encoding="utf-8") as out:
         json.dump({"version": 1, "builds": builds[: args.keep]}, out, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     print(args.out)
+
+
+def since(args):
+    """Prints the head commit of the newest build in a (verified) index that records one, else
+    nothing. `--not` skips a head (a rerun of the job whose own notes are already published)."""
+    with open(args.index, encoding="utf-8") as f:
+        builds = json.load(f).get("builds", [])
+    for entry in builds:
+        head = entry.get("head")
+        if isinstance(head, str) and re.fullmatch(r"[0-9a-f]{40}", head) and head != args.skip:
+            print(entry["head"])
+            return 0
+    return 0
 
 
 def sign(args):
@@ -275,6 +309,9 @@ def main():
     i.add_argument("--previous")
     i.add_argument("--keep", type=int, default=50)
     i.add_argument("--out", required=True)
+    n = sub.add_parser("since")
+    n.add_argument("--index", required=True)
+    n.add_argument("--not", dest="skip", default="")
     s = sub.add_parser("sign")
     s.add_argument("--key", required=True)
     s.add_argument("files", nargs="+")
@@ -282,7 +319,7 @@ def main():
     v.add_argument("--public-key", required=True)
     v.add_argument("file")
     args = parser.parse_args()
-    return {"build": build, "appcast": appcast, "index": index, "sign": sign, "verify": verify}[args.cmd](args) or 0
+    return {"build": build, "appcast": appcast, "index": index, "since": since, "sign": sign, "verify": verify}[args.cmd](args) or 0
 
 
 if __name__ == "__main__":

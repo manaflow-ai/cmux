@@ -124,14 +124,16 @@ export function PasswordsPage({ store, strings }: { store: PasswordsStore; strin
               ))}
             </select>
           )}
-          <button
-            type="button"
-            className="pw-button pw-import-browser"
-            disabled={disconnected}
-            onClick={() => void store.importFromBrowser()}
-          >
-            {t("passwords.page.importBrowser")}
-          </button>
+          {snap.sections.browserImport && (
+            <button
+              type="button"
+              className="pw-button pw-import-browser"
+              disabled={disconnected}
+              onClick={() => void store.importFromBrowser()}
+            >
+              {t("passwords.page.importBrowser")}
+            </button>
+          )}
           <button
             type="button"
             className="pw-button pw-import-files"

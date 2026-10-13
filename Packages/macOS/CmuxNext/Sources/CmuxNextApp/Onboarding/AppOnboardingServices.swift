@@ -74,7 +74,6 @@ final class AppOnboardingServices: OnboardingServices {
         NSWorkspace.shared.openInBackground(url)
     }
 
-    /// The person's click in the import step: the same run as the palette's Import from Another Browser….
     func importFromFiles(into profile: String?) {
         BrowserFileImport(services: services).run(profile: profile ?? BrowserProfileRecord.defaultID)
     }
