@@ -1,7 +1,8 @@
 public import Foundation
 
 /// What the tips card remembers on this Mac (UserDefaults, never uploaded):
-/// actions the user ran, tips dismissed, and the tip shown today.
+/// actions the user ran, tips dismissed, the tip shown today, and the end
+/// of a timed mute ("Mute Tips for 1 Day/Week").
 nonisolated public struct TipState: Equatable, Sendable {
     /// Action ids the user ran (local usage flags).
     public var usedActions: Set<String> = []
@@ -10,24 +11,31 @@ nonisolated public struct TipState: Equatable, Sendable {
     /// means "none today" (dismissed, tried, or nothing left).
     public var shownTip: String?
     public var shownDay: String?
+    /// No tip shows before this moment (a timed mute); nil: not muted.
+    /// Read only when a tip would show, never on a timer.
+    public var mutedUntil: Date?
 
-    public init(usedActions: Set<String> = [], dismissed: Set<String> = [], shownTip: String? = nil, shownDay: String? = nil) {
+    public init(usedActions: Set<String> = [], dismissed: Set<String> = [], shownTip: String? = nil, shownDay: String? = nil,
+                mutedUntil: Date? = nil) {
         self.usedActions = usedActions
         self.dismissed = dismissed
         self.shownTip = shownTip
         self.shownDay = shownDay
+        self.mutedUntil = mutedUntil
     }
 
     static let usedKey = "cmux.next.tips.usedActions"
     static let dismissedKey = "cmux.next.tips.dismissed"
     static let shownTipKey = "cmux.next.tips.shownTip"
     static let shownDayKey = "cmux.next.tips.shownDay"
+    static let mutedUntilKey = "cmux.next.tips.mutedUntil"
 
     public init(defaults: UserDefaults) {
         usedActions = Set(defaults.stringArray(forKey: Self.usedKey) ?? [])
         dismissed = Set(defaults.stringArray(forKey: Self.dismissedKey) ?? [])
         shownTip = defaults.string(forKey: Self.shownTipKey)
         shownDay = defaults.string(forKey: Self.shownDayKey)
+        mutedUntil = defaults.object(forKey: Self.mutedUntilKey) as? Date
     }
 
     public func save(to defaults: UserDefaults) {
@@ -35,6 +43,7 @@ nonisolated public struct TipState: Equatable, Sendable {
         defaults.set(dismissed.sorted(), forKey: Self.dismissedKey)
         defaults.set(shownTip, forKey: Self.shownTipKey)
         defaults.set(shownDay, forKey: Self.shownDayKey)
+        defaults.set(mutedUntil, forKey: Self.mutedUntilKey)
     }
 
     /// The local calendar day of `date` (yyyy-MM-dd).
