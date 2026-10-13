@@ -52,6 +52,9 @@ public final class UpdaterService {
     /// Opens the changelog page for the releases after `from` up to `to`
     /// (set by the App).
     @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
+    /// Opens a web release notes page in a browser tab (set by the App;
+    /// "See all changes" when the staged build has no signed notes).
+    @ObservationIgnored public var openReleaseNotesURL: ((URL) -> Bool)?
     /// Runs an allow-listed action id (set by the App; an announcement's Try It).
     @ObservationIgnored public var runAllowListedAction: ((String) -> Void)?
     /// The announcement cards to show (filtered), newest feed order.
