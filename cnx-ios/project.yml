@@ -1,6 +1,13 @@
 # cnx-ios app project. Generate with `xcodegen generate` in cnx-ios/.
 # The project file is generated and not checked in.
 name: CnxApp
+configs:
+  Debug: debug
+  Release: release
+  # Demo: optimized like Release, with the DEBUG developer surface
+  # (dev sign-in, Settings → Developer, scripted demos). Built by
+  # scripts/demo-build.sh for hand-installed demo builds; never uploaded.
+  Demo: release
 options:
   bundleIdPrefix: dev.cmux.cnx
   deploymentTarget:
@@ -8,6 +15,11 @@ options:
 settings:
   base:
     CNX_TAG: ""
+    CNX_DISPLAY_NAME: cmux
+  configs:
+    Demo:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CNX_DEMO
+      SWIFT_OPTIMIZATION_LEVEL: -Osize
 packages:
   CnxKit:
     path: CnxKit
@@ -42,7 +54,7 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleDisplayName: cmux
+        CFBundleDisplayName: $(CNX_DISPLAY_NAME)
         CNXTag: $(CNX_TAG)
         UILaunchScreen:
           UIColorName: LaunchBackground

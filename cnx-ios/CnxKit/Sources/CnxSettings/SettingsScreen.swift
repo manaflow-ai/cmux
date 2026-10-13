@@ -94,6 +94,9 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                 } footer: {
                     Text("Require Face ID or passcode to open cmux on this device.")
                 }
+                #if DEBUG
+                DeveloperSection(auth: auth)
+                #endif
                 Section("About") {
                     LinkRow("Help", symbol: "questionmark.circle", url: "https://cmux.com/docs")
                     LinkRow("Report a problem", symbol: "flag", url: "https://github.com/manaflow-ai/cmux/issues")
@@ -336,6 +339,52 @@ private struct DiagonalHalf: Shape {
 }
 
 /// Centered mark + "Version 1.0 (123) · tag".
+#if DEBUG
+/// Settings → Developer (DEBUG and Demo builds): demo toggles read at launch,
+/// so a phone demo needs no launch arguments.
+private struct DeveloperSection: View {
+    let auth: CnxAuthModel
+    @AppStorage(DeveloperOptions.mockDataKey) private var mockData = false
+    @AppStorage(DeveloperOptions.launchDemoKey) private var launchDemo = ""
+    @State private var launchedWithMock = DeveloperOptions.mockData
+
+    var body: some View {
+        Section {
+            Toggle(isOn: $mockData) {
+                SettingsLabel("Mock data", symbol: "theatermasks")
+            }
+            Picker(selection: $launchDemo) {
+                Text("None").tag("")
+                ForEach(DeveloperOptions.demos, id: \.id) { demo in
+                    Text(verbatim: demo.title).tag(demo.id)
+                }
+            } label: {
+                SettingsLabel("Demo at next launch", symbol: "play.rectangle")
+            }
+            .pickerStyle(.menu)
+            HStack {
+                SettingsLabel("Service", symbol: "server.rack")
+                Spacer()
+                Text(verbatim: auth.apiBaseURL?.host() ?? (auth.isMock ? "Mock" : "None"))
+                    .foregroundStyle(theme.colors.label3)
+                    .lineLimit(1)
+            }
+            if mockData != launchedWithMock || !launchDemo.isEmpty {
+                Button(role: .destructive) {
+                    exit(0)
+                } label: {
+                    SettingsLabel("Quit to apply", symbol: "arrow.clockwise")
+                }
+            }
+        } header: {
+            Text("Developer")
+        } footer: {
+            Text("Mock data signs in as a sample user with sample teams, Macs and chats. Changes apply at the next launch: quit, then open cmux again. To sign in with the dev test account, enter 42 as the email.")
+        }
+    }
+}
+#endif
+
 struct VersionFooter: View {
     var body: some View {
         let info = Bundle.main.infoDictionary ?? [:]

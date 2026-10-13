@@ -54,12 +54,13 @@ public final class CnxAuthModel {
 
     /// Builds the live model for this process. Reads launch overrides from the
     /// environment (DEBUG only): `CNX_CLEAR_AUTH=1` starts signed out,
-    /// `CNX_MOCK_AUTH=1` signs in a local mock user, and
+    /// `CNX_MOCK_AUTH=1` (or Settings → Developer → Mock data) signs in a
+    /// local mock user, and
     /// `CNX_STACK_EMAIL` / `CNX_STACK_PASSWORD` auto-login a Stack test account.
     public static func live(environment: [String: String], bundleIdentifier: String?) -> CnxAuthModel {
         #if DEBUG
         let isDebug = true
-        if environment["CNX_MOCK_AUTH"] == "1" {
+        if environment["CNX_MOCK_AUTH"] == "1" || DeveloperOptions.mockData {
             let model = CnxAuthModel(coordinator: nil, isMock: true)
             model.mockSignedIn = environment["CNX_CLEAR_AUTH"] != "1"
             return model

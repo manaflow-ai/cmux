@@ -22,6 +22,9 @@ private let demoLog = Logger(subsystem: "dev.cmux.cnx", category: "demo")
 struct DemoDriver {
     let shell: ShellModel
 
+    /// The demos `run(_:)` knows.
+    nonisolated static let names: Set<String> = ["drawer", "settings", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "live"]
+
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
         switch name {

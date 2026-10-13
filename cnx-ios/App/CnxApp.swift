@@ -16,7 +16,7 @@ struct CnxApp: App {
     var body: some Scene {
         WindowGroup {
             #if DEBUG
-            if TerminalDemoRoot.isRequested {
+            if TerminalDemoRoot.isRequested || DeveloperOptions.launchDemo == "terminal" {
                 TerminalDemoRoot()
             } else {
                 RootView(auth: auth, store: .mock())

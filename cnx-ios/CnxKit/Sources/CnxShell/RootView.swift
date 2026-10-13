@@ -30,7 +30,7 @@ public struct ShellLaunchOptions: Sendable {
         #if DEBUG
         initialTab = value("-cnx-tab")
         sidebarOpen = arguments.contains("-cnx-sidebar-open")
-        demo = value("-cnx-demo")
+        demo = value("-cnx-demo") ?? DeveloperOptions.launchDemo.flatMap { DemoDriver.names.contains($0) ? $0 : nil }
         forceSetup = arguments.contains("-cnx-setup")
         initialEmail = value("-cnx-email")
         #endif
@@ -273,8 +273,15 @@ struct DebugLaunch {
     @MainActor
     static func run(selectTab: (RootTab) -> Void) async {
         let arguments = ProcessInfo.processInfo.arguments
-        guard let index = arguments.firstIndex(of: "-CnxDemo"), arguments.indices.contains(index + 1) else { return }
-        switch arguments[index + 1] {
+        let name: String
+        if let index = arguments.firstIndex(of: "-CnxDemo"), arguments.indices.contains(index + 1) {
+            name = arguments[index + 1]
+        } else if let picked = DeveloperOptions.launchDemo {
+            name = picked
+        } else {
+            return
+        }
+        switch name {
         case "chat-feed":
             selectTab(.feed)
             await FeedDemoScript().run()
