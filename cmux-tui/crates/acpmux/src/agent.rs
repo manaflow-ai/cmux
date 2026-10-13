@@ -196,6 +196,9 @@ pub(crate) fn harness_command(
     let family_name = crate::config::derive_family(name, profile);
     let family = Some(family_name.as_str());
     crate::login_env::apply_tokio_for(&mut cmd, family, Some(&env));
+    if let Some(path) = crate::login_env::agent_path() {
+        cmd.env("PATH", path);
+    }
     crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, family);
     // Caller context, herdr-style: the agent knows which session it is.
     for (k, _) in std::env::vars_os() {
