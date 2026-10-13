@@ -50,4 +50,24 @@ import Testing
         #expect(steps.allSatisfy { $0 < 0 && $0 >= -26 })
         #expect(abs(fill.lead) < 24)
     }
+
+    /// A page landing mid-fling moves the offset by the inserted height to
+    /// keep the rows in place, and UIKit's restarted deceleration skips that
+    /// frame (iOS 27.0 simulator: 56, 54, 0, 103, 49 pt drawn). The shift is
+    /// not motion; the skipped step is drawn.
+    @Test func aPageLandingMidFlingIsNotAStall() {
+        var fill = ConversationDecelerationFill()
+        var drawn: [CGFloat] = []
+        var shift: CGFloat = 0
+        for (offset, landed) in [(CGFloat(1100), false), (1044, false), (990, false), (6958, true), (6855, false), (6806, false)] {
+            if landed {
+                fill.shift(by: 5968)
+                shift += 5968
+            }
+            drawn.append(offset + fill.update(offset: offset, duration: 1.0 / 60, decelerating: true) - shift)
+        }
+        let steps = zip(drawn, drawn.dropFirst()).map { $1 - $0 }
+        #expect(steps.allSatisfy { $0 < -40 && $0 > -60 })
+        #expect(fill.lead == 0)
+    }
 }
