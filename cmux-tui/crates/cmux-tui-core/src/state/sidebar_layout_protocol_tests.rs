@@ -267,12 +267,12 @@ fn a_layout_item_takes_a_user_icon_and_keeps_its_asset_from_the_sweep() {
         error_code(update(
             &mux,
             "icon-section",
-            json!({"kind": "section.add", "section": section.clone(), "index": 9})
+            json!({"kind": "section.add", "section": &section, "index": 9})
         )),
         "validation.invalid"
     );
     // The same section with a stored icon is taken (the refusal was the icon's).
-    let mut valid = section.clone();
+    let mut valid = section;
     valid["items"][0]["icon"] = json!("clock");
     update(&mux, "icon-section-ok", json!({"kind": "section.add", "section": valid, "index": 9}))
         .unwrap();
