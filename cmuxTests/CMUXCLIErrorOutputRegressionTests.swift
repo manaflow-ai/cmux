@@ -4966,11 +4966,32 @@ final class UnixSocketResponder {
                 Thread.sleep(forTimeInterval: responseDelay)
             }
             let response = responses[min(responseIndex, responses.count - 1)]
-            let payload = response + "\n"
+            let payload = Self.correlatedResponse(response, request: request) + "\n"
             payload.withCString { pointer in
                 _ = write(clientFD, pointer, strlen(pointer))
             }
         }
+    }
+
+    /// Fixtures omit the dynamic ID; echo it as the real v2 server does.
+    /// Preserve explicit IDs and non-JSON replies for protocol-error tests.
+    static func correlatedResponse(_ response: String, request: Data) -> String {
+        guard let requestObject = try? JSONSerialization.jsonObject(with: request) as? [String: Any],
+              let requestID = requestObject["id"] as? String,
+              let responseObject = try? JSONSerialization.jsonObject(with: Data(response.utf8)) as? [String: Any],
+              responseObject["ok"] is Bool,
+              responseObject["id"] == nil,
+              let openingBrace = response.firstIndex(of: "{"),
+              let idData = try? JSONSerialization.data(withJSONObject: requestID, options: [.fragmentsAllowed]) else {
+            return response
+        }
+        // Keep the fixture's original wire values (for example 0.0 versus 0).
+        var correlated = response
+        correlated.insert(
+            contentsOf: "\"id\":\(String(decoding: idData, as: UTF8.self)),",
+            at: correlated.index(after: openingBrace)
+        )
+        return correlated
     }
 
     private static func posixError(_ operation: String) -> NSError {
@@ -5155,7 +5176,11 @@ final class RelaySocketResponder {
         let responseIndex = requests.count
         requests.append(request)
         lock.unlock()
-        _ = writeLine(responses[min(responseIndex, responses.count - 1)], to: clientFD)
+        let response = UnixSocketResponder.correlatedResponse(
+            responses[min(responseIndex, responses.count - 1)],
+            request: Data(request.utf8)
+        )
+        _ = writeLine(response, to: clientFD)
     }
 
     private func readLine(from fd: Int32) -> String? {
