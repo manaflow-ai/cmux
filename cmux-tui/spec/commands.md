@@ -8213,7 +8213,11 @@ Without `level` it answers acpmux's `acp.trust.get {cwd}` reply
 or `unknown`, which forgets the answer) it answers acpmux's
 `acp.trust.set {cwd, level}` reply. Any other level, a `cwd` that is not
 absolute (at most 4096 bytes, no control characters) or an unknown param is
-`agent_session.bad_request`; acpmux checks that the folder exists. The tab
+`agent_session.bad_request`; acpmux checks that the folder exists. A
+`trusted` answer for `/` or a folder above this user's home folder is
+`agent_session.above_home`; the home folder itself takes `trusted` only with
+`home_confirmed: true` (the person chose it as the chat's folder first, as
+Use Home Folder on the Mac), else `agent_session.home_unconfirmed`. The tab
 must be an `agent_session` tab of this store whose `host` names this store
 (bound or not), else `agent_session.unknown_tab`; the machine kind gate,
 the trusted local connection rule and the acpmux start are those of
