@@ -74,6 +74,9 @@ public struct ThemedField: NSViewRepresentable {
         let field = host.box.field
         if field.stringValue != text { field.stringValue = text }
         if field.placeholderString != placeholder { field.placeholderString = placeholder }
+        // The placeholder names the field for VoiceOver, as a stock field's title does, also once
+        // it holds text and the hint is gone.
+        if field.accessibilityLabel() != placeholder { field.setAccessibilityLabel(placeholder) }
         if field.font != font { field.font = font }
         if let identifier, field.accessibilityIdentifier() != identifier { field.setAccessibilityIdentifier(identifier) }
         host.box.height = height
