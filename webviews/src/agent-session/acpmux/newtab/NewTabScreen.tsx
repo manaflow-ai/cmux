@@ -63,6 +63,12 @@ export type NewTabScreenActions = {
   onTouched?(): void;
   /// No agent to ask: opens the Harnesses page (cx-uj5g8).
   onAddHarness?(): void;
+  /// acpmux has answered with its harnesses (a fetch landed): only then can none be missing.
+  harnessesListed?: boolean;
+  /// Integrate a harness was dismissed for good (the app keeps it across relaunches).
+  harnessHintDismissed?: boolean;
+  /// Dismisses Integrate a harness for every later page (`newTab.remember` `harnessHint: "dismissed"`).
+  onDismissHarnessHint?(): void;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
 };
@@ -123,6 +129,11 @@ export function NewTabScreen(props: Props) {
   const [shell, setShell] = useState(false);
   /// Return asked with no agent to ask: the note under the field says so until the next edit.
   const [noAgent, setNoAgent] = useState(false);
+  // With no harness installed, the note offers one up front once acpmux has answered; with any
+  // installed, never, even one acpmux cannot run now (Leo 2026-10-12). The app keeps a dismissal.
+  const [hintDismissed, setHintDismissed] = useState(props.harnessHintDismissed === true);
+  const noneInstalled = props.harnessesListed === true && snapshot.catalog.length === 0;
+  const showNote = noAgent || (noneInstalled && !hintDismissed && props.onAddHarness !== undefined);
   const [project, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   const field = useRef<HTMLInputElement>(null);
   const wholeSelection = useRef(false);
@@ -389,6 +400,16 @@ export function NewTabScreen(props: Props) {
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, []);
+  const focusFromRow = (event: React.MouseEvent<HTMLDivElement>) => {
+    const input = field.current;
+    if (!input || event.button !== 0 || event.target === input) return;
+    // Keep the press from moving focus to the row; a field that had no focus gets the caret at
+    // the end of its text, a focused one keeps its caret and selection.
+    event.preventDefault();
+    if (input.ownerDocument.activeElement === input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  };
   const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     touch();
     if (composing.current || event.nativeEvent.isComposing) return;
@@ -449,7 +470,11 @@ export function NewTabScreen(props: Props) {
       {/* One box (board 008): the field on top, the folder and the agent's model chips on its bottom
           row, the Send button at the end. */}
       <div ref={setBox} className="nt-box">
-        <div className="nt-input">
+        {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
+            browser's address bar does; the text itself keeps its own press (caret, selection).
+            Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
+        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
+        <div className="nt-input" onMouseDown={focusFromRow}>
           {shell ? (
             <span className="nt-shell-glyph" aria-hidden="true">
               !
@@ -562,7 +587,7 @@ export function NewTabScreen(props: Props) {
         </Popover>
       )}
       {props.notice}
-      {noAgent && (
+      {showNote && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className="nt-no-agent" role="status">
           <span>{t("newtab.noAgent")}</span>
@@ -572,6 +597,24 @@ export function NewTabScreen(props: Props) {
                 <PlusIcon />
               </span>
               <span>{t("newtab.addHarness")}</span>
+            </button>
+          )}
+          {props.onAddHarness && (
+            <button
+              type="button"
+              className="nt-tool nt-hint-dismiss ui-ghost"
+              data-dismiss-hint
+              aria-label={t("newtab.addHarness.dismiss")}
+              title={t("newtab.addHarness.dismiss")}
+              onClick={() => {
+                props.onDismissHarnessHint?.();
+                setHintDismissed(true);
+                setNoAgent(false);
+              }}
+            >
+              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                <CrossIcon />
+              </span>
             </button>
           )}
         </div>
@@ -664,6 +707,23 @@ function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
 function ownsKeys(element: Element): boolean {
   if ((element as HTMLElement).isContentEditable || element.closest("input, textarea, select")) return true;
   return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
+}
+
+/// The 14 px cross in currentColor that dismisses Integrate a harness.
+function CrossIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    >
+      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+    </svg>
+  );
 }
 
 /// The 14 px plus in currentColor before "Integrate a harness".

@@ -1,10 +1,10 @@
+import CmuxNextCompat
 import CmuxNextAgentPane
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
-import Observation
 
 typealias TransferJSONValue = CmuxNextSettings.JSONValue
 
@@ -269,7 +269,7 @@ final class SessionTransferService {
     func hasConversationTab(_ workspace: String) async throws -> Bool {
         guard let store = services?.daemon.store else { throw Failure.unavailable }
         let listed = Task { @MainActor () -> Bool in
-            let opened = Observations({
+            let opened = ObservationStream({
                 store.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens
                     .flatMap(\.panes).flatMap(\.tabs).contains(where: { $0.kind == .conversation }) ?? false
             })

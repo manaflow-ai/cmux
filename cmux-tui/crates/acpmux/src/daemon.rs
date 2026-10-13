@@ -12,6 +12,8 @@ use std::time::Duration;
 
 mod lock;
 use lock::{acquire_lock, wait_for_lock_release};
+#[cfg(windows)]
+mod windows;
 
 pub struct DaemonOptions {
     pub ws_listen: Option<String>,
@@ -49,6 +51,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
         }
     }
+    #[cfg(windows)]
+    windows::keep_from_children(opts.ready_fd);
     // Before anything is spawned: the key never reaches a child.
     let person_key = opts.person_key_fd.and_then(read_person_key);
     let login_env = crate::login_env::requested();
@@ -66,6 +70,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // tool wrote it with the umask's mode and the daemon never saves it.
     narrow_to_owner(&Config::path());
     config.dev_origins = dev_origins;
+    crate::login_env::set_extra_allow(config.login_env_allow.clone());
     if opts.memory {
         config.store.mode = crate::config::StoreMode::Memory;
     }
@@ -561,12 +566,10 @@ fn not_dumpable() -> std::io::Result<()> {
     Ok(())
 }
 
-/// Windows: no inherited descriptors yet (the CreateProcess handle list
-/// lands with the daemon start); no person key is read.
-#[cfg(not(unix))]
+/// Windows: an inherited handle (`daemon/windows.rs`).
+#[cfg(windows)]
 fn read_person_key(fd: i32) -> Option<String> {
-    tracing::warn!("--person-key-fd {fd}: {}", crate::platform::unsupported("--person-key-fd"));
-    None
+    windows::read_person_key(fd)
 }
 
 /// Write the readiness line to an inherited descriptor and close it.
@@ -589,11 +592,10 @@ fn write_ready(fd: i32, ready: &Value) {
         std::mem::forget(f);
     }
 }
-/// Windows port: the readiness pipe is an inherited handle there (a later
-/// landing, with the CreateProcess handle list); nothing is written yet.
-#[cfg(not(unix))]
-fn write_ready(fd: i32, _ready: &Value) {
-    tracing::warn!("--ready-fd {fd}: {}", crate::platform::unsupported("--ready-fd"));
+/// Windows: an inherited handle (`daemon/windows.rs`).
+#[cfg(windows)]
+fn write_ready(fd: i32, ready: &Value) {
+    windows::write_ready(fd, ready)
 }
 
 /// Whether `--allow-dev-origin` may take effect: in a debug build, or with
@@ -745,11 +747,10 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
         )),
     }
 }
-/// Windows port: the daemon starts through CreateProcess with a handle list
-/// there (a later landing).
-#[cfg(not(unix))]
+/// Windows: CreateProcessW with a handle list (`daemon/windows.rs`).
+#[cfg(windows)]
 async fn start_daemon() -> Result<String> {
-    Err(crate::platform::unsupported("starting the acpmux daemon"))
+    windows::start_daemon(&home(), &daemon_prefix(), START_BUDGET).await
 }
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {

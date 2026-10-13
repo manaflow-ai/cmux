@@ -267,8 +267,33 @@ pub fn discover_harnesses_from(
     {
         agents.insert("codex".to_owned(), profile);
     }
+    // Codex through `codex app-server`, bridged in process (cmux-codex-acp,
+    // `codex_app_server.rs`): offered beside the adapter until it becomes
+    // the default.
+    if !agents.contains_key(CODEX_APP_SERVER)
+        && let Some(codex) = which("codex")
+    {
+        agents.insert(
+            CODEX_APP_SERVER.to_owned(),
+            HarnessProfile {
+                kind: HarnessKind::Acp,
+                argv: vec![codex, "app-server".into()],
+                env: BTreeMap::new(),
+                description: Some("Codex through codex app-server, in process".into()),
+                fallback: None,
+                family: None,
+                models: vec![],
+                model: None,
+                effort: None,
+                policy: None,
+            },
+        );
+    }
     agents
 }
+
+/// The harness name of Codex through `codex app-server` in process.
+pub const CODEX_APP_SERVER: &str = "codex-app-server";
 
 /// True when the program at `path` resolves (through links) to Cursor's
 /// `cursor-agent` binary.

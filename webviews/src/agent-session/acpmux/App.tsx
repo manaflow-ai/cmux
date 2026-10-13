@@ -52,7 +52,13 @@ import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
-import { createPaneQueryClient, followHarnessChanges, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
+import {
+  createPaneQueryClient,
+  followHarnessChanges,
+  useHarnessCatalog,
+  useHarnessesListed,
+  type HarnessCatalogSource,
+} from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
@@ -178,7 +184,14 @@ import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
-import { SubagentGroupHeader, SubagentListRow, SubagentNavContext, SubagentOfRow } from "./subagents/SubagentGroup";
+import { knownMark } from "../shared/AgentMark";
+import {
+  SubagentGroupHeader,
+  SubagentHarnessContext,
+  SubagentListRow,
+  SubagentNavContext,
+  SubagentOfRow,
+} from "./subagents/SubagentGroup";
 import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { MoveRow } from "./shell/MoveRow";
@@ -2434,6 +2447,8 @@ function AcpmuxPane() {
   const pickerCatalog = pickerState.catalog;
   // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
+  // acpmux answered with its harnesses: only then does an empty catalog mean none is installed.
+  const harnessesListed = useHarnessesListed();
   // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
@@ -3719,13 +3734,25 @@ function AcpmuxPane() {
       ),
     );
   const archived = snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived);
+  // Archive and Mark as Unread are acpmux requests on the pane's own connection (cx-jlzsf); only
+  // closing an archived chat's tab is the host's (a tab is the window's).
+  const openClient = async () => {
+    const client = directClient.current;
+    if (!client) throw new Error(translate("error.notOpen"));
+    return client;
+  };
+  const archiveChat = async (archived: boolean) => {
+    await (await openClient()).archive(archived);
+    // Quick Chat's panel has no tab to close.
+    if (archived && !quick) await callNative("pane.action", { id: "closeTab" });
+  };
   const archive = archiveRow(
     {
       sessionId: snapshot.sessionId,
       archived,
       local: localCwd !== undefined,
     },
-    (archived) => ignoreFailure(callNative("chat.archive", { archived })),
+    (archived) => ignoreFailure(archiveChat(archived)),
     t,
   );
   archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
@@ -3736,7 +3763,7 @@ function AcpmuxPane() {
       local: localCwd !== undefined,
       unread: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.unread === true),
     },
-    () => ignoreFailure(callNative("chat.markUnread")),
+    () => ignoreFailure(openClient().then((client) => client.markUnread())),
     t,
   );
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
@@ -4078,41 +4105,45 @@ function AcpmuxPane() {
               <SessionEditsContext.Provider value={editRows}>
                 <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                   <SubagentNavContext.Provider value={setSubagentView}>
-                    <ChatFindScope
-                      rows={childRows ?? sourceRows}
-                      shown={childRows ? undefined : transcriptRows}
-                      openFold={openFold}
-                      findRef={findRef}
+                    <SubagentHarnessContext.Provider
+                      value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                     >
-                      {(find) => (
-                        <VirtualTranscript
-                          rows={transcriptRows}
-                          working={snapshot.isWorking}
-                          // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                          jumpButton={!quick}
-                          focusComposer={() => composerHandle.current?.focus()}
-                          find={quick ? undefined : find}
-                          sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                          canLoadOlder={!childRows && snapshot.canLoadOlder}
-                          openAt={
-                            !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                              ? scrollAnchor
-                              : undefined
-                          }
-                          onAnchor={
-                            quick || childRows || !shownSessionId
-                              ? undefined
-                              : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                          }
-                          expanded={expanded}
-                          registry={registry}
-                          githubRepository={githubRepository}
-                          // The Quick Composer has no room for the changes view; its file rows stay plain.
-                          onOpenDiff={quick ? undefined : openDiff}
-                          onToggleActivity={toggleActivity}
-                        />
-                      )}
-                    </ChatFindScope>
+                      <ChatFindScope
+                        rows={childRows ?? sourceRows}
+                        shown={childRows ? undefined : transcriptRows}
+                        openFold={openFold}
+                        findRef={findRef}
+                      >
+                        {(find) => (
+                          <VirtualTranscript
+                            rows={transcriptRows}
+                            working={snapshot.isWorking}
+                            // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                            jumpButton={!quick}
+                            focusComposer={() => composerHandle.current?.focus()}
+                            find={quick ? undefined : find}
+                            sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                            canLoadOlder={!childRows && snapshot.canLoadOlder}
+                            openAt={
+                              !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                ? scrollAnchor
+                                : undefined
+                            }
+                            onAnchor={
+                              quick || childRows || !shownSessionId
+                                ? undefined
+                                : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                            }
+                            expanded={expanded}
+                            registry={registry}
+                            githubRepository={githubRepository}
+                            // The Quick Composer has no room for the changes view; its file rows stay plain.
+                            onOpenDiff={quick ? undefined : openDiff}
+                            onToggleActivity={toggleActivity}
+                          />
+                        )}
+                      </ChatFindScope>
+                    </SubagentHarnessContext.Provider>
                   </SubagentNavContext.Provider>
                 </SessionCwdContext.Provider>
               </SessionEditsContext.Provider>
@@ -4599,6 +4630,8 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
+              harnessesListed={harnessesListed}
+              {...(newTab.harnessHintDismissed ? { harnessHintDismissed: true } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse").then(

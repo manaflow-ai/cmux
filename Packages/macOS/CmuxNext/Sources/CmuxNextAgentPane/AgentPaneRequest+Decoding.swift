@@ -140,6 +140,11 @@ extension AgentPaneRequest {
                 let model = (params?["model"] as? String).flatMap { !$0.isEmpty && $0.count <= 256 ? $0 : nil }
                 let folder = (params?["folder"] as? String).flatMap { !$0.isEmpty && $0.count <= 4096 ? $0 : nil }
                 self = .rememberNewTab(AgentPaneRememberedPick(agent: agent, model: model, folder: folder))
+            } else if params?["harnessHint"] as? String == "dismissed" {
+                // Integrate a harness dismissed for good (a page choice like the agent pick).
+                var pick = AgentPaneRememberedPick(agent: "")
+                pick.dismissesHarnessHint = true
+                self = .rememberNewTab(pick)
             } else {
                 self = .unsupported(method)
             }
@@ -196,10 +201,6 @@ extension AgentPaneRequest {
             else { self = .unsupported(method) }
         case "chat.sideChat":
             if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .sideChat(id) } else { self = .unsupported(method) }
-        case "chat.archive":
-            if let archived = params?["archived"] as? Bool { self = .archive(archived) } else { self = .unsupported(method) }
-        case "chat.markUnread":
-            self = .markUnread
         case "chat.upload":
             if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
         case "chat.toolCard.respond":

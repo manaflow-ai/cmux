@@ -35,9 +35,12 @@ extension AppActions {
         // Home is a top page (TOP-SECTION-ITEMS-ARE-PAGES): the active
         // window shows it, from any origin (a focus action). With no window,
         // the store's home workspace opens one; else refused with why.
-        // The channels Home tab (HomeChannelsPageTab), next to the native Home. Registered at
-        // launch so a restored Channels tab finds its provider.
+        // The channels Home tab (HomeChannelsPageTab), next to the native Home, and in DEBUG the Home fixture
+        // (debug.home_native_fixture.open): registered at launch so a restored tab finds its provider (not blank).
         services.pages.register(HomeChannelsPageTab(services: services))
+        #if DEBUG
+        services.pages.register(DebugHomeNativeFixture())
+        #endif
         registry.bind("home.channels") { _ = HomeChannelsPageTab.open(services) }
         registry.bind("home.show") {
             if TopPages.show(.home, services: services) != nil { return }
@@ -80,7 +83,7 @@ extension AppActions {
     /// also brings that window forward and activates the app
     /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
-        let spawn = WorkspaceSpawn(invocation)
+        var spawn = WorkspaceSpawn(invocation)
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
 
@@ -97,9 +100,19 @@ extension AppActions {
             services.registry.track(Task { ActionWorkFailure(WorkspaceVerbStrings.machineNotConnected) })
             return
         }
+        // A person's Cmd-N onto the New Tab page in the window they type in: every key from this
+        // moment waits for the new page's field, in order (cx-kql5h), not for the workspace to show.
+        let input = services.keyRouter.newTabInputCoordinator
+        let opensPage = show && hasOpenWindow && spawn.opensNewTabPage && spawn.command == nil && spawn.firstChat == nil
+            && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
+        let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
+        spawn.inputToken = keys
         services.registry.track(Task {
+            var pageMade = false
+            defer { input.endIncoming(keys, pageMade: pageMade) }
             do {
                 _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                pageMade = true
                 if focus.activatesApp, let target { focusWindow(windows, target) }
                 return nil
             } catch is CancellationError {

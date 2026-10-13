@@ -6,7 +6,6 @@
 :root {
   --hc-accent: var(--cmux-app-accent, var(--page-text));
   --hc-on-accent: var(--cmux-app-on-accent, var(--cmux-surface-solid, Canvas));
-  --hc-rail-bg: var(--cmux-app-sidebar, color-mix(in srgb, var(--page-text) 3%, transparent));
   --hc-danger: var(--cmux-app-danger, #e5484d);
   /* Ink on a text-colored fill: the opaque surface (the page background is clear in a translucent
      window). */
@@ -95,11 +94,13 @@ body,
 }
 
 /* ---------- Rail ---------- */
+/* The rail paints no fill, as the native sidebar (Palette.sidebarBackground: "the same as the
+   window"): html's one background shows through it, the theme color in an opaque window and the
+   window material and art in a see-through one, where the window tint keeps text legible. */
 .hc-rail {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  background: var(--hc-rail-bg);
   border-inline-end: 1px solid var(--page-separator);
 }
 .hc-rail-header {
@@ -1119,5 +1120,58 @@ body,
 
 /* ---------- Danger rows in menus ---------- */
 .ui-menu-item.danger {
+  color: var(--hc-danger);
+}
+
+/* The page on a cmux instance's daemon (?daemon=): the connect gate and the instance bar. */
+.hc-daemon {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.hc-daemon > :last-child {
+  flex: 1;
+  min-height: 0;
+}
+.hc-instance {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--page-separator);
+  font-size: var(--text-detail);
+}
+.hc-gate {
+  max-width: 420px;
+  margin: 15vh auto 0;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hc-gate h1 {
+  font-size: var(--text-heading);
+  margin: 0;
+}
+.hc-gate label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hc-gate-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.hc-gate-endpoint {
+  opacity: 0.7;
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-detail);
+}
+.hc-gate-code {
+  font-size: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+.hc-gate-error {
   color: var(--hc-danger);
 }

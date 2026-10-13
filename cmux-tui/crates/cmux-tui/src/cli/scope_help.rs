@@ -7,6 +7,13 @@ USAGE
   cmux browser open <url> [--workspace <selector>] [--screen <selector>]
     [--pane <selector>] [--name <value>] [--width-px <n> --height-px <n>]
   cmux browser list
+  cmux browser profile list
+  cmux browser profile create --name <name> [--profile <id>] [--color <value>]
+    [--icon <value>] [--index <n>]
+  cmux browser profile move --profile <id-or-name> --index <n>
+  cmux browser profile delete --profile <id-or-name>
+  cmux browser profile open <url> --engine webkit|cef --profile <id-or-name>
+    [--pane <numeric-pane-id>] [--title <value>] [--background true|false]
   cmux browser <selector> show|navigate|back|forward|reload|activate
   cmux browser <selector> key|text [OPTIONS]
   cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
@@ -118,6 +125,7 @@ USAGE
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [--context-lines <n>] [<path>...]
+  cmux git branches [TARGET] [--limit <n>]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git list [TARGET] [--limit <n>]
   cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
@@ -161,6 +169,13 @@ checkout. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
 counted. Paths are relative to the repository root and taken literally.
+
+branches lists local branches, then remote-tracking ones, newest commit first:
+each one's ref and commit, and for a local branch its upstream and how far it
+is ahead and behind. At most --limit (200, up to 1000) are printed. It also
+suggests the bases a branch diff may compare with: the base a worktree create
+recorded for the branch, origin's default branch (else main or master), then
+the upstream of HEAD's branch.
 
 files lists the files under the target folder whose path contains the query's
 characters in order (case-insensitive, spaces ignored), best first: tracked

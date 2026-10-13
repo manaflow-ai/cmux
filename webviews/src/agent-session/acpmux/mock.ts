@@ -363,6 +363,11 @@ export class MockAcpmuxSocket {
 
   private async answer(method: string, params: Record<string, any>): Promise<unknown> {
     const target = String(params.sessionId ?? sessionId);
+    // The gallery's call log (gallery/frame/main.ts) also lists the requests the page sent here.
+    (globalThis as { cmuxGalleryLog?: { method: string; params?: unknown }[] }).cmuxGalleryLog?.push({
+      method: `acpmux ${method}`,
+      params,
+    });
     if (Object.values(HANDOFF_OPS).includes(method as any)) return this.handoffs.answer(method, params);
     switch (method) {
       // The mock serves forks, so the pane's fork action can be tried before acpmux ships it.
@@ -384,7 +389,10 @@ export class MockAcpmuxSocket {
         return { sessions: this.sessions };
       case "_acpmux/harnesses":
         return {
-          harnesses: this.script ? scriptHarnesses : harnesses,
+          // A gallery state can stand for a Mac with no agent CLI (`mockHarnesses`).
+          harnesses: this.script
+            ? scriptHarnesses
+            : ((globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses ?? harnesses),
           ...(typeof params.cwd === "string" && this.profileFolder(params.cwd)
             ? { folderProfiles: this.folderProfiles() }
             : {}),
@@ -410,6 +418,20 @@ export class MockAcpmuxSocket {
           events: this.events.filter((event) => event.sessionId === target),
         };
       }
+      case "_acpmux/archive": {
+        const entry = this.sessions.find((session) => session.sessionId === target);
+        if (!entry) throw Object.assign(new Error("no such session"), { code: -32001 });
+        const tags: Record<string, string> = { ...(entry.tags && !Array.isArray(entry.tags) ? entry.tags : {}) };
+        if (params.archived === true) tags.archived = String(Date.now());
+        else delete tags.archived;
+        this.touch(target, { tags, archived: undefined }, false);
+        return this.sessions.find((session) => session.sessionId === target);
+      }
+      case "_acpmux/markUnread":
+        if (!this.sessions.some((session) => session.sessionId === target))
+          throw Object.assign(new Error("no such session"), { code: -32001 });
+        this.touch(target, { unread: true }, false);
+        return {};
       case "_acpmux/events":
         return this.page(target, params);
       case "_acpmux/permission_respond":
