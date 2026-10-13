@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -188,6 +189,17 @@ enum DaemonClosedHistory {
         })
     }
 
+    /// Sends the agent-home folders of deleted closed workspaces (the
+    /// daemon moved them to `.trash-pending`, cx-gzh.9.2) to the Trash, off
+    /// the main thread. At launch and after each delete or clear.
+    static func emptyAgentHomeTrash() {
+        guard let home = AgentHome.standard else { return }
+        // task-owner: one sweep of the trash-pending folder; nothing waits for it
+        Task.detached(priority: .utility) {
+            home.emptyTrashPending { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+        }
+    }
+
     /// Deletes `entry` for good on its daemon (History's Remove, Search
     /// Tabs' forget): it cannot be reopened any more.
     static func delete(_ entry: Entry, services: AppServices) {
@@ -196,6 +208,7 @@ enum DaemonClosedHistory {
             guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
             do {
                 try await connection.state.deleteClosed(id)
+                if daemon.isLocal { emptyAgentHomeTrash() }
                 return nil
             } catch DaemonError.command(_, _, let code, _, _) where code == "resource.not_found" {
                 // Already gone (a second Remove, or a reopen that ran first): the goal holds.
@@ -218,6 +231,7 @@ enum DaemonClosedHistory {
                 guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
                 do {
                     try await connection.state.deleteAllClosed(sinceMs: sinceMs)
+                    if daemon.isLocal { emptyAgentHomeTrash() }
                     return nil
                 } catch {
                     daemon.logger.error("closed.delete all failed: \(String(describing: error), privacy: .public)")
