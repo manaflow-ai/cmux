@@ -17,7 +17,7 @@ public struct CloudAttachEndpoint: Sendable, Equatable {
         }
     }
 
-    /// The daemon route (`ws://[vpc ipv6]:1337/v1/link` for private machines).
+    /// The server-advertised daemon route for this attach.
     public var route: String
     /// The control plane's session id for this attach.
     public var session: String
