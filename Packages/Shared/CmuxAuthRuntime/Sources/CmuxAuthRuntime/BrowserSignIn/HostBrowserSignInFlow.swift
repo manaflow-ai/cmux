@@ -531,7 +531,8 @@ public final class HostBrowserSignInFlow {
             let displaySafe = AuthError(displaySafe: error) ?? .serverError(0, "auth_failed")
             if displaySafe != .cancelled {
                 lastFailure = displaySafe
-                lastFailureDetail = AuthFailureDiagnostic.summary(of: error)
+                lastFailureDetail = coordinator.lastExternalSignInFailureDetail
+                    ?? AuthFailureDiagnostic.summary(of: error)
             }
             // Do not clear seeds here. The coordinator owns raced sign-out
             // teardown credentials and concurrent publish cancellation.

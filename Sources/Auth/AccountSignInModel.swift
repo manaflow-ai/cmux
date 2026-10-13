@@ -48,7 +48,8 @@ final class AccountSignInModel {
     private(set) var hasRequestedSignIn = false
     private(set) var signInURL: URL?
     private(set) var linkCopyState: LinkCopyState = .idle
-    private(set) var failureDetailCopyState: LinkCopyState = .idle
+    private var copiedFailureDetail: String?
+    private var failureDetailCopyFailure: LinkCopyState = .idle
     private(set) var browserOpenState: BrowserOpenState = .idle
     private(set) var isStartingSignIn = false
 
@@ -107,6 +108,12 @@ final class AccountSignInModel {
         return flow?.lastSignInFailureDetail
     }
 
+    /// Copy state for the detail on screen. A different detail (a later
+    /// failure) shows the copy button again instead of a stale "Copied".
+    var failureDetailCopyState: LinkCopyState {
+        copiedFailureDetail != nil && copiedFailureDetail == failureDetail ? .copied : failureDetailCopyFailure
+    }
+
     /// Starts the initial attempt once when an automatically presented pane appears.
     func startSignInIfNeeded() {
         guard !hasRequestedSignIn else { return }
@@ -118,7 +125,8 @@ final class AccountSignInModel {
         guard let flow, flow.currentIdentity == nil else { return }
         hasRequestedSignIn = true
         linkCopyState = .idle
-        failureDetailCopyState = .idle
+        copiedFailureDetail = nil
+        failureDetailCopyFailure = .idle
         browserOpenState = .idle
         if flow.isPresentingSignIn || flow.isSwitchingAccount {
             // Another surface already has the shared attempt up. Adopt it —
@@ -157,10 +165,12 @@ final class AccountSignInModel {
     }
 
     func copyFailureDetail() {
-        guard let failureDetail else {
-            failureDetailCopyState = .failed
+        guard let failureDetail, flow?.copyFailureDetail(failureDetail) == true else {
+            copiedFailureDetail = nil
+            failureDetailCopyFailure = .failed
             return
         }
-        failureDetailCopyState = flow?.copyFailureDetail(failureDetail) == true ? .copied : .failed
+        copiedFailureDetail = failureDetail
+        failureDetailCopyFailure = .idle
     }
 }
