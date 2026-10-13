@@ -1520,8 +1520,11 @@ mod tests {
             .unwrap();
         let surface = mux.surface(surface_id).unwrap();
         let attach = surface.attach_stream().unwrap();
+        surface
+            .try_with_terminal(|terminal| terminal.set_kitty_inflight_storage_limit(64))
+            .unwrap();
         let mut upload = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
-        upload.resize(ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + 1, b'A');
+        upload.resize(1024, b'A');
         surface.apply_local_pty_output_for_test(&upload).unwrap();
 
         let captured =
