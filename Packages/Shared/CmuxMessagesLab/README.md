@@ -44,7 +44,8 @@ and render-server field animation, blurred header and native scrolling.
   `HomeVideo` (inline video: lane 16's `VideoPlayback` players placed in
   MessagesLab's video bubbles under the bubble mask, with RowDrawing's play
   disc while paused), `CmuxStrings` (Resources/CmuxHome.xcstrings),
-  `HomeLinkPreviews` (which links may fetch a preview),
+  `HomeLinkPreviews` (which links may fetch a preview), `HomeLinkSend` (the
+  preview a send attaches),
   `HomeMarkdown` (an agent's Markdown as MessagesLab text and style runs;
   people's text stays plain), `HomeFlightRecorder` (the flight recorder's
   policy, log folder and Save Last 10 Seconds, plus the helpers it calls from
@@ -76,6 +77,7 @@ and render-server field animation, blurred header and native scrolling.
 | Fixture | the gradient mix falls back to the measured blue when a colour cannot convert (never reads components of an unconverted colour; the Markdown getWhite fix is upstream as 40b9869) |
 | SidebarView (sidebar) | Messages' pin drags (reorder a pinned tile, drag it onto the list to unpin, drag a row into the grid to pin it there, Escape cancels): the mouse-down hands off to `Cmux/SidebarPinDragging.swift`, a reload lets the drag follow or the drop land, and the tile layers, render context and avatar cache are readable by that file (the drag copies the drawn tile's parts, so it works on single-bitmap and layered tiles); upstream ask |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
+| WindowView | `setRenderScale` guards on the view's own `appliedRenderScale` as well as the shared `Fixture.renderScale`: Home has a window view per pane, and a second pane (or a tab shown again) must still re-rasterize and re-snap (82ccac1) after the first pane set the shared scale. Two windows on displays of different scales still share one `Fixture.renderScale` (upstream) |
 | Layout | `MessagesLabLocalization`'s default is the package bundle (`Bundle(for:)` of a class in a linked package is the app's); the image placeholder and code-text strings carry all 21 app languages in Localizable.xcstrings |
 | TranscriptAccess (pinned at bd65bbf) | MessagesLab 30495be's accessibility fix only: one element per visible message id, kept on `TranscriptSelection.axElements` and reused (an element made per call was freed, and VoiceOver and AX clients saw an empty Messages list); the rest of the newer file (selection menu, speech, search) is not rolled in. MessagesLab 2281879's selection outline is ported: the selected bubble's path is the drawn balloon (`RowDraw.balloon`, its frame's corners) |
 | SwipeReply, TranscriptAccess (own pins) | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs. From eb1ed28 the rest of the crash program is upstream (586d5f0 CrashGuard/CrashSafeGraphics, ef7da0a the decided hunks), and so are the per-view widths, the 434 pt text column, the scroller's own right edge and the macOS 14 gates (60e79ec LabGlass) |
@@ -159,9 +161,18 @@ through MessagesLab's LinkGuard: http(s) on the default port, every resolved
 address public (no loopback, private, CGNAT/Tailscale, link-local, ULA;
 mapped and NAT64 IPv6 as IPv4), the connected address re-checked, at most 5
 redirects each re-checked and no https to http, an ephemeral session, 512 KB
-of HTML and 5 MB of image. Not yet: the sender attaching the preview to the
-message (a `link_preview` wire part with the poster as an attachment record,
-shape agreed with the images lane), so another device shows the domain card.
+of HTML and 5 MB of image. The sender attaches the preview to the message
+(`Cmux/HomeLinkSend`): a draft with URL-only lines waits for each card's
+fetch (the one MessagesLab's send started; the local message already flies
+with the grey card), then sends HomeStore parts in `TextParts` order,
+`.text` blocks and `.linkPreview(url, title, site, image)`. The picture
+(LinkPreviews' PNG) becomes a JPEG of at most 1024 px and 512 KB uploaded as
+its own image record with the message (`HomeStore.prepareLinkPreviewImage`,
+`send(conversation:parts:uploads:key:)`); the owner checks its hash like an
+attachment's. A failed fetch sends the URL only (iMessage sends the bare
+URL; every device shows the domain card). A receiver maps the part to
+MessagesLab's card and loads only the picture, by hash, through HomeMedia
+(`refreshAttachments` fills the card when it arrives), never the URL.
 
 Messages' 434 pt window minimum (Host.swift) is not applied: a Home tab is a
 pane in the cmux-next window, whose layout has one global minimum pane width

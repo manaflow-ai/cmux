@@ -526,6 +526,11 @@ Result<Json> Codec<Bookmark>::encode(const Bookmark& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("favicon_key", std::move(encoded).value());
     }
+    if (value.icon) {
+        auto encoded = encode_value(*value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     auto encoded_id = encode_value(value.id);
     if (!encoded_id) return std::move(encoded_id).error();
     object.emplace("id", std::move(encoded_id).value());
@@ -589,6 +594,12 @@ Result<Bookmark> Codec<Bookmark>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_favicon_key);
         if (!decoded) return std::move(decoded).error();
         result.favicon_key = std::move(decoded).value();
+    }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        auto decoded = decode_value<std::string>(*field_icon);
+        if (!decoded) return std::move(decoded).error();
+        result.icon = std::move(decoded).value();
     }
     const Json* field_id = value.find("id");
     if (!field_id) {
@@ -654,7 +665,7 @@ Result<Bookmark> Codec<Bookmark>::decode(const Json& value) {
         result.url = std::move(decoded).value();
     }
     for (const auto& [key, item] : *source.value()) {
-        if (key != "browser_profile_id" && key != "created_ms" && key != "favicon_key" && key != "id" && key != "index" && key != "kind" && key != "last_used_ms" && key != "parent" && key != "source_key" && key != "title" && key != "url") result.additional_properties.emplace(key, item);
+        if (key != "browser_profile_id" && key != "created_ms" && key != "favicon_key" && key != "icon" && key != "id" && key != "index" && key != "kind" && key != "last_used_ms" && key != "parent" && key != "source_key" && key != "title" && key != "url") result.additional_properties.emplace(key, item);
     }
     return result;
 }
@@ -26452,6 +26463,11 @@ Result<Json> Codec<SetPersonalWorkspaceRequest>::encode(const SetPersonalWorkspa
         if (!encoded) return std::move(encoded).error();
         object.emplace("index", std::move(encoded).value());
     }
+    if (!value.remote_localhost.is_absent()) {
+        auto encoded = encode_value(value.remote_localhost);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("remote_localhost", std::move(encoded).value());
+    }
     auto encoded_session_id = encode_value(value.session_id);
     if (!encoded_session_id) return std::move(encoded_session_id).error();
     object.emplace("session_id", std::move(encoded_session_id).value());
@@ -26498,6 +26514,16 @@ Result<SetPersonalWorkspaceRequest> Codec<SetPersonalWorkspaceRequest>::decode(c
             auto decoded = decode_value<std::uint64_t>(*field_index);
             if (!decoded) return std::move(decoded).error();
             result.index = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_remote_localhost = value.find("remote_localhost");
+    if (field_remote_localhost) {
+        if (field_remote_localhost->is_null()) {
+            result.remote_localhost = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_remote_localhost);
+            if (!decoded) return std::move(decoded).error();
+            result.remote_localhost = Field<bool>(std::move(decoded).value());
         }
     }
     const Json* field_session_id = value.find("session_id");
@@ -28500,6 +28526,11 @@ Result<Json> Codec<UpdateBookmarkRequest>::encode(const UpdateBookmarkRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("favicon_key", std::move(encoded).value());
     }
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     if (!value.last_used_ms.is_absent()) {
         auto encoded = encode_value(value.last_used_ms);
         if (!encoded) return std::move(encoded).error();
@@ -28549,6 +28580,16 @@ Result<UpdateBookmarkRequest> Codec<UpdateBookmarkRequest>::decode(const Json& v
             auto decoded = decode_value<std::string>(*field_favicon_key);
             if (!decoded) return std::move(decoded).error();
             result.favicon_key = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_last_used_ms = value.find("last_used_ms");
@@ -29060,6 +29101,11 @@ Result<Json> Codec<UpdateScreenGroupRequest>::encode(const UpdateScreenGroupRequ
     auto encoded_group = encode_value(value.group);
     if (!encoded_group) return std::move(encoded_group).error();
     object.emplace("group", std::move(encoded_group).value());
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     if (!value.name.is_absent()) {
         auto encoded = encode_value(value.name);
         if (!encoded) return std::move(encoded).error();
@@ -29101,6 +29147,16 @@ Result<UpdateScreenGroupRequest> Codec<UpdateScreenGroupRequest>::decode(const J
         if (!decoded) return std::move(decoded).error();
         result.group = std::move(decoded).value();
     }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_name = value.find("name");
     if (field_name) {
         if (field_name->is_null()) {
@@ -29130,6 +29186,11 @@ Result<Json> Codec<UpdateTabGroupRequest>::encode(const UpdateTabGroupRequest& v
     auto encoded_group = encode_value(value.group);
     if (!encoded_group) return std::move(encoded_group).error();
     object.emplace("group", std::move(encoded_group).value());
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     if (!value.name.is_absent()) {
         auto encoded = encode_value(value.name);
         if (!encoded) return std::move(encoded).error();
@@ -29170,6 +29231,16 @@ Result<UpdateTabGroupRequest> Codec<UpdateTabGroupRequest>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_group);
         if (!decoded) return std::move(decoded).error();
         result.group = std::move(decoded).value();
+    }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_name = value.find("name");
     if (field_name) {
@@ -36927,6 +36998,9 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand198FieldRequirements{{
     {"selection_bg", 9U, ""},
     {"selection_fg", 9U, ""},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand201FieldRequirements{{
+    {"remote_localhost", 12U, "personal-remote-localhost-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand209FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
@@ -36956,6 +37030,15 @@ constexpr std::array<CommandFieldRequirement, 9> kCommand220FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 2> kCommand221FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand237FieldRequirements{{
+    {"icon", 12U, "bookmark-icon-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand243FieldRequirements{{
+    {"icon", 12U, "screen-group-icon-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand244FieldRequirements{{
+    {"icon", 12U, "tab-group-icon-v1"},
 }};
 constexpr std::array<CommandMetadata, 253> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -37159,7 +37242,7 @@ constexpr std::array<CommandMetadata, 253> kCommands{{
     {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand198FieldRequirements)},
     {"set-frontend-browser-history", "control", 12U, "frontend-browser-history-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-personal-terminal", "control", 12U, "personal-terminals-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-personal-workspace", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"set-personal-workspace", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand201FieldRequirements)},
     {"set-profile-follows", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-ratio", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-row-heights", "control", 12U, "rows-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -37195,14 +37278,14 @@ constexpr std::array<CommandMetadata, 253> kCommands{{
     {"unregister-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand237FieldRequirements)},
     {"update-browser-profile", "control", 12U, "browser-profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-personal-group", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand243FieldRequirements)},
+    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand244FieldRequirements)},
     {"update-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-claim", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},

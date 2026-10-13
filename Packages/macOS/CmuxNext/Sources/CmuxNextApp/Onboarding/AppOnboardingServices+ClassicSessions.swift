@@ -1,6 +1,8 @@
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextOnboarding
+import CmuxNextWakeups
 import Foundation
 
 /// What `workspace.importClassic` opened and what it left in classic.
@@ -106,13 +108,30 @@ extension AppOnboardingServices {
         }
     }
 
-    /// `daemon` once it has a connection, within 20 seconds.
+    /// `daemon` once it has a connection, within 20 seconds: woken by the
+    /// connection itself, never by polling.
     private func connected(_ daemon: DaemonService) async throws -> DaemonService {
-        let deadline = ContinuousClock.now + .seconds(20)
-        while daemon.connection == nil, ContinuousClock.now < deadline {
-            try await Task.sleep(for: .milliseconds(200))
+        if daemon.connection != nil { return daemon }
+        // The first of the connection appearing, the twenty-second SSH connect limit and
+        // cancellation resumes the wait once (no task group waits for a loser).
+        let outcome = FirstOutcome<Bool>()
+        let watch = Task { @MainActor in
+            for await ready in ObservationStream({ daemon.connection != nil }) where ready {
+                outcome.resolve(true)
+                return
+            }
         }
-        guard daemon.connection != nil else { throw DaemonError.notConnected }
+        let bound = DemandTimer(owner: "ClassicImport.sshConnect")
+        bound.schedule(after: .seconds(20)) { outcome.resolve(false) }
+        let ready = await withTaskCancellationHandler {
+            await outcome.value()
+        } onCancel: {
+            outcome.resolve(false)
+        }
+        watch.cancel()
+        bound.cancel()
+        try Task.checkCancellation()
+        guard ready, daemon.connection != nil else { throw DaemonError.notConnected }
         return daemon
     }
 

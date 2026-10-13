@@ -263,10 +263,16 @@ export const attachmentPrefix = (conversation: string) => `home/v1/${conversatio
  */
 export const TABLE_ATTREF = "attref"
 
-/** Every hash a part list references (a poster or preview belongs to its attachment's record, not a hash of its own). */
+/**
+ * Every record hash a part list references: attachments and link preview images (a poster or
+ * preview belongs to its attachment's record, not a hash of its own).
+ */
 export const attachmentHashes = (parts: ReadonlyArray<Part>): Set<string> => {
   const out = new Set<string>()
-  for (const p of parts) if (p.type === "attachment") out.add(p.hash)
+  for (const p of parts) {
+    if (p.type === "attachment") out.add(p.hash)
+    else if (p.type === "link_preview" && p.image) out.add(p.image.hash)
+  }
   return out
 }
 
@@ -277,9 +283,19 @@ export const attachmentHashes = (parts: ReadonlyArray<Part>): Set<string> => {
  */
 export type AttachmentLookup = (hash: string, actor: string, floor: number) => AttachmentRecord | undefined
 
-/** The owner's check for `actor`: each part's hash is usable by the author, and its type, size and claimed poster or preview match the record. */
+/**
+ * The owner's check for `actor`: each part's hash is usable by the author, and its type, size and
+ * claimed poster or preview match the record. A link preview's image is a record of its own,
+ * checked the same way (type and size).
+ */
 export const checkAttachments = (parts: ReadonlyArray<Part>, lookup: AttachmentLookup, actor: string, floor: number): "unknown_attachment" | "attachment_mismatch" | null => {
   for (const p of parts) {
+    if (p.type === "link_preview" && p.image) {
+      const rec = lookup(p.image.hash, actor, floor)
+      if (!rec) return "unknown_attachment"
+      if (rec.mime_type !== p.image.mime_type || rec.byte_count !== p.image.byte_count) return "attachment_mismatch"
+      continue
+    }
     if (p.type !== "attachment") continue
     const rec = lookup(p.hash, actor, floor)
     if (!rec) return "unknown_attachment"

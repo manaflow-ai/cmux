@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff";
+pub const ir_sha256 = "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -172,6 +172,8 @@ pub const Bookmark = struct {
     browser_profile_id: []const u8,
     created_ms: u64,
     favicon_key: ?[]const u8 = null,
+    /// Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}.
+    icon: ?[]const u8 = null,
     /// `bm_` and 32 lowercase hex digits.
     id: []const u8,
     /// Dense 0-based position among the node's siblings.
@@ -189,6 +191,7 @@ pub const Bookmark = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "favicon_key",
+        "icon",
         "last_used_ms",
         "source_key",
         "url",
@@ -435,7 +438,7 @@ pub const ConversationPart = struct {
     status: ?[]const u8 = null,
     /// type text.
     text: ?[]const u8 = null,
-    /// Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties.
+    /// Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties.
     type: []const u8,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
@@ -7642,6 +7645,7 @@ pub const SetPersonalWorkspaceRequest = struct {
     browser_profile_id: wire.Field([]const u8) = .absent,
     group: wire.Field([]const u8) = .absent,
     index: wire.Field(u64) = .absent,
+    remote_localhost: wire.Field(bool) = .absent,
     session_id: []const u8,
     theme: wire.Field([]const u8) = .absent,
     workspace_key: []const u8,
@@ -7657,6 +7661,9 @@ pub fn setPersonalWorkspace(client: anytype, request: SetPersonalWorkspaceReques
             .authority = "control",
             .since = 12,
             .capability = "profiles-v1",
+            .fields = &.{
+                .{ .name = "remote_localhost", .since = 12, .capability = "personal-remote-localhost-v1" },
+            },
         },
         request,
     );
@@ -8454,6 +8461,8 @@ pub fn unsaveTabGroup(client: anytype, request: UnsaveTabGroupRequest) !wire.Dec
 pub const UpdateBookmarkRequest = struct {
     bookmark: []const u8,
     favicon_key: wire.Field([]const u8) = .absent,
+    /// Folders only; null clears. Refused on a url node.
+    icon: wire.Field([]const u8) = .absent,
     last_used_ms: wire.Field(u64) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
@@ -8471,6 +8480,9 @@ pub fn updateBookmark(client: anytype, request: UpdateBookmarkRequest) !wire.Dec
             .authority = "control",
             .since = 12,
             .capability = "bookmarks-v1",
+            .fields = &.{
+                .{ .name = "icon", .since = 12, .capability = "bookmark-icon-v1" },
+            },
         },
         request,
     );
@@ -8596,6 +8608,7 @@ pub const UpdateScreenGroupRequest = struct {
     collapsed: wire.Field(bool) = .absent,
     color: wire.Field([]const u8) = .absent,
     group: []const u8,
+    icon: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
 };
 
@@ -8609,6 +8622,9 @@ pub fn updateScreenGroup(client: anytype, request: UpdateScreenGroupRequest) !wi
             .authority = "control",
             .since = 12,
             .capability = "screen-groups-v1",
+            .fields = &.{
+                .{ .name = "icon", .since = 12, .capability = "screen-group-icon-v1" },
+            },
         },
         request,
     );
@@ -8618,6 +8634,7 @@ pub const UpdateTabGroupRequest = struct {
     collapsed: wire.Field(bool) = .absent,
     color: wire.Field([]const u8) = .absent,
     group: []const u8,
+    icon: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
 };
 
@@ -8631,6 +8648,9 @@ pub fn updateTabGroup(client: anytype, request: UpdateTabGroupRequest) !wire.Dec
             .authority = "control",
             .since = 12,
             .capability = "tab-groups-v1",
+            .fields = &.{
+                .{ .name = "icon", .since = 12, .capability = "tab-group-icon-v1" },
+            },
         },
         request,
     );

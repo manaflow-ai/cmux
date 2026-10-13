@@ -27,7 +27,6 @@
           {
             "key" : "settings.group.tabs",
             "rows" : [
-              "tabs.newTabKind",
               "tabs.newTabTemplate",
               "tabs.newTabPosition",
               "tabs.plusButton",
@@ -666,6 +665,18 @@
             "title" : {
               "key" : "settings.group.terminalLinks",
               "text" : "Terminal Links"
+            }
+          },
+          {
+            "key" : "settings.group.passwords",
+            "rows" : [
+              "browser.passwords.offerToSave",
+              "browser.passwords.generate",
+              "browser.passwords.allowExport"
+            ],
+            "title" : {
+              "key" : "settings.group.passwords",
+              "text" : "Passwords"
             }
           },
           {
@@ -1505,104 +1516,6 @@
       "title" : {
         "key" : "settings.app.startAgentGlobalHotKey",
         "text" : "Start Agent from Any App"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "same-kind",
-        "terminal",
-        "browser",
-        "agent",
-        "page",
-        "auto"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.newTabSameKind",
-            "text" : "Same Kind as Current Tab"
-          },
-          "value" : "same-kind"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTerminal",
-            "text" : "Terminal"
-          },
-          "value" : "terminal"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabBrowser",
-            "text" : "Browser"
-          },
-          "value" : "browser"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabAgent",
-            "text" : "Agent"
-          },
-          "value" : "agent"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabPage",
-            "text" : "New Tab Page"
-          },
-          "value" : "page"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabAuto",
-            "text" : "Auto"
-          },
-          "value" : "auto"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "page",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabKind.help",
-        "text" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabKind",
-      "keywords" : [
-        "new tab",
-        "cmd-t",
-        "terminal",
-        "browser",
-        "agent",
-        "kind",
-        "default"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabKind"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabKind",
-        "text" : "New Tab Opens"
       },
       "validation" : "portable"
     },
@@ -19699,6 +19612,151 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.passwords.offerToSave.help",
+        "text" : "A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.passwords.offerToSave",
+      "keywords" : [
+        "password",
+        "save",
+        "sign in",
+        "login",
+        "credentials"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "passwords",
+        "offerToSave"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.passwords.offerToSave",
+        "text" : "Offer to Save Passwords"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.passwords.generate.help",
+        "text" : "Offers a generated password when a site asks for a new one, and saves it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.passwords.generate",
+      "keywords" : [
+        "password",
+        "generate",
+        "strong",
+        "suggest"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "passwords",
+        "generate"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.passwords.generate",
+        "text" : "Suggest Strong Passwords"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.passwords.allowExport.help",
+        "text" : "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.passwords.allowExport",
+      "keywords" : [
+        "password",
+        "export",
+        "csv",
+        "backup"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "passwords",
+        "allowExport"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.passwords.allowExport",
+        "text" : "Allow Password Export"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -22650,7 +22708,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "b825644b0e9ae0121497ede633d9c60b4027cc245e0519e730673a8d14998426",
+  "schema_hash" : "60f6deecf151d818e1fd0a0dfe77a83401305302179a3fed7d86c2a97782220b",
   "sections" : [
     {
       "id" : "general",

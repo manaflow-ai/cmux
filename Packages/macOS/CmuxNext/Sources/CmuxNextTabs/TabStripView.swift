@@ -75,6 +75,7 @@ public final class TabStripView: NSView {
     var result = TabLayoutResult(slots: [], contentWidth: 0, standardWidth: 0, availableWidth: 0)
     var scroll = Spring(value: 0, token: .scroll, kind: .position)
     var closingModeWidth: CGFloat?
+    var closingHit = TabClosingModeHit()
     var hasSynced = false
     var lastSelectedID: TabID?
     var lastModelOrder: [TabID] = []
@@ -344,8 +345,8 @@ public final class TabStripView: NSView {
         tabsClip.frame = CGRect(x: padding + windowControlsInset, y: 0, width: viewport, height: bounds.height)
         if viewport != lastViewportWidth {
             lastViewportWidth = viewport
-            // Tabs resize with the window instantly.
-            relayout(animated: false)
+            // Tabs resize with the window instantly; a close in flight keeps its spring (cx-y2uf5).
+            relayout(animated: !dying.isEmpty && !inLiveResize && !reduceMotion)
         } else {
             applyFrames()
         }

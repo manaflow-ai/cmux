@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff";
+inline constexpr std::string_view kProtocolIrSha256 = "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -855,6 +855,7 @@ struct Bookmark {
     std::string browser_profile_id{};
     std::uint64_t created_ms{};
     std::optional<std::string> favicon_key{};
+    std::optional<std::string> icon{};
     std::string id{};
     std::uint64_t index{};
     std::string kind{};
@@ -4378,6 +4379,7 @@ struct SetPersonalWorkspaceRequest {
     Field<std::string> browser_profile_id{};
     Field<std::string> group{};
     Field<std::uint64_t> index{};
+    Field<bool> remote_localhost{};
     std::string session_id{};
     Field<std::string> theme{};
     std::string workspace_key{};
@@ -5047,6 +5049,7 @@ struct UnsaveTabGroupResult {
 struct UpdateBookmarkRequest {
     std::string bookmark{};
     Field<std::string> favicon_key{};
+    Field<std::string> icon{};
     Field<std::uint64_t> last_used_ms{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
@@ -5105,6 +5108,7 @@ struct UpdateScreenGroupRequest {
     Field<bool> collapsed{};
     Field<std::string> color{};
     std::string group{};
+    Field<std::string> icon{};
     Field<std::string> name{};
     friend bool operator==(const UpdateScreenGroupRequest&, const UpdateScreenGroupRequest&) = default;
 };
@@ -5113,6 +5117,7 @@ struct UpdateTabGroupRequest {
     Field<bool> collapsed{};
     Field<std::string> color{};
     std::string group{};
+    Field<std::string> icon{};
     Field<std::string> name{};
     friend bool operator==(const UpdateTabGroupRequest&, const UpdateTabGroupRequest&) = default;
 };

@@ -94,6 +94,9 @@ nonisolated enum AcpmuxPaneMethods {
     /// Notifications (no `id`).
     public static let notifications: Set<String> = ["session/cancel"]
 
+    /// The top-level keys of a page frame (direct.ts sends no others).
+    static let frameKeys: Set<String> = ["jsonrpc", "id", "method", "params"]
+
     /// Longest frame the page may send (a prompt with attachments is the largest).
     public static let maximumFrameBytes = 32 << 20
 
@@ -144,6 +147,9 @@ nonisolated enum AcpmuxPaneMethods {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               object["jsonrpc"] as? String == "2.0" else { return refuse(.invalidFrame, nil, nil) }
         let id = object["id"].flatMap(rawID)
+        // Only the keys the pane sends (cx-6o0): a `result` or `error` would make a request read as
+        // a response, and the daemon might act on any other key it knows.
+        guard Set(object.keys).isSubset(of: frameKeys) else { return refuse(.invalidFrame, object["method"] as? String, id) }
         guard let method = object["method"] as? String else { return refuse(.methodRefused, nil, nil) }
         // C1: no page frame may make the harness spawn a command.
         if let params = object["params"], carriesServers(params) { return refuse(.mcpServersRefused, method, id) }

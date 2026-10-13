@@ -237,7 +237,20 @@ child_pid:u32
 session_id:u32
 incarnation:[u8;16]
 seed:blob
+program_status?:ProgramStatus
 ```
+
+`ProgramStatus` is the owner's OSC 7501 records (cx-6so.36.10), in the layout
+of the Snapshot `FLAG_PROGRAM_STATUS` tail: `next_seq:u64`, `count:u16`, then
+per record `id:string`, `state:u8` (1 idle, 2 working, 3 done, 4 blocked,
+5 error), `kind:u8` (0 none, 1 permission, 2 question,
+3 auth), `progress:u8` (255 none, else at most 100),
+optional `app`, `title` and `message` strings, `updated_seq:u64` and
+`updated_at_ms:u64`. It is absent when the payload ends after `seed`. The
+whole payload fits one frame; when the records do not fit what the seed leaves
+(at least about 1 MiB), the owner sends no records, only `next_seq`. The host restores the
+records under the same rules as a daemon adopting a Snapshot, before it reads
+the PTY, so a daemon that later adopts it shows them with their `updated_seq`.
 
 `child_pid` and `session_id` are nonzero; `incarnation` is a canonical
 UUIDv4. `seed` is VT replay of the terminal's screen; the host applies it to

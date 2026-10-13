@@ -14,6 +14,8 @@ public final class Bookmark implements WireValue {
     private final String browserProfileId;
     private final UInt64 createdMs;
     private final Field<String> faviconKey;
+    /** Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}. */
+    private final Field<String> icon;
     /** `bm_` and 32 lowercase hex digits. */
     private final String id;
     /** Dense 0-based position among the node's siblings. */
@@ -36,6 +38,7 @@ public final class Bookmark implements WireValue {
         if (!builder.createdMsSet) throw new IllegalArgumentException("created_ms is required");
         this.createdMs = Wire.nonNull(builder.createdMs, "created_ms");
         this.faviconKey = builder.faviconKey;
+        this.icon = builder.icon;
         if (!builder.idSet) throw new IllegalArgumentException("id is required");
         this.id = Wire.nonNull(builder.id, "id");
         if (!builder.indexSet) throw new IllegalArgumentException("index is required");
@@ -57,6 +60,7 @@ public final class Bookmark implements WireValue {
     public String browserProfileId() { return browserProfileId; }
     public UInt64 createdMs() { return createdMs; }
     public Field<String> faviconKey() { return faviconKey; }
+    public Field<String> icon() { return icon; }
     public String id() { return id; }
     public UInt64 index() { return index; }
     public String kind() { return kind; }
@@ -77,6 +81,10 @@ public final class Bookmark implements WireValue {
         Object rawFaviconKey = Wire.optional(object, "favicon_key");
         if (!Wire.isMissing(rawFaviconKey)) {
             builder.faviconKey(Wire.string(rawFaviconKey, "Bookmark.favicon_key"));
+        }
+        Object rawIcon = Wire.optional(object, "icon");
+        if (!Wire.isMissing(rawIcon)) {
+            builder.icon(Wire.string(rawIcon, "Bookmark.icon"));
         }
         Object rawId = Wire.required(object, "id");
         builder.id(Wire.string(rawId, "Bookmark.id"));
@@ -100,7 +108,7 @@ public final class Bookmark implements WireValue {
         if (!Wire.isMissing(rawUrl)) {
             builder.url(Wire.string(rawUrl, "Bookmark.url"));
         }
-        List<String> known = List.of("browser_profile_id", "created_ms", "favicon_key", "id", "index", "kind", "last_used_ms", "parent", "source_key", "title", "url");
+        List<String> known = List.of("browser_profile_id", "created_ms", "favicon_key", "icon", "id", "index", "kind", "last_used_ms", "parent", "source_key", "title", "url");
         object.forEach((key, item) -> { if (!known.contains(key)) builder.putAdditional(key, Wire.immutableJson(item)); });
         return builder.build();
     }
@@ -111,6 +119,7 @@ public final class Bookmark implements WireValue {
         Wire.put(object, "browser_profile_id", browserProfileId);
         Wire.put(object, "created_ms", createdMs);
         Wire.put(object, "favicon_key", faviconKey);
+        Wire.put(object, "icon", icon);
         Wire.put(object, "id", id);
         Wire.put(object, "index", index);
         Wire.put(object, "kind", kind);
@@ -126,11 +135,11 @@ public final class Bookmark implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof Bookmark that)) return false;
-        return Objects.equals(browserProfileId, that.browserProfileId) && Objects.equals(createdMs, that.createdMs) && Objects.equals(faviconKey, that.faviconKey) && Objects.equals(id, that.id) && Objects.equals(index, that.index) && Objects.equals(kind, that.kind) && Objects.equals(lastUsedMs, that.lastUsedMs) && Objects.equals(parent, that.parent) && Objects.equals(sourceKey, that.sourceKey) && Objects.equals(title, that.title) && Objects.equals(url, that.url) && Objects.equals(additionalProperties, that.additionalProperties);
+        return Objects.equals(browserProfileId, that.browserProfileId) && Objects.equals(createdMs, that.createdMs) && Objects.equals(faviconKey, that.faviconKey) && Objects.equals(icon, that.icon) && Objects.equals(id, that.id) && Objects.equals(index, that.index) && Objects.equals(kind, that.kind) && Objects.equals(lastUsedMs, that.lastUsedMs) && Objects.equals(parent, that.parent) && Objects.equals(sourceKey, that.sourceKey) && Objects.equals(title, that.title) && Objects.equals(url, that.url) && Objects.equals(additionalProperties, that.additionalProperties);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(browserProfileId, createdMs, faviconKey, id, index, kind, lastUsedMs, parent, sourceKey, title, url, additionalProperties); }
+    public int hashCode() { return Objects.hash(browserProfileId, createdMs, faviconKey, icon, id, index, kind, lastUsedMs, parent, sourceKey, title, url, additionalProperties); }
 
     @Override
     public String toString() { return "Bookmark" + toWire(); }
@@ -141,6 +150,7 @@ public final class Bookmark implements WireValue {
         private UInt64 createdMs;
         private boolean createdMsSet;
         private Field<String> faviconKey = Field.omitted();
+        private Field<String> icon = Field.omitted();
         private String id;
         private boolean idSet;
         private UInt64 index;
@@ -168,6 +178,10 @@ public final class Bookmark implements WireValue {
         }
         public Builder faviconKey(String value) {
             this.faviconKey = Field.of(value);
+            return this;
+        }
+        public Builder icon(String value) {
+            this.icon = Field.of(value);
             return this;
         }
         public Builder id(String value) {

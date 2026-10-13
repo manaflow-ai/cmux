@@ -173,10 +173,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         items += services.localTabItems(in: paneKey, hiding: hidden)
         let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
+        let groupAsset = IconAssetImages.shared.tabIcon(owner: daemon)
         let groups = pane.tabGroups.map { group in
-            TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
-                         tint: group.color.flatMap(GroupTint.init(wire:)) ?? .palette(.grey),
-                         isCollapsed: group.collapsed, isSaved: saved.contains(group.id))
+            TabItemMapping.shared.groupItem(group, isSaved: saved.contains(group.id), asset: groupAsset)
         }
         let connected = if case .connected = store.connectionState { true } else { false }
         return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,

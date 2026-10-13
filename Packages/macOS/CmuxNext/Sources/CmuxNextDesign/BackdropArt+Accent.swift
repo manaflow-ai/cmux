@@ -5,7 +5,7 @@ extension BackdropArt {
     /// The hue Art Color (`appearance.accent: "art"`) takes from this work: the most colorful of its
     /// dominant colors that reads as a hue (not near black or gray), nil when none does (the accent
     /// stays the theme's). `AppTheme` then moves it until every contrast pair of its contract passes.
-    public var accentColor: ThemeRGB? {
+    public var accentHue: ThemeRGB? {
         let hued = metadata.dominantPalette.compactMap { color -> (BackdropPaletteColor, Double)? in
             let channels = [color.red, color.green, color.blue].map { Double($0) / 255 }
             let high = channels.max() ?? 0, chroma = high - (channels.min() ?? 0)

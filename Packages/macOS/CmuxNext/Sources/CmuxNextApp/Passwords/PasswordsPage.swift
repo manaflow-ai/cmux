@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextIcons
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 
 extension PageDescriptor {
@@ -41,9 +42,8 @@ final class PasswordsPageService: InternalPageProvider {
     }
 
     func open(focus: Bool) throws {
-        guard let services, let window = services.windows.active, services.pages.show(.passwords, in: window, focus: focus) != nil else {
-            throw ActionFailure(message: RefusalStrings.noWindowOpen)
-        }
+        guard let services else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
+        try ChromiumPageRouter.showPasswords(services, focus: focus)
     }
 
     var page: InternalPageID { .passwords }
@@ -62,6 +62,9 @@ final class PasswordsPageService: InternalPageProvider {
         if let native { routes.append(PageRoute(prefix: "cmux.app.", provider: native)) }
         guard let page = PageWebView(descriptor: .passwords, routes: routes) else { return NSView() }
         provider.anchor = { [weak page] in page }
+        provider.allowExport = { [weak services] in
+            services?.settings.map { BrowserPasswordsSetting.current($0).allowExport } ?? false
+        }
         native?.anchor = { [weak page] in page }
         return page
     }

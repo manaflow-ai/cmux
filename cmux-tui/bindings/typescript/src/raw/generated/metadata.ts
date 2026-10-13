@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff. */
+/* cmux-tui mux protocol 12, IR e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff" as const;
+export const SDK_IR_SHA256 = "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2471,7 +2471,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "profiles-v1",
-    "fields": {},
+    "fields": {
+      "remote_localhost": {
+        "since": 12,
+        "capability": "personal-remote-localhost-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -3003,7 +3008,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "bookmarks-v1",
-    "fields": {},
+    "fields": {
+      "icon": {
+        "since": 12,
+        "capability": "bookmark-icon-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -3063,7 +3073,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "screen-groups-v1",
-    "fields": {},
+    "fields": {
+      "icon": {
+        "since": 12,
+        "capability": "screen-group-icon-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -3073,7 +3088,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "tab-groups-v1",
-    "fields": {},
+    "fields": {
+      "icon": {
+        "since": 12,
+        "capability": "tab-group-icon-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -4108,6 +4128,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "icon": {
+        "capability": "bookmark-icon-v1",
+        "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "id": {
         "description": "`bm_` and 32 lowercase hex digits.",
         "nullable": false,
@@ -5072,7 +5103,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         }
       },
       "type": {
-        "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties.",
+        "description": "Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties.",
         "nullable": false,
         "presence": "required",
         "type": {
@@ -22179,6 +22210,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "uint64"
           }
         },
+        "remote_localhost": {
+          "capability": "personal-remote-localhost-v1",
+          "constraints": [
+            "The workspace's own remote-localhost choice; null follows the app's browser.remoteLocalhost setting."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
         "session_id": {
           "nullable": false,
           "presence": "required",
@@ -23737,6 +23782,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "icon": {
+          "capability": "bookmark-icon-v1",
+          "default": null,
+          "description": "Folders only; null clears. Refused on a url node.",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "last_used_ms": {
           "default": null,
           "nullable": true,
@@ -24109,6 +24166,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
             "name": "string"
           }
         },
+        "icon": {
+          "capability": "screen-group-icon-v1",
+          "constraints": [
+            "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
         "name": {
           "default": null,
           "nullable": true,
@@ -24151,6 +24222,20 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         "group": {
           "nullable": false,
           "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "icon": {
+          "capability": "tab-group-icon-v1",
+          "constraints": [
+            "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+          ],
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
           "type": {
             "kind": "scalar",
             "name": "string"

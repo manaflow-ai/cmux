@@ -128,3 +128,50 @@ async fn a_refresh_announces_the_new_catalog_to_every_connection() {
     assert_eq!(harnesses["catalog"]["harnesses"][0]["profiles"], json!(["fcodex"]), "{harnesses}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// cx-miuo: a Claude Code session's model choices (its `configOptions`
+/// model select, which the pane must show) come from the bundled catalog,
+/// not a hand list, so every Claude release it names is offered before
+/// Claude Code's own list answers.
+#[tokio::test]
+async fn a_claude_session_offers_every_catalog_claude_model() {
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fakeclaude": {"argv": ["python3", fake_claude], "kind": "claude-stdio"}},
+        "defaultHarness": "fakeclaude",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut c = Client::connect(&hub);
+    c.call("initialize", json!({"protocolVersion": 1, "clientInfo": {"name": "test"}})).await;
+
+    let new =
+        c.call("session/new", json!({"cwd": env!("CARGO_MANIFEST_DIR"), "mcpServers": []})).await;
+    let offered: Vec<String> = new["configOptions"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|option| option["id"] == "model")
+        .and_then(|option| option["options"].as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|choice| choice["value"].as_str().map(str::to_owned))
+        .collect();
+
+    let catalog = acpmux::catalog::schema::parse(acpmux::catalog::BUNDLED.as_bytes()).unwrap();
+    let claude = catalog.harnesses.iter().find(|h| h.id == "claude").unwrap();
+    for model in &claude.models {
+        assert!(offered.contains(&model.id), "{} is not offered: {offered:?} ({new})", model.id);
+    }
+    // Besides Claude Code's own aliases, nothing the catalog does not name.
+    let aliases = ["default", "opus", "opus[1m]", "opusplan", "sonnet", "sonnet[1m]", "haiku"];
+    for id in &offered {
+        assert!(
+            aliases.contains(&id.as_str()) || claude.models.iter().any(|m| &m.id == id),
+            "{id} is offered but the catalog does not name it: {offered:?}"
+        );
+    }
+    assert_eq!(offered.first().map(String::as_str), Some("default"), "{offered:?}");
+}

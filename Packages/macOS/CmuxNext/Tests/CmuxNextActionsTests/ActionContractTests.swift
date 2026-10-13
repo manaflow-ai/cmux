@@ -107,7 +107,11 @@ import Testing
 
         let titles = menu.items.map(\.title)
         #expect(titles.contains(try #require(registry.title(for: "tabGroup.close"))))
-        let colorItem = try #require(menu.items.first { $0.submenu != nil })
+        // Color sits in the Appearance submenu beside Set Icon, so find it at any depth.
+        func submenuItems(_ items: [NSMenuItem]) -> [NSMenuItem] {
+            items.flatMap { item in item.submenu.map { [item] + submenuItems($0.items) } ?? [] }
+        }
+        let colorItem = try #require(submenuItems(menu.items).first { $0.submenu?.items.allSatisfy { $0.submenu == nil } ?? false })
         #expect(colorItem.submenu?.items.count == 9)
         #expect(!(menu.items.first?.isSeparatorItem ?? true))
         #expect(!(menu.items.last?.isSeparatorItem ?? true))

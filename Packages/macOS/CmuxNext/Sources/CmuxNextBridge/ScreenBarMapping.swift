@@ -28,7 +28,9 @@ public struct ScreenBarMapping {
         let groups = workspace.screenGroups.map { group in
             TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
                          tint: group.color.flatMap(GroupTint.init(wire:)) ?? .palette(.grey),
-                         isCollapsed: group.collapsed, isSaved: group.savedID != nil)
+                         isCollapsed: group.collapsed, isSaved: group.savedID != nil,
+                         // A group with no icon maps to nil: its chip draws as before.
+                         icon: icon(group.icon, emoji: emojiIcon, asset: assetIcon))
         }
         return Snapshot(items: items, groups: groups, isVisible: workspace.screens.count > 1)
     }
@@ -54,7 +56,7 @@ public struct ScreenBarMapping {
         )
     }
 
-    /// A screen's icon; a stored asset not read yet draws a placeholder symbol.
+    /// A screen's or screen group's icon; a stored asset not read yet draws a placeholder symbol.
     func icon(_ value: String?, emoji: (String) -> TabIcon, asset: (String) -> TabImage? = { _ in nil }) -> TabIcon {
         switch IconValue(wire: value) {
         case .symbol(let name)?: .symbol(name)

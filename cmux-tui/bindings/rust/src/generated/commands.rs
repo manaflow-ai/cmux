@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff.
+// cmux-tui mux protocol 12, IR e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2898,6 +2898,8 @@ pub struct SetPersonalWorkspaceRequest {
     pub group: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub index: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub remote_localhost: Optional<bool>,
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub theme: Optional<String>,
@@ -3345,6 +3347,9 @@ pub struct UpdateBookmarkRequest {
     pub bookmark: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub favicon_key: Optional<String>,
+    /// Folders only; null clears. Refused on a url node.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub last_used_ms: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3456,6 +3461,8 @@ pub struct UpdateScreenGroupRequest {
     pub color: Optional<String>,
     pub group: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
 }
 
@@ -3470,6 +3477,8 @@ pub struct UpdateTabGroupRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub color: Optional<String>,
     pub group: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
 }
@@ -4704,6 +4713,10 @@ impl CmuxClient {
     }
 
     pub fn set_personal_workspace(&mut self, request: SetPersonalWorkspaceRequest) -> Result<SetPersonalWorkspaceResult> {
+        if !request.remote_localhost.is_missing() {
+            self.require_protocol_field("set-personal-workspace", 12)?;
+            self.require_capability_field("set-personal-workspace", "personal-remote-localhost-v1")?;
+        }
         self.execute(&SET_PERSONAL_WORKSPACE_METADATA, &request)
     }
 
@@ -4919,6 +4932,10 @@ impl CmuxClient {
     }
 
     pub fn update_bookmark(&mut self, request: UpdateBookmarkRequest) -> Result<UpdateBookmarkResult> {
+        if !request.icon.is_missing() {
+            self.require_protocol_field("update-bookmark", 12)?;
+            self.require_capability_field("update-bookmark", "bookmark-icon-v1")?;
+        }
         self.execute(&UPDATE_BOOKMARK_METADATA, &request)
     }
 
@@ -4943,10 +4960,18 @@ impl CmuxClient {
     }
 
     pub fn update_screen_group(&mut self, request: UpdateScreenGroupRequest) -> Result<UpdateScreenGroupResult> {
+        if !request.icon.is_missing() {
+            self.require_protocol_field("update-screen-group", 12)?;
+            self.require_capability_field("update-screen-group", "screen-group-icon-v1")?;
+        }
         self.execute(&UPDATE_SCREEN_GROUP_METADATA, &request)
     }
 
     pub fn update_tab_group(&mut self, request: UpdateTabGroupRequest) -> Result<UpdateTabGroupResult> {
+        if !request.icon.is_missing() {
+            self.require_protocol_field("update-tab-group", 12)?;
+            self.require_capability_field("update-tab-group", "tab-group-icon-v1")?;
+        }
         self.execute(&UPDATE_TAB_GROUP_METADATA, &request)
     }
 

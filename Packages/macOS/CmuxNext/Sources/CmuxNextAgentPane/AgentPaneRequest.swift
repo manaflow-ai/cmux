@@ -56,12 +56,6 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case jump(AgentPaneJumpTarget, id: String)
     /// The new tab page asked to change a kind's New shortcut.
     case editShortcut(AgentPaneTabKind)
-    /// The new tab page's "default: X" toggle: what Cmd-T opens
-    /// (`tabs.newTabKind`; the App checks the value).
-    case setDefaultKind(String)
-    /// The new tab page's template dots (`newTab.setTemplate`): the
-    /// template to save as `tabs.newTabTemplate` (the App checks the value).
-    case setNewTabTemplate(String)
     /// The new tab page asked the app to run a user facing action.
     case runAction(String)
     /// The new-tab project picker asked for the explicit Browse… fallback.

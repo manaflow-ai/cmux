@@ -13,6 +13,7 @@
 pub(crate) mod agent_folder;
 #[cfg(test)]
 mod agent_folder_tests;
+pub(crate) mod agent_home_moves;
 pub(crate) mod agent_message_store;
 pub(crate) mod agent_messages;
 pub(crate) mod agent_start;
@@ -50,6 +51,9 @@ pub(crate) mod kept_tab_store;
 pub(crate) mod kept_tabs;
 #[cfg(test)]
 mod last_tab_closes_workspace_tests;
+pub(crate) mod layout_bulk;
+#[cfg(test)]
+mod layout_bulk_tests;
 #[cfg(test)]
 mod mixed_order_tests;
 pub(crate) mod palette_usage;
@@ -73,6 +77,8 @@ mod room_delete_amendment_tests;
 #[cfg(test)]
 mod room_delete_tests;
 pub(crate) mod router;
+#[cfg(test)]
+mod screen_group_icon_tests;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
 pub(crate) use cmux_layout_reducer::sidebar_layout;
@@ -83,6 +89,8 @@ pub(crate) mod sidebar_layout_store;
 pub(crate) mod status_meta;
 pub(crate) mod status_owners;
 pub(crate) mod store;
+#[cfg(test)]
+mod tab_group_icon_tests;
 pub(crate) mod tab_state_store;
 pub(crate) mod tabs;
 #[cfg(test)]

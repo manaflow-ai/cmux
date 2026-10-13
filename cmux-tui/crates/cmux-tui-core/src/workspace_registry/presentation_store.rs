@@ -43,7 +43,7 @@ mod frontend_browser_history;
 mod icon;
 pub use icon::{
     IconAssetKind, is_sha256_hex, parse_icon_asset, validate_icon_value,
-    validate_presentation_icon, validate_presentation_icon_asset,
+    validate_presentation_icon_asset,
 };
 pub(crate) mod svg_icon;
 
@@ -80,7 +80,8 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
            name TEXT NOT NULL DEFAULT '',
            color TEXT NOT NULL,
            collapsed INTEGER NOT NULL DEFAULT 0 CHECK(collapsed IN (0,1)),
-           saved_id TEXT
+           saved_id TEXT,
+           icon TEXT
          );
          CREATE TABLE IF NOT EXISTS tab_group_members (
            tab_id TEXT PRIMARY KEY NOT NULL,
@@ -110,6 +111,7 @@ pub(crate) fn create_presentation_schema(transaction: &Transaction<'_>) -> anyho
     migrate_frontend_browser_add_owner(transaction)?;
     migrate_workspace_presentation_add_pinned(transaction)?;
     migrate_workspace_presentation_add_marked_unread(transaction)?;
+    add_group_icon_column(transaction, "tab_groups")?;
     crate::state::tab_state_store::add_tab_pinned_url_column(transaction)?;
     super::feed_local_store::create_feed_local_schema(transaction)?;
     frontend_browser_history::create_frontend_browser_history_schema(transaction)
@@ -145,6 +147,25 @@ fn migrate_workspace_presentation_add_pinned(transaction: &Transaction<'_>) -> a
             "ALTER TABLE workspace_presentation ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0
                CHECK(pinned IN (0,1));",
         )?;
+    }
+    Ok(())
+}
+
+/// Additive: a tab or screen group table an older build created has no
+/// icon column (`tab-group-icon-v1`). Older builds name their columns, so
+/// they keep reading and writing the table.
+pub(crate) fn add_group_icon_column(
+    transaction: &Transaction<'_>,
+    table: &str,
+) -> anyhow::Result<()> {
+    let has_icon = transaction
+        .prepare(&format!("PRAGMA table_info({table})"))?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "icon");
+    if !has_icon {
+        transaction.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN icon TEXT;"))?;
     }
     Ok(())
 }
@@ -334,6 +355,10 @@ pub struct TabGroupRecord {
     pub collapsed: bool,
     /// The saved group this live group syncs with.
     pub saved_id: Option<String>,
+    /// The group's icon (`tab-group-icon-v1`): the shared icon string, one
+    /// emoji, an SF Symbol name or a stored image or SVG.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 /// All tab groups and their members. A tab belongs to a group only while
@@ -375,6 +400,9 @@ pub struct SavedTabGroupRecord {
     pub color: String,
     pub members: Vec<SavedTabMember>,
     pub updated_at_ms: u64,
+    /// The saved group's icon (`tab-group-icon-v1`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 pub fn new_tab_group_id() -> String {
@@ -394,20 +422,32 @@ pub(crate) fn write_tab_group_state(
         validate_workspace_group_id(&group.id)?;
         validate_tab_group_name(&group.name)?;
         validate_tab_group_color(&group.color)?;
+        if let Some(icon) = &group.icon {
+            validate_icon_value(icon)?;
+        }
+    }
+    // Every icon this write adds names a stored asset; icons the table
+    // already holds are not checked again (the whole table is rewritten).
+    let stored = super::screen_store::stored_icons(transaction, &["tab_groups"])?;
+    for icon in state.groups.values().filter_map(|group| group.icon.as_ref()) {
+        if !stored.contains(icon) {
+            super::personal_store::require_icon_asset(transaction, icon)?;
+        }
     }
     transaction.execute("DELETE FROM tab_groups", [])?;
     transaction.execute("DELETE FROM tab_group_members", [])?;
     for group in state.groups.values() {
         transaction.execute(
-            "INSERT INTO tab_groups(group_id, pane_id, name, color, collapsed, saved_id)
-             VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO tab_groups(group_id, pane_id, name, color, collapsed, saved_id, icon)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 group.id,
                 group.pane_id,
                 group.name,
                 group.color,
                 i64::from(group.collapsed),
-                group.saved_id
+                group.saved_id,
+                group.icon
             ],
         )?;
     }
@@ -432,8 +472,9 @@ pub(crate) fn write_tab_group_state(
 
 fn read_tab_group_state(connection: &Connection) -> anyhow::Result<TabGroupState> {
     let mut state = TabGroupState::default();
-    let mut statement = connection
-        .prepare("SELECT group_id, pane_id, name, color, collapsed, saved_id FROM tab_groups")?;
+    let mut statement = connection.prepare(
+        "SELECT group_id, pane_id, name, color, collapsed, saved_id, icon FROM tab_groups",
+    )?;
     let rows = statement.query_map([], |row| {
         Ok(TabGroupRecord {
             id: row.get(0)?,
@@ -442,6 +483,7 @@ fn read_tab_group_state(connection: &Connection) -> anyhow::Result<TabGroupState
             color: row.get(3)?,
             collapsed: row.get::<_, i64>(4)? != 0,
             saved_id: row.get(5)?,
+            icon: row.get(6)?,
         })
     })?;
     for row in rows {

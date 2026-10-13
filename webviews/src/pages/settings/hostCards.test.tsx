@@ -158,6 +158,25 @@ test("This Workspace's Opacity previews while the slider moves, saves on release
   page.unmount();
 });
 
+test("Window Glass sets the Clear Glass material and turning it off returns the default", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const row = page.container.querySelector<HTMLElement>('[data-card="backdrop"] [data-window-glass]')!;
+  const glass = row.querySelector<HTMLButtonElement>('[role="switch"]')!;
+  expect(glass.getAttribute("aria-checked")).toBe("false");
+  await act(async () => glass.click());
+  await settle();
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({
+    key: "appearance.backgroundBlur",
+    value: "glass-clear",
+  });
+  expect(glass.getAttribute("aria-checked")).toBe("true");
+  await act(async () => glass.click());
+  await settle();
+  expect(runs(page, "cmux.settings.reset").at(-1)).toMatchObject({ key: "appearance.backgroundBlur" });
+  expect(glass.getAttribute("aria-checked")).toBe("false");
+  page.unmount();
+});
+
 test("sweeping the pointer across the picker previews nothing", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const tile = page.container.querySelector<HTMLButtonElement>('[aria-label="The Starry Night"]')!;

@@ -45,6 +45,7 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::TabGroupMove
             | Op::TabGroupUngroup
             | Op::TabGroupClose
+            | Op::LayoutBulk
             | Op::WorkspaceGroupList
             | Op::WorkspaceGroupCreate
             | Op::WorkspaceGroupUpdate
@@ -320,7 +321,7 @@ pub(crate) fn dispatch(
             patch_result(mux, commit)
         }
         Op::TabGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed"])?;
+            require_any(fields, &["name", "color", "collapsed", "icon"])?;
             let group = string(fields, "tab_group").unwrap_or_default();
             let commit = mux
                 .tab_group_update(
@@ -329,6 +330,7 @@ pub(crate) fn dispatch(
                     string(fields, "name"),
                     string(fields, "color"),
                     fields.get("collapsed").and_then(Value::as_bool),
+                    nullable_string(fields, "icon"),
                 )
                 .map_err(state_error)?;
             patch_result(mux, commit)
@@ -374,6 +376,23 @@ pub(crate) fn dispatch(
             let (_, commit) =
                 mux.tab_group_close(strip_request(&request)?, &group).map_err(state_error)?;
             patch_result(mux, commit)
+        }
+        // One bulk preset: one commit, one closed group (cx-gzh.5).
+        Op::LayoutBulk => {
+            // The level's selectors may name the anchor; the session check
+            // takes only machine and session.
+            let session = ResourceSelectors {
+                machine: selectors.machine.clone(),
+                session: selectors.session.clone(),
+                ..ResourceSelectors::default()
+            };
+            ensure_session(mux, &session)?;
+            let bulk =
+                crate::state::layout_bulk::BulkRequest::from_fields(fields).map_err(state_error)?;
+            let commit = mux
+                .state_layout_bulk(&mutation(&request)?, selectors, &bulk)
+                .map_err(state_error)?;
+            state_result(mux, commit)
         }
         // A3: personal workspace groups, placements, rooms
         Op::WorkspaceGroupList => {
@@ -941,12 +960,13 @@ fn screen_change(
             screens: strings(fields, "screens"),
         },
         Op::ScreenGroupUpdate => {
-            require_any(fields, &["name", "color", "collapsed"])?;
+            require_any(fields, &["name", "color", "collapsed", "icon"])?;
             ScreenChange::GroupUpdate {
                 group: string(fields, "screen_group").unwrap_or_default(),
                 name: string(fields, "name"),
                 color: string(fields, "color"),
                 collapsed: fields.get("collapsed").and_then(Value::as_bool),
+                icon: nullable_string(fields, "icon"),
             }
         }
         Op::ScreenGroupUngroup => {
