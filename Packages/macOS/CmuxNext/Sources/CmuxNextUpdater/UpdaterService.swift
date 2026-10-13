@@ -115,6 +115,10 @@ public final class UpdaterService {
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
+    #if DEBUG
+    /// The card kind last written to the update harness's timeline.
+    @ObservationIgnored var markedCardKind: String?
+    #endif
 
     /// Asks the App to show the update sheet (set by the App): a failure's
     /// details only.
@@ -284,9 +288,12 @@ public final class UpdaterService {
         return task
     }
 
-    /// Installs and relaunches: the downloaded update at once, the one
-    /// downloading as soon as it is ready, else the newest after a fresh
-    /// check (the shared driver's attempt flow, so never a stale version).
+    /// Installs and relaunches the downloaded update at once, or the one
+    /// being checked for or downloaded as soon as it is staged. With
+    /// nothing found yet, it runs a fresh check (the shared driver's attempt
+    /// flow, so never a stale version) whose progress and result show on the
+    /// notice card; a found update downloads and waits as the staged update
+    /// card (Restart to Update).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
         #if DEBUG
@@ -301,7 +308,10 @@ public final class UpdaterService {
             send(.installRequested)
         case .hidden, .installing, .note:
             // Nothing found yet: an explicit install runs Sparkle's attempt
-            // flow (a fresh check that installs the newest at once).
+            // flow (a fresh check that installs the newest at once). The
+            // user asked, so its progress and result show on the notice
+            // card (up to date, downloading, the failure), as for a check.
+            send(.checkRequested)
             controller.attemptUpdate()
         }
     }
