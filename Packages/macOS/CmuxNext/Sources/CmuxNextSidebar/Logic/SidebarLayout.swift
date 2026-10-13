@@ -64,7 +64,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
         var gapY: CGFloat?
         let filtering = o.filterMatches != nil
         // One machine needs no machine header: its name adds nothing.
-        let machineCount = sections.reduce(0) { $0 + ($1.machine == nil ? 0 : 1) }
+        let machineCount = SidebarSection.machineCount(sections)
         // One list (cx-mdo0, Lawrence 2026-10-10: "just have linear list of
         // workspaces", like a browser): no "Projects" header and no computer
         // header or status row. A computer that cannot connect says so on its
