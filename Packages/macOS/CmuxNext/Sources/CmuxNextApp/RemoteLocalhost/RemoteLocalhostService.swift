@@ -60,10 +60,17 @@ final class RemoteLocalhostService {
         guard !daemon.isLocal else { return .thisMac }
         let name = machineName(of: daemon)
         let workspace = daemon.store.pane(containing: tab.surface).flatMap { daemon.store.workspace(containing: $0.handle) }
-        guard setting.isEnabled(workspace: workspace?.id) else { return .thisMacInstead(name, .turnedOff) }
+        guard isEnabled(workspace: workspace?.id) else { return .thisMacInstead(name, .turnedOff) }
         guard daemon.supports(DaemonCapabilities.shared.loopbackForward) else { return .thisMacInstead(name, .updateMachine) }
         guard engine == .cef else { return .thisMacInstead(name, .webKit) }
         return .machine(name)
+    }
+
+    /// Whether workspace `id` uses its machine's localhost: the person's
+    /// own choice (personal state, `workspace.setRemoteLocalhost`) first,
+    /// then cmux.json `browser.remoteLocalhost*`.
+    func isEnabled(workspace id: String?) -> Bool {
+        setting.isEnabled(workspace: id)
     }
 
     /// `base` with the store and navigation guard for `tab` showing `url`:
