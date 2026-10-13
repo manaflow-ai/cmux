@@ -521,7 +521,7 @@ public final class HostBrowserSignInFlow {
             log.log("auth.callback.coordinator.complete.begin attempt=\(attemptID.map(String.init) ?? "external")")
             try await coordinator.completeExternalSignIn()
         } catch {
-            log.log("auth.callback completion failed: \(error)")
+            log.log("auth.callback completion failed: \(error) \(Self.accessTokenClaimsSummary(payload.accessToken, now: Date()))")
             guard signOutGeneration == generation,
                   attemptID == nil || activeAttemptID == attemptID
             else {
