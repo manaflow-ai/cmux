@@ -72,12 +72,9 @@ enum DaemonClosedHistory {
         owner(of: entry, window: window, install: try? services.cloud.localDeviceID(), in: services)
     }
 
-    /// Same, with this install's id read once (`newest` asks for every entry).
-    /// The recorded window decides only on this Mac's daemon, for a window of
-    /// this install the registry still has; anything else (a window that
-    /// merged into another, another Mac's daemon) falls back to the
-    /// workspace's window. A window item of a window the registry no longer
-    /// has cannot be reopened.
+    /// Same, with this install's id read once. The recorded window decides only
+    /// on this Mac's daemon for a window the registry has; else the workspace's
+    /// window does. A window item of an unknown window is not reopenable.
     private static func owner(of entry: Entry, window: String?, install: String?, in services: AppServices) -> Owner {
         if entry.daemon.isLocal, let install, let recorded = entry.item.window, recorded.hasPrefix(install + "/") {
             let windowID = String(recorded.dropFirst(install.count + 1))

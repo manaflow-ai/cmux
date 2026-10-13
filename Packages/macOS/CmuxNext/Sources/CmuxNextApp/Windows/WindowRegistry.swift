@@ -151,15 +151,11 @@ struct WindowRegistry: Equatable, Sendable {
     }
 
     /// The user closed `id`. A normal window closes like a browser window
-    /// (cx-gzh.9.3, reopen-closed.md 4): it is kept, closed, with its
-    /// workspaces (it owns at least one, so it is never an empty record);
-    /// their terminals and agents keep running, and the app's window record
-    /// makes the close one closed-history `window` group that Cmd-Shift-T
-    /// reopens whole. No other window takes its workspaces. An incognito
-    /// window closes for good, and its workspaces are `discarded`.
-    /// `keepsGroup` false (a daemon without window records, so no closed
-    /// group records the close): a non-last window's workspaces move to the
-    /// most recent other open window, as before.
+    /// (cx-gzh.9.3): kept, closed, with its workspaces (still running), as one
+    /// closed `window` group that Cmd-Shift-T reopens whole. With `keepsGroup`
+    /// false (no window records, so no group) a non-last window's workspaces
+    /// move to the most recent other open window. An incognito window closes
+    /// for good, and its workspaces are `discarded`.
     @discardableResult
     mutating func close(_ id: String, keepsGroup: Bool = true) -> Changes {
         guard let index = windows.firstIndex(where: { $0.id == id }) else { return Changes() }
@@ -174,14 +170,12 @@ struct WindowRegistry: Equatable, Sendable {
             return merge(id, into: heir)
         }
         windows[index].isOpen = false
-        // The most recently closed window is the one a Dock click or a relaunch brings back first.
-        activate(id)
+        activate(id) // a Dock click or a relaunch brings back the last window closed
         return Changes()
     }
 
-    /// The closed window `id`'s workspaces leave it for the most recent open
-    /// window of its kind (its closed group was deleted, so nothing could
-    /// reopen it); with none open it opens again. Its terminals keep running.
+    /// Closed window `id`'s group was deleted: its workspaces move to the most
+    /// recent open window of its kind, else it opens again (never hidden).
     @discardableResult
     mutating func releaseClosed(_ id: String) -> Changes {
         guard let window = window(id), !window.isOpen else { return Changes() }

@@ -247,13 +247,10 @@ extension WindowManager {
         return true
     }
 
-    /// The closed window `id`'s group was deleted (History Remove, Clear
-    /// History): its workspaces move to the most recent open window, or it
-    /// opens again, so no running workspace stays hidden.
+    /// Closed window `id`'s group was deleted (`WindowRegistry.releaseClosed`).
     func releaseClosedWindow(id: String) {
-        let changes = transition { $0.releaseClosed(id) }
-        if let reopened = registry.value.window(id), reopened.isOpen, let controller = controller(for: id) { bringToFront(controller) }
-        _ = changes
+        transition { $0.releaseClosed(id) }
+        if registry.value.window(id)?.isOpen == true, let controller = controller(for: id) { bringToFront(controller) }
     }
 
     /// Reopens closed window `id` (Reopen Closed of its `window` group).
