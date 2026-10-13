@@ -6,13 +6,36 @@ from `feat-cnx-ios-rust` under `~/cnx-ios-e2e`, started over SSH as `cmux`.
 Both runs used `--exclude-cgnat` / `CNX_EXCLUDE_CGNAT=1`, so neither side
 offered or used a Tailscale (100.64.0.0/10) address.
 
-## Live backend run: blocked
+## Live backend run: blocked on a team
 
-The dev Worker is up (`GET /v1/health` reports version `0.2.0`, with
-`fromUserId` stamping). A Stack token for the dev test account comes only
-from 1Password item `sirnczouv25kkvpzlbhnpxpqo4` (cnx-ios/backend/README.md),
-and `op` is signed out on this Mac. `smoke.ts` caches no token. Nothing was
-run against the real backend, so no TURN numbers yet.
+The dev Worker is up (`/v1/health` reports `0.2.0`). A Stack dev-project
+token now works without 1Password: password sign-in with the DEBUG dev
+credential checked into `CmuxAuthRuntime` (`AuthCoordinator.swift`)
+succeeds. The tokens went to 0600 files and were never printed. Two
+problems remain:
+
+- The account belongs to no team, and `POST /api/v1/teams` with its access
+  token returns 403 "Client team creation is disabled for this project". The
+  Worker admits devices and signaling only for team members, so
+  `POST /v1/devices` returns 403 and no dial is possible.
+- `GET /v1/ice` returns only `stun:stun.cloudflare.com:3478`, with no TURN
+  servers (the TURN secrets are empty).
+
+Any one of these unblocks it:
+
+- Add the dev account to a dev-project team in the Stack dashboard.
+- Enable client team creation on the dev project.
+- Provide `STACK_SECRET_SERVER_KEY` (server-side team creation).
+
+### Distant run (Freestyle VM): not attempted
+
+Freestyle VMs are IPv6-only, and the mini has no global IPv6 (only ULA
+`fd06::/64`; `curl -6` fails). No direct UDP path, WebRTC or WireGuard, can
+exist between them. The only possible path is the real Worker's WireGuard
+relay frames, or a dual-stack TURN server. Both are blocked as above, so I
+did not lease a VM. Once a team exists: WireGuard from the VM should connect
+over the relay (`cnx-dial` sends no endpoints when STUN over IPv4 fails).
+WebRTC from the VM needs TURN.
 
 To run it once a token exists (a 0600 file, never printed):
 
