@@ -1,8 +1,9 @@
 import { HostError, installMockHost, type HostOp } from "../../../test/latency/mock-host";
 import type { HistoryPageVariant, KeybindingsPageVariant } from "../format";
 import type { StageContext } from "./context";
-import { HistoryOps, type HistoryEntry } from "../../pages/history/types";
+import { HistoryOps, type HistoryEntry, type HistoryKind, type HistoryRange } from "../../pages/history/types";
 import { HISTORY_FILTERS, type HistoryFilter } from "../../pages/history/model";
+import { CLEARABLE_KINDS, rangeStart } from "../../pages/history/mockProvider";
 import { KeybindingOps } from "../../pages/keybindings/types";
 const never = (): Promise<never> => new Promise(() => undefined);
 
@@ -54,7 +55,20 @@ export function historyFixtureOps(state: HistoryPageVariant, changed: () => void
       return { removed: before - entries.length };
     },
     [HistoryOps.removeSite]: () => ({ removed: 0 }),
-    [HistoryOps.clear]: () => ({ removed: 0 }),
+    [HistoryOps.clear]: (params: { range: HistoryRange; kinds?: HistoryKind[] }) => {
+      if (state.error === "permission")
+        throw new HostError("cmux.history.permission_denied", "history cannot be changed");
+      const start = rangeStart(params.range, Date.now());
+      const kinds = params.kinds?.length ? params.kinds : CLEARABLE_KINDS;
+      const cleared = (entry: HistoryEntry) =>
+        CLEARABLE_KINDS.includes(entry.kind) &&
+        kinds.includes(entry.kind) &&
+        (start === undefined || entry.at_ms >= start);
+      const before = entries.length;
+      entries = entries.filter((entry) => !cleared(entry));
+      if (before !== entries.length) changed();
+      return { removed: before - entries.length };
+    },
     ["cmux.app.action.run"]: () => ({}),
     ["cmux.app.clipboard.write"]: () => ({}),
   };

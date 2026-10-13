@@ -1098,7 +1098,8 @@ final class RowCell: UICollectionViewCell {
             if fillContainer.mask !== fillMaskImage { fillContainer.mask = fillMaskImage }
         } else {
             fillMask.frame = body
-            fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail, cornersOf: frame.size)
+            fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail, cornersOf: frame.size,
+                                              circularEnds: RowDraw.circularEnds(p))
             if fillContainer.mask !== fillMask { fillContainer.mask = fillMask }
         }
         placeFillGradient(width: spec.width)
