@@ -26,8 +26,17 @@ public struct ConversationDecelerationFill: Sendable, Equatable {
 
     /// A skipped frame is drawn only at fling speeds, where a stall shows.
     public static let minimumStep: CGFloat = 2
+    /// Rows drawn past their frames leave a strip with no rows at the edge
+    /// the content comes in from (only rows inside the bounds have cells),
+    /// so the drawing leads by at most this much; the edges sit under the
+    /// header's wash and the composer.
+    public static let maximumLead: CGFloat = 40
+    /// Faster than any fling: an offset write that was not reported.
+    public static let maximumSpeed: CGFloat = 20_000
     /// Share of each step a leftover lead is absorbed by.
     static let absorption: CGFloat = 0.15
+    /// Share of the lead kept per frame once the motion turns.
+    static let turnDecay: CGFloat = 0.6
 
     public init() {}
 
@@ -40,9 +49,10 @@ public struct ConversationDecelerationFill: Sendable, Equatable {
     }
 
     /// One UI update after UIKit's display links: the offset this frame
-    /// shows, the frame's length, and whether UIKit is decelerating.
+    /// shows, the frame's length, whether UIKit is decelerating, and the
+    /// offsets the content can rest at (`range`; UIKit bounces at its ends).
     /// Returns the lead to draw the content with.
-    public mutating func update(offset: CGFloat, duration: Double, decelerating: Bool) -> CGFloat {
+    public mutating func update(offset: CGFloat, duration: Double, decelerating: Bool, range: ClosedRange<CGFloat>? = nil) -> CGFloat {
         defer { lastOffset = offset }
         guard decelerating, duration > 0, let previous = lastOffset else {
             lead = 0
@@ -54,19 +64,34 @@ public struct ConversationDecelerationFill: Sendable, Equatable {
         let step = offset - previous
         let frame = CGFloat(duration)
         if abs(step) < 0.01 {
-            // UIKit skipped this frame: draw the step it would have taken.
-            if abs(velocity) * frame > Self.minimumStep { lead += velocity * frame }
+            // UIKit skipped this frame: draw the step it would have taken,
+            // unless it is not a fling's or would run into an edge.
+            let predicted = velocity * frame
+            guard abs(predicted) > Self.minimumStep, abs(velocity) <= Self.maximumSpeed else { return lead }
+            let target = lead + predicted
+            if let range {
+                let low = range.lowerBound + abs(predicted), high = range.upperBound - abs(predicted)
+                guard low <= high, offset + target >= low, offset + target <= high else { return lead }
+            }
+            lead = min(Self.maximumLead, max(-Self.maximumLead, target))
             return lead
         }
         // UIKit's position follows time, so a step after a skipped frame
         // covers both frames: the speed is the step over the time since the
         // offset last moved, and this frame draws its share of it.
+        let turned = velocity * step < 0
         velocity = step / CGFloat(sinceMove)
         sinceMove = 0
-        lead += velocity * frame - step
-        // Never draw behind the motion; absorb what is left over a few frames.
-        if lead * step < 0 { lead = 0 }
-        let absorbed = min(abs(lead), Self.absorption * abs(step))
+        if turned {
+            // The motion turned (a bounce): bring the drawing back gently.
+            lead *= Self.turnDecay
+            return lead
+        }
+        // Draw this frame's share; a lead the bound cut short is paid back
+        // over the next frames, a little each, rather than in one jump.
+        let share = velocity * frame
+        lead = min(Self.maximumLead, max(-Self.maximumLead, lead + share - step))
+        let absorbed = min(abs(lead), Self.absorption * abs(share))
         lead -= lead < 0 ? -absorbed : absorbed
         return lead
     }

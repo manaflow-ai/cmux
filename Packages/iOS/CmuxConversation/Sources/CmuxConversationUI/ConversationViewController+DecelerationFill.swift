@@ -44,8 +44,13 @@ final class ConversationDecelerationFillDriver {
         lastModelTime = modelTime
         // A first update after a pause starts over (no frame length).
         let duration = elapsed > 0 && elapsed < 0.05 ? elapsed : 0
+        // Where the content can rest; UIKit bounces at either end.
+        let inset = collectionView.adjustedContentInset
+        let top = -inset.top
+        let bottom = max(top, collectionView.contentSize.height + inset.bottom - collectionView.bounds.height)
         collectionView.drawingLead = fill.update(
-            offset: collectionView.contentOffset.y, duration: duration, decelerating: collectionView.isDecelerating
+            offset: collectionView.contentOffset.y, duration: duration, decelerating: collectionView.isDecelerating,
+            range: top...bottom
         )
     }
 }

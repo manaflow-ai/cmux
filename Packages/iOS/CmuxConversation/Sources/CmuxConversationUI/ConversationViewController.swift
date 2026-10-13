@@ -468,6 +468,8 @@ public final class ConversationViewController: UIViewController {
         collectionView.edgeBottomInset = bottom
         collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if old.top != top { layout.invalidateLayout() }
+        let offsetBefore = collectionView.contentOffset.y
+        defer { decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore) }
         if !collectionView.isTracking, hasPositionedInitially {
             if isPinnedToBottom {
                 // Inside the keyboard's animation, so the newest message
@@ -1184,6 +1186,10 @@ public final class ConversationViewController: UIViewController {
             }
         }
 
+        // Every offset this update writes (a jump to the newest message, a
+        // pinned scroll, an anchor restore) is not UIKit's motion; the
+        // deceleration fill is told after (see `ConversationDecelerationFill`).
+        let offsetBefore = collectionView.contentOffset.y
         if animateLive, sentByMe, !wasAtBottom {
             // Far from the bottom, jump there first so the send never animates
             // through unloaded history (which would flash blank frames).
@@ -1210,16 +1216,13 @@ public final class ConversationViewController: UIViewController {
             }
         } else if animateLive {
             // Away from bottom: animate in place, keep the reader's anchor fixed.
-            let offsetBefore = collectionView.contentOffset.y
             UIView.animate(withDuration: 0.3, delay: 0, options: [.allowUserInteraction, .beginFromCurrentState]) {
                 self.collectionView.performBatchUpdates(updates)
                 if structural, !updated.isEmpty { self.collectionView.reconfigureItems(at: updated) }
                 self.collectionView.layoutIfNeeded()
                 self.restore(anchor)
             }
-            decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore)
         } else {
-            let offsetBefore = collectionView.contentOffset.y
             if isScrollingToTop {
                 // Stop a running scroll-to-top so it cannot carry the reader
                 // past the anchor into the page that just landed.
@@ -1236,11 +1239,9 @@ public final class ConversationViewController: UIViewController {
                 self.restore(anchor)
                 self.collectionView.layoutIfNeeded()
             }
-            // A page landing mid-fling keeps the rows in place; the offset's
-            // jump is not motion.
-            decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore)
             glideRegrouped(from: screenBefore)
         }
+        decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore)
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }
         popArrivals()
         announceArrivals(newRows, inserted: inserted, isLive: animateLive)

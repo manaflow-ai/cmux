@@ -66,8 +66,10 @@ import Testing
             }
             drawn.append(offset + fill.update(offset: offset, duration: 1.0 / 60, decelerating: true) - shift)
         }
+        // No stalled frame and no double step (at 60 Hz the 54 pt skipped
+        // step is drawn at the 40 pt bound and the rest paid back after).
         let steps = zip(drawn, drawn.dropFirst()).map { $1 - $0 }
-        #expect(steps.allSatisfy { $0 < -40 && $0 > -60 })
+        #expect(steps.allSatisfy { $0 <= -38 && $0 > -64 })
         #expect(fill.lead == 0)
     }
 
