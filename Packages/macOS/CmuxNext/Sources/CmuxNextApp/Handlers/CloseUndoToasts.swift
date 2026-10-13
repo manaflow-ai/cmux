@@ -102,6 +102,9 @@ final class CloseUndoToasts {
     /// An action run from automation (CLI, agents) closes without a toast.
     /// A terminal doing work asks once first (`TabCloseGuard`).
     static func close(in pane: PaneController, _ ids: [StripTabID]) {
+        // A tab already closing (a second close before the daemon answered the first) closes once.
+        let ids = ids.filter { !pane.pendingClosed.contains($0.rawValue) }
+        guard !ids.isEmpty else { return }
         let user = isUserClose
         TabCloseGuard.close(ids.compactMap(pane.tab), on: pane.daemon, services: pane.services, window: pane.view.window) { [weak pane] in
             guard let pane else { return }
