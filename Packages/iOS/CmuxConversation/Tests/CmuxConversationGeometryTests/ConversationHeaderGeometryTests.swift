@@ -33,6 +33,19 @@ import Testing
         #expect(ConversationHeaderGeometry.groupClusterRingWidth == 0)
     }
 
+    /// The details page draws the same cluster on its 80 pt disc. Real
+    /// iPhone 17 Pro Max (iOS 26.4): discs 37.67, 28.33 and 23.33 pt, the
+    /// first 10 pt in from the disc's top-left, the second 45.33 pt in; no
+    /// rings (ours: 42.67/32/24 pt discs with 2 pt rings).
+    @Test func detailsClusterScalesTheHeaderCluster() {
+        let square = CGRect(x: 100, y: 50, width: 80, height: 80)
+        let slots = ConversationHeaderGeometry.groupClusterSlots(in: square)
+        #expect(slots.count == 3)
+        #expect(abs(slots[0].minX - 110) < 0.5 && abs(slots[0].minY - 60) < 0.5 && abs(slots[0].width - 37.67) < 0.5)
+        #expect(abs(slots[1].minX - 145.33) < 0.5 && abs(slots[1].width - 28.33) < 0.7)
+        #expect(abs(slots[2].width - 23.33) < 0.5)
+    }
+
     @Test func buttonsSitOnTheSystemLayoutMargin() {
         // iPhone 17 Pro (402 pt): BackButton at x 16; Pro Max (440 pt): x 20.
         #expect(ConversationHeaderGeometry.sideMargin(layoutMargin: 16) == 16)
