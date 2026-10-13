@@ -4373,6 +4373,7 @@ function AcpmuxPane() {
     <PermissionStatus
       trusted={trustAsk.trusted}
       chatAllowed={snapshot.permissionGroups?.chatAllowance === true}
+      recentTrust={trustAsk.justTrusted}
       onUndoTrust={trustAsk.undo}
       onRevoke={
         snapshot.permissionGroups?.chatAllowance

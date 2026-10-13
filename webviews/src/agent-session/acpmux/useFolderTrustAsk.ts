@@ -28,6 +28,8 @@ export function useFolderTrustAsk(
 ) {
   const [ask, setAsk] = useState<FolderTrustAsk>();
   const [trusted, setTrusted] = useState(false);
+  const [justTrusted, setJustTrusted] = useState(false);
+  const undoTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [reading, setReading] = useState(false);
   /// Bumped by `recheck` (acpmux refused a prompt the pane did not hold): read the folder again.
   const [reads, setReads] = useState(0);
@@ -46,6 +48,8 @@ export function useFolderTrustAsk(
   useEffect(() => {
     setAsk(undefined);
     setTrusted(false);
+    setJustTrusted(false);
+    clearTimeout(undoTimer.current);
     decidedAt.current = undefined;
     setReading(Boolean(cwd));
     if (!cwd) return;
@@ -73,18 +77,22 @@ export function useFolderTrustAsk(
     )
       setAsk(undefined);
   }, [ask, prompts]);
+  useEffect(() => () => clearTimeout(undoTimer.current), []);
 
   const save = useCallback(
     async (level: TrustLevel) => {
-      if (!ask || saving.current) return;
+      if ((!ask && !cwd) || saving.current) return;
       saving.current = true;
-      const asked = { sessionId, cwd: ask.cwd };
+      const asked = { sessionId, cwd: ask?.cwd ?? cwd! };
       const stillHere = () => current.current.sessionId === asked.sessionId && current.current.cwd === asked.cwd;
       try {
         await source.set(asked.cwd, level);
         if (!stillHere()) return;
         decidedAt.current = level === "unknown" ? undefined : prompts;
         setTrusted(level === "trusted");
+        clearTimeout(undoTimer.current);
+        setJustTrusted(level === "trusted");
+        if (level === "trusted") undoTimer.current = setTimeout(() => setJustTrusted(false), 4000);
         setAsk(level === "unknown" ? { cwd: asked.cwd, state: "ask" } : { cwd: asked.cwd, state: "decided", level });
         // The prompt acpmux refused goes now that the folder is trusted; another answer keeps it.
         const held = resend.current;
@@ -96,7 +104,7 @@ export function useFolderTrustAsk(
         saving.current = false;
       }
     },
-    [ask, source, sessionId, prompts],
+    [ask, cwd, source, sessionId, prompts],
   );
 
   const blocked: SendBlock | undefined = reading
@@ -112,6 +120,7 @@ export function useFolderTrustAsk(
   return {
     ask,
     trusted,
+    justTrusted,
     blocked,
     trust: () => void save("trusted"),
     distrust: () => void save("untrusted"),

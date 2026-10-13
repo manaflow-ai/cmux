@@ -188,6 +188,19 @@
 .acpmux-permission-status-trigger .acpmux-icon { width: 14px; height: 14px; }
 .acpmux-permission-status-label { max-width: 118px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-detail); }
 .acpmux-permission-status-menu { min-width: 150px; }
+.acpmux-permission-status-undo {
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--agent-muted);
+  font: inherit;
+  font-size: var(--text-detail);
+  cursor: pointer;
+}
+.acpmux-permission-status-undo:hover { color: var(--agent-text); background: var(--acpmux-menu-hover); }
+.acpmux-permission-status-undo:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: 2px; }
 .acpmux-send { width: 32px; height: 32px; }
 .acpmux-context-ring { width: 32px; height: 32px; }
 

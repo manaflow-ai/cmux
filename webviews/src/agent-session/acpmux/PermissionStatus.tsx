@@ -10,11 +10,13 @@ import { LockIcon, ChevronIcon } from "./ComposerPickers";
 export function PermissionStatus({
   trusted,
   chatAllowed,
+  recentTrust = false,
   onUndoTrust,
   onRevoke,
 }: {
   trusted: boolean;
   chatAllowed: boolean;
+  recentTrust?: boolean;
   onUndoTrust?(): void;
   onRevoke?(): void;
 }) {
@@ -39,6 +41,11 @@ export function PermissionStatus({
           {onUndoTrust && trusted && <MenuItem onSelect={onUndoTrust}>{t("trust.undo")}</MenuItem>}
         </MenuPopup>
       </Menu>
+      {recentTrust && trusted && onUndoTrust && (
+        <button type="button" className="acpmux-permission-status-undo" onClick={onUndoTrust}>
+          {t("trust.undo")}
+        </button>
+      )}
     </span>
   );
 }
