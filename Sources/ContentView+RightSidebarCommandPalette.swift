@@ -1,5 +1,6 @@
 import AppKit
 import CmuxCommandPalette
+import CmuxWorkspaces
 import CmuxSidebar
 import CmuxSwiftRender
 
@@ -289,11 +290,29 @@ extension ContentView {
             )
         }
         let selectedWorkspace = tabManager.tabs.first { $0.id == selectedId }
-        let snapshot = CustomSidebarContextSnapshot(
+        return Self.customSidebarDataContext(
             workspaces: workspaces,
+            workspaceGroups: tabManager.workspaceGroups,
             selectedWorkspaceId: selectedId,
             selectedWorkspaceTitle: selectedWorkspace?.customTitle ?? selectedWorkspace?.title ?? "",
             totalUnreadCount: sidebarUnread.totalUnreadCount,
+            now: now
+        )
+    }
+
+    static func customSidebarDataContext(
+        workspaces: [CustomSidebarWorkspaceSnapshot],
+        workspaceGroups _: [WorkspaceGroup],
+        selectedWorkspaceId: UUID?,
+        selectedWorkspaceTitle: String,
+        totalUnreadCount: Int,
+        now: Date
+    ) -> [String: SwiftValue] {
+        let snapshot = CustomSidebarContextSnapshot(
+            workspaces: workspaces,
+            selectedWorkspaceId: selectedWorkspaceId,
+            selectedWorkspaceTitle: selectedWorkspaceTitle,
+            totalUnreadCount: totalUnreadCount,
             now: now
         )
         return CustomSidebarDataContextBuilder().dataContext(for: snapshot)
