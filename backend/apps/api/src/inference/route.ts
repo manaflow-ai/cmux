@@ -3,7 +3,7 @@ import { personalTeamIdFor } from "../domains/user.ts"
 import { isMachineInstallKind } from "../machine-installs.ts"
 import { authenticate } from "../auth.ts"
 import { principalForOwner, selectTeam, TEAM_HEADER } from "../team-select.ts"
-import { nextMonthStart } from "../usage-user.ts"
+import { nextMonthStart, userLimitMicros } from "../usage-user.ts"
 import type { Env } from "../env.ts"
 import { cardCost, MODELS, modelById, type ModelEntry, type ProviderId } from "./catalog.ts"
 import { providerTarget } from "./providers.ts"
@@ -47,13 +47,6 @@ const bearer = (request: Request) => {
   const h = request.headers.get("authorization") ?? ""
   if (h.toLowerCase().startsWith("bearer ")) return h.slice(7).trim()
   return request.headers.get("x-api-key")?.trim() || undefined
-}
-
-/** The member's monthly limit in micro-dollars: the team's setting, else INFERENCE_USER_MONTHLY_DEFAULT_USD (default 200). */
-export const userLimitMicros = (env: Env, teamLimitUsd: number | null) => {
-  const fallback = Number(env.INFERENCE_USER_MONTHLY_DEFAULT_USD ?? "200")
-  const usd = teamLimitUsd ?? (Number.isFinite(fallback) && fallback >= 0 ? fallback : 200)
-  return Math.round(usd * 1_000_000)
 }
 
 export const resolveCaller = async (env: Env, request: Request): Promise<Caller | Response> => {

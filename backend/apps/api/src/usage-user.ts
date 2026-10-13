@@ -1,5 +1,6 @@
 import { COST_USD_PER_UNIT, MONEY_METERS } from "./domains/usage.ts"
 import type { Meter } from "@cmux/protocol"
+import type { Env } from "./env.ts"
 
 /**
  * The per-user monthly AI spending counter (cx-ds09i, Lawrence 2026-10-12), kept by the team's
@@ -82,3 +83,13 @@ export const nextMonthStart = (now: number) => {
   const d = new Date(now)
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)
 }
+
+/** The member's monthly limit in micro-dollars: the team's setting, else INFERENCE_USER_MONTHLY_DEFAULT_USD (default 200). */
+export const userLimitMicros = (env: Env, teamLimitUsd: number | null) => {
+  const fallback = Number(env.INFERENCE_USER_MONTHLY_DEFAULT_USD ?? "200")
+  const usd = teamLimitUsd ?? (Number.isFinite(fallback) && fallback >= 0 ? fallback : 200)
+  return Math.round(usd * 1_000_000)
+}
+
+/** Who a metered automation cost counts against when the run names no owner (runs from before cx-ds09i). */
+export const UNATTRIBUTED_USER = "unattributed"
