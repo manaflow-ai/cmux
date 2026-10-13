@@ -44,9 +44,13 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     public var shortcut: String?
     /// The x's tooltip and VoiceOver label; nil shows no x.
     public var dismissLabel: String?
+    /// With items, the x opens this menu (the tip's Hide / Mute / Never)
+    /// instead of dismissing; an item sends `noticeAction` with its id.
+    public var dismissMenu: [Action]
 
     public init(id: String, symbol: String? = nil, eyebrow: String? = nil, title: String, detail: String? = nil,
-                lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil) {
+                lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil,
+                dismissMenu: [Action] = []) {
         self.id = id
         self.symbol = symbol
         self.eyebrow = eyebrow
@@ -57,5 +61,6 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
         self.actions = actions
         self.shortcut = shortcut
         self.dismissLabel = dismissLabel
+        self.dismissMenu = dismissMenu
     }
 }

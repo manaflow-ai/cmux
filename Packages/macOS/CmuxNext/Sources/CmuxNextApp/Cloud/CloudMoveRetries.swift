@@ -18,6 +18,10 @@ final class CloudMoveRetries {
         /// that doesn't ask. Run the move again on this machine, narrowing the chat there to an
         /// asking policy and mode first ("Ask first, then bring back", cx-rppd.10).
         case askFirst(machineID: String)
+        /// The machine's cmux-tui is too old for the move (`machine_outdated`, cx-rppd.13): its toast
+        /// offers "Update Machine" (``CloudMachineUpdate``), which updates the machine, then runs the
+        /// move again on it. Running the action again any other way only runs the move again there.
+        case update(machineID: String)
     }
 
     /// A moved chat whose tab on the machine didn't open yet.
@@ -80,5 +84,21 @@ final class CloudMoveRetries {
         guard !entries.isEmpty else { return defaults.removeObject(forKey: key) }
         guard let data = try? JSONEncoder().encode(entries) else { return }
         defaults.set(data, forKey: key)
+    }
+}
+
+extension CloudMoveRetries.Retry {
+    /// The machine a rerun goes to; none for a move that committed.
+    var machineID: String? {
+        switch self {
+        case .move(let machineID), .askFirst(let machineID), .update(let machineID): machineID
+        case .show: nil
+        }
+    }
+
+    /// This Retry for a machine whose cmux-tui is too old: "Update Machine" on its machine.
+    var updating: Self {
+        guard let machineID else { return self }
+        return .update(machineID: machineID)
     }
 }

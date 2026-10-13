@@ -721,7 +721,7 @@ export function Composer({
       send(false, true);
       return;
     }
-    // The @ picker owns arrows (and Ctrl-N/P), Return and Tab while it lists files, and Esc.
+    // The @ picker owns arrows (and Ctrl-N/P/J/K), Return and Tab while it lists files, and Esc.
     if (mentionAt) {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -731,9 +731,9 @@ export function Composer({
       }
       const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
       const step =
-        (event.key === "ArrowDown" && plain) || (control && event.key === "n")
+        (event.key === "ArrowDown" && plain) || (control && (event.key === "n" || event.key === "j"))
           ? 1
-          : (event.key === "ArrowUp" && plain) || (control && event.key === "p")
+          : (event.key === "ArrowUp" && plain) || (control && (event.key === "p" || event.key === "k"))
             ? -1
             : 0;
       if (step && mentionFiles.length > 0) {
@@ -824,9 +824,10 @@ export function Composer({
       return;
     }
     if (matches.length === 0) return;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    const control = event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp" || (control && (event.key === "j" || event.key === "k"))) {
       event.preventDefault();
-      const step = event.key === "ArrowDown" ? 1 : -1;
+      const step = event.key === "ArrowDown" || event.key === "j" ? 1 : -1;
       setActive((selected + step + matches.length) % matches.length);
     } else if ((event.key === "Enter" || event.key === "Tab") && plain) {
       event.preventDefault();

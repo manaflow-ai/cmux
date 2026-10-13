@@ -1048,6 +1048,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object setSessionIcon(SetSessionIconRequest request) throws CmuxException {
+        Object result = execute(Commands.SET_SESSION_ICON, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final SetSizeCountsResult setSizeCounts(SetSizeCountsRequest request) throws CmuxException {
         Object result = execute(Commands.SET_SIZE_COUNTS, request.toWire());
         return SetSizeCountsResult.fromWire(result);
