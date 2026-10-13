@@ -1,5 +1,4 @@
 import type { Principal } from "@cmux/ownership"
-import { INFERENCE_USER_MONTHLY_DEFAULT_USD } from "@cmux/protocol"
 import type { TeamState } from "./domains/team.ts"
 import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
 import { POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
@@ -9,6 +8,9 @@ import { listHosts, listMembers, memberOf, type Member, type RowsWithScan } from
 import { ROLES, roleHas, type TeamGrant } from "./domains/team-roles.ts"
 import { noOwnerOf, seatsOf } from "./domains/team-stack.ts"
 import { auditPage } from "./domains/team-audit-rows.ts"
+import { aiLimitViewOf } from "./domains/team-ai-limit.ts"
+import type { Env } from "./env.ts"
+import { nextMonthStart } from "./usage-user.ts"
 
 const DIRECTORY_PAGE = 200
 
@@ -107,11 +109,12 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
       return { ok: true, value: accountsView(state.team?.id ?? "", state, (user) => memberOf(state, rows, user) !== undefined), revision: String(state.vm_next_uid ?? 0) }
     }
     case "team.ai_limit.get": {
-      // Members who use the team or manage its billing (cx-ds09i): the limit in force and whether it is the
-      // default; never anyone's spend.
-      if (!roleHas(member.role, "team.resources") && !roleHas(member.role, "billing.manage")) return { ok: false, code: "auth.forbidden", message: `the ${member.role} role may not read ${op}` }
-      const set = state.ai_user_monthly_limit_usd ?? null
-      return { ok: true, value: { team: state.team?.id, user_monthly_limit_usd: Math.min(set ?? INFERENCE_USER_MONTHLY_DEFAULT_USD, INFERENCE_USER_MONTHLY_DEFAULT_USD), is_default: set === null }, revision: String(state.audit_count ?? 0) }
+      // The caller's own limit; every member's only for billing.manage (team-ai-limit.ts). Spend is added by withAiSpend.
+      const q = params as { cursor?: unknown } | null
+      const v = aiLimitViewOf(state, rows, state.team?.id ?? "", principal.user ?? "", typeof q?.cursor === "string" ? q.cursor : undefined)
+      if (!v.ok) return { ok: false, code: v.code, message: v.message }
+      const { ok: _ok, ...value } = v
+      return { ok: true, value, revision: String(state.audit_count ?? 0) }
     }
     case "team.audit.list": {
       // Session only (the op's principals); billing reads only billing records (spec H12 b).
@@ -140,4 +143,18 @@ export const teamVmAccountsFence = async (current: () => Promise<string | null>,
     return { ok: false, code: "owner.unreachable", message: "the team VM record did not answer; try again" }
   }
   return install !== null && install === principal.install ? null : { ok: false, code: "team_vm.stale_epoch", message: "this install is not the team VM's install for the current epoch" }
+}
+
+/**
+ * team.ai_limit.get, the Worker-side half (TeamDO.readOp): this month's spend from the team's
+ * UsageMeterDO for exactly the users the view lists (the caller, and members for billing.manage),
+ * and the UTC month's reset time. A meter failure leaves the limits and reports spend as unknown (-1).
+ */
+export const withAiSpend = async (env: Env, team: string, r: ReadResult): Promise<ReadResult> => {
+  if (!r.ok) return r
+  const v = r.value as { me: { user: string }; members?: Array<{ user: string }> }
+  const users = [v.me.user, ...(v.members ?? []).map((m) => m.user)]
+  const spends = await env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(team)).userSpends(team, users).catch(() => ({}) as Record<string, number>)
+  const spent = (u: string) => spends[u] ?? -1
+  return { ...r, value: { ...v, resets_at: nextMonthStart(Date.now()), me: { ...v.me, spent_usd: spent(v.me.user) }, ...(v.members ? { members: v.members.map((m) => ({ ...m, spent_usd: spent(m.user) })) } : {}) } }
 }
