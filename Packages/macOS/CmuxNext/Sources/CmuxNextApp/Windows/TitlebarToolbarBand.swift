@@ -218,6 +218,14 @@ final class TitlebarBandButton: NSButton {
 
     /// A right-click or long-press menu (Back / Forward lists); the sidebar toggle's opens on right-click only.
     var menuProvider: (() -> NSMenu?)?, longPressOpensMenu = true
+    /// A menu that opens on press, like a pop-up button (the pane toolbar's "…"): press, drag
+    /// to a row and release to run it; a plain click leaves it open. The action still runs
+    /// for a keyboard or VoiceOver press.
+    var pressMenu: (() -> NSMenu?)?
+    /// Shows a menu under the button (tests record it instead).
+    var presentMenu: @MainActor (NSMenu, TitlebarBandButton) -> Void = { menu, button in
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: button, gap: Metrics.space1), in: button)
+    }
 
     override func rightMouseDown(with event: NSEvent) {
         guard isEnabled else { return }
@@ -228,13 +236,19 @@ final class TitlebarBandButton: NSButton {
     /// A long press shows the menu like a browser's Back button; a click runs.
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
+        if let pressMenu {
+            guard let menu = pressMenu(), !menu.items.isEmpty else { return }
+            // Pressed while its menu is open, like a pop-up button.
+            isHighlighted = true
+            defer { isHighlighted = false }
+            presentMenu(menu, self)
+            return
+        }
         guard menuProvider != nil, longPressOpensMenu, let window else { return super.mouseDown(with: event) }
         let deadline = Date().addingTimeInterval(NSEvent.doubleClickInterval)
         while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: deadline, inMode: .eventTracking, dequeue: true) {
             if next.type == .leftMouseUp { sendAction(action, to: target); return }
         }
-        if let menu = menuProvider?() {
-            menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: Metrics.space1), in: self)
-        }
+        if let menu = menuProvider?() { presentMenu(menu, self) }
     }
 }
