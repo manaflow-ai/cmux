@@ -81,6 +81,9 @@ public final class ConversationViewController: UIViewController {
         var revision: Int
         var statusMessageID: String?
     }
+    /// What a send landing inside an update released, applied when that
+    /// update's rebuild is done (see `sendFlightLanded`).
+    private var releasedInsideUpdate: ConversationStoreChange?
     /// Height and leading spacing of each row, aligned with `rows` (NaN = not
     /// measured), valid for `rowMetricsKey`. An update re-measures only the
     /// rows it inserts or changes (and their followers' spacing), so a layout
@@ -714,10 +717,14 @@ public final class ConversationViewController: UIViewController {
 
     /// One of my sends landed: what waited for it applies now, with its own
     /// motion. A flight landing inside an update (a send failing as it
-    /// applies) leaves it to that update, whose rows come from the store and
-    /// so already show it.
+    /// applies) defers it until that rebuild is done and its rows are the
+    /// base (`releasedInsideUpdate`).
     func sendFlightLanded(insideUpdate: Bool) {
-        guard let held = liveGate.endFlight(), !insideUpdate else { return }
+        guard let held = liveGate.endFlight() else { return }
+        if insideUpdate {
+            releasedInsideUpdate = releasedInsideUpdate.map { ConversationLiveChangeGate.merged($0, held) } ?? held
+            return
+        }
         rebuild(change: held)
     }
 
@@ -781,6 +788,10 @@ public final class ConversationViewController: UIViewController {
         }
         maybeLoadOlder()
         focusComposerIfEmpty()
+        if let released = releasedInsideUpdate {
+            releasedInsideUpdate = nil
+            if !liveGate.hold(released) { rebuild(change: released) }
+        }
     }
 
     /// A landed page's rows are measured off the main thread before they
