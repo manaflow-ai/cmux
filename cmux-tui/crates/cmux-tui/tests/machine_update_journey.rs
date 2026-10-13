@@ -6,7 +6,7 @@
 //! machine right after.
 //!
 //! The older machine is this same binary under two debug-only seams: it
-//! reports another build (`CMUX_TEST_DAEMON_BUILD_ID`, cmux-tui main.rs) and
+//! reports another build (`CMUX_TEST_DAEMON_BUILD_ID`, cmux-tui daemon_build.rs) and
 //! leaves the newer capabilities out of `identify`
 //! (`CMUX_TEST_DAEMON_HIDE_CAPABILITIES`, cmux-tui-core capabilities.rs), as
 //! a Cloud VM that baked a cmux-tui from before those verbs does. The
@@ -126,6 +126,7 @@ fn machine_gate_refuses_an_older_machine_before_anything_moves() {
     let (ok, moved) = agent_move(&mac, surface, &old, &there, &pump);
     assert!(!ok, "{moved}");
     assert_outdated(&moved, "agent-transfer-v1");
+    assert_eq!(moved["side"], json!("target"), "{moved}");
     let events = acpmux.events(&session);
     assert!(!events.iter().any(|e| e["kind"] == "transferred"), "the chat moved: {events:?}");
 
@@ -139,6 +140,17 @@ fn machine_gate_refuses_an_older_machine_before_anything_moves() {
     );
     assert!(!ok, "{triage}");
     assert_outdated(&triage, "access-request-v1");
+
+    // A revoke is never gated: it always ends the grants on this Mac.
+    let (ok, revoked) = run_json(
+        Command::new(bin())
+            .env("CMUX_TUI_STATE_DIR", mac.dir.join("state"))
+            .args(["link", "access", "revoke", "--socket"])
+            .arg(&old.socket)
+            .args(["--machine", "vm-machine-gate-old", "--session", &session, "--all"]),
+    );
+    assert!(ok, "a revoke was refused on the older machine: {revoked}");
+    assert_eq!(revoked["revoked"], json!(0), "{revoked}");
 
     // The chat was never frozen: it moves to a current machine.
     let synced = current.home().join("work/app");

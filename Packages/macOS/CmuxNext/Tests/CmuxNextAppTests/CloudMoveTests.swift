@@ -118,6 +118,17 @@ struct CloudMoveTests {
         }
     }
 
+    /// When this Mac's own daemon is the one too old for the move, the machine is not blamed: the
+    /// move fails with the CLI's own words and no machine update is suggested.
+    @Test func anOutdatedDaemonOnThisMacIsNotBlamedOnTheMachine() async throws {
+        try await Self.withMove("macOutdated") { move in
+            let error = try #require(await move.run(), "the move did not stop")
+            #expect(error.message != CloudMoveStrings.outdatedMachine("Move VM"), "\(error.message)")
+            #expect(error.message.hasPrefix(CloudMoveStrings.moveFailed("")), "\(error.message)")
+            #expect(move.services.locateTab(move.tabID) != nil)
+        }
+    }
+
     /// An agent's Move to Cloud (cmuxterm-hq#1874 slice 5): `cmux cloud move` from the chat's own
     /// agent moves nothing. It shows a card in that chat (Move, Not now, Always); a click that is no
     /// real gesture in the pane moves nothing either, and the person's Move runs the move above.
@@ -412,7 +423,8 @@ struct CloudMoveTests {
                 badAnswer) echo 'thread main panicked'; exit 101 ;;
                 timeout) exec sleep 30 ;;
                 teamMachine) echo '{"ok":false,"error":"a team machine","error_code":"agent_session.team_vm_blocked"}'; exit 1 ;;
-                outdated) echo '{"ok":false,"error":"the machine runs an older cmux-tui (0000old) without agent-transfer-v1; update the machine","error_code":"machine_outdated"}'; exit 1 ;;
+                outdated) echo '{"ok":false,"error":"the target daemon: the machine runs an older cmux-tui (0000old) without agent-transfer-v1; update the machine","error_code":"machine_outdated","side":"target"}'; exit 1 ;;
+                macOutdated) echo '{"ok":false,"error":"the source daemon: the machine runs an older cmux-tui (0000old) without agent-transfer-v1; update the machine","error_code":"machine_outdated","side":"source"}'; exit 1 ;;
                 *)
                     registry=$(find '\(vmState.path)' -name workspace-registry.sqlite3 -print | head -n 1)
                     [ -n "$registry" ] || exit 70
