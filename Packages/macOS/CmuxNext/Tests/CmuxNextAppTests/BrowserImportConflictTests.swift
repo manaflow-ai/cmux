@@ -71,4 +71,24 @@ struct BrowserImportConflictTests {
         #expect(hold.count == 0 && ignored.password.count == 0, "the toast went without Replace: the held password is zeroed")
         #expect(writes == 2, "nothing was saved over without the person")
     }
+
+    @Test func aProfileWhoseReplaceFailsLeavesTheOthersReplaced() async throws {
+        let failing = BrowserProfileID(rawValue: UUID())
+        var replaced: [BrowserProfileID] = []
+        let hold = PasswordConflictHold { _, profile in
+            guard profile != failing else { return ChromiumPasswordReplaceResult(updated: -1, missing: -1, rejected: -1) }
+            replaced.append(profile)
+            return ChromiumPasswordReplaceResult(updated: 1, missing: 0, rejected: 0)
+        }
+        let logins = [Self.login("first-source"), Self.login("deleted-profile"), Self.login("third-source")]
+        let other = BrowserProfileID(rawValue: UUID())
+        hold.keep([logins[0]], profile: .default)
+        hold.keep([logins[1]], profile: failing)
+        hold.keep([logins[2]], profile: other)
+
+        let result = try await hold.replace()
+        #expect(replaced == [.default, other], "the profiles after the failed one are still replaced")
+        #expect(result.updated == 2 && result.rejected == 1, "the failed profile's sign-in counts as not replaced")
+        #expect(logins.allSatisfy { $0.password.count == 0 }, "every held password is zeroed")
+    }
 }

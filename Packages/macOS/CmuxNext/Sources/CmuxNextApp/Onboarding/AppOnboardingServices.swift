@@ -59,9 +59,9 @@ final class AppOnboardingServices: OnboardingServices {
             throw error
         }
         owner.browserImportOffer.importFinished(summary)
-        // The window the person ran the import in (the tool window), else the app's.
+        // The app window, not the tool window: closing that with Done would take the offer with it.
         let windows = services.windows
-        if let hold { BrowserImportConflictOffer.offer(hold) { NSApp.keyWindow ?? windows.active?.window ?? NSApp.mainWindow } }
+        if let hold { BrowserImportConflictOffer.offer(hold) { windows.active?.window ?? NSApp.mainWindow } }
         return summary
     }
 

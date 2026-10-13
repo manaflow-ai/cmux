@@ -17,9 +17,13 @@ enum BrowserImportConflictOffer {
         let handle = CmuxToastCenter.shared.show(toast, in: window)
         handle.onAction = {
             Task { @MainActor in
-                let message: String
+                var message: String
                 do {
-                    message = PasswordCSVStrings.replaced(try await hold.replace().updated)
+                    let result = try await hold.replace()
+                    message = PasswordCSVStrings.replaced(result.updated)
+                    // Some profiles' writes failed: those saved passwords stayed, and the toast says so.
+                    let kept = result.missing + result.rejected
+                    if kept > 0 { message += " " + PasswordCSVStrings.conflicts(kept) }
                 } catch {
                     message = PasswordCSVStrings.replaceFailed
                 }

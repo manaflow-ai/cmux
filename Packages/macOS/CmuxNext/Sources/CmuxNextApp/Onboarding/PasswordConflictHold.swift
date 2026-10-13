@@ -30,16 +30,17 @@ final class PasswordConflictHold {
     /// Saves the held passwords over the saved ones, one write per profile;
     /// they are zeroed as soon as the shim has copied them, or here when a
     /// write fails (also a reply of -1 counts, the store's failure). A
-    /// failure before anything was replaced throws; after a profile's write
-    /// went in, the rest count as rejected, so the result never reads as
-    /// everything replaced.
+    /// profile whose write fails counts as rejected and the next one still
+    /// goes; only when nothing was replaced does the failure throw, so the
+    /// result never reads as everything replaced.
     func replace() async throws -> ChromiumPasswordReplaceResult {
         let held = batches
         batches = []
         // The password pointers are valid while `held` is alive; the defer keeps it alive past the writes.
         defer { withExtendedLifetime(held) {} }
         var total = ChromiumPasswordReplaceResult(updated: 0, missing: 0, rejected: 0)
-        for (index, batch) in held.enumerated() {
+        var failure: (any Error)?
+        for batch in held {
             let rows = Self.rows(batch.logins) { for login in batch.logins { login.password.zero() } }
             do {
                 let result = try await write(rows, batch.profile)
@@ -48,13 +49,12 @@ final class PasswordConflictHold {
                 total.missing += result.missing
                 total.rejected += result.rejected
             } catch {
-                let rest = held[index...]
-                for batch in rest { for login in batch.logins { login.password.zero() } }
-                guard index > 0 else { throw error }
-                total.rejected += rest.reduce(0) { $0 + $1.logins.count }
-                return total
+                for login in batch.logins { login.password.zero() }
+                failure = failure ?? error
+                total.rejected += batch.logins.count
             }
         }
+        if let failure, total.updated == 0 { throw failure }
         return total
     }
 
