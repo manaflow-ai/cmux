@@ -164,6 +164,7 @@ enum SettingsSearchIndex {
         setting(.customSidebars, "renderer", String(localized: "settings.customSidebars.renderer", defaultValue: "Renderer"), "renderer in-process in app remote worker isolated process hover focus typing input"),
         setting(.betaFeatures, "feed", String(localized: "settings.betaFeatures.feed", defaultValue: "Feed"), "feed right sidebar agent decisions permissions questions"),
         setting(.betaFeatures, "click-by-hint", String(localized: "settings.betaFeatures.clickByHint", defaultValue: "Click by Hint"), "click by hint hints labels keyboard vimium cmd j preview beta"),
+        setting(.betaFeatures, "agent-turn-rail", String(localized: "settings.betaFeatures.agentTurnRail", defaultValue: "Agent Turn Rail"), "agent turn rail prompts ticks claude code codex terminal jump previous next turn preview beta"),
         setting(.betaFeatures, "dock", String(localized: "settings.betaFeatures.dock", defaultValue: "Dock"), "dock right sidebar terminal controls tui"),
         setting(.betaFeatures, "workspace-todo-controls", String(localized: "settings.betaFeatures.workspaceTodoControls", defaultValue: "Workspace Todo Controls"), "workspace todo todos task status checklist add item controls beta"),
         setting(.betaFeatures, "workspace-todos-checklist-style", String(localized: "settings.betaFeatures.workspaceTodosChecklistStyle", defaultValue: "Checklist Style"), "workspace todo todos task status checklist popover inline presentation style beta"),
@@ -251,6 +252,7 @@ enum SettingsSearchIndex {
     private static let settingsPathAnchorIDs: [String: String] = [
         "rightSidebar.beta.feed.enabled": settingID(for: .betaFeatures, idSuffix: "feed"),
         "windowHints.beta.enabled": settingID(for: .betaFeatures, idSuffix: "click-by-hint"),
+        "agentTurnRail.beta.enabled": settingID(for: .betaFeatures, idSuffix: "agent-turn-rail"),
         "app.language": settingID(for: .app, idSuffix: "language"),
         "app.appearance": settingID(for: .themes, idSuffix: "appearance"),
         "app.accentColor": settingID(for: .themes, idSuffix: "accent-color"),

@@ -16,6 +16,7 @@ public struct BetaFeaturesSection: View {
     @State private var remoteTmuxOriginHostTitles: DefaultsValueModel<Bool>
     @State private var workspaceTodoControls: DefaultsValueModel<Bool>
     @State private var clickByHint: DefaultsValueModel<Bool>
+    @State private var agentTurnRail: DefaultsValueModel<Bool>
     @State private var workspaceTodosChecklistStyle: DefaultsValueModel<WorkspaceTodoChecklistStyle>
     /// `DisableCustomSidebars` (MDM): same treatment for the interpreted
     /// custom sidebars opt-in.
@@ -32,6 +33,7 @@ public struct BetaFeaturesSection: View {
         _remoteTmuxOriginHostTitles = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.remoteTmuxOriginHostTitles))
         _workspaceTodoControls = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodoControls))
         _clickByHint = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.windowHints))
+        _agentTurnRail = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.agentTurnRail))
         _workspaceTodosChecklistStyle = State(initialValue: DefaultsValueModel(store: defaultsStore, key: catalog.betaFeatures.workspaceTodosChecklistStyle))
     }
 
@@ -64,6 +66,8 @@ public struct BetaFeaturesSection: View {
                 workspaceTodosChecklistStyleRow
                 SettingsCardDivider()
                 clickByHintRow
+                SettingsCardDivider()
+                agentTurnRailRow
             }
         }
         .task { startObservingSettings() }
@@ -88,6 +92,7 @@ public struct BetaFeaturesSection: View {
             workspaceTodoControls,
             workspaceTodosChecklistStyle,
             clickByHint,
+            agentTurnRail,
         ]
         models.forEach { $0.startObserving() }
     }
@@ -136,6 +141,21 @@ public struct BetaFeaturesSection: View {
                 .labelsHidden()
                 .controlSize(.small)
                 .accessibilityIdentifier("SettingsBetaClickByHintToggle")
+        }
+    }
+
+    @ViewBuilder
+    private var agentTurnRailRow: some View {
+        SettingsCardRow(
+            configurationReview: .json("agentTurnRail.beta.enabled"),
+            searchAnchorID: "setting:betaFeatures:agent-turn-rail",
+            String(localized: "settings.betaFeatures.agentTurnRail", defaultValue: "Agent Turn Rail"),
+            subtitle: String(localized: "settings.betaFeatures.agentTurnRail.subtitle", defaultValue: "Preview: a tick per prompt beside Claude Code and Codex terminals. Cmd-Shift-Up/Down step between prompts instead of Ghostty's jump to prompt.")
+        ) {
+            Toggle("", isOn: Binding(get: { agentTurnRail.current }, set: { agentTurnRail.set($0) }))
+                .labelsHidden()
+                .controlSize(.small)
+                .accessibilityIdentifier("SettingsBetaAgentTurnRailToggle")
         }
     }
 

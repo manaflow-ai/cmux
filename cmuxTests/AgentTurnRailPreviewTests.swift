@@ -74,4 +74,17 @@ struct AgentTurnRailPreviewTests {
             #expect(source.observations == 0 && source.outlineReads == 0, "the rail started a transcript tailer")
         }
     }
+
+    @Test("turning the preview on attaches the rail, and turning it off removes it")
+    func optInAndBack() async {
+        await withPreviewSetting(true) {
+            let hostedView = agentTerminal()
+            hostedView.installAgentTurnRail(surfaceID: UUID(), source: CountingOutlineSource())
+            #expect(hostedView.agentTurnRailModel != nil)
+
+            UserDefaults.standard.set(false, forKey: Self.defaultsKey)
+            hostedView.reconcileAgentTurnRail()
+            #expect(hostedView.agentTurnRailModel == nil, "turning the preview off kept the rail and its gutter")
+        }
+    }
 }

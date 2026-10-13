@@ -54,6 +54,8 @@ extension AppDelegate {
     /// and a jump started, so text fields and terminals without a rail keep
     /// their own binding for the keys.
     func handleAgentTurnNavigationShortcut(event: NSEvent) -> Bool {
+        // While the preview is off the keys belong to Ghostty's jump_to_prompt.
+        guard AgentTurnRailPreview.isOptedIn() else { return false }
         let direction: AgentTurnNavigationDirection
         if matchConfiguredShortcut(event: event, action: .previousAgentTurn) {
             direction = .previous

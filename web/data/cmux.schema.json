@@ -195,6 +195,22 @@
         }
       }
     },
+    "agentTurnRail": {
+      "x-cmux-scopes": ["global"],
+      "title": "agentTurnRail",
+      "description": "Agent turn rail settings.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "beta": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false, "description": "Preview: a tick per prompt beside Claude Code and Codex terminals, and Cmd-Shift-Up/Down step between prompts instead of Ghostty's jump_to_prompt." }
+          }
+        }
+      }
+    },
     "cloud": {
       "x-cmux-scopes": ["global"],
       "title": "cloud",

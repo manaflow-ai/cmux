@@ -236,6 +236,7 @@ extension CmuxSettingsFileStore {
         "rightSidebar.beta.feed.enabled",
         "extensions.beta.enabled",
         "windowHints.beta.enabled",
+        "agentTurnRail.beta.enabled",
         "customSidebars.beta.enabled",
         "cloud.beta.machines.enabled",
         "remoteTmux.beta.enabled",
