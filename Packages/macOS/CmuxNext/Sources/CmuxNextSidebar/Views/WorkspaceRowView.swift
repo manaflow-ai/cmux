@@ -379,7 +379,7 @@ final class WorkspaceRowView: SidebarRowView {
         let inset = Self.labelInset
         title.leadingPadding = textX + inset - (side > 0 ? icon.frame.maxX : indent)
         title.fadeWidth = SidebarStyle.titleFadeWidth
-        let titleWidth = max(0, textW - 2 * inset)
+        let titleWidth = max(0, textW - inset) // draws at its edge, so it runs to `trailing`
         layoutTextLines(x: textX, inset: inset, titleWidth: titleWidth, width: textW, head: b, top: top, title: th, line: sh)
         // The hover actions draw over the text's end: the title and second
         // line fade out before them (alpha masks, every backdrop), and the
