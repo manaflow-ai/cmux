@@ -57,6 +57,10 @@ wire_literal! {
 }
 
 wire_literal! {
+    LitLinkPreview = "link_preview"
+}
+
+wire_literal! {
     LitMac = "mac"
 }
 
