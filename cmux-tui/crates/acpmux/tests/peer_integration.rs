@@ -233,6 +233,68 @@ async fn peer_sessions_are_listed_prompted_and_permission_routed() {
 }
 
 #[tokio::test]
+async fn bidirectional_peers_do_not_reexport_mirrored_sessions() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (a_port, a_peer_token) = listen_with_peer_token(a.clone(), "cycle-a").await;
+    let (b_port, b_peer_token) = listen_with_peer_token(b.clone(), "cycle-b").await;
+
+    let mut owner = client(a.clone()).await;
+    owner
+        .call(
+            method::SESSION_NEW,
+            json!({
+                "cwd": std::env::temp_dir(),
+                "mcpServers": [],
+                "_meta": {"acpmux": {"name": "cycle"}}
+            }),
+        )
+        .await
+        .unwrap();
+
+    // Both daemons peer each other. A owns the one session; B should expose
+    // exactly one `a/cycle` row, while A must not re-export B's mirror.
+    a.add_peer(
+        "b",
+        &format!("ws://127.0.0.1:{b_port}"),
+        Some("tok".into()),
+        Some(b_peer_token),
+        true,
+    )
+    .await
+    .unwrap();
+    b.add_peer(
+        "a",
+        &format!("ws://127.0.0.1:{a_port}"),
+        Some("tok".into()),
+        Some(a_peer_token),
+        true,
+    )
+    .await
+    .unwrap();
+    let mut mirror = client(b.clone()).await;
+
+    // Let the connected watch streams exchange their initial snapshots and
+    // any resulting session_changed notices before taking the public view.
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    let a_sessions = owner.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+    let b_sessions = mirror.call(method::MUX_SESSIONS, json!({})).await.unwrap();
+    let names = |v: &Value| {
+        v["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|s| s["name"].as_str())
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    let a_names = names(&a_sessions);
+    let b_names = names(&b_sessions);
+    assert_eq!(a_names, vec!["cycle"], "owner re-exported a mirror: {a_sessions}");
+    assert_eq!(b_names, vec!["a/cycle"], "peer exposed recursive mirrors: {b_sessions}");
+}
+
+#[tokio::test]
 async fn watchers_learn_peer_sessions_that_arrive_after_their_snapshot() {
     let b = hub(config(PermissionPolicy::Ask)).await;
     let port = free_port();
