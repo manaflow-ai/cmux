@@ -34,9 +34,63 @@
     "git_checkpoint",
     "conversation",
     "setting",
-    "keybinding"
+    "keybinding",
+    "browser_device"
   ],
   "types": {
+    "BrowserDeviceList": {
+      "kind": "object",
+      "fields": {
+        "chrome": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "Where the Chrome part comes from: {repository, path, ref, commit, chromium, devices}."
+        },
+        "devices": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "JsonValue"
+            }
+          },
+          "description": "Custom devices first, then Chrome's, then cmux's newer devices; each a Chrome JSONV1 device object with origin (chrome, cmux or custom)."
+        }
+      },
+      "extra": false
+    },
+    "BrowserDeviceAddResult": {
+      "kind": "object",
+      "fields": {
+        "device": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "JsonValue"
+          },
+          "description": "The stored device (origin custom)."
+        }
+      },
+      "extra": false
+    },
+    "BrowserDeviceRemoveResult": {
+      "kind": "object",
+      "fields": {
+        "removed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False when no custom device had the title."
+        }
+      },
+      "extra": false
+    },
     "RequestOrigin": {
       "kind": "enum",
       "values": [
@@ -2221,7 +2275,7 @@
               "name": "JsonValue"
             }
           },
-          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; busy ({since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1), absent once the terminal exits. Unknown sibling fields remain forbidden."
+          "description": "Explicit forward-compatible data. progress is the terminal's OSC 9;4 progress ({state: normal|error|indeterminate|paused, value: 0-100 or null}) while one is shown; activity ({state: running|in_use, since_ms: decimal}) is a shell command running between OSC 133 C and D (terminal-activity-v1): running for a plain command, in_use once the command took the terminal for interaction (alternate screen, mouse or focus reporting, bracketed paste), for the rest of that command; neither is work in progress, which only a program's own program_status or progress report says. busy ({since_ms: decimal}) is the older field, present only while activity is running. Both are absent once the terminal exits. Unknown sibling fields remain forbidden."
         }
       },
       "extra": false,
@@ -12702,6 +12756,139 @@
         "validation.invalid"
       ]
     },
+    "browser.devices.add_custom": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "browser_device",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "device": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "A device in Chrome's JSONV1 format (a Chrome custom-device export reads unchanged): title (1 to 128 characters), screen.vertical and screen.horizontal {width, height} of 50 to 9999 CSS px, screen.device-pixel-ratio above 0 and at most 10, optional capabilities (touch, mobile), user-agent (\"%s\" is replaced by the Chromium version), user-agent-metadata and modes."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Stores the device in the home session's store; a custom device with the same title is replaced in place. At most 200 custom devices. A device outside Chrome's limits is validation.invalid."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserDeviceAddResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "browser.devices.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "browser_device",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Answers {chrome, devices}: the custom devices (origin custom, oldest first), then the built-in list compiled into the daemon: Chrome DevTools' device list verbatim and in Chrome's order (origin chrome; chrome names the devtools-frontend ref, commit and Chromium milestone), then newer devices Chrome does not list yet (origin cmux, each with its sources). Each device is Chrome's JSONV1 device object (title, type, order, show-by-default, screen, capabilities, user-agent, user-agent-metadata, modes, dual-screen, foldable-screen)."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "BrowserDeviceList"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "browser.devices.remove_custom": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "browser_device",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "The custom device's title."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "Removes the custom device; a built-in title or a missing one removes nothing (removed false). Tabs that emulate the device keep their own copy."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "BrowserDeviceRemoveResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
     "browser.forward": {
       "class": "mutation",
       "idempotency": "required",
@@ -13316,6 +13503,158 @@
         "mutation.indeterminate",
         "operation.failed",
         "origin.forbidden",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "browser.tab.emulate": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "required"
+        },
+        "fields": {
+          "device": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 128
+            },
+            "description": "A device title from browser.devices.list: an exact title first (custom devices win), else a match that ignores case, spaces and punctuation."
+          },
+          "custom": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "JsonValue"
+            },
+            "description": "An inline device in Chrome's JSONV1 format (the limits of browser.devices.add_custom); not stored in the custom list."
+          },
+          "orientation": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "vertical",
+                "horizontal",
+                "vertical-spanned",
+                "horizontal-spanned",
+                "portrait",
+                "landscape",
+                "unfolded-portrait",
+                "unfolded-landscape"
+              ]
+            },
+            "description": "The device's mode orientation; absent is its first. portrait, landscape, unfolded-portrait and unfolded-landscape name vertical, horizontal, vertical-spanned and horizontal-spanned."
+          },
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A browser tab only. device or custom (not both); with neither, orientation re-orients the device the tab emulates. The daemon keeps the device and orientation on the tab and shows the resolved values on every tab snapshot as extra.emulation {device, origin, orientation, orientations, width, height, device_scale_factor, mobile, touch, user_agent, user_agent_metadata, screen_orientation, display_feature, device_posture, safe_area_insets, chromium_calls}; user_agent and the strings of user_agent_metadata (the device's client hints as given, without added brands) have \"%s\" replaced by <milestone>.0.0.0 of the Chromium the built-in list comes from (the CEF pin), as DevTools patches them; chromium_calls are the DevTools Emulation.* calls Chrome's device mode sends (setDeviceMetricsOverride with scale 1: an engine that shows a device bigger than its view lowers scale to fit). The engine that shows the tab applies the record and decides nothing. The tab keeps a copy of the device: removing or changing a custom device, or a newer built-in list, does not change it until the next browser.tab.emulate; a reopened closed tab does not keep its emulation.",
+          "An unknown title, an orientation the device does not have, or a device outside Chrome's limits is validation.invalid."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "revision.conflict",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "browser.tab.emulate.clear": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "tab",
+      "ancestors": [
+        "machine",
+        "session",
+        "workspace",
+        "screen",
+        "pane"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "required"
+        },
+        "fields": {
+          "expected_revision": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "Optimistic concurrency cursor revision. Omit for no revision precondition."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "A browser tab only. Stops the tab's device emulation: extra.emulation goes away and the engine restores the view's own size, scale factor and user agent. A tab that emulates nothing keeps emulating nothing (the tab is still published again)."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "TabSnapshot"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "revision.conflict",
         "selector.ambiguous",
         "selector.invalid",
