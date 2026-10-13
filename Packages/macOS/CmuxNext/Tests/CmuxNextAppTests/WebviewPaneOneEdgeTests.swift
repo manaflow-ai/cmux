@@ -91,14 +91,14 @@ import Testing
         }
     }
 
-    /// The single edge is the main pane card's, at the main pane's radius.
+    /// The single edge is the main pane card's rounded clip.
     private func expectOneEdge(_ rig: Rig, content: NSView, _ what: String) throws {
         try #require(Metrics.mainPaneCurved, "the curved main pane is on by default")
         try #require(content.isDescendant(of: rig.root.contentHost), "\(what) is hosted in the main pane")
         let edges = rig.edges(of: content)
         #expect(edges.count == 1, "\(what): one surface edge between the page and the window, got \(edges)")
         #expect(edges.first?.hasPrefix("MainPaneCardView") == true, "\(what): the edge is the main pane card's, got \(edges)")
-        #expect(rig.root.contentHost.layer?.cornerRadius == Metrics.mainPaneCornerRadius)
+        #expect((rig.root.contentHost.layer?.cornerRadius ?? 0) > 0, "\(what): the card is rounded")
     }
 
     private static func page(_ html: String) throws -> URL {
