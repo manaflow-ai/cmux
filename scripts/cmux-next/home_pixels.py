@@ -86,6 +86,15 @@ def _edge(px, w, h, samples, contrast_min=24):
     return measured, partial
 
 
+def flat_span(a, b, height_pt, scale):
+    """The flat part of a balloon's top or bottom edge between device px a and b: the middle 40 %, and never within
+    a corner's reach of either end (15 pt, or half the height: a 1-line text ends in half circles, MessagesLab 267d218
+    RowDraw.circularEnds; the curves have partial pixels by design). Empty when no flat part is left."""
+    reach = (min(15, height_pt / 2) + 1) * scale
+    lo, hi = max(a + (b - a) * 0.3, a + reach), min(a + (b - a) * 0.7, b - reach)
+    return range(int(lo), int(hi)) if hi > lo else range(0)
+
+
 def row_edges(px, w, h, scale, frame, window_height):
     """The straight edges of one row's bubble (frame: window points, bottom-left origin): top and bottom
     over the middle 40 % of its width; left and right over the middle 40 % of its height when the bubble is
@@ -95,7 +104,7 @@ def row_edges(px, w, h, scale, frame, window_height):
     top = (window_height - frame["y"] - frame["height"]) * scale; bottom = (window_height - frame["y"]) * scale
     out = {}
     T, B, L, R = round(top), round(bottom), round(x0), round(x1)
-    xs = range(int(x0 + (x1 - x0) * 0.3), int(x0 + (x1 - x0) * 0.7))
+    xs = flat_span(x0, x1, frame["height"], scale)
     out["top"] = (top,) + _edge(px, w, h, [((x, T - 3), (x, T - 1), (x, T), (x, T + 2)) for x in xs])
     out["bottom"] = (bottom,) + _edge(px, w, h, [((x, B + 2), (x, B), (x, B - 1), (x, B - 3)) for x in xs])
     if frame["height"] >= 60:
@@ -171,12 +180,15 @@ def check_rows(check, name, report, path, keys=None, min_rows=3):
         b = r.get("balloon") or r
         bl, br = b["x"] * scale, (b["x"] + b["width"]) * scale
         bt, bb = (wh - b["y"] - b["height"]) * scale, (wh - b["y"]) * scale
-        x0, x1 = bl + (br - bl) * 0.3, bl + (br - bl) * 0.7
+        flat = flat_span(bl, br, b["height"], scale)
         y0, y1 = bt + (bb - bt) * 0.3, bt + (bb - bt) * 0.7
         # The frame's edges: where an edge would be if the balloon were drawn on its frame.
         ft, fb = top, (wh - r["y"]) * scale
         fl, fr = r["x"] * scale, (r["x"] + r["width"]) * scale
-        expected = {"top": (bt, ft, range(int(x0), int(x1)), 8), "bottom": (bb, fb, range(int(x0), int(x1)), 8)}
+        # A balloon too short for a flat top and bottom (its ends meet): only its anchored side and place are checked.
+        expected = {"top": (bt, ft, flat, 8), "bottom": (bb, fb, flat, 8)} if len(flat) >= 8 else {}
+        if not expected:
+            print(f"     {name} {r['key']}: no flat top or bottom (balloon {b['width']:.1f} pt wide)", flush=True)
         if r["height"] >= 60:
             expected["right" if r["outgoing"] else "left"] = ((br, fr) if r["outgoing"] else (bl, fl)) + (range(int(y0), int(y1)), 8)
         elif r["outgoing"]:
