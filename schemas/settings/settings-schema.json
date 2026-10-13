@@ -3395,6 +3395,58 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.freeModel",
+        "text" : "AI Models"
+      },
+      "help" : {
+        "key" : "settings.freeModel.enabled.help",
+        "text" : "Lets agents use the free cmux AI model while you are signed out. The first time an agent uses it, cmux proves to the Cloud service that this is a real Mac. Sign in for more models and higher limits."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "freeModel.enabled",
+      "keywords" : [
+        "ai",
+        "model",
+        "free",
+        "sign in",
+        "agents",
+        "models"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "freeModel",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : {
+        "key" : "settings.freeModel.enabled.summary",
+        "text" : "Free AI model while signed out"
+      },
+      "title" : {
+        "key" : "settings.freeModel.enabled",
+        "text" : "Free AI Model Without Sign-In"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "even",
         "halve"
       ],
@@ -22716,7 +22768,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f312815ba7560457325e76b02f8442caeb34a59332f37bcd188d49d6bd5768de",
+  "schema_hash" : "78c4e4c99e570f3de014414795043f2775f3906f4071cf33e95956284446c76f",
   "sections" : [
     {
       "id" : "general",

@@ -183,9 +183,19 @@ type Asked = Arc<Mutex<Vec<(String, String, Vec<u8>, Option<bool>)>>>;
 /// A stand-in app provider: registers, then answers every request with
 /// fixed proof strings. Returns the connection (dropping it ends the provider).
 fn provider(dir: &Path, origin: &str, has_key: bool, asked: Asked) -> UnixStream {
+    provider_with(dir, origin, has_key, false, asked)
+}
+
+fn provider_with(
+    dir: &Path,
+    origin: &str,
+    has_key: bool,
+    signed_in: bool,
+    asked: Asked,
+) -> UnixStream {
     let stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
     let mut write = stream.try_clone().unwrap();
-    let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true, "managed": false, "has_key": has_key});
+    let register = json!({"op": "attest_provider", "version": 1, "platform": "mac", "origin": origin, "enabled": true, "managed": false, "has_key": has_key, "signed_in": signed_in});
     write.write_all(format!("{register}\n").as_bytes()).unwrap();
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut line = String::new();
@@ -393,5 +403,24 @@ fn a_provider_for_an_unknown_origin_is_refused() {
         assert_eq!(reply["error"], "provider origin refused", "{origin}: {reply}");
     }
     assert_eq!(admin(&dir, json!({"op": "status"})).unwrap()["free"]["provider"], false);
+    drop(relay);
+}
+
+#[test]
+fn a_signed_in_app_never_takes_a_free_lease() {
+    let api = Arc::new(Mutex::new(Api::default()));
+    let origin = start_api(api.clone());
+    let dir = scratch("sgin");
+    let relay = start_relay(&dir, &origin);
+    let (key, port) = mint(&dir);
+    let asked: Asked = Arc::default();
+    // Signed in, but the account bearer has not reached this relay yet (a restart).
+    let _held = provider_with(&dir, &origin, true, true, asked.clone());
+
+    let (status, body) = chat(port, &key);
+    assert_eq!(status, 503, "{body}");
+    assert_eq!(body["error"]["code"], "router.no_upstream");
+    assert!(asked.lock().unwrap().is_empty());
+    assert!(api.lock().unwrap().seen.is_empty());
     drop(relay);
 }

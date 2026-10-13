@@ -9,8 +9,8 @@ import os
 extension AppServices {
     /// Offers this Mac's App Attest proofs to the local model relay for the
     /// free tier (cx-ds09i; the relay owns the lease, `FreeTierAttestProvider`).
-    /// Follows `freeModel.enabled` and whether a profile or team policy sets
-    /// it. Nil without acpmux or an API origin. The relay starts a lease only
+    /// Follows `freeModel.enabled`, whether a profile or team policy sets it,
+    /// and the sign-in (a signed-in Mac never takes a free lease). Nil without acpmux or an API origin. The relay starts a lease only
     /// at the first signed-out agent request, never here.
     func startFreeTier() -> Task<Void, Never>? {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
@@ -21,18 +21,18 @@ extension AppServices {
             environment: acpmux, attest: AppleDeviceAttest(service: .shared, device: .current),
             keys: KeychainAttestKeyStore(service: "com.cmuxterm.next.free-tier.app-attest", account: "key"),
             logger: Logger(subsystem: "com.cmuxterm.next", category: "free-tier"))
-        let settings = settings
-        // task-owner: AppDelegate holds it and cancels it at termination; one provider start, then one update per setting change
+        let settings = settings, cloud = cloud
+        // task-owner: AppDelegate holds it and cancels it at termination; one provider start, then one update per setting or sign-in change
         return Task {
             var started = false
-            for await (enabled, managed) in ObservationStream({
-                (settings?.snapshot.freeModel.enabled ?? true, settings?.managedKeys["freeModel.enabled"] != nil)
+            for await (enabled, managed, signedIn) in ObservationStream({
+                (settings?.snapshot.freeModel.enabled ?? true, settings?.managedKeys["freeModel.enabled"] != nil, cloud.isSignedIn)
             }) {
                 if started {
-                    await provider.update(enabled: enabled, managed: managed)
+                    await provider.update(enabled: enabled, managed: managed, signedIn: signedIn)
                 } else {
                     started = true
-                    await provider.start(origin: origin, enabled: enabled, managed: managed)
+                    await provider.start(origin: origin, enabled: enabled, managed: managed, signedIn: signedIn)
                 }
             }
             await provider.stop()

@@ -101,10 +101,16 @@ pub struct Register {
     pub managed: bool,
     #[serde(default)]
     pub has_key: bool,
+    /// The app has a signed-in account: no free lease then, even while the
+    /// relay has no account bearer yet (a restart, a renewal gap).
+    #[serde(default)]
+    pub signed_in: bool,
 }
 
 struct Provider {
     generation: u64,
+    /// Fired when a newer provider replaces this one: its connection ends.
+    replaced: tokio::sync::Notify,
     out: mpsc::UnboundedSender<String>,
     pending: Mutex<HashMap<u64, oneshot::Sender<Value>>>,
     next_id: AtomicU64,
@@ -123,6 +129,7 @@ struct Inner {
     enabled: bool,
     managed: bool,
     has_key: bool,
+    signed_in: bool,
     token: Option<Token>,
     state: FreeState,
     until_ms: Option<u64>,
@@ -205,6 +212,7 @@ impl FreeTier {
                 enabled: false,
                 managed: false,
                 has_key: false,
+                signed_in: false,
                 token: None,
                 state: FreeState::Off,
                 until_ms: None,
@@ -233,9 +241,22 @@ impl FreeTier {
         })
     }
 
-    /// Drops the token (relay shutdown, or the API refused it).
+    /// Drops the token (relay shutdown).
     pub fn drop_token(&self) {
         let mut inner = self.lock();
+        inner.token = None;
+        if inner.state == FreeState::Active {
+            Self::set_state(&mut inner, FreeState::Idle, None);
+        }
+    }
+
+    /// Drops the token only while it is still `bearer` (the API refused it;
+    /// a newer token from a concurrent lease stays).
+    pub fn drop_token_if(&self, bearer: &str) {
+        let mut inner = self.lock();
+        if inner.token.as_ref().is_none_or(|token| token.bearer.expose() != bearer) {
+            return;
+        }
         inner.token = None;
         if inner.state == FreeState::Active {
             Self::set_state(&mut inner, FreeState::Idle, None);
@@ -279,6 +300,7 @@ impl FreeTier {
         let (out, mut outgoing) = mpsc::unbounded_channel::<String>();
         let provider = Arc::new(Provider {
             generation,
+            replaced: tokio::sync::Notify::new(),
             out,
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
@@ -290,14 +312,17 @@ impl FreeTier {
             .await?;
         {
             let mut inner = self.lock();
-            // The old provider's writer ends when its sender drops, closing that connection.
-            inner.provider = Some(provider.clone());
+            // The old provider's connection ends (its serve loop waits on `replaced`).
+            if let Some(old) = inner.provider.replace(provider.clone()) {
+                old.replaced.notify_one();
+            }
             if inner.origin.as_deref() != Some(origin.as_str()) {
                 inner.token = None;
             }
             inner.origin = Some(origin);
             inner.platform = register.platform.clone();
             inner.has_key = register.has_key;
+            inner.signed_in = register.signed_in;
             inner.retry_at = None;
             inner.failures = 0;
             Self::apply_setting(&mut inner, register.enabled, register.managed, true);
@@ -310,7 +335,12 @@ impl FreeTier {
             }
             let _ = write.shutdown().await;
         });
-        while let Ok(Some(line)) = lines.next_line().await {
+        loop {
+            let line = tokio::select! {
+                line = lines.next_line() => line,
+                () = provider.replaced.notified() => break,
+            };
+            let Ok(Some(line)) = line else { break };
             let Ok(message) = serde_json::from_str::<Value>(&line) else { continue };
             if let Some(id) = message.get("id").and_then(Value::as_u64) {
                 let waiter = provider
@@ -323,8 +353,13 @@ impl FreeTier {
                 }
             } else if let Some(enabled) = message.get("enabled").and_then(Value::as_bool) {
                 let managed = message.get("managed").and_then(Value::as_bool).unwrap_or(false);
+                let signed_in = message.get("signed_in").and_then(Value::as_bool).unwrap_or(false);
                 let mut inner = self.lock();
                 if inner.provider.as_ref().is_some_and(|p| p.generation == generation) {
+                    inner.signed_in = signed_in;
+                    if signed_in {
+                        inner.token = None;
+                    }
                     Self::apply_setting(&mut inner, enabled, managed, false);
                 }
             }
@@ -367,22 +402,26 @@ impl FreeTier {
 
     /// The origin and bearer for a request with no account bearer: the live
     /// free token, or a new one from a lease. Err: the response to send.
-    pub async fn bearer(&self) -> Result<(String, String), Box<Response<Body>>> {
+    /// The lease runs in its own task: a request that stops waiting (the 20 s
+    /// limit, or its client left) never cancels a lease half way, so the
+    /// lease always records its token and state.
+    pub async fn bearer(self: &Arc<Self>) -> Result<(String, String), Box<Response<Body>>> {
         if let Some(found) = Self::live(&self.lock(), unix_now()) {
             return Ok(found);
         }
         self.admissible()?;
-        let attempt = async {
-            let _lease = self.lease.lock().await;
-            if let Some(found) = Self::live(&self.lock(), unix_now()) {
+        let this = self.clone();
+        let lease = tokio::spawn(async move {
+            let _lease = this.lease.lock().await;
+            if let Some(found) = Self::live(&this.lock(), unix_now()) {
                 return Ok(found);
             }
-            self.admissible()?;
-            self.run_lease().await
-        };
-        match tokio::time::timeout(FIRST_WAIT, attempt).await {
-            Ok(result) => result,
-            Err(_) => Err(refusal(FreeState::Backoff)),
+            this.admissible()?;
+            this.run_lease().await
+        });
+        match tokio::time::timeout(FIRST_WAIT, lease).await {
+            Ok(Ok(result)) => result,
+            _ => Err(refusal(FreeState::Backoff)),
         }
     }
 
@@ -390,6 +429,13 @@ impl FreeTier {
     fn admissible(&self) -> Result<(), Box<Response<Body>>> {
         let inner = self.lock();
         if inner.provider.is_none() {
+            return Err(Box::new(crate::json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "router.no_upstream",
+                "the cmux model router is not connected; open cmux",
+            )));
+        }
+        if inner.signed_in {
             return Err(Box::new(crate::json_error(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "router.no_upstream",
@@ -536,14 +582,7 @@ impl FreeTier {
                 "device_token": field(&reply, "device_token")?,
                 "challenge": challenge,
             });
-            match self.post_token(origin, "/v1/inference/free/attest", &body).await {
-                Err(LeaseError::Server(403, code))
-                    if code == "free.attestation" && has_key && !fresh =>
-                {
-                    fresh = true;
-                }
-                other => return other,
-            }
+            return self.post_token(origin, "/v1/inference/free/attest", &body).await;
         }
     }
 

@@ -38,6 +38,7 @@ public actor FreeTierAttestProvider {
     private var origin: String?
     private var enabled = false
     private var managed = false
+    private var signedIn = false
     private var line: AcpmuxCheckedLine?
     private var reader: Task<Void, Never>?
     private var reconnect: Task<Void, Never>?
@@ -70,22 +71,27 @@ public actor FreeTierAttestProvider {
     /// - Parameter origin: the cmux API origin the relay sends the free token to.
     /// - Parameter enabled: `freeModel.enabled`.
     /// - Parameter managed: whether an MDM profile or a team policy sets it.
-    public func start(origin: String, enabled: Bool, managed: Bool) {
+    /// - Parameter signedIn: an account is signed in (the relay then never takes a free lease).
+    public func start(origin: String, enabled: Bool, managed: Bool, signedIn: Bool) {
         self.origin = origin
         self.enabled = enabled
         self.managed = managed
+        self.signedIn = signedIn
         refused = false
         connect()
     }
 
-    /// The setting changed: the relay ends a live free lease when it turns off.
+    /// The setting or the sign-in changed: the relay ends a live free lease
+    /// when the setting turns off or an account signs in.
     /// - Parameter enabled: `freeModel.enabled`.
     /// - Parameter managed: whether an MDM profile or a team policy sets it.
-    public func update(enabled: Bool, managed: Bool) {
-        guard enabled != self.enabled || managed != self.managed else { return }
+    /// - Parameter signedIn: an account is signed in.
+    public func update(enabled: Bool, managed: Bool, signedIn: Bool) {
+        guard enabled != self.enabled || managed != self.managed || signedIn != self.signedIn else { return }
         self.enabled = enabled
         self.managed = managed
-        line?.send(Self.encode(["enabled": enabled, "managed": managed]))
+        self.signedIn = signedIn
+        line?.send(Self.encode(["enabled": enabled, "managed": managed, "signed_in": signedIn]))
     }
 
     /// Ends the connection; the relay drops its free token at once.
@@ -101,7 +107,7 @@ public actor FreeTierAttestProvider {
         guard let origin else { return }
         let register = Self.encode([
             "op": "attest_provider", "version": 1, "platform": "mac", "origin": origin,
-            "enabled": enabled, "managed": managed, "has_key": keys.load() != nil,
+            "enabled": enabled, "managed": managed, "has_key": keys.load() != nil, "signed_in": signedIn,
         ])
         let (lines, sink) = AsyncStream.makeStream(of: Data?.self, bufferingPolicy: .bufferingNewest(64))
         let connection = AcpmuxCheckedLine(environment: routerEnvironment)
@@ -166,7 +172,9 @@ public actor FreeTierAttestProvider {
         guard let id = message["id"] as? NSNumber else {
             if let error = message["error"] as? String {
                 // The relay refused this provider (origin or peer): no retry until the next start.
-                refused = true
+                // Any other error is a relay too old for attest_provider: the daemon replaces it,
+                // so the connection's end reconnects as usual.
+                if error == "provider origin refused" || error == "provider refused" { refused = true }
                 logger.error("free tier: the local relay refused the provider: \(error, privacy: .public)")
             }
             return

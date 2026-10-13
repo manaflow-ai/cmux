@@ -806,7 +806,7 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
             Err(refused) => return *refused,
         },
     };
-    let mut forward = state.http.request(method, &url).bearer_auth(bearer);
+    let mut forward = state.http.request(method, &url).bearer_auth(&bearer);
     for name in FORWARD_REQUEST_HEADERS {
         if let Some(value) = headers.get(*name) {
             forward = forward.header(*name, value);
@@ -825,7 +825,7 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
     };
     // A refused free token (its grant ended, or the device is unknown): lease again next time.
     if free && answer.status() == StatusCode::UNAUTHORIZED {
-        state.free.drop_token();
+        state.free.drop_token_if(&bearer);
     }
     let mut out = Response::builder().status(answer.status().as_u16());
     for name in FORWARD_RESPONSE_HEADERS {
