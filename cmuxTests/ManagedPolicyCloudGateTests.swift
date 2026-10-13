@@ -17,6 +17,7 @@ import Testing
 /// Cloud VM service boundary, which must refuse every operation before any
 /// network work regardless of which entry point asked, while leaving access
 /// revocation reachable for cleanup.
+@Suite(.serialized)
 @MainActor
 struct ManagedPolicyCloudGateTests {
     // MARK: - Transition observer

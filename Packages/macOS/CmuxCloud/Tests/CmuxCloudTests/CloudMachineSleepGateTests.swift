@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import CmuxCloud
+import CmuxCloudTui
 
 @Suite("Cloud machine sleep gate")
 struct CloudMachineSleepGateTests {
@@ -124,6 +125,10 @@ struct CloudMachineSleepGateTests {
         resume: @escaping @Sendable (String) async -> String = { _ in "running" }
     ) -> CloudMachineLinkManager {
         CloudMachineLinkManager(
+            paths: CloudTuiClientPaths(
+                home: FileManager.default.temporaryDirectory
+                    .appendingPathComponent("cmux-cloud-sleep-gate-\(UUID().uuidString)", isDirectory: true)
+            ),
             clientURL: URL(fileURLWithPath: "/tmp/cmux-cloud-test-client"),
             resumeMachine: { id in await resume(id) },
             hostThemeColors: { nil }
