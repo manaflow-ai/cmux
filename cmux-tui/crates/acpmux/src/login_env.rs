@@ -95,6 +95,26 @@ pub fn path() -> Option<OsString> {
     std::env::var_os("PATH")
 }
 
+/// The PATH an agent sees: [`path`] with the directory of the app's bundled
+/// CLI (`CMUX_BUNDLED_CLI_PATH`, set by the app that started this daemon)
+/// first, so `cmux` in an agent chat is that app's CLI and not one the login
+/// PATH lists earlier (cx-c6xdh). Plain [`path`] without that variable.
+pub fn agent_path() -> Option<OsString> {
+    let path = path();
+    let Some(bin) = std::env::var_os(BUNDLED_CLI_ENV)
+        .map(std::path::PathBuf::from)
+        .and_then(|cli| cli.parent().map(std::path::Path::to_path_buf))
+        .filter(|bin| bin.is_absolute())
+    else {
+        return path;
+    };
+    let rest = path.iter().flat_map(std::env::split_paths).filter(|entry| *entry != bin);
+    std::env::join_paths(std::iter::once(bin).chain(rest)).ok().or(path)
+}
+
+/// The app's bundled `cmux` (BundledCLIEnvironment.swift).
+pub const BUNDLED_CLI_ENV: &str = "CMUX_BUNDLED_CLI_PATH";
+
 /// A variable the import added, by name.
 pub fn var(key: &str) -> Option<String> {
     IMPORTED.get()?.vars.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
