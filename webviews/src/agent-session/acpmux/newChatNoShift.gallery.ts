@@ -24,7 +24,8 @@ export default agentPaneEntry({
   checks: {
     anchorMovePx: {
       value: 1,
-      reason: "Subpixel rounding only: the composer and its controls keep their boxes from the new chat on (cx-ncc.58).",
+      reason:
+        "Subpixel rounding only: the composer and its controls keep their boxes from the new chat on (cx-ncc.58).",
     },
     longFrameFailMs: {
       value: 150,
