@@ -5,9 +5,11 @@ import CnxLive
 import CnxModel
 import CnxSettings
 import Observation
+import OSLog
 import SwiftUI
 
 private let theme = CnxTheme.standard
+private let shellLog = Logger(subsystem: "dev.cmux.cnx", category: "shell")
 
 /// Root tabs. Exactly four; there is no Search tab.
 enum RootTab: String, Hashable, CaseIterable {
@@ -23,6 +25,10 @@ final class ShellModel {
     let settings: SettingsStore
     @ObservationIgnored let terminalTabs = GhosttyTerminalTabContent()
     let sidebar: SidebarModel
+    /// New workspaces: mock until live data starts, then the linked Mac's daemon.
+    let creator: WorkspaceCreator
+    /// The mock backend (DEBUG demos make it refuse once).
+    let mockCreation = MockWorkspaceCreationBackend()
 
     var tab: RootTab = .home { didSet { updateInteractiveOpen() } }
     var homePath = NavigationPath() { didSet { updateInteractiveOpen() } }
@@ -51,6 +57,22 @@ final class ShellModel {
         self.auth = auth
         self.settings = settings
         self.sidebar = sidebar
+        creator = WorkspaceCreator(store: store, backend: mockCreation)
+        creator.onFailure = { [weak self] placeholder, message in
+            self?.workspaceCreationFailed(placeholder, message: message)
+        }
+    }
+
+    /// The Mac refused a new workspace: its row is already gone; leave its
+    /// screen if it is open, and say so.
+    private func workspaceCreationFailed(_ placeholder: Workspace, message: String) {
+        if let index = workspacesPath.firstIndex(where: { $0.id == placeholder.id }) {
+            workspacesPath.removeSubrange(index...)
+        }
+        let mac = store.teams.flatMap(\.macs).first { $0.id == placeholder.macID }?.name ?? "the Mac"
+        toast = CnxToast(symbol: "exclamationmark.circle", text: "Couldn't create a workspace on \(mac)")
+        theme.haptics.error()
+        shellLog.error("new workspace on \(mac, privacy: .public) refused: \(message, privacy: .public)")
     }
 
     /// The drawer pan only opens from a tab root (stack depth 1).

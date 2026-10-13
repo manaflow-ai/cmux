@@ -116,8 +116,11 @@ import Testing
         #expect(abs(height - 313.3) < 0.8)
     }
 
-    @Test func picksUpToFiftyItems() {
-        #expect(PhotoDrawerGeometry.selectionLimit == 50)
+    /// The picker's title: "Select up to 50 items." in Messages 27,
+    /// "Select up to 20 items." in Messages 26.5.
+    @Test func picksUpToEachOSsLimit() {
+        #expect(PhotoDrawerGeometry.selectionLimit(iOS27: true) == 50)
+        #expect(PhotoDrawerGeometry.selectionLimit(iOS27: false) == 20)
     }
 
     @Test func composerRidesTheSheetAtTheKeyboardDetent() {
@@ -134,5 +137,15 @@ import Testing
 
     @Test func composerStopsAtItsBaseLine() {
         #expect(PhotoDrawerGeometry.composerBottom(sheetTop: 874, restingSheetTop: rest, safeBottom: 840) == -4)
+    }
+}
+
+/// Messages' Photos sheet at its large detent, iPhone 17 Pro (safe top 62):
+/// iOS 26.5 stops 10 pt below the safe area (top 72), iOS 27.0 at it (62).
+@Suite struct PhotoDrawerLargeDetentTests {
+    @Test func iOS26LeavesTenPointsUnderTheSafeArea() {
+        // UIKit's maximum detent value is the height under the safe top.
+        #expect(PhotoDrawerGeometry.largeDetentValue(maximum: 812, leavesTopGap: true) == 802)
+        #expect(PhotoDrawerGeometry.largeDetentValue(maximum: 812, leavesTopGap: false) == 812)
     }
 }

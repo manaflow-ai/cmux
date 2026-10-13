@@ -122,3 +122,35 @@ import Testing
         ])
     }
 }
+
+/// Messages' To: field (ContactsUI's CNComposeRecipientActionButton) shows
+/// SF Symbols' `plus.circle.fill` at the Title 1 text style, 32.67 pt at
+/// Large, in label over secondarySystemFill, centered where our circle was.
+@Suite struct ComposeRecipientAddGlyphTests {
+    @Test func plusCircleFillAtTitle1() {
+        #expect(ComposeRecipientAddGeometry.symbolName == "plus.circle.fill")
+        #expect(ComposeRecipientAddGeometry.textStyleName == "title1")
+    }
+
+    @Test func centeredWhereMessagesDrawsIt() {
+        // iPhone 17 Pro, iOS 27: the image view is 344.33, 149.67, 32.67 square
+        // in a 370 pt capsule at x 16 whose last line ends 8 pt above its bottom.
+        let frame = ComposeRecipientAddGeometry.frame(fieldWidth: 370, lineBottom: 48 - 8, side: 98.0 / 3)
+        #expect(abs(frame.midX - (344.33 + 16.33 - 16)) < 0.05)
+        #expect(abs(frame.midY - 24) < 0.01)
+        #expect(frame.width == 98.0 / 3 && frame.height == 98.0 / 3)
+    }
+}
+
+/// Messages centers the record glyph on the "+" (iOS 27.0, iPhone 17 Pro
+/// New Message: field 516.7...557, plus 517...557, glyph 526...548, so its
+/// center 537 is 20 pt above the field's bottom); ours centered it in the
+/// 40.33 pt field, 0.17 pt higher and off the pixel grid (498.71).
+@Suite struct ComposerRecordGlyphPlacementTests {
+    @Test func glyphCentersOnThePlusRow() {
+        let frame = ComposerBarGeometry.recordGlyphFrame(fieldBottom: 557, fieldTrailing: 386, scale: 3)
+        #expect(frame.midY == 537)
+        #expect(frame.minY == 526)
+        #expect(frame.height == 22)
+    }
+}

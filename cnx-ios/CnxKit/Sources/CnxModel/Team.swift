@@ -25,10 +25,47 @@ public struct Team: Identifiable, Hashable, Sendable {
     }
 }
 
-/// A team's color, optionally overlaid by an emoji the user picked.
+/// What a team avatar shows over its color.
+public enum TeamGlyph: Hashable, Sendable {
+    /// The team name's first letter (the default).
+    case automatic
+    /// One character the user typed: a letter, digit, symbol or emoji.
+    case custom(String)
+    /// Color only.
+    case none
+
+    /// The last grapheme of `input` that is not whitespace, so a field that
+    /// already holds a character takes the newest one typed. Nil when there is none.
+    public static func character(from input: String) -> String? {
+        input.last(where: { !$0.isWhitespace && !$0.isNewline }).map(String.init)
+    }
+}
+
+/// A team's color and the glyph drawn over it.
+///
+/// `emoji` is the wire field (`PUT /v1/teams/:teamId/prefs`): nil is
+/// automatic (first letter), `""` is none (color only), anything else is one
+/// grapheme the user typed. Use `glyph` rather than reading it directly.
 public struct TeamAppearance: Hashable, Sendable, Codable {
     public var colorHex: String
     public var emoji: String?
+
+    public var glyph: TeamGlyph {
+        get {
+            switch emoji {
+            case nil: .automatic
+            case let value? where value.isEmpty: .none
+            case let value?: .custom(value)
+            }
+        }
+        set {
+            switch newValue {
+            case .automatic: emoji = nil
+            case .none: emoji = ""
+            case .custom(let value): emoji = TeamGlyph.character(from: value)
+            }
+        }
+    }
 
     public init(colorHex: String, emoji: String? = nil) {
         self.colorHex = colorHex

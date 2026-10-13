@@ -146,8 +146,9 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       patch.color = b.color === null ? null : (b.color as string).toUpperCase()
     }
     if (b.emoji !== undefined) {
-      if (b.emoji !== null && (typeof b.emoji !== "string" || !b.emoji || [...new Intl.Segmenter().segment(b.emoji)].length !== 1 || b.emoji.length > 32))
-        throw new HttpError(400, "bad_request", "emoji must be one grapheme or null")
+      // null = automatic (first letter), "" = none (color only), else one grapheme.
+      if (b.emoji !== null && (typeof b.emoji !== "string" || (b.emoji !== "" && ([...new Intl.Segmenter().segment(b.emoji)].length !== 1 || b.emoji.length > 32 || !b.emoji.trim()))))
+        throw new HttpError(400, "bad_request", "emoji must be one grapheme, empty, or null")
       patch.emoji = b.emoji as string | null
     }
     await requireMember(env, teamId, caller)

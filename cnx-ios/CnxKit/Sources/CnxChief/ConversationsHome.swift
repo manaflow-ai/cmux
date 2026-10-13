@@ -31,6 +31,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     let store: AppStore
     let session: ChiefSession
     let leading: Leading
+    let open: (HomeConversationRoute) -> Void
     @State private var query = ""
     @State private var filter: Filter = .all
     @State private var unread: Set<String> = []
@@ -49,10 +50,18 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
     }
 
-    public init(store: AppStore, session: ChiefSession = .shared, @ToolbarContentBuilder leading: () -> Leading) {
+    /// `open` pushes a conversation New Message opened onto Home's stack.
+    public init(store: AppStore, session: ChiefSession = .shared,
+                open: @escaping (HomeConversationRoute) -> Void,
+                @ToolbarContentBuilder leading: () -> Leading) {
         self.store = store
         self.session = session
+        self.open = open
         self.leading = leading()
+    }
+
+    private var composer: ChiefComposer {
+        ChiefComposer(store: store, session: session, open: open)
     }
 
     private var agents: [AgentConversation] {
@@ -165,8 +174,12 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(theme.colors.bg.color.ignoresSafeArea())
+        // No visible title (user feedback): the search field and Chief's pin
+        // sit right under the toolbar. The title still names the screen for
+        // VoiceOver and the back menu.
         .navigationTitle("Conversations")
-        .navigationBarTitleDisplayMode(.large)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(removing: .title)
         .toolbar {
             leading
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -178,14 +191,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     Image(systemName: filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
                 }
                 .accessibilityLabel("Filter")
-                NavigationLink(value: ChiefRoute()) {
-                    Image(systemName: "square.and.pencil")
+                // Messages' compose: New Message, addressed to Chief or an agent.
+                Button("New Message", systemImage: "square.and.pencil") {
+                    composer.present()
                 }
-                .accessibilityLabel("Message Chief")
+                .accessibilityIdentifier("home.compose")
             }
         }
         .navigationDestination(for: ChiefRoute.self) { _ in
-            ChiefConversationScreen(session: session)
+            ChiefConversationScreen(session: session, compose: composer)
         }
         .animation(theme.motion.smooth.animation, value: filter)
         .animation(theme.motion.smooth.animation, value: deleted)

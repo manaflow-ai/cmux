@@ -11,19 +11,25 @@ public struct ConversationPresentationOptions {
     public var serviceSubtitle: String
     public var unreadCount: Int
     public var trailingSymbol: String
+    /// Whether incoming rows of a one-to-one conversation slide with the
+    /// swipe-left send-time drawer, as every row of a group does (see
+    /// `TimestampDrawerRows`). Off by default: Messages keeps them still.
+    public var incomingRowsFollowTimestampDrawer: Bool
 
     public init(
         placeholder: String? = nil,
         serviceTitle: String = "iMessage",
         serviceSubtitle: String? = nil,
         unreadCount: Int = 0,
-        trailingSymbol: String = "video"
+        trailingSymbol: String = "video",
+        incomingRowsFollowTimestampDrawer: Bool = false
     ) {
         self.placeholder = placeholder
         self.serviceTitle = serviceTitle
         self.serviceSubtitle = serviceSubtitle ?? String(localized: "conversation.start.encrypted", defaultValue: "Encrypted", bundle: .module)
         self.unreadCount = unreadCount
         self.trailingSymbol = trailingSymbol
+        self.incomingRowsFollowTimestampDrawer = incomingRowsFollowTimestampDrawer
     }
 }
 
@@ -39,6 +45,9 @@ public final class ConversationViewController: UIViewController {
     let layout = ConversationTranscriptLayout()
     private(set) lazy var collectionView = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
     let header = ConversationHeaderView()
+    /// The header's bottom: 92 pt below the safe top, or the compact bar's
+    /// bottom in landscape.
+    private lazy var headerBottom = header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight)
     let topEdgeFade = ConversationTopEdgeFade()
     /// The conversation background, behind the transcript (see +Background).
     let backdropView = ConversationBackdropView()
@@ -107,6 +116,10 @@ public final class ConversationViewController: UIViewController {
     /// Whether the reader is following the bottom. Only the reader's own
     /// scrolling (or a send) changes it; inset changes never do.
     var isPinnedToBottom = true
+    #if DEBUG
+    /// DEBUG lab: the scripted scroll, when the environment asks for one.
+    var autoScrollDriver: ConversationAutoScrollDriver?
+    #endif
     /// A status-bar tap's animated scroll to the top is running. Messages
     /// loads history only once it comes to rest at the spinner, so a page
     /// never lands under (and is never chased by) that animation.
@@ -248,7 +261,7 @@ public final class ConversationViewController: UIViewController {
             header.topAnchor.constraint(equalTo: view.topAnchor),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight),
+            headerBottom,
             topEdgeFade.topAnchor.constraint(equalTo: view.topAnchor),
             topEdgeFade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             topEdgeFade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -318,12 +331,23 @@ public final class ConversationViewController: UIViewController {
         navigationController?.setNavigationBarHidden(true, animated: animated)
     }
 
+    public override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        configureHeaderIfNeeded()
+    }
+
     public override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         isOnScreen = true
         ReplySwipeIndicator.prewarm(traits: traitCollection)
         updateViewing()
         focusComposerIfEmpty()
+        #if DEBUG
+        if autoScrollDriver == nil, let driver = ConversationAutoScrollDriver.fromEnvironment(controller: self) {
+            autoScrollDriver = driver
+            driver.start()
+        }
+        #endif
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
@@ -341,6 +365,11 @@ public final class ConversationViewController: UIViewController {
         // reaches the field's top edge.
         view.keyboardLayoutGuide.keyboardDismissPadding = ConversationKeyboardPinGeometry.dismissPadding(fieldHeight: composer.fieldHeight)
         followKeyboardProgress()
+        let headerHeight = header.heightBelowSafeTop
+        if headerBottom.constant != headerHeight {
+            headerBottom.constant = headerHeight
+            view.layoutIfNeeded()
+        }
         updateInsets()
         // A full field stops 3.3 pt below the header's bottom edge, just under
         // the name pill (Messages: field top 157.3 pt, pill bottom 148.6 pt).
@@ -373,12 +402,22 @@ public final class ConversationViewController: UIViewController {
         }
         if traitCollection.changesTextMetrics(from: previousTraitCollection) {
             // Dynamic Type or Bold Text: every row re-measures at the new size.
+            let followsNewest = isPinnedToBottom && hasPositionedInitially
             layoutCache.invalidateAll()
             invalidateRowMetrics()
             layout.invalidateLayout()
             forgetAllMessageReuseIDs()
             collectionView.reloadData()
             view.setNeedsLayout()
+            // Messages keeps the newest message on the composer through a
+            // text size change (iOS 27 sim, XS -> L -> AX3 -> AX5); the rows
+            // above it grow or shrink. Without this the old offset stayed,
+            // landing days back in the history.
+            if followsNewest {
+                view.layoutIfNeeded()
+                collectionView.layoutIfNeeded()
+                collectionView.setContentOffset(bottomOffset, animated: false)
+            }
         }
     }
 
@@ -391,7 +430,9 @@ public final class ConversationViewController: UIViewController {
         // Messages' transcript starts at its navigation bar's bottom, 157.33
         // pt on a Dynamic Island iPhone: 8 pt under the name pill, 3.33 under
         // the bottom of our header (iOS 26.5 and 27.0).
-        let top = header.frame.maxY + 10.0 / 3.0
+        // Landscape (compact bar): the transcript starts at the bar's bottom
+        // (Messages 27, iPhone 17 Pro Max: content inset 78 = 24 + 54).
+        let top = header.frame.maxY + (header.isCompact ? 0 : 10.0 / 3.0)
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the
         // container and the content ends 6 pt below the last row.
@@ -526,7 +567,28 @@ public final class ConversationViewController: UIViewController {
     public override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
         isTransitioningSize = true
-        coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.isTransitioningSize = false }
+        // Messages keeps the newest message on the composer through a
+        // rotation (iOS 27, iPhone 17 Pro Max); rows re-measure at the new
+        // width, so the old offset would land elsewhere in the history.
+        let followsNewest = isPinnedToBottom && hasPositionedInitially
+        let widthChanges = size.width != view.bounds.width
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            guard let self else { return }
+            // Visible cells were configured for the old width; the layout
+            // re-measures rows but never reconfigures a cell it keeps.
+            if widthChanges {
+                self.forgetAllMessageReuseIDs()
+                self.collectionView.reloadData()
+            }
+            guard followsNewest else { return }
+            self.view.layoutIfNeeded()
+            self.collectionView.layoutIfNeeded()
+            self.collectionView.setContentOffset(self.bottomOffset, animated: false)
+        }) { [weak self] _ in
+            guard let self else { return }
+            self.isTransitioningSize = false
+            if followsNewest { self.isPinnedToBottom = true }
+        }
     }
 
     /// Lays out inside the keyboard's animation, in an animation of our own.
@@ -583,6 +645,11 @@ public final class ConversationViewController: UIViewController {
             // it starts inside a scroll frame: skip the full rebuild.
             return
         default:
+            // Live traffic waits while a landed page is measured (see
+            // `ConversationPageMeasureGate`); anything else first applies
+            // what waited, so changes keep their order.
+            if pageMeasure.hold(change) { return }
+            if let held = pageMeasure.release() { rebuild(change: held) }
             rebuild(change: change)
         }
     }
@@ -634,11 +701,7 @@ public final class ConversationViewController: UIViewController {
         apply(newRows, change: change, splice: splice, tail: tail, generation: generation)
         rowsBase = (revision, ConversationRowBuilder.statusMessageID(store: store))
         updateCatchUp()
-        if let info = store.info, header.window != nil, !hasConfiguredHeader {
-            hasConfiguredHeader = true
-            configuredHeaderTitle = info.title
-            header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
-        } else if let info = store.info, hasConfiguredHeader, info.title != configuredHeaderTitle {
+        if !configureHeaderIfNeeded(), let info = store.info, hasConfiguredHeader, info.title != configuredHeaderTitle {
             // "… named the conversation": the header takes the new name.
             configuredHeaderTitle = info.title
             header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
@@ -668,6 +731,7 @@ public final class ConversationViewController: UIViewController {
         let serial = rebuildSerial
         let traits = collectionView.traitCollection
         let work = MeasureWork(models: pending)
+        pageMeasure.beginMeasuring()
         Task { [weak self] in
             let measured = await Task.detached(priority: .userInitiated) {
                 var result: [MessageLayoutCache.Measured] = []
@@ -683,7 +747,11 @@ public final class ConversationViewController: UIViewController {
             self.layoutCache.adopt(measured.items, width: width, margin: margin)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
+            let held = self.pageMeasure.finishMeasuring()
             self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil, revision: current ? revision : nil)
+            // What arrived meanwhile follows the page, with its own motion
+            // (or waits again, when the store had another page to measure).
+            if let held, !self.pageMeasure.hold(held) { self.rebuild(change: held) }
         }
         return true
     }
@@ -715,9 +783,25 @@ public final class ConversationViewController: UIViewController {
     /// Fewer new rows than this measure in place (a page is 50).
     static let measureAheadMinimum = 8
     private var measureGeneration = 0
+    private var pageMeasure = ConversationPageMeasureGate()
     private var rebuildSerial = 0
 
     private var hasConfiguredHeader = false
+
+    /// Configures the header once the conversation is known and the header
+    /// is in a window (its colors resolve against the window's traits).
+    /// Runs on each rebuild and when the view appears: a host that shares a
+    /// store already connected before this controller existed sends no
+    /// further change, so the first rebuild (before the window) cannot be
+    /// the only chance. Returns whether it configured the header now.
+    @discardableResult
+    func configureHeaderIfNeeded() -> Bool {
+        guard !hasConfiguredHeader, let info = store.info, header.window != nil else { return false }
+        hasConfiguredHeader = true
+        configuredHeaderTitle = info.title
+        header.configure(info: info, meID: store.meID, unreadCount: headerUnreadCount)
+        return true
+    }
     private var configuredHeaderTitle: String?
     private var didFocusEmptyConversation = false
 
@@ -930,13 +1014,16 @@ public final class ConversationViewController: UIViewController {
             }
             metrics = carried
         }
-        let currentIndex = rowIndex
+        // `contains` looks above the cut in the old ids, not in a copy of
+        // `rowIndex`: a copy alive while the batch updates `rowIndex` made
+        // that update copy the whole index (every row of the transcript).
+        let above = oldIDs[..<keep]
         return RowDiff(
-            newIDs: Array(oldIDs[..<keep]) + newTail,
+            newIDs: Array(above) + newTail,
             deleted: oldTail.indices.filter { newPlaces[oldIDs[$0]] == nil }.map { IndexPath(item: $0, section: 0) },
             inserted: newTail.indices.filter { oldPlaces[newTail[$0]] == nil }.map { IndexPath(item: keep + $0, section: 0) },
             moved: nil, structural: true, updated: updated,
-            contains: { id in newPlaces[id] != nil || (oldPlaces[id] == nil && currentIndex[id] != nil) },
+            contains: { id in newPlaces[id] != nil || (oldPlaces[id] == nil && above.contains(id)) },
             updateIndex: { $0.replaceSuffix(from: keep, oldTail, with: newTail) },
             metrics: metrics
         )
@@ -1358,8 +1445,10 @@ public final class ConversationViewController: UIViewController {
         // Wrapped like ChatKit's: UIKit's zoom then closes the bare content
         // (no card platter or shadow) as it does in Messages.
         let container = UINavigationController(rootViewController: details)
-        container.setNavigationBarHidden(true, animated: false)
+        // Its bar shows only the back item, which UIKit's zoom carries
+        // level on close as in Messages.
         container.view.backgroundColor = .clear
+        container.view.accessibilityViewIsModal = true
         container.modalPresentationStyle = .overFullScreen
         if #available(iOS 18.0, *) {
             let options = UIViewController.Transition.ZoomOptions()
@@ -1405,6 +1494,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             cell.audioDelegate = self
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
             cell.setFlightHidden(flyingRowIDs.contains(model.rowID))
+            cell.incomingFollowsTimestampDrawer = options.incomingRowsFollowTimestampDrawer
             cell.timestampRevealDistance = timestampRevealDistance
             cell.timestampReveal = timestampReveal
             cell.setSelectionMode(isSelecting, selected: selectedRowIDs.contains(model.rowID), animated: false)
@@ -1447,6 +1537,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         case let .typing(ids):
             let cell = collectionView.dequeueReusableCell(withReuseIdentifier: TypingCell.reuseID, for: indexPath) as! TypingCell
             cell.margin = layoutMargin
+            cell.incomingFollowsTimestampDrawer = options.incomingRowsFollowTimestampDrawer
             cell.timestampDrawerOffset = timestampReveal * timestampRevealDistance
             // Batch updates and reuse strip layer animations; restart the pulse.
             cell.indicator.startAnimating()
@@ -1778,14 +1869,37 @@ final class TranscriptCollectionView: UICollectionView {
     private var lastMaskGeometry: (CGFloat, CGFloat)?
 
     override func layoutSubviews() {
+        // Before UIKit places its pockets in this pass, so a hidden edge
+        // never gets a pocket; again after, once the content size is current.
+        updateBottomEdgeEffect()
         super.layoutSubviews()
         updateTopFadeMask()
+        if updateBottomEdgeEffect() { setNeedsLayout() }
         // Outgoing bubbles' gradient is fixed to the screen. Placed here,
         // after the cells for this offset are placed, not on scroll: a cell
         // reused at the other edge would otherwise show the gradient of the
         // place it left for a frame (its bubble keeps its size, so it does
         // not lay out again).
         for case let cell as MessageCell in visibleCells { cell.updateScreenGradients() }
+    }
+
+    /// The bottom soft edge is live only while content lies under the
+    /// composer band (see `ConversationScrollEdgePolicy`): at rest on the
+    /// newest message it draws nothing, but a live pocket makes the render
+    /// server redraw most of the screen on every frame a row animates.
+    /// Returns whether it changed.
+    @discardableResult
+    private func updateBottomEdgeEffect() -> Bool {
+        guard #available(iOS 26.0, *) else { return false }
+        let hidden = !ConversationScrollEdgePolicy.contentUnderBottomBar(
+            contentHeight: contentSize.height,
+            offsetY: contentOffset.y,
+            viewportHeight: bounds.height,
+            bottomInset: adjustedContentInset.bottom
+        )
+        guard bottomEdgeEffect.isHidden != hidden else { return false }
+        bottomEdgeEffect.isHidden = hidden
+        return true
     }
 
     /// The mask lives in the scroll view's bounds space, so it follows the

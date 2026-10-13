@@ -21,6 +21,11 @@ public struct ShellLaunchOptions: Sendable {
     public var demo: String?
     public var forceSetup = false
     public var initialEmail: String?
+    /// DEBUG: open setup on the Connect your Mac step, with no Mac until a
+    /// few seconds in (the presence flip, for recordings).
+    public var setupPairDemo = false
+    /// DEBUG: open Settings on this page (`SettingsRoute` case name).
+    public var settingsPage: String?
 
     public init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         func value(_ flag: String) -> String? {
@@ -33,6 +38,9 @@ public struct ShellLaunchOptions: Sendable {
         demo = value("-cnx-demo") ?? DeveloperOptions.launchDemo.flatMap { DemoDriver.names.contains($0) ? $0 : nil }
         forceSetup = arguments.contains("-cnx-setup")
         initialEmail = value("-cnx-email")
+        setupPairDemo = arguments.contains("-cnx-setup-pair")
+        if setupPairDemo { forceSetup = true }
+        settingsPage = value("-cnx-settings-page")
         #endif
     }
 }
@@ -45,6 +53,9 @@ public struct RootView: View {
     @State private var settings = SettingsStore()
     @State private var sidebar = SidebarModel()
     @State private var launchFinished = false
+    /// Set right after the launch handoff: later Welcome insertions (sign-out)
+    /// crossfade instead of replaying the launch intro.
+    @State private var handoffDone = false
     @AppStorage("cnx.setupComplete") private var setupComplete = false
     private let options: ShellLaunchOptions
 
@@ -73,7 +84,7 @@ public struct RootView: View {
                 Group {
                     switch destination {
                     case .welcome:
-                        WelcomeView(auth: auth, initialEmail: options.initialEmail)
+                        WelcomeView(auth: auth, playsLaunchIntro: !handoffDone, initialEmail: options.initialEmail)
                     case .setup:
                         SetupFlow(steps: setupSteps, auth: auth, store: store) {
                             setupComplete = true
@@ -94,8 +105,26 @@ public struct RootView: View {
         .task(id: auth.isResolved) {
             guard auth.isResolved, !launchFinished else { return }
             syncTeams()
-            withAnimation(theme.motion.gentle.animation) { launchFinished = true }
+            if destination == .welcome {
+                // Welcome draws the launch mark itself on its first frame and
+                // animates it from there, so the swap must not fade either side.
+                var cut = Transaction()
+                cut.disablesAnimations = true
+                withTransaction(cut) { launchFinished = true }
+            } else {
+                withAnimation(theme.motion.gentle.animation) { launchFinished = true }
+            }
+            #if DEBUG
+            if options.setupPairDemo, let index = store.teams.firstIndex(where: { $0.id == store.activeTeamID }) {
+                // Recording pace, not synchronization: the Mac "comes online" 4 s in.
+                let macs = store.teams[index].macs
+                store.teams[index].macs = []
+                try? await Task.sleep(for: .seconds(4))
+                store.teams[index].macs = macs
+            }
+            #endif
         }
+        .onChange(of: launchFinished) { _, finished in handoffDone = finished }
         .onChange(of: auth.teams) { _, _ in syncTeams() }
         .onChange(of: auth.isSignedIn) { _, signedIn in
             if signedIn { theme.haptics.success() }
@@ -106,6 +135,7 @@ public struct RootView: View {
     }
 
     private var setupSteps: [SetupFlow.Step] {
+        if options.setupPairDemo { return [.pairMac, .notifications] }
         var steps: [SetupFlow.Step] = []
         if store.teams.isEmpty || store.teams.count >= 2 { steps.append(.team) }
         if store.activeTeam?.macs.isEmpty ?? true { steps.append(.pairMac) }
@@ -149,6 +179,10 @@ struct ShellView: View {
     init(store: AppStore, auth: CnxAuthModel, settings: SettingsStore, sidebar: SidebarModel, options: ShellLaunchOptions) {
         let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
         if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
+        if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
+            shell.tab = .settings
+            shell.settingsPath = [page]
+        }
         _shell = State(initialValue: shell)
         self.options = options
     }
@@ -220,6 +254,7 @@ extension ShellView {
         )
         shell.live = live
         shell.terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
+        shell.creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link)
         live.applyAccountTeams(auth.teams, selectedID: auth.selectedTeamID)
         log.info("live data on \(base.host() ?? "", privacy: .public)")
     }

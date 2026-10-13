@@ -160,3 +160,15 @@ import Testing
         }
     }
 }
+
+/// Messages' "Select" shows the edit menu under the selected bubble text,
+/// pointing up at it, wherever the bubble sits (iOS 27.0, iPhone 17 Pro:
+/// text 232...292.3 -> menu at 298; text 346.7...387 -> menu at 392.7,
+/// with room above both times). Ours pointed at the text's top.
+@Suite struct BubbleSelectionMenuTests {
+    @Test func menuHangsUnderTheSelection() {
+        let anchor = BubbleSelectionMenuGeometry.anchor(selection: CGRect(x: 205.3, y: 346.7, width: 171.7, height: 40.3))
+        #expect(anchor.point == CGPoint(x: 205.3 + 171.7 / 2, y: 387))
+        #expect(anchor.pointsUp)
+    }
+}

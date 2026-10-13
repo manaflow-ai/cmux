@@ -85,3 +85,32 @@ import Testing
         #expect(shadow.pathDiameter == 50)
     }
 }
+
+/// Messages in landscape (iOS 27.0, iPhone 17 Pro Max, conversation pane
+/// x 375...956 beside the list): a 54 pt bar from y 24 (the window's safe
+/// top is 0), a 44 pt avatar at 550.83, 24 and the bold name inline to its
+/// right (label at 606.83, 35.83, 153 x 20.33; chevron 8.33 x 14.67 at
+/// 763.83, 38.67), the pair centered in the pane, no capsule.
+@Suite struct ConversationCompactHeaderGeometryTests {
+    @Test func landscapeHeaderMatchesMessages27() {
+        let layout = ConversationHeaderGeometry.compactLayout(
+            width: 581, safeTop: 0, nameSize: CGSize(width: 153, height: 20.33), chevronSize: CGSize(width: 8.33, height: 14.67))
+        #expect(layout.barTop == 24)
+        #expect(layout.barHeight == 54)
+        #expect(abs(layout.avatar.minX - 175.83) < 0.05)
+        #expect(layout.avatar.minY == 24)
+        #expect(layout.avatar.width == 44)
+        #expect(abs(layout.name.minX - 231.83) < 0.05)
+        #expect(abs(layout.name.minY - 35.83) < 0.05)
+        #expect(abs(layout.chevron.minX - 388.83) < 0.05)
+        #expect(abs(layout.chevron.minY - 38.67) < 0.05)
+        // The transcript starts at the bar's bottom.
+        #expect(layout.barTop + layout.barHeight == 78)
+    }
+
+    @Test func aSafeTopAboveTheBarInsetWins() {
+        let layout = ConversationHeaderGeometry.compactLayout(
+            width: 581, safeTop: 32, nameSize: CGSize(width: 153, height: 20.33), chevronSize: CGSize(width: 8.33, height: 14.67))
+        #expect(layout.barTop == 32)
+    }
+}

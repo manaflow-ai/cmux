@@ -111,7 +111,7 @@ final class BubbleBackgroundView: UIView {
         let inset = isDashed ? SendLaterStyle.outlineWidth / 2 : 0
         let path = BubbleShape.path(in: bounds.insetBy(dx: inset, dy: inset), side: side, tail: hasTail).cgPath
         // Animate the outline with the bounds when the change is animated.
-        if let animation = layer.action(forKey: "bounds") as? CABasicAnimation ?? layer.animation(forKey: "bounds.size") as? CABasicAnimation {
+        if shapeLayer.path != path, let animation = outlineAnimation() {
             let pathAnimation = CABasicAnimation(keyPath: "path")
             pathAnimation.duration = animation.duration
             pathAnimation.timingFunction = animation.timingFunction
@@ -159,6 +159,30 @@ final class BubbleBackgroundView: UIView {
             materialMask.shape.path = path
         }
         updateScreenGradient()
+    }
+
+    /// The timing of an animated layout, for the outline to follow: the
+    /// bounds animation UIKit already added to the layer, or, when only the
+    /// outline changes inside an animation block, the block's duration.
+    ///
+    /// Never the layer's own "bounds" action: asked for inside an animation
+    /// block, UIView registers an animation with the block that never runs,
+    /// and on iOS 26 the block's completion never fires.
+    /// Laid out in a rotation, that left the rotation unfinished, so turning
+    /// back to portrait kept the window landscape-sized.
+    private func outlineAnimation() -> CABasicAnimation? {
+        for key in (layer.animationKeys() ?? []).reversed() {
+            if let animation = layer.animation(forKey: key) as? CABasicAnimation,
+               animation.keyPath == "bounds.size" || animation.keyPath == "bounds" {
+                return animation
+            }
+        }
+        let duration = UIView.inheritedAnimationDuration
+        guard duration > 0 else { return nil }
+        let animation = CABasicAnimation()
+        animation.duration = duration
+        animation.timingFunction = CAMediaTimingFunction(name: .default)
+        return animation
     }
 
     /// The bounds plus the tail's drop below them.

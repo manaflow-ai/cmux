@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// The long-press menu's "Select": Messages selects the bubble's whole text
@@ -53,10 +54,14 @@ final class BubbleTextSelectionView: UITextView, UITextViewDelegate {
         showEditMenu()
     }
 
+    /// Messages hangs the menu under the selected text, pointing up.
     func showEditMenu() {
-        let rect = selectedTextRange.map { firstRect(for: $0) } ?? bounds
-        let point = CGPoint(x: rect.midX, y: rect.minY)
-        menuInteraction.presentEditMenu(with: UIEditMenuConfiguration(identifier: nil, sourcePoint: point))
+        let rects = selectedTextRange.map { selectionRects(for: $0).map(\.rect).filter { !$0.isEmpty } } ?? []
+        let selection = rects.dropFirst().reduce(rects.first ?? bounds) { $0.union($1) }
+        let anchor = BubbleSelectionMenuGeometry.anchor(selection: selection)
+        let configuration = UIEditMenuConfiguration(identifier: nil, sourcePoint: anchor.point)
+        if anchor.pointsUp { configuration.preferredArrowDirection = .up }
+        menuInteraction.presentEditMenu(with: configuration)
     }
 
     /// Copies what the bubble shows, as plain text (the overlay's own
