@@ -30,8 +30,16 @@ function GalleryEmptyState({ state = "recents", direction = "ltr" }: Props) {
   const children: ReactNode = (
     <>
       <div className="ve-actions">
-        <button className="ve-button ve-button-primary ve-button-large" type="button" onClick={() => setReceipt("Choose folder")}>Choose folder</button>
-        <button className="ve-button ve-button-quiet" type="button" onClick={() => setReceipt("Cancelled")}>Cancel</button>
+        <button
+          className="ve-button ve-button-primary ve-button-large"
+          type="button"
+          onClick={() => setReceipt("Choose folder")}
+        >
+          Choose folder
+        </button>
+        <button className="ve-button ve-button-quiet" type="button" onClick={() => setReceipt("Cancelled")}>
+          Cancel
+        </button>
       </div>
       <RecentList
         items={items}
