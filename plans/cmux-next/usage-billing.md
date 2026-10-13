@@ -326,3 +326,36 @@ allowlist change was needed). Script: `backend/scripts/stripe-usage-e2e.ts`.
    still to build (S5).
 9. Rotate the development and staging BILLING_LEVELS_KEY / STRIPE_USAGE_KEY secrets onto the team
    Cloudflare token when it exists (they were set with Lawrence's own OAuth login).
+
+## 11. S5: the included-amount stop (landed with this section)
+
+`USAGE_HARD_STOP_UNBILLED=1` (development only today): a team that the usage sync has not seen on a
+billable subscription (a usage item on an active monthly plan, `UsageMeterDO.markBillable`) may
+spend AI up to its plan's included amount per UTC month (settled facts plus open reservations plus
+the call's maximum). Founders counts as Pro. Apple purchases and operator grants have no Stripe
+subscription, so they stop there too. The refusal is 402 `usage.included_reached`: "You used the AI
+amount included in your plan for this month. It resets at the start of next month." with
+`included_usd`, `spent_usd`, `resets_at`. A billable team keeps its member and team limits only.
+Turning it on in production is a live step (it stops every paid team at the included amount until
+the live sync marks it billable).
+
+## 12. S6 design: the live switch (note only, nothing built)
+
+- Today `stripeKeyMode` refuses every live key in every environment, before any call.
+- The switch is code, not configuration: a reviewed change that lets a live key run only when all
+  of these hold, checked at the start of each run:
+  1. `ENVIRONMENT === "production"` (staging and development refuse live keys forever);
+  2. the key is a restricted key (`rk_live_`), never a full secret key (`sk_live_` stays refused);
+  3. `BILLING_USAGE_LIVE` equals the release tag of the reviewed commit (a var set by the production
+     deploy rail, so a stray var cannot turn it on in another build);
+  4. the production catalog read finds the live meter with aggregation `last` and the `-v2` prices with
+     the amounts that the catalog code names; any mismatch refuses the run (no writes).
+- First live run is staged: `BILLING_USAGE_LIVE_ALLOW` lists subscription ids (staff accounts); the sync
+  touches only those until the list is removed by a second reviewed change.
+- Gates for that change: correctness review and security review by subagents (both APPROVE), a
+  production dry run (the sync's read-only mode: lists what it would add and send, writes nothing),
+  the chief's go, and Lawrence's yes for money. The restricted key is created by Lawrence in the
+  Dashboard and set on the production Worker through the release rails with a receipt.
+- Rollback: delete the production `STRIPE_USAGE_KEY`; the sync refuses with `no_key` on the next run.
+  Usage items stay on subscriptions (metered, so nothing is billed without meter events); a cleanup
+  run can remove them if live billing is abandoned.
