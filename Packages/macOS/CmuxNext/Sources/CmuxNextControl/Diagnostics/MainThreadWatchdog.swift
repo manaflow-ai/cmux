@@ -100,6 +100,8 @@ public final class MainThreadWatchdog: Sendable {
     private let gapMaxNanos = Atomic<UInt64>(0)
     static let frame120Nanos: UInt64 = 8_333_333
     private let mainAsleep = Atomic<Bool>(true)
+    /// A decided quit is ending (``endHangAssertions()``).
+    private let assertionsEnded = Atomic<Bool>(false)
     private let watchdogParked = Atomic<Bool>(false)
     private let running = Atomic<Bool>(false)
     // concurrency-allow: only the watchdog thread waits on it; the main thread only signals.
@@ -149,6 +151,13 @@ public final class MainThreadWatchdog: Sendable {
     /// longest gap of any length.
     public var gapStats: (over120HzFrame: Int, max: Duration) {
         (Int(clamping: frames120.load(ordering: .relaxed)), .nanoseconds(Int64(clamping: gapMaxNanos.load(ordering: .relaxed))))
+    }
+
+    /// A decided quit is ending: from now on a hang is still reported, but
+    /// never fails the debug assertion. The quit's own deadline bounds it
+    /// (the App's `QuitDeadline`), so a debug build ends as a release one does.
+    public func endHangAssertions() {
+        assertionsEnded.store(true, ordering: .releasing)
     }
 
     public func resetLongFrames() {
@@ -318,7 +327,8 @@ public final class MainThreadWatchdog: Sendable {
                 sink(Hang(duration: duration, addresses: sampler?.sample() ?? []))
             }
         }
-        if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat {
+        if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat,
+           !assertionsEnded.load(ordering: .acquiring) {
             state.assertedBeat = beat
             assertionFailure("main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
         }

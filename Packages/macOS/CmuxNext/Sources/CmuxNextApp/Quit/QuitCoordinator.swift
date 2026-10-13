@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
@@ -25,6 +26,14 @@ final class QuitCoordinator {
     private unowned let services: AppServices
     /// The quit hook's participants (`QuitUnsavedRegistry.shared` in the app).
     var unsaved: QuitUnsavedRegistry = .shared
+    /// The app's main-thread watchdog (AppDelegate): a quit that is ending
+    /// stops its debug hang assertion.
+    weak var watchdog: MainThreadWatchdog?
+    #if DEBUG
+    /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
+    /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).
+    var wedgesEngineStop = false
+    #endif
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
 
     init(services: AppServices) {
@@ -171,7 +180,12 @@ final class QuitCoordinator {
                 await services.home.chief.shutdownForEndSessions()
                 return await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
             },
-            stopBrowserEngines: { await services.cache.cef.shutdown() }
+            stopBrowserEngines: { [weak self] in
+                #if DEBUG
+                if self?.wedgesEngineStop == true { QuitEngineWedge.block(self?.watchdog) }
+                #endif
+                await services.cache.cef.shutdown()
+            }
         ))
         sender.reply(toApplicationShouldTerminate: true)
     }

@@ -88,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // A main-thread hang still running after 2 s goes to crash reporting with its stack.
         let reporter = services.crashReporting.reporter
         control.watchdog.onHang = { hang in reporter.reportHang(duration: hang.duration, addresses: hang.addresses) }
+        services.quit.watchdog = control.watchdog
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()

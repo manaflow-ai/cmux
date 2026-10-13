@@ -21,7 +21,12 @@ Variants:
           default is pressed, as Return does, and the row records whether that keeps sessions);
   update  what Sparkle does before it relaunches into an update
           (`debug.updater {action: "relaunch"}`: the updater's relaunch hook, then terminate);
-  crash   the app's exact pid is killed (SIGKILL), so none of its quit path runs.
+  crash   the app's exact pid is killed (SIGKILL), so none of its quit path runs;
+  wedged  Quit and Keep Sessions over the socket (`action.run quitKeepSessions`) while the quit's
+          engine stop blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn;
+          `debug.quit {wedge_engine_stop: true}`, debug builds only): the app must still end within
+          WEDGED_QUIT_BOUND seconds, by its quit deadline. If it never ends, its exact pid is
+          killed so the restore rows still run.
 Each relaunch reuses the app's own launch environment (read from the running process), so a
 capture slot keeps its HOME, TMPDIR, socket and config file. It never runs `defaults delete`:
 UserDefaults survive, as on a person's Mac. If the slot's app copy is gone after the quit,
@@ -138,6 +143,10 @@ def dump(name, value):
 
 # ---- the app process: identity, environment, quit, relaunch -----------------------------
 
+# The quit deadline (QuitDeadline.engineStopLimit, 15 s) plus margin for a loaded mini.
+WEDGED_QUIT_BOUND = 30
+
+
 class App:
     def __init__(self):
         self.refresh()
@@ -208,6 +217,27 @@ class App:
             except OSError as error:
                 say(f"  crash: kill failed: {error}")
                 return False
+        elif variant == "wedged":
+            say(f"  debug.quit wedge_engine_stop -> {json.dumps(rpc('debug.quit', {'wedge_engine_stop': True}, timeout=10))[:200]}")
+            started = time.time()
+            say(f"  action.run quitKeepSessions -> {json.dumps(rpc('action.run', {'action': 'quitKeepSessions'}, timeout=30))[:200]}")
+            ended = wait(lambda: not self.alive(), 60, 0.25)
+            took = time.time() - started
+            in_bound = bool(ended) and took <= WEDGED_QUIT_BOUND
+            say(f"  app pid {self.pid} {f'exited {took:.1f} s after its quit' if ended else 'is STILL RUNNING after 60 s'}")
+            RESULTS.append((f"{variant}: app ends within {WEDGED_QUIT_BOUND} s with its engine stop wedged", in_bound,
+                            f"exited after {took:.1f} s" if ended else "still running after 60 s", "app quit"))
+            if ended:
+                return True
+            # The red case: action.run is wedged too (the main thread never runs it).
+            answer = rpc("action.run", {"action": "equalizeSplits"}, timeout=10)
+            RESULTS.append((f"{variant}: action.run still runs while the quit hangs", "error" not in answer,
+                            json.dumps(answer)[:160], "app quit"))
+            identity = rpc("system.identify", timeout=5)
+            if isinstance(identity, dict) and int(identity.get("pid") or 0) == self.pid and self.alive():
+                say(f"  wedged: SIGKILL pid {self.pid} so the restore rows still run")
+                os.kill(self.pid, signal.SIGKILL)
+            return bool(wait(lambda: not self.alive(), 20, 0.25))
         elif variant == "update":
             say(f"  debug.updater relaunch -> {json.dumps(rpc('debug.updater', {'action': 'relaunch'}, timeout=30))[:200]}")
         else:

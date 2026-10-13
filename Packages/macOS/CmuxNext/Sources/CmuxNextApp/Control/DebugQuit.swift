@@ -11,11 +11,13 @@ import CmuxNextSettings
 /// `{press: "keep" | "confirm-quit-everything" | "end-everything" | "quit" | "cancel"}`
 /// clicks that button. While "Some sessions did not end" shows, the report
 /// carries `failure` (its lines and buttons) and `press: "retry" |
-/// "quit-anyway"` answers it.
+/// "quit-anyway"` answers it. `{wedge_engine_stop: true}` makes the next
+/// quit's engine stop block the main thread for good (`QuitEngineWedge`).
 @MainActor
 enum DebugQuit {
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let quit = services.quit
+        if params["wedge_engine_stop"]?.boolValue == true { quit.wedgesEngineStop = true }
         if params["open"]?.boolValue == true {
             let started = !quit.isQuitting
             // `inactive`: as a quit from the Dock while cmux is in the background.
@@ -47,6 +49,7 @@ enum DebugQuit {
 
     private static func report(_ quit: QuitCoordinator) -> [String: JSONValue] {
         var result: [String: JSONValue] = ["quitting": .bool(quit.isQuitting), "asking": .bool(quit.sheet != nil),
+                                           "wedges_engine_stop": .bool(quit.wedgesEngineStop),
                                            "activated": .bool(quit.lastAskActivated), "quit_with": quitWith]
         if let failure = quit.failureAlert {
             result["failure"] = .object([
