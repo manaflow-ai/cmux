@@ -26,7 +26,7 @@ use ghostty_vt::{
 
 /// The session host's default scrollback budget (cmux-tui-core
 /// `DEFAULT_SCROLLBACK_LIMIT_BYTES`).
-const HOST_SCROLLBACK_BYTES: usize = 50_000_000;
+const HOST_SCROLLBACK_BYTES: usize = 10_000_000;
 /// Default colors the frontend sends the session host (`set-default-colors`)
 /// for Ghostty's default theme. The cross check configures the surface with
 /// the same values (crosscheck/run.sh).
