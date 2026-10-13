@@ -60,6 +60,16 @@ import Testing
         #expect(config.text == expected)
     }
 
+    @Test func buildsFromFieldsWithServerAdvertisedMTU() throws {
+        var enrollment = Fixtures.enrollment
+        enrollment.clientConfig = ""
+        enrollment.mtu = 1380
+        let config = try WireGuardQuickConfig.make(enrollment: enrollment, privateKey: privateKey)
+
+        #expect(config.text.contains("MTU = 1380"))
+        #expect(!config.text.contains("MTU = 1200"))
+    }
+
     @Test func makePrefersServerText() throws {
         let config = try WireGuardQuickConfig.make(enrollment: Fixtures.enrollment, privateKey: privateKey)
         #expect(config.text.contains("Address = fd7a:7570:6c6b::7/128"))
