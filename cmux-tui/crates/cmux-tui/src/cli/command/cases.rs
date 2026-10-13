@@ -775,6 +775,23 @@ fn state_resource_cases<'a>(
         (vec!["tab", tab, "pin"], "tab.pin"),
         (vec!["tab", tab, "unpin"], "tab.unpin"),
         (vec!["tab", tab, "update", "--zoom", "1.5"], "tab.update"),
+        (
+            vec!["tab", tab, "emulate", "--device", "iPhone 15", "--orientation", "horizontal"],
+            "browser.tab.emulate",
+        ),
+        (vec!["tab", tab, "emulate", "clear"], "browser.tab.emulate.clear"),
+        (vec!["browser", "devices", "list"], "browser.devices.list"),
+        (
+            vec![
+                "browser",
+                "devices",
+                "add",
+                "--device-json",
+                r#"{"title":"Kiosk","screen":{"vertical":{"width":600,"height":1000},"horizontal":{"width":1000,"height":600},"device-pixel-ratio":2}}"#,
+            ],
+            "browser.devices.add_custom",
+        ),
+        (vec!["browser", "devices", "remove", "--title", "Kiosk"], "browser.devices.remove_custom"),
         (vec!["tab", "group", "list", "--pane", pane], "tab_group.list"),
         (vec!["tab", "group", "g", "show"], "tab_group.get"),
         (
