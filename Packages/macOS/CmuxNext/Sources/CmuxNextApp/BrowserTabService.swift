@@ -350,9 +350,11 @@ final class BrowserTabService {
             // answered: its record writer is then gone.
             guard let self, let record, self.writers[id] === record, self.historyWriters[id] == nil else { return }
             self.historyStarts.start(id, saved: saved)
+            // A page its engine restored has its real list: no saved entries on top (Chromium's comes in later).
+            let engineRestored = self.historyStarts.takeEngineRestored(id, page: page, saved: saved)
             // The saved page is the one the tab reopened at, and the user
             // has not gone elsewhere while the daemon answered.
-            if !restored, let saved, let session = BrowserHistoryWriter.session(saved),
+            if !restored, !engineRestored, let saved, let session = BrowserHistoryWriter.session(saved),
                session.entries[session.current].url.absoluteString == recordURL,
                restoring.state.url.map({ $0.absoluteString == recordURL }) ?? true {
                 restoring.restoreSession(session.entries, current: session.current)

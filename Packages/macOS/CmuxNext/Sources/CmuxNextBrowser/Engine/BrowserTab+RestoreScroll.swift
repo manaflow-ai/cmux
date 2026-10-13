@@ -5,6 +5,10 @@ extension BrowserTab {
     ///
     /// - Parameter y: The vertical scroll offset measured when the page was saved.
     public func scrollOnLoad(to y: Double) {
-        (self as? WebKitTab)?.restored.scrollOnLoad(to: y)
+        if let tab = self as? WebKitTab {
+            tab.restored.scrollOnLoad(to: y)
+        } else if let tab = self as? CEFTab {
+            tab.restored.scrollOnLoad(to: y)
+        }
     }
 }

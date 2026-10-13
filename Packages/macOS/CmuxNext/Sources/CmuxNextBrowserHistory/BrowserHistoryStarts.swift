@@ -22,9 +22,28 @@ public final class BrowserHistoryStarts {
     private var waiting: [String: Waiting] = [:]
     /// How each held page started, by tab id (`debug.browser.page_status` `history_start`).
     public var outcomes: [String: String] = [:]
+    /// Tabs whose new page restored its engine's own history, until `takeEngineRestored`.
+    private var engineRestored: Set<String> = []
 
     /// Makes the set of held pages (one per app, owned by the browser tab service).
     public init() {}
+
+    /// Notes that tab `tabID`'s new page was made from its engine's own history (a Chromium
+    /// page, made from it before it exists).
+    public func markEngineRestored(_ tabID: String) {
+        engineRestored.insert(tabID)
+    }
+
+    /// True once after tab `tabID`'s new page restored its engine's own history: it then gets no
+    /// saved entries on top. A Chromium page also scrolls to the position saved at quit once it
+    /// loads (a WebKit page did at its start).
+    public func takeEngineRestored(_ tabID: String, page: any BrowserTab, saved: FrontendBrowserHistory?) -> Bool {
+        guard engineRestored.remove(tabID) != nil else { return false }
+        if page.engineKind == .cef, let saved, saved.entries.indices.contains(saved.index), let y = saved.entries[saved.index].scrollY {
+            page.scrollOnLoad(to: y)
+        }
+        return true
+    }
 
     /// Holds blank `page` of tab `tabID` until its saved history is read, at most `budget`; it then shows `url`.
     public func hold(_ page: WebKitTab, url: URL, tabID: String) {
@@ -52,7 +71,11 @@ public final class BrowserHistoryStarts {
         }
         let files = BrowserHistoryWriter.keepsFileAccess(saved?.entries.compactMap { URL(string: $0.url) } ?? [], shown: entry.url)
         if let state = BrowserHistoryWriter.restoreState(saved, at: entry.url, engine: .webkit), files {
-            guard entry.url.isFileURL else { return restore(page, state, saved: saved, at: entry.url, tabID: tabID) }
+            guard entry.url.isFileURL else {
+                guard restore(page, state, saved: saved, at: entry.url, tabID: tabID) else { return false }
+                engineRestored.insert(tabID)
+                return true
+            }
             // A local page first loads with read access to its folder, which its restored entries
             // (all in that folder) then share; restored without it, WebKit would read them with
             // access to every file. The restore waits for that load to commit, so it replaces the
@@ -60,6 +83,9 @@ public final class BrowserHistoryStarts {
             // before the page's scripts run (Back pressed then would find no entries).
             page.load(entry.url)
             outcomes[tabID] = "engine-waiting-file"
+            // No saved entries on top: a local page's could not navigate (WebKit refuses a
+            // scripted replace to a file), whether or not the restore takes.
+            engineRestored.insert(tabID)
             Task { [weak self, weak page] in
                 // The load's phase, not its address: WebKit reports the address as the load is
                 // asked for, before it starts.
