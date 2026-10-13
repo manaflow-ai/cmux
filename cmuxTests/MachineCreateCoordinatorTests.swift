@@ -543,6 +543,17 @@ struct MachineCreateCoordinatorTests {
         #expect(notices.notices.first?.body.contains("abc123") == false)
     }
 
+    @Test func teamPlanFailureKeepsItsExplanationWhenBillingURLIsRedacted() {
+        let output = "Error: This team needs the cmux Team plan. Upgrade at https://cmux.com/dashboard/billing?team=team-trollol, or switch teams.\n"
+        let shown = MachineCreateCoordinator.displayableFailureOutput(
+            output,
+            refusalCode: CloudPlanRefusal.requiresTeamPlanCode
+        )
+        #expect(shown.contains(CloudPlanRefusal.teamPlanMessage))
+        #expect(shown.contains(CloudVMActionLauncher.hiddenOutputPlaceholder))
+        #expect(shown.contains("team-trollol") == false)
+    }
+
     @Test func headlineSkipsTheCreatedLineAndTheErrorPrefix() {
         #expect(MachineCreateOperation.headline(ofOutput: "Created Cloud VM calm-petrel\nError: No provider for machine calm-petrel.") == "No provider for machine calm-petrel.")
         #expect(MachineCreateOperation.headline(ofOutput: "\n  Error: quota exceeded\nWhat to do:\n") == "quota exceeded")

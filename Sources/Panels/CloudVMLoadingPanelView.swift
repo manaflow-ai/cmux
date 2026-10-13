@@ -1,5 +1,6 @@
 import SwiftUI
 import CmuxAppKitSupportUI
+import CmuxCloud
 import CmuxFeedback
 
 struct CloudVMLoadingPanelView: View {
@@ -67,6 +68,20 @@ struct CloudVMLoadingPanelView: View {
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: 460)
                         HStack(spacing: 8) {
+                            if let teamID = panel.teamPlanUpgradeID {
+                                Button {
+                                    ProUpgradePresenter.presentTeamBilling(teamID: teamID)
+                                } label: {
+                                    Label(
+                                        String(localized: "machines.pending.upgradeTeam", defaultValue: "Upgrade to Team"),
+                                        systemImage: "arrow.up.circle"
+                                    )
+                                    .cmuxFont(size: 12, weight: .semibold)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .controlSize(.small)
+                                .accessibilityIdentifier("CloudVMLoadingUpgradeTeamButton")
+                            }
                             Button {
                                 _ = AppDelegate.shared?.performCloudVMAction(debugSource: "panel.cloudVM.retry")
                             } label: {
@@ -76,7 +91,7 @@ struct CloudVMLoadingPanelView: View {
                                 )
                                 .cmuxFont(size: 12, weight: .semibold)
                             }
-                            .buttonStyle(.borderedProminent)
+                            .buttonStyle(.bordered)
                             .controlSize(.small)
 
                             Button {

@@ -133,10 +133,7 @@ public struct CloudPlanRefusal: Equatable, Sendable {
                 defaultValue: "This size is larger than your plan includes. Choose a smaller size, or upgrade the plan."
             )
         case .teamPlan:
-            return String(
-                localized: "cloud.operation.failure.teamPlan",
-                defaultValue: "This team needs the cmux Team plan to run Cloud VMs. Personal plans apply only to your personal team."
-            )
+            return Self.teamPlanMessage
         case .other:
             return serverMessage ?? CloudDiagnosticFailure.plan.label
         }
@@ -148,6 +145,15 @@ public struct CloudPlanRefusal: Equatable, Sendable {
     public static let activeLimitExceededCode = "vm_active_limit_exceeded"
     /// `vm_requires_team_plan`: a created team needs its own Team plan.
     public static let requiresTeamPlanCode = "vm_requires_team_plan"
+
+    /// The stable explanation used when a CLI transcript is redacted before
+    /// it reaches the failed-create row.
+    public static var teamPlanMessage: String {
+        String(
+            localized: "cloud.operation.failure.teamPlan",
+            defaultValue: "This team needs the cmux Team plan to run Cloud VMs. Personal plans apply only to your personal team."
+        )
+    }
 
     /// The stable reference a failure transcript carries for a refusal, as
     /// both the CLI and the in-process create print it.
