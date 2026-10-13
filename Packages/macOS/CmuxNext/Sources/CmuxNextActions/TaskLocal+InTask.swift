@@ -14,6 +14,10 @@ extension TaskLocal {
     public func withValueInTask<R>(_ value: Value, operation body: () -> R) -> R {
         // The only sanctioned synchronous bindings (check-concurrency: task-local bindings).
         if withUnsafeCurrentTask(body: { $0 != nil }) { return withValue(value, operation: body) }
+        // Task.immediate is macOS 26. The marker push above is in the Swift 6.2 concurrency runtime,
+        // which ships with macOS 26; macOS 14 and 15 run their own older runtime, which does not
+        // push it, so the plain binding is safe there (plans/cmux-next/macos-floor.md).
+        guard #available(macOS 26, *) else { return withValue(value, operation: body) }
         return withoutActuallyEscaping(body) { body in
             let run = ImmediateRun { self.withValue(value, operation: body) }
             // task-owner: runs to its end before `finish` returns; `body` never suspends

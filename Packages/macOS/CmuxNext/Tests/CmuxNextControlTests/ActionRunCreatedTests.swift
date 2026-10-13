@@ -1,6 +1,6 @@
 @testable import CmuxNextControl
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 
 /// Creates a tab the way a loaded app can: the snapshot reaches the command's
