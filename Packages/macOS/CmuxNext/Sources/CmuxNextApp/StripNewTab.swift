@@ -19,8 +19,7 @@ enum StripNewTab {
     /// tab, `groupTabs` the group's tabs in strip order. The group's
     /// selected tab decides the kind (`newTab.default` on that tab), else
     /// its last tab (cmux keeps no per-tab focus history); a group without
-    /// tabs gets `newTab.default` on the pane, like the strip's + (a person
-    /// gets the New Tab page, never a terminal on its own: cx-hvc57).
+    /// tabs gets `newTab.default` on the pane, like the strip's + (cx-hvc57).
     static func requestInGroup(selected: String?, groupTabs: [String], pane: String,
                                opensWorkspace: Bool = false,
                                perform: (ActionID, ActionInvocation) -> Void) {
