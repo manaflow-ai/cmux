@@ -207,6 +207,9 @@ def open_workspace(app: App, recipe: str, url: str, index: int):
     # who opened it would; that also loads its pages and renderers.
     app.run("workspace.selectLast")
     for kind in recipe.split("+"):
+        if kind == "none":
+            # The workspace alone (its first page): `--mix none` churns workspaces only.
+            continue
         if kind == "terminal":
             response = app.run("newSurface")
         elif kind == "browser":
