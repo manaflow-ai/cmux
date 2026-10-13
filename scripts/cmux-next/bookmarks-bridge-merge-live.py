@@ -10,13 +10,14 @@ cmux.24 or newer); on an older engine it exits 2 (nothing to check).
    bookmark on the Bookmarks bar (action bookmark.add), quit. No Chromium
    tab opens, so Chromium never loads the profile in this run.
 2. Write the default profile's Chromium `Bookmarks` file as an older run
-   left it: the same URL as cmux's bookmark (another guid, a trailing
-   slash) and a bookmark only Chromium has, both on the Bookmarks bar.
+   left it: the same URL as cmux's bookmark (another guid) and a bookmark
+   only Chromium has, both on the Bookmarks bar.
 3. Launch again (state kept), open a Chromium tab: the store loads, the
    daemon merges its file (merge-bookmarks), then the bridge syncs.
 4. cmux's tree (bookmark.list) has the Chromium-only bookmark once, on the
    Bookmarks bar, and the shared URL once; Chromium's own file, once it
-   saves again, has both, each once.
+   saves after the sync (the seed has no checksum, a save writes one), has
+   both, each once.
 
 GUI host only (no real input: socket reads). The app is quit and the tag's
 daemons stopped at the end. Exits 1 when a check fails.
@@ -106,7 +107,7 @@ def seed(path):
 
     data = {"checksum": "", "version": 1, "roots": {
         "bookmark_bar": root("1", "0bc5d13f-2cba-5d74-951f-3f233fe6c908", "Bookmarks bar", [
-            url("4", "5d7b5a5e-0c1e-4b9a-9d2c-7c1f0e000001", "Shared in Chromium", SHARED_URL + "/"),
+            url("4", "5d7b5a5e-0c1e-4b9a-9d2c-7c1f0e000001", "Shared in Chromium", SHARED_URL),
             url("5", "5d7b5a5e-0c1e-4b9a-9d2c-7c1f0e000002", "Only Chromium", ONLY_URL)]),
         "other": root("2", "82b081ec-3dd3-529c-8475-ab6c344590dd", "Other bookmarks", []),
         "synced": root("3", "4cf2e351-0e85-532b-bb37-df045d8f8d0f", "Mobile bookmarks", [])}}
@@ -163,11 +164,11 @@ try:
     check(len(both) == 1, f"a bookmark in both lists is not duplicated ({json.dumps(both)[:200]})")
 
     # Chromium's model follows: its file, saved again after the sync, has each URL once.
-    def chromium_has_both():
-        urls = [normalized(u) for u in chromium_urls(chromium_file(bookmarks_file))]
-        return urls if urls.count(ONLY_URL) == 1 and urls.count(SHARED_URL) == 1 else None
-
-    urls = wait(chromium_has_both, 30)
+    # The seed has an empty checksum; Chromium writes one when it saves the model.
+    saved = wait(lambda: (chromium_file(bookmarks_file) or {}).get("checksum"), 30)
+    check(bool(saved), "Chromium saves its bookmarks after the sync")
+    urls = [normalized(u) for u in chromium_urls(chromium_file(bookmarks_file))]
+    urls = urls if saved and urls.count(ONLY_URL) == 1 and urls.count(SHARED_URL) == 1 else None
     with open(os.path.join(opts.out, "chromium-Bookmarks.json"), "w") as handle:
         json.dump(chromium_file(bookmarks_file), handle, indent=2)
     check(bool(urls), "Chromium's bookmarks keep both URLs, each once "

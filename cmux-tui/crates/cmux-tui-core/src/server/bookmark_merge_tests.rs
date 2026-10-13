@@ -200,6 +200,21 @@ fn a_refused_merge_writes_and_records_nothing() {
     assert_eq!(tree(&mux).len(), 1);
 }
 
+#[test]
+fn a_long_chromium_title_is_kept_cut_to_the_limit() {
+    let mux = bookmarks_mux();
+    let long = "é".repeat(3000);
+    let file = chromium_file(
+        json!([url(&long, "https://example.com/long", "7a0c0c37-1111-4111-8111-00000000000a")]),
+        json!([]),
+    );
+    assert_eq!(merge(&mux, STORE, &file).unwrap()["created"], 1);
+    let nodes = tree(&mux);
+    assert_eq!(nodes.len(), 1);
+    assert_eq!(nodes[0].2.len(), 4096);
+    assert!(long.starts_with(&nodes[0].2));
+}
+
 fn bookmarks_mux() -> Arc<Mux> {
     Mux::new_for_test("bookmark-merge", crate::SurfaceOptions::default())
 }

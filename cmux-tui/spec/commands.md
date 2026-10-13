@@ -5987,8 +5987,9 @@ When `merge_key` was already merged for the profile, nothing changes and
   merged into that folder;
 - every other node is appended to the target folder, with the guid's id when
   no node has it (else a new id) and `created_ms` from `date_added`;
-- a node over the depth, title, URL or profile limits, or of another type, is
-  skipped with its subtree.
+- a title longer than the title limit is cut at that limit; a node over the
+  depth, URL or profile limits, or of another type, is skipped with its
+  subtree.
 
 The merge key is recorded with the merge, so a later merge of the same key
 changes nothing: a bookmark deleted in cmux after the merge stays deleted.
