@@ -197,7 +197,6 @@
 		121580021215800212158002 /* AgentRestoreNoticeInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 121580011215800112158001 /* AgentRestoreNoticeInput.swift */; };
 		E6C0EB448B3198F053944846 /* AgentRestoreRecoveryPresentation.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3F412FA43648BED10E95FCB7 /* AgentRestoreRecoveryPresentation.swift */; };
 		32870528BA7DA7C68021A6EA /* AgentRestoreRecoveryRegressionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79AE16C7F47C6F259EEF6ED3 /* AgentRestoreRecoveryRegressionTests.swift */; };
-		6DEA5D9260D07EB41AC52A77 /* AgentRestoreRecoveryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CF6B32E82544240C8F118CE /* AgentRestoreRecoveryView.swift */; };
 		110433021104330211043302 /* AgentRestoreSuppressionJournal.swift in Sources */ = {isa = PBXBuildFile; fileRef = 110433011104330111043301 /* AgentRestoreSuppressionJournal.swift */; };
 		121580041215800412158004 /* AgentRestoreUnverifiableNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 121580031215800312158003 /* AgentRestoreUnverifiableNotice.swift */; };
 		D8DFFAEC2DBC3ACCF87D563E /* AgentResumeLaunchGuard.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5977EB347EF8D7692B3759E2 /* AgentResumeLaunchGuard.swift */; };
@@ -4902,7 +4901,6 @@
 		121580011215800112158001 /* AgentRestoreNoticeInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreNoticeInput.swift; sourceTree = "<group>"; };
 		3F412FA43648BED10E95FCB7 /* AgentRestoreRecoveryPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRestoreRecoveryPresentation.swift"; sourceTree = "<group>"; };
 		79AE16C7F47C6F259EEF6ED3 /* AgentRestoreRecoveryRegressionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentRestoreRecoveryRegressionTests.swift"; sourceTree = "<group>"; };
-		3CF6B32E82544240C8F118CE /* AgentRestoreRecoveryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "Panels/AgentRestoreRecoveryView.swift"; sourceTree = "<group>"; };
 		110433011104330111043301 /* AgentRestoreSuppressionJournal.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreSuppressionJournal.swift; sourceTree = "<group>"; };
 		121580031215800312158003 /* AgentRestoreUnverifiableNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentRestoreUnverifiableNotice.swift; sourceTree = "<group>"; };
 		5977EB347EF8D7692B3759E2 /* AgentResumeLaunchGuard.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentResumeLaunchGuard.swift; sourceTree = "<group>"; };
@@ -11514,7 +11512,6 @@
 				A5001413 /* TerminalPanelView.swift */,
 				D4983F8022A862E60F27778D /* TerminalPanel+ShellReadiness.swift */,
 				BE3792D6AED275EA7DB3EB0B /* TerminalPanel+PasteLastScreenshot.swift */,
-				3CF6B32E82544240C8F118CE /* AgentRestoreRecoveryView.swift */,
 				8997D00C8997D00C8997D00C /* AgentHibernationPlaceholderMode.swift */,
 				C71500010000000000000001 /* SessionContentWidthModifier.swift */,
 				C71500030000000000000001 /* SessionContentWidthPresentation.swift */,
@@ -14768,7 +14765,6 @@
 				0A1107110000000000000014 /* AgentRestoreMode.swift in Sources */,
 				121580021215800212158002 /* AgentRestoreNoticeInput.swift in Sources */,
 				E6C0EB448B3198F053944846 /* AgentRestoreRecoveryPresentation.swift in Sources */,
-				6DEA5D9260D07EB41AC52A77 /* AgentRestoreRecoveryView.swift in Sources */,
 				110433021104330211043302 /* AgentRestoreSuppressionJournal.swift in Sources */,
 				121580041215800412158004 /* AgentRestoreUnverifiableNotice.swift in Sources */,
 				D8DFFAEC2DBC3ACCF87D563E /* AgentResumeLaunchGuard.swift in Sources */,
