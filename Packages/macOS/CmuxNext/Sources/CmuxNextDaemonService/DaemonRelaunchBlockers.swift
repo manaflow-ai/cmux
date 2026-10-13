@@ -2,22 +2,20 @@ import CoreGraphics
 import CmuxNextBridge
 import CmuxUpdater
 
-/// Computes the safe-to-relaunch snapshot for an app update.
-///
-/// This belongs beside ``DaemonService`` so the large CmuxNextApp target does not grow for
-/// updater work. The app supplies this value to ``UpdaterService`` at its wiring boundary.
-public enum DaemonRelaunchBlockers {
+/// Computes the safe-to-relaunch snapshot for an app update beside ``DaemonService`` so the
+/// large CmuxNextApp target does not grow for updater work.
+public extension DaemonService {
     /// Reads the daemon's confirmed tab mirror and the acpmux/status overlays.
     /// A relaunch waits for active agent turns and foreground work, while a short hardware-input
     /// quiet window protects a focused typing session.
     @MainActor
-    public static func current(for daemon: DaemonService) -> UpdateRelaunchBlockers {
-        guard daemon.store.isLoaded,
-              case .connected = daemon.store.connectionState,
-              daemon.connection != nil else {
+    func currentRelaunchBlockers() -> UpdateRelaunchBlockers {
+        guard store.isLoaded,
+              case .connected = store.connectionState,
+              connection != nil else {
             return .daemonUnavailable
         }
-        let tabs = daemon.store.workspaces.flatMap { workspace in
+        let tabs = store.workspaces.flatMap { workspace in
             workspace.screens.flatMap { screen in
                 screen.panes.flatMap(\.tabs)
             }
