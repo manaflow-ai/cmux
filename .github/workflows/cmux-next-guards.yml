@@ -94,3 +94,22 @@ jobs:
             echo "::warning::no previous tip to compare with; checking the plain cap"
           fi
           scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
+
+  # The defaults guard's tests, and schemas/defaults/cmux-next.json matching the
+  # action and settings exports, in seconds; cmux-next-defaults-guard.yml judges
+  # the changes and the approval.
+  defaults-snapshot:
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: The defaults guard judges changes and approvals
+        run: python3 tests/test_defaults_guard.py
+
+      - name: The defaults snapshot matches the exports
+        run: python3 scripts/ci/defaults_guard.py check-fresh
