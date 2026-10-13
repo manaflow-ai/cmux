@@ -16,8 +16,6 @@ struct PasswordManagerRouteTests {
     @Test(arguments: ["chrome://password-manager/passwords", "chrome://settings/passwords"])
     func chromiumsPasswordManagerOpensCmuxsPasswordsPage(_ address: String) async throws {
         try await Self.withApp { services, _ in
-            // The page tab opens in the active window's panes: wait for the window, not just the daemon.
-            try await Self.until { services.windows.active?.workspaceContent?.panes.isEmpty == false }
             let invocation = ActionInvocation(arguments: ["url": .string(address)])
             #expect(services.registry.perform("openBrowser", invocation: invocation))
             // A store page tab, or an app-only one while the daemon cannot hold page tabs yet.
@@ -59,6 +57,8 @@ struct PasswordManagerRouteTests {
         let result: Result<Void, any Error>
         do {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))
+            // Actions reach tabs through the window's panes, which attach after the daemon's.
+            try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
         // Stop the app's connection first: on the daemon's EOF it would start a
