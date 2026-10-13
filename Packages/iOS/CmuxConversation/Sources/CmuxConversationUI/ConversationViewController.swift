@@ -1726,6 +1726,13 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
 
     public func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         (cell as? TypingCell)?.indicator.startAnimating()
+        // A flight that landed while its row was off screen (a scroll to the
+        // top mid-flight) could not reveal the row; a cell UIKit kept shows
+        // again without `cellForItemAt`, so it shows the row here, in place.
+        if let cell = cell as? MessageCell, cell.isFlightHidden, let rowID = cell.model?.rowID, !flyingRowIDs.contains(rowID) {
+            cell.statusGrowsOnLanding = false
+            cell.setFlightHidden(false)
+        }
     }
 
     func transcriptItemCount() -> Int { rows.count }
