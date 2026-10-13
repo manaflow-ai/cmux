@@ -44,6 +44,8 @@ targets:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: $(CMUX_NATIVE_DISPLAY_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         UILaunchScreen:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark

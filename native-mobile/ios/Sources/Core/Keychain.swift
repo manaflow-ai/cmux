@@ -61,7 +61,13 @@ final class SessionTokenStore: @unchecked Sendable {
             Self.cache.value = newValue
             keychain.write("session", newValue)
             #if DEBUG
-            if keychain.read("session") != newValue { UserDefaults.standard.set(newValue, forKey: "debug.session") }
+            // Signing out clears the fallback too, or the next launch would
+            // sign back in as the previous user.
+            if newValue == nil {
+                UserDefaults.standard.removeObject(forKey: "debug.session")
+            } else if keychain.read("session") != newValue {
+                UserDefaults.standard.set(newValue, forKey: "debug.session")
+            }
             #endif
         }
     }
