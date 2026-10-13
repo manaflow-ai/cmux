@@ -138,6 +138,19 @@ pub fn find(env: &BTreeMap<String, String>, keychain: bool) -> Found {
             }
         }
     }
+    // An API key `/login` saved: `<CLAUDE_CONFIG_DIR>/.claude.json`, else ~/.claude.json.
+    let config = match custom {
+        Some(dir) => PathBuf::from(dir).join(".claude.json"),
+        None => user_home.join(".claude.json"),
+    };
+    if std::fs::read(&config)
+        .ok()
+        .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        .and_then(|v| v.get("primaryApiKey").and_then(|k| k.as_str()).map(|k| !k.is_empty()))
+        == Some(true)
+    {
+        found.sources.push(format!("the API key saved in {}", tilde(&config)));
+    }
     if home.join(".credentials.json").is_file() {
         found
             .sources
@@ -168,13 +181,30 @@ fn keychain_item(config_dir: Option<&str>) -> bool {
             format!("Claude Code-credentials-{}", &hex[..8])
         }
     };
-    std::process::Command::new("/usr/bin/security")
+    let Ok(mut child) = std::process::Command::new("/usr/bin/security")
         .args(["find-generic-password", "-s", &service])
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok_and(|s| s.success())
+        .spawn()
+    else {
+        return false;
+    };
+    // A locked keychain must not hold startup or a turn: 1 s at most.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return status.success(),
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            _ => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return false;
+            }
+        }
+    }
 }
 
 /// The person's terminal: the daemon's environment with the login shell's
@@ -226,6 +256,13 @@ pub fn remember(session_id: &str, env: &[(String, String)]) {
     map.get_or_insert_with(HashMap::new).insert(session_id.to_owned(), kept);
 }
 
+/// The session now runs another harness: its Claude spawn env no longer applies.
+pub fn forget(session_id: &str) {
+    if let Some(map) = SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        map.remove(session_id);
+    }
+}
+
 /// Claude's own words for "no usable sign-in".
 pub fn is_sign_in_failure(message: &str) -> bool {
     let m = message.to_lowercase();
@@ -245,10 +282,16 @@ pub fn explain(session_id: &str, original: &str) -> Option<String> {
     }
     let agent_env =
         SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id)?.clone();
-    let agent = find(&agent_env, true);
-    let terminal_env = terminal_env();
-    let terminal = find(&terminal_env, true);
-    Some(compose(&agent, &terminal, terminal_env.get("SHELL").map(String::as_str), original))
+    // File reads and the keychain check block: off a multi-thread runtime's workers.
+    let work = || {
+        let agent = find(&agent_env, true);
+        let terminal_env = terminal_env();
+        let terminal = find(&terminal_env, true);
+        compose(&agent, &terminal, terminal_env.get("SHELL").map(String::as_str), original)
+    };
+    let multi_thread = tokio::runtime::Handle::try_current()
+        .is_ok_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
+    Some(if multi_thread { tokio::task::block_in_place(work) } else { work() })
 }
 
 fn list(items: &[String]) -> String {

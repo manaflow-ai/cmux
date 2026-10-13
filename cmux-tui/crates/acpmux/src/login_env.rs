@@ -39,6 +39,9 @@ use serde::{Deserialize, Serialize};
 pub const TIMEOUT: Duration = Duration::from_secs(3);
 /// How often an agent spawn may stat the startup files for a change.
 const RECHECK: Duration = Duration::from_secs(10);
+/// A cache older than this is refreshed in the background at start: the
+/// fingerprint cannot see files the startup files source.
+const MAX_AGE: Duration = Duration::from_secs(24 * 3600);
 /// Printed before `env -0`, so rc-file chatter on stdout is skipped.
 const MARKER: &str = "__ACPMUX_LOGIN_ENV__";
 const CACHE_VERSION: u32 = 1;
@@ -128,22 +131,37 @@ pub fn begin() -> Plan {
     st.fingerprint = Some(fingerprint);
     st.last_check = Some(Instant::now());
     let Some(cache) = cache else {
-        drop(st);
-        // First start (or edited startup files): spawns wait for the shell
-        // unless Claude already signs in without it (keychain, settings).
-        return Plan { run_shell: true, wait: !crate::claude_auth::direct_sign_in() };
+        // First start, or edited startup files: spawns wait for the shell.
+        return Plan { run_shell: true, wait: true };
     };
+    let stale = cache.saved_at.is_none_or(|t| now_secs().saturating_sub(t) > MAX_AGE.as_secs());
     st.imported = Some(build(for_children(cache.vars.into_iter().collect()), cache.path));
     st.outcome = Outcome::Cached;
     st.secret_names = cache.secret_names.clone();
     drop(st);
-    let missing: Vec<&String> =
-        cache.secret_names.iter().filter(|n| std::env::var_os(n).is_none()).collect();
-    if missing.is_empty() {
-        return Plan { run_shell: false, wait: false };
+    let missing = cache.secret_names.iter().any(|n| !daemon_has(n));
+    if !missing {
+        // A file the startup files source may have changed: past MAX_AGE,
+        // refresh in the background (spawns use the cache meanwhile).
+        return Plan { run_shell: stale, wait: false };
     }
-    let wait = !crate::claude_auth::direct_sign_in();
-    Plan { run_shell: true, wait }
+    // Secret values are never cached: the shell runs; spawns wait for it
+    // unless Claude signs in without it (keychain, settings, env).
+    Plan { run_shell: true, wait: !crate::claude_auth::direct_sign_in() }
+}
+
+/// The daemon's own environment holds `key` for its children: a daemon
+/// inside a Claude Code session does not pass that session's keys on.
+fn daemon_has(key: &str) -> bool {
+    std::env::var_os(key).is_some()
+        && !(std::env::var_os("CLAUDECODE").is_some() && crate::config::is_nested_claude_key(key))
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
 }
 
 /// Run the login shell once (bounded by `TIMEOUT`) and remember its
@@ -209,6 +227,10 @@ pub fn refresh_if_changed() {
     rt.spawn(async {
         tracing::info!("shell startup files changed; reading the login environment again");
         import().await;
+        if outcome() == Outcome::Failed {
+            // Try again at a later spawn.
+            STATE.write().unwrap_or_else(|e| e.into_inner()).fingerprint = None;
+        }
         REFRESHING.store(false, Ordering::SeqCst);
     });
 }
@@ -228,8 +250,18 @@ async fn run_shell(shell: &str) -> Option<String> {
     for k in crate::config::nested_claude_keys() {
         cmd.env_remove(k);
     }
+    // Its own session: no controlling terminal (an interactive shell cannot
+    // take the terminal a foreground daemon runs in), and its process group
+    // id is its pid (killed as a group on timeout).
     #[cfg(unix)]
-    cmd.process_group(0);
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
     let child = match cmd.spawn() {
         Ok(c) => c,
         Err(e) => {
@@ -314,8 +346,7 @@ pub fn imported_keys() -> Vec<String> {
 pub fn missing_secret_names() -> Vec<String> {
     let st = STATE.read().unwrap_or_else(|e| e.into_inner());
     let have = |n: &str| {
-        std::env::var_os(n).is_some()
-            || st.imported.as_ref().is_some_and(|i| i.vars.iter().any(|(k, _)| k == n))
+        daemon_has(n) || st.imported.as_ref().is_some_and(|i| i.vars.iter().any(|(k, _)| k == n))
     };
     st.secret_names.iter().filter(|n| !have(n)).cloned().collect()
 }
@@ -410,25 +441,28 @@ pub(crate) fn parse_env0(text: &str) -> (Vec<(String, String)>, Option<String>) 
 /// name is a credential word, or its value is a URL with a user part
 /// (`https://user:pass@proxy`). Such values are never written to the cache.
 pub fn is_secret(key: &str, value: &str) -> bool {
-    const PARTS: [&str; 15] = [
+    /// Anywhere in the name (`PGPASSWORD`, `GITHUBTOKEN`).
+    const WORDS: [&str; 10] = [
         "PASSWORD",
         "PASSWD",
-        "PASS",
         "TOKEN",
         "SECRET",
         "CREDENTIAL",
-        "CREDENTIALS",
         "APIKEY",
         "PRIVATE",
-        "AUTH",
-        "KEY",
         "COOKIE",
-        "HEADERS",
-        "SIGNATURE",
-        "SESSION",
+        "WEBHOOK",
+        "DSN",
     ];
+    /// As a `_`-separated part (`AWS_ACCESS_KEY_ID`, `GH_PAT`, `MYSQL_PWD`).
+    const PARTS: [&str; 9] =
+        ["PASS", "PWD", "PAT", "KEY", "AUTH", "SESSION", "HEADERS", "SIGNATURE", "SIG"];
     let upper = key.to_ascii_uppercase();
-    if upper.split('_').any(|p| PARTS.contains(&p)) {
+    if WORDS.iter().any(|w| upper.contains(w)) || upper.split('_').any(|p| PARTS.contains(&p)) {
+        return true;
+    }
+    let lower = value.to_ascii_lowercase();
+    if ["token=", "key=", "secret=", "sig=", "password="].iter().any(|q| lower.contains(q)) {
         return true;
     }
     value.split_once("://").is_some_and(|(_, rest)| {
@@ -444,6 +478,9 @@ struct Cache {
     vars: BTreeMap<String, String>,
     path: Option<String>,
     secret_names: Vec<String>,
+    /// Seconds since the epoch.
+    #[serde(default)]
+    saved_at: Option<u64>,
 }
 
 fn cache_path() -> PathBuf {
@@ -475,6 +512,7 @@ fn save_cache(login: &[(String, String)], login_path: Option<&str>) {
         vars,
         path: login_path.map(str::to_owned),
         secret_names,
+        saved_at: Some(now_secs()),
     };
     let Ok(bytes) = serde_json::to_vec_pretty(&cache) else { return };
     let path = cache_path();

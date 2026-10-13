@@ -242,8 +242,10 @@ pub(crate) fn harness_command(
     // A Claude agent's sign-in inputs, for a clear message if it has none.
     let claude_family = profile.kind == crate::config::HarnessKind::ClaudeStdio
         || profile.family.as_deref() == Some("claude");
-    if let (true, Some((id, _))) = (claude_family, session) {
-        crate::claude_auth::remember(id, &command_env(&cmd));
+    match (claude_family, session) {
+        (true, Some((id, _))) => crate::claude_auth::remember(id, &command_env(&cmd)),
+        (false, Some((id, _))) => crate::claude_auth::forget(id),
+        _ => {}
     }
     Ok(cmd)
 }

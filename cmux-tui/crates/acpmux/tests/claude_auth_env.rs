@@ -3,7 +3,7 @@
 //! run /login"). Each case runs the real `acpmux daemon run` the way the
 //! Chief, launchd or a non-login ssh shell starts it (no `ACPMUX_LOGIN_ENV`,
 //! no `XPC_SERVICE_NAME`, a bare environment) with a fake HOME whose login
-//! shell (`$SHELL -l -i -c`) reads `~/.fakerc`, and a stand-in Claude Code
+//! shell (`$SHELL -l -i -c`) reads `~/.zshrc`, and a stand-in Claude Code
 //! (`fake_claude.py`, FAKE_CLAUDE_AUTH=1) that looks for a sign-in the way
 //! Claude Code does and says what it found, or fails like Claude Code.
 
@@ -62,7 +62,7 @@ fn write_executable(path: &Path, text: &str) {
 }
 
 /// A scratch home: `home/` (the fake HOME), its login shell `loginsh`
-/// (sources `~/.fakerc`, then runs the `-c` script), and `rc` as `~/.fakerc`.
+/// (sources `~/.zshrc`, then runs the `-c` script), and `rc` as `~/.zshrc`.
 fn scratch(tag: &str, rc: &str) -> PathBuf {
     // Short: the socket path must stay under the macOS limit.
     let dir = std::env::temp_dir().join(format!("acae-{tag}-{}", std::process::id()));
@@ -71,9 +71,9 @@ fn scratch(tag: &str, rc: &str) -> PathBuf {
     let dir = std::fs::canonicalize(&dir).unwrap();
     write_executable(
         &dir.join("loginsh"),
-        "#!/bin/sh\nfor a; do last=$a; done\n. \"$HOME/.fakerc\"\neval \"$last\"\n",
+        "#!/bin/sh\nfor a; do last=$a; done\n. \"$HOME/.zshrc\"\neval \"$last\"\n",
     );
-    std::fs::write(dir.join("home/.fakerc"), rc).unwrap();
+    std::fs::write(dir.join("home/.zshrc"), rc).unwrap();
     dir
 }
 
@@ -223,20 +223,20 @@ async fn a_daemon_inside_a_claude_session_gives_agents_the_login_route() {
             "export ANTHROPIC_BASE_URL={SUBROUTER}\nexport ANTHROPIC_AUTH_TOKEN=ignored-by-router\n"
         ),
     );
-    let d = start(
-        &dir,
-        json!({"claude": claude(json!({}))}),
-        &[
-            ("CLAUDECODE", "1"),
-            ("ANTHROPIC_BASE_URL", "http://127.0.0.1:9/parent-session-proxy"),
-            ("ANTHROPIC_AUTH_TOKEN", "parent-session-token"),
-        ],
-    )
-    .await;
-    let (reply, _) = ask(&d, "claude").await;
-    let v = found(&reply);
-    assert_eq!(v["base"], SUBROUTER, "{v}");
-    assert_eq!(v["auth"], json!(["ANTHROPIC_AUTH_TOKEN"]), "{v}");
+    let parent = [
+        ("CLAUDECODE", "1"),
+        ("ANTHROPIC_BASE_URL", "http://127.0.0.1:9/parent-session-proxy"),
+        ("ANTHROPIC_AUTH_TOKEN", "parent-session-token"),
+    ];
+    // The first start runs the shell; the second starts from the cache,
+    // whose token value is not stored: the parent's copy must not count.
+    for start_no in 1..=2 {
+        let d = start(&dir, json!({"claude": claude(json!({}))}), &parent).await;
+        let (reply, _) = ask(&d, "claude").await;
+        let v = found(&reply);
+        assert_eq!(v["base"], SUBROUTER, "start {start_no}: {v}");
+        assert_eq!(v["auth"], json!(["ANTHROPIC_AUTH_TOKEN"]), "start {start_no}: {v}");
+    }
 }
 
 /// (b) `apiKeyHelper` in ~/.claude/settings.json whose command is only on
@@ -358,12 +358,18 @@ async fn an_agent_on_another_claude_home_names_both_homes() {
 /// fetch never runs the shell; an edited rc file runs it again.
 #[tokio::test]
 async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
-    let rc = "echo run >> \"$HOME/shell-runs\"\nexport ANTHROPIC_AUTH_TOKEN=s3cret-value\nexport TEAM_ROUTE_NAME=plain-value\n";
-    let dir = scratch("cache", rc);
+    let count = "echo run >> \"$HOME/shell-runs\"\n";
+    let dir = scratch(
+        "cache",
+        &format!(
+            "{count}export ANTHROPIC_AUTH_TOKEN=s3cret-value\nexport TEAM_ROUTE_NAME=plain-value\n"
+        ),
+    );
     let runs =
         || std::fs::read_to_string(dir.join("home/shell-runs")).unwrap_or_default().lines().count();
+    let harnesses = json!({"claude": claude(json!({}))});
     {
-        let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+        let d = start(&dir, harnesses.clone(), &[]).await;
         let (reply, _) = ask(&d, "claude").await;
         assert_eq!(found(&reply)["auth"], json!(["ANTHROPIC_AUTH_TOKEN"]));
     }
@@ -376,23 +382,29 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     assert_eq!(v["vars"]["TEAM_ROUTE_NAME"], "plain-value", "{v}");
     use std::os::unix::fs::PermissionsExt;
     assert_eq!(std::fs::metadata(&cache).unwrap().permissions().mode() & 0o777, 0o600);
-    // No secret: the next start uses the cache and never runs the shell.
-    std::fs::write(
-        dir.join("home/.fakerc"),
-        "echo run >> \"$HOME/shell-runs\"\nexport TEAM_ROUTE_NAME=plain-value\n",
-    )
-    .unwrap();
+    // The token leaves the rc file: the changed file runs the shell again.
+    let rc = format!("{count}export TEAM_ROUTE_NAME=plain-value\n");
+    std::fs::write(dir.join("home/.zshrc"), &rc).unwrap();
     {
-        let _d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
-        tokio::time::sleep(Duration::from_millis(500)).await;
+        let d = start(&dir, harnesses.clone(), &[]).await;
+        let (reply, _) = ask(&d, "claude").await;
+        assert!(reply.is_err(), "no token is left: {reply:?}");
     }
-    assert_eq!(runs(), 2, "the edited rc file ran the shell again");
+    assert_eq!(runs(), 2);
+    // Same files, no secret in the cache: no shell at all.
     {
-        let d = start(&dir, json!({"claude": claude(json!({}))}), &[]).await;
+        let d = start(&dir, harnesses.clone(), &[]).await;
         let (reply, _) = ask(&d, "claude").await;
         assert!(reply.is_err(), "no token is left: {reply:?}");
     }
     assert_eq!(runs(), 2, "a matching cache with no secret runs no shell");
+    // Only the fingerprint can see this edit (the cache needs no secret).
+    std::fs::write(dir.join("home/.zshrc"), format!("{rc}# edited\n")).unwrap();
+    {
+        let d = start(&dir, harnesses.clone(), &[]).await;
+        let _ = ask(&d, "claude").await;
+    }
+    assert_eq!(runs(), 3, "an edited rc file runs the shell again");
 }
 
 /// A login shell that hangs: the daemon stops waiting after 3 s, and
