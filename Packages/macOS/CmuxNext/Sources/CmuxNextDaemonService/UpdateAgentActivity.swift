@@ -1,5 +1,5 @@
-import CmuxNextAgentPane
-import CmuxUpdater
+public import CmuxNextAgentPane
+public import CmuxUpdater
 import Foundation
 
 /// Keeps automatic updater relaunches away from Home Chief turns that are not present in the
