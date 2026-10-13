@@ -103,3 +103,20 @@ import Testing
         #expect(ComposerBarGeometry.disabledPlusInk(iOS27: true) == .tertiaryHue(lightAlpha: 0.335, darkAlpha: 0.21))
     }
 }
+
+/// Messages draws its record glyph itself (a 44 pt image shown at 22 pt):
+/// five capsules 2 pt wide on a 4 pt pitch, 4, 8, 16, 8 and 4 pt tall,
+/// centered. SF Symbols' `waveform` has six uneven bars.
+@Suite struct ComposerRecordGlyphTests {
+    @Test func fiveCenteredCapsules() {
+        let bars = ComposerBarGeometry.recordGlyphBars
+        #expect(ComposerBarGeometry.recordGlyphSide == 22)
+        #expect(bars == [
+            CGRect(x: 2, y: 9, width: 2, height: 4),
+            CGRect(x: 6, y: 7, width: 2, height: 8),
+            CGRect(x: 10, y: 3, width: 2, height: 16),
+            CGRect(x: 14, y: 7, width: 2, height: 8),
+            CGRect(x: 18, y: 9, width: 2, height: 4),
+        ])
+    }
+}
