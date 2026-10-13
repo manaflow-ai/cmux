@@ -330,8 +330,10 @@ fn a_closed_idle_shell_reopens_with_its_screen_and_no_stop_line() {
 #[test]
 fn a_tab_closed_inside_the_reap_grace_reopens_with_its_screen_after_a_power_loss() {
     let _exclusive = exclusive_process_test();
-    let mut harness =
-        RecoveryHarness::start_with_args("archive-crash", &["--terminal-reap-grace-seconds", "600"]);
+    let mut harness = RecoveryHarness::start_with_args(
+        "archive-crash",
+        &["--terminal-reap-grace-seconds", "600"],
+    );
     let (surface, terminal_id) = second_tab(&harness, "arccrash");
     send_line(&harness.socket, surface, "echo crash-$((40+2))");
     wait_for_screen(&harness.socket, surface, "crash-42\n");
