@@ -35,10 +35,12 @@ enum ScreenGroupCommands {
         }
     }
 
-    static func update(_ group: ScreenGroupID, name: String? = nil, color: GroupTint? = nil, collapsed: Bool? = nil, daemon: DaemonService) {
+    /// `icon` (`screen-group-icon-v1`) changes only when set; `.clear` removes it.
+    static func update(_ group: ScreenGroupID, name: String? = nil, color: GroupTint? = nil, collapsed: Bool? = nil,
+                       icon: FieldUpdate<String> = .unchanged, daemon: DaemonService) {
         let color = color?.wire
-        change("update-screen-group", .update(group: group.rawValue, name: name, color: color, collapsed: collapsed), daemon: daemon) {
-            _ = try await $0.updateScreenGroup(group, name: name, color: color, collapsed: collapsed)
+        change("update-screen-group", .update(group: group.rawValue, name: name, color: color, collapsed: collapsed, icon: icon), daemon: daemon) {
+            _ = try await $0.updateScreenGroup(group, name: name, color: color, collapsed: collapsed, icon: icon)
         }
     }
 
