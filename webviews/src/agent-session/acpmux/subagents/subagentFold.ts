@@ -34,6 +34,9 @@ export class SubagentFold {
   private readonly agents = new Map<string, Subagent>();
   private readonly groupOf = new Map<string, Group>();
   private readonly spawnCalls = new Set<string>();
+  /// Codex's `wait` and `closeAgent` calls between its subagents, by call id: a later update of
+  /// the same call may come without its `_meta`, and must draw no row either.
+  private readonly collabCalls = new Set<string>();
   private readonly changed = new Set<Group>();
   private open: Group | undefined;
   /// Each subagent's own updates and the points where it spawned subagents, in order: its view.
@@ -62,8 +65,12 @@ export class SubagentFold {
     if (call && this.spawnCalls.has(call)) return true;
     // Codex's own bookkeeping between its subagents (`wait` for them, `closeAgent`): the group
     // row already shows who is working and who is done, so these draw no row of their own.
+    if (call && this.collabCalls.has(call)) return true;
     const collab = update?._meta?.codex?.collaboration?.tool;
-    if (this.agents.size > 0 && (collab === "wait" || collab === "closeAgent")) return true;
+    if (this.agents.size > 0 && (collab === "wait" || collab === "closeAgent")) {
+      if (call) this.collabCalls.add(call);
+      return true;
+    }
     return events.length > 0;
   }
 

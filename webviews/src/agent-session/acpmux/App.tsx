@@ -184,6 +184,7 @@ import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
+import { knownMark } from "../shared/AgentMark";
 import {
   SubagentGroupHeader,
   SubagentHarnessContext,
@@ -4092,7 +4093,9 @@ function AcpmuxPane() {
               <SessionEditsContext.Provider value={editRows}>
                 <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                   <SubagentNavContext.Provider value={setSubagentView}>
-                    <SubagentHarnessContext.Provider value={snapshot.summary?.harness}>
+                    <SubagentHarnessContext.Provider
+                      value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
+                    >
                       <ChatFindScope
                         rows={childRows ?? sourceRows}
                         shown={childRows ? undefined : transcriptRows}
