@@ -136,7 +136,7 @@ public final class UpdaterService {
     /// Sparkle is about to relaunch into the update; the App records keep-sessions and blockers.
     @ObservationIgnored public var willRelaunch: (() -> Void)?
     /// Reads the executable's live session and input state before Sparkle relaunches.
-    @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .empty }
+    @ObservationIgnored public var relaunchBlockers: () -> UpdateRelaunchBlockers = { .daemonUnavailable }
     /// Whether a window shows the update notice (the sidebar footer's
     /// pill). Without it, checks and installs open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }

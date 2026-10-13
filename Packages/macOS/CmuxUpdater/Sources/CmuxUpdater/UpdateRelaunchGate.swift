@@ -7,23 +7,31 @@ public struct UpdateRelaunchBlockers: Equatable, Sendable {
     public var runningCommandCount: Int
     /// Hardware input happened during the quiet window. Automatic installs wait until it clears.
     public var userInputActive: Bool
+    /// The host cannot confirm the daemon/session mirror yet. Automatic installs wait until it
+    /// is connected and loaded instead of risking a relaunch with unseen work.
+    public var daemonStateUnavailable: Bool
 
     /// How long hardware input must be quiet before an automatic relaunch.
     public static let quietInputPeriod: Duration = .seconds(60)
 
     /// Nothing would be interrupted.
     public static let empty = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 0)
+    /// A conservative hold used before the host has a trustworthy daemon mirror.
+    public static let daemonUnavailable = UpdateRelaunchBlockers(
+        busyAgentCount: 0, runningCommandCount: 0, daemonStateUnavailable: true)
 
     /// Creates a blocker report.
-    public init(busyAgentCount: Int, runningCommandCount: Int, userInputActive: Bool = false) {
+    public init(busyAgentCount: Int, runningCommandCount: Int, userInputActive: Bool = false,
+                daemonStateUnavailable: Bool = false) {
         self.busyAgentCount = busyAgentCount
         self.runningCommandCount = runningCommandCount
         self.userInputActive = userInputActive
+        self.daemonStateUnavailable = daemonStateUnavailable
     }
 
     /// Whether the relaunch would interrupt nothing.
     public var isEmpty: Bool {
-        busyAgentCount == 0 && runningCommandCount == 0 && !userInputActive
+        busyAgentCount == 0 && runningCommandCount == 0 && !userInputActive && !daemonStateUnavailable
     }
 }
 
@@ -33,7 +41,8 @@ public struct UpdateRelaunchBlockers: Equatable, Sendable {
 /// installs retain the bounded agent wait for a lifecycle state that never settles; agents
 /// interrupted then are resumed by session restore. Other running commands are shown as a
 /// warning and only the user's Install Now stops them. A focused typing or pointer session also
-/// keeps the relaunch behind a short quiet window. While waiting, the gate publishes
+/// keeps the relaunch behind a short quiet window. If the host cannot confirm the daemon mirror,
+/// the gate waits rather than guessing that no work exists. While waiting, the gate publishes
 /// ``UpdateState/installing(_:)`` carrying the current ``UpdateRelaunchBlockers``; Install Now
 /// and Later are that state's existing `retryTerminatingApplication` and `dismiss` actions.
 @MainActor
@@ -90,6 +99,7 @@ final class UpdateRelaunchGate {
         waited: Duration,
         agentTimeout: Duration
     ) -> Bool {
+        if blockers.daemonStateUnavailable { return false }
         if blockers.runningCommandCount > 0 { return false }
         if blockers.userInputActive { return false }
         if blockers.busyAgentCount > 0 { return !isAutoUpdate && waited >= agentTimeout }
@@ -154,7 +164,7 @@ final class UpdateRelaunchGate {
         guard request.published != current else { return false }
         if request.published == nil {
             log.append(
-                "update relaunch held (agents=\(current.busyAgentCount), commands=\(current.runningCommandCount))"
+                "update relaunch held (agents=\(current.busyAgentCount), commands=\(current.runningCommandCount), input=\(current.userInputActive), daemon=\(!current.daemonStateUnavailable)"
             )
         }
         request.published = current

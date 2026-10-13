@@ -19,7 +19,7 @@ extension UpdaterService {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
         relaunchBlockers = { [weak services] in
-            guard let services else { return .empty }
+            guard let services else { return .daemonUnavailable }
             return Self.currentRelaunchBlockers(in: services)
         }
         // The click: the windows leave the screen at once (S1); a failed
@@ -53,7 +53,13 @@ extension UpdaterService {
     /// A relaunch may wait for active agent turns and foreground commands, while
     /// a short hardware-input quiet window protects a focused typing session.
     private static func currentRelaunchBlockers(in services: AppServices) -> UpdateRelaunchBlockers {
-        let tabs = services.machines.local.store.workspaces.flatMap { workspace in
+        let daemon = services.machines.local
+        guard daemon.store.isLoaded,
+              case .connected = daemon.store.connectionState,
+              daemon.connection != nil else {
+            return .daemonUnavailable
+        }
+        let tabs = daemon.store.workspaces.flatMap { workspace in
             workspace.screens.flatMap { screen in
                 screen.panes.flatMap(\.tabs)
             }
@@ -65,7 +71,8 @@ extension UpdaterService {
                 switch report.source {
                 case .agent where report.state.isWorking:
                     busyAgents.insert(tab.id)
-                case .command, .run where report.state.isLoading:
+                case .command, .run, .program, .terminalProgress
+                    where report.state.isLoading || report.state.isWorking:
                     runningCommands.insert(tab.id)
                 default:
                     break
@@ -143,9 +150,8 @@ extension UpdaterService {
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,
                   metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData)
-        // NIGHTLY-next is the continuous daily-driver channel. Its existing
-        // install-on-quit preference is also the opt-out for an idle install;
-        // stable and classic NIGHTLY retain the prompt-driven behavior.
-        controller?.installsUpdatesWhenIdle = identity.feed().channel == .nightlyNext && updates.installOnQuit
+        // Automatic idle installation for NIGHTLY-next remains behind the proposed
+        // needs-a-call defaults decision. The driver property is intentionally left
+        // available for that approved setting, but existing defaults must not change here.
     }
 }
