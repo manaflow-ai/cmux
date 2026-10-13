@@ -5,10 +5,10 @@ Tart VM (stdlib only), never on a laptop or a shared Mac.
 Launches one cmux-next build the way the GUI proofs do (no-activate,
 automation socket, scratch config, bounded window), waits with deadlines for
 the first window and the control socket, opens one terminal tab and types a
-command into it, opens the New Tab page, one browser tab, the Settings window
+command into it, opens the New Tab page, a Chromium and a WebKit browser tab, the Settings tab
 and toggles the sidebar through the socket, takes a debug.window_snapshot
-after each step (terminal.png, newtab.png, window.png, settings.png,
-sidebar.png), quits, and writes result.json. When the guest macOS is older than LSMinimumSystemVersion it
+after each step (terminal.png, newtab.png, window.png, webkit.png,
+settings.png, sidebar.png), quits, and writes result.json. When the guest macOS is older than LSMinimumSystemVersion it
 also records what LaunchServices (`open`) says, then still execs the binary
 directly so the dyld error is captured.
 
@@ -147,6 +147,11 @@ try:
                 subprocess.run(["cp", report, OUT])
                 result["notes"].append("crash report " + os.path.basename(report))
     else:
+        if not windows:
+            # Alive with no window or socket: record where the main thread is (a launch hang).
+            sample = os.path.join(OUT, "hang-sample.txt")
+            subprocess.run(["/usr/bin/sample", str(app.pid), "5", "-file", sample], capture_output=True, timeout=60)
+            result["notes"].append("hang sample " + os.path.basename(sample))
         step("launch", True, {"pid": app.pid, "seconds": result["launch_seconds"]})
         step("socket", os.path.exists(SOCKET), SOCKET)
         step("window", bool(windows), {"windows": windows} if windows else "no window before the deadline")
@@ -192,11 +197,16 @@ try:
         shot_path = os.path.join(OUT, "window.png")
         shot = rpc("debug.window_snapshot", {"kind": "main", "path": shot_path}, timeout=60)
         step("snapshot", os.path.exists(shot_path) and os.path.getsize(shot_path) > 0, shot)
-        settings = rpc("settings.open", {"focus": False})
-        listed = wait(lambda: any(w.get("kind") == "settings" for w in ((rpc("debug.window_list") or {}).get("windows") or [])
-                                  if isinstance(w, dict)), TAB_DEADLINE, alive)
-        settings_shot = snap("settings", "settings.png", kind="settings")
-        step("settings", bool(listed) and settings_shot, {"run": settings})
+        # Settings is a page tab of the main window; focus true selects it (no app activation).
+        webkit_page = page + "webkit"
+        opened = rpc("action.run", {"action": "openBrowser", "args": {"url": webkit_page, "engine": "webkit"}, "focus": True})
+        state = wait(lambda: (lambda s: s if isinstance(s, dict) and s.get("url") == webkit_page and s.get("title") == TITLE else None)(
+            rpc("browser.page.state")), TAB_DEADLINE, alive)
+        snap("webkit", "webkit.png")
+        step("webkit", bool(state) and "error" not in (opened or {}), {"run": opened, "state": state or rpc("browser.page.state")})
+        settings = rpc("settings.open", {"focus": True})
+        settings_shot = snap("settings", "settings.png")
+        step("settings", isinstance(settings, dict) and settings.get("opened") is True and settings_shot, {"run": settings})
         sidebar = rpc("action.run", {"action": "toggleSidebar"})
         snap("sidebar", "sidebar.png")
         rpc("action.run", {"action": "toggleSidebar"})
