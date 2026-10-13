@@ -2441,7 +2441,7 @@ fn run_server(
         socket_path.clone(),
         args.ws_access.clone(),
         websocket_server,
-        ws_token.clone().filter(|_| ws_token_minted),
+        ws_token.filter(|_| ws_token_minted),
     );
     // Nor the remote runtime's listeners: a Cloud daemon serves its
     // trusted-carrier link on `--remote-ws` (port 1337) and workspace HTTP on
