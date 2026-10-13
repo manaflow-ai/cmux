@@ -3,6 +3,8 @@
 //! ever sends a bounded replay of its own (on daemon adopt or reconnect). A
 //! readiness soak measured each busy terminal's host keeping a second full
 //! 50 MB scrollback anyway: 10 terminals' hosts grew from 216 to 526 MB.
+//! (The default is 10 MB since #20257, under the replay budget, so at the
+//! default this bounds the host's growth but no longer tells the two apart.)
 
 use super::*;
 
@@ -36,7 +38,8 @@ fn flooded_terminal_host_keeps_only_a_replay_window_of_scrollback() {
         assert!(Instant::now() < deadline, "the flood never finished");
     }
     let grown_mib = resident_kib(host).saturating_sub(before) / 1024;
-    // 200k rows at 80 columns is far past either limit: a full 50 MB host
-    // scrollback grows ~50 MiB, a replay window (~16 MB) well under 32.
+    // 200k rows at 80 columns is far past either limit: a 50 MB host
+    // scrollback would grow ~50 MiB; the 10 MB default or a replay window
+    // (~16 MB) stays well under 32.
     assert!(grown_mib < 32, "the host grew {grown_mib} MiB of scrollback");
 }
