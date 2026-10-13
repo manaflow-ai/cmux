@@ -244,8 +244,6 @@ fn a_terminated_daemon_keeps_the_screen_for_a_respawn_after_a_reboot() {
     assert!(text.contains("shutdown-marker"), "the screen at shutdown is gone: {text}");
 }
 
-/// c. An agent session the terminal ran is typed on the new prompt for the
-/// user to resume; it does not run.
 /// The process exists and is not a zombie.
 fn host_running(pid: u32) -> bool {
     // SAFETY: signal 0 only checks that the PID exists.
@@ -291,6 +289,8 @@ fn a_host_that_ended_at_the_orphan_grace_is_respawned_at_the_next_start() {
     wait_for_screen(&harness.socket, surface, MARKER);
 }
 
+/// c. An agent session the terminal ran is typed on the new prompt for the
+/// user to resume; it does not run.
 #[test]
 fn a_respawned_terminal_offers_its_agent_session_for_resume_without_running_it() {
     let _exclusive = exclusive_process_test();

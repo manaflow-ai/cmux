@@ -38,9 +38,9 @@ pub(crate) enum TerminalEnd {
     /// owner: it died before adoption, its connection was lost without a
     /// sidecar, or its incarnation or record no longer matches, or a signal
     /// ended it during a session shutdown (`session-shutdown`). The tabs
-    /// stay and show the terminal dead until a frontend closes them; the
-    /// owner has no respawn policy and gives such a tab no relaunch record
-    /// (only keep-layout tabs carry one).
+    /// stay; a placed terminal whose reason is respawnable gets a new shell
+    /// (`mux::terminal_respawn`), and any other shows dead until a frontend
+    /// closes or restarts it.
     HostLost(TerminalExit),
     /// The owner abandoned a launch before the terminal was published
     /// (spawn, identity, insert, binding or geometry failure). The owner
@@ -231,6 +231,7 @@ mod tests {
             ("host-exited-during-adoption", "died_during_adoption"),
             ("terminal host ended without a durable exit sidecar", "died_without_exit_status"),
             ("session-shutdown: signal 15", "session_shutdown"),
+            (EXIT_OWNER_GONE, "owner_gone"),
             ("something new", "other"),
         ] {
             let json = TerminalEnd::host_lost(detail).wire_json();
