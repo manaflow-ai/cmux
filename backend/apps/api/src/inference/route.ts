@@ -71,8 +71,10 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
   if ("refused" in granted) return err(403, "auth.forbidden", granted.refused)
   const p = { ...granted, user: authed.user, team: selected.principal.team }
   if (p.kind === "install" && isMachineInstallKind(p.install_kind) && !switchOn(env.INFERENCE_MACHINES_ENABLED)) return err(403, "auth.forbidden", "machine installs cannot use the model router yet")
-  // Spending money is a mutation: an install whose grant is read-only uses no AI (review P3).
-  if (p.kind === "install" && !(p.grant_classes ?? []).some((c) => SPEND_CLASSES.has(c))) return err(403, "auth.forbidden", "this install's grant cannot spend on AI models")
+  // Spending money is a mutation: an install whose grant is read-only uses no AI (review P3). A personal
+  // Cloud VM's install (kind vm) holds vm-self: it may spend, and the VM's owner (the install's user) pays.
+  const spends = (c: string) => SPEND_CLASSES.has(c) || (c === "vm-self" && p.install_kind === "vm")
+  if (p.kind === "install" && !(p.grant_classes ?? []).some(spends)) return err(403, "auth.forbidden", "this install's grant cannot spend on AI models")
   // A machine install acts in its bound team without team selection's lookup: check the member's role there now (review P2).
   if (p.kind === "install" && isMachineInstallKind(p.install_kind) && p.team !== personalTeamIdFor(p.user)) {
     const role = await (env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)) as unknown as { memberRole(entity: string, user: string): Promise<string | null> }).memberRole(p.team, p.user).catch(() => undefined)
@@ -261,9 +263,9 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
       return err(502, "upstream.failed", "the model provider failed; retry", { retryable: true })
     }
     // Failed before the first byte: drop the reservation, count the failure, try the next provider.
-    await guard(env).fail(id, plan.provider)
-    // Failed before the first byte: still nothing billed.
+    // Failed before the first byte: nothing billed, so a throw in fail() itself still releases the member (review P3).
     sent = false
+    await guard(env).fail(id, plan.provider)
     log(env, { id, model: model.id, provider: plan.provider, caller: caller.kind, status: "upstream.failed", upstream_status: outcome.status, attempt })
     last = err(502, "upstream.failed", "the model provider failed; retry", { retryable: true })
   }

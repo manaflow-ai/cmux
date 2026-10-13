@@ -74,19 +74,30 @@ export const withoutMemberLimit = (state: TeamState, user: string): { state: Tea
   return { state: { ...state, ai_member_limits: rest }, cleared: own }
 }
 
+/**
+ * The limit a code run's member gets (TeamDO.aiUserLimit): 0 for someone who is not a member now, so a
+ * removed member's automations stop at the next start or step (review P3). Runs from before
+ * attribution count as UNATTRIBUTED_USER and get the team default.
+ */
+export const codeRunLimit = (state: TeamState | undefined, rows: RowsWithScan | undefined, user: string): number => {
+  if (user === "unattributed") return memberLimit(state, user).limit_usd
+  return state && memberOf(state, rows, user) ? memberLimit(state, user).limit_usd : 0
+}
+
 const PAGE = 200
 
 /**
  * team.ai_limit.get, TeamDO's half (the Worker adds spend from UsageMeterDO): the caller's own
  * limit, and for billing.manage every member's limit, a page at a time. A guest reads nothing.
  */
-export const aiLimitViewOf = (state: TeamState | undefined, rows: RowsWithScan | undefined, entity: string, user: string, cursor: string | undefined):
+export const aiLimitViewOf = (state: TeamState | undefined, rows: RowsWithScan | undefined, entity: string, user: string, cursor: string | undefined, person = true):
   | { ok: true; team: string; default_usd: number; is_default: boolean; me: { user: string; display_name: string; role: string; limit_usd: number; source: LimitSource }; members?: Array<{ user: string; display_name: string; role: string; limit_usd: number; source: LimitSource }>; next_cursor?: string | null }
   | { ok: false; code: string; message: string } => {
   if (!state?.team || state.team.id !== entity || state.team.deleted_at !== undefined) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
   const self = memberOf(state, rows, user)
   if (!self) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
-  const admin = mayManageBilling(self.role)
+  // Every member's spend is for a person's session of a billing.manage member only; an agent or an install reads its own line (review P3).
+  const admin = person && mayManageBilling(self.role)
   if (!admin && !roleHas(self.role, "team.resources")) return { ok: false, code: "auth.forbidden", message: `the ${self.role} role may not read AI limits` }
   const team = state.ai_user_monthly_limit_usd
   const view = (m: { user: string; display_name: string; role: string }) => ({ user: m.user, display_name: m.display_name, role: m.role, ...memberLimit(state, m.user) })

@@ -111,7 +111,7 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
     case "team.ai_limit.get": {
       // The caller's own limit; every member's only for billing.manage (team-ai-limit.ts). Spend is added by withAiSpend.
       const q = params as { cursor?: unknown } | null
-      const v = aiLimitViewOf(state, rows, state.team?.id ?? "", principal.user ?? "", typeof q?.cursor === "string" ? q.cursor : undefined)
+      const v = aiLimitViewOf(state, rows, state.team?.id ?? "", principal.user ?? "", typeof q?.cursor === "string" ? q.cursor : undefined, principal.kind === "session" && !principal.agent)
       if (!v.ok) return { ok: false, code: v.code, message: v.message }
       const { ok: _ok, ...value } = v
       return { ok: true, value, revision: String(state.audit_count ?? 0) }
