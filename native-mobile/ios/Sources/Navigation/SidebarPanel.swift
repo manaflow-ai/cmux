@@ -496,6 +496,7 @@ struct SidebarTerminalRow: View {
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.head)
+                            .accessibilityLabel(cwd == "~" ? String(localized: "Home folder") : cwd)
                     }
                 }
                 Spacer(minLength: 0)
