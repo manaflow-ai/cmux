@@ -229,6 +229,9 @@
          location = "group:CmuxGit">
       </FileRef>
       <FileRef
+         location = "group:CmuxHerdrResume">
+      </FileRef>
+      <FileRef
          location = "group:CmuxHive">
       </FileRef>
       <FileRef

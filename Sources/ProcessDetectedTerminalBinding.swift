@@ -1,9 +1,12 @@
+import CmuxHerdrResume
 import Foundation
 
 /// Picks the process-detected resume binding for one foreground terminal
 /// process: a tmux client, then a herdr client, then an interactive SSH
 /// session. A process that matches none of them yields no binding.
 enum ProcessDetectedTerminalBinding {
+    /// The binding a relaunch uses to resume this process, or nil when the
+    /// process is none of the recognized clients.
     static func binding(
         processName: String,
         processPath: String?,
@@ -29,12 +32,11 @@ enum ProcessDetectedTerminalBinding {
         ) {
             return tmuxBinding
         }
-        if let herdrBinding = HerdrResumeParser.binding(
+        if let herdrInvocation = HerdrResumeParser.invocation(
             arguments: arguments,
-            environment: environment,
-            capturedAt: capturedAt
+            environment: environment
         ) {
-            return herdrBinding
+            return herdrInvocation.resumeBinding(capturedAt: capturedAt)
         }
         return TerminalSSHSessionDetector.resumeBinding(
             processName: processName,

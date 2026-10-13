@@ -7,21 +7,24 @@ import XCTest
 @testable import cmux
 #endif
 
-final class HerdrResumeParserTests: XCTestCase {
+final class HerdrResumeBindingTests: XCTestCase {
     private func binding(
         _ arguments: [String],
         environment: [String: String] = [:]
     ) -> SurfaceResumeBindingSnapshot? {
-        HerdrResumeParser.binding(
-            arguments: arguments,
-            environment: environment,
+        ProcessDetectedTerminalBinding.binding(
+            processName: (arguments.first as NSString?)?.lastPathComponent ?? "",
+            processPath: nil,
+            processArguments: CmuxTopProcessArguments(arguments: arguments, environment: environment),
             capturedAt: 1_777_777_777
         )
     }
 
+    /// A herdr attach becomes an automatic, process-detected binding that
+    /// re-runs the normalized attach in the directory it ran in.
     func testNamedSessionAttachProducesAutomaticProcessDetectedBinding() throws {
         let binding = try XCTUnwrap(
-            binding(["herdr", "--session", "manu"], environment: ["PWD": "/tmp/project"])
+            binding(["herdr", "session", "attach", "manu"], environment: ["PWD": "/tmp/project"])
         )
 
         XCTAssertEqual(binding.kind, "herdr")
@@ -31,9 +34,13 @@ final class HerdrResumeParserTests: XCTestCase {
         XCTAssertEqual(binding.checkpointId, "manu")
         XCTAssertEqual(binding.cwd, "/tmp/project")
         XCTAssertEqual(binding.command, "'herdr' '--session' 'manu'")
+        XCTAssertEqual(binding.launchCommand?.executablePath, "herdr")
+        XCTAssertEqual(binding.launchCommand?.arguments, ["herdr", "--session", "manu"])
+        XCTAssertEqual(binding.launchCommand?.workingDirectory, "/tmp/project")
     }
 
-    func testDefaultSessionAttachKeepsTheObservedExecutable() throws {
+    /// The default session keeps the executable path and has no checkpoint.
+    func testDefaultSessionAttachBindsWithoutCheckpoint() throws {
         let binding = try XCTUnwrap(binding(["/Users/test/.local/bin/herdr"]))
 
         XCTAssertEqual(binding.name, "herdr")
@@ -41,57 +48,17 @@ final class HerdrResumeParserTests: XCTestCase {
         XCTAssertEqual(binding.command, "'/Users/test/.local/bin/herdr'")
     }
 
-    func testSessionAttachSubcommandAndInlineOptionResumeAsSessionAttach() throws {
-        let subcommand = try XCTUnwrap(binding(["herdr", "session", "attach", "lsd"]))
-        XCTAssertEqual(subcommand.checkpointId, "lsd")
-        XCTAssertEqual(subcommand.command, "'herdr' '--session' 'lsd'")
-
-        let inline = try XCTUnwrap(binding(["herdr", "--session=kunden"]))
-        XCTAssertEqual(inline.checkpointId, "kunden")
-        XCTAssertEqual(inline.command, "'herdr' '--session' 'kunden'")
+    /// An ssh or tmux client inside a herdr pane carries a borrowed cmux
+    /// scope, so the chain yields no binding for it at all.
+    func testClientsInsideAHerdrPaneYieldNoBinding() {
+        let insidePane = ["HERDR_ENV": "1"]
+        XCTAssertNil(binding(["/usr/bin/ssh", "tinybox"], environment: insidePane))
+        XCTAssertNil(binding(["tmux", "attach", "-t", "work"], environment: insidePane))
+        XCTAssertNil(binding(["herdr", "--session", "manu"], environment: insidePane))
     }
 
-    func testSessionNameIsShellQuoted() throws {
-        let binding = try XCTUnwrap(binding(["herdr", "--session", "it's"]))
-
-        XCTAssertEqual(binding.command, "'herdr' '--session' 'it'\\''s'")
-    }
-
-    func testServerSubcommandsRemoteAttachAndUnknownOptionsAreRejected() {
-        let rejected: [[String]] = [
-            ["/Users/test/.local/bin/herdr", "server"],
-            ["herdr", "server", "stop"],
-            ["herdr", "pane", "list"],
-            ["herdr", "agent", "list"],
-            ["herdr", "workspace", "list"],
-            ["herdr", "api", "snapshot"],
-            ["herdr", "plugin", "action", "invoke", "state-start"],
-            ["herdr", "session", "list"],
-            ["herdr", "update"],
-            ["herdr", "--help"],
-            ["herdr", "--remote", "workbox"],
-            ["herdr", "--remote", "workbox", "--session", "manu"],
-            ["herdr", "--machine", "workbox", "pane", "list"],
-            ["herdr", "--session", "manu", "pane", "list"],
-            ["herdr", "--session"],
-            ["herdr", "--session", "--remote"],
-            ["herdr", "--session="],
-        ]
-        for arguments in rejected {
-            XCTAssertNil(binding(arguments), "Expected herdr invocation to be rejected: \(arguments)")
-        }
-    }
-
-    func testClientNestedInsideAHerdrPaneIsRejected() {
-        XCTAssertNil(binding(["herdr", "--session", "manu"], environment: ["HERDR_ENV": "1"]))
-    }
-
-    func testMissingOrForeignArgumentsAreRejected() {
-        XCTAssertNil(binding([]))
-        XCTAssertNil(binding(["/usr/bin/vim", "--session", "manu"]))
-        XCTAssertNil(binding(["herdr-radar", "--session", "manu"]))
-    }
-
+    /// The surface's own herdr client wins over a newer process inside one
+    /// of its panes that shares the same panel key.
     func testProcessScanPrefersTheSurfaceClientOverAProcessInsideAHerdrPane() throws {
         let workspaceID = UUID(uuidString: "11111111-1111-1111-1111-111111111111")!
         let panelID = UUID(uuidString: "22222222-2222-2222-2222-222222222222")!
