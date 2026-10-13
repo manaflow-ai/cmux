@@ -94,3 +94,26 @@ import Testing
         #expect(previousCut > 4)
     }
 }
+
+/// Letting go of a dragged photo, Messages' Quick Look flies it back from
+/// the lift itself: one frame after the finger leaves, the photo has
+/// already covered 17% of the way to its bubble (iOS 26.5, 60 fps, fitted
+/// start within a frame of the lift). Ours started the spring at the first
+/// frame of the dismissal transition, about 30 ms after the lift.
+@Suite struct PhotoDragReleaseTimingTests {
+    @Test func closeSpringStartsAtTheLift() {
+        let lift: Double = 10.000
+        let firstFrame: Double = 10.033
+        let start = ConversationPhotoFlight.closeStart(lift: lift, firstFrame: firstFrame)
+        #expect(start == lift)
+        // One frame later the photo has left: 4.5% at omega 19.4 is visible.
+        let p = ConversationPhotoFlight.progress(at: firstFrame + 1.0 / 60 - start, omega: ConversationPhotoFlight.closeOmega)
+        #expect(p > 0.1)
+    }
+
+    @Test func closeButtonStartsAtTheFirstFrame() {
+        #expect(ConversationPhotoFlight.closeStart(lift: nil, firstFrame: 5) == 5)
+        // A stale lift (a drag that sprang back long before) is ignored.
+        #expect(ConversationPhotoFlight.closeStart(lift: 1, firstFrame: 5) == 5)
+    }
+}
