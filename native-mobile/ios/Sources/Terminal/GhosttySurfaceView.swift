@@ -24,6 +24,8 @@ final class GhosttySurfaceView: UIView {
     var onScrollbar: ((Int, Int, Int) -> Void)?
     /// The surface exists and its cell metrics are known.
     var onReady: (() -> Void)?
+    /// Output was applied to the screen (main actor, after the parse).
+    var onOutput: (() -> Void)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -158,7 +160,10 @@ final class GhosttySurfaceView: UIView {
                 guard let base = raw.baseAddress?.assumingMemoryBound(to: CChar.self) else { return }
                 ghostty_surface_process_output(ref.surface, base, UInt(raw.count))
             }
-            Task { @MainActor [weak self] in self?.requestFrame() }
+            Task { @MainActor [weak self] in
+                self?.requestFrame()
+                self?.onOutput?()
+            }
         }
     }
 
@@ -221,6 +226,24 @@ final class GhosttySurfaceView: UIView {
         set {}
     }
 
+    /// Blank rows at the bottom of the live screen (0 when the last row has
+    /// text), read row by row from the bottom so soft-wrapped lines count as
+    /// the rows they take. `limit` stops the scan early.
+    func trailingBlankRows(rows: Int, cols: Int, limit: Int) -> Int {
+        guard surface != nil, rows > 0, cols > 0 else { return 0 }
+        var blank = 0
+        for row in stride(from: rows - 1, through: 0, by: -1) {
+            guard blank < limit else { break }
+            let text = readText(
+                top: ghostty_point_s(tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_EXACT, x: 0, y: UInt32(row)),
+                bottom: ghostty_point_s(tag: GHOSTTY_POINT_ACTIVE, coord: GHOSTTY_POINT_COORD_EXACT, x: UInt32(cols - 1), y: UInt32(row))
+            )
+            if !text.allSatisfy(\.isWhitespace) { break }
+            blank += 1
+        }
+        return blank
+    }
+
     /// Text of the whole screen and scrollback (for copy and file references).
     func readAllText() -> String { readText(GHOSTTY_POINT_SCREEN) }
 
@@ -228,12 +251,13 @@ final class GhosttySurfaceView: UIView {
     /// selection left the whole terminal highlighted whenever VoiceOver or
     /// Copy All Text read it.)
     private func readText(_ tag: ghostty_point_tag_e) -> String {
+        readText(top: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
+                 bottom: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0))
+    }
+
+    private func readText(top: ghostty_point_s, bottom: ghostty_point_s) -> String {
         guard let surface else { return "" }
-        let selection = ghostty_selection_s(
-            top_left: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_TOP_LEFT, x: 0, y: 0),
-            bottom_right: ghostty_point_s(tag: tag, coord: GHOSTTY_POINT_COORD_BOTTOM_RIGHT, x: 0, y: 0),
-            rectangle: false
-        )
+        let selection = ghostty_selection_s(top_left: top, bottom_right: bottom, rectangle: false)
         var text = ghostty_text_s()
         guard ghostty_surface_read_text(surface, selection, &text) else { return "" }
         defer { ghostty_surface_free_text(surface, &text) }

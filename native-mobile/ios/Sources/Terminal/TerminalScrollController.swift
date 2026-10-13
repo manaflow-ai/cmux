@@ -12,6 +12,13 @@ import UIKit
 /// moved to that row (`scroll_to_row`). The sub-row remainder comes from the
 /// view's position, so motion is continuous instead of one row at a time.
 ///
+/// A shell's grid starts at the top of the screen, under the floating glass
+/// controls: older output scrolls up beneath them with the soft top edge
+/// effect, like a chat transcript. The content inset keeps row 0 below the
+/// bar at the top of the scrollback, and a pinned short screen (after
+/// `clear`) rests up to the bar's height above the true bottom so its first
+/// rows are clear of the bar (`TerminalViewportMath.bottomShift`).
+///
 /// A TUI (alternate screen) assumes its whole grid is visible, so it gets a
 /// fixed grid between the bars, no scrolling and no edge effects; vertical
 /// pans become wheel events (mouse tracking) or arrow keys.
@@ -38,6 +45,11 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
     let keyInput = TerminalKeyInputView()
     var onDirectTypingChange: ((Bool) -> Void)?
     private var tuiPanCarry: CGFloat = 0
+    /// Blank rows at the bottom of the live screen (shell mode).
+    private var blankRows = 0
+    /// Points a pinned shell rests above the true bottom (see `bottomShift`).
+    private var bottomShift: CGFloat = 0
+    private var blankCheckPending = false
     private var debugOverlay: TerminalDebugOverlay?
 
     init(session: TerminalSession) {
@@ -90,7 +102,11 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
             self?.scrollbarChanged(total: total, offset: offset, length: length)
         }
         surface.onReady = { [weak self] in self?.view.setNeedsLayout() }
-        session.onGridChange = { [weak self] _, _ in self?.view.setNeedsLayout() }
+        surface.onOutput = { [weak self] in self?.outputApplied() }
+        session.onGridChange = { [weak self] _, _ in
+            self?.view.setNeedsLayout()
+            self?.outputApplied()
+        }
         session.onModeChange = { [weak self] _ in self?.modeChanged() }
     }
 
@@ -138,7 +154,7 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         let tui = session.isTUI
         // Shell: the grid reaches up under the floating top controls (old
         // output shows through the soft edge); TUI: only the clear area.
-        let gridTop = tui ? topInset : view.safeAreaInsets.top
+        let gridTop = tui ? topInset : 0
         // A shell keeps its grid while the keyboard is up (no SIGWINCH redraw
         // for every keyboard toggle); the scroll view lifts the last rows
         // above the keyboard instead. A TUI must see its whole grid, so it
@@ -195,18 +211,24 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         }
         tuiPan?.isEnabled = false
         scrollView.isScrollEnabled = true
-        let overflow = scrollback.total > scrollback.length
-        // Edge effects only once content actually reaches under the bars.
-        scrollView.topEdgeEffect.isHidden = !overflow
-        scrollView.bottomEdgeEffect.isHidden = !overflow
-        // Nothing to scroll: no rubber band dragging the grid around.
-        scrollView.alwaysBounceVertical = overflow
+        // The grid always reaches under the bars, so the edge effects stay
+        // on (over the black background they show only where text is).
+        scrollView.topEdgeEffect.isHidden = false
+        scrollView.bottomEdgeEffect.isHidden = false
+        // Scrolls (and rubber-bands) only when there is more than fits.
+        scrollView.alwaysBounceVertical = false
         let rows = max(scrollback.total, session.rows)
         // The grid's bottom sits on the composer; leftover space goes on top.
         let topPad = TerminalViewportMath.topPad(viewHeight: bounds.height, bottomInset: bottomInset, gridHeight: gridHeight)
         let contentHeight = topPad + CGFloat(rows) * cell.height
+        bottomShift = TerminalViewportMath.bottomShift(
+            screenTopY: bounds.height - bottomInset - gridHeight, topInset: topInset,
+            blankRows: blankRows, cellHeight: cell.height
+        )
         applyingOffset = true
-        scrollView.contentInset = UIEdgeInsets(top: 0, left: 0, bottom: bottomInset, right: 0)
+        // Top: the oldest row rests right below the bar. Bottom: the
+        // composer, less the blank rows a short screen hides under it.
+        scrollView.contentInset = UIEdgeInsets(top: max(0, topInset - topPad), left: 0, bottom: bottomInset - bottomShift, right: 0)
         scrollView.verticalScrollIndicatorInsets = UIEdgeInsets(top: topInset, left: 0, bottom: bottomInset, right: 0)
         scrollView.contentSize = CGSize(width: width, height: contentHeight)
         if pinnedToBottom { scrollView.contentOffset.y = maxOffset }
@@ -214,8 +236,29 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         placeSurface()
     }
 
+    /// Re-reads the blank rows at the bottom of the screen after output
+    /// (once per main-actor hop) and re-lays the content when they change
+    /// the pinned position.
+    private func outputApplied() {
+        guard !session.isTUI, !blankCheckPending else { return }
+        blankCheckPending = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.blankCheckPending = false
+            guard !self.session.isTUI, self.cell.height > 0 else { return }
+            let needed = max(0, self.topInset - (self.view.bounds.height - self.bottomInset - self.gridHeight))
+            let limit = Int((needed / self.cell.height).rounded(.up)) + 2
+            let blank = self.surface.trailingBlankRows(rows: self.session.rows, cols: self.session.cols, limit: limit)
+            guard blank != self.blankRows else { return }
+            self.blankRows = blank
+            self.layoutContent()
+        }
+    }
+
+    /// The pinned (bottom) offset. Negative when a short screen with no
+    /// scrollback rests below the bar (see `bottomShift`).
     private var maxOffset: CGFloat {
-        max(0, scrollView.contentSize.height + scrollView.contentInset.bottom - scrollView.bounds.height)
+        max(-scrollView.contentInset.top, scrollView.contentSize.height + scrollView.contentInset.bottom - scrollView.bounds.height)
     }
 
     /// Puts the Ghostty view on the row boundary at or below the visible
@@ -223,8 +266,13 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
     private func placeSurface() {
         let bounds = view.bounds
         let topPad = TerminalViewportMath.topPad(viewHeight: bounds.height, bottomInset: bottomInset, gridHeight: gridHeight)
-        let (row, maxRow) = TerminalViewportMath.viewportRow(
-            offset: scrollView.contentOffset.y, maxOffset: maxOffset, cellHeight: cell.height,
+        // Away from the bottom, Ghostty's rows start below the status bar
+        // and reach under the composer (see `shellViewportRow`).
+        let statusBar = view.window?.windowScene?.statusBarManager?.statusBarFrame.height ?? 0
+        let lead = statusBar - scrollAhead
+        let (row, maxRow) = TerminalViewportMath.shellViewportRow(
+            offset: scrollView.contentOffset.y, cellHeight: cell.height, topPad: topPad, lead: lead,
+            visibleBottom: bounds.height - bottomInset,
             totalRows: scrollback.total, gridRows: session.rows, viewportRows: scrollback.length
         )
         let frame = CGRect(x: gridX, y: topPad + CGFloat(row) * cell.height,
@@ -256,6 +304,9 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
 
     /// A row move waiting for Ghostty's draw (see `TerminalScrollSync`).
     private var pendingFrame: CGRect?
+    private var lastScrollOffset: CGFloat = 0
+    /// Points the last scroll moved toward older output (see `scrollViewDidScroll`).
+    private var scrollAhead: CGFloat = 0
 
     // MARK: Ghostty scrollbar
 
@@ -271,8 +322,29 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard !applyingOffset, !session.isTUI else { return }
         pinnedToBottom = scrollView.contentOffset.y >= maxOffset - cell.height / 2
+        // Moving toward older output, the view's row move lands a hop after
+        // the scroll (`TerminalScrollSync`), so rows start that much higher:
+        // the lag then shows under the composer instead of under the bar.
+        let delta = scrollView.contentOffset.y - lastScrollOffset
+        lastScrollOffset = scrollView.contentOffset.y
+        scrollAhead = delta < 0 ? min(-delta, 120) : 0
         placeSurface()
         onScrollStateChange?(pinnedToBottom)
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { scrollSettled() }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { scrollSettled() }
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { scrollSettled() }
+
+    /// At rest the rows start below the status bar again.
+    private func scrollSettled() {
+        guard scrollAhead != 0, !session.isTUI else { return }
+        scrollAhead = 0
+        placeSurface()
     }
 
     /// Lands on whole rows so text never rests half-cut under a bar.
@@ -299,6 +371,7 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         lastViewportRow = -1
         pendingFrame = nil
         UIView.performWithoutAnimation { view.setNeedsLayout(); view.layoutIfNeeded() }
+        outputApplied()
     }
 
     @objc private func terminalTapped() {
@@ -350,8 +423,8 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         let fraction = TerminalViewportMath.visibleFraction(of: surface.frame, in: visible)
         lines.append(String(format: "placement: in view y %.0f..%.0f visible %.0f%% offset %.0f/%.0f content %.0f", inView.minY, inView.maxY,
                             fraction * 100, scrollView.contentOffset.y, maxOffset, scrollView.contentSize.height))
-        lines.append(String(format: "layout: view %.0fx%.0f top %.0f bottom %.0f cell %.2fx%.2f row %d pinned %@", view.bounds.width, view.bounds.height,
-                            topInset, bottomInset, cell.width, cell.height, lastViewportRow, pinnedToBottom ? "yes" : "no"))
+        lines.append(String(format: "layout: view %.0fx%.0f top %.0f bottom %.0f cell %.2fx%.2f row %d pinned %@ blank %d shift %.0f", view.bounds.width, view.bounds.height,
+                            topInset, bottomInset, cell.width, cell.height, lastViewportRow, pinnedToBottom ? "yes" : "no", blankRows, bottomShift))
         return lines
     }
 

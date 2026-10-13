@@ -54,17 +54,37 @@ enum TerminalViewportMath {
         max(0, viewHeight - bottomInset - gridHeight)
     }
 
-    /// The first scrollback row Ghostty shows for a content offset, and the
-    /// last such row (the live screen).
-    static func viewportRow(
-        offset: CGFloat, maxOffset: CGFloat, cellHeight: CGFloat,
+    /// How far a pinned shell rests above the true bottom so the top of a
+    /// short screen sits clear of the top controls. A shell's grid reaches
+    /// up under the floating bar (older output shows through the soft edge),
+    /// so after `clear` the prompt would be on a row under the bar; instead
+    /// the blank rows at the bottom of the screen slide under the composer.
+    /// One blank row is kept (the cursor may sit on an empty line).
+    /// `screenTopY` is the screen's top row in view space at the true bottom.
+    static func bottomShift(screenTopY: CGFloat, topInset: CGFloat, blankRows: Int, cellHeight: CGFloat) -> CGFloat {
+        guard cellHeight.isFinite, cellHeight > 0, screenTopY.isFinite, topInset.isFinite else { return 0 }
+        let needed = max(0, topInset - screenTopY)
+        let spare = CGFloat(max(0, blankRows - 1)) * cellHeight
+        return min(needed, spare)
+    }
+
+    /// The first row Ghostty shows for a shell's scroll position. The grid
+    /// is shorter than the screen (by about the composer), so it can't cover
+    /// both bars: it starts at the first row whose top is at or below `lead`
+    /// (the status bar, where the top edge effect has faded text out), so
+    /// the rows left over reach under the composer, but never so low that
+    /// the content right above the composer (`visibleBottom`, view space) is
+    /// left undrawn. `topPad` is where row 0 sits in the content.
+    static func shellViewportRow(
+        offset: CGFloat, cellHeight: CGFloat, topPad: CGFloat, lead: CGFloat, visibleBottom: CGFloat,
         totalRows: Int, gridRows: Int, viewportRows: Int
     ) -> (row: Int, maxRow: Int) {
         let maxRow = max(0, totalRows - max(gridRows, viewportRows))
-        guard cellHeight.isFinite, cellHeight > 0, offset.isFinite, maxOffset.isFinite else { return (maxRow, maxRow) }
-        let clamped = min(max(offset, 0), max(0, maxOffset))
-        let raw = (clamped / cellHeight).rounded(.up)
-        let row = raw.isFinite ? min(maxRow, max(0, Int(raw))) : maxRow
+        guard cellHeight.isFinite, cellHeight > 0, offset.isFinite, topPad.isFinite, lead.isFinite, visibleBottom.isFinite else { return (maxRow, maxRow) }
+        let fromTop = ((offset + lead - topPad) / cellHeight).rounded(.up)
+        let fromBottom = ((offset + visibleBottom - topPad) / cellHeight).rounded(.up) - CGFloat(gridRows)
+        let raw = max(fromTop, fromBottom)
+        let row = raw.isFinite ? min(maxRow, max(0, Int(max(-1, min(raw, CGFloat(Int32.max)))))) : maxRow
         return (row, maxRow)
     }
 

@@ -54,7 +54,9 @@ struct TerminalScreen: View {
                 placeholder: placeholder
             )
         )
-        .ignoresSafeArea(.container, edges: .bottom)
+        // Full screen: a shell's output scrolls under the floating top
+        // controls (the controller insets its content by the safe area).
+        .ignoresSafeArea(.container, edges: [.top, .bottom])
         .ignoresSafeArea(.keyboard)
         .background(Color(uiColor: Theme.terminalBackground))
         .navigationBarTitleDisplayMode(.inline)
