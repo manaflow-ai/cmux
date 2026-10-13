@@ -204,7 +204,9 @@ impl PairingBroker {
         let value = random_credential()?;
         let mut state = self.state.lock().unwrap();
         Self::prune(&mut state, now);
-        state.credentials.push_back(Credential { value: value.clone(), expires_at: now + CREDENTIAL_TTL });
+        state
+            .credentials
+            .push_back(Credential { value: value.clone(), expires_at: now + CREDENTIAL_TTL });
         while state.credentials.len() > MAX_CREDENTIALS {
             state.credentials.pop_front();
         }

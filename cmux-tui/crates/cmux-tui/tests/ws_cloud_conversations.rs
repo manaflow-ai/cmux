@@ -180,14 +180,18 @@ impl Page {
 
     /// The next `cloud-*` event within `wait` (None: none came).
     fn cloud_event_within(&mut self, wait: Duration) -> Option<Value> {
-        let cloud = |event: &Value| event["event"].as_str().is_some_and(|n| n.starts_with("cloud-"));
+        let cloud =
+            |event: &Value| event["event"].as_str().is_some_and(|n| n.starts_with("cloud-"));
         if let Some(at) = self.events.iter().position(cloud) {
             return self.events.remove(at);
         }
         let deadline = Instant::now() + wait;
         let mut found = None;
         while let Some(left) = deadline.checked_duration_since(Instant::now()) {
-            self.socket.get_mut().set_read_timeout(Some(left.max(Duration::from_millis(1)))).unwrap();
+            self.socket
+                .get_mut()
+                .set_read_timeout(Some(left.max(Duration::from_millis(1))))
+                .unwrap();
             let event = match self.socket.read() {
                 Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).unwrap(),
                 Ok(_) => continue,
