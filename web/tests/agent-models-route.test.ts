@@ -63,6 +63,27 @@ describe("agent models route", () => {
     });
   });
 
+  // cx-miuo: the model catalog (services/model-catalog, what /api/models/v1 serves) is the one
+  // source of Claude and Codex models; agent-chat reads this route, so it must not lag it.
+  test("serves every Claude and Codex model the model catalog names", async () => {
+    const { bundledSnapshot } = await import("../services/model-catalog/store");
+    const catalog = bundledSnapshot();
+    const response = await GET(new Request("https://cmux.test/api/agent-models"));
+    const served = (await response.json()) as {
+      providers: Record<string, { defaultModel: string; models: Array<{ id: string; label: string }> }>;
+    };
+    for (const harness of ["claude", "codex"]) {
+      const curated = catalog.harnesses.find((entry) => entry.id === harness);
+      expect(curated).toBeDefined();
+      expect(served.providers[harness].models.map((model) => model.id)).toEqual(
+        curated!.models.map((model) => model.id),
+      );
+    }
+    expect(served.providers.claude.defaultModel).toBe(
+      catalog.harnesses.find((entry) => entry.id === "claude")!.defaultModel!,
+    );
+  });
+
   test("uses the strong ETag for conditional revalidation", async () => {
     const initial = await GET(new Request("https://cmux.test/api/agent-models"));
     const etag = initial.headers.get("etag");
