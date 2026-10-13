@@ -130,6 +130,9 @@ struct CloudMove {
         guard !folder.isTooBroad else { throw Failure(message: CloudMoveStrings.homeFolder) }
         let machine = try await self.machine(invocation)
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
+        // From here the chat may move to this machine: a quit or a crash before the move ends
+        // leaves Retry pinned to it, and the relaunched app finishes the move there.
+        services.cloud.moveRetries[tab.id] = again
         guard let machineSocket = await machine.daemon.connection?.endpoint?.socketPath,
               let localSocket = await services.daemon.connection?.endpoint?.socketPath else {
             throw Failure(message: CloudMoveStrings.notConnected(name), retry: again)
