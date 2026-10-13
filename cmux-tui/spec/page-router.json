@@ -27,17 +27,24 @@
       ]
     },
     "apps": {
-      "description": "App Store. Reads the catalog; an install, uninstall or change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox).",
+      "description": "App Store. Reads the catalog and the installed-app panels (grants, logs, icons). Hide/Show and revoking a scope need the person's gesture (they never widen what an app may do); an install, uninstall, allowed scope or other change needs the person's confirmation on a native sheet (never a click alone: a change can turn off an app's sandbox).",
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
-        "apps.installed.list"
+        "apps.installed.list",
+        "apps.grants.get",
+        "apps.logs",
+        "apps.asset.get"
       ],
-      "gesture": [],
+      "gesture": [
+        "apps.hidden.set",
+        "apps.grant.revoke"
+      ],
       "confirm": [
         "apps.set",
         "apps.install",
-        "apps.uninstall"
+        "apps.uninstall",
+        "apps.grant.set"
       ],
       "events": []
     }
@@ -49,12 +56,18 @@
       "read": [
         "apps.catalog.list",
         "apps.catalog.get",
-        "apps.installed.list"
+        "apps.installed.list",
+        "apps.grants.get",
+        "apps.logs",
+        "apps.asset.get"
       ],
       "mutation": [
         "apps.set",
         "apps.install",
-        "apps.uninstall"
+        "apps.uninstall",
+        "apps.hidden.set",
+        "apps.grant.set",
+        "apps.grant.revoke"
       ]
     }
   }

@@ -18754,8 +18754,8 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "noObject",
-      "cli_name" : "action agent-open-session-workspace",
+      "cli" : "offered",
+      "cli_name" : "agent open",
       "context_menu" : "noObject",
       "context_menus" : [
 
@@ -18766,7 +18766,7 @@
       "default_chord" : null,
       "default_shortcut" : null,
       "id" : "agent.openSessionWorkspace",
-      "mcp" : "noObject",
+      "mcp" : "offered",
       "palette" : "noObject",
       "palette_section" : {
         "id" : "category.agents",
