@@ -97,6 +97,44 @@ test("a title loses the site's tagline and its trailing site name", () => {
     "Borrowing in loops : r/rust",
   );
   expect(cleanTitle("GitHub · Build and ship software", "https://github.com/")).toBe("GitHub");
-  expect(cleanTitle("Vite - Next Generation Frontend Tooling", "https://vite.dev/guide")).toBe("Vite");
+  expect(cleanTitle("Vite - Next Generation Frontend Tooling", "https://vite.dev/")).toBe("Vite");
+  // Off the site's front page, "Site - page" names the page: it stays.
+  expect(cleanTitle("GitHub - manaflow-ai/cmux: Terminal for agents", "https://github.com/manaflow-ai/cmux")).toBe(
+    "GitHub - manaflow-ai/cmux: Terminal for agents",
+  );
   expect(cleanTitle("A plain title", "https://example.com/")).toBe("A plain title");
+});
+
+test("parameters that name a page keep it apart from its neighbours", () => {
+  const kept = [
+    "https://drive.google.com/open?id=1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sT",
+    "https://www.youtube.com/playlist?list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG",
+    "https://github.com/manaflow-ai/cmux/commit?sha=3f786850e387550fdab836ed7e6dc881de23001b",
+    "https://example.com/items?page_token=CAESBggDEAEYAQ2a9f8c7d6e5",
+    "https://github.com/manaflow-ai/cmux/tree?ref=feat-cmux-next",
+  ];
+  for (const url of kept) expect(canonicalAddress(url)).toBe(url.replace("https://", "").replace("www.", ""));
+});
+
+test("a typed link to another file never switches to the open tab on a different one", () => {
+  const drive = context({
+    tabs: [
+      {
+        id: "file-a",
+        kind: "browser",
+        title: "Plan - Google Drive",
+        detail: "drive.google.com/open?id=1aB2cD3eF4gH5iJ6kL7mN8oP9qR0sTA",
+      },
+    ],
+  });
+  const rows = screenRows("https://drive.google.com/open?id=9zY8xW7vU6tS5rQ4pO3nM2lK1jI0hGB", drive);
+  expect(rows[0]).toMatchObject({ type: "open" });
+});
+
+test("a page that is not on the web shows its path, not its scheme", () => {
+  const rows = screenRows(
+    "notes",
+    context({ tabs: [{ id: "f", kind: "browser", title: "Release notes", detail: "file:///Users/you/notes.html" }] }),
+  );
+  expect(rows.find((row) => row.type === "tab")).toMatchObject({ detail: "/Users/you/notes.html" });
 });

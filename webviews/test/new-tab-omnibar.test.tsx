@@ -191,3 +191,15 @@ test("Escape closes the suggestions and keeps the text; a second Escape leaves t
   expect(field.value).toBe("reddit");
   expect(window.document.activeElement).not.toBe(field);
 });
+
+test("Return after Escape still takes the top row: reddit opens reddit.com", async () => {
+  const calls: unknown[][] = [];
+  await render(calls);
+  const field = await type("reddit");
+  field.focus();
+  const key = (name: string) => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: name, bubbles: true }));
+  await act(async () => key("Escape"));
+  expect(rows()).toHaveLength(0);
+  await act(async () => key("Enter"));
+  expect(calls).toEqual([["open", "https://reddit.com"]]);
+});
