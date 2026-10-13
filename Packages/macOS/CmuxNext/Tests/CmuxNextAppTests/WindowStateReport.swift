@@ -20,8 +20,8 @@ enum WindowStateReport {
             let shown = controller.content?.panes.values.map { $0 } ?? []
             let any = controller.workspaceContent?.panes.values.map { $0 } ?? []
             if let page {
-                func lists(_ panes: [PaneController]) -> Bool {
-                    services.pages.tab(of: page, inPanes: panes.map(\.paneKey)) != nil
+                @MainActor func lists(_ panes: [PaneController]) -> Bool {
+                    services.pages.tab(of: page, inPanes: panes.map { $0.paneKey }) != nil
                         || panes.contains { $0.pane.tabs.contains { $0.page == page.rawValue } }
                 }
                 parts.append("\(page.rawValue) in shown content \(lists(shown)), in shown or parked \(lists(any))")
