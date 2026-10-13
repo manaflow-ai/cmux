@@ -37,16 +37,23 @@ final class ChangelogPageTab: InternalPageProvider {
         pages.removeValue(forKey: key)?.close()
     }
 
+    /// The page's provider, registered once. The app registers it at launch:
+    /// without it a restored What's New tab had no title (the strip showed
+    /// the store tab's own, "Home") and no page (cx-warpr).
+    @discardableResult
+    static func register(_ services: AppServices) -> ChangelogPageTab {
+        if let provider = services.pages.provider(.changelog) as? ChangelogPageTab { return provider }
+        let made = ChangelogPageTab(services: services)
+        services.pages.register(made)
+        return made
+    }
+
     /// Opens (or selects) the changelog tab in the active window. With `to` (an update's new
     /// version, and `from` its previous one) the page highlights the releases after `from` up to
     /// `to`, and says "Updated to <to>" when that span has no notes (`#/?from=<v>&to=<v>`).
     @discardableResult
     static func open(_ services: AppServices, focus: Bool = true, from: String? = nil, to: String? = nil) -> Bool {
-        let provider = services.pages.provider(.changelog) as? ChangelogPageTab ?? {
-            let made = ChangelogPageTab(services: services)
-            services.pages.register(made)
-            return made
-        }()
+        let provider = register(services)
         let route = Self.route(from: from, to: to, design: WhatsNewTunables.design.value)
         provider.pendingRoute = route
         let view = services.pages.show(.changelog, in: services.windows.active, focus: focus)
