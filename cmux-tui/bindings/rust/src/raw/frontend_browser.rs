@@ -10,7 +10,7 @@
 use crate::generated::{
     IdentifyRequest, NewFrontendBrowserTabRequest, UpdateFrontendBrowserTabRequest,
 };
-use crate::resource::{BrowserId, TabId, Update, validate_idempotency_key};
+use crate::resource::{validate_idempotency_key, BrowserId, TabId, Update};
 use crate::{CmuxClient, Error, Optional, Result};
 use serde_json::Value;
 
