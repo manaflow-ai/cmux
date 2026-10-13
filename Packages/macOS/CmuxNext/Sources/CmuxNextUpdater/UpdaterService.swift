@@ -115,6 +115,10 @@ public final class UpdaterService {
     /// The App's observation of the `updates.*` settings.
     @ObservationIgnored public var settingsObservation: Task<Void, Never>?
     @ObservationIgnored let now: () -> Date
+    #if DEBUG
+    /// The card kind last written to the update harness's timeline.
+    @ObservationIgnored var markedCardKind: String?
+    #endif
 
     /// Asks the App to show the update sheet (set by the App): a failure's
     /// details only.
