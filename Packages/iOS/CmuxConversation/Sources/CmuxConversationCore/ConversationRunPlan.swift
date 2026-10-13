@@ -27,10 +27,28 @@ public struct ConversationRunPlan: Sendable, Equatable {
     /// Same-sender messages further apart than this start a new run.
     public static let runGap: TimeInterval = 5 * 60
 
+    /// The message that carries the delivery status, if any.
+    public private(set) var statusIndex: Int?
+
     /// `limit` plans only the first `limit` messages (the entries the whole
     /// plan gives them): an older page needs entries for itself and the
     /// message under it, not for the whole transcript.
     public init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String] = [], limit: Int? = nil) {
+        let firstScheduled = messages.firstIndex(where: \.isScheduled) ?? messages.count
+        self.init(messages: messages, meID: meID, typingParticipantIDs: typingParticipantIDs, range: 0..<min(limit ?? messages.count, messages.count), firstScheduled: firstScheduled)
+    }
+
+    /// Plans only `range` (`entries[k]` is message `range.lowerBound + k`),
+    /// reading the transcript from its end: a live change rebuilds the rows
+    /// at the bottom of a long transcript without walking all of it. Send
+    /// Later messages must trail the others, as the store keeps them.
+    public init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String] = [], range: Range<Int>) {
+        var firstScheduled = messages.count
+        while firstScheduled > 0, messages[firstScheduled - 1].isScheduled { firstScheduled -= 1 }
+        self.init(messages: messages, meID: meID, typingParticipantIDs: typingParticipantIDs, range: range.clamped(to: 0..<messages.count), firstScheduled: firstScheduled)
+    }
+
+    private init(messages: [ConversationMessage], meID: String?, typingParticipantIDs: [String], range: Range<Int>, firstScheduled: Int) {
         // Status sits under the newest delivered/read message of mine; it moves
         // only once a newer one is delivered, never while that one is in flight.
         var lastAckedOutgoing = messages.lastIndex { message in
@@ -45,16 +63,15 @@ public struct ConversationRunPlan: Sendable, Equatable {
         if let index = lastAckedOutgoing, messages[(index + 1)...].contains(where: { $0.senderID != meID && !$0.isSystemEvent }) {
             lastAckedOutgoing = nil
         }
+        statusIndex = lastAckedOutgoing
         var entries: [Entry] = []
-        let planned = min(limit ?? messages.count, messages.count)
-        entries.reserveCapacity(planned)
+        entries.reserveCapacity(range.count)
         // Send Later messages trail the transcript, each its own tailed bubble
         // under a "Send Later" header the renderer draws; the history above
         // groups as if they were not there.
-        let firstScheduled = messages.firstIndex(where: \.isScheduled) ?? messages.count
         // Neighbors are read in place: copying whole messages into optionals
         // dominated this pass, which runs over every loaded message per update.
-        for index in 0..<planned {
+        for index in range {
             let message = messages[index]
             if index >= firstScheduled {
                 let failed = message.delivery?.isFailed == true

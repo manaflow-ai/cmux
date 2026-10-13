@@ -118,7 +118,10 @@ public final class ConversationTranslations {
     private weak var store: ConversationStore?
     private let detect: (String) -> Locale.Language?
     private let defaults: UserDefaults?
-    private var entries: [String: Entry] = [:]
+    /// What translated rows show: any change rebuilds them.
+    private var entries: [String: Entry] = [:] {
+        didSet { store?.recordTranscriptChange(from: 0) }
+    }
     private var detected: [String: (text: String, language: Locale.Language?)] = [:]
     private var loadedConversationID: String?
     private var work: Task<Void, Never>?
