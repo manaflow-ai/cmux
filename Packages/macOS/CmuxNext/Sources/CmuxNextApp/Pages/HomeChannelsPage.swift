@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 
 extension InternalPageID {
@@ -42,7 +43,7 @@ final class DaemonCredentialPageProvider: PageProvider {
         self.daemon = daemon
     }
 
-    func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
+    func call(_ op: String, params: CmuxNextSettings.JSONValue, context: PageCallContext) async throws -> CmuxNextSettings.JSONValue {
         guard op == "cmux.host.credential.load" else { throw PageError.unknownOp(op) }
         guard let daemon, let endpoint = try? await daemon.endpoint() else {
             throw PageError.unavailable("the local cmux daemon is not running")
@@ -54,7 +55,7 @@ final class DaemonCredentialPageProvider: PageProvider {
 
     /// The file must be this user's, mode 0600, and name a live daemon: a stale file (a killed
     /// daemon) or one another user planted must never send the token to whatever owns that port.
-    nonisolated static func read(_ path: String) throws -> JSONValue {
+    nonisolated static func read(_ path: String) throws -> CmuxNextSettings.JSONValue {
         let attributes = try? FileManager.default.attributesOfItem(atPath: path)
         guard (attributes?[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
               (attributes?[.posixPermissions] as? NSNumber)?.intValue == 0o600,
@@ -66,7 +67,7 @@ final class DaemonCredentialPageProvider: PageProvider {
         return .object(["url": .string(file.url), "token": .string(file.token), "pages": .string(file.pages)])
     }
 
-    private struct CredentialFile: Decodable {
+    nonisolated private struct CredentialFile: Decodable {
         var pid: Int32
         var url: String
         var pages: String
