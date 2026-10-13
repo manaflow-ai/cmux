@@ -11,6 +11,7 @@ struct PaneSelectionPresenter {
     let pane: PaneController
 
     func present() {
+        WarmNeighbors.favor(pane)
         guard !pane.selectedContentIsAlive else {
             pane.services.presentation.showNow(pane)
             return

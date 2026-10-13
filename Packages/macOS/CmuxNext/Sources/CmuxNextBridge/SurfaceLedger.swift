@@ -47,6 +47,8 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
     private var unretained: Set<Key> = []
     /// Rendering state last reported to the caller.
     private var rendering: Set<Key> = []
+    /// Each owner's ``SurfaceRetention/favored`` keys (its selected tab's neighbors).
+    private var favoredBy: [Owner: Set<Key>] = [:]
 
     public init(capacity: Int = 8) {
         retention = SurfaceRetention(capacity: capacity)
@@ -127,8 +129,15 @@ public struct SurfaceLedger<Key: Hashable & Sendable, Owner: Hashable & Sendable
         return effects
     }
 
+    /// The hidden tabs `owner` shows next: the LRU evicts them after every other.
+    public mutating func setFavored(_ keys: Set<Key>, by owner: Owner) {
+        favoredBy[owner] = keys.isEmpty ? nil : keys
+        retention.setFavored(favoredBy.values.reduce(into: Set<Key>()) { $0.formUnion($1) })
+    }
+
     /// `owner` went away (pane torn down): withdraws everything it presents.
     public mutating func removeOwner(_ owner: Owner) -> Effects {
+        setFavored([], by: owner)
         var effects = Effects()
         for key in keys(ownedBy: owner) {
             owners[key] = nil
