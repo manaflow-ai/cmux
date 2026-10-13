@@ -13,7 +13,9 @@ through `debug.mouse {"target": "page"}` (an in-app event, no system event), and
   3. Wait hides it and restarts Chromium's timer, so the card comes back while the page
      still hangs; Exit page ends the renderer and the pane shows the page-gone view.
 
-GUI host only. Leaves the app running. Exits 1 when a check fails.
+Until the CEF fork stops counting its own DevTools controller as a debugger, Chromium drops
+every hang in a cmux tab and the card checks fail (plans/cmux-next/browser-isolation.md,
+Verification). GUI host only. Leaves the app running. Exits 1 when a check fails.
 """
 import argparse, json, os, socket, sys, tempfile, time
 
