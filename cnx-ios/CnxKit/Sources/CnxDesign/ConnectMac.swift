@@ -21,7 +21,7 @@ public struct ConnectMacSteps: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             step(1, signInText)
-            step(2, Text("In cmux on your Mac, turn on \(Text("Settings → iPhone → Allow iPhone connections").fontWeight(.semibold))."))
+            step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
             status
                 .padding(.top, 6)
         }
