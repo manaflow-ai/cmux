@@ -10,7 +10,8 @@ import Observation
 /// key and click to it.
 final class TerminalFindBarView: NSView {
     private let find: TerminalFindController
-    private let field = NSTextField()
+    /// Themes its caret, selection and placeholder in the bar's scope, focused or not.
+    private let field = ThemedTextField()
     private let countLabel = NSTextField(labelWithString: "")
     private let icon = NSImageView()
     private var buttons: [NSButton] = []
@@ -30,6 +31,7 @@ final class TerminalFindBarView: NSView {
         field.setAccessibilityLabel(Self.placeholder)
         field.isBordered = false
         field.drawsBackground = false
+        field.fill = { .clear }
         field.focusRingType = .none
         field.usesSingleLineMode = true
         field.cell?.isScrollable = true

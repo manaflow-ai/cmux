@@ -98,6 +98,7 @@ impl ResourceOperation {
                 | Self::SettingsList
                 | Self::SettingsGet
                 | Self::SettingsSnapshot
+                | Self::KeybindingsGet
                 | Self::SidebarLayoutGet
                 | Self::ProjectList
                 | Self::PaletteUsageGet

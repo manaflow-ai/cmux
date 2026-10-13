@@ -695,8 +695,9 @@ mark {
   }
 }
 
+/* The popup surfaces keep their fades (pages/shared/desktop.css). */
 @media (prefers-reduced-motion: reduce) {
-  * {
+  *:not(.ui-popup, .ui-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop) {
     transition: none !important;
   }
 }
@@ -746,6 +747,17 @@ mark {
   color: var(--muted-text);
   font-size: 10px;
   font-weight: 600;
+}
+
+/* A stored image or SVG icon draws as itself, with no disc behind it (cx-qno.2.3). */
+.host-avatar:has(> .host-avatar-image) {
+  background: none;
+}
+
+.host-avatar-image {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
 }
 
 .host-form {
@@ -868,6 +880,11 @@ mark {
   max-width: 320px;
 }
 
+/* All Workspaces | This Workspace (cx-t2x.5). */
+.backdrop-scope {
+  margin-bottom: 8px;
+}
+
 /* Wallpaper grid (R82 commit 4). */
 .backdrop-grid {
   display: grid;
@@ -909,6 +926,39 @@ mark {
 .backdrop-none {
   display: block;
   border-color: var(--border);
+}
+
+/* Choose Image… (cx-t2x.8): an empty tile with a plus. */
+.backdrop-choose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted-text);
+  font-size: var(--text-title);
+  border-style: dashed;
+}
+
+/* Browse More Art (cx-t2x.8). */
+.art-browser {
+  margin: 12px 0;
+}
+
+.art-browser-search {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.art-browser-search .field {
+  flex: 1;
+}
+
+.art-browser output:empty {
+  display: none;
+}
+
+.art-browser output {
+  display: block;
 }
 
 .backdrop-title {

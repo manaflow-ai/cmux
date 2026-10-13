@@ -123,6 +123,8 @@ public final class CmuxSidebarView: NSView {
 
     let controller = SidebarController()
     private let link = SidebarLink()
+    /// The list's scroll view, for the host's scroller style (cmux's scrollers are thin overlays).
+    public var scrollView: NSScrollView { controller.scrollView }
     public private(set) var entries: [CmuxSidebarEntry] = []
     public private(set) var pinnedOrder: [String] = []
 

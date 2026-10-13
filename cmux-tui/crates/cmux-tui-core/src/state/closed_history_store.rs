@@ -18,6 +18,7 @@ use std::collections::HashSet;
 use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use serde_json::{Value, json};
 
+use super::closed_history_privacy as privacy;
 pub(crate) use super::closed_history_query::closed_items;
 use super::closed_history_query::public_item;
 use super::store::{state_delete, state_upsert};
@@ -296,7 +297,7 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
             .optional()?;
         match frontend {
             Some((url, profile, engine)) => {
-                record["url"] = json!(url);
+                record["url"] = json!(privacy::strip_url(&url));
                 record["browser_profile_id"] = json!(profile);
                 record["engine"] = json!(engine);
                 // Back/forward entries and scroll come back on reopen
@@ -308,9 +309,9 @@ fn tab_record(connection: &Connection, tab_id: &str) -> anyhow::Result<Option<Va
                         |row| row.get::<_, String>(0),
                     )
                     .optional()?
-                    .map_or(Value::Null, Value::String);
+                    .map_or(Value::Null, |history| privacy::strip_history(&history));
             }
-            None => record["url"] = json!(url),
+            None => record["url"] = json!(url.map(|url| privacy::strip_url(&url))),
         }
         // A conversation tab reopens as one, from this record.
         if let Some(conversation) =
@@ -367,11 +368,22 @@ fn insert_group(
     members: Vec<Value>,
     window: Option<String>,
 ) -> anyhow::Result<()> {
-    let pending = take_pending_group(transaction)?;
-    let closed_id = match &pending {
-        Some((closed_id, _)) => closed_id.clone(),
-        None => new_closed_id(),
+    let (closed_id, extra) = match take_pending_group(transaction)? {
+        Some((closed_id, extra)) => (closed_id, Some(extra)),
+        None => (new_closed_id(), None),
     };
+    insert_record(transaction, closed_id, members, window, extra)
+}
+
+/// Store group `closed_id` of `members` with the fields of `extra` and
+/// queue its public upsert.
+fn insert_record(
+    transaction: &Transaction<'_>,
+    closed_id: String,
+    members: Vec<Value>,
+    window: Option<String>,
+    extra: Option<Value>,
+) -> anyhow::Result<()> {
     let closed_at_ms = unix_epoch_ms()?;
     let mut record = json!({
         "id": closed_id,
@@ -380,14 +392,21 @@ fn insert_group(
         "closed_at_ms": closed_at_ms.to_string(),
         "members": members,
     });
-    if let Some((_, Value::Object(extra))) = pending {
+    if let Some(Value::Object(extra)) = extra {
         for (key, value) in extra {
             record[key] = value;
         }
         // A deleted space with no workspace left to close is still a
-        // workspace-level group: reopening it restores the space.
+        // workspace-level group: reopening it restores the space. An
+        // ungrouped tab or screen group stays a tab- or screen-level one.
         if record["members"].as_array().is_some_and(Vec::is_empty) {
-            record["kind"] = json!("workspace");
+            record["kind"] = json!(if record.get("tab_group").is_some() {
+                "tab"
+            } else if record.get("screen_group").is_some() {
+                "screen"
+            } else {
+                "workspace"
+            });
         }
     }
     let kind = record["kind"].as_str().unwrap_or("tab").to_string();
@@ -410,13 +429,18 @@ fn insert_group(
 /// record `window` (`install/window`). The window keeps its workspaces, so
 /// reopening the group only tells the app to show that window again
 /// (plans/cmux-next/reopen-closed.md 4). The `kind` column's CHECK predates
-/// window groups; the record's `kind` is the group's level. Returns the
-/// group's public change.
+/// window groups; the record's `kind` is the group's level. An incognito
+/// window (`keys` are only ephemeral workspaces) records nothing: None.
+/// Returns the group's public change.
 pub(crate) fn insert_window_group(
     transaction: &Transaction<'_>,
     window: &str,
     name: Option<String>,
-) -> anyhow::Result<Value> {
+    keys: &[String],
+) -> anyhow::Result<Option<Value>> {
+    if privacy::is_private_window(transaction, keys)? {
+        return Ok(None);
+    }
     let closed_id = new_closed_id();
     let closed_at_ms = unix_epoch_ms()?;
     let record = json!({
@@ -433,7 +457,7 @@ pub(crate) fn insert_window_group(
          VALUES(?1, 'workspace', ?2, ?3, ?4)",
         params![closed_id, window, i64::try_from(closed_at_ms)?, serde_json::to_string(&record)?],
     )?;
-    Ok(state_upsert("closed", &closed_id, public_item(&record)))
+    Ok(Some(state_upsert("closed", &closed_id, public_item(&record))))
 }
 
 /// Remove the window groups of window record `window` (it opened again or
@@ -470,6 +494,25 @@ pub(crate) fn workspace_name(
         })
         .optional()?
         .flatten())
+}
+
+/// Ungroup of a tab or screen group (`archive` under `field`, `tab_group`
+/// or `screen_group`: its id, workspace, name, color and members in order):
+/// one group with no member, since its tabs or screens stay open, in the
+/// window that lists its workspace. Reopening it forms the group again
+/// around them. An incognito workspace records nothing.
+pub(crate) fn record_ungrouped_group(
+    transaction: &Transaction<'_>,
+    field: &str,
+    archive: &Value,
+) -> anyhow::Result<()> {
+    let Some(workspace_id) = archive["workspace_id"].as_str() else { return Ok(()) };
+    if !super::store::state_tables_ready(transaction)? || is_ephemeral(transaction, workspace_id)? {
+        return Ok(());
+    }
+    let window = window_of_workspace(transaction, workspace_id)?;
+    let extra = json!({"name": archive["name"], field: archive});
+    insert_record(transaction, new_closed_id(), Vec::new(), window, Some(extra))
 }
 
 /// A new closed group id.

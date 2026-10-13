@@ -459,7 +459,7 @@ notification clear [--terminal <term_id>]
 notification ack --client <id> <notification-id>...
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
-  [--max-patch-bytes <n>] [--max-files <n>] [<path>...]
+  [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [<path>...]
 git files [TARGET] [--limit <n>] <query>...
 git list [TARGET] [--limit <n>]
 git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
@@ -469,7 +469,7 @@ git checkpoint get [TARGET] <checkpoint> | --key <idempotency-key>
 git checkpoint list [TARGET] [--cursor <cursor>] [--limit <n>] [--candidates]
 git checkpoint pin [TARGET] <checkpoint> --pin <pin-id> --reason <text>
 git checkpoint unpin [TARGET] <checkpoint> --pin <pin-id>
-git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>]
+git checkpoint diff [TARGET] <from> [<to>] [--only <path,...>] [--patch] [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>]
 git commit [TARGET] --message <text> [--all [--include-untracked]] [--amend] [--no-verify] [--expected-head <commit>] [<path>...]
 git push [TARGET] [--remote <name>] [--branch <name>] [--set-upstream | --no-set-upstream] [--expected-head <commit>]
 git worktree create [TARGET] [--name <name>] [--base <revision>]
@@ -500,16 +500,19 @@ provider authority install
 `notify` takes the flags of the macOS `cmux notify` so scripts and agent hooks
 work unchanged inside a machine: `--title` (default `Notification`, at most
 512 characters), `--subtitle` (at most 512), `--body` (at most 4096),
-`--clear`, `--surface`, `--workspace`, `--json`, and `--desktop true|false`
-(`false`: the app shows no banner; the sidebar marker still shows); `--window`
+`--clear`, `--surface`, `--workspace`, `--json`, `--desktop true|false`
+(`false`: the app shows no banner; the sidebar marker still shows), and
+`--reply` (the banner takes a typed reply, which the app pastes into the
+target terminal and submits with Return); `--window`
 and `--id-format` are accepted and ignored. The target defaults to the caller's own terminal
 (`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
 current` says the same, `--surface <term_id>` names another terminal of this
 session, and `--workspace` alone posts a session-level row with no terminal.
 A machine can only address its own session. `--clear` removes the retained
 rows for that target on the machine (`notification.clear`), so every attached
-client drops them. `--reply` is refused: a reply would type into a terminal,
-and that channel does not cross the link. Every row is bounded because each
+client drops them. A reply goes only to the notification's target
+terminal, while that notification is still unread, as text the user typed into its banner, over the same link the
+app's terminal input uses. Every row is bounded because each
 one is pushed to every attached client.
 
 `notification ack --client <id> <notification-id>...` records that one client
@@ -539,6 +542,13 @@ Workspace creation starts with one terminal unless `--empty` is present.
 `--pane`, and `--index` values and creates an unfocused tab placement. Tab,
 pane, screen, and workspace closes detach PTY views; only `terminal close`
 ends the session-owned process and removes all of its placements.
+`tab`, `pane`, `screen` and `workspace <selector> close` with `--others`,
+`--to-right`, `--to-left` or `--all` (panes: `--others` or `--all`) send one
+`layout.bulk` close: the selected object's siblings in its pane, screen,
+workspace or session close in one commit as one closed-history group, which
+`closed reopen` restores whole. Pinned tabs, screens and workspaces stay unless
+`--include-pinned`; the home workspace never closes; `--end-terminals` ends
+the terminals the close leaves without a view.
 `client <selector> metadata set` leaves an omitted field unchanged and clears
 one passed as null. A non-null name or kind preserves its exact value, contains
 at most 64 Unicode scalars, and contains no Unicode `Cc` control scalar.
@@ -565,7 +575,8 @@ a target the CLI sends the current directory. The session host runs git with
 no ambient `GIT_*` environment, no fsmonitor, external diff or textconv,
 literal pathspecs, a deadline and bounded output. `git diff` lists each file's
 status and line counts, adds patches only with `--patch` (each cut at
-`--max-patch-bytes`, 262144 by default, and marked `patch_truncated`), lists at
+`--max-patch-bytes`, 262144 by default, and marked `patch_truncated`; each
+hunk keeps `--context-lines` unchanged lines around it, 3 by default), lists at
 most `--max-files` (500) files with the rest counted in `files_omitted`, and
 counts at most 200 untracked files, reporting the rest as `untracked_skipped`.
 The base branch (`git status`'s `base`, the `branch` scope's merge base) is the
@@ -776,6 +787,7 @@ not a transported resource operation or cross-machine discovery API.
 ```text
 cmux tab group list|create|remove ...
 cmux tab group <group> update|add|move|split|column|new-workspace|ungroup|close|save|unsave ...
+cmux screen group <group> update [--icon <icon>|--clear-icon] ...
 cmux tab group saved list | saved <saved> delete|reopen --pane <id>
 cmux workspace group list [--room <room>]
 cmux workspace group create --name <name> [--color <c>] [--room <room>] [--index <n>] [--collapse]
@@ -788,6 +800,10 @@ Tab groups and saved tab groups are private protocol-v12 commands
 exactly one such request and send it like `raw command`, so they work against
 a headless daemon with no app running. Tab and pane arguments take the
 private protocol's ids or public `tab_...` and `pane_...` ids.
+`tab group <group> update --icon <icon>` and `screen group <group> update
+--icon <icon>` set the group's icon (the same icon string as a workspace
+group's) through `tab_group.update` and `screen_group.update`, and
+`--clear-icon` removes it (`tab-group-icon-v1`, `screen-group-icon-v1`).
 
 Workspace groups are personal state of the home session. `workspace group`
 uses the `workspace_group.*` resource operations, and `add`/`remove` use
@@ -796,7 +812,8 @@ workspace group commands are no longer used by the CLI. `workspace group <group>
 puts a group right before the personal workspace at placement index `<n>`;
 `--clear-top-index` puts it after every loose workspace
 (`personal-mixed-order-v1`). `workspace group <group> update --icon <icon>`
-sets the group's icon (one emoji or an SF Symbol name) and `--clear-icon`
+sets the group's icon (one emoji, an SF Symbol name, or a stored
+`image:sha256-<hex>` or `svg:sha256-<hex>` asset) and `--clear-icon`
 removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
 or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
 workspaces in the sidebar order. `workspace list` without `--order` (or with

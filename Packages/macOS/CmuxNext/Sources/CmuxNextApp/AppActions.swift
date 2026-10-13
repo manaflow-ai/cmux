@@ -50,6 +50,7 @@ enum AppActions {
         TabHandlers.bind(into: registry, context: context)
         TabIconHandlers.bind(into: registry, context: context)
         TabGroupHandlers.bind(into: registry, context: context)
+        GroupIconHandlers.bind(into: registry, context: context)
         PaneHandlers.bind(into: registry, context: context)
         ColumnHandlers.bind(into: registry, context: context)
         ColumnDocking.bind(into: registry, context: context)

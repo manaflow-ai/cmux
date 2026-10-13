@@ -42,6 +42,11 @@ public final class DaemonStore: StateResourceQueries {
     public let session = SessionStateStore()
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
+    /// What the sidebar shows of a tab's unread notification
+    /// (`notificationText(for:)`): each live notification's text by id, and
+    /// the ledger's newest unread text by surface, seeded at connect.
+    var notificationTexts: [NotificationID: String] = [:]
+    var ledgerNotificationTexts: [SurfaceID: String] = [:]
     /// True once the first snapshot is applied.
     public internal(set) var isLoaded = false
     /// True while the tree is the daemon's launch snapshot (drawn before

@@ -105,7 +105,18 @@ export const PAGES = {
       },
       {
         file: `${sources}/CmuxNextActions/BrowserProfileActions.xcstrings`,
-        keys: () => ["action.browserProfile.manageExtensions"],
+        // A profile's Clear Browsing Data form (cx-d0d.23): the action's title and kinds.
+        keys: (all) =>
+          all.filter(
+            (key) =>
+              key.startsWith("argument.browsingData.") ||
+              ["action.browserProfile.manageExtensions", "action.browserProfile.clearBrowsingData"].includes(key),
+          ),
+      },
+      {
+        // Its time ranges are Clear History's.
+        file: `${sources}/CmuxNextActions/HistoryActions.xcstrings`,
+        keys: (all) => all.filter((key) => key.startsWith("argument.history.range.")),
       },
       {
         file: `${sources}/CmuxNextActions/ActionCatalog.xcstrings`,

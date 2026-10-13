@@ -26,11 +26,12 @@ struct AgentChatTabActions {
         // `split-inherit-working-directory = false` it names none, and the split starts in the home
         // folder as any split does (PaneHandlers.split, NewTerminalStart). Only for a chat on this Mac:
         // the key is this Mac's, and a chat of another machine keeps its folder.
-        let cwd = id == "splitRight" && local() && !splitInherits() ? nil : cwd
+        let terminal = id == "splitRight" || id == "splitDown"
+        let cwd = terminal && local() && !splitInherits() ? nil : cwd
         let arguments: [String: ActionValue] = cwd.map { ["cwd": .string($0)] } ?? [:]
         var invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target ?? tab()), arguments: arguments, origin: .user)
-        // The header's Terminal opens a terminal, not the New Tab page a person's Split Right from a chat opens.
-        invocation.opensTerminal = id == "splitRight"
+        // The header's Terminal and Split Down open a terminal, not the New Tab page a person's split from a chat opens.
+        invocation.opensTerminal = terminal
         _ = registry()?.perform(ActionID(rawValue: id), invocation: invocation)
     }
 

@@ -146,8 +146,9 @@ Object.assign(variants, {
     note: "Harnesses while the first look has found nothing yet: it says it is checking.",
     harnesses: { loading: true, problem: null, harnesses: [] },
   }),
-  backdrops: variant("experimental", {
-    options: { values: { "appearance.experimentalControls": true, "appearance.background": "starryNight" } },
+  // Change Background… (cx-t2x.4): the picker on Appearance, with its Opacity slider.
+  backdrops: variant("appearance", {
+    options: { values: { "appearance.background": "starryNight", "appearance.backgroundOpacity": 0.6 } },
     host: {
       ...host,
       backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
@@ -163,13 +164,31 @@ Object.assign(variants, {
       wait('[data-card="backdrop"]'),
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
-    note: "The real wallpaper picker with a public-safe sample thumbnail.",
+    note: "Change Background…: the art picker and its Opacity slider on Appearance, with a public-safe sample thumbnail.",
+  }),
+  // Change Background… on a workspace (cx-t2x.5): This Workspace, following All Workspaces.
+  "backdrops-workspace": variant("appearance", {
+    focus: "appearance.background",
+    workspace: "ws-1",
+    options: {
+      values: { "appearance.background": "starryNight" },
+      workspaceBackgrounds: [{ workspace: "ws-1", title: "Research", value: null }],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    steps: [
+      wait('[data-card="backdrop"] .backdrop-scope'),
+      { selector: '[aria-label="This Workspace (Research)"]', action: "click" },
+    ],
+    note: "Change Background… on a workspace: This Workspace (Research) picked, following All Workspaces until it has its own.",
   }),
   // The curated backdrop art (cx-t2x.7): the real thumbnails of three works from each picker
   // collection, labelled "Title — Artist" with the credit lines the app sends, one picked.
   "curated-art": variant("appearance", {
     options: {
-      values: { "appearance.experimentalControls": true, "appearance.background": "van-gogh-starry-night" },
+      values: { "appearance.background": "van-gogh-starry-night" },
     },
     host: {
       ...host,
@@ -285,6 +304,59 @@ Object.assign(variants, {
       { selector: '[data-card="backdrop"] button[aria-pressed="true"]', action: "focus" },
     ],
     note: "The background picker grouped into Dark Art, Museum Icons, Calm and Doré, credited, one picked.",
+  }),
+  // Browse More Art (cx-t2x.8): a search across the open museum collections, sample answers.
+  "art-browser": variant("appearance", {
+    options: {
+      values: { "appearance.background": "starryNight" },
+      museumArt: [
+        {
+          key: "aic:1",
+          title: "Sample harbor at night",
+          artist: "Sample Painter",
+          date: "1880",
+          source: "Art Institute of Chicago",
+          page: "",
+        },
+        {
+          key: "cleveland:2",
+          title: "Sample moonlit coast",
+          artist: "Sample Etcher",
+          date: "c. 1645",
+          source: "Cleveland Museum of Art",
+          page: "",
+        },
+        {
+          key: "commons:3",
+          title: "Sample starry field",
+          artist: "",
+          date: "1889",
+          source: "Wikimedia Commons",
+          page: "",
+        },
+      ],
+    },
+    host: {
+      ...host,
+      backdrops: [{ id: "starryNight", title: "Sample night", attribution: "Gallery sample thumbnail" }],
+    },
+    backdropImages: Object.fromEntries(
+      ["starryNight", "museum/aic:1", "museum/cleveland:2", "museum/commons:3"].map((id, index) => [
+        id,
+        "data:image/svg+xml," +
+          encodeURIComponent(
+            `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="${["#253445", "#1d2a36", "#2b2336", "#20302a"][index]}"/><circle cx="235" cy="45" r="20" fill="#dfcf91"/></svg>`,
+          ),
+      ]),
+    ),
+    steps: [
+      wait('[data-card="backdrop"]'),
+      click('[data-card="backdrop"] button[aria-expanded]'),
+      input('[data-card="art-browser"] input[type="search"]', "night"),
+      click('[data-card="art-browser"] button[type="submit"]'),
+      wait('[data-card="art-browser"] .backdrop-grid'),
+    ],
+    note: "Browse More Art: a search answered by three open collections, each work with its source.",
   }),
   "theme-level-selected": variant("appearance", { steps: [click('input[name="theme-level"][value="workspace"]')] }),
   "theme-custom-spec": variant("appearance", {
@@ -678,6 +750,8 @@ export default settingsPageEntry({
     "pages/settings/components/HarnessesCard.tsx",
     "pages/settings/components/AgentHarnesses.tsx#AgentHarnesses",
     "pages/settings/components/ActionRow.tsx",
+    "pages/settings/components/ArtBrowser.tsx",
+    "pages/settings/components/BackdropScope.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
     "pages/settings/components/Highlight.tsx",

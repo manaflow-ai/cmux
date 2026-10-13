@@ -58,6 +58,7 @@ public nonisolated struct OmnibarGlassLook: Sendable, Hashable {
     }
 
     /// The glass tint in the active theme scope (read inside `performWithTheme`).
+    // theme-scoped: its one caller (OmnibarViews.refresh) runs it inside performWithTheme
     @MainActor func tintColor(boost: Double = 0) -> NSColor? {
         let base: NSColor
         switch tint {

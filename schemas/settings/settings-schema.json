@@ -72,7 +72,9 @@
             "rows" : [
               "navigation.historyScope",
               "navigation.history.scope",
-              "history.commandRetentionDays"
+              "history.commandRetentionDays",
+              "history.closed.maxGroups",
+              "history.closed.maxAgeDays"
             ],
             "title" : {
               "key" : "settings.group.history",
@@ -310,6 +312,8 @@
               "sidebar.showChats",
               "sidebar.showProjects",
               "sidebar.groupBy",
+              "sidebar.showSpaces",
+              "sidebar.showProfileControl",
               "sidebar.minimal",
               "sidebar.density",
               "sidebar.minimalMode",
@@ -338,6 +342,7 @@
               "sidebar.workspaceRow.progress",
               "sidebar.workspaceRow.working",
               "sidebar.workspaceRow.log",
+              "sidebar.workspaceRow.notification",
               "sidebar.workspaceRow.secondLineOrder"
             ],
             "title" : {
@@ -403,7 +408,7 @@
         ],
         "id" : "appearance",
         "lead" : [
-
+          "backdrops"
         ],
         "symbol" : "paintbrush",
         "title" : {
@@ -548,7 +553,8 @@
               "notifications.attention.duration",
               "notifications.attention.persist",
               "notifications.attention.showOnTab",
-              "notifications.attention.showOnSidebar"
+              "notifications.attention.showOnSidebar",
+              "notifications.attention.moveToTop"
             ],
             "title" : {
               "key" : "settings.group.attention",
@@ -892,7 +898,7 @@
           "text" : "Experimental"
         },
         "trail" : [
-          "backdrops"
+
         ]
       }
     ],
@@ -1147,6 +1153,123 @@
       "title" : {
         "key" : "settings.history.commandRetentionDays",
         "text" : "Keep Terminal Commands For"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        10000,
+        5000
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.history.closed.maxGroups.help",
+        "text" : "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "history.closed.maxGroups",
+      "keywords" : [
+        "history",
+        "recently closed",
+        "reopen",
+        "retention",
+        "delete",
+        "privacy"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "history",
+        "closed",
+        "maxGroups"
+      ],
+      "range" : {
+        "max" : 10000,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "count"
+      },
+      "refuses" : [
+        -10000,
+        20000,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.history.closed.maxGroups",
+        "text" : "Recently Closed Items to Keep"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        3650,
+        1825
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.history",
+        "text" : "History"
+      },
+      "help" : {
+        "key" : "settings.history.closed.maxAgeDays.help",
+        "text" : "Each machine deletes closed items that are older. 0 keeps them however old they are."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "history.closed.maxAgeDays",
+      "keywords" : [
+        "history",
+        "recently closed",
+        "reopen",
+        "retention",
+        "delete",
+        "privacy",
+        "days"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "history",
+        "closed",
+        "maxAgeDays"
+      ],
+      "range" : {
+        "max" : 3650,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 1,
+        "unit" : "days"
+      },
+      "refuses" : [
+        -3650,
+        7300,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.history.closed.maxAgeDays",
+        "text" : "Keep Recently Closed Items For"
       },
       "validation" : "portable"
     },
@@ -1849,6 +1972,67 @@
       "title" : {
         "key" : "settings.tabs.barOrder",
         "text" : "Tab Bar and Browser Toolbar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.hiddenButtons.help",
+        "text" : "Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.hiddenButtons",
+      "keywords" : [
+        "toolbar",
+        "split",
+        "buttons",
+        "hide"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "tabs",
+        "hiddenButtons"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.hiddenButtons",
+        "text" : "Hidden Tab Bar Buttons"
       },
       "validation" : "portable"
     },
@@ -5090,6 +5274,125 @@
     },
     {
       "accepts" : [
+        {
+
+        },
+        {
+          "*" : "★",
+          "Work" : ""
+        }
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : {
+
+      },
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.palette",
+        "text" : "Command Palette"
+      },
+      "help" : {
+        "key" : "settings.palette.aliases.help",
+        "text" : "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "palette.aliases",
+      "keywords" : [
+        "palette",
+        "alias",
+        "shortcut",
+        "command"
+      ],
+      "kind" : "string_map",
+      "page_hidden" : true,
+      "path" : [
+        "palette",
+        "aliases"
+      ],
+      "refuses" : [
+        "★",
+        [
+
+        ],
+        {
+          "Work" : 1
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.palette.aliases",
+        "text" : "Command Aliases"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.palette",
+        "text" : "Command Palette"
+      },
+      "help" : {
+        "key" : "settings.palette.pins.help",
+        "text" : "Commands shown first when the command palette opens, in this order, by action id."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "palette.pins",
+      "keywords" : [
+        "palette",
+        "pin",
+        "favorite",
+        "command"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "palette",
+        "pins"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.palette.pins",
+        "text" : "Pinned Commands"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -5565,6 +5868,7 @@
       "accepts" : [
         "neutral",
         "theme",
+        "art",
         "red",
         "green",
         "yellow",
@@ -5588,6 +5892,13 @@
             "text" : "Theme Color"
           },
           "value" : "theme"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.art",
+            "text" : "Art Color"
+          },
+          "value" : "art"
         },
         {
           "title" : {
@@ -5740,6 +6051,9 @@
         "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
+        "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -5792,6 +6106,7 @@
         "kramskoi-unknown-woman",
         "michelangelo-creation-of-adam",
         "hokusai-great-wave",
+        "holbein-ambassadors",
         "brueghel-wooden-vessel",
         "dahl-dresden-moonlight",
         "bosschaert-wan-li-vase",
@@ -5843,6 +6158,7 @@
         "van-gogh-almond-blossom",
         "van-gogh-fishing-boats",
         "hokusai-umezawa",
+        "whistler-falling-rocket",
         "dore-fall-of-satan",
         "dore-flood",
         "dore-wolves-sheep",
@@ -6271,6 +6587,27 @@
         {
           "title" : {
             "key" : null,
+            "text" : "View of Toledo — El Greco"
+          },
+          "value" : "el-greco-view-of-toledo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Raft of the Medusa — Théodore Géricault"
+          },
+          "value" : "gericault-raft-of-the-medusa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Apparition — Gustave Moreau"
+          },
+          "value" : "moreau-apparition"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "The Return of the Prodigal Son — Rembrandt van Rijn"
           },
           "value" : "rembrandt-prodigal-son"
@@ -6635,6 +6972,13 @@
         {
           "title" : {
             "key" : null,
+            "text" : "The Ambassadors — Hans Holbein the Younger"
+          },
+          "value" : "holbein-ambassadors"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "Flowers in a Wooden Vessel — Jan Brueghel the Elder"
           },
           "value" : "brueghel-wooden-vessel"
@@ -6992,6 +7336,13 @@
         {
           "title" : {
             "key" : null,
+            "text" : "Nocturne in Black and Gold — James McNeill Whistler"
+          },
+          "value" : "whistler-falling-rocket"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "The Fall of Satan — Gustave Doré"
           },
           "value" : "dore-fall-of-satan"
@@ -7094,6 +7445,7 @@
     {
       "accepts" : [
         "none",
+        "daily",
         "desktop",
         "david-death-of-marat",
         "goya-saturn",
@@ -7153,6 +7505,9 @@
         "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
+        "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -7205,6 +7560,7 @@
         "kramskoi-unknown-woman",
         "michelangelo-creation-of-adam",
         "hokusai-great-wave",
+        "holbein-ambassadors",
         "brueghel-wooden-vessel",
         "dahl-dresden-moonlight",
         "bosschaert-wan-li-vase",
@@ -7256,6 +7612,7 @@
         "van-gogh-almond-blossom",
         "van-gogh-fishing-boats",
         "hokusai-umezawa",
+        "whistler-falling-rocket",
         "dore-fall-of-satan",
         "dore-flood",
         "dore-wolves-sheep",
@@ -7264,7 +7621,8 @@
         "dore-moses-tables",
         "dore-empyrean",
         "dore-raven",
-        "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic"
+        "system:/System/Library/Desktop Pictures/Solid Colors/Blue.heic",
+        "file:/Users/Shared/Harbor.png"
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
@@ -7275,6 +7633,13 @@
             "text" : "None"
           },
           "value" : "none"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.shuffleDaily",
+            "text" : "Shuffle Daily"
+          },
+          "value" : "daily"
         },
         {
           "title" : {
@@ -7685,6 +8050,27 @@
         {
           "title" : {
             "key" : null,
+            "text" : "View of Toledo — El Greco"
+          },
+          "value" : "el-greco-view-of-toledo"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Raft of the Medusa — Théodore Géricault"
+          },
+          "value" : "gericault-raft-of-the-medusa"
+        },
+        {
+          "title" : {
+            "key" : null,
+            "text" : "The Apparition — Gustave Moreau"
+          },
+          "value" : "moreau-apparition"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "The Return of the Prodigal Son — Rembrandt van Rijn"
           },
           "value" : "rembrandt-prodigal-son"
@@ -8049,6 +8435,13 @@
         {
           "title" : {
             "key" : null,
+            "text" : "The Ambassadors — Hans Holbein the Younger"
+          },
+          "value" : "holbein-ambassadors"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "Flowers in a Wooden Vessel — Jan Brueghel the Elder"
           },
           "value" : "brueghel-wooden-vessel"
@@ -8406,6 +8799,13 @@
         {
           "title" : {
             "key" : null,
+            "text" : "Nocturne in Black and Gold — James McNeill Whistler"
+          },
+          "value" : "whistler-falling-rocket"
+        },
+        {
+          "title" : {
+            "key" : null,
             "text" : "The Fall of Satan — Gustave Doré"
           },
           "value" : "dore-fall-of-satan"
@@ -8502,6 +8902,8 @@
       "refuses" : [
         "system:relative/path.heic",
         "system:",
+        "file:relative.png",
+        "file:",
         "__not_a_backdrop__",
         1,
         true
@@ -13325,6 +13727,100 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showSpaces",
+      "keywords" : [
+        "sidebar",
+        "spaces",
+        "dots",
+        "profiles",
+        "footer",
+        "hide",
+        "show"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showSpaces"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showSpaces",
+        "text" : "Show Spaces"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.showProfileControl",
+      "keywords" : [
+        "sidebar",
+        "profile",
+        "account",
+        "avatar",
+        "footer",
+        "hide",
+        "show"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "showProfileControl"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.showProfileControl",
+        "text" : "Show Profile Button"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -14587,6 +15083,54 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.workspaceRows",
+        "text" : "Workspace Rows"
+      },
+      "help" : {
+        "key" : "settings.workspaceRow.notification.help",
+        "text" : "The text of the workspace's newest unread notification."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.notification",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "notification"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceRow.notification",
+        "text" : "Latest Notification"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -14596,12 +15140,20 @@
           "agentStatus",
           "process",
           "branch",
-          "directory"
+          "directory",
+          "notification"
         ]
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.notification",
+            "text" : "Latest Notification"
+          },
+          "value" : "notification"
+        },
         {
           "title" : {
             "key" : "settings.workspaceRow.directory",
@@ -14649,6 +15201,7 @@
         "cmux-next"
       ],
       "default" : [
+        "notification",
         "directory",
         "branch",
         "process",
@@ -14683,7 +15236,7 @@
         "secondLineOrder"
       ],
       "refuses" : [
-        "directory",
+        "notification",
         [
           "__not_a_choice__"
         ],
@@ -15301,6 +15854,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.terminal",
+        "text" : "Terminal Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.terminal.notification",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "terminal",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "terminal",
+        "notification"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceRow.notification",
+        "text" : "Latest Notification"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -15310,12 +15913,20 @@
           "agentStatus",
           "process",
           "branch",
-          "directory"
+          "directory",
+          "notification"
         ]
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.notification",
+            "text" : "Latest Notification"
+          },
+          "value" : "notification"
+        },
         {
           "title" : {
             "key" : "settings.workspaceRow.directory",
@@ -15391,7 +16002,7 @@
         "secondLineOrder"
       ],
       "refuses" : [
-        "directory",
+        "notification",
         [
           "__not_a_choice__"
         ],
@@ -16009,6 +16620,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.agent",
+        "text" : "Agent Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.agent.notification",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "agent",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "agent",
+        "notification"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceRow.notification",
+        "text" : "Latest Notification"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -16018,12 +16679,20 @@
           "agentStatus",
           "process",
           "branch",
-          "directory"
+          "directory",
+          "notification"
         ]
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.notification",
+            "text" : "Latest Notification"
+          },
+          "value" : "notification"
+        },
         {
           "title" : {
             "key" : "settings.workspaceRow.directory",
@@ -16099,7 +16768,7 @@
         "secondLineOrder"
       ],
       "refuses" : [
-        "directory",
+        "notification",
         [
           "__not_a_choice__"
         ],
@@ -16717,6 +17386,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.browser",
+        "text" : "Browser Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.browser.notification",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "browser",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "browser",
+        "notification"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceRow.notification",
+        "text" : "Latest Notification"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -16726,12 +17445,20 @@
           "agentStatus",
           "process",
           "branch",
-          "directory"
+          "directory",
+          "notification"
         ]
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.notification",
+            "text" : "Latest Notification"
+          },
+          "value" : "notification"
+        },
         {
           "title" : {
             "key" : "settings.workspaceRow.directory",
@@ -16807,7 +17534,7 @@
         "secondLineOrder"
       ],
       "refuses" : [
-        "directory",
+        "notification",
         [
           "__not_a_choice__"
         ],
@@ -17425,6 +18152,56 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.workspaceRow.default.sameAsAll",
+        "text" : "Same as All Workspaces"
+      },
+      "group" : {
+        "key" : "settings.workspaceRow.kind.mixed",
+        "text" : "Mixed Workspaces"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.workspaceRow.mixed.notification",
+      "keywords" : [
+        "sidebar",
+        "workspace",
+        "row",
+        "mixed",
+        "notification"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : true,
+      "path" : [
+        "sidebar",
+        "workspaceRow",
+        "mixed",
+        "notification"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.workspaceRow.notification",
+        "text" : "Latest Notification"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         [
 
         ],
@@ -17434,12 +18211,20 @@
           "agentStatus",
           "process",
           "branch",
-          "directory"
+          "directory",
+          "notification"
         ]
       ],
       "agent_refusal" : null,
       "agent_settable" : true,
       "choices" : [
+        {
+          "title" : {
+            "key" : "settings.workspaceRow.notification",
+            "text" : "Latest Notification"
+          },
+          "value" : "notification"
+        },
         {
           "title" : {
             "key" : "settings.workspaceRow.directory",
@@ -17515,7 +18300,7 @@
         "secondLineOrder"
       ],
       "refuses" : [
-        "directory",
+        "notification",
         [
           "__not_a_choice__"
         ],
@@ -18901,6 +19686,151 @@
       "title" : {
         "key" : "settings.browser.externalPatterns",
         "text" : "URLs to Always Open Externally"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.passwords.offerToSave.help",
+        "text" : "A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.passwords.offerToSave",
+      "keywords" : [
+        "password",
+        "save",
+        "sign in",
+        "login",
+        "credentials"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "passwords",
+        "offerToSave"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.passwords.offerToSave",
+        "text" : "Offer to Save Passwords"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.passwords.generate.help",
+        "text" : "Offers a generated password when a site asks for a new one, and saves it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.passwords.generate",
+      "keywords" : [
+        "password",
+        "generate",
+        "strong",
+        "suggest"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "passwords",
+        "generate"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.passwords.generate",
+        "text" : "Suggest Strong Passwords"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.passwords.allowExport.help",
+        "text" : "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.passwords.allowExport",
+      "keywords" : [
+        "password",
+        "export",
+        "csv",
+        "backup"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "passwords",
+        "allowExport"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.passwords.allowExport",
+        "text" : "Allow Password Export"
       },
       "validation" : "portable"
     },
@@ -20304,6 +21234,53 @@
       "title" : {
         "key" : "settings.attention.showOnSidebar",
         "text" : "Mark the Sidebar Row"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : {
+        "key" : "settings.attention.moveToTop.help",
+        "text" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.moveToTop",
+      "keywords" : [
+        "reorder",
+        "sort",
+        "bump"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "moveToTop"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.moveToTop",
+        "text" : "Move the Workspace to the Top"
       },
       "validation" : "portable"
     },
@@ -21818,7 +22795,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e69a9c7313c5992195b547c429133bfb90890d67a8c1e26a2337f3e540940647",
+  "schema_hash" : "c2169bbb37d76fad6c15203e9eaad3cccda0dd0b1ade5056bd0be9b45727a049",
   "sections" : [
     {
       "id" : "general",

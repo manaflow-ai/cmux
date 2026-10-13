@@ -184,6 +184,15 @@ const variants: Record<string, AgentPaneVariant> = {
       summary(5.2, { status: "completed", toolCount: 4 }),
     ]),
   },
+  "sources-changes": {
+    note: "Play: open Sources; Changes lists the turn's fourteen files under its totals, five until View all. A file opens the turn's diff at it.",
+    height: 700,
+    snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),
+    play: async ({ click, waitFor, document }) => {
+      await click({ selector: ".acpmux-summary-button" });
+      await waitFor(() => document.querySelector(".acpmux-summary-popover .acpmux-summary-file"));
+    },
+  },
   collapsed: {
     note: "agentPane.editedFiles.show = collapsed: the header only; its chevron shows the rows.",
     snapshot: turn(FOURTEEN, "Move the retry policy into its own module"),

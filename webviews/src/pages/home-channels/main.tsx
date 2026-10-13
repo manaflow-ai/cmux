@@ -14,6 +14,7 @@ import "../shared/pageBase.css";
 import "../../ui/ui.css";
 import "../../agent-session/acpmux/conversation/conversation.css";
 import "./styles.css";
+import { appPopupHost } from "../shared/pagePopupHost";
 
 export function mountHomeChannelsPage(
   root: HTMLElement,
@@ -23,7 +24,7 @@ export function mountHomeChannelsPage(
   const strings = createStrings(table);
   document.title = strings.t("page.title");
   createRoot(root).render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
+    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <HomeChannelsPage store={store} strings={strings} />
     </UiProvider>,
   );

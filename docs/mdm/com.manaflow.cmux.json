@@ -170,6 +170,7 @@
       "enum" : [
         "neutral",
         "theme",
+        "art",
         "red",
         "green",
         "yellow",
@@ -249,6 +250,9 @@
         "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
+        "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -301,6 +305,7 @@
         "kramskoi-unknown-woman",
         "michelangelo-creation-of-adam",
         "hokusai-great-wave",
+        "holbein-ambassadors",
         "brueghel-wooden-vessel",
         "dahl-dresden-moonlight",
         "bosschaert-wan-li-vase",
@@ -352,6 +357,7 @@
         "van-gogh-almond-blossom",
         "van-gogh-fishing-boats",
         "hokusai-umezawa",
+        "whistler-falling-rocket",
         "dore-fall-of-satan",
         "dore-flood",
         "dore-wolves-sheep",
@@ -369,6 +375,7 @@
       "description" : "Choose a public-domain painting, your desktop wallpaper, or a macOS system wallpaper behind the window material.",
       "enum" : [
         "none",
+        "daily",
         "david-death-of-marat",
         "goya-saturn",
         "velde-small-ship-storm",
@@ -427,6 +434,9 @@
         "ensor-skeleton-painter",
         "cabanel-fallen-angel",
         "spilliaert-woman-shoreline",
+        "el-greco-view-of-toledo",
+        "gericault-raft-of-the-medusa",
+        "moreau-apparition",
         "rembrandt-prodigal-son",
         "velazquez-las-meninas",
         "matejko-stanczyk",
@@ -479,6 +489,7 @@
         "kramskoi-unknown-woman",
         "michelangelo-creation-of-adam",
         "hokusai-great-wave",
+        "holbein-ambassadors",
         "brueghel-wooden-vessel",
         "dahl-dresden-moonlight",
         "bosschaert-wan-li-vase",
@@ -530,6 +541,7 @@
         "van-gogh-almond-blossom",
         "van-gogh-fishing-boats",
         "hokusai-umezawa",
+        "whistler-falling-rocket",
         "dore-fall-of-satan",
         "dore-flood",
         "dore-wolves-sheep",
@@ -1051,6 +1063,24 @@
       "title" : "Open Terminal Links in cmux Browser",
       "type" : "boolean"
     },
+    "browser.passwords.allowExport" : {
+      "default" : false,
+      "description" : "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password.",
+      "title" : "Allow Password Export",
+      "type" : "boolean"
+    },
+    "browser.passwords.generate" : {
+      "default" : true,
+      "description" : "Offers a generated password when a site asks for a new one, and saves it.",
+      "title" : "Suggest Strong Passwords",
+      "type" : "boolean"
+    },
+    "browser.passwords.offerToSave" : {
+      "default" : true,
+      "description" : "A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask.",
+      "title" : "Offer to Save Passwords",
+      "type" : "boolean"
+    },
     "browser.remoteLocalhost" : {
       "default" : true,
       "description" : "browser.remoteLocalhost",
@@ -1290,6 +1320,22 @@
       "maximum" : 8,
       "minimum" : 0.5,
       "title" : "Width",
+      "type" : "number"
+    },
+    "history.closed.maxAgeDays" : {
+      "default" : 0,
+      "description" : "Each machine deletes closed items that are older. 0 keeps them however old they are.",
+      "maximum" : 3650,
+      "minimum" : 0,
+      "title" : "Keep Recently Closed Items For",
+      "type" : "number"
+    },
+    "history.closed.maxGroups" : {
+      "default" : 0,
+      "description" : "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all.",
+      "maximum" : 10000,
+      "minimum" : 0,
+      "title" : "Recently Closed Items to Keep",
       "type" : "number"
     },
     "history.commandRetentionDays" : {
@@ -1557,6 +1603,12 @@
       "title" : "Pulse Duration",
       "type" : "number"
     },
+    "notifications.attention.moveToTop" : {
+      "default" : true,
+      "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
+      "title" : "Move the Workspace to the Top",
+      "type" : "boolean"
+    },
     "notifications.attention.persist" : {
       "default" : true,
       "description" : "notifications.attention.persist",
@@ -1713,6 +1765,28 @@
       "minimum" : 1,
       "title" : "Timeout",
       "type" : "number"
+    },
+    "palette.aliases" : {
+      "default" : {
+
+      },
+      "description" : "A word that names a command by its action id (\"vs\": \"splitRight\"). Typing the whole word in the command palette puts that command first.",
+      "properties" : {
+
+      },
+      "title" : "Command Aliases",
+      "type" : "object"
+    },
+    "palette.pins" : {
+      "default" : [
+
+      ],
+      "description" : "Commands shown first when the command palette opens, in this order, by action id.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Pinned Commands",
+      "type" : "array"
     },
     "palette.scopes.commands.prefix" : {
       "default" : ">",
@@ -1987,10 +2061,22 @@
       "title" : "Show All Chats",
       "type" : "boolean"
     },
+    "sidebar.showProfileControl" : {
+      "default" : true,
+      "description" : "sidebar.showProfileControl",
+      "title" : "Show Profile Button",
+      "type" : "boolean"
+    },
     "sidebar.showProjects" : {
       "default" : true,
       "description" : "sidebar.showProjects",
       "title" : "Show Projects",
+      "type" : "boolean"
+    },
+    "sidebar.showSpaces" : {
+      "default" : true,
+      "description" : "sidebar.showSpaces",
+      "title" : "Show Spaces",
       "type" : "boolean"
     },
     "sidebar.showWorkspaceTabs" : {
@@ -2083,6 +2169,11 @@
       "title" : "Log",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.agent.notification" : {
+      "description" : "sidebar.workspaceRow.agent.notification",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.agent.ports" : {
       "description" : "sidebar.workspaceRow.agent.ports",
       "title" : "Ports",
@@ -2107,6 +2198,7 @@
       "description" : "sidebar.workspaceRow.agent.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -2171,6 +2263,11 @@
       "title" : "Log",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.browser.notification" : {
+      "description" : "sidebar.workspaceRow.browser.notification",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.browser.ports" : {
       "description" : "sidebar.workspaceRow.browser.ports",
       "title" : "Ports",
@@ -2195,6 +2292,7 @@
       "description" : "sidebar.workspaceRow.browser.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -2271,6 +2369,11 @@
       "title" : "Log",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.mixed.notification" : {
+      "description" : "sidebar.workspaceRow.mixed.notification",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.mixed.ports" : {
       "description" : "sidebar.workspaceRow.mixed.ports",
       "title" : "Ports",
@@ -2295,6 +2398,7 @@
       "description" : "sidebar.workspaceRow.mixed.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -2315,6 +2419,12 @@
     "sidebar.workspaceRow.mixed.working" : {
       "description" : "sidebar.workspaceRow.mixed.working",
       "title" : "Agent Working",
+      "type" : "boolean"
+    },
+    "sidebar.workspaceRow.notification" : {
+      "default" : true,
+      "description" : "The text of the workspace's newest unread notification.",
+      "title" : "Latest Notification",
       "type" : "boolean"
     },
     "sidebar.workspaceRow.ports" : {
@@ -2343,6 +2453,7 @@
     },
     "sidebar.workspaceRow.secondLineOrder" : {
       "default" : [
+        "notification",
         "directory",
         "branch",
         "process",
@@ -2353,6 +2464,7 @@
       "description" : "The order of the shown items under the workspace name.",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -2401,6 +2513,11 @@
       "title" : "Log",
       "type" : "boolean"
     },
+    "sidebar.workspaceRow.terminal.notification" : {
+      "description" : "sidebar.workspaceRow.terminal.notification",
+      "title" : "Latest Notification",
+      "type" : "boolean"
+    },
     "sidebar.workspaceRow.terminal.ports" : {
       "description" : "sidebar.workspaceRow.terminal.ports",
       "title" : "Ports",
@@ -2425,6 +2542,7 @@
       "description" : "sidebar.workspaceRow.terminal.secondLineOrder",
       "items" : {
         "enum" : [
+          "notification",
           "directory",
           "branch",
           "process",
@@ -2506,6 +2624,17 @@
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
+    },
+    "tabs.hiddenButtons" : {
+      "default" : [
+
+      ],
+      "description" : "Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hidden Tab Bar Buttons",
+      "type" : "array"
     },
     "tabs.newTabKind" : {
       "default" : "page",

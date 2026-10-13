@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("instructions-notice.test.ts", async () => {
@@ -38,15 +39,30 @@ await requireBrowserLane("instructions-notice.test.ts", async () => {
   test("a refused Edit CLAUDE.md says why, retries and dismisses", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
+    // A busy runner (dev server files run side by side, #19831): opening the chat menu drew one
+    // 80-90 ms frame there. The same frame here, every run.
+    await page.addInitScript(() => {
+      document.addEventListener(
+        "click",
+        (event) => {
+          if ((event.target as Element | null)?.closest?.('[aria-label="Chat actions"]')) {
+            const until = performance.now() + 120;
+            while (performance.now() < until) {}
+          }
+        },
+        true,
+      );
+    });
     await page.goto(
       `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.instructions-notice&variant=outside-folder`,
     );
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay));
-    const result = await page.evaluate(() => ({
-      play: document.documentElement.dataset.galleryPlay,
-      report: JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
-    }));
+    const report = await page.evaluate(() =>
+      JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport),
+    );
     await page.close();
-    expect(result.play, result.report).toBe("pass");
+    // The play checks the behavior: the alert says why, Retry asks the host again, Dismiss clears it.
+    expect(playFailures(report)).toEqual([]);
+    expect((JSON.parse(report ?? "{}") as { steps?: unknown[] }).steps?.length, report).toBe(4);
   });
 });

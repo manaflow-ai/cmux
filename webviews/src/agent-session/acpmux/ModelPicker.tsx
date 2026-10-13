@@ -42,6 +42,7 @@ type HarnessChoice = {
     unavailable?: string;
     efforts?: string[];
     fast?: boolean;
+    release?: string;
   }[];
   unavailable?: string;
   acpmuxHarness?: string;
@@ -61,6 +62,8 @@ type ModelChoice = {
   unavailable?: string;
   efforts?: string[];
   fast?: boolean;
+  /** The catalog release an alias row stands for, which the curated list names. */
+  release?: string;
 };
 
 /// A harness's models, each once: its curated top models, else each family's newest (`latest`),
@@ -86,6 +89,7 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
         unavailable: model.unavailable,
         efforts: model.efforts,
         fast: model.fast,
+        ...(model.release ? { release: model.release } : {}),
       },
     ];
   });
@@ -105,7 +109,7 @@ function curatedSections(
   const all = [...sections.latest, ...sections.older];
   const latest: ModelChoice[] = [];
   for (const id of top) {
-    const model = all.find((choice) => choice.id === id);
+    const model = all.find((choice) => choice.id === id || choice.release === id);
     if (!model) continue;
     const variants = all.filter(
       (choice) => choice !== model && (choice.id.startsWith(`${id}[`) || choice.name.startsWith(`${model.name} · `)),
@@ -114,6 +118,18 @@ function curatedSections(
   }
   if (latest.length === 0) return sections;
   return { latest, older: all.filter((choice) => !latest.includes(choice)) };
+}
+
+/// `sectionsFor`, with the model the chat runs listed after the top ones when it is a folded one
+/// (Leo 2026-10-12: a New Tab chip on Claude's default, Sonnet 5, opened the whole fold).
+function shownSections(
+  entry: HarnessChoice | undefined,
+  model: string | undefined,
+): { latest: ModelChoice[]; older: ModelChoice[] } {
+  const sections = sectionsFor(entry);
+  const runs = sections.older.find((choice) => choice.id === model);
+  if (!runs) return sections;
+  return { latest: [...sections.latest, runs], older: sections.older.filter((choice) => choice !== runs) };
 }
 
 /// Every model of a harness, newest first, older versions included.
@@ -260,6 +276,7 @@ export function ModelPicker(props: ModelPickerProps) {
   const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const search = useRef<HTMLInputElement>(null);
+  const restoreFocus = useRef(false);
   const menuId = useId();
   const harnesses = useMemo(() => uniqueHarnesses(catalog), [catalog]);
   const navigableHarnesses = useMemo(
@@ -279,6 +296,8 @@ export function ModelPicker(props: ModelPickerProps) {
   const vocabulary = useMemo(() => effortWords(harnesses.flatMap((entry) => entry.models)), [harnesses]);
   const parsed = useMemo(() => parseQuery(query, vocabulary), [query, vocabulary]);
   const searching = query.trim() !== "";
+  // The chat's model, on its own harness's tab only.
+  const runsHere = selected?.ids.includes(harness ?? "") ? props.model : undefined;
   const owners = useMemo(() => {
     const owner = new Map<ModelChoice, HarnessChoice>();
     if (searching) {
@@ -290,13 +309,13 @@ export function ModelPicker(props: ModelPickerProps) {
         for (const model of choicesFor(entry)) if (favorites.has(model.id)) owner.set(model, entry);
     } else if (selected) {
       // Every model past the top ones folds under More models until it opens (cx-jqkx, cx-espus).
-      const { latest, older } = sectionsFor(selected);
+      const { latest, older } = shownSections(selected, runsHere);
       for (const model of olderOpen ? [...latest, ...older] : latest) owner.set(model, selected);
     }
     return owner;
-  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView]);
+  }, [favorites, harnesses, olderOpen, parsed, searching, selected, starredView, runsHere]);
   const visible = useMemo(() => [...owners.keys()], [owners]);
-  const olderCount = searching || starredView ? 0 : sectionsFor(selected).older.length;
+  const olderCount = searching || starredView ? 0 : shownSections(selected, runsHere).older.length;
   const refreshStatus = localRefreshStatus ?? catalogRefresh?.status ?? "idle";
   const refreshDate = catalogRefresh?.date;
   const formattedRefreshDate = refreshDate
@@ -335,12 +354,17 @@ export function ModelPicker(props: ModelPickerProps) {
   }, [menuStyle.visibility, open, openHeight]);
   const close = useCallback(
     (focus = true) => {
+      restoreFocus.current = focus;
       setOpen(false);
       onHarnessHint?.(undefined);
-      if (focus) trigger.current?.focus();
     },
     [onHarnessHint],
   );
+  useEffect(() => {
+    if (open || !restoreFocus.current) return;
+    restoreFocus.current = false;
+    trigger.current?.focus({ preventScroll: true });
+  }, [open]);
   const show = useCallback(() => {
     setSelectedHarness(harness ?? current?.id);
     setActiveHarness(
@@ -350,14 +374,14 @@ export function ModelPicker(props: ModelPickerProps) {
       ),
     );
     setQuery("");
-    // A session on a folded model opens with the fold open, its row highlighted.
-    const { latest, older } = sectionsFor(current);
-    const runsOlder = older.some((model) => model.id === props.model);
-    setOlderOpen(runsOlder);
+    // The fold opens closed; a session on a folded model has its row with the top ones, highlighted.
+    setOlderOpen(false);
     setActive(
       Math.max(
         0,
-        (runsOlder ? [...latest, ...older] : latest).findIndex((model) => model.id === props.model),
+        shownSections(current, current?.ids.includes(harness ?? "") ? props.model : undefined).latest.findIndex(
+          (model) => model.id === props.model,
+        ),
       ),
     );
     setOpen(true);
@@ -792,7 +816,13 @@ export function ModelPicker(props: ModelPickerProps) {
                     <span className="acpmux-menu-label flex-1 truncate">{t("picker.newChat")}</span>
                   </button>
                 ) : visible.length === 0 ? (
-                  <div className={emptyNote}>{starredView && !query ? t("picker.starredEmpty") : noMatchesText}</div>
+                  <div className={emptyNote}>
+                    {starredView && !query
+                      ? t("picker.starredEmpty")
+                      : !query && selected && selected.models.length === 0
+                        ? t("picker.noModels")
+                        : noMatchesText}
+                  </div>
                 ) : (
                   visible.map((model, index) => (
                     <div className="group relative flex items-center" key={`${owners.get(model)?.id}:${model.id}`}>

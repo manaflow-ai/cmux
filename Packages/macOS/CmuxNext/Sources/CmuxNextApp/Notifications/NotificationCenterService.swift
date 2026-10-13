@@ -54,6 +54,8 @@ final class NotificationCenterService {
     @ObservationIgnored var desktopPostingEnabled = true
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
+    /// The languages banner titles the app writes are in (OSC 7501 alerts, cx-6so.36.8); tests pick one.
+    @ObservationIgnored var localizations: [String] = Bundle.module.preferredLocalizations
     /// Ghostty's `desktop-notifications`: off reads terminal notifications
     /// at once, as Ghostty then posts none (read per arrival, so a config
     /// reload applies).
@@ -84,6 +86,9 @@ final class NotificationCenterService {
             self?.open(surface: surface.map(SurfaceID.init(rawValue:)))
             self?.webNotificationClicks.run(bannerID: id)
         }
+        desktop.onReply = { [weak self] id, surface, text in
+            self?.reply(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), text: text)
+        }
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
         tasks.append(Task { [weak self] in
@@ -95,6 +100,7 @@ final class NotificationCenterService {
             }
         })
         tasks.append(followViewedProgramStatus(store))
+        tasks.append(followNotificationLedger(services.daemon))
         tasks.append(Task { [weak self] in
             for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
                 self?.updateDockBadge(count)
@@ -154,6 +160,30 @@ final class NotificationCenterService {
         let context = AppActionContext(services: services)
         context.reveal(located)
         interacted(.open, tabID: located.tab.id)
+    }
+
+    /// A reply banner's text (`notify --reply`) for the terminal of `surface`:
+    /// pasted, then Return as its own key, as the old app sent it (a full-screen
+    /// agent editor reads a pasted newline as a line break, not a submit). The
+    /// reply answered the notification, so its tab is read.
+    /// Only while the banner's notification is still the tab's unread one: a
+    /// banner left in Notification Center from an earlier launch, or one a newer
+    /// notification replaced, must not type into whatever runs there now.
+    func reply(banner: String, surface: SurfaceID?, text: String) {
+        guard let services, let surface, !text.isEmpty, let located = locate(surface: surface, in: services.daemon.store),
+              located.tab.kind == .pty, let marker = located.tab.notification, marker.unread,
+              banner == "cmux-notification-\(marker.notification.rawValue)" else {
+            note("reply refused: \(banner) is not the tab's unread notification")
+            return
+        }
+        let target = located.tab.surface
+        // The tab's own machine: a Cloud terminal's input goes over its link.
+        services.daemon(for: located.pane).send("notification-reply") { connection in
+            try await connection.send(target, text: text, paste: true)
+            try await connection.send(target, text: "\r")
+        }
+        note("reply \(located.tab.id)")
+        acknowledge(located.tab)
     }
 
     /// Opening from a verb (jump to unread): reads it unless the policy is `never`.
@@ -258,6 +288,7 @@ final class NotificationCenterService {
         // The feed (and the iPhone push) gets only what would alert on this Mac: the
         // driver's pass applies the policy to the daemon's item, and a notice that did
         // not alert here (pane in view, app active, banners off) stays local.
+        moveToTop(located.workspace)
         feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: decision.alerts)
         feedDriver?.run()
         if decision.desktop {
@@ -273,10 +304,13 @@ final class NotificationCenterService {
     private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
                       subtitle: String? = nil, program: ProgramStatusNotification? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
-        let title = notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title
+        // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
+        let title = program?.title(localizations: localizations)
+            ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
         desktop.post(id: id, title: title, subtitle: subtitle, body: notification.body, surface: notification.surface?.rawValue,
                      workspace: workspace, defaultSound: sound == "default",
-                     attachment: program.flatMap { StatusNotificationImage.data($0.reason) })
+                     attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
+                     reply: notification.reply && tab?.kind == .pty)
         if let sound, sound != "default" { NotificationSounds.play(sound) }
         if let tab { banners[tab.id, default: []].append(id) }
     }

@@ -86,7 +86,7 @@ done
   "$OUT_DIR/obj/shim/shim_site.mm.o" "$OUT_DIR/obj/shim/shim_devtools.mm.o" \
   "$OUT_DIR/obj/shim/shim_windows.mm.o" "$OUT_DIR/obj/shim/shim_proxy.mm.o" \
   "$OUT_DIR/obj/shim/shim_extensions_ui.mm.o" "$OUT_DIR/obj/shim/shim_webstore.mm.o" \
-  "$OUT_DIR/obj/shim/shim_cookie_import.mm.o" \
+  "$OUT_DIR/obj/shim/shim_cookie_import.mm.o" "$OUT_DIR/obj/shim/shim_browsing_data.mm.o" \
   "$OUT_DIR/obj/shim/shim_password_import.mm.o" "$OUT_DIR/obj/shim/shim_passkeys.mm.o" \
   "$OUT_DIR/obj/shim/shim_password_core.mm.o" \
   "$OUT_DIR/obj/shim/shim_devtools_protocol.mm.o" "$OUT_DIR/obj/shim/shim_prefs.mm.o" \

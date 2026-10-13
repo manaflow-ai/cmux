@@ -99,7 +99,7 @@ final class SidebarBridge {
         let machines = services.machines
         let registry = services.windows.registry
         let layout = services.sidebarLayout
-        let pageTabs = services.agentTabs.pageTabs
+        let agentTabs = services.agentTabs
         let notifications = services.notifications
         let creations = services.cloud.creations
         let services = services
@@ -114,18 +114,20 @@ final class SidebarBridge {
             // one slide, not a slide of the old rows and then a row reload.
             // The band's layout comes with the rows it projects too (cx-odqn):
             // a pinned workspace leaves the list in the turn it joins the band.
-            for await (sections, launching, failed, profiles, active, shown) in ObservationStream({
+            for await (sections, launching, failed, profiles, active, shown, creating) in ObservationStream({
                 let (sections, launching, failed) = Self.liveSections(
                     machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
-                    newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
+                    newTabPages: Self.newTabPages(agentTabs, in: machines.local.store), muted: notifications.preferences.mutedWorkspaces,
                     top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
                     tabTitle: Self.tabTitle(services))
-                return (sections, launching, failed, Self.profiles(machines.local.store), SidebarProfileKey(windowState.profileID.rawValue),
-                        SidebarRows.visibleLayout(layout.document))
+                return (sections, launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
+                        SidebarRows.visibleLayout(layout.document), PendingWorkspaceRows.shared.rows(in: windowState.id))
             }) {
                 guard let self else { return }
                 self.showProfiles(profiles, active: active, launching: launching)
-                self.show(sections, layout: shown, launching: launching, failed: failed)
+                self.show(sections, layout: shown, launching: launching, failed: failed, creating: creating)
+                // A workspace a window owns lists its own row from here on (cx-9a7wx).
+                PendingWorkspaceRows.shared.forget { registry.value.owner(of: $0) != nil }
             }
         }
         // R99: the rows of another space, for the page beside the current one during a swipe.
@@ -134,7 +136,7 @@ final class SidebarBridge {
             return spaceCache.sections(for: key) {
                 Self.sections(machines, members: registry.members(of: windowState.id), profile: ProfileID(rawValue: key.rawValue),
                               hidesHome: Self.hidesHome(layout.document), selection: windowState.selection,
-                              newTabPages: pageTabs.ids, muted: notifications.preferences.mutedWorkspaces,
+                              newTabPages: Self.newTabPages(agentTabs, in: machines.local.store), muted: notifications.preferences.mutedWorkspaces,
                               top: SidebarTopProjection.make(layout, machines: machines, room: key.rawValue), pageFace: services.sidebarPageFace,
                               tabTitle: Self.tabTitle(services))
             }
@@ -181,7 +183,7 @@ final class SidebarBridge {
         }
         let (sections, launching, failed) = Self.liveSections(services.machines, registry: windows.registry, window: state, creations: services.cloud.creations,
                                                               hidesHome: Self.hidesHome(services.sidebarLayout.document),
-                                                              newTabPages: services.agentTabs.pageTabs.ids,
+                                                              newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store),
                                                               muted: services.notifications.preferences.mutedWorkspaces,
                                                               top: .make(services.sidebarLayout, machines: services.machines, room: state.profileID.rawValue),
                                                               tabTitle: Self.tabTitle(services))
@@ -190,13 +192,14 @@ final class SidebarBridge {
 
     /// Shows `live` with loading sections filled from the seed, and the
     /// band's `layout` in the same turn, then saves it.
-    private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>) {
+    private func show(_ live: [SidebarRowSection], layout: SidebarLayoutDocument, launching: Bool, failed: Set<MachineID>,
+                      creating: [PendingWorkspaceRows.Row] = []) {
         var sections = seed.merge(live, launching: launching, failed: failed)
         // After the merge, so a reconnecting machine's saved rows stand in first (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         model.ungroupedFirst = !usesMixedOrder
         if model.layout != layout { model.layout = layout }
-        rows.show(sections)
+        rows.show(sections, creating: (creating, NewWorkspacePlacements.home(services.machines)))
         selectionHold.flush()
         organizationQueue.drain(loaded: usesPersonalOrganization, local: services.machines.local, run: handle, refuse: refuseOrganization)
         groupFlow.openPendingEditor()
@@ -275,6 +278,11 @@ final class SidebarBridge {
     /// A tab's name in the sidebar's tab rows, as its strip names it.
     typealias TabTitle = (TabModel) -> String
 
+    /// The tabs that show the New Tab page, named "New Tab" and badged as a page.
+    static func newTabPages(_ tabs: AgentTabStore, in store: DaemonStore?) -> Set<String> {
+        RestoredNewTabPages.ids(in: store, tabs: tabs)
+    }
+
     /// The strip's title rule (`TabTitleResolver`) for the sidebar's tab rows.
     static func tabTitle(_ services: AppServices) -> TabTitle {
         let titles = TabTitleResolver(services: services)
@@ -285,15 +293,6 @@ final class SidebarBridge {
         layout.firstItem(with: SidebarLayoutDocument.homeRef) != nil
     }
 
-    /// The profile bar of the local daemon's profiles (empty when it has
-    /// none; the bar hides below two).
-    static func profiles(_ store: DaemonStore) -> [SidebarProfile] {
-        store.profiles.sorted { $0.index < $1.index }.map { profile in
-            SidebarProfile(id: SidebarProfileKey(profile.id.rawValue), name: profile.name,
-                           color: profile.color.flatMap(GroupColor.init(rawValue:)), icon: profile.icon)
-        }
-    }
-
     /// One section per machine: the local daemon, then each Cloud machine
     /// (empty while it connects), with the workspaces and groups of
     /// `profile` (all of them on a machine without that profile).
@@ -302,28 +301,33 @@ final class SidebarBridge {
                          pageFace: PageFace = { _, _ in nil }, tabTitle: TabTitle? = nil) -> [SidebarRowSection] {
         let showsUnread = DesignSettings.shared.attention.showsOnSidebar
         let selectedTab = { (pane: PaneModel) in selection.selection(in: pane.id) }
+        let groupIcon = IconAssetImages.shared.sidebarIcon(owner: machines.local)
         var sections = SidebarMapping.shared.sections(PersonalSidebar.sections(of: machines.local, room: profile, machines: machines),
                                                machine: machine(for: machines.local, name: Strings.localMachine, kind: .local),
                                                hidesHomeWorkspace: hidesHome, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
                                                newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
-                                                tabTitle: tabTitle)
+                                               tabTitle: tabTitle, notificationText: machines.local.store.notificationText(for:),
+                                               iconAsset: groupIcon)
         for session in machines.cloud {
             let header = CloudCreationRows.machine(session, compatibility: machines.compatibility(of: session.daemon))
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: header, showsUnread: showsUnread, muted: muted, selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
-                                                tabTitle: tabTitle)
+                                                tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
+                                                iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon), groupIconAsset: groupIcon)
         }
         for session in machines.ssh {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: sshMachine(session, machines: machines), muted: muted, selectedTab: selectedTab,
                                                 newTabPages: newTabPages, newTabTitle: Strings.untitledBrowser, pageFace: pageFace,
-                                                tabTitle: tabTitle)
+                                                tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
+                                                iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon), groupIconAsset: groupIcon)
         }
         for session in machines.servers {
             sections += SidebarMapping.shared.sections(PersonalSidebar.sections(of: session.daemon, room: profile, machines: machines),
                                                 machine: session.sidebarMachine(machines: machines), selectedTab: selectedTab, pageFace: pageFace,
-                                                tabTitle: tabTitle)
+                                                tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
+                                                iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon), groupIconAsset: groupIcon)
         }
         return sections
     }

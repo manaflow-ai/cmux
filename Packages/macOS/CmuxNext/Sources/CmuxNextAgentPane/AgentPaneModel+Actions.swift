@@ -12,14 +12,11 @@ extension AgentPaneModel {
     /// credit, as Choose Folder…); page script cannot make one. Its sign-in fallback runs only
     /// inside that same gesture.
     func runAction(_ id: String) -> [String: Any] {
-        guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id)
-                || newTab?.tools.contains(where: { $0.id == id || $0.menu.contains(id) }) == true,
+        guard id == "newTab.page" || id == "agentPane.searchChats" || Self.connectActions.contains(id),
               let onRunAction else {
             return Self.unsupported("action.run")
         }
-        if Self.connectActions.contains(id), !transport.gestures.consume() {
-            return Self.transportFailure(.gestureRequired)
-        }
+        if Self.connectActions.contains(id), !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
         if !onRunAction(id), let fallback = Self.connectFallbacks[id] { _ = onRunAction(fallback) }
         return AgentPaneReply.success()
     }

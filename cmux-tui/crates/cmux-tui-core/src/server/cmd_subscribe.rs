@@ -216,6 +216,11 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             })
         }
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
+        MuxEvent::ProgramStatusChanged { surface, status } => json!({
+            "event": "program-status-changed",
+            "surface": surface,
+            "program_status": status.map(|status| status.wire()),
+        }),
         MuxEvent::Notification(notification) => json!({
             "event": "notification",
             "notification": notification.notification,
@@ -225,6 +230,7 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "surface": notification.surface,
             "source": notification.source.as_str(),
             "desktop": notification.desktop,
+            "reply": notification.reply,
         }),
         MuxEvent::GraphicsStatus(status) => match status {
             GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => json!({
@@ -306,6 +312,11 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "event": "settings-changed",
             "revision": change.revision,
             "keys": change.keys,
+            "origin": change.origin.as_str(),
+        }),
+        MuxEvent::KeybindingsChanged(change) => json!({
+            "event": "keybindings-changed",
+            "revision": change.revision,
             "origin": change.origin.as_str(),
         }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({

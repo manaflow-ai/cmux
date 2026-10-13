@@ -94,6 +94,7 @@ pub fn serve_terminal_host_stdio(
         supports_clipboard_read: true,
         supports_viewer_size_priority: true,
         supports_pty_custody: sys::SUPPORTS_PTY_CUSTODY,
+        supports_program_status: true,
     };
     let record_root = Path::new(&launch.record_path)
         .parent()

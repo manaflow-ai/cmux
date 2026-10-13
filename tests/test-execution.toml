@@ -1175,3 +1175,27 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_cmux_next_classic_to_next.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_guards_notices_pair.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_frame_pacing_bench_files.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_e2e_runner_pool_auto.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_frame_pacing_app_rpc.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_republish_delta_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_computer_use_helper.py"
+lane = "linux-guard"

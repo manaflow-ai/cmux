@@ -31,7 +31,24 @@ struct RapidWorkspaceCreateTests {
         }
     }
 
-    @Test func twentyCmdNWithClosesInBetweenKeepEveryWorkspaceInPressOrder() async throws {
+    /// The app on a fresh same-tree daemon, with the launch window showing its first workspace.
+    private struct Launched {
+        let services: AppServices
+        let root: URL
+
+        /// Ends the daemon (and its terminals), closes the windows and removes the state.
+        func stop() async {
+            if let connection = services.daemon.connection, let identity = services.daemon.identity {
+                _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                                  timeout: .seconds(10))
+            }
+            services.daemon.shutdownConnection()
+            for controller in services.windows.controllers { controller.window?.close() }
+            try? FileManager.default.removeItem(at: root)
+        }
+    }
+
+    private static func launch() async throws -> Launched {
         let binary = try #require(SameTreeDaemonBinary.url)
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-race-\(UUID().uuidString.prefix(8))")
         let session = "cn-race-\(UUID().uuidString.prefix(8).lowercased())"
@@ -47,17 +64,16 @@ struct RapidWorkspaceCreateTests {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
-        let store = services.daemon.store
-        defer { try? FileManager.default.removeItem(at: root) }
-        defer {
-            services.daemon.shutdownConnection()
-            for controller in services.windows.controllers { controller.window?.close() }
-        }
-
-        // The launch window shows its first workspace.
         await Self.wait(within: .seconds(90)) {
             services.windows.active.flatMap { services.windows.registry.members(of: $0.state.id).first } != nil
         }
+        return Launched(services: services, root: root)
+    }
+
+    @Test func twentyCmdNWithClosesInBetweenKeepEveryWorkspaceInPressOrder() async throws {
+        let launched = try await Self.launch()
+        let services = launched.services
+        let store = services.daemon.store
         let window = try #require(services.windows.active?.state.id)
         let before = Set(store.workspaces.map(\.id))
         // The notices a keyboard run shows (a quiet refusal shows none).
@@ -68,20 +84,23 @@ struct RapidWorkspaceCreateTests {
             shows?(reason, quiet)
         }
 
-        // 20 presses inside a second (key repeat), each named so its sidebar row says which press
-        // made it, with Close Workspace pressed between some of them.
+        // 20 presses at key-repeat speed, each named so its sidebar row says which press made it,
+        // with Close Workspace pressed between some of them. `pressing` is the time the presses
+        // themselves hold the main actor (no press waits for its create); the 30 ms gaps are left
+        // out, since a busy test host oversleeps them (1.7-2.6 s for 20 on the fleet).
         var work: [ActionWork] = []
-        let started = ContinuousClock.now
+        var pressing = Duration.zero
         for press in 1...Self.presses {
+            let pressed = ContinuousClock.now
             work += services.registry.capturingWork {
                 _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string(Self.name(press))]))
             }
             if Self.closesAfter.contains(press) {
                 work += services.registry.capturingWork { _ = services.registry.perform("closeWorkspace") }
             }
+            pressing += ContinuousClock.now - pressed
             try? await Task.sleep(for: .milliseconds(30))
         }
-        let pressing = ContinuousClock.now - started
         var failures: [String] = []
         for task in work { if let failure = await task.value { failures.append(failure.message) } }
 
@@ -103,12 +122,9 @@ struct RapidWorkspaceCreateTests {
         let ids = before.union(created.map(\.id))
         let refusals = notices.shown
 
-        if let connection = services.daemon.connection, let identity = services.daemon.identity {
-            _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
-                                              timeout: .seconds(10))
-        }
+        await launched.stop()
 
-        #expect(pressing < .seconds(1))
+        #expect(pressing < .seconds(1), "the presses held the main actor for \(pressing)")
         // Each close took exactly one workspace; none of the others is missing.
         #expect(store.workspaces.count == expected)
         #expect(created.allSatisfy { members.contains($0.id) }, "not in the sidebar: \(created.filter { !members.contains($0.id) }.map(\.name))")
@@ -118,5 +134,59 @@ struct RapidWorkspaceCreateTests {
         #expect(failures.isEmpty, "failed: \(failures)")
         #expect(refusals.isEmpty, "notices: \(refusals)")
         #expect(!(failures + refusals).contains { message in ids.contains { message.contains($0) } })
+    }
+
+    /// cx-9a7wx: each Cmd-N shows its row at the press, before the daemon has made the workspace
+    /// (rapid presses wait their turn, so the last one used to show seconds later). The row is
+    /// the workspace's own: once the daemon reports it, the same row, in the same place, shows it,
+    /// and no row leaves the sidebar on the way.
+    @Test func cmdNShowsItsRowAtThePressAndTheWorkspaceTakesIt() async throws {
+        let launched = try await Self.launch()
+        let services = launched.services
+        let window = try #require(services.windows.active?.state.id)
+        let sidebar = try #require(services.windows.controller(for: window)?.sidebar.model)
+        let presses = 10
+        let before = Set(sidebar.allWorkspaces.map(\.id.rawValue))
+        /// The new rows, top to bottom.
+        func rows() -> [String] { sidebar.allWorkspaces.map(\.id.rawValue).filter { !before.contains($0) } }
+
+        var work: [ActionWork] = []
+        let started = ContinuousClock.now
+        for press in 1...presses {
+            work += services.registry.capturingWork {
+                _ = services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string(String(format: "row-%02d", press))]))
+            }
+            await Task.yield()
+        }
+        let deadline = started + .milliseconds(250)
+        while rows().count < presses, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(5)) }
+        let atPress = rows()
+        let shownAfter = ContinuousClock.now - started
+
+        // Until every create finished and the window lists it, no row leaves the sidebar.
+        var gaps: Set<String> = []
+        var settled = false
+        let settleBy = ContinuousClock.now + .seconds(30)
+        while !settled, ContinuousClock.now < settleBy {
+            let shown = Set(rows())
+            gaps.formUnion(atPress.filter { !shown.contains($0) })
+            let members = Set(services.windows.registry.members(of: window))
+            settled = atPress.count == presses && atPress.allSatisfy(members.contains)
+                && sidebar.allWorkspaces.filter { atPress.contains($0.id.rawValue) }.allSatisfy { $0.rowState == .live }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        var failures: [String] = []
+        for task in work { if let failure = await task.value { failures.append(failure.message) } }
+        let final = rows()
+        let names = final.compactMap { id in services.daemon.store.workspaces.first { $0.id == id }?.name }
+        await launched.stop()
+
+        #expect(atPress.count == presses, "\(atPress.count) rows \(shownAfter) after the first press")
+        #expect(settled, "never settled: \(final)")
+        // The same rows, in the same order, now the workspaces' own.
+        #expect(final == atPress, "rows changed: \(atPress) -> \(final)")
+        #expect(names.count == presses && (names == names.sorted() || names == names.sorted(by: >)), "press order: \(names)")
+        #expect(gaps.isEmpty, "rows left the sidebar: \(gaps)")
+        #expect(failures.isEmpty, "failed: \(failures)")
     }
 }

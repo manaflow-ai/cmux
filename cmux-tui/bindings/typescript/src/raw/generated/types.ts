@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7f287af0cf834f78d9747ad2018b58a3fbfc60523c0b452b9307b59df2a61b1f. */
+/* cmux-tui mux protocol 12, IR 35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -71,6 +71,8 @@ export type Bookmark = {
   "browser_profile_id": string;
   "created_ms": bigint;
   "favicon_key"?: string;
+  /** Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>. */
+  "icon"?: string;
   /** `bm_` and 32 lowercase hex digits. */
   "id": string;
   /** Dense 0-based position among the node's siblings. */
@@ -690,6 +692,8 @@ export type ProcessInfoResult = {
   "pid": (number) | null;
 };
 
+export type ProgramStatusState = "working" | "blocked" | "error" | "done";
+
 export type ProviderWorkspaceMutationResult = {
   "key": string;
   "workspace": Id;
@@ -1020,6 +1024,11 @@ export type SetTerminalKeepResult = {
   "terminal_resource_id"?: (string) | null;
 };
 
+export type ShownProgramStatus = {
+  "progress": (number) | null;
+  "state": ProgramStatusState;
+};
+
 export type ShutdownDaemonResult = {
   "accepted": true;
   "ended_terminals"?: (bigint) | null;
@@ -1130,6 +1139,7 @@ export type Tab = {
   "kind": "pty" | "browser" | "conversation";
   "name": (string) | null;
   "notification"?: (NotificationMarker) | null;
+  "program_status"?: (ShownProgramStatus) | null;
   "short_id"?: string;
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;

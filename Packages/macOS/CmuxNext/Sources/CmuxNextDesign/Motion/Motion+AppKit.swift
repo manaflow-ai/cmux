@@ -185,15 +185,53 @@ extension Motion {
             layer.removeAnimation(forKey: keyPath)
             return nil
         }
+        let animation = springAnimation(token, keyPath, from: start, to: value)
+        add(animation, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).\(token.rawValue)")
+        return animation
+    }
+
+    /// The `token` spring from `from` to `to` on `keyPath`, for a caller
+    /// that adds it under its own key (a layer whose model value AppKit
+    /// rewrites, as a sidebar space page's translation).
+    public static func springAnimation(_ token: MotionSpring, _ keyPath: String, from: Any, to: Any) -> CASpringAnimation {
         let spring = self.spring(token)
         let animation = CASpringAnimation(keyPath: keyPath)
         animation.mass = 1
         animation.stiffness = spring.stiffness
         animation.damping = spring.damping
         animation.duration = spring.settlingTime(within: 0.002)
-        animation.fromValue = start
+        animation.fromValue = from
+        animation.toValue = to
+        return animation
+    }
+
+    /// An animation that shows `keyPath` at `value` until it is replaced or
+    /// removed, whatever is written to the model meanwhile.
+    public static func hold(_ keyPath: String, at value: Any) -> CABasicAnimation {
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = value
         animation.toValue = value
-        add(animation, to: layer, keyPath: keyPath, trace: "layer.\(keyPath).\(token.rawValue)")
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
+        return animation
+    }
+
+    /// A `token` fade of `keyPath` from `from` to `to` that starts `delay`
+    /// seconds from now on `layer` and then holds `to` until removed. At a
+    /// zero duration (speed off) it changes at once when the delay ends.
+    public static func scheduledFade(_ token: MotionFade, _ keyPath: String, from: Any, to: Any, after delay: CFTimeInterval,
+                                     on layer: CALayer) -> CABasicAnimation {
+        let duration = self.duration(token)
+        let animation = CABasicAnimation(keyPath: keyPath)
+        animation.fromValue = duration > 0 ? from : to
+        animation.toValue = to
+        // A zero duration would run Core Animation's 0.25 s default; a
+        // millisecond holds `to` from the end of the wait.
+        animation.duration = duration > 0 ? duration : 0.001
+        animation.timingFunction = fadeCurve
+        animation.beginTime = layer.convertTime(CACurrentMediaTime(), from: nil) + delay
+        animation.fillMode = .forwards
+        animation.isRemovedOnCompletion = false
         return animation
     }
 
@@ -228,13 +266,13 @@ extension Motion {
     }
 
     /// A movement (scale, position) timed with a fade token, as a panel's
-    /// shrink while it fades out. Unlike `set(_:_:to:fade:)` it applies at
-    /// once when movement does not animate (Reduce Motion, speed "off"), so
-    /// only the opacity crossfade remains (motion.md rule 7).
+    /// shrink while it fades out. When movement does not animate (Reduce
+    /// Motion, speed "off") the value stays as it is, so only the opacity
+    /// crossfade remains (motion.md rule 7): applied at once, a close's
+    /// shrink jumped the panel smaller in one frame before it faded.
     @discardableResult
     public static func set(_ layer: CALayer, _ keyPath: String, to value: Any, movementFade token: MotionFade, from: Any? = nil) -> CAAnimation? {
         guard animatesMovement else {
-            setModel(layer, keyPath, value)
             layer.removeAnimation(forKey: keyPath)
             return nil
         }
@@ -337,6 +375,20 @@ extension Motion {
     public static var crossfadeAction: CATransition {
         let transition = CATransition()
         transition.type = .fade
+        return transition
+    }
+
+    /// Under Reduce Motion, a change that would move things crossfades in place instead
+    /// (motion.md rule 7): `layer` fades from what it showed to what it shows after this
+    /// transaction. Nil when fades are off.
+    @discardableResult
+    public static func crossfadeInPlace(_ layer: CALayer?) -> CATransition? {
+        let seconds = duration(.crossfade)
+        guard let layer, seconds > 0 else { return nil }
+        let transition = crossfadeAction
+        transition.duration = seconds
+        transition.timingFunction = fadeCurve
+        layer.add(transition, forKey: "cmux.reduceMotionCrossfade")
         return transition
     }
 }

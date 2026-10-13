@@ -8,7 +8,18 @@ import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "Node",
+  "Element",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let host: HTMLElement;
@@ -28,6 +39,12 @@ beforeAll(() => {
     navigator: window.navigator,
     HTMLElement: window.HTMLElement,
     IS_REACT_ACT_ENVIRONMENT: true,
+    // The suggestions' Popover (Base UI and Floating UI) reads these.
+    Node: window.Node,
+    Element: window.Element,
+    getComputedStyle: window.getComputedStyle.bind(window),
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
   });
   host = window.document.getElementById("root")!;
 });
@@ -73,5 +90,6 @@ test("a click on the field's Send button asks the agent, as Return does", async 
   const send = host.querySelector<HTMLButtonElement>('button[aria-label="Send"]');
   expect(send).not.toBeNull();
   await act(async () => send!.click());
-  expect(asked).toEqual([["claude", "fix the flaky upload test", "/Users/you/src/app"]]);
+  // On the model the chip names (cx-sljrg).
+  expect(asked).toEqual([["claude", "fix the flaky upload test", "/Users/you/src/app", "claude-opus-5-5"]]);
 });

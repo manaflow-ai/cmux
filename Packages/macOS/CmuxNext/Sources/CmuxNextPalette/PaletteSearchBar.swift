@@ -5,7 +5,7 @@ import CmuxNextDesign
 /// `PaletteScopeChipStyle`), the query field, the keyword hint ("Search
 /// Tabs ⇥") and a spinner while providers load.
 final class PaletteSearchBar: NSView, NSTextFieldDelegate {
-    let field = NSTextField()
+    let field = PaletteSearchField()
     var onQueryChange: ((String) -> Void)?
     /// Pops to level `index` (a click on a chip or the breadcrumb).
     var onPopTo: ((Int) -> Void)? {
@@ -21,7 +21,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     private let breadcrumb = PaletteClickView()
     private let breadcrumbLabel = PaletteText.label(Typography.caption, tone: .tertiary)
     private let keywordHint = PaletteKeywordHintView()
-    private let spinner = NSProgressIndicator()
+    private let spinner = StatusIndicatorView.spinner()
     private var placeholder = ""
     private var style: PaletteScopeChipStyle = .token
     private var depth = 0
@@ -36,16 +36,15 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         field.cell?.isScrollable = true
         field.cell?.wraps = false
         field.delegate = self
+        // An AX client reads the field through its cell (`PaletteSearchFieldCell`), so both carry its name.
         field.setAccessibilityIdentifier("palette.search")
+        field.cell?.setAccessibilityIdentifier("palette.search")
         magnifier.image = PaletteText.symbol("magnifyingglass", size: Metrics.iconSize)
         breadcrumb.addSubview(breadcrumbLabel)
         breadcrumb.onClick = { [weak self] in
             guard let self, self.depth > 1 else { return }
             self.onPopTo?(self.depth - 2)
         }
-        spinner.style = .spinning
-        spinner.controlSize = .small
-        spinner.isDisplayedWhenStopped = false
         [magnifier, chips, breadcrumb, field, keywordHint, spinner].forEach(addSubview)
     }
 
@@ -76,9 +75,11 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
         breadcrumbLabel.stringValue = ([rootTitle] + scopeChips.map(\.title)).joined(separator: " › ")
         breadcrumb.themedToolTip = scopeChips.dropLast().last.map { PaletteStrings.backTo($0.title) } ?? PaletteStrings.backTo(rootTitle)
         keywordHint.update(title: hint)
-        field.setAccessibilityLabel(scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder)
+        let name = scopeChips.last.map { PaletteStrings.keywordHint($0.title) } ?? placeholder
+        field.setAccessibilityLabel(name)
+        field.cell?.setAccessibilityLabel(name)
         field.font = Typography.search
-        if isLoading { spinner.startAnimation(nil) } else { spinner.stopAnimation(nil) }
+        spinner.spin(isLoading)
         needsLayout = true
     }
 

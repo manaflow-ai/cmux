@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { sessionModels } from "./modelCatalog";
 import {
   isDefaultChoice,
@@ -14,6 +14,8 @@ import { ModelPicker } from "./ModelPicker";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
 import { topModelsFor } from "./topModels";
 import { rememberPick } from "./lastPick";
+import { defaultModel } from "./harnessSwitch";
+import { harnessProfiles } from "./harnessProfiles";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
@@ -21,7 +23,9 @@ import { HideableChrome } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
-import { useUiAnchor } from "../../ui/anchor";
+import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
+import { useEscapingPopup } from "../../ui/popupHost";
+import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -347,6 +351,19 @@ export function ComposerPickers({
   });
   // A default model draws as the model it resolves to: the running session's, else the one this
   // harness's default last resolved to, else the model placeholder.
+  // The model a New Tab starts a chat on `agent` with (newTabStart, newTabChipSnapshot): the last
+  // pick here, else its profile's, else its first listed model, else the catalog's default.
+  const startingModel = (agent: string) => {
+    const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
+    const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd);
+    const id = asked && !isDefaultChoice({ id: asked }) ? asked : entry?.defaultModel;
+    if (!id || isDefaultChoice({ id })) return undefined;
+    return (
+      entry?.models.find((choice) => choice.id === id)?.name ??
+      models.find((choice) => choice.id === id)?.name ??
+      modelIdName(id)
+    );
+  };
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
   // A harness still starting draws its last session's options, which name no model this chat runs.
   const resolvedNow = switching ? undefined : resolvedModel(summary);
@@ -357,7 +374,11 @@ export function ComposerPickers({
   const resolvedName =
     resolvedId &&
     (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
-  const modelName = defaulted ? (resolvedName ?? t(PICKER_LABELS.model)) : (model?.name ?? summary?.model);
+  // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
+  // started it on (cx-e2aa, cx-21jvw). A resumed or remote chat may run another: it waits.
+  const fresh = (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
+  const starting = shown === undefined && harness && fresh && !switching ? startingModel(harness) : undefined;
+  const modelName = defaulted ? (resolvedName ?? t(PICKER_LABELS.model)) : (model?.name ?? summary?.model ?? starting);
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
@@ -733,9 +754,26 @@ export function Picker({
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
+  const menu = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
+  // No room above or below its button in the pane: past the window's edge (popupHost.ts).
+  const host = usePopupHost();
+  const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  const attach = useCallback(
+    (node: HTMLDivElement | null) => {
+      menu.current = node;
+      if (host) setShown(node);
+    },
+    [host],
+  );
+  useEscapingPopup(host, shown, () => trigger.current, {
+    side: "top",
+    align,
+    gap: UI_ANCHOR_GAP,
+    kind: "list",
+    active: ".acpmux-menu-active",
+  });
   const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
   // A live update can shrink the list under the highlight.
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
@@ -848,7 +886,7 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div ref={menu} style={menuStyle} className={`ui-popup acpmux-menu acpmux-menu-${align}`} data-side="above">
+        <div ref={attach} style={menuStyle} className={`ui-popup acpmux-menu acpmux-menu-${align}`} data-side="above">
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (

@@ -8,6 +8,7 @@ import { runStream, type StreamOptions } from "./streamDebug";
 import { loadRun, loadSeed, type LoadRunOptions } from "./loadDebug";
 import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
+import { followTrace } from "./followTrace";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -59,6 +60,27 @@ const NO_AUTOMATION = { error: "the page has no automation host" };
 
 const WARMUP_FRAMES = 30;
 
+/** The open menu's rows: how many, how many show whole in the page, and whether it went past the window. */
+function openMenuRows(
+  popup = [...document.querySelectorAll<HTMLElement>("[role=menu],[role=listbox]")].at(-1) ?? null,
+): Record<string, unknown> | null {
+  if (!popup) return null;
+  const rows = [...popup.querySelectorAll('[role^="menuitem"],[role=option]')];
+  const frame = popup.getBoundingClientRect();
+  const top = Math.max(0, frame.top);
+  const bottom = Math.min(innerHeight, frame.bottom);
+  const whole = rows.filter((row) => {
+    const box = row.getBoundingClientRect();
+    return box.height > 0 && box.top >= top - 0.5 && box.bottom <= bottom + 0.5;
+  });
+  return {
+    rows: rows.length,
+    shown_in_page: whole.length,
+    // A Base UI menu marks its positioner; a list the page positions itself, itself (popupHost.ts).
+    escaped: popup.hasAttribute("data-escaped") || (popup.parentElement?.hasAttribute("data-escaped") ?? false),
+  };
+}
+
 function nextFrame(): Promise<number> {
   return new Promise((resolve) => requestAnimationFrame(resolve));
 }
@@ -76,10 +98,21 @@ export function createAcpmuxDebug(
   let nominal = 1000 / 60;
   let running = false;
   let generation = 0;
+  /** How far the last fling scrolled and the view it scrolled, in CSS pixels. */
+  let geometry = { distance: 0, viewport: 0 };
 
   const flingStats = () => {
     if (timestamps.length < 2) return { running, frames: 0 };
-    return { running, rows: host.rowCount(), ...frameStats(timestamps, nominal) };
+    const perFrame = geometry.distance / (timestamps.length - 1);
+    return {
+      running,
+      rows: host.rowCount(),
+      ...frameStats(timestamps, nominal),
+      distance_px: Math.round(geometry.distance),
+      viewport_px: geometry.viewport,
+      // The scroll per frame, in viewports: past what the transcript mounts ahead, frames blank.
+      viewports_per_frame: geometry.viewport > 0 ? round2(perFrame / geometry.viewport) : 0,
+    };
   };
 
   return {
@@ -117,6 +150,7 @@ export function createAcpmuxDebug(
             : Math.max(1, median(warmup.slice(1).map((time, index) => time - warmup[index])));
         scroller.scrollTop = scroller.scrollHeight;
         const from = scroller.scrollTop;
+        geometry = { distance: from, viewport: scroller.clientHeight };
         acpmuxPerf.resetFrames();
         await new Promise<void>((resolve) => {
           let start: number | undefined;
@@ -128,13 +162,7 @@ export function createAcpmuxDebug(
             scroller.scrollTop = from * (1 - progress);
             acpmuxPerf.markFrame(
               now,
-              isBlank(
-                acpmuxPerf.mountedTop,
-                acpmuxPerf.mountedBottom,
-                scroller.scrollTop,
-                scroller.clientHeight,
-                scroller.scrollHeight,
-              ),
+              isBlank(acpmuxPerf.mounted, scroller.scrollTop, scroller.clientHeight, scroller.scrollHeight),
             );
             if (progress < 1) requestAnimationFrame(tick);
             else resolve();
@@ -178,13 +206,33 @@ export function createAcpmuxDebug(
 
     // Not a measurement, so it leaves acpmuxPerf off.
     async openMenu(label) {
+      // "/" or "@query" types into the prompt, as key presses do: the commands list or the file
+      // list opens (the file list once its results arrive).
+      if (label.startsWith("/") || label.startsWith("@")) {
+        const prompt = document.querySelector<HTMLElement>(
+          ".acpmux-composer-prompt[contenteditable='true'], .acpmux-composer-prompt [contenteditable='true']",
+        );
+        if (!prompt) return { error: "no prompt" };
+        prompt.focus();
+        document.execCommand("insertText", false, label);
+        const id = label.startsWith("/") ? "acpmux-slash-menu" : "acpmux-mention-menu";
+        for (let frame = 0; frame < 300; frame += 1) {
+          if (document.querySelector(`#${id} [role=option]`)) break;
+          await nextFrame();
+        }
+        for (let frame = 0; frame < 4; frame += 1) await nextFrame();
+        return { opened: label, menu: openMenuRows(document.getElementById(id)) };
+      }
       if (!openPicker(label)) return { error: `no menu labelled ${JSON.stringify(label)}`, menus: pickerLabels() };
       await nextFrame();
       await nextFrame();
       const button = [...document.querySelectorAll<HTMLElement>("button[data-menu]")].find(
         (node) => node.dataset.menu === label,
       );
-      return { opened: label, open: button?.getAttribute("aria-expanded") === "true" };
+      // The menu may hand its rows to the window's host a frame after it shows (popupHost.ts).
+      await nextFrame();
+      await nextFrame();
+      return { opened: label, open: button?.getAttribute("aria-expanded") === "true", menu: openMenuRows() };
     },
 
     acpLog(options = {}) {
@@ -198,7 +246,9 @@ export function createAcpmuxDebug(
     },
 
     chatState() {
-      return host.automation ? automation.automationState(host.automation) : NO_AUTOMATION;
+      return host.automation
+        ? { ...automation.automationState(host.automation), follow: followTrace.snapshot() }
+        : NO_AUTOMATION;
     },
     async sendPrompt(text) {
       return host.automation ? automation.sendPrompt(host.automation, String(text ?? "")) : NO_AUTOMATION;

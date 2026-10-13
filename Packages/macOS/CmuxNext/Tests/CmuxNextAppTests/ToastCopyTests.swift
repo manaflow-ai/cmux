@@ -74,7 +74,7 @@ struct ToastCopyTests {
         let f = try Self.fixture()
         let pane = try #require(f.store.pane(containing: 1))
         let workspace = try #require(f.store.workspace(containing: pane.handle))
-        let row = SidebarMapping.shared.row(workspace, machine: .local, newTabPages: f.titles.newTabPages,
+        let row = SidebarMapping.shared.row(workspace, machine: .local, newTabPages: [f.newTab.id],
                                             newTabTitle: Strings.untitledBrowser, tabTitle: { f.titles.title($0) })
         #expect(row.tabs.map(\.title) == [f.chatName, "cmux", Strings.untitledBrowser, Strings.untitledBrowser])
     }

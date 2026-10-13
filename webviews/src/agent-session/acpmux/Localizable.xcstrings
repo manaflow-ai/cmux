@@ -1,1718 +1,1850 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "harnesses.signIn": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "newTab.create.terminal": {
+      "comment": "Agent pane: New Tab create action, a terminal tab in the tab's folder (cx-ag5.7)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "تسجيل الدخول"
+            "state": "needs_review",
+            "value": "طرفية جديدة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Prijavi se"
+            "state": "needs_review",
+            "value": "Novi terminal"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Log ind"
+            "state": "needs_review",
+            "value": "Ny terminal"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Anmelden"
+            "state": "needs_review",
+            "value": "Neues Terminal"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sign In"
+            "value": "New terminal"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Iniciar sesión"
+            "state": "needs_review",
+            "value": "Nuevo terminal"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Se connecter"
+            "state": "needs_review",
+            "value": "Nouveau terminal"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Accedi"
+            "state": "needs_review",
+            "value": "Nuovo terminale"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "サインイン"
+            "state": "needs_review",
+            "value": "新規ターミナル"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ចូល"
+            "state": "needs_review",
+            "value": "ស្ថានីយថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "로그인"
+            "state": "needs_review",
+            "value": "새 터미널"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Logg på"
+            "state": "needs_review",
+            "value": "Ny terminal"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Zaloguj się"
+            "state": "needs_review",
+            "value": "Nowy terminal"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Entrar"
+            "state": "needs_review",
+            "value": "Novo terminal"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Войти"
+            "state": "needs_review",
+            "value": "Новый терминал"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ลงชื่อเข้าใช้"
+            "state": "needs_review",
+            "value": "เทอร์มินัลใหม่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Giriş Yap"
+            "state": "needs_review",
+            "value": "Yeni terminal"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Увійти"
+            "state": "needs_review",
+            "value": "Новий термінал"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Đăng nhập"
+            "state": "needs_review",
+            "value": "Terminal mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "登录"
+            "state": "needs_review",
+            "value": "新建终端"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "登入"
+            "state": "needs_review",
+            "value": "新增終端機"
           }
         }
       }
     },
-    "harnesses.title": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "newTab.create.browser": {
+      "comment": "Agent pane: New Tab create action, a browser tab on the new tab page (cx-ag5.7)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "أدوات التشغيل"
+            "state": "needs_review",
+            "value": "علامة تبويب متصفح جديدة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harnesi"
+            "state": "needs_review",
+            "value": "Nova kartica preglednika"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harnesses"
+            "state": "needs_review",
+            "value": "Ny browserfane"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harnesses"
+            "state": "needs_review",
+            "value": "Neuer Browser-Tab"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harnesses"
+            "value": "New browser tab"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harnesses"
+            "state": "needs_review",
+            "value": "Nueva pestaña del navegador"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harnesses"
+            "state": "needs_review",
+            "value": "Nouvel onglet de navigateur"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness"
+            "state": "needs_review",
+            "value": "Nuova scheda del browser"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ハーネス"
+            "state": "needs_review",
+            "value": "新規ブラウザタブ"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness"
+            "state": "needs_review",
+            "value": "ផ្ទាំងកម្មវិធីរុករកថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "하네스"
+            "state": "needs_review",
+            "value": "새 브라우저 탭"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harnesser"
+            "state": "needs_review",
+            "value": "Ny nettleserfane"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harnessy"
+            "state": "needs_review",
+            "value": "Nowa karta przeglądarki"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harnesses"
+            "state": "needs_review",
+            "value": "Nova aba do navegador"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Харнессы"
+            "state": "needs_review",
+            "value": "Новая вкладка браузера"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ฮาร์เนส"
+            "state": "needs_review",
+            "value": "แท็บเบราว์เซอร์ใหม่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness'ler"
+            "state": "needs_review",
+            "value": "Yeni tarayıcı sekmesi"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Харнеси"
+            "state": "needs_review",
+            "value": "Нова вкладка браузера"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness"
+            "state": "needs_review",
+            "value": "Tab trình duyệt mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness"
+            "state": "needs_review",
+            "value": "新建浏览器标签页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Harness"
+            "state": "needs_review",
+            "value": "新增瀏覽器分頁"
           }
         }
       }
     },
-    "harnesses.subtitle": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "newTab.create.chat": {
+      "comment": "Agent pane: New Tab create action, the page becomes an empty chat (cx-ag5.7)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "واجهات سطر أوامر الوكلاء التي يمكن لـ cmux تشغيلها على هذا الـ Mac."
+            "state": "needs_review",
+            "value": "دردشة جديدة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Agentski CLI-jevi koje cmux može pokrenuti na ovom Macu."
+            "state": "needs_review",
+            "value": "Novi chat"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "De agent-CLI'er, cmux kan køre på denne Mac."
+            "state": "needs_review",
+            "value": "Ny chat"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Die Agent-CLIs, die cmux auf diesem Mac ausführen kann."
+            "state": "needs_review",
+            "value": "Neuer Chat"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent CLIs cmux can run on this Mac."
+            "value": "New chat"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Las CLI de agentes que cmux puede ejecutar en este Mac."
+            "state": "needs_review",
+            "value": "Nuevo chat"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Les CLI d’agents que cmux peut exécuter sur ce Mac."
+            "state": "needs_review",
+            "value": "Nouveau chat"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Le CLI degli agenti che cmux può eseguire su questo Mac."
+            "state": "needs_review",
+            "value": "Nuova chat"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux がこの Mac で実行できるエージェント CLI です。"
+            "state": "needs_review",
+            "value": "新しいチャット"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI ភ្នាក់ងារដែល cmux អាចដំណើរការលើ Mac នេះ។"
+            "state": "needs_review",
+            "value": "ការជជែកថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux가 이 Mac에서 실행할 수 있는 에이전트 CLI입니다."
+            "state": "needs_review",
+            "value": "새 채팅"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Agent-CLI-ene cmux kan kjøre på denne Macen."
+            "state": "needs_review",
+            "value": "Ny chat"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Interfejsy CLI agentów, które cmux może uruchomić na tym Macu."
+            "state": "needs_review",
+            "value": "Nowy czat"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "As CLIs de agentes que o cmux pode executar neste Mac."
+            "state": "needs_review",
+            "value": "Novo chat"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI агентов, которые cmux может запускать на этом Mac."
+            "state": "needs_review",
+            "value": "Новый чат"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI ของเอเจนต์ที่ cmux เรียกใช้ได้บน Mac เครื่องนี้"
+            "state": "needs_review",
+            "value": "แชตใหม่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux'un bu Mac'te çalıştırabileceği ajan CLI'ları."
+            "state": "needs_review",
+            "value": "Yeni sohbet"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "CLI агентів, які cmux може запускати на цьому Mac."
+            "state": "needs_review",
+            "value": "Новий чат"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Các CLI tác tử mà cmux có thể chạy trên máy Mac này."
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux 可以在这台 Mac 上运行的智能体 CLI。"
+            "state": "needs_review",
+            "value": "新对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "cmux 可在這部 Mac 上執行的代理 CLI。"
+            "state": "needs_review",
+            "value": "新對話"
           }
         }
       }
     },
-    "harnesses.close": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "newTab.create.label": {
+      "comment": "Agent pane: accessible name of the New Tab create actions (cx-ag5.7)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
-            "state": "translated",
-            "value": "إغلاق"
+            "state": "needs_review",
+            "value": "إنشاء"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Zatvori"
+            "state": "needs_review",
+            "value": "Kreiraj"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Luk"
+            "state": "needs_review",
+            "value": "Opret"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Schließen"
+            "state": "needs_review",
+            "value": "Erstellen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close"
+            "value": "Create"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Cerrar"
+            "state": "needs_review",
+            "value": "Crear"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Fermer"
+            "state": "needs_review",
+            "value": "Créer"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Chiudi"
+            "state": "needs_review",
+            "value": "Crea"
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "translated",
-            "value": "閉じる"
+            "state": "needs_review",
+            "value": "作成"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "translated",
-            "value": "បិទ"
+            "state": "needs_review",
+            "value": "បង្កើត"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "translated",
-            "value": "닫기"
+            "state": "needs_review",
+            "value": "생성"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Lukk"
+            "state": "needs_review",
+            "value": "Opprett"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Zamknij"
+            "state": "needs_review",
+            "value": "Utwórz"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Fechar"
+            "state": "needs_review",
+            "value": "Criar"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Закрыть"
+            "state": "needs_review",
+            "value": "Создать"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "translated",
-            "value": "ปิด"
+            "state": "needs_review",
+            "value": "สร้าง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Kapat"
+            "state": "needs_review",
+            "value": "Oluştur"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Закрити"
+            "state": "needs_review",
+            "value": "Створити"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "translated",
-            "value": "Đóng"
+            "state": "needs_review",
+            "value": "Tạo"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "translated",
-            "value": "关闭"
+            "state": "needs_review",
+            "value": "创建"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "translated",
-            "value": "關閉"
+            "state": "needs_review",
+            "value": "建立"
           }
         }
       }
     },
-    "harnesses.ready": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "harnesses.enableUnavailable": {
+      "comment": "Agent pane: Enable harness when acpmux gave no prompt (cx-nt39g)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "جاهز"
+            "value": "تعذّر على cmux الوصول إلى acpmux لتفعيل هذه الأداة. حاول مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Spremno"
+            "value": "cmux nije mogao doći do acpmux da omogući ovaj harness. Pokušajte ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klar"
+            "value": "cmux kunne ikke nå acpmux for at aktivere denne harness. Prøv igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bereit"
+            "value": "cmux konnte acpmux nicht erreichen, um diesen Harness zu aktivieren. Versuche es erneut."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ready"
+            "value": "cmux couldn't reach acpmux to enable this harness. Try again."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Listo"
+            "value": "cmux no pudo conectar con acpmux para activar este harness. Inténtalo de nuevo."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prêt"
+            "value": "cmux n’a pas pu joindre acpmux pour activer ce harness. Réessayez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pronto"
+            "value": "cmux non è riuscito a raggiungere acpmux per attivare questo harness. Riprova."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "準備完了"
+            "value": "cmux が acpmux に接続できず、このハーネスを有効にできませんでした。もう一度お試しください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "រួចរាល់"
+            "value": "cmux មិនអាចភ្ជាប់ទៅ acpmux ដើម្បីបើក harness នេះបានទេ។ សូមព្យាយាមម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "준비됨"
+            "value": "cmux가 acpmux에 연결하지 못해 이 하네스를 활성화할 수 없습니다. 다시 시도하세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Klar"
+            "value": "cmux fikk ikke kontakt med acpmux for å aktivere denne harnessen. Prøv igjen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gotowy"
+            "value": "cmux nie mógł połączyć się z acpmux, aby włączyć ten harness. Spróbuj ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Pronto"
+            "value": "O cmux não conseguiu acessar o acpmux para ativar este harness. Tente novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Готов"
+            "value": "cmux не удалось связаться с acpmux, чтобы включить этот harness. Повторите попытку."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "พร้อม"
+            "value": "cmux ติดต่อ acpmux เพื่อเปิดใช้ harness นี้ไม่ได้ โปรดลองอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hazır"
+            "value": "cmux, bu harness'ı etkinleştirmek için acpmux'a ulaşamadı. Yeniden deneyin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Готовий"
+            "value": "cmux не вдалося зв’язатися з acpmux, щоб увімкнути цей harness. Спробуйте ще раз."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sẵn sàng"
+            "value": "cmux không thể kết nối acpmux để bật harness này. Hãy thử lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "就绪"
+            "value": "cmux 无法连接 acpmux 来启用此 harness。请重试。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "就緒"
+            "value": "cmux 無法連線 acpmux 來啟用此 harness。請再試一次。"
           }
         }
       }
     },
-    "harnesses.signedOut": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "harnesses.stillCannotRun": {
+      "comment": "Agent pane: the Harnesses page (cx-apoko)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تم تسجيل الخروج"
+            "value": "اكتمل، لكن cmux لا يمكنه تشغيله بعد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Odjavljeno"
+            "value": "Završeno, ali cmux ga još ne može pokrenuti"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logget ud"
+            "value": "Færdig, men cmux kan ikke køre den endnu"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Abgemeldet"
+            "value": "Fertig, aber cmux kann es noch nicht ausführen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Signed out"
+            "value": "Finished, but cmux can't run it yet"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sesión cerrada"
+            "value": "Terminado, pero cmux aún no puede ejecutarlo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Déconnecté"
+            "value": "Terminé, mais cmux ne peut pas encore l’exécuter"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Disconnesso"
+            "value": "Completato, ma cmux non può ancora eseguirlo"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "サインアウト中"
+            "value": "完了しましたが、cmux はまだ実行できません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បានចេញ"
+            "value": "បានបញ្ចប់ ប៉ុន្តែ cmux មិនទាន់អាចដំណើរការវាបានទេ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "로그아웃됨"
+            "value": "완료되었지만 cmux에서 아직 실행할 수 없습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Logget ut"
+            "value": "Ferdig, men cmux kan ikke kjøre den ennå"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wylogowany"
+            "value": "Zakończono, ale cmux nie może go jeszcze uruchomić"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sessão encerrada"
+            "value": "Concluído, mas o cmux ainda não consegue executá-lo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вход не выполнен"
+            "value": "Готово, но cmux пока не может его запустить"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ออกจากระบบแล้ว"
+            "value": "เสร็จแล้ว แต่ cmux ยังเรียกใช้ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Oturum kapalı"
+            "value": "Tamamlandı, ancak cmux henüz çalıştıramıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Вхід не виконано"
+            "value": "Готово, але cmux ще не може його запустити"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đã đăng xuất"
+            "value": "Đã xong, nhưng cmux chưa thể chạy nó"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未登录"
+            "value": "已完成，但 cmux 暂时无法运行它"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未登入"
+            "value": "已完成，但 cmux 暫時無法執行它"
           }
         }
       }
     },
-    "harnesses.unavailable": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "harnesses.checking": {
+      "comment": "Agent pane: the Harnesses page (cx-apoko)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "غير متاح"
+            "value": "جارٍ التحقق…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nedostupno"
+            "value": "Provjera…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ikke tilgængelig"
+            "value": "Tjekker…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht verfügbar"
+            "value": "Wird geprüft…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Unavailable"
+            "value": "Checking…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No disponible"
+            "value": "Comprobando…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indisponible"
+            "value": "Vérification…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non disponibile"
+            "value": "Verifica…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "利用不可"
+            "value": "確認中…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចប្រើបាន"
+            "value": "កំពុងពិនិត្យ…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용할 수 없음"
+            "value": "확인 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Utilgjengelig"
+            "value": "Sjekker…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Niedostępny"
+            "value": "Sprawdzanie…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Indisponível"
+            "value": "Verificando…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Недоступен"
+            "value": "Проверка…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ใช้งานไม่ได้"
+            "value": "กำลังตรวจสอบ…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kullanılamıyor"
+            "value": "Denetleniyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Недоступний"
+            "value": "Перевірка…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không khả dụng"
+            "value": "Đang kiểm tra…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "不可用"
+            "value": "正在检查…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "無法使用"
+            "value": "正在檢查…"
           }
         }
       }
     },
-    "harnesses.notInstalled": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "harnesses.installing": {
+      "comment": "Agent pane: the Harnesses page (cx-apoko)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "غير مثبت"
+            "value": "جارٍ التثبيت…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nije instalirano"
+            "value": "Instaliranje…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ikke installeret"
+            "value": "Installerer…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nicht installiert"
+            "value": "Wird installiert…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Not installed"
+            "value": "Installing…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No instalado"
+            "value": "Instalando…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non installé"
+            "value": "Installation…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Non installato"
+            "value": "Installazione…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "未インストール"
+            "value": "インストール中…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនទាន់ដំឡើង"
+            "value": "កំពុងដំឡើង…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "설치되지 않음"
+            "value": "설치 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ikke installert"
+            "value": "Installerer…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie zainstalowano"
+            "value": "Instalowanie…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não instalado"
+            "value": "Instalando…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не установлен"
+            "value": "Установка…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ยังไม่ได้ติดตั้ง"
+            "value": "กำลังติดตั้ง…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yüklü değil"
+            "value": "Yükleniyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не встановлено"
+            "value": "Встановлення…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chưa cài đặt"
+            "value": "Đang cài đặt…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "未安装"
+            "value": "正在安装…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "未安裝"
+            "value": "正在安裝…"
           }
         }
       }
     },
-    "harnesses.startChat": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "harnesses.commandFailed": {
+      "comment": "Agent pane: the Harnesses page (cx-apoko)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "بدء محادثة"
+            "value": "فشل الأمر"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Započni chat"
+            "value": "Naredba nije uspjela"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start chat"
+            "value": "Kommandoen mislykkedes"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat starten"
+            "value": "Der Befehl ist fehlgeschlagen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start Chat"
+            "value": "The command failed"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iniciar chat"
+            "value": "El comando falló"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Démarrer un chat"
+            "value": "La commande a échoué"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Avvia chat"
+            "value": "Il comando non è riuscito"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットを開始"
+            "value": "コマンドが失敗しました"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចាប់ផ្ដើមជជែក"
+            "value": "ពាក្យបញ្ជាបានបរាជ័យ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅 시작"
+            "value": "명령이 실패했습니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Start chat"
+            "value": "Kommandoen mislyktes"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rozpocznij czat"
+            "value": "Polecenie nie powiodło się"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Iniciar chat"
+            "value": "O comando falhou"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Начать чат"
+            "value": "Команда не выполнена"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เริ่มแชต"
+            "value": "คำสั่งล้มเหลว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sohbet Başlat"
+            "value": "Komut başarısız oldu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Почати чат"
+            "value": "Команда не виконалася"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bắt đầu trò chuyện"
+            "value": "Lệnh không thành công"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "开始聊天"
+            "value": "命令失败"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開始聊天"
+            "value": "命令失敗"
           }
         }
       }
     },
-    "harnesses.install": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "harnesses.commandFailedBecause": {
+      "comment": "Agent pane: the Harnesses page (cx-apoko)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تثبيت…"
+            "value": "فشل: {reason}"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instaliraj…"
+            "value": "Nije uspjelo: {reason}"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installer…"
+            "value": "Mislykkedes: {reason}"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installieren…"
+            "value": "Fehlgeschlagen: {reason}"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Install…"
+            "value": "Failed: {reason}"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instalar…"
+            "value": "Falló: {reason}"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installer…"
+            "value": "Échec : {reason}"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installa…"
+            "value": "Non riuscito: {reason}"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "インストール…"
+            "value": "失敗: {reason}"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ដំឡើង…"
+            "value": "បរាជ័យ៖ {reason}"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "설치…"
+            "value": "실패: {reason}"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Installer…"
+            "value": "Mislyktes: {reason}"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zainstaluj…"
+            "value": "Niepowodzenie: {reason}"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Instalar…"
+            "value": "Falhou: {reason}"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Установить…"
+            "value": "Ошибка: {reason}"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ติดตั้ง…"
+            "value": "ล้มเหลว: {reason}"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yükle…"
+            "value": "Başarısız: {reason}"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Встановити…"
+            "value": "Помилка: {reason}"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cài đặt…"
+            "value": "Thất bại: {reason}"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "安装…"
+            "value": "失败：{reason}"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "安裝…"
+            "value": "失敗：{reason}"
           }
         }
       }
     },
-    "harnesses.custom": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "harnesses.waitingSignIn": {
+      "comment": "Agent pane: the Harnesses page (cx-apoko)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "أداة تشغيل مخصصة…"
+            "value": "في انتظار تسجيل الدخول…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Prilagođeni harness…"
+            "value": "Čeka se prijava…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Brugerdefineret harness…"
+            "value": "Venter på login…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Eigener Harness…"
+            "value": "Warten auf Anmeldung…"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Custom harness…"
+            "value": "Waiting for sign-in…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harness personalizado…"
+            "value": "Esperando el inicio de sesión…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harness personnalisé…"
+            "value": "En attente de la connexion…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harness personalizzato…"
+            "value": "In attesa dell’accesso…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "カスタムハーネス…"
+            "value": "サインインを待っています…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harness ផ្ទាល់ខ្លួន…"
+            "value": "កំពុងរង់ចាំការចូល…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "사용자 지정 하네스…"
+            "value": "로그인 대기 중…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Egendefinert harness…"
+            "value": "Venter på pålogging…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Własny harness…"
+            "value": "Oczekiwanie na zalogowanie…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harness personalizado…"
+            "value": "Aguardando o login…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Свой харнесс…"
+            "value": "Ожидание входа…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ฮาร์เนสแบบกำหนดเอง…"
+            "value": "กำลังรอการลงชื่อเข้าใช้…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Özel harness…"
+            "value": "Oturum açma bekleniyor…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Власний харнес…"
+            "value": "Очікування входу…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harness tùy chỉnh…"
+            "value": "Đang chờ đăng nhập…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "自定义 Harness…"
+            "value": "正在等待登录…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "自訂 Harness…"
+            "value": "正在等待登入…"
           }
         }
       }
     },
-    "harnesses.customDetail": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "harnesses.update": {
+      "comment": "Agent pane: the Harnesses page (cx-apoko)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يربط وكيلٌ أداة تشغيل سطر الأوامر الخاصة بك بـ cmux باستخدام cmux harness guide."
+            "value": "تحديث"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent povezuje tvoj vlastiti CLI harness s cmux-om pomoću cmux harness guide."
+            "value": "Ažuriraj"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "En agent kobler din egen CLI-harness til cmux med cmux harness guide."
+            "value": "Opdater"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ein Agent bindet deinen eigenen CLI-Harness mit cmux harness guide in cmux ein."
+            "value": "Aktualisieren"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "An agent wires your own CLI harness into cmux using cmux harness guide."
+            "value": "Update"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agente conecta tu propio harness de CLI a cmux con cmux harness guide."
+            "value": "Actualizar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agent intègre votre propre harness CLI à cmux avec cmux harness guide."
+            "value": "Mettre à jour"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un agente collega il tuo harness CLI a cmux con cmux harness guide."
+            "value": "Aggiorna"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "エージェントが cmux harness guide を使って独自の CLI ハーネスを cmux に組み込みます。"
+            "value": "アップデート"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ភ្នាក់ងារមួយភ្ជាប់ CLI harness ផ្ទាល់ខ្លួនរបស់អ្នកទៅ cmux ដោយប្រើ cmux harness guide។"
+            "value": "ធ្វើបច្ចុប្បន្នភាព"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "에이전트가 cmux harness guide로 직접 만든 CLI 하네스를 cmux에 연결합니다."
+            "value": "업데이트"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "En agent kobler din egen CLI-harness til cmux med cmux harness guide."
+            "value": "Oppdater"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Agent podłącza Twój własny harness CLI do cmux za pomocą cmux harness guide."
+            "value": "Aktualizuj"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Um agente conecta seu próprio harness de CLI ao cmux usando cmux harness guide."
+            "value": "Atualizar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агент подключает ваш собственный CLI-харнесс к cmux с помощью cmux harness guide."
+            "value": "Обновить"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เอเจนต์จะเชื่อมฮาร์เนส CLI ของคุณเข้ากับ cmux โดยใช้ cmux harness guide"
+            "value": "อัปเดต"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir ajan, cmux harness guide ile kendi CLI harness'inizi cmux'a bağlar."
+            "value": "Güncelle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Агент підключає ваш власний CLI-харнес до cmux за допомогою cmux harness guide."
+            "value": "Оновити"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Một tác tử kết nối CLI harness của bạn vào cmux bằng cmux harness guide."
+            "value": "Cập nhật"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "由智能体使用 cmux harness guide 将你自己的 CLI Harness 接入 cmux。"
+            "value": "更新"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "由代理使用 cmux harness guide 將你自己的 CLI Harness 接入 cmux。"
+            "value": "更新"
           }
         }
       }
     },
-    "harnesses.customRequest": {
-      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+    "harnesses.setupGuide": {
+      "comment": "Agent pane: the Harnesses page (cx-apoko)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ادمج أداة التشغيل الخاصة بي في cmux. شغّل `cmux harness guide` واتبعه."
+            "value": "دليل الإعداد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integriši moj harness u cmux. Pokreni `cmux harness guide` i slijedi ga."
+            "value": "Vodič za postavljanje"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integrer min harness i cmux. Kør `cmux harness guide` og følg den."
+            "value": "Opsætningsvejledning"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Binde meinen Harness in cmux ein. Führe `cmux harness guide` aus und folge der Anleitung."
+            "value": "Einrichtungsanleitung"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integrate my harness into cmux. Run `cmux harness guide` and follow it."
+            "value": "Setup guide"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integra mi harness en cmux. Ejecuta `cmux harness guide` y síguelo."
+            "value": "Guía de configuración"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Intègre mon harness à cmux. Lance `cmux harness guide` et suis-le."
+            "value": "Guide d’installation"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integra il mio harness in cmux. Esegui `cmux harness guide` e seguilo."
+            "value": "Guida alla configurazione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "私のハーネスを cmux に統合してください。`cmux harness guide` を実行して、その手順に従ってください。"
+            "value": "セットアップガイド"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បញ្ចូល harness របស់ខ្ញុំទៅក្នុង cmux។ ដំណើរការ `cmux harness guide` ហើយធ្វើតាមវា។"
+            "value": "មគ្គុទ្ទេសក៍រៀបចំ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "내 하네스를 cmux에 통합해 줘. `cmux harness guide`를 실행하고 그대로 따라 줘."
+            "value": "설정 가이드"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integrer harnessen min i cmux. Kjør `cmux harness guide` og følg den."
+            "value": "Oppsettsveiledning"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zintegruj mój harness z cmux. Uruchom `cmux harness guide` i postępuj zgodnie z nim."
+            "value": "Instrukcja konfiguracji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Integre meu harness ao cmux. Execute `cmux harness guide` e siga-o."
+            "value": "Guia de configuração"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Интегрируй мой харнесс в cmux. Запусти `cmux harness guide` и следуй ему."
+            "value": "Руководство по настройке"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ผสานฮาร์เนสของฉันเข้ากับ cmux เรียกใช้ `cmux harness guide` แล้วทำตาม"
+            "value": "คู่มือการตั้งค่า"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Harness'imi cmux'a entegre et. `cmux harness guide` komutunu çalıştır ve izle."
+            "value": "Kurulum kılavuzu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Інтегруй мій харнес у cmux. Запусти `cmux harness guide` і дотримуйся його."
+            "value": "Посібник із налаштування"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tích hợp harness của tôi vào cmux. Chạy `cmux harness guide` và làm theo."
+            "value": "Hướng dẫn thiết lập"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "将我的 Harness 集成到 cmux。运行 `cmux harness guide` 并按其操作。"
+            "value": "设置指南"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "將我的 Harness 整合到 cmux。執行 `cmux harness guide` 並依照指示操作。"
+            "value": "設定指南"
+          }
+        }
+      }
+    },
+    "harnesses.checkAgain": {
+      "comment": "Agent pane: the Harnesses page (cx-apoko)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تحقق مرة أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Provjeri ponovo"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tjek igen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erneut prüfen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Check again"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Volver a comprobar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vérifier à nouveau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verifica di nuovo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再確認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពិនិត្យម្តងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다시 확인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sjekk på nytt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sprawdź ponownie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Verificar novamente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверить снова"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตรวจสอบอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yeniden denetle"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перевірити знову"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kiểm tra lại"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再次检查"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "再次檢查"
           }
         }
       }
@@ -13465,6 +13597,270 @@
         }
       }
     },
+    "hunk.acceptFile": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "قبول الملف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prihvati datoteku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Acceptér fil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datei annehmen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accept file"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aceptar archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accepter le fichier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Accetta file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを承認"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទទួលយកឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일 수락"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Godta fil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaakceptuj plik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aceitar arquivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Принять файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยอมรับไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyayı kabul et"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Прийняти файл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chấp nhận tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接受文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "接受檔案"
+          }
+        }
+      }
+    },
+    "hunk.rejectFile": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "رفض الملف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odbij datoteku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Afvis fil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Datei ablehnen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reject file"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechazar archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rejeter le fichier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rifiuta file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを却下"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បដិសេធឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "파일 거부"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Avvis fil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odrzuć plik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rejeitar arquivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отклонить файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปฏิเสธไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dosyayı reddet"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відхилити файл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Từ chối tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拒绝文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拒絕檔案"
+          }
+        }
+      }
+    },
     "hunk.reject": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -16772,127 +17168,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد دردشات"
+            "value": "لا توجد دردشات بعد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema chatova"
+            "value": "Još nema chatova"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen chats"
+            "value": "Ingen chats endnu"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Keine Chats"
+            "value": "Noch keine Chats"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No chats"
+            "value": "No chats yet"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "No hay chats"
+            "value": "Aún no hay chats"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucune discussion"
+            "value": "Aucune discussion pour le moment"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessuna chat"
+            "value": "Ancora nessuna chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットはありません"
+            "value": "チャットはまだありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានការជជែក"
+            "value": "មិនទាន់មានការជជែកនៅឡើយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "채팅 없음"
+            "value": "아직 채팅 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen chatter"
+            "value": "Ingen chatter ennå"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak czatów"
+            "value": "Nie ma jeszcze czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhum chat"
+            "value": "Nenhum chat ainda"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет чатов"
+            "value": "Чатов пока нет"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีแชท"
+            "value": "ยังไม่มีแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sohbet yok"
+            "value": "Henüz sohbet yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає чатів"
+            "value": "Чатів ще немає"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có cuộc trò chuyện"
+            "value": "Chưa có cuộc trò chuyện nào"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有对话"
+            "value": "还没有对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有對話"
+            "value": "尚無對話"
           }
         }
       }
@@ -17553,6 +17949,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "在網路上搜尋"
+          }
+        }
+      }
+    },
+    "newTab.row.searchFor": {
+      "comment": "Agent pane",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "البحث في الويب عن {text}"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraži web za {text}"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg på nettet efter {text}"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Im Web nach {text} suchen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search the web for {text}"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Buscar {text} en la web"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rechercher {text} sur le Web"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cerca {text} sul web"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ウェブで{text}を検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរក {text} លើបណ្តាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "웹에서 {text} 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk på nettet etter {text}"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Szukaj {text} w internecie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pesquisar {text} na web"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Искать {text} в интернете"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหา {text} บนเว็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Web'de {text} ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Шукати {text} в інтернеті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm {text} trên web"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在网上搜索 {text}"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在網路上搜尋 {text}"
           }
         }
       }
@@ -25077,6 +25605,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "沒有相符的模型"
+          }
+        }
+      }
+    },
+    "picker.noModels": {
+      "comment": "Agent pane: the model picker when the agent has reported no models",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد نماذج بعد. حدّث لسؤال الوكيل مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još nema modela. Osvježite da ponovo pitate agenta."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller endnu. Opdater for at spørge agenten igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noch keine Modelle. Aktualisieren, um den Agenten erneut zu fragen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No models yet. Refresh to ask the agent again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aún no hay modelos. Actualiza para volver a preguntar al agente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun modèle pour l’instant. Actualisez pour interroger de nouveau l’agent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora nessun modello. Aggiorna per chiedere di nuovo all’agente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "モデルはまだありません。更新してエージェントにもう一度問い合わせます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់មានម៉ូដែលនៅឡើយ។ ធ្វើឱ្យស្រស់ ដើម្បីសួរភ្នាក់ងារម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 모델이 없습니다. 새로 고쳐 에이전트에 다시 요청하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen modeller ennå. Oppdater for å spørre agenten på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak modeli. Odśwież, aby ponownie zapytać agenta."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda não há modelos. Atualize para perguntar ao agente novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Моделей пока нет. Обновите, чтобы снова запросить агента."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่มีโมเดล รีเฟรชเพื่อถามเอเจนต์อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Henüz model yok. Ajana yeniden sormak için yenileyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Моделей ще немає. Оновіть, щоб знову запитати агента."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa có mô hình nào. Làm mới để hỏi lại tác tử."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "暂无模型。刷新以再次询问代理。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "尚無模型。重新整理以再次詢問代理。"
           }
         }
       }
@@ -63896,127 +64556,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد جلسات مطابقة"
+            "value": "لا توجد دردشات مطابقة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema odgovarajućih sesija"
+            "value": "Nema odgovarajućih chatova"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen matchende sessioner"
+            "value": "Ingen matchende chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Keine passenden Sitzungen"
+            "value": "Keine passenden Chats"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No matching sessions"
+            "value": "No matching chats"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ninguna sesión coincide"
+            "value": "Ningún chat coincide"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucune session correspondante"
+            "value": "Aucune discussion correspondante"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nessuna sessione corrispondente"
+            "value": "Nessuna chat corrispondente"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "一致するセッションなし"
+            "value": "一致するチャットはありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានសម័យដែលត្រូវគ្នា"
+            "value": "គ្មានការជជែកដែលត្រូវគ្នា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "일치하는 세션 없음"
+            "value": "일치하는 채팅 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen samsvarende økter"
+            "value": "Ingen samsvarende chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak pasujących sesji"
+            "value": "Brak pasujących czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhuma sessão correspondente"
+            "value": "Nenhum chat correspondente"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Нет подходящих сеансов"
+            "value": "Нет подходящих чатов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีเซสชันที่ตรงกัน"
+            "value": "ไม่มีแชทที่ตรงกัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Eşleşen oturum yok"
+            "value": "Eşleşen sohbet yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає відповідних сеансів"
+            "value": "Немає відповідних чатів"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có phiên khớp"
+            "value": "Không có cuộc trò chuyện nào phù hợp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "没有匹配的会话"
+            "value": "没有匹配的对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "沒有符合的工作階段"
+            "value": "沒有符合的對話"
           }
         }
       }
@@ -64160,127 +64820,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا توجد جلسات بعد"
+            "value": "لا توجد دردشات بعد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Još nema sesija"
+            "value": "Još nema chatova"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen sessioner endnu"
+            "value": "Ingen chats endnu"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Noch keine Sitzungen"
+            "value": "Noch keine Chats"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No sessions yet"
+            "value": "No chats yet"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aún no hay sesiones"
+            "value": "Aún no hay chats"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Aucune session pour le moment"
+            "value": "Aucune discussion pour le moment"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ancora nessuna sessione"
+            "value": "Ancora nessuna chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "セッションはまだありません"
+            "value": "チャットはまだありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "មិនទាន់មានសម័យនៅឡើយ"
+            "value": "មិនទាន់មានការជជែកនៅឡើយ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "아직 세션 없음"
+            "value": "아직 채팅 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen økter ennå"
+            "value": "Ingen chatter ennå"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Brak sesji"
+            "value": "Nie ma jeszcze czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nenhuma sessão ainda"
+            "value": "Nenhum chat ainda"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сеансов пока нет"
+            "value": "Чатов пока нет"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ยังไม่มีเซสชัน"
+            "value": "ยังไม่มีแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Henüz oturum yok"
+            "value": "Henüz sohbet yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сеансів ще немає"
+            "value": "Чатів ще немає"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Chưa có phiên nào"
+            "value": "Chưa có cuộc trò chuyện nào"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "还没有会话"
+            "value": "还没有对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "尚無工作階段"
+            "value": "尚無對話"
           }
         }
       }
@@ -64952,127 +65612,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "البحث في الجلسات"
+            "value": "البحث في الدردشات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pretraži sesije"
+            "value": "Pretraži chatove"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Søg i sessioner"
+            "value": "Søg i chats"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sitzungen durchsuchen"
+            "value": "Chats durchsuchen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Search sessions"
+            "value": "Search chats"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Buscar sesiones"
+            "value": "Buscar chats"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Rechercher des sessions"
+            "value": "Rechercher des discussions"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cerca sessioni"
+            "value": "Cerca chat"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "セッションを検索"
+            "value": "チャットを検索"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ស្វែងរកសម័យ"
+            "value": "ស្វែងរកការជជែក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "세션 검색"
+            "value": "채팅 검색"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Søk i økter"
+            "value": "Søk i chatter"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Szukaj sesji"
+            "value": "Szukaj czatów"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pesquisar sessões"
+            "value": "Pesquisar chats"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Поиск сеансов"
+            "value": "Поиск чатов"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ค้นหาเซสชัน"
+            "value": "ค้นหาแชท"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Oturumlarda ara"
+            "value": "Sohbetlerde ara"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Шукати сеанси"
+            "value": "Шукати чати"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tìm kiếm phiên"
+            "value": "Tìm kiếm cuộc trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜索会话"
+            "value": "搜索对话"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "搜尋工作階段"
+            "value": "搜尋對話"
           }
         }
       }
@@ -81049,6 +81709,138 @@
         }
       }
     },
+    "header.splitDown": {
+      "comment": "Agent pane chat header",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقسيم لأسفل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podijeli dolje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdel nedad"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach unten teilen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split Down"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividir hacia abajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diviser vers le bas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividi in basso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下に分割"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំបែកចុះក្រោម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아래로 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del nedover"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podziel w dół"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividir para Baixo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разделить вниз"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบ่งลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aşağı Böl"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розділити вниз"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia xuống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向下拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向下分割"
+          }
+        }
+      }
+    },
     "header.terminal": {
       "comment": "Agent pane chat header",
       "extractionState": "manual",
@@ -91205,798 +91997,6 @@
         }
       }
     },
-    "newTabPage.tool.changes": {
-    "comment": "Agent pane New Tab Tools card",
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "التغييرات"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Promjene"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Ændringer"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Änderungen"
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Changes"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Cambios"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Modifications"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Modifiche"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "変更"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "ការផ្លាស់ប្តូរ"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "변경 사항"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Endringer"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Zmiany"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Alterações"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Изменения"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "การเปลี่ยนแปลง"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Değişiklikler"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Зміни"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Thay đổi"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "更改"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "變更"
-        }
-      }
-    }
-  },
-    "newTabPage.tool.terminal": {
-    "comment": "Agent pane New Tab Tools card",
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "الطرفية"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Terminal"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Terminal"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Terminal"
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Terminal"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Terminal"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Terminal"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Terminale"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ターミナル"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "ស្ថានីយ"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "터미널"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Terminal"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Terminal"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Terminal"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Терминал"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "เทอร์มินัล"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Terminal"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Термінал"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Terminal"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "终端"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "終端"
-        }
-      }
-    }
-  },
-    "newTabPage.tool.files": {
-    "comment": "Agent pane New Tab Tools card",
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "الملفات"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Datoteke"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Filer"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Dateien"
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Files"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Archivos"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Fichiers"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "File"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ファイル"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "ឯកសារ"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "파일"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Filer"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Pliki"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Arquivos"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Файлы"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "ไฟล์"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Dosyalar"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Файли"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Tệp"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "文件"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "檔案"
-        }
-      }
-    }
-  },
-    "newTabPage.tool.sideChat": {
-    "comment": "Agent pane New Tab Tools card",
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "دردشة جانبية"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Bočni chat"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Sidechat"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Seitenchat"
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Side chat"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Chat lateral"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Chat latéral"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Chat laterale"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "サイドチャット"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "ជជែកចំហៀង"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "사이드 채팅"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Sidechat"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Czat boczny"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Chat lateral"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Боковой чат"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "แชตด้านข้าง"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Yan sohbet"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Бічний чат"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Trò chuyện bên"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "侧边聊天"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "側邊聊天"
-        }
-      }
-    }
-  },
-    "newTabPage.tools": {
-    "comment": "Agent pane New Tab Tools",
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "الأدوات"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Alati"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Værktøjer"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Werkzeuge"
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Tools"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Herramientas"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Outils"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Strumenti"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "ツール"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "ឧបករណ៍"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "도구"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Verktøy"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Narzędzia"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Ferramentas"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Инструменты"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "เครื่องมือ"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Araçlar"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Інструменти"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Công cụ"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "工具"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "工具"
-        }
-      }
-    }
-  },
-    "newTabPage.moreOptions": {
-    "comment": "Agent pane New Tab Tools",
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "المزيد من الخيارات"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Više opcija"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Flere muligheder"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Weitere Optionen"
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "More options"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Más opciones"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Plus d’options"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Altre opzioni"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "その他のオプション"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "ជម្រើសបន្ថែម"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "추가 옵션"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Flere alternativer"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Więcej opcji"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Mais opções"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Другие варианты"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "ตัวเลือกเพิ่มเติม"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Diğer seçenekler"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Інші параметри"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Tùy chọn khác"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "更多选项"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "更多選項"
-        }
-      }
-    }
-  },
     "image.open" : {
       "extractionState" : "manual",
       "localizations" : {
@@ -92259,270 +92259,6 @@
         }
       }
     },
-    "newTabPage.tool.splitRight": {
-    "comment": "Agent pane New Tab Tools menu",
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "تقسيم إلى اليمين"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Podijeli desno"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Opdel til højre"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Nach rechts teilen"
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Split right"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Dividir a la derecha"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Diviser à droite"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Dividi a destra"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "右に分割"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "បំបែកទៅស្តាំ"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "오른쪽으로 분할"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Del til høyre"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Podziel w prawo"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Dividir à direita"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Разделить вправо"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "แยกทางขวา"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Sağa böl"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Розділити праворуч"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Chia sang phải"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "向右拆分"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "向右分割"
-        }
-      }
-    }
-  },
-    "newTabPage.tool.splitDown": {
-    "comment": "Agent pane New Tab Tools menu",
-    "extractionState": "manual",
-    "localizations": {
-      "ar": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "تقسيم إلى الأسفل"
-        }
-      },
-      "bs": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Podijeli dolje"
-        }
-      },
-      "da": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Opdel nedad"
-        }
-      },
-      "de": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Nach unten teilen"
-        }
-      },
-      "en": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "Split down"
-        }
-      },
-      "es": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Dividir hacia abajo"
-        }
-      },
-      "fr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Diviser vers le bas"
-        }
-      },
-      "it": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Dividi verso il basso"
-        }
-      },
-      "ja": {
-        "stringUnit": {
-          "state": "translated",
-          "value": "下に分割"
-        }
-      },
-      "km": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "បំបែកចុះក្រោម"
-        }
-      },
-      "ko": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "아래로 분할"
-        }
-      },
-      "nb": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Del ned"
-        }
-      },
-      "pl": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Podziel w dół"
-        }
-      },
-      "pt-BR": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Dividir para baixo"
-        }
-      },
-      "ru": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Разделить вниз"
-        }
-      },
-      "th": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "แยกด้านล่าง"
-        }
-      },
-      "tr": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Aşağı böl"
-        }
-      },
-      "uk": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Розділити вниз"
-        }
-      },
-      "vi": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "Chia xuống"
-        }
-      },
-      "zh-Hans": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "向下拆分"
-        }
-      },
-      "zh-Hant": {
-        "stringUnit": {
-          "state": "needs_review",
-          "value": "向下分割"
-        }
-      }
-    }
-  },
     "image.view" : {
       "comment" : "Agent pane",
       "extractionState" : "manual",
@@ -140562,6 +140298,1722 @@
         }
       }
     },
+    "harnesses.signIn": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تسجيل الدخول"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prijavi se"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Log ind"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anmelden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign In"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar sesión"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se connecter"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accedi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインイン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logg på"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaloguj się"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Entrar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Войти"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ลงชื่อเข้าใช้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Giriş Yap"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Увійти"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đăng nhập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "登入"
+          }
+        }
+      }
+    },
+    "harnesses.title": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أدوات التشغيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harnesi"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harnesses"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harnesses"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harnesses"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harnesses"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harnesses"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ハーネス"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "하네스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harnesser"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harnessy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harnesses"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Харнессы"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฮาร์เนส"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness'ler"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Харнеси"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness"
+          }
+        }
+      }
+    },
+    "harnesses.subtitle": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "واجهات سطر أوامر الوكلاء التي يمكن لـ cmux تشغيلها على هذا الـ Mac."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentski CLI-jevi koje cmux može pokrenuti na ovom Macu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "De agent-CLI'er, cmux kan køre på denne Mac."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Agent-CLIs, die cmux auf diesem Mac ausführen kann."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The agent CLIs cmux can run on this Mac."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las CLI de agentes que cmux puede ejecutar en este Mac."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les CLI d’agents que cmux peut exécuter sur ce Mac."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le CLI degli agenti che cmux può eseguire su questo Mac."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux がこの Mac で実行できるエージェント CLI です。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI ភ្នាក់ងារដែល cmux អាចដំណើរការលើ Mac នេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux가 이 Mac에서 실행할 수 있는 에이전트 CLI입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-CLI-ene cmux kan kjøre på denne Macen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interfejsy CLI agentów, które cmux może uruchomić na tym Macu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As CLIs de agentes que o cmux pode executar neste Mac."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI агентов, которые cmux может запускать на этом Mac."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI ของเอเจนต์ที่ cmux เรียกใช้ได้บน Mac เครื่องนี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux'un bu Mac'te çalıştırabileceği ajan CLI'ları."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CLI агентів, які cmux може запускати на цьому Mac."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các CLI tác tử mà cmux có thể chạy trên máy Mac này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 可以在这台 Mac 上运行的智能体 CLI。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux 可在這部 Mac 上執行的代理 CLI。"
+          }
+        }
+      }
+    },
+    "harnesses.close": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إغلاق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatvori"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Luk"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Schließen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Close"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fermer"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chiudi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "閉じる"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បិទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "닫기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lukk"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zamknij"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fechar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрыть"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปิด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Закрити"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đóng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉"
+          }
+        }
+      }
+    },
+    "harnesses.ready": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جاهز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Spremno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klar"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereit"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ready"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Listo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prêt"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronto"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "準備完了"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រួចរាល់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "준비됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klar"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gotowy"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pronto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "พร้อม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hazır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Готовий"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sẵn sàng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "就绪"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "就緒"
+          }
+        }
+      }
+    },
+    "harnesses.signedOut": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تسجيل الخروج"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Odjavljeno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logget ud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abgemeldet"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Signed out"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sesión cerrada"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Déconnecté"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disconnesso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サインアウト中"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បានចេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "로그아웃됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Logget ut"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wylogowany"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sessão encerrada"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вход не выполнен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ออกจากระบบแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oturum kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вхід не виконано"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đã đăng xuất"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未登录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未登入"
+          }
+        }
+      }
+    },
+    "harnesses.unavailable": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير متاح"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nedostupno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke tilgængelig"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht verfügbar"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unavailable"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No disponible"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indisponible"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non disponibile"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "利用不可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនអាចប្រើបាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용할 수 없음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilgjengelig"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Niedostępny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indisponível"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недоступен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ใช้งานไม่ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kullanılamıyor"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Недоступний"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Không khả dụng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不可用"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法使用"
+          }
+        }
+      }
+    },
+    "harnesses.notInstalled": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "غير مثبت"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nije instalirano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke installeret"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nicht installiert"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not installed"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No instalado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non installé"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non installato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未インストール"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់ដំឡើង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치되지 않음"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ikke installert"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie zainstalowano"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Não instalado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не установлен"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่ได้ติดตั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yüklü değil"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Не встановлено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa cài đặt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未安装"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未安裝"
+          }
+        }
+      }
+    },
+    "harnesses.startChat": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "بدء محادثة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Započni chat"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start chat"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat starten"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start Chat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar chat"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Démarrer un chat"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Avvia chat"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チャットを開始"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចាប់ផ្ដើមជជែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "채팅 시작"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Start chat"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozpocznij czat"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Iniciar chat"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Начать чат"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เริ่มแชต"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sohbet Başlat"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Почати чат"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bắt đầu trò chuyện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "开始聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開始聊天"
+          }
+        }
+      }
+    },
+    "harnesses.install": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تثبيت…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instaliraj…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installieren…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Install…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installa…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インストール…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ដំឡើង…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "설치…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installer…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zainstaluj…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Instalar…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Установить…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ติดตั้ง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yükle…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Встановити…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cài đặt…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安裝…"
+          }
+        }
+      }
+    },
+    "harnesses.custom": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أداة تشغيل مخصصة…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prilagođeni harness…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Brugerdefineret harness…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eigener Harness…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Custom harness…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness personalizado…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness personnalisé…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness personalizzato…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "カスタムハーネス…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness ផ្ទាល់ខ្លួន…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사용자 지정 하네스…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Egendefinert harness…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Własny harness…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness personalizado…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Свой харнесс…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ฮาร์เนสแบบกำหนดเอง…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Özel harness…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Власний харнес…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness tùy chỉnh…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自定义 Harness…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自訂 Harness…"
+          }
+        }
+      }
+    },
+    "harnesses.customDetail": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يربط وكيلٌ أداة تشغيل سطر الأوامر الخاصة بك بـ cmux باستخدام cmux harness guide."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent povezuje tvoj vlastiti CLI harness s cmux-om pomoću cmux harness guide."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent kobler din egen CLI-harness til cmux med cmux harness guide."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent bindet deinen eigenen CLI-Harness mit cmux harness guide in cmux ein."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent wires your own CLI harness into cmux using cmux harness guide."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente conecta tu propio harness de CLI a cmux con cmux harness guide."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agent intègre votre propre harness CLI à cmux avec cmux harness guide."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un agente collega il tuo harness CLI a cmux con cmux harness guide."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントが cmux harness guide を使って独自の CLI ハーネスを cmux に組み込みます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ភ្នាក់ងារមួយភ្ជាប់ CLI harness ផ្ទាល់ខ្លួនរបស់អ្នកទៅ cmux ដោយប្រើ cmux harness guide។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트가 cmux harness guide로 직접 만든 CLI 하네스를 cmux에 연결합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agent kobler din egen CLI-harness til cmux med cmux harness guide."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent podłącza Twój własny harness CLI do cmux za pomocą cmux harness guide."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um agente conecta seu próprio harness de CLI ao cmux usando cmux harness guide."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент подключает ваш собственный CLI-харнесс к cmux с помощью cmux harness guide."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เอเจนต์จะเชื่อมฮาร์เนส CLI ของคุณเข้ากับ cmux โดยใช้ cmux harness guide"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajan, cmux harness guide ile kendi CLI harness'inizi cmux'a bağlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Агент підключає ваш власний CLI-харнес до cmux за допомогою cmux harness guide."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Một tác tử kết nối CLI harness của bạn vào cmux bằng cmux harness guide."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由智能体使用 cmux harness guide 将你自己的 CLI Harness 接入 cmux。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "由代理使用 cmux harness guide 將你自己的 CLI Harness 接入 cmux。"
+          }
+        }
+      }
+    },
+    "harnesses.customRequest": {
+      "comment": "Agent pane: the Harnesses page (cx-uj5g8)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ادمج أداة التشغيل الخاصة بي في cmux. شغّل `cmux harness guide` واتبعه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integriši moj harness u cmux. Pokreni `cmux harness guide` i slijedi ga."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrer min harness i cmux. Kør `cmux harness guide` og følg den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Binde meinen Harness in cmux ein. Führe `cmux harness guide` aus und folge der Anleitung."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrate my harness into cmux. Run `cmux harness guide` and follow it."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integra mi harness en cmux. Ejecuta `cmux harness guide` y síguelo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Intègre mon harness à cmux. Lance `cmux harness guide` et suis-le."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integra il mio harness in cmux. Esegui `cmux harness guide` e seguilo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "私のハーネスを cmux に統合してください。`cmux harness guide` を実行して、その手順に従ってください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ចូល harness របស់ខ្ញុំទៅក្នុង cmux។ ដំណើរការ `cmux harness guide` ហើយធ្វើតាមវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "내 하네스를 cmux에 통합해 줘. `cmux harness guide`를 실행하고 그대로 따라 줘."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integrer harnessen min i cmux. Kjør `cmux harness guide` og følg den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zintegruj mój harness z cmux. Uruchom `cmux harness guide` i postępuj zgodnie z nim."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Integre meu harness ao cmux. Execute `cmux harness guide` e siga-o."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Интегрируй мой харнесс в cmux. Запусти `cmux harness guide` и следуй ему."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ผสานฮาร์เนสของฉันเข้ากับ cmux เรียกใช้ `cmux harness guide` แล้วทำตาม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Harness'imi cmux'a entegre et. `cmux harness guide` komutunu çalıştır ve izle."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Інтегруй мій харнес у cmux. Запусти `cmux harness guide` і дотримуйся його."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tích hợp harness của tôi vào cmux. Chạy `cmux harness guide` và làm theo."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将我的 Harness 集成到 cmux。运行 `cmux harness guide` 并按其操作。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將我的 Harness 整合到 cmux。執行 `cmux harness guide` 並依照指示操作。"
+          }
+        }
+      }
+    },
     "summary.backgroundTasks": {
       "comment": "Agent pane: title of the chat summary's list of shells the agent ran in the background (cx-ncc.84)",
       "extractionState": "manual",
@@ -142010,6 +143462,138 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "顯示聽寫按鈕"
+          }
+        }
+      }
+    },
+    "prompt.notSentAgain": {
+      "comment": "Agent pane: a prompt the host refused for want of a real key or click; it stays in the composer",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يُرسَل. أرسله مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije poslano. Pošaljite ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke sendt. Send den igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nicht gesendet. Sende sie erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not sent. Send it again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No enviado. Vuelve a enviarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non envoyé. Renvoyez-le."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non inviato. Invialo di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "送信されていません。もう一度送信してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនបានផ្ញើទេ។ សូមផ្ញើម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "보내지 않았습니다. 다시 보내세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ikke sendt. Send den på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie wysłano. Wyślij ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não enviado. Envie de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не отправлено. Отправьте ещё раз."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่ได้ส่ง ส่งอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Gönderilmedi. Yeniden gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не надіслано. Надішліть ще раз."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa gửi. Hãy gửi lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未发送。请再次发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未傳送。請再傳送一次。"
           }
         }
       }

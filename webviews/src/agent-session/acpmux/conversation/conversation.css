@@ -905,6 +905,16 @@ pre.cv-math-source {
 .cv-shell__exit {
   font: 13px/20px var(--cv-font);
 }
+/* "Shell" with the output's copy button at the other end; the button overhangs the label's line. */
+.cv-shell__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 20px;
+}
+.cv-shell__label .cv-codeblock__action {
+  margin-right: -6px;
+}
 .cv-shell__body {
   display: flex;
   flex-direction: column;
@@ -1095,6 +1105,52 @@ pre.cv-math-source {
 .cv-rotor.is-flipped {
   transform: rotate(180deg);
 }
+/* A call's output under its row (ToolRow.tsx): copyable whole from the corner on hover or focus. */
+.cv-tool-output-card {
+  position: relative;
+  margin: 4px 0 8px;
+}
+.cv-tool-output-card .cv-tool-output {
+  margin: 0;
+}
+.cv-tool-output__copy {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  color: var(--cv-text-muted);
+  background: var(--cv-card-fill);
+  opacity: 0;
+}
+.cv-tool-output__copy:hover {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 7%, var(--cv-card-fill));
+}
+.cv-tool-output-card:hover .cv-tool-output__copy,
+.cv-tool-output__copy:focus-visible {
+  opacity: 1;
+}
+/* The mark where a long output's shown end begins, and the button that shows all of it. */
+.cv-output-cut {
+  color: var(--cv-text-muted);
+}
+.cv-output-more {
+  all: unset;
+  display: block;
+  margin: 4px 0 0;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+  cursor: pointer;
+}
+.cv-output-more:hover {
+  color: var(--cv-text);
+}
+.cv-output-more:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
 .cv-message .cv-tool-output {
   margin: 0 10px 8px 32.5px;
 }
@@ -1190,8 +1246,8 @@ pre.cv-math-source {
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
  * tool call, a status line), fade in and rise 4px on the shared fade-in token. `translate` and
- * `opacity` never move layout, so nothing below shifts. Off under Reduce Motion and when
- * ui.animationSpeed is off (the token is 0). */
+ * `opacity` never move layout, so nothing below shifts. Reduce Motion keeps the fade without the
+ * rise (cv-enter-fade, below); ui.animationSpeed off turns both off (the token is 0). */
 @keyframes cv-enter {
   from {
     opacity: 0;
@@ -1206,6 +1262,12 @@ pre.cv-math-source {
   .cv-enter,
   .acpmux-row--enter {
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-enter,
+  .acpmux-row--enter {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
 }
 
@@ -1246,18 +1308,15 @@ pre.cv-math-source {
     opacity: 1;
   }
 }
-@media (prefers-reduced-motion: no-preference) {
-  .cv-code-handoff.is-fading .cv-code-handoff__real {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
-  }
+/* Opacity only, so it runs under Reduce Motion too (desktop.css exempts it). */
+.cv-code-handoff.is-fading .cv-code-handoff__real {
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* R104: the newest revealed characters fade in (RevealedMarkdown); opacity only, on the
  * compositor. The text holds its final layout while transparent, so no line ever reflows. */
-@media (prefers-reduced-motion: no-preference) {
-  .cv-fresh {
-    animation: cv-enter-fade 160ms cubic-bezier(0.2, 0, 0, 1) both;
-  }
+.cv-fresh {
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* R104: the live edge, a soft bar after the newest character while a reply streams. It takes no
@@ -1326,10 +1385,14 @@ pre.cv-math-source {
 }
 
 /* Images (Markdown.tsx): a data URL image fits the column; a web image is a link. */
+/* A reply's image: as wide as the column at most, and no taller than a screenful's share, so a tall
+ * screenshot does not push the reply off the page; the viewer shows it whole. */
 .cv-img {
   display: block;
   max-width: 100%;
+  max-height: 360px;
   height: auto;
+  object-fit: contain;
   margin: 6px 0;
   border-radius: 8px;
 }
@@ -1839,7 +1902,7 @@ pre.cv-math-source {
   cursor: default;
   opacity: 0;
   pointer-events: none;
-  transform: translate3d(-50%, 6px, 0) scale(0.92);
+  transform: translate3d(-50%, 6px, 0);
 }
 .acpmux-jump-latest[data-shown] {
   opacity: 1;

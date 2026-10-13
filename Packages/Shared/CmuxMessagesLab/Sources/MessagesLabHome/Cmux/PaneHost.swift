@@ -62,6 +62,11 @@ final class HostView: NSView {
     let paneHeader = PaneHeaderView(frame: .zero)
     private(set) var demo: MessagesWindowView?
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
+    /// MessagesLab b6760b6: the window's update observer and the window place the rows last read
+    /// (PaneHost+WindowPlace.swift).
+    var windowPlaceObserver: NSObjectProtocol?
+    var lastWindowPlace: (origin: CGPoint, axis: CGPoint)?
+    deinit { windowPlaceObserver.map(NotificationCenter.default.removeObserver) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -139,6 +144,9 @@ final class HostView: NSView {
         // emoji buttons were invisible until an engine change moved the
         // field, and "+" and emoji never came back.
         demo?.layoutIfNeeded()
+        // MessagesLab b6760b6: the typing indicator snaps to the window's device pixels; the pane's place
+        // in the window can change with no size change of the window view (RowCell.windowPlace).
+        refreshWindowPlace()
         CATransaction.commit()
         placeNativeViews()
     }
@@ -176,11 +184,19 @@ final class HostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         controller?.windowChanged()
+        observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
     }
 
+    /// A backing scale change (the window moved to a display with another scale): ChatController.displayScaleChanged
+    /// calls MessagesWindowView.setRenderScale, which re-rasterizes and, from MessagesLab 82ccac1, re-snaps the rows,
+    /// the typing indicator and its clip and remakes the thread-preview heights at the new scale
+    /// (scripts/cmux-next/home-scale-change.py). Attaching to a window of another scale takes the same path (windowChanged).
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard let s = window?.backingScaleFactor, s != DisplayScale.current else { return }
+        // This pane's own transcript scale, not only the shared DisplayScale.current: another pane of the window
+        // may have taken the change first (MessagesWindowView.appliedRenderScale, a cmux patch).
+        guard let s = window?.backingScaleFactor, s != DisplayScale.current || (controller?.demo?.appliedRenderScale).map({ $0 != s }) == true
+        else { return }
         DisplayScale.current = s
         controller?.displayScaleChanged()
     }
@@ -411,7 +427,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             demo.setInactive(!Self.args.contains("--active"))
         }
         observers.append(nc.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.windowDidChangeScreen() })
-        if DisplayScale.current != window.backingScaleFactor {
+        if DisplayScale.current != window.backingScaleFactor || demo.appliedRenderScale != window.backingScaleFactor {
             DisplayScale.current = window.backingScaleFactor
             displayScaleChanged()
         }
@@ -495,6 +511,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.setRenderScale(s)
         demo.moveToWindowRecursively()
         picker?.rescale()
+        intents?.rowsPlaced()  // the video layers follow the rows' new snap (82ccac1)
     }
 
     // MARK: Wake-ups (no polling, no display link)

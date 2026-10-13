@@ -356,6 +356,25 @@ class WorkflowTests(unittest.TestCase):
         for name in ("generate-nightly-deltas", "sign-release-notes"):
             self.assertIn("needs.publish-nightly.outputs.source != 'recovered'", jobs[name]["if"], name)
 
+    def test_an_ordinary_publication_publishes_its_release_notes(self):
+        # Without a status function in its `if`, GitHub skips a job when any job
+        # it needs, directly or through others, was skipped. An ordinary
+        # publication skips the recovery job, so the notes jobs never ran and
+        # every publish reopened the failure issue (cx-urd.28).
+        jobs = workflow()["jobs"]
+
+        def ancestors(name):
+            needs = jobs[name].get("needs", [])
+            found = set()
+            for need in [needs] if isinstance(needs, str) else needs:
+                found |= {need} | ancestors(need)
+            return found
+
+        for name in ("sign-release-notes", "publish-release-notes"):
+            self.assertIn("recover-nightly-next-notarization", ancestors(name), name)
+            self.assertTrue(jobs[name]["if"].startswith("!cancelled() && "), jobs[name]["if"])
+            self.assertIn("needs.publish-nightly.result == 'success'", jobs[name]["if"], name)
+
     def test_recovery_artifact_carries_what_publication_needs(self):
         job = workflow()["jobs"]["build-sign-notarize-nightly"]
         prepare = step(job, "Prepare pending notarization recovery artifact")["run"]
@@ -364,6 +383,59 @@ class WorkflowTests(unittest.TestCase):
         upload = step(job, "Upload pending notarization recovery artifact")["with"]["path"]
         self.assertIn("remote-daemon-assets/cmuxd-remote-*", upload)
         self.assertIn("recovery-source-archive", upload)
+
+
+def job_runs(name: str, results: dict, outputs: dict) -> bool:
+    """Whether GitHub would run job `name` after jobs that ended with `results`
+    and set `outputs`, from its real `if` (the subset of the expression
+    language nightly.yml uses: always/cancelled/contains, ==, !=, !, &&, ||)."""
+    job = workflow()["jobs"][name]
+    needs = job["needs"]
+    expr = job["if"]
+    expr = expr.replace("always()", "True").replace("cancelled()", "False")
+    expr = re.sub(r"contains\(needs\.\*\.result, '(\w+)'\)", lambda m: repr(m.group(1) in [results[n] for n in needs]), expr)
+    expr = re.sub(r"needs\.([\w-]+)\.outputs\.([\w-]+)", lambda m: repr(outputs.get(m.group(1), {}).get(m.group(2), "")), expr)
+    expr = re.sub(r"needs\.([\w-]+)\.result", lambda m: repr(results[m.group(1)]), expr)
+    expr = re.sub(r"!(?!=)", " not ", expr).replace("&&", " and ").replace("||", " or ")
+    return eval(expr, {"__builtins__": {}}, {})
+
+
+class FailureIssueTests(unittest.TestCase):
+    """The nightly-next failure issue opens on a failed publication and closes
+    on the next good one. A recovered publication skips its deltas and notes on
+    purpose, so it must not open the issue or keep it open (cx-urd.69)."""
+
+    OUTPUTS = {"decide": {"should_publish": "true", "track": "nightly-next"}, "publish-nightly": {"tag_status": "updated"}}
+
+    def publication(self, source, **results):
+        jobs = ("decide", "build-nightly-ghostty-cli-helper", "build-nightly-app", "resolve-nightly-cmux-tui-client",
+                "build-sign-notarize-nightly", "publish-nightly", "generate-nightly-deltas", "republish-nightly-deltas",
+                "sign-release-notes", "publish-release-notes")
+        outcome = dict.fromkeys(jobs, "success")
+        if source == "recovered":
+            outcome.update({"generate-nightly-deltas": "skipped", "sign-release-notes": "skipped", "publish-release-notes": "skipped"})
+        outcome.update(results)
+        outputs = dict(self.OUTPUTS, **{"publish-nightly": dict(self.OUTPUTS["publish-nightly"], source=source)})
+        return job_runs("report-nightly-failure", outcome, outputs), job_runs("close-nightly-failure-issue", outcome, outputs)
+
+    def test_a_recovered_publication_closes_the_issue(self):
+        self.assertEqual(self.publication("recovered"), (False, True))
+
+    def test_an_ordinary_publication_closes_the_issue(self):
+        self.assertEqual(self.publication("own"), (False, True))
+
+    def test_an_ordinary_publication_without_its_notes_reports(self):
+        self.assertEqual(self.publication("own", **{"sign-release-notes": "failure", "publish-release-notes": "skipped"}), (True, False))
+        self.assertEqual(self.publication("own", **{"sign-release-notes": "skipped", "publish-release-notes": "skipped"}), (True, False))
+
+    def test_a_recovered_publication_after_this_run_s_build_failed_reports(self):
+        # publish-nightly also publishes a recovered build when this run's own
+        # build failed; closing then would race the report of that failure.
+        self.assertEqual(self.publication("recovered", **{"build-sign-notarize-nightly": "failure"}), (True, False))
+        self.assertEqual(self.publication("recovered", **{"build-nightly-app": "failure", "build-sign-notarize-nightly": "skipped"}), (True, False))
+
+    def test_a_recovered_publication_that_failed_its_delta_republish_reports(self):
+        self.assertEqual(self.publication("recovered", **{"republish-nightly-deltas": "failure"}), (True, False))
 
 
 class ShellSnippetTests(unittest.TestCase):

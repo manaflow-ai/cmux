@@ -2,9 +2,10 @@
 // caller computes the suggestions (they may arrive asynchronously) from `onQuery`. Return submits
 // the highlighted suggestion or the typed text, Tab completes, Escape cancels; Base UI owns the
 // combobox role, aria-activedescendant and the arrows.
-import { useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Autocomplete } from "@base-ui/react/autocomplete";
-import { usePortalContainer } from "./UiProvider";
+import { usePopupHost, usePortalContainer } from "./UiProvider";
+import { useEscapingPopup } from "./popupHost";
 import { cx } from "./cx";
 
 type BaseUIKeyEvent = KeyboardEvent<HTMLInputElement> & { preventBaseUIHandler?: () => void };
@@ -27,6 +28,10 @@ export interface ComboboxProps {
   inputRef?: React.Ref<HTMLInputElement>;
   /** Render the suggestions under the field in place (inside a popover) instead of in a popup. */
   inline?: boolean;
+  /** With `inline`: the list keeps its tallest height while mounted (until the window resizes), so
+   * narrowing it never resizes the popover and a field above it never moves under the caret
+   * (cx-6k6cg). For a list with no empty-state message of its own after it. */
+  keepHeight?: boolean;
   /** Keep a multi-control panel open when focus moves to its buttons. */
   cancelOnBlur?: boolean;
   /** Disabled rows remain visible but cannot be highlighted or submitted. */
@@ -57,6 +62,7 @@ export function Combobox({
   itemClassName,
   inputRef,
   inline = false,
+  keepHeight = false,
   cancelOnBlur = true,
   isItemDisabled,
   autoHighlight = false,
@@ -66,8 +72,46 @@ export function Combobox({
   onHighlight,
 }: ComboboxProps) {
   const container = usePortalContainer();
+  // A popup list with no room above or below its field: past the window's edge (popupHost.ts).
+  // The field keeps the focus; the list's highlight is Base UI's data-highlighted.
+  const host = usePopupHost();
+  const [field, setField] = useState<HTMLInputElement | null>(null);
+  const [popup, setPopup] = useState<HTMLElement | null>(null);
+  const attachField = useCallback(
+    (node: HTMLInputElement | null) => {
+      if (typeof inputRef === "function") inputRef(node);
+      else if (inputRef) inputRef.current = node;
+      if (host) setField(node);
+    },
+    [host, inputRef],
+  );
+  useEscapingPopup(inline ? null : host, popup, () => field, {
+    side: "bottom",
+    align: "start",
+    gap: 2,
+    kind: "list",
+    active: "[data-highlighted]",
+    pick: "click",
+    shell: "parent",
+  });
   const [value, setValue] = useState(defaultValue);
   const [highlighted, setHighlighted] = useState<string | undefined>(undefined);
+  const listRef = useRef<HTMLDivElement>(null);
+  const keep = inline && keepHeight;
+  const [tallest, setTallest] = useState(0);
+  useLayoutEffect(() => {
+    if (!keep) return;
+    const height = listRef.current?.getBoundingClientRect().height ?? 0;
+    if (height > tallest + 0.5) setTallest(height);
+  }, [keep, suggestions, tallest]);
+  // A resized window may cap the list lower (max-height from the room left): measure again.
+  useLayoutEffect(() => {
+    if (!keep) return;
+    const reset = () => setTallest(0);
+    window.addEventListener("resize", reset);
+    return () => window.removeEventListener("resize", reset);
+  }, [keep]);
+  const held = keep && tallest > 0;
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -98,9 +142,12 @@ export function Combobox({
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
   const list = (
     <Autocomplete.List
+      ref={listRef}
       className={cx("ui-combobox-list", listClassName)}
       render={<ul />}
-      hidden={suggestions.length === 0}
+      hidden={suggestions.length === 0 && !held}
+      aria-hidden={held && suggestions.length === 0 ? true : undefined}
+      style={held ? { minHeight: tallest, boxSizing: "border-box" } : undefined}
     >
       <Autocomplete.Collection>
         {(item: string) => (
@@ -146,7 +193,7 @@ export function Combobox({
       }}
     >
       <Autocomplete.Input
-        ref={inputRef}
+        ref={attachField}
         className={cx("ui-field", inputClassName)}
         aria-label={label}
         placeholder={placeholder}
@@ -162,7 +209,9 @@ export function Combobox({
       ) : (
         <Autocomplete.Portal container={container}>
           <Autocomplete.Positioner className="ui-positioner" sideOffset={2} align="start">
-            <Autocomplete.Popup className="ui-popup ui-combobox-popup">{list}</Autocomplete.Popup>
+            <Autocomplete.Popup ref={host ? setPopup : undefined} className="ui-popup ui-combobox-popup">
+              {list}
+            </Autocomplete.Popup>
           </Autocomplete.Positioner>
         </Autocomplete.Portal>
       )}

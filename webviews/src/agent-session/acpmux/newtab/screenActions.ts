@@ -28,7 +28,7 @@ export function newTabScreenActions(deps: {
   const ignore = (result: Promise<unknown>) => void result.catch(() => undefined);
   const remember = (agent: string) => ignore(callNative("newTab.remember", { agent }));
   return {
-    onAsk(harness, text, picked) {
+    onAsk(harness, text, picked, model) {
       remember(harness);
       deps.leave();
       // The prompt goes in the same turn as the switch: the switch queues it, and a folder trust
@@ -36,7 +36,7 @@ export function newTabScreenActions(deps: {
       // after `chat.new` settled lost it: the switch had stopped on the refusal with nothing
       // queued ("Not sent").
       const start = (folder?: string) => {
-        ignore(callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}) }));
+        ignore(callNative("chat.new", { harness, ...(folder ? { cwd: folder } : {}), ...(model ? { model } : {}) }));
         if (text) ignore(callNative("chat.send", { text }));
       };
       // The page seeds its project with the inherited folder (`~` in a fresh workspace): that is no
@@ -72,6 +72,14 @@ export function newTabScreenActions(deps: {
     // No agent to ask: the Harnesses page, in place (cx-uj5g8).
     onAddHarness: () => void openHarnessesPage(),
     onTouched: () => ignore(callNative("newTab.touched")),
+    // A blank terminal in the tab's folder (nothing typed), or a browser tab on the new tab page.
+    onCreate: (kind) =>
+      ignore(
+        callNative(
+          "tab.open",
+          kind === "terminal" ? { kind, text: "", run: false, ...(cwd ? { cwd } : {}) } : { kind, text: "" },
+        ),
+      ),
     onInputReady: (token) => ignore(callNative("newTab.inputReady", { token })),
   };
 }

@@ -11,6 +11,19 @@
 
 import type { GhosttyTheme } from "../../theme/ghosttyTheme";
 
+/** A museum search result (cmux.settings.art.search); its thumbnail is at `museum/<key>`. */
+export type MuseumArtResult = {
+  key: string;
+  title: string;
+  artist: string;
+  date: string;
+  source: string;
+  page: string;
+};
+
+/** A workspace's own background: its name and value (null follows appearance.background). */
+export type WorkspaceBackground = { workspace: string; title: string; value: string | null; opacity?: number | null };
+
 export type ManagedInfo = { source: string; reason: string; team?: string | null };
 
 /** One `cmux.settings.list` row: the schema row plus what applies now. */
@@ -52,7 +65,8 @@ export type GhosttyDiagnostic = {
 };
 
 /** One space or machine row (`cmux.settings.host.lists`). */
-export type HostListRow = { id: string; title: string; subtitle: string | null; active: boolean };
+/** `icon` is the row's wire icon (a space's; a machine's symbol): an emoji, a symbol or a stored asset. */
+export type HostListRow = { id: string; title: string; subtitle: string | null; icon?: string | null; active: boolean };
 
 /** One browser profile row. */
 export type BrowserProfile = {
@@ -297,6 +311,24 @@ export type SettingsOps = {
   "cmux.settings.theme.accepts": [{ text: string }, { accepts: boolean }];
   /** Native: the cmux picker chooses folders for a folder list row; the host writes them. */
   "cmux.settings.folders.add": [{ key: string }, { added: string[] }];
+  /** The cmux picker for an image; the host copies it to the backgrounds folder and sets it. */
+  "cmux.settings.backdrop.choose_image": [Record<string, never>, { id: string | null }];
+  /** Native: a workspace's own background (cx-t2x.5); `value` null follows appearance.background. */
+  "cmux.settings.backdrop.workspace": [{ workspace: string }, WorkspaceBackground];
+  /** Native: save a workspace's own background; null follows appearance.background again. */
+  "cmux.settings.backdrop.workspace.set": [
+    { workspace: string; value?: string | null; opacity?: number | null },
+    unknown,
+  ];
+  /** Native: show `value` in that workspace's windows without saving it; `end` drops the preview. */
+  "cmux.settings.backdrop.workspace.preview": [
+    { workspace: string; value?: string | null; opacity?: number | null; end?: boolean },
+    unknown,
+  ];
+  /** Browse More Art: public-domain works in open museum collections matching `query`. */
+  "cmux.settings.art.search": [{ query: string }, { results: MuseumArtResult[] }];
+  /** Downloads the work `key` into the backgrounds folder and sets it as the background. */
+  "cmux.settings.art.use": [{ key: string }, { id: string }];
   /** Native: the buttons at the end of a section (registry titles, localized by the app). */
   "cmux.settings.section.actions": [{ section: string }, Array<{ id: string; title: string; enabled: boolean }>];
   /** Native: show the settings file in Finder. */
@@ -393,6 +425,7 @@ export const settingsPageActions = [
   "browserProfile.clearIcon",
   "browserProfile.manageExtensions",
   "browserProfile.delete",
+  "browserProfile.clearBrowsingData",
   "reloadConfiguration",
   "palette.computerUse.setup",
   "palette.computerUse.accessibility",

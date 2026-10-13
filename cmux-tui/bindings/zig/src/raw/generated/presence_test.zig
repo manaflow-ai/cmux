@@ -91,6 +91,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "retry_exhausted");
     try expectExplicitNullRejected(protocol.GraphicsStatusEvent, "summary");
     try expectExplicitNullRejected(protocol.NotificationEvent, "desktop");
+    try expectExplicitNullRejected(protocol.NotificationEvent, "reply");
     try expectExplicitNullRejected(protocol.NotificationEvent, "source");
     try expectExplicitNullRejected(protocol.OutputEvent, "colors");
     try expectExplicitNullRejected(protocol.OverflowEvent, "scope");
@@ -124,6 +125,7 @@ test "every generated optional non-null field rejects explicit null" {
     try expectExplicitNullRejected(protocol.WorkspaceRenamedEvent, "origin");
     try expectExplicitNullRejected(protocol.AttachedViewResizeResult, "participant");
     try expectExplicitNullRejected(protocol.Bookmark, "favicon_key");
+    try expectExplicitNullRejected(protocol.Bookmark, "icon");
     try expectExplicitNullRejected(protocol.Bookmark, "last_used_ms");
     try expectExplicitNullRejected(protocol.Bookmark, "source_key");
     try expectExplicitNullRejected(protocol.Bookmark, "url");

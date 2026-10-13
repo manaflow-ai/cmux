@@ -9,6 +9,7 @@ import React, {
   useState,
 } from "react";
 import { createPortal } from "react-dom";
+import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
   filesFrom,
@@ -19,6 +20,7 @@ import {
   type AttachmentError,
   type ComposerAttachment,
 } from "./attachments";
+import type { UploadResult } from "./cloudUploads";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import { type ChatMove, moveAttachment } from "./shell/chatMoves";
@@ -62,6 +64,7 @@ import { type StringKey, type Translate, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
 import { ChromeArea } from "../../ui/HideableChrome";
 import { useComposerChrome } from "./composerChrome";
+import { usePromptHistory } from "./composer/promptHistory";
 import type { SendBlock } from "./useFolderTrustAsk";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -102,6 +105,9 @@ export const COMPOSER_LABELS = {
   attachFiles: "composer.menu.attachFiles",
   insertMention: "composer.menu.insertMention",
 } as const satisfies Record<string, StringKey>;
+
+/// The refusals a moved chat's upload can take instead (a file of another type, or past the size an attachment takes).
+const UPLOADABLE = new Set<AttachmentError["reason"]>(["unsupported", "tooLarge"]);
 
 function attachmentErrorText(error: AttachmentError, t: Translate): string {
   return t(COMPOSER_LABELS[error.reason], { name: error.name });
@@ -166,6 +172,9 @@ type Props = {
   /// or a window, attached as an image; an error for one too large to attach (shown as the
   /// composer's note); undefined when the person cancelled the pick.
   capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
+  /// Sends dropped or pasted files the composer can't attach to the chat's Cloud machine (a moved
+  /// chat): their machine paths go into the prompt. Undefined when this chat takes none.
+  upload?(files: File[]): Promise<UploadResult>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
@@ -225,6 +234,7 @@ export function Composer({
   onImportFile,
   searchFiles,
   capture,
+  upload,
   onProject,
   projectChoices,
   onBrowseProject,
@@ -289,6 +299,7 @@ export function Composer({
     [prompt],
   );
   const pendingCaret = useRef<number | undefined>(undefined);
+  const prompts = usePromptHistory(snapshot.rows);
   // Send becomes Stop in place once the turn starts; a second click of a
   // double-click, or a click right after Enter, must not cancel the new turn.
   const sentAt = useRef(0);
@@ -311,12 +322,30 @@ export function Composer({
   const allowImages = snapshot.summary?.promptCapabilities?.image !== false;
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
-  const attach = useRef<(files: File[]) => Promise<void>>(async () => {});
-  attach.current = async (files: File[]) => {
+  /// `uploads`: the person dropped or pasted these into the prompt, so a moved chat may send what
+  /// the composer can't attach to its machine (never a pick from + or a capture).
+  const attach = useRef<(files: File[], uploads?: boolean) => Promise<void>>(async () => {});
+  attach.current = async (files: File[], uploads = false) => {
     if (files.length === 0) return;
     const read = await readAttachments(files, held.current, allowImages);
     setAttachments((current) => [...current, ...read.attachments]);
-    setAttachError(read.errors[0] ? attachmentErrorText(read.errors[0], t) : undefined);
+    // A moved chat sends what the composer can't attach to its machine and names it in the prompt.
+    const refused = new Set(read.errors.filter((error) => UPLOADABLE.has(error.reason)).map((error) => error.name));
+    const sendable = files.filter((file) => refused.has(file.name || "file"));
+    const sent = uploads && upload && sendable.length > 0 ? await upload(sendable) : undefined;
+    if (sent && "paths" in sent) insertPaths(sent.paths);
+    const errors = sent ? read.errors.filter((error) => !refused.has(error.name)) : read.errors;
+    setAttachError(sent && "error" in sent ? sent.error : errors[0] ? attachmentErrorText(errors[0], t) : undefined);
+  };
+  /// Puts machine paths at the caret, one per line.
+  const insertPaths = (paths: string[]) => {
+    const handle = field.current;
+    if (!handle || paths.length === 0) return;
+    const { value, selectionStart, selectionEnd } = handle.text();
+    const before = value.slice(0, selectionStart);
+    const inserted = (before && !before.endsWith("\n") && !before.endsWith(" ") ? " " : "") + paths.join("\n");
+    const caret = before.length + inserted.length;
+    handle.writeText(before + inserted + value.slice(selectionEnd), caret, caret);
   };
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
@@ -326,9 +355,10 @@ export function Composer({
       const files = filesFrom(event.clipboardData);
       if (files.length === 0) return;
       event.preventDefault();
-      void attach.current(files);
+      // A paste in shell mode keeps its files for the next prompt and uploads nothing.
+      void attach.current(files, !shellField.current?.contains(target));
     };
-    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach.current(files), setDropping);
+    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach.current(files, true), setDropping);
     document.addEventListener("paste", paste);
     return () => {
       removeFileDropLifecycle();
@@ -448,14 +478,18 @@ export function Composer({
     plan && onMode
       ? { id: `plan:${plan.id}`, name: planning ? "Build" : "Plan", icon: planning ? <BuildIcon /> : <PlanIcon /> }
       : undefined;
+  // A prompt ↑ brought back keeps its arrows for history: a / command or @ mention in it opens no menu.
+  const recalling = prompts.showing(() => field.current?.agentText(text) ?? text);
   const query = slashQuery(text, caret);
-  const open = query !== undefined && dismissed !== text;
+  const open = query !== undefined && dismissed !== text && !recalling;
   const matches = useMemo(() => (open ? matchCommands(commands ?? [], query ?? "") : []), [commands, open, query]);
 
   useEffect(() => setActive(0), [query]);
   // Typing @ at a word start lists the chat's files that match what follows (cx-ncc.68).
   const mentionAt =
-    !open && searchFiles && mentionDismissed !== text ? mentionQuery(text, markdownOffset(text, caret)) : undefined;
+    !open && !recalling && searchFiles && mentionDismissed !== text
+      ? mentionQuery(text, markdownOffset(text, caret))
+      : undefined;
   const mentionState = useMentionSearch(searchFiles, mentionAt?.query);
   const mentionFiles = mentionResults(mentionState);
   const mentionSelected = Math.min(mentionActive, Math.max(mentionFiles.length - 1, 0));
@@ -720,6 +754,26 @@ export function Composer({
       if (last) {
         event.preventDefault();
         last.focus();
+        return;
+      }
+    }
+    // ↑ and ↓ on an empty prompt (or one they brought back) step through the chat's prompts. In a
+    // recalled prompt of several lines they move the caret first, and recall from its first (↑)
+    // or last (↓) line.
+    if ((event.key === "ArrowUp" || event.key === "ArrowDown") && plain && !open && !shell) {
+      const up = event.key === "ArrowUp";
+      const lines = recalling ? field.current?.text() : undefined;
+      const edge =
+        !lines ||
+        (up
+          ? !lines.value.slice(0, lines.selectionStart).includes("\n")
+          : !lines.value.slice(lines.selectionEnd).includes("\n"));
+      const recalled = edge ? prompts.step(up ? -1 : 1, field.current?.agentText(text) ?? text) : undefined;
+      if (recalled !== undefined) {
+        event.preventDefault();
+        if (recalled === null) return;
+        pendingCaret.current = recalled.length;
+        edit(recalled, recalled.length);
         return;
       }
     }
@@ -1400,6 +1454,15 @@ function SlashMenu({
 }) {
   const t = useT();
   const list = useRef<HTMLDivElement>(null);
+  // Above the composer, or past the window's edge when the pane has no room there (cx-6k6cg).
+  const escape = useEscapingList("top", 6);
+  const setList = useCallback(
+    (node: HTMLDivElement | null) => {
+      list.current = node;
+      escape?.(node);
+    },
+    [escape],
+  );
   useLayoutEffect(() => {
     list.current?.querySelector<HTMLElement>(`#acpmux-slash-${active}`)?.scrollIntoView?.({ block: "nearest" });
   }, [active]);
@@ -1418,7 +1481,7 @@ function SlashMenu({
     );
   return (
     <div
-      ref={list}
+      ref={setList}
       className="ui-popup acpmux-slash-menu"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role

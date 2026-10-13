@@ -270,6 +270,7 @@ final class SidebarGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard let content = glass else { return }
         content.performWithTheme {
             nameField.textColor = Palette.textPrimary
+            nameField.applyThemedPlaceholder(GroupEditorStrings.namePlaceholder)
             field.layer?.backgroundColor = Palette.hoverFill.cgColor
             field.layer?.borderColor = Palette.focusRing.cgColor
             field.layer?.borderWidth = Metrics.dividerThickness

@@ -182,6 +182,7 @@
     "invite.approve_join",
     "invite.create",
     "invite.revoke",
+    "keybindings.get",
     "linear.issue.create",
     "linear.teams.list",
     "machine.get",

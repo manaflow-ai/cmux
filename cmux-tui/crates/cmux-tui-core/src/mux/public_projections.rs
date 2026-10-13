@@ -75,6 +75,7 @@ pub(super) fn restore_public_projections(
             source: notification.source,
             surface,
             desktop: true,
+            reply: false,
         });
     }
     let next_notification_id = u64::try_from(notification_ledger.len())

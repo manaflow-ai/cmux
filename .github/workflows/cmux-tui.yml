@@ -687,6 +687,8 @@ jobs:
         working-directory: cmux-tui
         env:
           TEST_FILTER: ${{ inputs.test_filter }}
+          # Linux-only test files compile to nothing here; the Linux job stays strict.
+          CMUX_TUI_FOCUSED_ALLOW_NONE_ON_HOST: "1"
         shell: bash
         run: ../scripts/ci/cmux-tui-focused-test.sh "$TEST_FILTER" --test-threads=2
 

@@ -39,6 +39,8 @@ export type PageFixtureStep = {
 export type SettingsPageVariant = VariantBase & {
   section: string;
   focus?: string;
+  /** The workspace the page was opened for (Change Background… on a workspace). */
+  workspace?: string;
   options?: MockOptions;
   host?: Partial<HostLists>;
   accounts?: AccountsState;

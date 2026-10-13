@@ -54,7 +54,8 @@ enum ControlSessions {
     }
 
     /// Session names that add nothing to a machine's name.
-    static let defaultSessionNames: Set<String> = [RemoteSessionName.defaultName, "cmux-app"]
+    static let defaultSessionNames: Set<String> = Set([RemoteSessionName.defaultName, "cmux-app"]
+        + DaemonLauncher.channelBundleIDs.compactMap { try? DaemonLauncher.sessionName(tag: $0.1) })
 
     /// The host name the daemon reports, else the App's name for a remote
     /// machine (SSH label, Cloud title).

@@ -43,6 +43,18 @@ public nonisolated struct SidebarLayoutMetrics: Hashable, Sendable {
         self.emptySectionHeight = emptySectionHeight
     }
 
+    /// Minimal mode's metrics (`sidebar.minimal`): shorter rows, tab rows and group headers (a
+    /// group header draws as a thin line there, `SidebarRow.isThinHeader`).
+    public var minimal: SidebarLayoutMetrics {
+        var m = self
+        let step = (rowHeight * 0.17).rounded()
+        m.rowHeight -= step
+        m.rowHeightWithSubtitle -= step
+        m.tabRowHeight -= step
+        m.groupHeaderHeight = m.rowHeight
+        return m
+    }
+
     /// One line, two, or three (an expanded row's meta line adds one more line's height).
     func height(for content: WorkspaceRowContent) -> CGFloat {
         let lines = (content.detail == nil ? 0 : 1) + (content.meta == nil ? 0 : 1)
@@ -117,7 +129,10 @@ nonisolated extension SidebarLayoutOptions {
     /// stage), counts, badges and the working dots; attention states
     /// (waiting, error) still show, like the unread mark.
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
-        if expanded && !minimal { return WorkspaceRowContent(expanded: ws, now: now, machine: machine) }
+        if expanded && !minimal {
+            return WorkspaceRowContent(expanded: ws, now: now, machine: machine,
+                                       showsNotification: workspaceRow.resolved(for: ws.rowKind).shows(.notification))
+        }
         guard minimal else { return WorkspaceRowContent(ws, preferences: workspaceRow, now: now, machine: machine) }
         var content = WorkspaceRowContent(ws, preferences: Self.minimalRow, now: now)
         content.detail = nil

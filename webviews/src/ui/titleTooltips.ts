@@ -1,18 +1,16 @@
 // Tooltips for plain `title` attributes, for pages (the agent pane) whose controls carry them. A
 // native `title` tooltip in a web view waits about a second, draws where the pointer happens to
-// be, and can run past the view's edge. Each `title` shows here instead: after a short hover, at
-// once when the pointer moves on from a tooltip just shown (along a rail or a toolbar), and kept
-// inside the window. The text moves to `data-tooltip`, so the native tooltip never also appears;
+// be, and can run past the view's edge. Each `title` shows here instead: at once, with no hover
+// delay (POLISH), and kept inside the window. The text moves to `data-tooltip`, so the native tooltip never also appears;
 // a control with no other name keeps it as its `aria-label`. Controls built on ./Tooltip keep theirs.
 // A `data-tooltip-shortcut` shows after the text in the secondary ink, like the native tooltip's.
 // Text the element cuts off shows in full, as wide as the element (`tooltipWidth`).
 
-/// Hover time before the first tooltip.
-export const TOOLTIP_DELAY = 500;
-/// How long after one hides the next shows without the delay.
-export const TOOLTIP_WARM = 400;
 /// Room kept between the tooltip and the window's edges, and its gap from the element.
 const EDGE = 6;
+/// After a scroll, how long the page stays still before the element under the pointer shows its
+/// tooltip: rows passing under a resting pointer show none (at once, each would flash by).
+const SCROLL_QUIET = 150;
 const GAP = 6;
 
 type Box = { left: number; top: number; width: number; height: number };
@@ -78,8 +76,6 @@ export function installTooltips(doc: Document): () => void {
   tip.hidden = true;
   doc.body.append(tip);
   let target: Element | undefined;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let hiddenAt = Number.NEGATIVE_INFINITY;
 
   const textOf = (element: Element) => {
     // A title React set or changed since the last hover moves over first.
@@ -95,7 +91,6 @@ export function installTooltips(doc: Document): () => void {
     return element.getAttribute("data-tooltip") ?? "";
   };
   const show = () => {
-    timer = undefined;
     if (!target?.isConnected) return;
     const text = textOf(target);
     if (!text) return;
@@ -136,39 +131,68 @@ export function installTooltips(doc: Document): () => void {
     tip.style.left = `${position.left}px`;
     tip.style.top = `${position.top}px`;
   };
+  // The show waits for the next frame: measuring the tooltip lays out the page, and done at once it
+  // landed in the frame of a click that opens a menu (a long frame); a click before then cancels it.
+  let frame: number | undefined;
   const hide = () => {
-    if (timer !== undefined) clearTimeout(timer);
-    timer = undefined;
-    if (!tip.hidden) hiddenAt = performance.now();
+    if (frame !== undefined) win.cancelAnimationFrame(frame);
+    frame = undefined;
     tip.hidden = true;
     target = undefined;
   };
+  let quiet: ReturnType<typeof setTimeout> | undefined;
+  // The element under the pointer while a scroll is under way.
+  let pending: Element | undefined;
   const onOver = (event: PointerEvent) => {
     if (event.pointerType && event.pointerType !== "mouse") return;
     const element = (event.target as Element | null)?.closest?.("[title], [data-tooltip]") ?? undefined;
+    if (quiet !== undefined) {
+      pending = element;
+      return;
+    }
     if (element === target) return;
-    const warm = !tip.hidden || performance.now() - hiddenAt < TOOLTIP_WARM;
     hide();
     if (!element || !textOf(element)) return;
     target = element;
-    if (warm) show();
-    else timer = setTimeout(show, TOOLTIP_DELAY);
+    frame = win.requestAnimationFrame(() => {
+      frame = undefined;
+      show();
+    });
   };
   const onOut = (event: PointerEvent) => {
     // Leaving the element (not moving onto one of its children) hides it.
-    if (target && !target.contains(event.relatedTarget as Node | null)) hide();
+    const into = event.relatedTarget as Node | null;
+    if (target && !target.contains(into)) hide();
+    if (pending && !pending.contains(into)) pending = undefined;
   };
-  // A click, a key, a scroll or the window losing focus puts the tooltip away, and the next
-  // one waits again.
+  // A click, a key, a scroll or the window losing focus puts the tooltip away; the element under
+  // the pointer shows it again only once the pointer leaves it and comes back.
   const dismiss = () => {
+    const under = target;
     hide();
-    hiddenAt = Number.NEGATIVE_INFINITY;
+    target = under;
+  };
+  const onScroll = () => {
+    // The first scroll event puts the tooltip away; the rest only push back the end of the scroll.
+    if (quiet === undefined) {
+      dismiss();
+      pending = undefined;
+    } else clearTimeout(quiet);
+    quiet = setTimeout(() => {
+      quiet = undefined;
+      const element = pending;
+      pending = undefined;
+      if (!element?.isConnected || element === target || !textOf(element)) return;
+      hide();
+      target = element;
+      show();
+    }, SCROLL_QUIET);
   };
   doc.addEventListener("pointerover", onOver);
   doc.addEventListener("pointerout", onOut);
   doc.addEventListener("pointerdown", dismiss, true);
   doc.addEventListener("keydown", dismiss, true);
-  doc.addEventListener("scroll", dismiss, true);
+  doc.addEventListener("scroll", onScroll, true);
   win.addEventListener("blur", dismiss);
   return () => {
     dismiss();
@@ -176,7 +200,8 @@ export function installTooltips(doc: Document): () => void {
     doc.removeEventListener("pointerout", onOut);
     doc.removeEventListener("pointerdown", dismiss, true);
     doc.removeEventListener("keydown", dismiss, true);
-    doc.removeEventListener("scroll", dismiss, true);
+    doc.removeEventListener("scroll", onScroll, true);
+    if (quiet !== undefined) clearTimeout(quiet);
     win.removeEventListener("blur", dismiss);
     tip.remove();
   };

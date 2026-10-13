@@ -228,6 +228,7 @@ fn snapshot_payload_round_trip_preserves_kitty_image_alias_section() {
         command: vec!["/bin/cat".into()],
         cwd: Some("/tmp".into()),
         osc_progress: String::new(),
+        program_status: None,
     };
     let payload = encode_snapshot(&snapshot).unwrap();
 
@@ -257,6 +258,7 @@ fn snapshot_payload_round_trip_preserves_negotiated_terminal_metadata() {
         command: Vec::new(),
         cwd: None,
         osc_progress: "4;1;50".into(),
+        program_status: None,
     };
     let payload = encode_snapshot_for_version(&snapshot, PROTOCOL_VERSION, true).unwrap();
     let decoded = decode_snapshot_for_version(&payload, PROTOCOL_VERSION, true).unwrap();
@@ -310,6 +312,7 @@ fn snapshot_payload_matches_the_cross_language_current_golden_bytes() {
         command: Vec::new(),
         cwd: None,
         osc_progress: String::new(),
+        program_status: None,
     };
 
     assert_eq!(
@@ -337,6 +340,7 @@ fn legacy_snapshots_and_resizes_decode_without_newer_tails() {
         command: vec!["/bin/cat".into()],
         cwd: Some("/tmp".into()),
         osc_progress: String::new(),
+        program_status: None,
     };
     let snapshot_payload = encode_snapshot(&snapshot).unwrap();
     let v2_snapshot_len = snapshot_payload.len() - KITTY_REPLAY_STATE_ENCODED_LEN;
@@ -495,6 +499,7 @@ fn clear_history_ack_preserves_known_not_delivered_failure() {
             command: Vec::new(),
             cwd: None,
             osc_progress: String::new(),
+            program_status: None,
         },
         protocol_version: PROTOCOL_VERSION,
         smart_renderer: false,

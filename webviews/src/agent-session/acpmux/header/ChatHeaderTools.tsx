@@ -30,6 +30,7 @@ import {
 /// The app actions the header runs on its tab (CmuxNextAgentPane AgentPaneModel.headerActions).
 export const HEADER_ACTIONS = {
   terminal: "splitRight",
+  splitDown: "splitDown",
   browser: "splitBrowserRight",
   changes: "openDiffViewer",
   /// Not an app action: the App opens the Files tree (CmuxNextApp AgentChatSplitToggles.files).
@@ -78,6 +79,7 @@ export type ChatMenuChild = { key: string; label: string; shortcutAction?: strin
 
 export function ChatHeaderTools({
   onTerminal,
+  onSplitDown,
   onBrowser,
   hasChanges = false,
   onChanges,
@@ -104,6 +106,8 @@ export function ChatHeaderTools({
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
   onTerminal: (mode: QuickActionMode) => void;
+  /// Split Down runs a terminal split under the chat the same way (Quick Chat's panel has none).
+  onSplitDown?: (mode: QuickActionMode) => void;
   onBrowser: (mode: QuickActionMode) => void;
   /// Whether the chat edited files: Changes shows then, and while its diff is open.
   hasChanges?: boolean;
@@ -146,6 +150,7 @@ export function ChatHeaderTools({
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
+  const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
   const actions = useQuickActions();
@@ -222,6 +227,21 @@ export function ChatHeaderTools({
               <Icon name="media.play" size={15} />
             </button>
           ) : null
+        ) : id === "splitDown" ? (
+          onSplitDown ? (
+            <button
+              key={id}
+              data-quick-action={id}
+              type="button"
+              className="acpmux-header-tool"
+              aria-label={t("header.splitDown")}
+              aria-pressed={on(HEADER_ACTIONS.splitDown, mode)}
+              {...tooltipProps(t("header.splitDown"), splitDownKey)}
+              onClick={() => onSplitDown(mode)}
+            >
+              <Icon name="pane.split.down" size={15} />
+            </button>
+          ) : null
         ) : id === "terminal" ? (
           <button
             key={id}
@@ -291,10 +311,11 @@ export function ChatHeaderTools({
 
 /// The quick actions that show whatever the chat holds (Changes and Preview need edits or a page,
 /// Files a folder on this Mac).
-const ALWAYS_SHOWN: ReadonlySet<QuickActionId> = new Set(["terminal", "browser", "newTab"]);
+const ALWAYS_SHOWN: ReadonlySet<QuickActionId> = new Set(["terminal", "splitDown", "browser", "newTab"]);
 
 const QUICK_ACTION_NAMES: Record<QuickActionId, StringKey> = {
   terminal: "header.terminal",
+  splitDown: "header.splitDown",
   browser: "header.browser",
   changes: "header.changes",
   files: "header.files",

@@ -19,18 +19,6 @@ const newTab = (fields: Record<string, unknown> = {}) => ({
     cwd: CWD,
     home: "/Users/you",
     lastAgent: "claude",
-    tools: [
-      { id: "openDiffViewer", title: "Changes", symbol: "plusminus", shortcut: "⌃⇧⌘G", menu: [] },
-      { id: "newSurface", title: "Terminal", symbol: "terminal", shortcut: "⌘T", menu: ["splitRight", "splitDown"] },
-      { id: "file.open", title: "Files", symbol: "folder", shortcut: "⇧⌘O", menu: [] },
-      {
-        id: "agentPane.searchChats",
-        title: "Side chat",
-        symbol: "bubble.left.and.text.bubble.right",
-        shortcut: "⌘K",
-        menu: [],
-      },
-    ],
     ...fields,
   },
   newSession: true,
@@ -281,7 +269,7 @@ export default agentPaneEntry({
       },
     },
     "typed-prompt": {
-      note: "A typed prompt: no rows (Enter asks the agent picked on top, cx-e2aa); the cards stay.",
+      note: "A typed prompt: Ask first (Return's, highlighted) and a web search in the popover over the cards; the cards stay where they were.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -289,7 +277,7 @@ export default agentPaneEntry({
       },
     },
     "typed-tab-match": {
-      note: "Text that matches open tabs and visited pages: those rows (with their favicons, a glyph while one loads) and a web search; Ctrl-N to the last row scrolls to it (dogfood 2026-10-08).",
+      note: "Text that matches open tabs, workspaces and visited pages: Ask first (Return's), a web search, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
         omnibar: {
           tabs: [
@@ -310,15 +298,42 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("release", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // Two tabs, the two pages and the search: five presses end on the last row.
+        // Ask, the search, two tabs, the workspace and a page: five presses from Ask end on the
+        // last row, and three more wrap round to the first tab.
         for (let step = 0; step < 5; step++) await ctx.press("ArrowDown");
-        await ctx.press("ArrowDown");
+        for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
         await waitForTabJump(ctx, "tab", "tab-1");
       },
     },
+    "typed-reddit": {
+      note: 'The omnibar (Leo 2026-10-12): "reddit" completes to reddit.com (a top site), highlighted for Return, then the matching tab and workspace, a web search and Ask, in a popover over the page (no reflow); a blank browser tab is never offered.',
+      ready: newTab({
+        omnibar: {
+          tabs: [
+            { id: "tab-blank", kind: "browser", title: "about:blank", detail: "about:blank", workspace: "workspace-3" },
+            { id: "tab-1", kind: "browser", title: "Reddit API docs", detail: "reddit.com/dev/api", icon: SITE_ICON },
+          ],
+          workspaces: [{ id: "workspace-1", name: "reddit-scraper", detail: "~/src/reddit-scraper" }],
+          folders: [CWD],
+          commands: [],
+          history: [{ url: "about:blank" }],
+        },
+      }),
+      snapshot: noChat(manySessions(3)),
+      checks: {
+        popupLayer: { value: true, reason: "The omnibar's popover floats above the page sections." },
+        // The page never moves (typed-prompt holds it at 0); here the popover's own rows move as
+        // "red" brings reddit.com in on top, as any omnibar's list does while you type.
+        layoutShiftMax: { value: 0.02, reason: "Only the popover's rows reorder while typing; the page stays put." },
+      },
+      play: async (ctx) => {
+        await ctx.type("reddit", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-popover"));
+      },
+    },
     "typed-address": {
-      note: "An address: open it first, then a web search.",
+      note: "An address: open it first (highlighted), then a web search and Ask.",
       ready: newTab(),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
@@ -388,7 +403,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => item("Hide Dictation Button"));
         item("Hide Dictation Button")!.click();
         await ctx.waitFor(() => !ctx.document.querySelector(".nt-pickers .acpmux-mic"));
-        rightClick(ctx.find({ selector: ".nt-pickers .nt-enter" }));
+        rightClick(ctx.find({ selector: ".nt-pickers .nt-send" }));
         await ctx.waitFor(() => item("Show Dictation Button"));
       },
     },
@@ -413,8 +428,8 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(4)),
     },
     projects: {
-      note: "All chats' Projects view (cx-ncc.66): the chats grouped under their project folder, the newest project first; a header folds its chats.",
-      ready: newTab(),
+      note: "All chats' Projects view (cx-ncc.66): the chats grouped under their project folder, the newest project first; a header folds its chats. The calm default lists recent chats only, so this is the Threads template, which lists them all.",
+      ready: newTab({ template: "threads" }),
       snapshot: noChat(manySessions(4)),
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Projects" });

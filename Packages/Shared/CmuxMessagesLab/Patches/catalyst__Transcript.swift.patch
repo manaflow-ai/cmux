@@ -1,6 +1,6 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Transcript.swift
-@@ -557,8 +557,7 @@
+@@ -577,8 +577,7 @@
          connector.strokeColor = Fixture.connector.cgColor
          connector.lineWidth = 2.6
          connector.lineCap = .round
@@ -10,7 +10,7 @@
          fillContainer.addSublayer(fillGradient)
          fillContainer.mask = fillMask
          connectorLine.backgroundColor = connector.strokeColor
-@@ -629,7 +628,7 @@
+@@ -649,7 +648,7 @@
              guard let spec else { return nil }
              switch spec.kind {
              case let .part(p): return p.text?.text ?? p.part.plainText
@@ -19,8 +19,8 @@
              case let .receipt(b, r): return b + " " + r
              case let .label(text, _, _): return text
              default: return nil
-@@ -658,7 +657,7 @@
-             }
+@@ -680,7 +679,7 @@
+             // grid in refreshSnap (decorate, after this), from the indicator's place snapped at the new scale.
              connector.strokeColor = Fixture.connector.cgColor
              connectorLine.backgroundColor = Fixture.connector.cgColor
 -            fillGradient.colors = Fixture.gradientStops.map { Fixture.gradientColor($0.1, $0.2).cgColor }
@@ -28,8 +28,8 @@
              CATransaction.commit()
              self.spec = nil
          }
-@@ -1119,6 +1118,16 @@
-         CATransaction.commit()
+@@ -1273,6 +1272,16 @@
+         clipTypingBody(Springs.typingBreathBody, about: Springs.typingBreathAnchor, begin: c.beginTime - Springs.typingBreathBody.start)
      }
  
 +    /// cmux: the outgoing gradient's colours and their locations from one

@@ -31,6 +31,11 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// (``ThemeTokens/legibleTintOpacity(over:requested:)``); 0 without art. Neither the opacity setting
     /// nor the tuner thins the glass below it.
     public var legibleTintOpacity: Double = 0
+    /// The art's own opacity: 1, or ``windowGlassArtOpacity`` under Window Glass (the Clear Glass
+    /// material over art, cx-t2x.6), so the desktop and the windows behind read through it.
+    public var artOpacity: Double = 1
+    /// How much of the art covers what is behind a Window Glass window.
+    public static let windowGlassArtOpacity = 0.55
     /// Live experimental adjustments applied to the tint.
     public var tuning: AppearanceTuning = .identity
     /// The one-time texture pass applied when artwork is loaded.
@@ -53,6 +58,8 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// The frost radius Ghostty.app uses for the glass styles where Liquid
     /// Glass is missing.
     public static let glassFallbackBlurRadius = 20
+    /// The most a workspace's own tint covers its art: at 1 the window turns opaque and hides it.
+    public static let maximumWorkspaceTint = 0.95
 
     /// The backdrop for one resolved opacity and blur.
     ///
@@ -92,20 +99,31 @@ public nonisolated struct WindowBackdrop: Equatable, Sendable {
     /// - Parameter tokens: The theme tokens of the view's scope.
     /// - Parameter reduceTransparency: The user's Reduce Transparency setting.
     /// - Parameter art: Bundled art below the window's material and tint.
+    /// - Parameter tintOpacity: A workspace's own tint over art (`ThemeScope.backdropTintOpacity`),
+    ///   replacing the work's and the window's; the legibility floor still applies.
     public init(_ tokens: ThemeTokens, reduceTransparency: Bool = false, art: BackdropArt? = nil,
                 selection: BackdropSelection? = nil, tuning: AppearanceTuning = .identity,
-                texture: BackdropTexture = .default) {
+                texture: BackdropTexture = .default, tintOpacity workspaceTint: Double? = nil) {
         let resolvedSelection = selection ?? art.map(BackdropSelection.art)
         // A work's own tint replaces the theme's (dark works show more of themselves); the
         // legibility floor below still keeps text readable over it.
-        let opacity = resolvedSelection == nil || tokens.backgroundOpacity < 1
-            ? tokens.backgroundOpacity
-            : resolvedSelection?.preferredTintOpacity
+        let opacity = if resolvedSelection != nil, let workspaceTint {
+            min(workspaceTint, Self.maximumWorkspaceTint)
+        } else if resolvedSelection == nil || tokens.backgroundOpacity < 1 {
+            tokens.backgroundOpacity
+        } else {
+            resolvedSelection?.preferredTintOpacity
                 ?? max(tokens.wallpaperTintOpacity, resolvedSelection?.minimumTintOpacity ?? 0)
+        }
         self.init(backgroundOpacity: opacity, backgroundBlur: tokens.backgroundBlur,
                   reduceTransparency: reduceTransparency)
+        // Window Glass: the Clear Glass setting (`background-blur` -2, frosted where Liquid Glass
+        // is missing) over art. Behind the art is then anything, so the floor assumes any colors.
+        let windowGlass = resolvedSelection != nil && !isOpaque && tokens.backgroundBlur == -2
+        if windowGlass { artOpacity = Self.windowGlassArtOpacity }
         if resolvedSelection != nil, !isOpaque {
-            legibleTintOpacity = tokens.legibleTintOpacity(over: resolvedSelection?.artRange ?? .any, requested: 0)
+            let range = windowGlass ? .any : resolvedSelection?.artRange ?? .any
+            legibleTintOpacity = tokens.legibleTintOpacity(over: range, requested: 0)
             tintOpacity = max(tintOpacity, legibleTintOpacity)
         }
         self.art = art

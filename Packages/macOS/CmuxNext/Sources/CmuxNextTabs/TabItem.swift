@@ -30,6 +30,9 @@ public struct TabItem: Identifiable, Hashable, Sendable {
     /// What a `needsInput` badge waits for (OSC 7501 `kind`), so a status
     /// icon set can mark it (`StatusIconSet`); nil for other states.
     public var blockedKind: StatusBlockedKind?
+    /// The program's own words on its status (OSC 7501 title and message, one plain line), for
+    /// the hover card; nil when it reported none.
+    public var statusDetail: String?
     /// The page hibernated (released to save memory; reloads when
     /// selected): the icon and title are drawn dimmed.
     public var isDormant = false

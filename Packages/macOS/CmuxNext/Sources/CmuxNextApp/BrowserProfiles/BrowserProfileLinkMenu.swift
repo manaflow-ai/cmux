@@ -16,7 +16,11 @@ enum BrowserProfileLinkMenu {
         let profiles = services.browserProfiles.ordered
         guard let link, link.scheme == "http" || link.scheme == "https", profiles.count > 1, let title = services.registry.descriptor(for: "browserProfile.openLink")?.title else { return [] }
         let submenu = NSMenu()
-        for item in profileItems(profiles, run: { [weak services] record in
+        // Personal browser profiles live in the local daemon, which stores their asset icons.
+        let asset = { [weak services] (icon: String?) in
+            IconAssetImages.shared.menuImage(icon, owner: services?.machines.local, side: 16)
+        }
+        for item in profileItems(profiles, asset: asset, run: { [weak services] record in
             services?.registry.perform("browserProfile.openLink", invocation: ActionInvocation(
                 target: target,
                 arguments: ["browserProfile": .string(record.id), "url": .string(link.absoluteString)]))
@@ -28,23 +32,23 @@ enum BrowserProfileLinkMenu {
         return [parent, .separator()]
     }
 
-    /// One item per profile, titled by its name. Its icon (an emoji or an SF Symbol name) is the
-    /// item's image and a profile without one gets an empty image of the same size, so every name
-    /// starts in the same column.
-    static func profileItems(_ profiles: [BrowserProfileRecord],
+    /// One item per profile, titled by its name. Its icon (an emoji, an SF Symbol name, or a
+    /// stored image or SVG that `asset` draws) is the item's image and a profile without one gets
+    /// an empty image of the same size, so every name starts in the same column.
+    static func profileItems(_ profiles: [BrowserProfileRecord], asset: (String?) -> NSImage? = { _ in nil },
                              run: @escaping @MainActor (BrowserProfileRecord) -> Void) -> [NSMenuItem] {
         profiles.map { record in
             let item = NSMenuItem(title: record.name, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
             let target = ActionMenuClosure { run(record) }
             item.target = target
             item.representedObject = target
-            item.image = iconImage(record.icon)
+            item.image = asset(record.icon) ?? iconImage(record.icon)
             return item
         }
     }
 
     /// `icon` in a 16 pt square: a symbol as the menu tints it, an emoji centered in its own
-    /// colors, or the empty square (also for an uploaded image, too detailed at this size).
+    /// colors, or the empty square (also for a stored asset not read yet).
     private static func iconImage(_ icon: String?) -> NSImage {
         let size = NSSize(width: 16, height: 16)
         switch IconValue(wire: icon) {

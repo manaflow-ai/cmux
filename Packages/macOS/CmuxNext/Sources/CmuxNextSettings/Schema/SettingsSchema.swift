@@ -8,7 +8,9 @@ public import CoreGraphics
 /// `SettingsSchemaTests` fails until the parser accepts every value the
 /// descriptor allows and rejects the rest.
 public nonisolated enum SettingsSchema {
-    public static var all: [SettingDescriptor] {
+    /// Built once per run: each descriptor looks its texts up in the strings bundle, and launch
+    /// reads it twice before the first window (about 20 ms in all on a cold launch, bd cx-z9kz0).
+    public static let all: [SettingDescriptor] = {
         let next = general + shortcutHints + UpdateSettingsSchema.descriptors + UpdateSettingsSchema.announcements
             + ComputerUseSettingsSchema.descriptors + ColumnLayoutSettingsSchema.descriptors
             + PanePlacementSettingsSchema.descriptors + WorkspaceListSettingsSchema.descriptors + PaletteSettingsSchema.descriptors
@@ -18,7 +20,7 @@ public nonisolated enum SettingsSchema {
             + AgentPaneEditedFilesSettingsSchema.descriptors + AgentPaneComposerSettingsSchema.descriptors + AgentPaneZoomSettingsSchema.descriptors
         return next.map { sharedWithBrowser.contains($0.id) ? $0.consumed(by: [.cmuxNext, .cmuxBrowser]) : $0 }
             + BrowserAppSettingsSchema.descriptors
-    }
+    }()
 
     /// cmux-next keys cmux-browser reads too (cmux-browser #567 moved its copies to cmux.json). The
     /// `appearance.metrics.*` rows say so themselves.
@@ -119,6 +121,26 @@ public nonisolated enum SettingsSchema {
                                             step: 1, unit: .days)),
                 default: .number(Double(CommandRetentionSetting.fallback)),
                 keywords: ["history", "commands", "retention", "delete", "privacy", "days"]
+            ),
+            SettingDescriptor(
+                ClosedHistoryRetentionSetting.maxGroupsPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.closed.maxGroups", "Recently Closed Items to Keep"),
+                help: SettingsText.keyed("settings.history.closed.maxGroups.help",
+                                        "Each machine deletes its oldest closed tabs, screens, workspaces and windows past this many. 0 keeps them all."),
+                kind: .number(SettingNumber(Double(ClosedHistoryRetentionSetting.groupRange.lowerBound)...Double(ClosedHistoryRetentionSetting.groupRange.upperBound),
+                                            step: 1, unit: .count)),
+                default: .number(0),
+                keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy"]
+            ),
+            SettingDescriptor(
+                ClosedHistoryRetentionSetting.maxAgeDaysPath, section: .general, group: history,
+                title: SettingsText.keyed("settings.history.closed.maxAgeDays", "Keep Recently Closed Items For"),
+                help: SettingsText.keyed("settings.history.closed.maxAgeDays.help",
+                                        "Each machine deletes closed items that are older. 0 keeps them however old they are."),
+                kind: .number(SettingNumber(Double(ClosedHistoryRetentionSetting.dayRange.lowerBound)...Double(ClosedHistoryRetentionSetting.dayRange.upperBound),
+                                            step: 1, unit: .days)),
+                default: .number(0),
+                keywords: ["history", "recently closed", "reopen", "retention", "delete", "privacy", "days"]
             ),
             SettingDescriptor(
                 WindowTitlebarSetting.configPath, section: .general, group: window,

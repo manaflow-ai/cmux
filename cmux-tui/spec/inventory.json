@@ -76,6 +76,11 @@
     "history.visit.remove",
     "history.visit.summaries",
     "history.visit.title",
+    "keybindings.get",
+    "keybindings.remove",
+    "keybindings.reset",
+    "keybindings.set",
+    "layout.bulk",
     "machine.get",
     "machine.list",
     "notification.ack",
@@ -544,6 +549,12 @@
       ]
     },
     {
+      "name": "program-status-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "bookmarks-changed",
       "streams": [
         "subscribe"
@@ -650,6 +661,12 @@
     },
     {
       "name": "graphics-status",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "keybindings-changed",
       "streams": [
         "subscribe"
       ]

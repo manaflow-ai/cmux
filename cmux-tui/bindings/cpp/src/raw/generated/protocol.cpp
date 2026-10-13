@@ -526,6 +526,11 @@ Result<Json> Codec<Bookmark>::encode(const Bookmark& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("favicon_key", std::move(encoded).value());
     }
+    if (value.icon) {
+        auto encoded = encode_value(*value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     auto encoded_id = encode_value(value.id);
     if (!encoded_id) return std::move(encoded_id).error();
     object.emplace("id", std::move(encoded_id).value());
@@ -589,6 +594,12 @@ Result<Bookmark> Codec<Bookmark>::decode(const Json& value) {
         auto decoded = decode_value<std::string>(*field_favicon_key);
         if (!decoded) return std::move(decoded).error();
         result.favicon_key = std::move(decoded).value();
+    }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        auto decoded = decode_value<std::string>(*field_icon);
+        if (!decoded) return std::move(decoded).error();
+        result.icon = std::move(decoded).value();
     }
     const Json* field_id = value.find("id");
     if (!field_id) {
@@ -654,7 +665,7 @@ Result<Bookmark> Codec<Bookmark>::decode(const Json& value) {
         result.url = std::move(decoded).value();
     }
     for (const auto& [key, item] : *source.value()) {
-        if (key != "browser_profile_id" && key != "created_ms" && key != "favicon_key" && key != "id" && key != "index" && key != "kind" && key != "last_used_ms" && key != "parent" && key != "source_key" && key != "title" && key != "url") result.additional_properties.emplace(key, item);
+        if (key != "browser_profile_id" && key != "created_ms" && key != "favicon_key" && key != "icon" && key != "id" && key != "index" && key != "kind" && key != "last_used_ms" && key != "parent" && key != "source_key" && key != "title" && key != "url") result.additional_properties.emplace(key, item);
     }
     return result;
 }
@@ -5371,6 +5382,24 @@ Result<ProcessInfoResult> Codec<ProcessInfoResult>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<ProgramStatusState>::encode(const ProgramStatusState& value) {
+    switch (value) {
+        case ProgramStatusState::working: return Json(std::string("working"));
+        case ProgramStatusState::blocked: return Json(std::string("blocked"));
+        case ProgramStatusState::error: return Json(std::string("error"));
+        case ProgramStatusState::done: return Json(std::string("done"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<ProgramStatusState> Codec<ProgramStatusState>::decode(const Json& value) {
+    if (value == Json(std::string("working"))) return ProgramStatusState::working;
+    if (value == Json(std::string("blocked"))) return ProgramStatusState::blocked;
+    if (value == Json(std::string("error"))) return ProgramStatusState::error;
+    if (value == Json(std::string("done"))) return ProgramStatusState::done;
+    return make_error(ErrorCode::decode, "unknown ProgramStatusState value");
+}
+
 Result<Json> Codec<ProviderWorkspaceMutationResult>::encode(const ProviderWorkspaceMutationResult& value) {
     (void)value;
     Json::Object object;
@@ -8591,6 +8620,51 @@ Result<SetTerminalKeepResult> Codec<SetTerminalKeepResult>::decode(const Json& v
     return result;
 }
 
+Result<Json> Codec<ShownProgramStatus>::encode(const ShownProgramStatus& value) {
+    (void)value;
+    Json::Object object;
+    if (value.progress) {
+        auto encoded = encode_value(*value.progress);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("progress", std::move(encoded).value());
+    } else {
+        object.emplace("progress", Json(nullptr));
+    }
+    auto encoded_state = encode_value(value.state);
+    if (!encoded_state) return std::move(encoded_state).error();
+    object.emplace("state", std::move(encoded_state).value());
+    return Json(std::move(object));
+}
+
+Result<ShownProgramStatus> Codec<ShownProgramStatus>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ShownProgramStatus result{};
+    const Json* field_progress = value.find("progress");
+    if (!field_progress) {
+        return make_error(ErrorCode::decode, "missing required field 'progress'");
+    }
+    if (field_progress) {
+        if (field_progress->is_null()) {
+            result.progress.reset();
+        } else {
+            auto decoded = decode_value<std::uint16_t>(*field_progress);
+            if (!decoded) return std::move(decoded).error();
+            result.progress = std::move(decoded).value();
+        }
+    }
+    const Json* field_state = value.find("state");
+    if (!field_state) {
+        return make_error(ErrorCode::decode, "missing required field 'state'");
+    }
+    if (field_state) {
+        auto decoded = decode_value<ProgramStatusState>(*field_state);
+        if (!decoded) return std::move(decoded).error();
+        result.state = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<ShutdownDaemonResult>::encode(const ShutdownDaemonResult& value) {
     (void)value;
     Json::Object object;
@@ -9710,6 +9784,11 @@ Result<Json> Codec<Tab>::encode(const Tab& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("notification", std::move(encoded).value());
     }
+    if (!value.program_status.is_absent()) {
+        auto encoded = encode_value(value.program_status);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("program_status", std::move(encoded).value());
+    }
     if (value.short_id) {
         auto encoded = encode_value(*value.short_id);
         if (!encoded) return std::move(encoded).error();
@@ -9842,6 +9921,16 @@ Result<Tab> Codec<Tab>::decode(const Json& value) {
             auto decoded = decode_value<NotificationMarker>(*field_notification);
             if (!decoded) return std::move(decoded).error();
             result.notification = Field<NotificationMarker>(std::move(decoded).value());
+        }
+    }
+    const Json* field_program_status = value.find("program_status");
+    if (field_program_status) {
+        if (field_program_status->is_null()) {
+            result.program_status = Field<ShownProgramStatus>::null();
+        } else {
+            auto decoded = decode_value<ShownProgramStatus>(*field_program_status);
+            if (!decoded) return std::move(decoded).error();
+            result.program_status = Field<ShownProgramStatus>(std::move(decoded).value());
         }
     }
     const Json* field_short_id = value.find("short_id");
@@ -14959,6 +15048,11 @@ Result<Json> Codec<CloseWorkspaceRequest>::encode(const CloseWorkspaceRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("origin", std::move(encoded).value());
     }
+    if (!value.reason.is_absent()) {
+        auto encoded = encode_value(value.reason);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("reason", std::move(encoded).value());
+    }
     if (!value.workspace.is_absent()) {
         auto encoded = encode_value(value.workspace);
         if (!encoded) return std::move(encoded).error();
@@ -15028,6 +15122,16 @@ Result<CloseWorkspaceRequest> Codec<CloseWorkspaceRequest>::decode(const Json& v
             auto decoded = decode_value<std::string>(*field_origin);
             if (!decoded) return std::move(decoded).error();
             result.origin = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_reason = value.find("reason");
+    if (field_reason) {
+        if (field_reason->is_null()) {
+            result.reason = Field<CloseReason>::null();
+        } else {
+            auto decoded = decode_value<CloseReason>(*field_reason);
+            if (!decoded) return std::move(decoded).error();
+            result.reason = Field<CloseReason>(std::move(decoded).value());
         }
     }
     const Json* field_workspace = value.find("workspace");
@@ -28407,6 +28511,11 @@ Result<Json> Codec<UpdateBookmarkRequest>::encode(const UpdateBookmarkRequest& v
         if (!encoded) return std::move(encoded).error();
         object.emplace("favicon_key", std::move(encoded).value());
     }
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     if (!value.last_used_ms.is_absent()) {
         auto encoded = encode_value(value.last_used_ms);
         if (!encoded) return std::move(encoded).error();
@@ -28456,6 +28565,16 @@ Result<UpdateBookmarkRequest> Codec<UpdateBookmarkRequest>::decode(const Json& v
             auto decoded = decode_value<std::string>(*field_favicon_key);
             if (!decoded) return std::move(decoded).error();
             result.favicon_key = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
         }
     }
     const Json* field_last_used_ms = value.find("last_used_ms");
@@ -28967,6 +29086,11 @@ Result<Json> Codec<UpdateScreenGroupRequest>::encode(const UpdateScreenGroupRequ
     auto encoded_group = encode_value(value.group);
     if (!encoded_group) return std::move(encoded_group).error();
     object.emplace("group", std::move(encoded_group).value());
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     if (!value.name.is_absent()) {
         auto encoded = encode_value(value.name);
         if (!encoded) return std::move(encoded).error();
@@ -29008,6 +29132,16 @@ Result<UpdateScreenGroupRequest> Codec<UpdateScreenGroupRequest>::decode(const J
         if (!decoded) return std::move(decoded).error();
         result.group = std::move(decoded).value();
     }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
+        }
+    }
     const Json* field_name = value.find("name");
     if (field_name) {
         if (field_name->is_null()) {
@@ -29037,6 +29171,11 @@ Result<Json> Codec<UpdateTabGroupRequest>::encode(const UpdateTabGroupRequest& v
     auto encoded_group = encode_value(value.group);
     if (!encoded_group) return std::move(encoded_group).error();
     object.emplace("group", std::move(encoded_group).value());
+    if (!value.icon.is_absent()) {
+        auto encoded = encode_value(value.icon);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("icon", std::move(encoded).value());
+    }
     if (!value.name.is_absent()) {
         auto encoded = encode_value(value.name);
         if (!encoded) return std::move(encoded).error();
@@ -29077,6 +29216,16 @@ Result<UpdateTabGroupRequest> Codec<UpdateTabGroupRequest>::decode(const Json& v
         auto decoded = decode_value<std::string>(*field_group);
         if (!decoded) return std::move(decoded).error();
         result.group = std::move(decoded).value();
+    }
+    const Json* field_icon = value.find("icon");
+    if (field_icon) {
+        if (field_icon->is_null()) {
+            result.icon = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_icon);
+            if (!decoded) return std::move(decoded).error();
+            result.icon = Field<std::string>(std::move(decoded).value());
+        }
     }
     const Json* field_name = value.find("name");
     if (field_name) {
@@ -31639,6 +31788,53 @@ Result<HistoryChangedEvent> Codec<HistoryChangedEvent>::decode(const Json& value
     return result;
 }
 
+Result<Json> Codec<KeybindingsChangedEvent>::encode(const KeybindingsChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("keybindings-changed")));
+    auto encoded_origin = encode_value(value.origin);
+    if (!encoded_origin) return std::move(encoded_origin).error();
+    object.emplace("origin", std::move(encoded_origin).value());
+    auto encoded_revision = encode_value(value.revision);
+    if (!encoded_revision) return std::move(encoded_revision).error();
+    object.emplace("revision", std::move(encoded_revision).value());
+    return Json(std::move(object));
+}
+
+Result<KeybindingsChangedEvent> Codec<KeybindingsChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    KeybindingsChangedEvent result{};
+    const Json* field_origin = value.find("origin");
+    if (!field_origin) {
+        return make_error(ErrorCode::decode, "missing required field 'origin'");
+    }
+    if (field_origin) {
+        auto decoded = decode_value<KeybindingsChangedEventOrigin>(*field_origin);
+        if (!decoded) return std::move(decoded).error();
+        result.origin = std::move(decoded).value();
+    }
+    const Json* field_revision = value.find("revision");
+    if (!field_revision) {
+        return make_error(ErrorCode::decode, "missing required field 'revision'");
+    }
+    if (field_revision) {
+        auto decoded = decode_value<std::uint64_t>(*field_revision);
+        if (!decoded) return std::move(decoded).error();
+        result.revision = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("keybindings-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<LayoutChangedEvent>::encode(const LayoutChangedEvent& value) {
     (void)value;
     Json::Object object;
@@ -31735,6 +31931,11 @@ Result<Json> Codec<NotificationEvent>::encode(const NotificationEvent& value) {
     auto encoded_notification = encode_value(value.notification);
     if (!encoded_notification) return std::move(encoded_notification).error();
     object.emplace("notification", std::move(encoded_notification).value());
+    if (value.reply) {
+        auto encoded = encode_value(*value.reply);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("reply", std::move(encoded).value());
+    }
     if (value.source) {
         auto encoded = encode_value(*value.source);
         if (!encoded) return std::move(encoded).error();
@@ -31789,6 +31990,12 @@ Result<NotificationEvent> Codec<NotificationEvent>::decode(const Json& value) {
         auto decoded = decode_value<Id>(*field_notification);
         if (!decoded) return std::move(decoded).error();
         result.notification = std::move(decoded).value();
+    }
+    const Json* field_reply = value.find("reply");
+    if (field_reply) {
+        auto decoded = decode_value<bool>(*field_reply);
+        if (!decoded) return std::move(decoded).error();
+        result.reply = std::move(decoded).value();
     }
     const Json* field_source = value.find("source");
     if (field_source) {
@@ -32250,6 +32457,61 @@ Result<PersonalChangedEvent> Codec<PersonalChangedEvent>::decode(const Json& val
     }
     if (field_event) {
         if (*field_event != Json(std::string("personal-changed"))) {
+            return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
+        }
+    }
+    return result;
+}
+
+Result<Json> Codec<ProgramStatusChangedEvent>::encode(const ProgramStatusChangedEvent& value) {
+    (void)value;
+    Json::Object object;
+    object.emplace("event", Json(std::string("program-status-changed")));
+    if (value.program_status) {
+        auto encoded = encode_value(*value.program_status);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("program_status", std::move(encoded).value());
+    } else {
+        object.emplace("program_status", Json(nullptr));
+    }
+    auto encoded_surface = encode_value(value.surface);
+    if (!encoded_surface) return std::move(encoded_surface).error();
+    object.emplace("surface", std::move(encoded_surface).value());
+    return Json(std::move(object));
+}
+
+Result<ProgramStatusChangedEvent> Codec<ProgramStatusChangedEvent>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ProgramStatusChangedEvent result{};
+    const Json* field_program_status = value.find("program_status");
+    if (!field_program_status) {
+        return make_error(ErrorCode::decode, "missing required field 'program_status'");
+    }
+    if (field_program_status) {
+        if (field_program_status->is_null()) {
+            result.program_status.reset();
+        } else {
+            auto decoded = decode_value<ShownProgramStatus>(*field_program_status);
+            if (!decoded) return std::move(decoded).error();
+            result.program_status = std::move(decoded).value();
+        }
+    }
+    const Json* field_surface = value.find("surface");
+    if (!field_surface) {
+        return make_error(ErrorCode::decode, "missing required field 'surface'");
+    }
+    if (field_surface) {
+        auto decoded = decode_value<Id>(*field_surface);
+        if (!decoded) return std::move(decoded).error();
+        result.surface = std::move(decoded).value();
+    }
+    const Json* field_event = value.find("event");
+    if (!field_event) {
+        return make_error(ErrorCode::decode, "missing required field 'event'");
+    }
+    if (field_event) {
+        if (*field_event != Json(std::string("program-status-changed"))) {
             return make_error(ErrorCode::decode, "field 'event' has the wrong literal value");
         }
     }
@@ -36014,6 +36276,30 @@ Result<GraphicsStatusEventKind> Codec<GraphicsStatusEventKind>::decode(const Jso
     return make_error(ErrorCode::decode, "unknown GraphicsStatusEventKind value");
 }
 
+Result<Json> Codec<KeybindingsChangedEventOrigin>::encode(const KeybindingsChangedEventOrigin& value) {
+    switch (value) {
+        case KeybindingsChangedEventOrigin::user: return Json(std::string("user"));
+        case KeybindingsChangedEventOrigin::cli: return Json(std::string("cli"));
+        case KeybindingsChangedEventOrigin::mcp: return Json(std::string("mcp"));
+        case KeybindingsChangedEventOrigin::script: return Json(std::string("script"));
+        case KeybindingsChangedEventOrigin::remote: return Json(std::string("remote"));
+        case KeybindingsChangedEventOrigin::app: return Json(std::string("app"));
+        case KeybindingsChangedEventOrigin::file: return Json(std::string("file"));
+    }
+    return make_error(ErrorCode::invalid_argument, "invalid enum value");
+}
+
+Result<KeybindingsChangedEventOrigin> Codec<KeybindingsChangedEventOrigin>::decode(const Json& value) {
+    if (value == Json(std::string("user"))) return KeybindingsChangedEventOrigin::user;
+    if (value == Json(std::string("cli"))) return KeybindingsChangedEventOrigin::cli;
+    if (value == Json(std::string("mcp"))) return KeybindingsChangedEventOrigin::mcp;
+    if (value == Json(std::string("script"))) return KeybindingsChangedEventOrigin::script;
+    if (value == Json(std::string("remote"))) return KeybindingsChangedEventOrigin::remote;
+    if (value == Json(std::string("app"))) return KeybindingsChangedEventOrigin::app;
+    if (value == Json(std::string("file"))) return KeybindingsChangedEventOrigin::file;
+    return make_error(ErrorCode::decode, "unknown KeybindingsChangedEventOrigin value");
+}
+
 Result<Json> Codec<SettingsChangedEventOrigin>::encode(const SettingsChangedEventOrigin& value) {
     switch (value) {
         case SettingsChangedEventOrigin::user: return Json(std::string("user"));
@@ -36312,6 +36598,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
+    if (name.value() == "keybindings-changed") {
+        auto decoded = decode_value<KeybindingsChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
     if (name.value() == "layout-changed") {
         auto decoded = decode_value<LayoutChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
@@ -36359,6 +36650,11 @@ Result<Event> Codec<Event>::decode(const Json& value) {
     }
     if (name.value() == "personal-changed") {
         auto decoded = decode_value<PersonalChangedEvent>(value);
+        if (!decoded) return std::move(decoded).error();
+        return Event{Event::Variant(std::move(decoded).value()), value};
+    }
+    if (name.value() == "program-status-changed") {
+        auto decoded = decode_value<ProgramStatusChangedEvent>(value);
         if (!decoded) return std::move(decoded).error();
         return Event{Event::Variant(std::move(decoded).value()), value};
     }
@@ -36559,13 +36855,14 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand29FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand30FieldRequirements{{
     {"reason", 0U, "close-reason-v1"},
 }};
-constexpr std::array<CommandFieldRequirement, 6> kCommand32FieldRequirements{{
+constexpr std::array<CommandFieldRequirement, 7> kCommand32FieldRequirements{{
     {"end_terminals", 12U, "batch-close-v1"},
     {"expected_generation", 7U, ""},
     {"expected_revision", 7U, ""},
     {"key", 7U, "workspace-registry-v1"},
     {"mutation_id", 7U, ""},
     {"origin", 7U, ""},
+    {"reason", 0U, "close-reason-v1"},
 }};
 constexpr std::array<CommandFieldRequirement, 1> kCommand68FieldRequirements{{
     {"idempotency_key", 0U, "creation-attempt-keys-v1"},
@@ -36715,6 +37012,15 @@ constexpr std::array<CommandFieldRequirement, 9> kCommand220FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 2> kCommand221FieldRequirements{{
     {"surface", 9U, "surface-subscribe-filter"},
     {"tree_events", 7U, ""},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand237FieldRequirements{{
+    {"icon", 12U, "bookmark-icon-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand243FieldRequirements{{
+    {"icon", 12U, "screen-group-icon-v1"},
+}};
+constexpr std::array<CommandFieldRequirement, 1> kCommand244FieldRequirements{{
+    {"icon", 12U, "tab-group-icon-v1"},
 }};
 constexpr std::array<CommandMetadata, 253> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -36954,14 +37260,14 @@ constexpr std::array<CommandMetadata, 253> kCommands{{
     {"unregister-browser-provider", "local-admin", 10U, "browser-provider-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"unsave-tab-group", "control", 12U, "saved-tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"update-bookmark", "control", 12U, "bookmarks-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand237FieldRequirements)},
     {"update-browser-profile", "control", 12U, "browser-profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-personal-group", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-profile", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"update-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"update-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand243FieldRequirements)},
+    {"update-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand244FieldRequirements)},
     {"update-workspace-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open", "local-admin", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"url-open-claim", "frontend", 12U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -36971,7 +37277,7 @@ constexpr std::array<CommandMetadata, 253> kCommands{{
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
-constexpr std::array<EventMetadata, 73> kEvents{{
+constexpr std::array<EventMetadata, 75> kEvents{{
     {"activity-changed", 12U, "vm-activity-v1", "control", "emitted"},
     {"agent-changed", 11U, "", "subscribe", "emitted"},
     {"agent-presence-changed", 12U, "agent-presence-v1", "subscribe", "emitted"},
@@ -37002,6 +37308,7 @@ constexpr std::array<EventMetadata, 73> kEvents{{
     {"frontend-projection-changed", 7U, "", "subscribe", "emitted"},
     {"graphics-status", 10U, "", "subscribe", "emitted"},
     {"history-changed", 12U, "history-v1", "subscribe", "emitted"},
+    {"keybindings-changed", 12U, "keybindings-v1", "subscribe", "emitted"},
     {"layout-changed", 6U, "", "subscribe", "emitted"},
     {"machine-usage-changed", 12U, "machine-usage-v1", "subscribe", "emitted"},
     {"notification", 6U, "", "subscribe,attach-byte,attach-browser", "emitted"},
@@ -37012,6 +37319,7 @@ constexpr std::array<EventMetadata, 73> kEvents{{
     {"pane-added", 7U, "", "subscribe-deltas", "emitted"},
     {"pane-closed", 7U, "", "subscribe-deltas", "emitted"},
     {"personal-changed", 12U, "profiles-v1", "subscribe", "emitted"},
+    {"program-status-changed", 12U, "", "subscribe", "emitted"},
     {"render-delta", 7U, "", "attach-render", "emitted"},
     {"render-state", 7U, "", "attach-render", "emitted"},
     {"resized", 6U, "", "attach-byte", "emitted"},

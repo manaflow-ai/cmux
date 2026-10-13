@@ -58,6 +58,11 @@ const CREDENTIAL_REASON: &str = "Launch credentials belong to the session host a
 /// policy decision cx-ncc.32.
 const SETTINGS_REASON: &str = "Settings go through cmux settings on the app socket with the user's confirm sheet until the daemon settings verbs and their MCP policy land (cx-9ce.12, cx-ncc.32).";
 
+/// The daemon keybindings.json owner (cx-9ce.17) is the Keyboard Shortcuts
+/// page's: like the settings ops it has no CLI verb or MCP policy yet, so an
+/// agent never rebinds the user's keys.
+const KEYBINDINGS_REASON: &str = "Keybindings are the user's, edited from the Keyboard Shortcuts page, until daemon keybindings verbs and their MCP policy land (cx-9ce.17, cx-ncc.32).";
+
 pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("settings.schema", SETTINGS_REASON),
     ("settings.list", SETTINGS_REASON),
@@ -66,6 +71,10 @@ pub(super) const EXCLUDED: &[(&str, &str)] = &[
     ("settings.set", SETTINGS_REASON),
     ("settings.reset", SETTINGS_REASON),
     ("settings.reset_all", SETTINGS_REASON),
+    ("keybindings.get", KEYBINDINGS_REASON),
+    ("keybindings.set", KEYBINDINGS_REASON),
+    ("keybindings.remove", KEYBINDINGS_REASON),
+    ("keybindings.reset", KEYBINDINGS_REASON),
     ("credential.verify", CREDENTIAL_REASON),
     ("credential.mint", CREDENTIAL_REASON),
     ("credential.rotate", CREDENTIAL_REASON),
@@ -306,7 +315,8 @@ impl V2Tool {
     pub(super) fn descriptor_json(&self) -> Value {
         let verb = self.wire.rsplit('.').next().unwrap_or_default();
         let destructive = self.mutation
-            && (matches!(verb, "close" | "delete" | "clear" | "ungroup")
+            // `layout.bulk` closes tabs, panes, screens or workspaces.
+            && (matches!(verb, "close" | "delete" | "clear" | "ungroup" | "bulk")
                 || verb.starts_with("remove"));
         json!({
             "name": self.name,
