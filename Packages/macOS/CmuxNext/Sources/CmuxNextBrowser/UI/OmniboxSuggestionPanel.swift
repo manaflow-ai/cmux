@@ -146,10 +146,10 @@ final class SuggestionCardView: NSView {
         card.layer?.cornerCurve = .continuous
         card.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         card.layer?.masksToBounds = false
-        // The one popup shadow (PopupStyle), as the card top around the bar. The card is a
-        // layer-backed view, so AppKit owns its layer's shadow: it is the view's `shadow` (a
-        // shadow set on the layer itself was reset to none, so the rows cast no shadow at all).
-        card.shadow = PopupStyle.standard.shadow()
+        // No shadow of its own: the card top's shadow reaches down past the seam (OmnibarCardTopView).
+        // This panel floats over the bar, so a shadow here that reached up to meet it would darken
+        // the bar; one that stops at the seam shows a gap. A rows shadow needs a cut-out like
+        // PopupHostView's and a device check (cx-iif6y follow-up).
         addSubview(card)
     }
 
@@ -159,10 +159,6 @@ final class SuggestionCardView: NSView {
     override func layout() {
         super.layout()
         card.frame = cardFrame
-        // The shadow shape reaches above the panel top, so the seam with the
-        // bar's card top shows no shadow edge.
-        let shape = CGRect(x: 0, y: 0, width: cardFrame.width, height: cardFrame.height + 40)
-        card.layer?.shadowPath = CGPath(roundedRect: shape, cornerWidth: OmnibarStyle.cardCornerRadius, cornerHeight: OmnibarStyle.cardCornerRadius, transform: nil)
         refresh()
     }
 
