@@ -203,14 +203,22 @@ async fn codex_subagents_arrive_as_sessions_with_their_own_updates() {
         .filter(|s| s["state"] == "running")
         .map(|s| s["id"].as_str().unwrap_or_default().to_owned())
         .collect();
-    assert_eq!(spawned, ["child-a", "child-b"], "{:?}", events.iter().map(|e| &e.kind).collect::<Vec<_>>());
+    assert_eq!(
+        spawned,
+        ["child-a", "child-b"],
+        "{:?}",
+        events.iter().map(|e| &e.kind).collect::<Vec<_>>()
+    );
     for child in ["child-a", "child-b"] {
         let own: Vec<_> = events
             .iter()
             .filter(|e| mux(&e.msg).and_then(|m| m.get("subagent").cloned()) == Some(json!(child)))
             .map(|e| e.kind.as_str())
             .collect();
-        assert!(own.contains(&"tool_call") && own.contains(&"agent_message_chunk"), "{child}: {own:?}");
+        assert!(
+            own.contains(&"tool_call") && own.contains(&"agent_message_chunk"),
+            "{child}: {own:?}"
+        );
     }
 }
 

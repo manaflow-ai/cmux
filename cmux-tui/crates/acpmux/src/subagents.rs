@@ -72,7 +72,9 @@ impl SubagentTree {
                 }
                 // The kind of agent it is (Claude's subagent_type: Explore,
                 // general-purpose, a user agent), drawn beside its name.
-                if let Some(kind) = update.pointer("/_meta/claude/subagentType").and_then(Value::as_str) {
+                if let Some(kind) =
+                    update.pointer("/_meta/claude/subagentType").and_then(Value::as_str)
+                {
                     event.insert("kind".into(), json!(kind));
                 }
                 event.insert("state".into(), json!("running"));

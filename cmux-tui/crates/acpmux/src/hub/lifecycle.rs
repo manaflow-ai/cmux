@@ -486,9 +486,7 @@ impl Hub {
             tokio::spawn(async move { hub.inbound_loop(s, rx).await });
         }
 
-        let init = child
-            .request(method::INITIALIZE, super::pool::initialize_params())
-            .await?;
+        let init = child.request(method::INITIALIZE, super::pool::initialize_params()).await?;
         let supports_load = init
             .get("agentCapabilities")
             .and_then(|c| c.get("loadSession"))
