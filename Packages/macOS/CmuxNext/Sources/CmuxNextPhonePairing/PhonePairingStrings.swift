@@ -24,6 +24,16 @@ struct PhonePairingStrings {
         String(format: String(localized: "pairing.codeLabel", defaultValue: "Pairing code %@", bundle: .module), code)
     }
 
+    static var discoverable: String {
+        String(localized: "pairing.discoverable", defaultValue: "Phones on this network can find this Mac", bundle: .module)
+    }
+
+    static var notDiscoverable: String {
+        String(localized: "pairing.notDiscoverable",
+               defaultValue: "Not discoverable on this network; allow Local Network access for cmux in System Settings",
+               bundle: .module)
+    }
+
     static var qrLabel: String { String(localized: "pairing.qrLabel", defaultValue: "Pairing code", bundle: .module) }
 
     static func expires(_ time: String) -> String {

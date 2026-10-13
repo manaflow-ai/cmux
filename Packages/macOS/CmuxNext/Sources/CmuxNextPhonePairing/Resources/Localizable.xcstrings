@@ -525,6 +525,137 @@
         }
       }
     },
+    "pairing.discoverable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكن للهواتف على هذه الشبكة العثور على هذا الـMac"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Telefoni na ovoj mreži mogu pronaći ovaj Mac"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Telefoner på dette netværk kan finde denne Mac"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Telefone in diesem Netzwerk können diesen Mac finden"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Phones on this network can find this Mac"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los teléfonos de esta red pueden encontrar este Mac"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les téléphones de ce réseau peuvent trouver ce Mac"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I telefoni in questa rete possono trovare questo Mac"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このネットワーク上の電話はこのMacを見つけられます"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទូរស័ព្ទក្នុងបណ្ដាញនេះអាចរក Mac នេះឃើញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 네트워크의 휴대폰이 이 Mac을 찾을 수 있습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Telefoner på dette nettverket kan finne denne Macen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Telefony w tej sieci mogą znaleźć tego Maca"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Telefones nesta rede podem encontrar este Mac"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Телефоны в этой сети могут найти этот Mac"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "โทรศัพท์ในเครือข่ายนี้ค้นหา Mac เครื่องนี้ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ağdaki telefonlar bu Mac’i bulabilir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Телефони в цій мережі можуть знайти цей Mac"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Điện thoại trong mạng này có thể tìm thấy máy Mac này"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此网络上的手机可以找到这台 Mac"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此網路上的手機可以找到這台 Mac"
+          }
+        }
+      }
+    },
     "pairing.encrypted": {
       "extractionState": "manual",
       "localizations": {
@@ -1307,6 +1438,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "未連線"
+          }
+        }
+      }
+    },
+    "pairing.notDiscoverable": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "غير قابل للاكتشاف على هذه الشبكة؛ اسمح لـcmux بالوصول إلى الشبكة المحلية في إعدادات النظام"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nije vidljiv na ovoj mreži; dozvolite cmuxu pristup lokalnoj mreži u Postavkama sistema"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke findes på dette netværk; giv cmux adgang til lokalt netværk i Systemindstillinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "In diesem Netzwerk nicht auffindbar; erlaube cmux den Zugriff auf das lokale Netzwerk in den Systemeinstellungen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not discoverable on this network; allow Local Network access for cmux in System Settings"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No es visible en esta red; permite el acceso a la red local para cmux en Ajustes del Sistema"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Introuvable sur ce réseau ; autorisez l’accès au réseau local pour cmux dans Réglages Système"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non individuabile in questa rete; consenti a cmux l’accesso alla rete locale in Impostazioni di Sistema"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このネットワークでは検出できません。システム設定でcmuxのローカルネットワークへのアクセスを許可してください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនអាចរកឃើញក្នុងបណ្ដាញនេះ; អនុញ្ញាតឲ្យ cmux ចូលប្រើបណ្ដាញមូលដ្ឋាននៅក្នុងការកំណត់ប្រព័ន្ធ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 네트워크에서 찾을 수 없습니다. 시스템 설정에서 cmux의 로컬 네트워크 접근을 허용하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kan ikke finnes på dette nettverket; gi cmux tilgang til lokalt nettverk i Systeminnstillinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Niewidoczny w tej sieci; zezwól cmux na dostęp do sieci lokalnej w Ustawieniach systemowych"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não detectável nesta rede; permita o acesso à rede local para o cmux nos Ajustes do Sistema"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не обнаруживается в этой сети; разрешите cmux доступ к локальной сети в Системных настройках"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาไม่ได้ในเครือข่ายนี้ อนุญาตให้ cmux เข้าถึงเครือข่ายเฉพาะที่ในการตั้งค่าระบบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ağda bulunamıyor; Sistem Ayarları’nda cmux için Yerel Ağ erişimine izin verin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Не виявляється в цій мережі; дозвольте cmux доступ до локальної мережі в Системних параметрах"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không thể phát hiện trong mạng này; hãy cho phép cmux truy cập Mạng cục bộ trong Cài đặt hệ thống"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此网络上无法被发现；请在系统设置中允许 cmux 访问本地网络"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在此網路上無法被發現；請在系統設定中允許 cmux 存取本地網路"
           }
         }
       }

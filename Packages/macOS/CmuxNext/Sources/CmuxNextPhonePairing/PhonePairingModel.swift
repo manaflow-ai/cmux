@@ -36,6 +36,8 @@ public final class PhonePairingModel {
     /// Why phone access is off.
     public var failure: String?
     public var hostFingerprint = ""
+    /// Whether phones on this network can find this Mac (nil: not advertising).
+    public var discoverable: Bool?
 
     public var onNewCode: () -> Void = {}
     public var onRevoke: (String) -> Void = { _ in }

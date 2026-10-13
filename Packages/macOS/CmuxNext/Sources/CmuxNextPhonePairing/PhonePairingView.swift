@@ -140,6 +140,12 @@ struct PhonePairingView: View {
                 Label(PhonePairingStrings.encrypted(model.hostFingerprint), systemImage: "lock.fill")
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
+                if let discoverable = model.discoverable {
+                    Label(discoverable ? PhonePairingStrings.discoverable : PhonePairingStrings.notDiscoverable,
+                          systemImage: discoverable ? "dot.radiowaves.left.and.right" : "exclamationmark.triangle")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
                 if !model.endpoints.isEmpty {
                     Text(PhonePairingStrings.reachable(model.endpoints.prefix(3).joined(separator: ", ")))
                         .font(.system(size: 11).monospacedDigit())

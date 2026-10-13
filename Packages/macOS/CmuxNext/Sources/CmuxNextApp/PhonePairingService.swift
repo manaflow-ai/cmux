@@ -100,6 +100,7 @@ final class PhonePairingService {
         } else {
             advertiser.stop()
         }
+        model.discoverable = advertiser.status.map { $0 == 0 }
         model.failure = snapshot.failure
         model.endpoints = snapshot.endpoints
         model.hostFingerprint = snapshot.hostKeyFingerprint
