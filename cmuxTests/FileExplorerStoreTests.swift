@@ -421,8 +421,8 @@ struct FileExplorerStoreTests {
 
         let destinationPath = try await store.renameEntry(path: sourceURL.path, toName: "README.md")
         #expect(destinationPath == rootURL.appendingPathComponent("README.md").path)
-        #expect(!FileManager.default.fileExists(atPath: sourceURL.path))
-        #expect(FileManager.default.fileExists(atPath: destinationPath))
+        // fileExists is case-insensitive on default APFS, so compare the on-disk names.
+        #expect(try FileManager.default.contentsOfDirectory(atPath: rootURL.path) == ["README.md"])
         #expect(try String(contentsOfFile: destinationPath, encoding: .utf8) == "content")
     }
 
