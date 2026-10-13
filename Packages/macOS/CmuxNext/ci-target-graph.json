@@ -18,7 +18,8 @@
     "CmuxMobileSSH": "Packages/iOS/CmuxMobileSSH",
     "CmuxSentryTelemetry": "Packages/Shared/CmuxSentryTelemetry",
     "CmuxTheme": "Packages/Shared/CmuxTheme",
-    "CmuxUpdater": "Packages/macOS/CmuxUpdater"
+    "CmuxUpdater": "Packages/macOS/CmuxUpdater",
+    "CmuxWireGuard": "Packages/Shared/CmuxWireGuard"
   },
   "targets": {
     "CCmuxAppFFI": {
@@ -170,6 +171,7 @@
         "CmuxNextOnboarding",
         "CmuxNextPages",
         "CmuxNextPalette",
+        "CmuxNextPhonePairing",
         "CmuxNextProcessEnvironment",
         "CmuxNextRemote",
         "CmuxNextRemoteBrowser",
@@ -578,7 +580,8 @@
       ],
       "packages": [
         "CMUXMobileCore",
-        "CmuxIrxTransport"
+        "CmuxIrxTransport",
+        "CmuxWireGuard"
       ]
     },
     "CmuxNextMobileTests": {
@@ -649,6 +652,14 @@
       ],
       "packages": [],
       "reads": []
+    },
+    "CmuxNextPhonePairing": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPhonePairing",
+      "targets": [
+        "CmuxNextDesign"
+      ],
+      "packages": []
     },
     "CmuxNextProcessEnvironment": {
       "kind": "regular",

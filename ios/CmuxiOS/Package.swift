@@ -12,6 +12,8 @@ let package = Package(
     ],
     products: [
         .library(name: "CmuxiOSApp", targets: ["CmuxiOSApp"]),
+        // The Ghostty terminal view, for other cmux-next phone apps (ios-next-wg/).
+        .library(name: "CmuxiOSTerminal", targets: ["CmuxiOSTerminal"]),
     ],
     dependencies: [
         .package(path: "../../Packages/Shared/CmuxHomeCore"),

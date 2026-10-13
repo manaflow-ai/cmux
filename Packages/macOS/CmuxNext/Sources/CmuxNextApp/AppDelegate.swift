@@ -118,6 +118,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
         cloudContext = services.startCloud()
+        services.phonePairing.start(launch: environment.launch, daemon: services.daemon)
         services.ssh.start()
         services.serverReach.start()
         services.updater.start()
@@ -381,6 +382,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services?.globalHotKeys.stop()
         settings?.stop()
         services?.mobile.stop()
+        services?.phonePairing.stop()
         services?.daemon.shutdownConnection()
     }
 

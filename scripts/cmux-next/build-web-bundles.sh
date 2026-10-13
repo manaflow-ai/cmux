@@ -47,6 +47,13 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+# Not a web bundle, but the same kind of generated build input every app and
+# package build needs first: the WireGuard xcframework (libcmuxwg, built from
+# Go in Packages/Shared/CmuxWireGuard). macOS only; a current one skips at once.
+if [ "$(uname -s)" = Darwin ] && [ -z "$OUT_ROOT" ] && [ "$MODE" != verify ]; then
+  "$ROOT/Packages/Shared/CmuxWireGuard/scripts/build-xcframework.sh" --if-stale
+fi
+
 # The output paths, relative to the repository root, and the builder of each.
 PANE="Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane"
 PAGES="Packages/macOS/CmuxNext/Sources/CmuxNextPages/Resources/pages"
