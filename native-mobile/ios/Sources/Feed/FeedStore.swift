@@ -182,6 +182,13 @@ final class FeedStore {
         if let surface = item.surface { Task { await connection?.acknowledge(surface: surface) } }
     }
 
+    /// Back to unread here only (the Mac tracks acknowledgement, not this);
+    /// backfill keeps posts it already has, so it stays until read again.
+    func markUnread(_ item: FeedItem) {
+        guard let index = items.firstIndex(where: { $0.id == item.id }), items[index].read else { return }
+        items[index].read = false
+    }
+
     /// Marks every post read here and on the Mac (each terminal once), so
     /// the next backfill doesn't bring them back unread.
     func markAllRead() {
@@ -212,7 +219,11 @@ final class FeedStore {
     private func markAnswered(_ item: FeedItem, _ text: String) {
         guard let index = items.firstIndex(where: { $0.id == item.id }) else { return }
         items[index].answered = text
+        let wasUnread = !items[index].read
         items[index].read = true
+        // Acknowledge on the Mac too, as Mark as Read does; otherwise the
+        // next launch brings an answered post back unread.
+        if wasUnread, let surface = item.surface { Task { await connection?.acknowledge(surface: surface) } }
         Haptics.success()
     }
 

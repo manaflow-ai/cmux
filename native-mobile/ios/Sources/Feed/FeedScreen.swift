@@ -258,7 +258,9 @@ struct FeedPostView: View {
                         Label(String(localized: "Copy Prompt"), systemImage: "text.quote")
                     }
                 }
-                if !item.read {
+                if item.read {
+                    Button { store.markUnread(item) } label: { Label(String(localized: "Mark as Unread"), systemImage: "circlebadge") }
+                } else {
                     Button { store.markRead(item) } label: { Label(String(localized: "Mark as Read"), systemImage: "checkmark.circle") }
                 }
                 Button(action: onOpen) { Label(String(localized: "Open Terminal"), systemImage: "terminal") }
