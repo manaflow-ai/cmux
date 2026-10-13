@@ -15,9 +15,19 @@ struct AcpmuxRecords {
         switch record["dir"]?.stringValue {
         case "in":
             // eventStream form: msg = {method: session/update, params: {update}}; raw form: msg.params.update too.
+            // acpmux writes subagent attribution into `params._meta.acpmux` (cmux-tui acpmux/src/subagents.rs).
+            let mux = msg["params"]?["_meta"]?["acpmux"] ?? msg["_meta"]?["acpmux"]
+            var events: [AgentSessionEvent] = (mux?["subagents"]?.arrayValue ?? []).compactMap {
+                AgentSubagentChange($0, at: at).map(AgentSessionEvent.subagent)
+            }
             guard let update = msg["params"]?["update"] ?? msg["update"],
-                  let decoded = try? Self.decode(ACPSessionUpdate.self, update) else { return [] }
-            return [.update(decoded)]
+                  let decoded = try? Self.decode(ACPSessionUpdate.self, update) else { return events }
+            if let owner = mux?["subagent"]?.stringValue {
+                events.append(.subagentUpdate(subagentID: owner, decoded))
+            } else {
+                events.append(.update(decoded))
+            }
+            return events
         case "mux":
             return mux(kind, msg, at: at)
         default:

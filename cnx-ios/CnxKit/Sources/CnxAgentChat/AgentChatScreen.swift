@@ -1,5 +1,6 @@
 #if os(iOS)
 import CmuxAgentQuestion
+import CnxArtifacts
 import CnxDesign
 import CnxDiff
 import CnxMarkdown
@@ -34,6 +35,18 @@ public final class AgentChatSurface {
     var following = true
     var showJump = false
     var diffRoute: DiffRoute?
+    /// Subagents, a subagent, checkpoints or the handoff, pushed over the chat.
+    public var parityRoute: AgentParityRoute?
+    /// The session's artifacts browser (a sheet).
+    public var showArtifacts = false
+    public let artifacts = ArtifactsBrowserState()
+    // DEBUG demo hooks for the parity screens (the screens act on them through their own paths).
+    var demoCheckpointRestore: String?
+    var demoConfirmRestore = 0
+    var demoHandoffTarget: String?
+    var demoHandoffFill: String?
+    var demoHandoffStart = 0
+    @ObservationIgnored private var lastDemoSerial = -1
     var replyInsteadOfPermission = false
     /// Mirrors the composer's focus (the composer's `@FocusState` follows it).
     public var composerFocused = false
@@ -78,6 +91,11 @@ public final class AgentChatSurface {
     /// DEBUG demo commands (`DemoDirector`) run through the same state the
     /// user's input changes.
     func run(_ command: DemoDirector.Command, store: AgentChatStore) {
+        // Pushed screens stop updating under the one on top, so every chat
+        // screen listens and the first to see a command runs it.
+        let serial = DemoDirector.shared.serial
+        guard serial != lastDemoSerial else { return }
+        lastDemoSerial = serial
         switch command {
         case .chatSend(let prompt):
             Task {
@@ -110,6 +128,41 @@ public final class AgentChatSurface {
             }
         case .navigateBack:
             if diffRoute != nil { diffRoute = nil }
+        case .chatOpenArtifacts:
+            artifacts.path = []
+            showArtifacts = true
+        case .artifactsFilter(let name):
+            if let filter = ArtifactFilter(rawValue: name) { withAnimation(.snappy) { artifacts.filter = filter } }
+        case .artifactsLayout(let grid):
+            artifacts.grid = grid
+        case .artifactsOpen(let reference):
+            let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+            if let artifact = collected.artifacts.first(where: { $0.reference == reference }) { artifacts.path = [artifact] }
+        case .artifactsSource(let on):
+            artifacts.showSource = on
+        case .artifactsBack:
+            if !artifacts.path.isEmpty { artifacts.path.removeLast() }
+        case .artifactsClose:
+            showArtifacts = false
+        case .chatOpenParity(let route):
+            switch route {
+            case "subagents": parityRoute = .subagents
+            case "checkpoints": parityRoute = .checkpoints
+            case "handoff": parityRoute = .handoff
+            default: parityRoute = store.subagents.first(where: { $0.name == route }).map { .subagent($0.id) }
+            }
+        case .parityClose:
+            parityRoute = nil
+        case .checkpointRestore(let id):
+            demoCheckpointRestore = id
+        case .checkpointConfirm:
+            demoConfirmRestore += 1
+        case .handoffPick(let id):
+            demoHandoffTarget = id
+        case .handoffFill(let reference):
+            demoHandoffFill = reference
+        case .handoffStart:
+            demoHandoffStart += 1
         default:
             break
         }
@@ -143,8 +196,9 @@ public struct AgentChatScreen: View {
             Menu {
                 Button("Rename", systemImage: "pencil") {}
                 Button("Open terminal", systemImage: "apple.terminal") {}
-                Button("Files", systemImage: "folder") {}
+                Button("Files and artifacts", systemImage: "folder") { surface.showArtifacts = true }
                 Button("Changes", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) }
+                AgentParityMenuItems(store: store, surface: surface)
                 Button("Copy session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id }
                 if !store.modes.isEmpty {
                     Section("Mode") {
@@ -169,6 +223,7 @@ public struct AgentChatScreen: View {
         ToolbarItemGroup(placement: .topBarTrailing) {
             Button("New session", systemImage: "square.and.pencil") {}
             Menu {
+                Button("Files and artifacts", systemImage: "folder") { surface.showArtifacts = true }
                 ShareLink(item: AgentChatSurface.transcriptText(store)) { Label("Share transcript", systemImage: "square.and.arrow.up") }
                 Button("Archive", systemImage: "archivebox") {}
                 Button("Stop agent", systemImage: "stop.circle", role: .destructive) { store.cancel() }
@@ -230,7 +285,7 @@ public struct AgentChatTranscript: View {
                             .padding(.bottom, 20)
                     }
                     ForEach(store.turns) { turn in
-                        TurnView(turn: turn, store: store, isLast: turn.id == store.turns.last?.id)
+                        TurnView(turn: turn, store: store, isLast: turn.id == store.turns.last?.id, surface: surface)
                             .padding(.bottom, 24)
                             .id(turn.id)
                     }
@@ -276,6 +331,12 @@ public struct AgentChatTranscript: View {
             } else {
                 DiffChangesScreen(changeSet: route.changes)
             }
+        }
+        .navigationDestination(item: $surface.parityRoute) { route in
+            AgentParityDestination(route: route, store: store, surface: surface)
+        }
+        .sheet(isPresented: $surface.showArtifacts) {
+            SessionArtifactsSheet(store: store, surface: surface)
         }
         .sensoryFeedback(.warning, trigger: warningTrigger)
         .onChange(of: store.pendingPermission?.request.id) { _, new in if new != nil { warningTrigger += 1 } }
@@ -391,6 +452,7 @@ struct TurnView: View {
     let turn: AgentTurn
     let store: AgentChatStore
     let isLast: Bool
+    var surface: AgentChatSurface?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -461,6 +523,29 @@ struct TurnView: View {
             if let question = turn.question(id) {
                 QuestionCard(question: question) { store.answer(question, with: $0) }
             }
+        case .subagents(_, let ids):
+            SubagentGroupCard(ids: ids, store: store) { surface?.parityRoute = .subagent($0) }
+        }
+    }
+}
+
+/// Title-menu entries for the parity screens (pushed chat and workspace tab).
+public struct AgentParityMenuItems: View {
+    let store: AgentChatStore
+    let surface: AgentChatSurface
+
+    public init(store: AgentChatStore, surface: AgentChatSurface) {
+        self.store = store
+        self.surface = surface
+    }
+
+    public var body: some View {
+        Section {
+            Button(store.subagents.isEmpty ? "Subagents" : "Subagents (\(store.subagents.count))", systemImage: "person.2.wave.2") {
+                surface.parityRoute = .subagents
+            }
+            Button("Checkpoints", systemImage: "clock.arrow.circlepath") { surface.parityRoute = .checkpoints }
+            Button("Continue in…", systemImage: "arrow.triangle.branch") { surface.parityRoute = .handoff }
         }
     }
 }

@@ -12,9 +12,11 @@ public enum TurnRow: Identifiable, Hashable, Sendable {
     case plan(id: String, entries: [ACPPlanEntry])
     case permission(PermissionRecord)
     case question(String)
+    case subagents(id: String, ids: [String])
 
     public var id: String {
         switch self {
+        case .subagents(let id, _): "s-\(id)"
         case .message(let id, _): "m-\(id)"
         case .thought(let id, _): "t-\(id)"
         case .tool(let call): "c-\(call.id)"
@@ -47,7 +49,9 @@ extension AgentTurn {
         for item in items {
             switch item {
             case .tool(let call):
-                if !call.diffs.isEmpty {
+                if hiddenToolCalls.contains(call.id) {
+                    continue
+                } else if !call.diffs.isEmpty {
                     flush()
                     rows.append(.edit(call))
                 } else if permissionTools.contains(call.id), call.status == .pending {
@@ -71,6 +75,9 @@ extension AgentTurn {
             case .question(let question):
                 flush()
                 rows.append(.question(question.id))
+            case .subagents(let id, let ids):
+                flush()
+                rows.append(.subagents(id: id, ids: ids))
             }
         }
         flush()

@@ -403,3 +403,31 @@ final class ScriptedSource: AgentSessionSource {
         #expect(resolved.state == .cancelled)
     }
 }
+
+// MARK: Subagents and handoff over acpmux
+
+@Suite struct AcpmuxParityTests {
+    let records = AcpmuxRecords(sessionID: "s1")
+
+    func json(_ string: String) -> JSONValue { try! JSONDecoder().decode(JSONValue.self, from: Data(string.utf8)) }
+
+    @Test func mapsSubagentAttribution() {
+        let spawn = json(#"{"seq":7,"at":1700000000000,"dir":"in","msg":{"method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"tool_call","toolCallId":"tc","title":"Agent","kind":"other"},"_meta":{"acpmux":{"subagents":[{"id":"a1","parent":null,"name":"Explore","task":"Find the dialer","state":"running","toolCallId":"tc"}]}}}}}"#)
+        let events = records.map(spawn)
+        guard case .subagent(let change)? = events.first else { Issue.record("no subagent"); return }
+        #expect(change.id == "a1" && change.parent == nil && change.name == "Explore" && change.toolCallID == "tc" && change.state == .running)
+        #expect(events.count == 2)
+        let owned = json(#"{"seq":8,"dir":"in","msg":{"method":"session/update","params":{"sessionId":"a1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"found"}},"_meta":{"acpmux":{"subagent":"a1"}}}}}"#)
+        #expect(records.map(owned) == [.subagentUpdate(subagentID: "a1", .agentMessageChunk(text: "found", messageId: nil))])
+    }
+
+    @Test @MainActor func readsHarnessesAndHandoffRecords() {
+        let harnesses = json(#"{"harnesses":{"claude":{"family":"claude"},"codex":{"family":"codex","displayName":"Codex"},"gemini":{"unavailable":"not installed"}}}"#)
+        let targets = AcpmuxSessionSource.handoffTargets(harnesses, excluding: "claude")
+        #expect(targets.map(\.id) == ["codex", "gemini"])
+        #expect(targets[0].name == "Codex" && targets[1].unavailableReason == "not installed")
+        let record = json(#"{"handoffId":"h1","revision":2,"state":"draft","target":{"coverage":[{"item":"transcript","status":"summarized","detail":null}]},"capsule":{"text":"ctx","maxBytes":65536,"checkpoint":null},"promptId":null}"#)
+        let draft = AcpmuxSessionSource.handoffDraft(record, target: targets[0])
+        #expect(draft?.id == "h1" && draft?.revision == 2 && draft?.capsule == "ctx" && draft?.coverage.first?.status == .summarized)
+    }
+}

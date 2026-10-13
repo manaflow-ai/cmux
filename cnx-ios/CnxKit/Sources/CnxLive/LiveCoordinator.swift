@@ -1,5 +1,6 @@
 #if os(iOS)
 import CnxAgentChat
+import CnxArtifacts
 import CnxChief
 import CnxDesign
 import CnxFeed
@@ -220,6 +221,7 @@ public final class LiveCoordinator {
     // MARK: Link
 
     private func linkChanged(_ link: (any MacLink)?) {
+        acpmux.macLink = link
         guard let link, let macID = self.link.target?.macID else {
             Task {
                 await workspaces.bind(nil, macID: "")
@@ -358,5 +360,9 @@ final class UnboundAgentSource: AgentSessionSource {
     }
 
     func send(_ intent: AgentClientIntent) {}
+
+    var artifactSource: any ArtifactSource {
+        LinkFileArtifactSource(macName: summary.macName, baseDirectory: summary.cwd) { nil }
+    }
 }
 #endif

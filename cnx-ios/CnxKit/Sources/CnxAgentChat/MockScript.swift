@@ -1,5 +1,8 @@
 import CmuxAgentQuestion
 import Foundation
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Content for `MockAgentSession`: realistic text, files and diffs.
 struct MockScript {
@@ -282,5 +285,35 @@ struct MockScript {
 
         Want me to open a PR?
         """
+    }
+
+    static let subagentAnswer = """
+    The transport switch holds up. Three subagents checked it in parallel:
+
+    | Area | Result |
+    | --- | --- |
+    | WebRTC dialer | First LAN attempt can time out once (8 s ICE), retry succeeds |
+    | WireGuard | Handshake retries bounded; relay after 3 s without UDP |
+    | Tests | 14 dialer tests, 31 link tests pass |
+
+    The full write-up is in [the report](cnx-ios/verify/transport-report.html) with a [PDF copy](cnx-ios/verify/transport-report.pdf), the screenshot is `cnx-ios/verify/screenshots/terminal.png` and the recording `cnx-ios/verify/recordings/demo.mp4`. Relay timings are in `cnx-ios/verify/relay-rtt.csv`. Background: [WireGuard whitepaper](https://www.wireguard.com/papers/wireguard.pdf) and [RFC 8445 (ICE)](https://www.rfc-editor.org/rfc/rfc8445).
+    """
+
+    /// A small generated image for the history turn's attachment.
+    static var attachmentPNG: Data? {
+        #if canImport(UIKit)
+        let size = CGSize(width: 240, height: 160)
+        let image = UIGraphicsImageRenderer(size: size).image { context in
+            UIColor.systemIndigo.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+            UIColor.white.withAlphaComponent(0.9).setFill()
+            for row in 0..<3 {
+                UIBezierPath(roundedRect: CGRect(x: 16, y: 24 + CGFloat(row) * 40, width: 208, height: 28), cornerRadius: 8).fill()
+            }
+        }
+        return image.pngData()
+        #else
+        return nil
+        #endif
     }
 }

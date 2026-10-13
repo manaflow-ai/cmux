@@ -210,7 +210,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
             return [
                 [
                     TabsKitMenuItem(title: "Changes", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) },
+                    TabsKitMenuItem(title: "Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true },
                     TabsKitMenuItem(title: "Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id },
+                ],
+                [
+                    TabsKitMenuItem(title: store.subagents.isEmpty ? "Subagents" : "Subagents (\(store.subagents.count))",
+                                    systemImage: "person.2.wave.2") { surface.parityRoute = .subagents },
+                    TabsKitMenuItem(title: "Checkpoints", systemImage: "clock.arrow.circlepath") { surface.parityRoute = .checkpoints },
+                    TabsKitMenuItem(title: "Continue in…", systemImage: "arrow.triangle.branch") { surface.parityRoute = .handoff },
                 ],
                 [leave],
                 [
