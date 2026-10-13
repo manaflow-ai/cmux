@@ -80,7 +80,7 @@ public final class BrowserChromeView: NSView {
         let toolbar = ExtensionActionToolbar(slot: extensionSlot)
         toolbar.onPinnedCountChange = { [weak self] in self?.applyToolbarLayout() }
         // With no extension pinned the Extensions menu opens from More.
-        toolbar.menuAnchor = { [weak self] in self?.toolbarButtons.button(.overflow) }
+        toolbar.menuAnchor = { [weak self] in self?.toolbarButtons.anchor(for: .overflow) }
         return toolbar
     }()
 

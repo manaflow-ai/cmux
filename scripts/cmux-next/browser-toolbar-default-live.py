@@ -102,8 +102,10 @@ def buttons():
 
 
 def write_config(text):
-    with open(CONFIG, "w") as f:
+    # Whole-file replace, so the config watcher never reads a half-written file.
+    with open(CONFIG + ".tmp", "w") as f:
         f.write(text)
+    os.replace(CONFIG + ".tmp", CONFIG)
 
 
 def snapshot(name):

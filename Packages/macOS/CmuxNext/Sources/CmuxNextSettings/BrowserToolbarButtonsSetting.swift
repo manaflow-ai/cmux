@@ -64,10 +64,23 @@ public nonisolated struct BrowserToolbarButtonsSetting: Sendable, Hashable {
             title: SettingsText.keyed("settings.browser.toolbarButtons", "Toolbar Buttons"),
             help: SettingsText.keyed("settings.browser.toolbarButtons.help",
                                      "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back."),
-            kind: .stringList, default: .array(fallback.pinned.map(JSONValue.string)), keywords: ["toolbar", "buttons", "pin", "more"]
+            kind: .choiceSet(choices), default: .array(fallback.pinned.map(JSONValue.string)),
+            keywords: ["toolbar", "buttons", "pin", "more", "extensions", "devtools", "bookmarks"]
         )
-        // Raw button ids mean nothing on the page; the More menu's Show in Toolbar items toggle them.
-        .hiddenFromSettingsPage("button ids; toggled from the browser toolbar's More menu (Show in Toolbar)")
+    }
+
+    /// One switch per button on the Settings page, in toolbar order.
+    static var choices: [SettingChoice] {
+        [
+            SettingChoice("media", SettingsText.keyed("settings.browser.toolbarButtons.media", "Media Controls")),
+            SettingChoice("zoom", SettingsText.keyed("settings.browser.toolbarButtons.zoom", "Zoom Level")),
+            SettingChoice("favorites", SettingsText.keyed("settings.browser.toolbarButtons.favorites", "Bookmarks")),
+            SettingChoice("downloads", SettingsText.keyed("settings.browser.toolbarButtons.downloads", "Downloads")),
+            SettingChoice("designMode", SettingsText.keyed("settings.browser.toolbarButtons.designMode", "Design Mode")),
+            SettingChoice("profile", SettingsText.keyed("settings.browser.toolbarButtons.profile", "Browser Profile")),
+            SettingChoice("theme", SettingsText.keyed("settings.browser.toolbarButtons.theme", "Browser Theme")),
+            SettingChoice("devTools", SettingsText.keyed("settings.browser.toolbarButtons.devTools", "Developer Tools")),
+        ]
     }
 }
 

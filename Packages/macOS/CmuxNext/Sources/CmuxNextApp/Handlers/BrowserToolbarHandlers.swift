@@ -89,9 +89,12 @@ enum BrowserToolbarHandlers {
     /// Pins or unpins `button` in cmux.json; every toolbar follows the file.
     static func togglePin(_ button: BrowserToolbarButton, settings: SettingsController?) {
         guard let settings else { return }
-        let next = BrowserToolbarButtonsSetting.current(settings).toggling(button.rawValue)
+        // A second toggle before the first write reloads builds on the first, not on the old file.
+        let next = (pendingPins ?? BrowserToolbarButtonsSetting.current(settings)).toggling(button.rawValue)
+        pendingPins = next
         // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)
         Task {
+            defer { if pendingPins == next { pendingPins = nil } }
             do {
                 try await settings.setSetting(at: BrowserToolbarButtonsSetting.configPath, to: next.configValue, by: .currentRun())
             } catch {
@@ -99,6 +102,9 @@ enum BrowserToolbarHandlers {
             }
         }
     }
+
+    /// The list the last toggle wrote, until its write lands.
+    private static var pendingPins: BrowserToolbarButtonsSetting?
 
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-toolbar")
 
@@ -216,9 +222,13 @@ enum BrowserToolbarHandlers {
     static func showInToolbarItem(pinned: Set<BrowserToolbarButton>, settings: SettingsController?) -> NSMenuItem {
         let item = NSMenuItem(title: BrowserToolbarButton.showInToolbarTitle, action: nil, keyEquivalent: "")
         let submenu = NSMenu(title: BrowserToolbarButton.showInToolbarTitle)
+        // A managed value (MDM, team policy) decides; the rows show it and do not change it.
+        let managed = settings?.managedKeys[BrowserToolbarButtonsSetting.configPath.joined(separator: ".")] != nil
+        submenu.autoenablesItems = false
         for button in BrowserToolbarButton.pinnable {
             let row = NSMenuItem(title: button.pinTitle, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
             row.state = pinned.contains(button) ? .on : .off
+            row.isEnabled = !managed
             let closure = ActionMenuClosure { [weak settings] in togglePin(button, settings: settings) }
             row.target = closure
             row.representedObject = closure

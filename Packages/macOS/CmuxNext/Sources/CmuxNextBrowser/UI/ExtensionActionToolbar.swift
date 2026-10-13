@@ -137,7 +137,8 @@ final class ExtensionActionToolbar {
     /// opened from the menu).
     func anchorRect(for id: String) -> CGRect? {
         guard let anchor = anchorView else { return nil }
-        let source: NSView = buttons[id] ?? puzzle
+        // No button and no puzzle (nothing pinned): More, where the menu opened.
+        let source: NSView = buttons[id] ?? (puzzle.window == nil ? menuAnchor?() : nil) ?? puzzle
         guard source.window != nil, source.window === anchor.window else {
             return CGRect(x: anchor.bounds.maxX - OmnibarStyle.buttonSize, y: 0, width: OmnibarStyle.buttonSize, height: 1)
         }
