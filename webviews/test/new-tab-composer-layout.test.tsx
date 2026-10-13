@@ -6,7 +6,8 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
-import { noChat } from "../src/gallery/fixtures/acpmux";
+import { manySessions, noChat } from "../src/gallery/fixtures/acpmux";
+import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -64,7 +65,7 @@ function Chips() {
   return <span className="acpmux-chips">Claude Opus 5.5</span>;
 }
 
-async function mount() {
+async function mount(options: { machineName?: string; snapshot?: AcpmuxSnapshot } = {}) {
   const { createRoot } = await import("react-dom/client");
   const { NewTabScreen } = await import("../src/agent-session/acpmux/newtab/NewTabScreen");
   act(() => root?.unmount());
@@ -72,7 +73,8 @@ async function mount() {
   await act(async () =>
     root!.render(
       <NewTabScreen
-        snapshot={noChat()}
+        snapshot={options.snapshot ?? noChat()}
+        {...(options.machineName ? { machineName: options.machineName } : {})}
         lastAgent="claude"
         cwd="/Users/you"
         startCwd="/Users/you/src/app"
@@ -104,4 +106,22 @@ test("the New Tab card is the composer's: field, then model and Send, then the p
   const row = card.querySelector<HTMLElement>(".acpmux-composer-context")!;
   expect(row.textContent).toContain("app");
   expect(card.querySelector('.nt-pickers [aria-label="Project"], .nt-pickers .acpmux-location-button')).toBeNull();
+});
+
+// Review (#20148): the composer's Computer menu listed a remote chat's machine, so the row could
+// name it while Return started the chat on this one. A New Tab chat starts where the page runs:
+// the row names that machine as the host does, and offers no other.
+test("the location row names the machine the chat starts on and offers no other", async () => {
+  const [local] = manySessions(1);
+  const remote = { ...local!, sessionId: "remote-1", peer: "devbox", cwd: "/home/you/api" };
+  await mount({ machineName: "studio", snapshot: noChat([local!, remote]) });
+  const row = host.querySelector<HTMLElement>(".acpmux-composer-context")!;
+  expect(row.textContent).toContain("studio");
+  expect(row.textContent).not.toContain("This Mac");
+  const computer = row.querySelector<HTMLButtonElement>('button[aria-label="Computer"]');
+  if (computer) {
+    await act(async () => computer.click());
+    const options = [...document.querySelectorAll(".acpmux-menu-label")].map((item) => item.textContent);
+    expect(options).not.toContain("devbox");
+  }
 });
