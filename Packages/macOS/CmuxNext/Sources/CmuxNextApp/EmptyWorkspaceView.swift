@@ -4,11 +4,21 @@ import CmuxNextDesign
 /// The deliberate empty state for a workspace with no panes.
 ///
 /// A workspace may be created by another client without its first terminal,
-/// or may be waiting for the user after a prior terminal was closed.
+/// or may be waiting for the user after a prior terminal was closed. When its
+/// first terminal failed to start, it says why under the title (cx-tzlqb).
 final class EmptyWorkspaceView: NSView {
     var onNew: (() -> Void)?
+    /// Why the workspace's first terminal did not start; nil hides the line.
+    var failure: String? {
+        didSet {
+            guard failure != oldValue else { return }
+            detailLabel.stringValue = failure.map(EmptyWorkspaceStrings.failed) ?? ""
+            detailLabel.isHidden = failure == nil
+        }
+    }
 
     private let titleLabel = NSTextField(labelWithString: EmptyWorkspaceStrings.title)
+    private let detailLabel = NSTextField(wrappingLabelWithString: "")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -32,8 +42,16 @@ final class EmptyWorkspaceView: NSView {
         title.font = Typography.header
         title.alignment = .center
 
-        let stack = NSStackView(views: [title])
+        let detail = detailLabel
+        detail.font = Typography.body
+        detail.alignment = .center
+        detail.isSelectable = true
+        detail.isHidden = true
+        detail.preferredMaxLayoutWidth = 520
+
+        let stack = NSStackView(views: [title, detail])
         stack.orientation = .vertical
+        stack.spacing = Metrics.space3
         stack.alignment = .centerX
         stack.translatesAutoresizingMaskIntoConstraints = false
         addSubview(stack)
@@ -61,6 +79,7 @@ final class EmptyWorkspaceView: NSView {
     private func applyColors() {
         performWithTheme {
             titleLabel.textColor = Palette.textPrimary
+            detailLabel.textColor = Palette.textSecondary
         }
     }
 

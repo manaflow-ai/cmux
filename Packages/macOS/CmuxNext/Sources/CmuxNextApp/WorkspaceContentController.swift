@@ -121,10 +121,11 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
             }
         }
         // A first terminal or a close that starts or ends while the
-        // workspace is empty decides whether it shows its title.
+        // workspace is empty decides whether it shows its title; a first
+        // terminal that failed adds why (cx-tzlqb).
         let repair = emptyWorkspaceRepair
         settlingObservation = Task { [weak self] in
-            for await _ in ObservationStream({ workspace.key.map { repair.isSettling($0) } ?? false }) {
+            for await _ in ObservationStream({ workspace.key.map { "\(repair.isSettling($0)):\(repair.failure($0) ?? "")" } ?? "" }) {
                 self?.updateEmptyState()
             }
         }
@@ -180,6 +181,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     private func updateEmptyState() {
         let isEmpty = layoutModel.screens.allSatisfy { $0.layout.panes.isEmpty }
         let settling = workspace.key.map { emptyWorkspaceRepair.isSettling($0) } ?? false
+        emptyView?.failure = workspace.key.flatMap { emptyWorkspaceRepair.failure($0) }
         contentView.showEmpty(isEmpty && !settling ? emptyView : nil)
     }
 

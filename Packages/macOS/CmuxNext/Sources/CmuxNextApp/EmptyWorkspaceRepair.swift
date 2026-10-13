@@ -32,6 +32,13 @@ import os
 ///
 /// Observable through `states` (`isSettling`): a window shows nothing,
 /// rather than the new-workspace actions, while its workspace is settling.
+///
+/// A first terminal that fails to start (a slow or broken host: the start
+/// deadline passes, the daemon refuses) is recorded in `failures` and shown
+/// by the empty state with a retry, never an endless blank page (cx-tzlqb).
+/// A workspace with a recorded failure is not refilled again by itself;
+/// the person's New (Return, Cmd-T) retries, and a pane that arrives late
+/// (the terminal may still appear after its deadline) clears it.
 @MainActor @Observable
 final class EmptyWorkspaceRepair {
     /// Who is giving a workspace its first terminal.
@@ -58,6 +65,9 @@ final class EmptyWorkspaceRepair {
     /// Whether commands can run now. Tests replace it.
     @ObservationIgnored var canCreate: @MainActor () -> Bool
     private(set) var states: [WorkspaceKey: FirstTerminal] = [:]
+    /// Why the last first-terminal create of a workspace failed, until a
+    /// pane shows or the person asks again.
+    private(set) var failures: [WorkspaceKey: String] = [:]
     /// The last emptied workspaces and what this app did with each (closed,
     /// or kept with a new terminal), newest last, for `debug.windows`: a
     /// workspace that disappears is always explained.
@@ -156,6 +166,7 @@ final class EmptyWorkspaceRepair {
         let present = Set(store.workspaces.compactMap(\.key))
         populated = populated.filter { present.contains($0.key) }
         for key in states.keys where !present.contains(key) && states[key] == .closing { states[key] = nil }
+        for key in failures.keys where !present.contains(key) { failures[key] = nil }
     }
 
     /// The store's home workspace (workspace-kind-v1) starts empty on
@@ -171,6 +182,7 @@ final class EmptyWorkspaceRepair {
 
     private func notePopulated(_ key: WorkspaceKey) {
         populated[key] = epoch()
+        if failures[key] != nil { failures[key] = nil }
         // Whoever created the terminal is done, unless this app is still
         // inside its own populate call or closing it.
         if states[key] == .awaitingPane { states[key] = nil }
@@ -196,7 +208,10 @@ final class EmptyWorkspaceRepair {
                 do {
                     _ = try await create(key)
                 } catch {
-                    if states[key] == .awaitingPane { states[key] = nil }
+                    if states[key] == .awaitingPane {
+                        states[key] = nil
+                        failures[key] = String(describing: error)
+                    }
                     logger.error("refilling a workspace with a lost terminal failed: \(String(describing: error), privacy: .public)")
                 }
                 return
@@ -226,7 +241,7 @@ final class EmptyWorkspaceRepair {
     func check(_ workspace: WorkspaceModel, created: @escaping @MainActor (SurfaceID) -> Void) {
         guard let key = workspace.key, isLive(), !Self.isHome(workspace) else { return }
         guard !Self.hasPane(workspace) else { return notePopulated(key) }
-        guard states[key] == nil, !closeIfEmptied(key), everPopulated.contains(key) else { return }
+        guard states[key] == nil, !closeIfEmptied(key), everPopulated.contains(key), failures[key] == nil else { return }
         createTab(key, create: create, created: created)
     }
 
@@ -234,6 +249,8 @@ final class EmptyWorkspaceRepair {
     /// The state claim makes repeated key presses idempotent while the daemon
     /// delta is still in flight.
     func createFirstTab(_ key: WorkspaceKey, created: @escaping @MainActor (SurfaceID) -> Void = { _ in }) {
+        guard states[key] == nil, canCreate() else { return }
+        failures[key] = nil
         createTab(key, create: createFirst ?? create, created: created)
     }
 
@@ -246,7 +263,10 @@ final class EmptyWorkspaceRepair {
             do {
                 if let surface = try await create(key) { created(surface) }
             } catch {
-                if states[key] == .awaitingPane { states[key] = nil }
+                if states[key] == .awaitingPane {
+                    states[key] = nil
+                    failures[key] = String(describing: error)
+                }
                 logger.error("creating a terminal for an empty workspace failed: \(String(describing: error), privacy: .public)")
             }
         }
@@ -257,6 +277,9 @@ final class EmptyWorkspaceRepair {
     /// empty workspace that is settling is not waiting for the user.
     func isSettling(_ key: WorkspaceKey) -> Bool { states[key] != nil }
 
+    /// Why `key`'s first terminal did not start, while it is still empty.
+    func failure(_ key: WorkspaceKey) -> String? { failures[key] }
+
     /// `key` is emptied on purpose (its tabs are moving to another
     /// workspace) and will close: no repair until `endClosing`.
     func beginClosing(_ key: WorkspaceKey) { states[key] = .closing }
@@ -264,6 +287,26 @@ final class EmptyWorkspaceRepair {
     /// The move failed (the tabs stayed): repairs apply again.
     func endClosing(_ key: WorkspaceKey) {
         if states[key] == .closing { states[key] = nil }
+    }
+
+    /// A person's first tab in an existing empty workspace (Cmd-T, Cmd-I with
+    /// no pane): owned like a repair while `body` runs. A failure leaves the
+    /// workspace empty with its reason (`failure`), never claimed: unlike
+    /// `populating`, no creator closes this workspace afterwards (cx-tzlqb:
+    /// a failed Cmd-T on a slow host kept it blank and every later Cmd-T
+    /// was dropped).
+    func fillFirstTab<T>(_ key: WorkspaceKey, _ body: () async throws -> T) async throws -> T {
+        states[key] = .awaitingPane
+        failures[key] = nil
+        do {
+            return try await body()
+        } catch {
+            if states[key] == .awaitingPane {
+                states[key] = nil
+                failures[key] = String(describing: error)
+            }
+            throw error
+        }
     }
 
     /// Marks `key` as being populated by this app for the duration of
