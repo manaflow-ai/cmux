@@ -32,6 +32,7 @@ extension CEFTab {
             }
             if let navigation { machine.apply(.committed(navigation, url: URL(string: url))) }
             restored.navigationCommitted(url: URL(string: url))
+            restored.documentCommitted(url: URL(string: url), formPost: documentCameFromPost)
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)

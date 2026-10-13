@@ -142,6 +142,8 @@ class Client : public CefClient,
                       bool user_gesture, bool is_redirect) override {
     if (!frame->IsMain()) return false;
     int id = browser->GetIdentifier();
+    // The method of the request the next commit shows (cmux_shim_tab_document_from_post).
+    MainFrameRequestWasPost()[id] = request->GetMethod().ToString() == "POST";
     std::string url = request->GetURL().ToString();
     // A sign-in tab's callback never loads: the session ends with its URL.
     if (NavigationIsAuthCallback(id, url)) {

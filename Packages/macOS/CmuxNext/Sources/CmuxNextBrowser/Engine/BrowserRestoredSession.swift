@@ -42,6 +42,14 @@ class BrowserRestoredSession {
     /// Scroll positions of pages in the tab's history, by URL: saved ones
     /// and those measured since, for the history saved at quit.
     private var knownScrollY: [URL: Double] = [:]
+    /// Pages in the tab's history whose document came from a form
+    /// submission (a POST), by URL: committed here or saved so (BR-R1).
+    /// The saved session carries the flag to the daemon; a hibernation
+    /// never starts on such a page.
+    private var formPostURLs: Set<URL> = []
+
+    /// The shown document came from a form submission.
+    var showsFormSubmission: Bool { tab?.state.url.map(formPostURLs.contains) ?? false }
 
     init(host: @escaping () -> (any BrowserRestoredSessionHost)?) {
         self.host = host
@@ -66,6 +74,10 @@ class BrowserRestoredSession {
         for entry in entries where entry.scrollY != nil {
             knownScrollY[entry.url] = entry.scrollY
         }
+        // The shown page's own commit says how it loaded.
+        for (index, entry) in entries.enumerated() where entry.formPost && index != current {
+            formPostURLs.insert(entry.url)
+        }
         if let y = entries[current].scrollY, y > 0 {
             if case .finished = tab.state.phase { restoreScroll(y) } else { pendingScrollY = y }
         }
@@ -81,8 +93,9 @@ class BrowserRestoredSession {
               native.entries.indices.allSatisfy({ native.entries[$0].url == entries[start + $0].url }) else { return }
         let back = entries[..<start].filter { Self.isWebPage($0.url) }
         history = BrowserRestoredHistory(entries: back + [entries[current]], current: back.count)
-        for entry in back where entry.scrollY != nil {
-            knownScrollY[entry.url] = entry.scrollY
+        for entry in back {
+            if entry.scrollY != nil { knownScrollY[entry.url] = entry.scrollY }
+            if entry.formPost { formPostURLs.insert(entry.url) }
         }
         applyAvailability()
     }
@@ -99,10 +112,12 @@ class BrowserRestoredSession {
         let shown = BrowserNavigationEntry(url: url, title: tab.state.title)
         var session = (history ?? .empty).session(around: tab.nativeNavigationList(), shown: shown)
         guard session.entries.indices.contains(session.current) else { return nil }
-        for index in session.entries.indices where session.entries[index].scrollY == nil {
-            session.entries[index].scrollY = knownScrollY[session.entries[index].url]
+        for index in session.entries.indices {
+            if session.entries[index].scrollY == nil { session.entries[index].scrollY = knownScrollY[session.entries[index].url] }
+            session.entries[index].formPost = formPostURLs.contains(session.entries[index].url)
         }
         knownScrollY = knownScrollY.filter { known in session.entries.contains { $0.url == known.key } }
+        formPostURLs = formPostURLs.filter { url in session.entries.contains { $0.url == url } }
         return session
     }
 
@@ -157,7 +172,8 @@ class BrowserRestoredSession {
         Task { @MainActor [weak self] in
             guard let self else { return }
             defer { isStepping = false }
-            let shown = BrowserSavedEntry(url: shownURL, title: title, scrollY: await self.tab?.currentScrollY())
+            let shown = BrowserSavedEntry(url: shownURL, title: title, scrollY: await self.tab?.currentScrollY(),
+                                          formPost: formPostURLs.contains(shownURL))
             if let y = shown.scrollY { knownScrollY[shownURL] = y }
             guard var saved = history, let tab = self.tab, !tab.isClosed else { return }
             guard let target = offset < 0 ? saved.goBack(-offset, from: shown) : saved.goForward(offset, from: shown) else { return }
@@ -188,6 +204,13 @@ class BrowserRestoredSession {
         // Another page committed (the replace did not navigate): its scroll
         // position is not the saved entry's.
         if url == entry.url { pendingScrollY = entry.scrollY }
+    }
+
+    /// A main-frame document committed; `formPost` when its request was a
+    /// POST (a form the person sent, or one an engine sent again).
+    func documentCommitted(url: URL?, formPost: Bool) {
+        guard let url else { return }
+        if formPost { formPostURLs.insert(url) } else { formPostURLs.remove(url) }
     }
 
     /// The document loaded: scroll a restored page back to where it was.

@@ -15,3 +15,12 @@ extension CEFTab: BrowserSessionRestoring {
         await restored.savedSession(measuringScroll: measuringScroll)
     }
 }
+
+extension CEFTab {
+    /// The committing document's request was a POST (a form), by the shim's
+    /// record of the last main-frame request (BR-R1).
+    var documentCameFromPost: Bool {
+        guard let browserID, let shim = runtime.shim else { return false }
+        return shim.tabDocumentFromPost(browserID) == 1
+    }
+}
