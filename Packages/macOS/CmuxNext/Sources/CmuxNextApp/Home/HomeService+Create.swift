@@ -1,4 +1,5 @@
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import Foundation
 
 extension HomeService {

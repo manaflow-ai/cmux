@@ -669,6 +669,18 @@
             }
           },
           {
+            "key" : "settings.group.passwords",
+            "rows" : [
+              "browser.passwords.offerToSave",
+              "browser.passwords.generate",
+              "browser.passwords.allowExport"
+            ],
+            "title" : {
+              "key" : "settings.group.passwords",
+              "text" : "Passwords"
+            }
+          },
+          {
             "key" : "settings.group.memory",
             "rows" : [
               "browser.hibernation",

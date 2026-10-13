@@ -147,7 +147,9 @@ def check_rows(check, name, report, path, keys=None, min_rows=3):
       top, bottom and the anchored side (a tall incoming row's left; every outgoing row's right, a 1-line
       pill at its vertical centre); every one of them must be measured; the tolerance has a 0.015 px floor;
     - on a window whose backing scale is not 2, nothing is checked: a SKIP line, and `name` in SKIPPED;
-    - an incoming balloon's straight edges have no partial pixels (at most 10 % of their lines).
+    - an incoming balloon's straight edges have no partial pixels (at most 10 % of their lines). An outgoing text
+      balloon's edges are soft on macOS 27 (MessagesLab 3ded59a SoftBalloon: two partly covered device px, as
+      Messages): only their measured place (the summed coverage, which the soft edge keeps) is checked.
     `keys`: only these rows."""
     w, h, px = read_png(path)
     scale = w / report["windowWidth"]; wh = report["windowHeight"]

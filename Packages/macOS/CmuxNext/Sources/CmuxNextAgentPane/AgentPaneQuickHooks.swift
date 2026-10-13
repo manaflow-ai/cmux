@@ -28,14 +28,14 @@ public struct AgentPaneQuickHooks {
                 setOnTop: @escaping (Bool) -> Void = { _ in },
                 setCollapsed: @escaping (Bool) -> Void = { _ in },
                 floatingState: @escaping () -> AgentPaneFloatingState = { AgentPaneFloatingState() },
-                context: @escaping @MainActor () async -> AgentPaneQuickContext? = { nil }) {
+                context: (@MainActor () async -> AgentPaneQuickContext?)? = nil) {
         self.dismiss = dismiss
         self.openInWindow = openInWindow
         self.startInBackground = startInBackground
         self.setOnTop = setOnTop
         self.setCollapsed = setCollapsed
         self.floatingState = floatingState
-        self.context = context
+        self.context = context ?? { nil }
     }
 }
 

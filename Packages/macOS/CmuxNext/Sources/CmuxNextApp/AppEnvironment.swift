@@ -1,5 +1,6 @@
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import CmuxNextTerminal
 import Foundation
 
