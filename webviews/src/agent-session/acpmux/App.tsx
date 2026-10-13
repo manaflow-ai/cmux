@@ -4610,7 +4610,15 @@ function AcpmuxPane() {
           }
           // A started local chat's folder is fixed (Leo 2026-10-13): its folder menu starts a new chat
           // in a tab of its own; a Cloud chat's folder is a label.
-          onNewChat={canMove ? (cwd) => ignoreFailure(callNative("chat.newHere", { cwd })) : undefined}
+          // The floating chat has no tabs to open one in. Another machine's `~` is not this Mac's: a
+          // remote chat starts one only in an absolute folder.
+          onNewChat={
+            canMove && !quick
+              ? (cwd) => {
+                  if (!remoteChat || cwd.startsWith("/")) ignoreFailure(callNative("chat.newHere", { cwd }));
+                }
+              : undefined
+          }
           onShellInterrupt={() => {
             const running = shellRuns.running(snapshot.sessionId);
             if (running) shellRuns.stop(running.id);
