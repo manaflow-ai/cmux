@@ -114,18 +114,26 @@ public enum ComposerAttachmentShelfMotion {
 }
 
 /// The Photos drawer under the composer, Messages' app-card sheet: a card
-/// inset 8 pt from the sides and bottom, as tall as ChatKit's compact
-/// detent plus 20 pt (318 pt on iOS 26.5, 301 pt on 27.0 in the iPhone 17
-/// Pro simulators: frames {8, 528, 386, 338} and {8, 544.3, 386, 321.7}),
-/// with the message field 22 pt (26) or 21.3 pt (27) above its top.
+/// inset 8 pt from the sides and bottom at ChatKit's custom "keyboard"
+/// detent, so it takes the place of the keyboard it replaces. Its top sits
+/// 5.3 pt below the keyboard's top (iPhone 17 Pro and Pro Max simulators on
+/// 26.5 and 27.0, keyboards 328 to 347 pt, and a real iPhone 17 Pro Max with
+/// a 318 pt keyboard), and the message field keeps the place the keyboard
+/// gave it, 16 pt above the keyboard: 21.3 pt above the sheet.
 public enum PhotoDrawerGeometry {
     public static let inset: CGFloat = 8
+    /// The sheet's top below the keyboard's top.
+    public static let keyboardTopOffset: CGFloat = 5.3
+    /// The field's bottom above the sheet's top.
+    public static let fieldGap: CGFloat = 16 + keyboardTopOffset
+    /// The docked software keyboard on an iPhone 17 Pro (335 pt), for when
+    /// no keyboard has shown yet or only a hardware keyboard's bar did.
+    public static let typicalKeyboardHeight: CGFloat = 335
 
-    public static func height(iOS27: Bool) -> CGFloat {
-        iOS27 ? 321.7 : 338
-    }
-
-    public static func fieldGap(iOS27: Bool) -> CGFloat {
-        iOS27 ? 21.3 : 22
+    /// The sheet's height for a docked keyboard `keyboardHeight` tall
+    /// (including the home-indicator inset, as UIKit reports it).
+    public static func height(keyboardHeight: CGFloat) -> CGFloat {
+        let keyboard = keyboardHeight >= 200 ? keyboardHeight : typicalKeyboardHeight
+        return keyboard - keyboardTopOffset - inset
     }
 }

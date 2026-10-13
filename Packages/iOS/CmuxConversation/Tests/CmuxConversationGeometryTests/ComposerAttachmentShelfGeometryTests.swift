@@ -62,18 +62,38 @@ import Testing
     }
 }
 
-/// The Photos drawer under the composer: Messages' app-card sheet, iPhone
-/// 17 Pro simulators. ChatKit logs its compact detent (318 pt on 26.5, 301
-/// on 27.0) and the sheet's frame is {8, 528, 386, 338} on 26.5 and
-/// {8, 544.3, 386, 321.7} on 27.0, with the field 22 / 21.3 pt above it.
+/// The Photos drawer under the composer: Messages' app-card sheet sits at
+/// its "keyboard" detent, so its height follows the keyboard it replaces.
+/// Measured sheet frames (keyboard frame from UIKeyboardWillChangeFrame):
+/// iPhone 17 Pro 26.5 keyboard 335 -> {8, 544.3, 386, 321.7}; 27.0 keyboard
+/// 328 -> {8, 551.1, 386, 314.9}; iPhone 17 Pro Max 27.0 keyboard 347 ->
+/// {8, 613.6, 424, 334.4}; 26.5 keyboard 345 -> {8, 617.5, 424, 330.5}; a
+/// real iPhone 17 Pro Max on 27 with a 318 pt keyboard -> top 643.3 of 956
+/// (304.7 tall). The field keeps the place the keyboard gave it, 16 pt above
+/// the keyboard's top, so about 21.3 pt above the sheet.
 @Suite struct PhotoDrawerGeometryTests {
-    @Test func drawerMatchesMessagesSheetPerOS() {
-        #expect(PhotoDrawerGeometry.height(iOS27: false) == 338)
-        #expect(abs(PhotoDrawerGeometry.height(iOS27: true) - 321.7) < 0.5)
+    @Test func drawerHeightFollowsTheKeyboard() {
+        let cases: [(screen: CGFloat, keyboard: CGFloat, top: CGFloat)] = [
+            (874, 335, 544.3), (874, 328, 551.1), (956, 347, 613.6), (956, 345, 617.5), (956, 318, 643.3),
+        ]
+        for c in cases {
+            let height = PhotoDrawerGeometry.height(keyboardHeight: c.keyboard)
+            let top = c.screen - PhotoDrawerGeometry.inset - height
+            #expect(abs(top - c.top) < 1.3, "keyboard \(c.keyboard): top \(top) vs Messages \(c.top)")
+        }
         #expect(PhotoDrawerGeometry.inset == 8)
-        #expect(PhotoDrawerGeometry.fieldGap(iOS27: false) == 22)
-        #expect(abs(PhotoDrawerGeometry.fieldGap(iOS27: true) - 21.3) < 0.2)
-        // On an 874 pt screen the sheet's top lands where Messages' does.
-        #expect(874 - PhotoDrawerGeometry.inset - PhotoDrawerGeometry.height(iOS27: false) == 528)
+    }
+
+    @Test func fieldStaysWhereTheKeyboardLeftIt() {
+        // Field bottom 16 pt above the keyboard's top, sheet top 5.3 pt below it.
+        #expect(abs(PhotoDrawerGeometry.fieldGap - 21.3) < 0.2)
+        let height = PhotoDrawerGeometry.height(keyboardHeight: 335)
+        #expect(abs((874 - 8 - height - PhotoDrawerGeometry.fieldGap) - (874 - 335 - 16)) < 0.2)
+    }
+
+    @Test func noDockedKeyboardFallsBackToTheTypicalOne() {
+        // Before any keyboard was shown, or with a hardware keyboard's short bar.
+        #expect(abs(PhotoDrawerGeometry.height(keyboardHeight: 0) - 321.7) < 0.1)
+        #expect(abs(PhotoDrawerGeometry.height(keyboardHeight: 60) - 321.7) < 0.1)
     }
 }

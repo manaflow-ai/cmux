@@ -143,6 +143,27 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         applyBlur()
     }
 
+    /// Messages' close leaves no frosted card behind: its backdrop is gone
+    /// from the first frame of the zoom back into the avatar, so the transcript
+    /// shows sharp around the shrinking content (iPhone 17 Pro Max, iOS 26.5,
+    /// 60 fps: the composer and bubbles beside the content are crisp 33 ms in).
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        guard animated, isBeingDismissed || navigationController?.isBeingDismissed == true else { return }
+        wash.alpha = 0
+        blurAnimator?.stopAnimation(true)
+        blurAnimator = nil
+        blur.effect = nil
+        guard let coordinator = transitionCoordinator else { return }
+        coordinator.animate(alongsideTransition: nil, completion: { [weak self] context in
+            // A swipe that gives up on closing leaves the details open.
+            guard let self, context.isCancelled else { return }
+            self.wash.alpha = 1
+            self.blur.effect = nil
+            self.applyBlur()
+        })
+    }
+
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         UIAccessibility.post(notification: .screenChanged, argument: header.titleLabel)

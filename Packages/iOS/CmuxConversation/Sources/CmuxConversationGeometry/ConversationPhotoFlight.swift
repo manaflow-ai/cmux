@@ -22,6 +22,15 @@ public enum ConversationPhotoFlight {
         return CGFloat(1 - (1 + omega * t) * exp(-omega * t))
     }
 
+    /// When the close spring starts. Letting go of a dragged photo, Quick
+    /// Look flies it back from the lift itself (one frame later it is 17%
+    /// of the way to its bubble), so a recent `lift` is the start; the close
+    /// button, or a lift long gone, starts it at the transition's first frame.
+    public static func closeStart(lift: Double?, firstFrame: Double) -> Double {
+        guard let lift, lift <= firstFrame, firstFrame - lift < 0.25 else { return firstFrame }
+        return lift
+    }
+
     /// When the spring is within `settleTolerance` of its end.
     public static func settleTime(omega: Double) -> Double {
         // Solve (1 + x) e^-x = tolerance by Newton's method on x = omega t.

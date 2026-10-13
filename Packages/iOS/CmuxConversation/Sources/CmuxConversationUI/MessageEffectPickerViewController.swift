@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// Messages "Send with effect": a long press on the send button opens a
@@ -26,6 +27,8 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     private let titleLabel = UILabel()
     private let modeControl = UISegmentedControl(items: [ConversationEffectStrings.bubble, ConversationEffectStrings.screen])
     private let cancelButton = UIButton(type: .custom)
+    /// The white capsule behind the bubble effects' dots (plus-lighter gray).
+    private let track = UIView()
     private let stage = MessageBubbleStage()
     private var rows: [EffectRow] = []
     private let screenPreview = ScreenEffectView()
@@ -65,8 +68,9 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         view.addSubview(screenPreview)
 
         titleLabel.text = ConversationEffectStrings.sendWithEffect
-        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
-        titleLabel.textColor = .label
+        // Messages: 22 pt regular in gray 90 (CKEffectPickerStandardView).
+        titleLabel.font = .systemFont(ofSize: 22)
+        titleLabel.textColor = Self.secondaryInk
         titleLabel.textAlignment = .center
         titleLabel.accessibilityTraits = .header
         view.addSubview(titleLabel)
@@ -110,6 +114,14 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         stage.label.lineBreakMode = .byTruncatingTail
         view.addSubview(stage)
 
+        // Plus-lighter gray 72 (40 in dark mode): white over the light blur.
+        track.backgroundColor = UIColor { UIColor(white: ($0.userInterfaceStyle == .dark ? 40 : 72) / 255, alpha: 1) }
+        track.layer.compositingFilter = "plusL"
+        track.layer.cornerRadius = EffectPickerGeometry.trackCornerRadius
+        track.layer.cornerCurve = .continuous
+        track.isUserInteractionEnabled = false
+        view.addSubview(track)
+
         for effect in ConversationMessageEffect.bubbleEffects {
             let row = EffectRow(effect: effect)
             row.dot.addAction(UIAction { [weak self] _ in self?.dotTapped(effect) }, for: .touchUpInside)
@@ -128,10 +140,12 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         }, for: .touchUpInside)
         view.addSubview(screenSendButton)
 
+        // Messages' CKPillShapedXButton: a gray pill in the send button's
+        // place with a white 18 pt cross.
         var cancel = UIButton.Configuration.filled()
-        cancel.image = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .bold))
-        cancel.baseBackgroundColor = .tertiarySystemFill
-        cancel.baseForegroundColor = .secondaryLabel
+        cancel.image = UIImage(systemName: "xmark", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold))
+        cancel.baseBackgroundColor = UIColor(white: 0.5, alpha: 1)
+        cancel.baseForegroundColor = .white
         cancel.cornerStyle = .capsule
         cancel.contentInsets = .zero
         cancelButton.configuration = cancel
@@ -162,55 +176,48 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     }
 
     private var margin: CGFloat { view.directionalLayoutMargins.trailing }
-    private static let dotSize: CGFloat = 30
-    private static let rowLabelHeight: CGFloat = 20
+    /// Messages' ink for the title and the effects' names: gray 90, or white
+    /// at 80% in dark mode.
+    static let secondaryInk = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.8) : UIColor(white: 90 / 255, alpha: 1) }
 
-    /// The cancel button's center (where the composer's send button was).
-    private var cancelCenter: CGPoint {
-        // The keyboard hides while the sheet is up, so the send button's
-        // resting place is the composer row at the bottom safe area.
-        let local = view.convert(sendButtonFrame, from: nil)
-        let x = local.width > 0 ? local.midX : view.bounds.width - margin - Self.dotSize / 2
-        return CGPoint(x: x, y: view.bounds.height - view.safeAreaInsets.bottom - 4 - ConversationTheme.composerMinHeight / 2)
+    /// Everything hangs off the send button where the long press found it.
+    private var geometry: EffectPickerGeometry {
+        var send = view.convert(sendButtonFrame, from: nil)
+        if send.width <= 0 {
+            send = CGRect(x: view.bounds.width - margin - 38, y: view.bounds.height - view.safeAreaInsets.bottom - 34, width: 38, height: 28)
+        }
+        return EffectPickerGeometry(sendButton: send, width: view.bounds.width, safeTop: view.safeAreaInsets.top, effectCount: rows.count)
     }
 
-    private var homeBubbleFrame: CGRect {
-        let size = bubbleSize
-        let bottom = cancelCenter.y - Self.dotSize / 2 - 14
-        return CGRect(x: view.bounds.width - margin - size.width + ConversationTheme.tailWidth, y: bottom - size.height, width: size.width, height: size.height)
-    }
+    private var cancelCenter: CGPoint { CGPoint(x: geometry.cancel.midX, y: geometry.cancel.midY) }
 
-    /// Row label center y for each bubble effect, top (Slam) to bottom (Invisible Ink).
-    private func rowCenterY(_ index: Int) -> CGFloat {
-        let pitch = bubbleSize.height + 36
-        let fromBottom = CGFloat(rows.count - 1 - index)
-        return homeBubbleFrame.minY - 22 - fromBottom * pitch
-    }
+    private var homeBubbleFrame: CGRect { geometry.homeBubble(size: bubbleSize) }
 
     private func slotFrame(for effect: ConversationMessageEffect?) -> CGRect {
         guard let effect, mode == .bubble, let index = ConversationMessageEffect.bubbleEffects.firstIndex(of: effect) else { return homeBubbleFrame }
-        var frame = homeBubbleFrame
-        frame.origin.y = rowCenterY(index) - Self.rowLabelHeight / 2 - 8 - frame.height
-        return frame
+        return geometry.pickedBubble(size: bubbleSize, index: index)
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         backdrop.frame = view.bounds
         screenPreview.frame = view.bounds
-        let top = view.safeAreaInsets.top
-        titleLabel.frame = CGRect(x: 20, y: top + 12, width: view.bounds.width - 40, height: 22)
-        let segmentWidth = min(260, view.bounds.width - 80)
-        modeControl.frame = CGRect(x: (view.bounds.width - segmentWidth) / 2, y: titleLabel.frame.maxY + 12, width: segmentWidth, height: 32)
-        cancelButton.bounds = CGRect(x: 0, y: 0, width: Self.dotSize, height: Self.dotSize)
-        cancelButton.center = cancelCenter
-        let dotX = cancelCenter.x
+        let g = geometry
+        titleLabel.frame = g.title
+        modeControl.frame = g.segments
+        cancelButton.frame = g.cancel
+        track.frame = g.track
+        let picked = selectedBubbleEffect.flatMap { ConversationMessageEffect.bubbleEffects.firstIndex(of: $0) }
         for (index, row) in rows.enumerated() {
-            let y = rowCenterY(index)
-            row.dot.bounds = CGRect(x: 0, y: 0, width: Self.dotSize, height: Self.dotSize)
-            row.dot.center = CGPoint(x: dotX, y: y)
-            let labelWidth: CGFloat = 200
-            row.labelButton.frame = CGRect(x: dotX - Self.dotSize / 2 - 10 - labelWidth, y: y - Self.rowLabelHeight / 2, width: labelWidth, height: Self.rowLabelHeight)
+            let dot = g.dots[index]
+            row.dot.frame = dot
+            let size = row.labelButton.intrinsicContentSize
+            var labelFrame = CGRect(x: g.labelTrailing - size.width, y: dot.midY - size.height / 2, width: size.width, height: size.height)
+            if index == picked {
+                // The picked effect's name rides above the draft bubble.
+                labelFrame.origin.y = EffectPickerGeometry.pickedLabelCenterY(bubble: slotFrame(for: row.effect)) - size.height / 2
+            }
+            row.labelButton.frame = labelFrame
         }
         if stage.layer.animation(forKey: "messageEffect") == nil {
             placeStage(slotFrame(for: selectedBubbleEffect))
@@ -222,8 +229,8 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         }
         pageControl.sizeToFit()
         pageControl.center = CGPoint(x: view.bounds.midX, y: homeBubbleFrame.minY - 26)
-        screenSendButton.bounds = CGRect(x: 0, y: 0, width: Self.dotSize, height: Self.dotSize)
-        screenSendButton.center = CGPoint(x: dotX, y: homeBubbleFrame.minY - 26)
+        screenSendButton.bounds = CGRect(x: 0, y: 0, width: EffectPickerGeometry.dotSize, height: EffectPickerGeometry.dotSize)
+        screenSendButton.center = CGPoint(x: g.cancel.midX, y: homeBubbleFrame.minY - 26)
         view.bringSubviewToFront(pager)
         for control in [titleLabel, modeControl, pageControl, screenSendButton, cancelButton] as [UIView] { view.bringSubviewToFront(control) }
     }
@@ -258,6 +265,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         selectedBubbleEffect = effect
         UISelectionFeedbackGenerator().selectionChanged()
         for row in rows { row.setSelected(row.effect == effect) }
+        view.setNeedsLayout()
         stage.layer.removeAnimation(forKey: "messageEffect")
         stage.setInk(false, outgoing: true)
         let target = slotFrame(for: effect)
@@ -272,6 +280,8 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
         guard changed else { play(); return }
         UIView.animate(withDuration: reduceMotion ? 0 : 0.32, delay: 0, usingSpringWithDamping: 0.86, initialSpringVelocity: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.placeStage(target)
+            self.view.setNeedsLayout()
+            self.view.layoutIfNeeded()
         } completion: { _ in play() }
     }
 
@@ -288,6 +298,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
             row.dot.isHidden = isScreen
             row.labelButton.isHidden = isScreen
         }
+        track.isHidden = isScreen
         pager.isHidden = !isScreen
         pageControl.isHidden = !isScreen
         screenSendButton.isHidden = !isScreen
@@ -370,9 +381,10 @@ private final class EffectRow {
 
     init(effect: ConversationMessageEffect) {
         self.effect = effect
-        labelButton.setTitle(effect.localizedName, for: .normal)
-        labelButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
-        labelButton.setTitleColor(.secondaryLabel, for: .normal)
+        // Messages: the name in 11 pt semibold capitals, gray 90.
+        labelButton.setTitle(effect.localizedName.localizedUppercase, for: .normal)
+        labelButton.titleLabel?.font = .systemFont(ofSize: 11, weight: .semibold)
+        labelButton.setTitleColor(MessageEffectPickerViewController.secondaryInk, for: .normal)
         labelButton.contentHorizontalAlignment = .trailing
         labelButton.accessibilityIdentifier = "conversation.effects.\(effect.rawValue)"
         dot.accessibilityLabel = effect.localizedName
@@ -380,8 +392,15 @@ private final class EffectRow {
         labelButton.isAccessibilityElement = false
     }
 
-    func setSelected(_ selected: Bool) {
-        labelButton.setTitleColor(selected ? .label : .secondaryLabel, for: .normal)
+    /// `selected` nil: nothing picked yet. Messages names the picked effect
+    /// "SEND WITH …" and dims the others to 40%.
+    func setSelected(_ selected: Bool?) {
+        let name = selected == true
+            ? String(format: String(localized: "conversation.effect.sendWithNamed", defaultValue: "Send with %@", bundle: .module), effect.localizedName)
+            : effect.localizedName
+        labelButton.setTitle(name.localizedUppercase, for: .normal)
+        labelButton.alpha = selected == false ? 0.4 : 1
+        let selected = selected == true
         UIView.animate(withDuration: 0.2) { self.dot.isSelectedForSend = selected }
         dot.accessibilityLabel = selected
             ? String(format: String(localized: "conversation.effect.sendWithNamed", defaultValue: "Send with %@", bundle: .module), effect.localizedName)
@@ -389,18 +408,29 @@ private final class EffectRow {
     }
 }
 
-/// A gray dot that becomes a blue send arrow.
+/// A 9 pt gray dot that becomes Messages' blue send pill (38 x 28, white
+/// arrow) in its 38 pt slot.
 final class EffectSendButton: UIButton {
     var isSelectedForSend = false { didSet { update() } }
-    private let arrow = UIImageView(image: UIImage(systemName: "arrow.up", withConfiguration: UIImage.SymbolConfiguration(pointSize: 14, weight: .bold)))
+    private let dotView = UIView()
+    private let pill = UIView()
+    private let arrow = UIImageView(image: UIImage(systemName: "arrow.up", withConfiguration: UIImage.SymbolConfiguration(pointSize: 15, weight: .semibold)))
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        // Gray 153 on the white track; in dark mode Messages adds gray 51 to
+        // the track (plus-lighter), about white at 22% over it.
+        dotView.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 1, alpha: 0.22) : UIColor(white: 153 / 255, alpha: 1) }
+        dotView.isUserInteractionEnabled = false
+        addSubview(dotView)
+        pill.backgroundColor = ConversationTheme.outgoingBubble
+        pill.layer.cornerCurve = .continuous
+        pill.isUserInteractionEnabled = false
+        addSubview(pill)
         arrow.tintColor = .white
         arrow.contentMode = .center
         arrow.isUserInteractionEnabled = false
-        addSubview(arrow)
-        layer.cornerCurve = .continuous
+        pill.addSubview(arrow)
         update()
     }
 
@@ -409,14 +439,20 @@ final class EffectSendButton: UIButton {
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        layer.cornerRadius = bounds.height / 2
-        arrow.frame = bounds
+        let d: CGFloat = 9
+        dotView.bounds = CGRect(x: 0, y: 0, width: d, height: d)
+        dotView.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        dotView.layer.cornerRadius = d / 2
+        pill.bounds = CGRect(x: 0, y: 0, width: bounds.width, height: min(bounds.height, 28))
+        pill.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        pill.layer.cornerRadius = pill.bounds.height / 2
+        arrow.frame = pill.bounds
     }
 
     private func update() {
-        backgroundColor = isSelectedForSend ? ConversationTheme.outgoingBubble : UIColor.tertiarySystemFill
-        arrow.alpha = isSelectedForSend ? 1 : 0
-        transform = isSelectedForSend ? .identity : CGAffineTransform(scaleX: 0.8, y: 0.8)
+        pill.alpha = isSelectedForSend ? 1 : 0
+        pill.transform = isSelectedForSend ? .identity : CGAffineTransform(scaleX: 0.3, y: 0.3)
+        dotView.alpha = isSelectedForSend ? 0 : 1
     }
 }
 #endif
