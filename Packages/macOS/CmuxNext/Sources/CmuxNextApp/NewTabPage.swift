@@ -207,13 +207,8 @@ enum NewTabPage {
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
     }
 
-    /// The page's first project list. With the daemon's project list (`project-list-v1`) the page
-    /// asks `project.list` itself, so a project the user removed or hid stays gone (cx-m0p7); an
-    /// older daemon gets the folders discovered off the main actor at startup. The current session
-    /// cwd still arrives immediately from the pane handshake.
-    static func projects(_ services: AppServices) -> [String] {
-        projectStore(services) == nil ? services.onboarding.projectFolders : []
-    }
+    /// Startup folders only without `project-list-v1`; else the page asks `project.list` (removals win, cx-m0p7).
+    static func projects(_ services: AppServices) -> [String] { services.machines.local.projectStore == nil ? services.onboarding.projectFolders : [] }
 
     /// The page's handler: `open` is the pane's (it replaces the page with
     /// a tab); the location bar's jumps, the shortcut and default-kind edits
@@ -227,23 +222,12 @@ enum NewTabPage {
             jump: { [weak services] target, id in if let services { jump(target, id: id, services: services) } },
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             browseProject: { [weak services] in
-                guard let services else { return nil }
-                guard let path = await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path else { return nil }
-                if let client = projectStore(services) {
-                    try? await client.add(path: path, idempotencyKey: UUID().uuidString)
-                }
-                return path
+                guard let services, let path = await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path else { return nil }
+                return await services.machines.local.projectStore?.picked(path) ?? path
             },
             listProjects: { [weak services] query in
                 guard let services else { return [] }
-                // The daemon's project list (plans/cmux-next/projects.md): user edits and removals win.
-                // The scan runs only when the store holds no project at all (the first import
-                // still running, or every source off), so a folder the user removed stays gone.
-                if let client = projectStore(services),
-                   let listing = try? await client.list(query: query, limit: AgentPaneOmnibar.maximumEntries),
-                   listing.storeHasProjects {
-                    return listing.paths
-                }
+                if let paths = await services.machines.local.projectStore?.pickerPaths(query: query, limit: AgentPaneOmnibar.maximumEntries) { return paths }
                 let hints = services.history.agents.sessions.compactMap(\.cwd) + services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
                 return await Task.detached {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
@@ -254,14 +238,6 @@ enum NewTabPage {
                 _ = services.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
             }
         )
-    }
-
-    /// The local daemon's project store, or nil before it is connected or
-    /// when it predates `project-list-v1` (the page then scans as before).
-    static func projectStore(_ services: AppServices) -> ProjectStateClient? {
-        guard let connection = services.machines.local.connection,
-              services.machines.local.supports(DaemonCapabilities.shared.projectList) else { return nil }
-        return ProjectStateClient(connection: connection)
     }
 
     /// Through the palette's switchers, the one path that reveals a tab's or
