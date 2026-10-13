@@ -127,8 +127,8 @@
     },
     {
       "path": "Bookmark.java",
-      "sha256": "8d08a147728398f6d3e046fdc1454a653e4ea5880149c6509700dceabf6bc0e7",
-      "size": 9769
+      "sha256": "7bec99405a83212c8bc57a42fcf27c12746afa8f10e0d3f7956dbad679b61a30",
+      "size": 10448
     },
     {
       "path": "BookmarkChangeResult.java",
@@ -557,8 +557,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "b5942f44d9d16cfd8397c4f1130c69b08a705827479f67a0a656e3a41777e40c",
-      "size": 68406
+      "sha256": "34aacb8143734236530e971c16aba06c077185794d9d071b8d75432249eb535c",
+      "size": 68479
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1772,7 +1772,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "73749b2ec60548ad9dc85dde6599f451f08695771f4ecae5e41a796f34b350bd",
+      "sha256": "ba148ef17764c128492e137cdd6dc3b403340580c46ed1085ce6cad9c711a066",
       "size": 6393
     },
     {
@@ -2852,8 +2852,8 @@
     },
     {
       "path": "UpdateBookmarkRequest.java",
-      "sha256": "5f322374be5675bd3b9d96df652f03f7a6480c32e6317a0bcf6d81695e335d7f",
-      "size": 6060
+      "sha256": "f915c036bf986c4e19aa7d157ffb49101abd0fea5b32f6c41659fe5e1db17800",
+      "size": 6714
     },
     {
       "path": "UpdateBrowserProfileRequest.java",
@@ -3012,7 +3012,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff",
+  "ir_sha256": "ecdf8e30a9c364d93374a8043682ee6b5eb5dfc59d599d6b568fd576c23cbd31",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

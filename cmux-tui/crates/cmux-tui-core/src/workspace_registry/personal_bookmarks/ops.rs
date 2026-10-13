@@ -73,8 +73,9 @@ fn create_in(tx: &Transaction<'_>, input: BookmarkInput) -> anyhow::Result<(Book
     Ok((bookmark, true))
 }
 
-/// Change the title, URL (URL nodes only), favicon key or last use of a
-/// node.
+/// Change the title, URL (URL nodes only), favicon key, last use or icon
+/// (folders only) of a node. An asset icon must name a stored blob, checked
+/// in this transaction so no sweep runs in between.
 fn update_in(
     tx: &Transaction<'_>,
     id: &str,
@@ -91,8 +92,16 @@ fn update_in(
     if let Some(Some(last_used_ms)) = update.last_used_ms {
         stored_ms("last_used_ms", last_used_ms)?;
     }
+    if let Some(Some(icon)) = &update.icon {
+        crate::workspace_registry::presentation_store::validate_icon_value(icon)
+            .map_err(|error| invalid_bookmark(icon_message(&error)))?;
+    }
     let before = existing_bookmark(tx, id)?;
     ensure_valid!(update.url.is_none() || before.kind == "url", "a folder has no url");
+    ensure_valid!(update.icon.is_none() || before.kind == "folder", "only a folder has an icon");
+    if let Some(Some(icon)) = &update.icon {
+        crate::workspace_registry::personal_store::require_icon_asset(tx, icon)?;
+    }
     let mut after = before.clone();
     if let Some(title) = update.title {
         after.title = title;
@@ -106,17 +115,22 @@ fn update_in(
     if let Some(last_used_ms) = update.last_used_ms {
         after.last_used_ms = last_used_ms;
     }
+    if let Some(icon) = update.icon {
+        after.icon = icon;
+    }
     let changed = after != before;
     if changed {
         tx.execute(
-            "UPDATE bookmarks SET title = ?2, url = ?3, favicon_key = ?4, last_used_ms = ?5
+            "UPDATE bookmarks SET title = ?2, url = ?3, favicon_key = ?4, last_used_ms = ?5,
+                                  icon = ?6
              WHERE bookmark_id = ?1",
             params![
                 id,
                 after.title,
                 after.url,
                 after.favicon_key,
-                after.last_used_ms.map(|value| stored_ms("last_used_ms", value)).transpose()?
+                after.last_used_ms.map(|value| stored_ms("last_used_ms", value)).transpose()?,
+                after.icon
             ],
         )?;
         commit_bookmarks(
@@ -128,6 +142,13 @@ fn update_in(
         )?;
     }
     Ok((after, changed))
+}
+
+/// The icon check's message without its "bad request: " prefix, which
+/// `invalid_bookmark` adds.
+fn icon_message(error: &anyhow::Error) -> String {
+    let message = error.to_string();
+    message.strip_prefix("bad request: ").unwrap_or(&message).to_string()
 }
 
 /// Move a node to `parent` in the same profile. `index` is the node's

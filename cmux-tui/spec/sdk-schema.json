@@ -8219,6 +8219,17 @@
      },
      "presence": "optional",
      "nullable": false
+    },
+    "icon": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "since": 12,
+     "capability": "bookmark-icon-v1",
+     "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>."
     }
    },
    "additional_properties": true
@@ -18644,6 +18655,18 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "bookmark-icon-v1",
+      "description": "Folders only; null clears. Refused on a url node."
      },
      "origin": {
       "type": {

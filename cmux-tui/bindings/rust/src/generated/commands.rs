@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff.
+// cmux-tui mux protocol 12, IR ecdf8e30a9c364d93374a8043682ee6b5eb5dfc59d599d6b568fd576c23cbd31.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3345,6 +3345,9 @@ pub struct UpdateBookmarkRequest {
     pub bookmark: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub favicon_key: Optional<String>,
+    /// Folders only; null clears. Refused on a url node.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub last_used_ms: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -4919,6 +4922,10 @@ impl CmuxClient {
     }
 
     pub fn update_bookmark(&mut self, request: UpdateBookmarkRequest) -> Result<UpdateBookmarkResult> {
+        if !request.icon.is_missing() {
+            self.require_protocol_field("update-bookmark", 12)?;
+            self.require_capability_field("update-bookmark", "bookmark-icon-v1")?;
+        }
         self.execute(&UPDATE_BOOKMARK_METADATA, &request)
     }
 
