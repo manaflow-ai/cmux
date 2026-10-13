@@ -51,6 +51,7 @@ pub mod secret_mcp;
 pub mod server;
 pub mod session_env;
 pub mod session_name;
+pub mod stats;
 pub mod sha256;
 pub mod store;
 pub mod subagents;
