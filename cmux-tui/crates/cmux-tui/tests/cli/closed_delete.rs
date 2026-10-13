@@ -253,6 +253,130 @@ fn closed_reopen_publishes_the_reopened_tab_in_its_screen_like_a_tab_create() {
     );
 }
 
+/// A topology mutation remains replayable after the daemon restarts: the
+/// workspace and its surviving terminal keep their identities while the
+/// closed split tab is restored through the public CLI.
+#[test]
+fn split_close_and_restore_survive_a_daemon_restart() {
+    let mut server = HeadlessServer::start("split-close-restore-restart");
+    state_cli(&server, None, &["workspace", "create", "--name", "survivor"]);
+    let before = state_cli_topology(&server);
+    let workspace = workspace_id_named(&server, "survivor");
+    let source_screen = before["screens"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|screen| screen["workspace_id"] == workspace.as_str())
+        .and_then(|screen| screen["id"].as_str())
+        .unwrap()
+        .to_string();
+    let source_pane = before["panes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|pane| pane["screen_id"] == source_screen.as_str())
+        .and_then(|pane| pane["id"].as_str())
+        .unwrap()
+        .to_string();
+    let source_tab = before["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["pane_id"] == source_pane.as_str())
+        .and_then(|tab| tab["id"].as_str())
+        .unwrap()
+        .to_string();
+    let source_terminal = before["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|terminal| terminal["tab_id"] == source_tab.as_str())
+        .and_then(|terminal| terminal["id"].as_str())
+        .unwrap()
+        .to_string();
+
+    let split_before = state_cli_topology(&server);
+    state_cli(&server, None, &["pane", &source_pane, "split", "--right"]);
+    let split_after = state_cli_topology(&server);
+    let pane_ids = |snapshot: &serde_json::Value| {
+        snapshot["panes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|pane| pane["id"].as_str().unwrap().to_string())
+            .collect::<Vec<_>>()
+    };
+    let split_pane = pane_ids(&split_after)
+        .into_iter()
+        .find(|pane| !pane_ids(&split_before).contains(pane))
+        .expect("split did not create a pane");
+    let split_tab = split_after["tabs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|tab| tab["pane_id"] == split_pane.as_str())
+        .and_then(|tab| tab["id"].as_str())
+        .unwrap()
+        .to_string();
+    let split_terminal = split_after["terminals"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|terminal| terminal["tab_id"] == split_tab.as_str())
+        .and_then(|terminal| terminal["id"].as_str())
+        .unwrap()
+        .to_string();
+
+    state_cli(&server, None, &["pane", &split_pane, "close"]);
+    let closed = state_cli(&server, None, &["closed", "list"]);
+    assert!(
+        closed.as_array().unwrap().iter().any(|item| item["member_count"] == 1),
+        "closing the split pane did not leave a reopenable tab: {closed}"
+    );
+
+    // Reopen the same daemon state through its real server entrypoint rather
+    // than replacing the lifecycle with a mock.
+    server.child.kill().unwrap();
+    server.child.wait().unwrap();
+    server.child = Command::new(bin())
+        .args(["--headless", "--socket"])
+        .arg(&server.socket)
+        .arg("--state")
+        .arg(&server.state)
+        .env("CMUX_TUI_CONFIG", server.dir.join("config.json"))
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    server.wait_for_socket();
+
+    let after_restart = state_cli_topology(&server);
+    assert_eq!(workspace_of_terminal(&after_restart, &source_terminal), workspace);
+    assert!(
+        after_restart["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|terminal| terminal["id"] == split_terminal.as_str()),
+        "closed terminal was not retained for restore: {after_restart}"
+    );
+
+    let before_reopen = tab_ids(&server);
+    let reopened = state_cli(&server, None, &["closed", "reopen"]);
+    let restored_tab = new_tab(&before_reopen, &tab_ids(&server));
+    assert_eq!(reopened["value"]["tab_ids"], serde_json::json!([restored_tab]), "{reopened}");
+    let restored = state_cli_topology(&server);
+    assert_eq!(workspace_of_terminal(&restored, &source_terminal), workspace);
+    assert!(
+        restored["terminals"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|terminal| terminal["id"] == split_terminal.as_str()),
+        "restored terminal disappeared after reopen: {restored}"
+    );
+}
+
 /// The tab ids of `pane`'s layout leaf in the screen upserts of `changes`.
 fn leaf_tabs(changes: &[serde_json::Value], pane: &str) -> Option<serde_json::Value> {
     fn find(node: &serde_json::Value, pane: &str) -> Option<serde_json::Value> {
