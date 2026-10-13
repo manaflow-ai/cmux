@@ -48,6 +48,18 @@ public final class AgentChatSurface {
     var demoHandoffStart = 0
     @ObservationIgnored private var lastDemoSerial = -1
     var replyInsteadOfPermission = false
+    /// A permission arrived while the person was typing: the composer stays
+    /// (the draft is a follow-up, not an answer) and the card offers the choices.
+    var permissionDeferred = false
+    /// Whether the permission bar is out of the composer's place.
+    var permissionBarHidden: Bool { replyInsteadOfPermission || permissionDeferred }
+
+    /// Brings the permission choices back in the composer's place.
+    func showPermissionChoices() {
+        replyInsteadOfPermission = false
+        permissionDeferred = false
+        composerFocused = false
+    }
     /// Mirrors the composer's focus (the composer's `@FocusState` follows it).
     public var composerFocused = false
     /// Screen y of the top of the floating bottom stack (tab mode), so the
@@ -411,7 +423,11 @@ public struct AgentChatBottomStack: View {
                     .transition(.opacity.combined(with: .offset(y: 8)))
                     .accessibilityHint("Dismiss")
                 }
-                if let permission = store.pendingPermission, !surface.replyInsteadOfPermission {
+                if !store.queue.isEmpty {
+                    QueuedPromptsView(store: store, text: $surface.text)
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+                if let permission = store.pendingPermission, !surface.permissionBarHidden {
                     PermissionActionBar(request: permission.request) { option in
                         withAnimation(.cnxSmooth) { store.respond(to: permission.request, option: option) }
                     } replyInstead: {
@@ -423,9 +439,11 @@ public struct AgentChatBottomStack: View {
                     .padding(.horizontal, 12)
                     .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
                 } else {
+                    let replying = store.pendingPermission != nil && surface.replyInsteadOfPermission
                     ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: !store.turns.isEmpty,
                                  expandOnAppear: surface.replyInsteadOfPermission,
-                                 placeholderOverride: store.pendingPermission != nil ? "Tell \(store.summary.agentName) what to do instead" : nil)
+                                 placeholderOverride: replying ? "Tell \(store.summary.agentName) what to do instead" : nil,
+                                 denyingPermission: replying)
                         .transition(.opacity)
                 }
             }
@@ -438,13 +456,19 @@ public struct AgentChatBottomStack: View {
         }
         .padding(.bottom, 8)
         .animation(.cnxSmooth, value: store.pendingPermission?.request.id)
-        .onChange(of: store.pendingPermission?.request.id) { surface.replyInsteadOfPermission = false }
+        .animation(.cnxSmooth, value: store.queue)
+        .onChange(of: store.pendingPermission?.request.id) { _, new in
+            surface.replyInsteadOfPermission = false
+            // Never pull the composer out from under someone typing.
+            let drafting = composerFocused || !surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !surface.attachments.isEmpty
+            surface.permissionDeferred = new != nil && drafting
+        }
         .onChange(of: surface.composerFocused) { _, focused in if composerFocused != focused { composerFocused = focused } }
         .onChange(of: composerFocused) { _, focused in
             if surface.composerFocused != focused { surface.composerFocused = focused }
             // Leaving "Reply instead" without typing brings the permission choices back.
-            if !focused, surface.replyInsteadOfPermission, surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, surface.attachments.isEmpty {
-                withAnimation(.cnxSmooth) { surface.replyInsteadOfPermission = false }
+            if !focused, surface.permissionBarHidden, surface.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, surface.attachments.isEmpty {
+                withAnimation(.cnxSmooth) { surface.showPermissionChoices() }
             }
         }
     }
@@ -525,7 +549,9 @@ struct TurnView: View {
         case .plan(_, let entries):
             PlanCard(entries: entries)
         case .permission(let record):
-            PermissionCard(record: record, agentName: store.summary.agentName)
+            PermissionCard(record: record, agentName: store.summary.agentName,
+                           showChoices: surface?.permissionBarHidden == true && record.request.id == store.pendingPermission?.request.id
+                               ? { withAnimation(.cnxSmooth) { surface?.showPermissionChoices() } } : nil)
         case .question(let id):
             if let question = turn.question(id) {
                 QuestionCard(question: question) { store.answer(question, with: $0) }

@@ -48,7 +48,7 @@ import Testing
         store.send(prompt: "go")
         while store.pendingPermission == nil { await Task.yield() }
         let request = try #require(store.pendingPermission).request
-        store.send(prompt: "Run only the dialer tests instead")
+        store.send(prompt: "Run only the dialer tests instead", denyingPermission: true)
         for _ in 0..<200 where store.pendingPermission != nil { await Task.yield() }
         #expect(store.pendingPermission == nil)
         let record = store.turns.last?.items.compactMap { item -> PermissionRecord? in
@@ -62,6 +62,25 @@ import Testing
         }
         for _ in 0..<200 where store.queue.isEmpty { await Task.yield() }
         #expect(store.queue.map(\.text) == ["Run only the dialer tests instead"])
+    }
+}
+
+extension ReplyInsteadTests {
+    /// A draft typed before the request arrived is a follow-up, not an answer.
+    @Test func plainMessageQueuesAndLeavesThePermissionPending() async throws {
+        let mock = MockAgentSession(
+            summary: AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m"),
+            sleep: { _ in await Task.yield() }
+        )
+        mock.chunkSize = 4000
+        let store = AgentChatStore(source: mock)
+        while store.turns.isEmpty { await Task.yield() }
+        store.send(prompt: "go")
+        while store.pendingPermission == nil { await Task.yield() }
+        store.send(prompt: "Also check the coupon")
+        for _ in 0..<200 where store.queue.isEmpty { await Task.yield() }
+        #expect(store.queue.map(\.text) == ["Also check the coupon"])
+        #expect(store.pendingPermission != nil)
     }
 }
 
@@ -112,5 +131,25 @@ import Testing
         #expect(stamp(at(9, 9)) == "Friday, 9:03 AM")
         #expect(stamp(at(2, 9)) == "Oct 2, 9:03 AM")
         #expect(stamp(at(2, 9, year: 2025)) == "Oct 2, 2025, 9:03 AM")
+    }
+}
+
+/// Stop while the agent waits on a question or permission ends the turn.
+@MainActor
+@Suite struct StopWhileWaitingTests {
+    @Test func stopDuringAPermissionEndsTheTurn() async throws {
+        let mock = MockAgentSession(
+            summary: AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m"),
+            sleep: { _ in await Task.yield() }
+        )
+        mock.chunkSize = 4000
+        let store = AgentChatStore(source: mock)
+        while store.turns.isEmpty { await Task.yield() }
+        store.send(prompt: "go")
+        while store.pendingPermission == nil { await Task.yield() }
+        store.cancel()
+        for _ in 0..<500 where store.isRunning { await Task.yield() }
+        #expect(!store.isRunning)
+        #expect(store.turns.last?.status == .cancelled)
     }
 }

@@ -19,6 +19,8 @@ struct ChatComposer: View {
     var expandOnAppear = false
     /// Replaces "Reply to <agent>" (e.g. while replying instead of a permission).
     var placeholderOverride: String?
+    /// Sending answers the pending permission with a denial plus this message.
+    var denyingPermission = false
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var showCamera = false
@@ -35,10 +37,6 @@ struct ChatComposer: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            if !store.queue.isEmpty {
-                queueRows
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
             if !slashMatches.isEmpty {
                 slashSuggestions
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -49,7 +47,6 @@ struct ChatComposer: View {
             card
         }
         .animation(.cnxSmooth, value: collapsed)
-        .animation(.cnxSmooth, value: store.queue)
         .animation(.cnxSnappy, value: attachments)
         .photosPicker(isPresented: $showPhotos, selection: $photoItems, maxSelectionCount: 10, matching: .images)
         .fileImporter(isPresented: $showFiles, allowedContentTypes: [.item], allowsMultipleSelection: true) { result in
@@ -283,7 +280,7 @@ struct ChatComposer: View {
     }
 
     private func send(steer: Bool) {
-        store.send(prompt: text, attachments: attachments, steer: steer)
+        store.send(prompt: text, attachments: attachments, steer: steer, denyingPermission: denyingPermission)
         text = ""
         attachments = []
         sendCount += 1
@@ -306,30 +303,6 @@ struct ChatComposer: View {
             .padding(.top, 12)
         }
         .scrollIndicators(.hidden)
-    }
-
-    private var queueRows: some View {
-        VStack(spacing: 4) {
-            ForEach(store.queue) { item in
-                HStack(spacing: 8) {
-                    Image(systemName: "clock").font(.footnote).foregroundStyle(.secondary)
-                    Text(item.text).font(.subheadline).lineLimit(1)
-                    Spacer()
-                    Button {
-                        store.removeQueued(item.id)
-                        text = item.text
-                    } label: {
-                        Image(systemName: "xmark").font(.footnote.weight(.semibold)).frame(width: 28, height: 28)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Remove queued message")
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 40)
-                .glassEffect(.regular, in: .capsule)
-            }
-        }
-        .padding(.horizontal, 20)
     }
 
     private var slashMatches: [ACPAvailableCommand] {
@@ -406,6 +379,39 @@ struct ChatComposer: View {
         }
         photoItems = []
     }
+}
+
+/// Messages waiting for the current turn to end, above the composer or the
+/// permission bar (so a queued message stays visible when the bar takes the
+/// composer's place). The X takes a message back into the composer.
+struct QueuedPromptsView: View {
+    let store: AgentChatStore
+    @Binding var text: String
+
+    var body: some View {
+        VStack(spacing: 4) {
+            ForEach(store.queue) { item in
+                HStack(spacing: 8) {
+                    Image(systemName: "clock").font(.footnote).foregroundStyle(.secondary)
+                    Text(item.text).font(.subheadline).lineLimit(1)
+                    Spacer()
+                    Button {
+                        store.removeQueued(item.id)
+                        text = item.text
+                    } label: {
+                        Image(systemName: "xmark").font(.footnote.weight(.semibold)).frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Remove queued message")
+                }
+                .padding(.horizontal, 14)
+                .frame(height: 40)
+                .glassEffect(.regular, in: .capsule)
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
 }
 
 /// 56 x 56 thumbnail (images) or a 56 h chip (files) with an X badge.

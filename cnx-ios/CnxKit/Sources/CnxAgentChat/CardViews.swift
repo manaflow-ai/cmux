@@ -59,6 +59,9 @@ struct PlanCard: View {
 struct PermissionCard: View {
     let record: PermissionRecord
     let agentName: String
+    /// Set while the choices are out of the composer's place (the person is
+    /// typing): brings them back.
+    var showChoices: (() -> Void)?
 
     var body: some View {
         if let resolution = record.resolution {
@@ -90,6 +93,11 @@ struct PermissionCard: View {
                 }
                 if let cwd = record.request.cwd {
                     Label(cwd, systemImage: "folder").font(.footnote).foregroundStyle(.secondary)
+                }
+                if let showChoices {
+                    Button("Allow or deny…", action: showChoices)
+                        .buttonStyle(CnxCapsuleButtonStyle(.secondary))
+                        .transition(.opacity)
                 }
             }
             .padding(16)
