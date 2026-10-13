@@ -51,6 +51,10 @@ public final class ConversationViewController: UIViewController {
     var composerHeightConstraint: NSLayoutConstraint?
     /// Set while `composerDidTapSend` inserts the optimistic row.
     var pendingFlight: SendFlight?
+    /// The rows that send inserts, named by its own change. Only these fly:
+    /// what waited (`ConversationLiveChangeGate`) applies first and can
+    /// insert another row of mine (one sent from my other device).
+    var pendingFlightRowIDs: Set<String> = []
     var composerBottomConstraint: NSLayoutConstraint?
     /// Shown until the newest page arrives (slow links can take seconds).
     let initialSpinner = UIActivityIndicatorView(style: .medium)
@@ -72,7 +76,14 @@ public final class ConversationViewController: UIViewController {
     /// What `rows` were built from: the store's transcript revision then,
     /// and the message that carried the delivery status. A live change
     /// rebuilds only the rows after what the store left alone since.
-    private var rowsBase: (revision: Int, statusMessageID: String?)?
+    private var rowsBase: RowsBase?
+    private struct RowsBase {
+        var revision: Int
+        var statusMessageID: String?
+    }
+    /// What a send landing inside an update released, applied when that
+    /// update's rebuild is done (see `sendFlightLanded`).
+    private var releasedInsideUpdate: ConversationStoreChange?
     /// Height and leading spacing of each row, aligned with `rows` (NaN = not
     /// measured), valid for `rowMetricsKey`. An update re-measures only the
     /// rows it inserts or changes (and their followers' spacing), so a layout
@@ -113,7 +124,13 @@ public final class ConversationViewController: UIViewController {
     #if DEBUG
     /// DEBUG lab: the scripted scroll, when the environment asks for one.
     var autoScrollDriver: ConversationAutoScrollDriver?
+    /// DEBUG lab: the per-frame scroll recorder, when the environment asks for one.
+    var scrollProbe: ConversationScrollProbe?
+    /// DEBUG lab: transcript dynamics or a held 120 Hz, for device A/B runs.
+    var transcriptDynamics: ConversationTranscriptDynamicsDriver?
     #endif
+    /// Draws the frame UIKit skips when a fling starts.
+    private(set) lazy var decelerationFill = ConversationDecelerationFillDriver(collectionView: collectionView)
     /// A status-bar tap's animated scroll to the top is running. Messages
     /// loads history only once it comes to rest at the spinner, so a page
     /// never lands under (and is never chased by) that animation.
@@ -332,10 +349,30 @@ public final class ConversationViewController: UIViewController {
         updateViewing()
         focusComposerIfEmpty()
         #if DEBUG
+        if scrollProbe == nil, let probe = ConversationScrollProbe.fromEnvironment(controller: self) {
+            scrollProbe = probe
+            probe.start()
+        }
+        if transcriptDynamics == nil, let driver = ConversationTranscriptDynamicsDriver.fromEnvironment(controller: self) {
+            transcriptDynamics = driver
+            driver.start()
+        }
         if autoScrollDriver == nil, let driver = ConversationAutoScrollDriver.fromEnvironment(controller: self) {
             autoScrollDriver = driver
             driver.start()
         }
+        #endif
+        startDecelerationFill()
+    }
+
+    /// DEBUG lab: `CMUX_UITEST_CONVERSATION_FILL=1` draws the frame UIKit
+    /// skips at a fling's lift (see `ConversationDecelerationFillDriver`).
+    /// Off by default: on the phone a caught fling read as a skipped frame
+    /// and flickered; it waits for a device run that shows the skip.
+    private func startDecelerationFill() {
+        #if DEBUG
+        guard transcriptDynamics?.dynamics != true, ProcessInfo.processInfo.environment["CMUX_UITEST_CONVERSATION_FILL"] == "1" else { return }
+        decelerationFill.start()
         #endif
     }
 
@@ -343,6 +380,17 @@ public final class ConversationViewController: UIViewController {
         super.viewWillDisappear(animated)
         isOnScreen = false
         store.endVisit()
+        #if DEBUG
+        scrollProbe?.stop()
+        scrollProbe = nil
+        #endif
+    }
+
+    public override func viewDidDisappear(_ animated: Bool) {
+        super.viewDidDisappear(animated)
+        // A send still in the air when the conversation goes lands now:
+        // other people's changes wait for it (`ConversationLiveChangeGate`).
+        landAllFlights()
     }
 
     public override func viewDidLayoutSubviews() {
@@ -440,6 +488,8 @@ public final class ConversationViewController: UIViewController {
         collectionView.edgeBottomInset = bottom
         collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if old.top != top { layout.invalidateLayout() }
+        let offsetBefore = collectionView.contentOffset.y
+        defer { decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore) }
         if !collectionView.isTracking, hasPositionedInitially {
             if isPinnedToBottom {
                 // Inside the keyboard's animation, so the newest message
@@ -634,17 +684,52 @@ public final class ConversationViewController: UIViewController {
             // it starts inside a scroll frame: skip the full rebuild.
             return
         default:
-            // Live traffic waits while a landed page is measured (see
-            // `ConversationPageMeasureGate`); anything else first applies
-            // what waited, so changes keep their order.
-            if pageMeasure.hold(change) { return }
-            if let held = pageMeasure.release() { rebuild(change: held) }
+            if pendingFlight != nil, case let .live(insertedRowIDs, sentByMe: true) = change {
+                pendingFlightRowIDs = Set(insertedRowIDs)
+            }
+            // Live traffic waits while a landed page is measured, the finger
+            // drags or a send flies (see `ConversationLiveChangeGate`);
+            // anything else first applies what waited, so changes keep
+            // their order.
+            if liveGate.hold(change) { return }
+            if let held = liveGate.release() {
+                if change == .prepended {
+                    // An older page landed while other people's changes
+                    // waited (under the finger, or behind a page being
+                    // measured). The store holds both, so neither the live
+                    // rows nor the page's splice match the rows on screen:
+                    // one full build lands them together as a page, measured
+                    // ahead, with no motion (what waited shows in place).
+                    rebuild(change: .prepended, measured: nil, splice: nil, generation: nil, builtFrom: nil, fullBuild: true)
+                    return
+                }
+                rebuild(change: held)
+            }
             rebuild(change: change)
         }
     }
 
+    /// One of my sends took off: other people's changes wait for it to land
+    /// (see `ConversationLiveChangeGate`).
+    func sendFlightTookOff() {
+        liveGate.beginFlight()
+    }
+
+    /// One of my sends landed: what waited for it applies now, with its own
+    /// motion. A flight landing inside an update (a send failing as it
+    /// applies) defers it until that rebuild is done and its rows are the
+    /// base (`releasedInsideUpdate`).
+    func sendFlightLanded(insideUpdate: Bool) {
+        guard let held = liveGate.endFlight() else { return }
+        if insideUpdate {
+            releasedInsideUpdate = releasedInsideUpdate.map { ConversationLiveChangeGate.merged($0, held) } ?? held
+            return
+        }
+        rebuild(change: held)
+    }
+
     func rebuild(change: ConversationStoreChange) {
-        rebuild(change: change, measured: nil, splice: nil, generation: nil, revision: nil)
+        rebuild(change: change, measured: nil, splice: nil, generation: nil, builtFrom: nil)
     }
 
     /// `measured` carries rows a measure-ahead built from the store as it
@@ -653,8 +738,10 @@ public final class ConversationViewController: UIViewController {
     /// `splice` describes `measured` when it was built from the page alone
     /// (see `ConversationRowBuilder.rowsAfterPrepend`).
     /// `generation` is the row memo pass `measured` came from, and
-    /// `revision` the store's transcript revision it was built at.
-    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?, revision: Int?) {
+    /// `builtFrom` the store's transcript revision and status message when
+    /// it was built (live changes held meanwhile are not in it).
+    /// `fullBuild` skips the page splice (see `storeDidChange`).
+    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?, builtFrom: RowsBase?, fullBuild: Bool = false) {
         rebuildSerial &+= 1
         if store.hasLoadedNewest, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
@@ -663,7 +750,7 @@ public final class ConversationViewController: UIViewController {
         var splice = splice
         var generation = generation
         var tail: ConversationTailRows?
-        let revision = revision ?? store.transcriptRevision
+        let builtFrom = builtFrom ?? RowsBase(revision: store.transcriptRevision, statusMessageID: ConversationRowBuilder.statusMessageID(store: store))
         let newRows: [ConversationRow]
         if let measured {
             newRows = measured
@@ -677,7 +764,7 @@ public final class ConversationViewController: UIViewController {
             assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a live change differ from a full build")
             newRows = built.rows
             tail = built
-        } else if change == .prepended, hasPositionedInitially, let built = ConversationRowBuilder.rowsAfterPrepend(store: store, previous: rows) {
+        } else if change == .prepended, hasPositionedInitially, !fullBuild, let built = ConversationRowBuilder.rowsAfterPrepend(store: store, previous: rows) {
             // An older page: only its rows and the boundary are built.
             assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a landed page differ from a full build")
             newRows = built.rows
@@ -686,9 +773,9 @@ public final class ConversationViewController: UIViewController {
             newRows = ConversationRowBuilder.rows(store: store, memo: rowMemo)
             generation = rowMemo.generation
         }
-        if measured == nil, change == .prepended, measureAhead(newRows, splice: splice, generation: generation, revision: revision) { return }
+        if measured == nil, change == .prepended, measureAhead(newRows, splice: splice, generation: generation, builtFrom: builtFrom) { return }
         apply(newRows, change: change, splice: splice, tail: tail, generation: generation)
-        rowsBase = (revision, ConversationRowBuilder.statusMessageID(store: store))
+        rowsBase = builtFrom
         updateCatchUp()
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
             hasConfiguredHeader = true
@@ -701,12 +788,16 @@ public final class ConversationViewController: UIViewController {
         }
         maybeLoadOlder()
         focusComposerIfEmpty()
+        if let released = releasedInsideUpdate {
+            releasedInsideUpdate = nil
+            if !liveGate.hold(released) { rebuild(change: released) }
+        }
     }
 
     /// A landed page's rows are measured off the main thread before they
     /// are applied, so the frame that shows them only places them. Returns
     /// whether the rows wait for that (the measured rows rebuild again).
-    private func measureAhead(_ newRows: [ConversationRow], splice: ConversationPrependRows?, generation: Int?, revision: Int) -> Bool {
+    private func measureAhead(_ newRows: [ConversationRow], splice: ConversationPrependRows?, generation: Int?, builtFrom: RowsBase) -> Bool {
         let width = collectionView.bounds.width
         let margin = layoutMargin
         guard hasPositionedInitially, width > 0 else { return false }
@@ -724,7 +815,7 @@ public final class ConversationViewController: UIViewController {
         let serial = rebuildSerial
         let traits = collectionView.traitCollection
         let work = MeasureWork(models: pending)
-        pageMeasure.beginMeasuring()
+        liveGate.beginMeasuring()
         Task { [weak self] in
             let measured = await Task.detached(priority: .userInitiated) {
                 var result: [MessageLayoutCache.Measured] = []
@@ -740,11 +831,11 @@ public final class ConversationViewController: UIViewController {
             self.layoutCache.adopt(measured.items, width: width, margin: margin)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
-            let held = self.pageMeasure.finishMeasuring()
-            self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil, revision: current ? revision : nil)
+            let held = self.liveGate.finishMeasuring()
+            self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil, builtFrom: current ? builtFrom : nil)
             // What arrived meanwhile follows the page, with its own motion
             // (or waits again, when the store had another page to measure).
-            if let held, !self.pageMeasure.hold(held) { self.rebuild(change: held) }
+            if let held, !self.liveGate.hold(held) { self.rebuild(change: held) }
         }
         return true
     }
@@ -776,7 +867,7 @@ public final class ConversationViewController: UIViewController {
     /// Fewer new rows than this measure in place (a page is 50).
     static let measureAheadMinimum = 8
     private var measureGeneration = 0
-    private var pageMeasure = ConversationPageMeasureGate()
+    private var liveGate = ConversationLiveChangeGate()
     private var rebuildSerial = 0
 
     private var hasConfiguredHeader = false
@@ -1066,7 +1157,7 @@ public final class ConversationViewController: UIViewController {
         // A failed send reshapes its row; never leave its flight hanging.
         for indexPath in updated {
             if case let .message(model) = newRows[indexPath.item], model.footer == .notDelivered {
-                landFlight(rowID: model.rowID)
+                landFlight(rowID: model.rowID, insideUpdate: true)
             }
         }
         let wasAtBottom = isPinnedToBottom || isNearBottom()
@@ -1085,7 +1176,7 @@ public final class ConversationViewController: UIViewController {
             let id = newIDs[indexPath.item]
             guard appearances[id] == nil else { continue }
             switch newRows[indexPath.item] {
-            case let .message(model) where model.isOutgoing && pendingFlight != nil:
+            case let .message(model) where model.isOutgoing && pendingFlightRowIDs.contains(id):
                 appearances[id] = .sent
                 flyingRowIDs.insert(id)
             case let .message(model) where !model.isOutgoing && animateLive && model.message.effect != nil:
@@ -1156,6 +1247,10 @@ public final class ConversationViewController: UIViewController {
             }
         }
 
+        // Every offset this update writes (a jump to the newest message, a
+        // pinned scroll, an anchor restore) is not UIKit's motion; the
+        // deceleration fill is told after (see `ConversationDecelerationFill`).
+        let offsetBefore = collectionView.contentOffset.y
         if animateLive, sentByMe, !wasAtBottom {
             // Far from the bottom, jump there first so the send never animates
             // through unloaded history (which would flash blank frames).
@@ -1164,6 +1259,9 @@ public final class ConversationViewController: UIViewController {
                 self.collectionView.layoutIfNeeded()
             }
         }
+        #if DEBUG
+        if animateLive { transcriptDynamics?.reset() }
+        #endif
         if animateLive, wasAtBottom || sentByMe {
             // A flight still in the air rides with its row (a rapid second send).
             let flightTops = flightScreenTops()
@@ -1204,6 +1302,7 @@ public final class ConversationViewController: UIViewController {
             }
             glideRegrouped(from: screenBefore)
         }
+        decelerationFill.contentShifted(by: collectionView.contentOffset.y - offsetBefore)
         appearances = appearances.filter { flyingRowIDs.contains($0.key) }
         popArrivals()
         announceArrivals(newRows, inserted: inserted, isLive: animateLive)
@@ -1360,17 +1459,17 @@ public final class ConversationViewController: UIViewController {
     }
 
     /// Loads the page above when `offsetY` (the current offset, or where a
-    /// fling will come to rest) is near the top-of-history spinner. Messages
-    /// checks the fling target at release too, so a hard fling toward the top
-    /// starts its fetch before the deceleration gets there.
+    /// fling will come to rest) is within a few screens of the top-of-history
+    /// spinner (`ConversationHistoryPrefetch`). Messages checks the fling
+    /// target at release too, so a hard fling toward the top starts its
+    /// fetch before the deceleration gets there.
     func maybeLoadOlder(targetOffsetY: CGFloat? = nil) {
         guard hasPositionedInitially, store.hasLoadedNewest, !isScrollingToTop else { return }
         let fromTop = (targetOffsetY ?? collectionView.contentOffset.y) + collectionView.adjustedContentInset.top
-        let viewport = collectionView.bounds.height
-        if fromTop < viewport * 1.5 {
-            store.loadOlder()
-        } else if fromTop > viewport * 3 {
-            store.olderNoLongerWanted()
+        switch ConversationHistoryPrefetch.decision(distanceFromTop: fromTop, viewport: collectionView.bounds.height) {
+        case .load: store.loadOlder()
+        case .stop: store.olderNoLongerWanted()
+        case .none: break
         }
     }
 
@@ -1563,13 +1662,23 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
 
     public func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         if velocity.y < 0 { maybeLoadOlder(targetOffsetY: targetContentOffset.pointee.y) }
+        if velocity.y != 0 { decelerationFill.flingBegan() }
+        #if DEBUG
+        transcriptDynamics?.dragEnded(targetOffsetY: targetContentOffset.pointee.y)
+        #endif
     }
 
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        // As in Messages, nothing changes the transcript under the finger
+        // (what waited for a flight landing here waits for the lift).
+        liveGate.beginDragging()
         // A flight is pinned to the screen; once the reader scrolls, show the real row.
         landAllFlights()
         dismissPhotoDrawer()
         isScrollingToTop = false
+        #if DEBUG
+        transcriptDynamics?.dragBegan(atContentY: scrollView.panGestureRecognizer.location(in: scrollView).y)
+        #endif
     }
 
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -1577,6 +1686,8 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
             isPinnedToBottom = isNearBottom(tolerance: 44)
             trimHistoryIfResting()
         }
+        // What arrived while the finger dragged applies at the lift.
+        if let held = liveGate.endDragging() { rebuild(change: held) }
     }
 
     public func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
@@ -1615,6 +1726,13 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
 
     public func collectionView(_ collectionView: UICollectionView, willDisplay cell: UICollectionViewCell, forItemAt indexPath: IndexPath) {
         (cell as? TypingCell)?.indicator.startAnimating()
+        // A flight that landed while its row was off screen (a scroll to the
+        // top mid-flight) could not reveal the row; a cell UIKit kept shows
+        // again without `cellForItemAt`, so it shows the row here, in place.
+        if let cell = cell as? MessageCell, cell.isFlightHidden, let rowID = cell.model?.rowID, !flyingRowIDs.contains(rowID) {
+            cell.statusGrowsOnLanding = false
+            cell.setFlightHidden(false)
+        }
     }
 
     func transcriptItemCount() -> Int { rows.count }
@@ -1843,6 +1961,19 @@ final class TranscriptCollectionView: UICollectionView {
 
     let topFadeMask = CAGradientLayer()
     private var lastMaskGeometry: (CGFloat, CGFloat)?
+    /// How far ahead of the content offset the rows are drawn, along the
+    /// motion (`ConversationDecelerationFill`); 0 draws them in place.
+    var drawingLead: CGFloat = 0 {
+        didSet {
+            guard drawingLead != oldValue else { return }
+            for cell in visibleCells { Self.place(cell, offset: rowOffset(for: cell)) }
+        }
+    }
+    #if DEBUG
+    /// DEBUG lab (transcript dynamics): how far below its layout place each
+    /// visible cell's content is drawn.
+    var cellOffset: ((UICollectionViewCell) -> CGFloat)?
+    #endif
 
     override func layoutSubviews() {
         // Before UIKit places its pockets in this pass, so a hidden edge
@@ -1851,6 +1982,8 @@ final class TranscriptCollectionView: UICollectionView {
         super.layoutSubviews()
         updateTopFadeMask()
         if updateBottomEdgeEffect() { setNeedsLayout() }
+        // Cells placed in this pass (reused ones too) take the current lead.
+        for cell in visibleCells { Self.place(cell, offset: rowOffset(for: cell)) }
         // Outgoing bubbles' gradient is fixed to the screen. Placed here,
         // after the cells for this offset are placed, not on scroll: a cell
         // reused at the other edge would otherwise show the gradient of the
@@ -1894,6 +2027,24 @@ final class TranscriptCollectionView: UICollectionView {
             topFadeMask.locations = ramp.map { NSNumber(value: Double($0.location)) }
         }
         CATransaction.commit()
+    }
+
+    /// How far below its layout place `cell`'s content is drawn.
+    private func rowOffset(for cell: UICollectionViewCell) -> CGFloat {
+        #if DEBUG
+        if let cellOffset { return cellOffset(cell) }
+        #endif
+        return -drawingLead
+    }
+
+    /// Draws `cell`'s content `offset` points below its layout place.
+    static func place(_ cell: UICollectionViewCell, offset: CGFloat) {
+        guard cell.layer.sublayerTransform.m42 != offset else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cell.layer.sublayerTransform = offset == 0 ? CATransform3DIdentity : CATransform3DMakeTranslation(0, offset, 0)
+        CATransaction.commit()
+        (cell as? MessageCell)?.updateScreenGradients()
     }
 
     override var safeAreaInsets: UIEdgeInsets {
