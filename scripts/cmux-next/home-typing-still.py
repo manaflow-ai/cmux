@@ -109,7 +109,7 @@ try:
     inbox = poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     if not check("the local owner answers inbox", bool(inbox), api(call="inbox")):
         sys.exit(1)
-    opened = rpc("debug.home_native_fixture.open") or {}
+    opened = rpc("debug.home_native_fixture.open", {"new": True}) or {}
     check("the Home fixture opens", bool(opened.get("ok")), opened)
     texts = poll(lambda: (t := (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts")) and t, timeout=60)
     check("the fixture's transcript shows messages", bool(texts), rpc("debug.home.drive", {"action": "texts"}))

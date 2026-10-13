@@ -84,14 +84,16 @@ enum RowDraw {
     ///   724.24, 694.24 px where our frames are 742.17, 724.70, 694.21 px wide): the frame's left edge is on the
     ///   device pixel at or left of ours (left edges 472.92, 490.92, 520.92 px for our 473.83, 491.30, 521.79).
     /// - 1 line (4 bubbles in the send-1line takes, 7 in deactivate-activate): top 0.023 pt outside (fraction .954), bottom 0.106 pt inside (.788): 29.917 pt.
-    /// - The body keeps its frame's corners (BubblePath.make cornersOf).
+    /// - The body keeps its frame's corners (BubblePath.make cornersOf); a 1-line balloon ends in half circles of its own
+    ///   height (circularEnds).
     /// - The tail stays at the balloon's bottom right corner (Messages' tail tip moves with it, 1 px up
     ///   and left in deactivate-activate).
     /// No cause in our geometry explains it (the mask, tail and text layout all place the frame exactly);
     /// the same offsets on all four sides of balloons of every width point to Messages' balloon artwork
     /// being drawn inset in its frame. Messages' edges are also softer (two partly covered device px per
     /// edge, coverage .21/.87 at the top and .93/.24 at the bottom); ours stay one-pixel crisp edges.
-    /// Incoming balloons are exactly their frames (30 / 46 pt); media, links and custom rows keep theirs.
+    /// Incoming balloons are exactly their frames (30 / 46 pt; a 1-line one ends in half circles: circularEnds);
+    /// media, links and custom rows keep theirs.
     /// macOS 27 only: the macOS 26 fits (MESSAGESLAB_OS_FIT=26) keep the frame. The only macOS 26 reference, the
     /// original recording (HEVC 4:2:0), has no still multi-line outgoing balloon, and with the inset its flying
     /// bubble's bottom edge error got worse (motion-gate capture26 parity: edge_B_rms 1.36 -> 1.67 px).
@@ -118,6 +120,19 @@ enum RowDraw {
         let left = floor(body.minX * s + 0.001) / s
         return CGRect(x: left - out, y: body.minY - out,
                       width: body.maxX - inset - (left - out), height: body.height + out - inset)
+    }
+
+    /// Whether the part's balloon ends in exact half circles (BubblePath.make circularEnds): a 1-line plain text
+    /// balloon (30 pt frame) on macOS, incoming and outgoing (the outgoing one as its inset balloon, RowDraw.balloon,
+    /// and its soft mask, SoftBalloon). Markdown balloons (a 1-line code block is 42 pt, under UIKit's 45.86 pt
+    /// limit) keep UIKit's shape. The iOS app keeps UIKit's shape.
+    static func circularEnds(_ p: PartRow) -> Bool {
+#if os(iOS) && !targetEnvironment(macCatalyst)
+        return false
+#else
+        guard case .text = p.part, p.markdown == nil else { return false }
+        return p.bodySize.height <= Fixture.lineHeight + 2 * Fixture.bubblePadY + 0.01
+#endif
     }
 
     /// Outgoing shapes whose fill is the window-position gradient (a layer).
@@ -234,7 +249,7 @@ enum PartRenderer {
         case .text:
             let lines = p.text.map { tl in tl.lines.map { _ in "" } } ?? []
             BubbleView.drawBubble(ctx, body: RowDraw.balloon(body, row: p), lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY,
-                                  cornersOf: body.size)
+                                  cornersOf: body.size, circularEnds: RowDraw.circularEnds(p))
             _ = lines
             if let md = p.markdown {
                 // Every block, at its scroll offset (thread view, morph and menu copies of the row are
@@ -278,7 +293,8 @@ enum PartRenderer {
         }
         if highlight {
             UIColor(white: 1, alpha: 0.12).setFill()
-            BubblePath.make(body: RowDraw.balloon(body, row: p), outgoing: p.outgoing, tail: p.tail, cornersOf: body.size).fill()
+            BubblePath.make(body: RowDraw.balloon(body, row: p), outgoing: p.outgoing, tail: p.tail, cornersOf: body.size,
+                            circularEnds: RowDraw.circularEnds(p)).fill()
         }
         if p.failed {
             let c = CGPoint(x: body.minX - 14, y: body.midY)
@@ -1043,8 +1059,8 @@ enum Reclaimer {
 /// Message bubble fill (outgoing bubbles shade with window position).
 enum BubbleView {
     static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
-                           cornersOf frame: CGSize? = nil) {
-        let shape = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame)
+                           cornersOf frame: CGSize? = nil, circularEnds: Bool = false) {
+        let shape = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame, circularEnds: circularEnds)
         if outgoing {
             if windowY.isNaN { return }     // filled by the row's gradient layer
             ctx.saveGState()

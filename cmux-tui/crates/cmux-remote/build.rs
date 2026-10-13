@@ -145,9 +145,17 @@ fn source_revision(manifest_dir: &Path) -> String {
 }
 
 fn track_git_revision(manifest_dir: &Path) {
+    // Not .git/index: `git diff HEAD` and `git ls-files` rewrite it on a stat
+    // refresh (this script's calls and acpmux's), so tracking it reran both
+    // scripts on an unchanged tree. Cost: staging alone (`git add` of a new
+    // file, `git rm --cached`) no longer refreshes the identity until the next
+    // source change or commit; the binary is the same. logs/HEAD covers a
+    // commit on a branch whose ref is packed (no loose ref file to track).
     track_git_path(manifest_dir, "HEAD");
-    track_git_path(manifest_dir, "index");
+    track_git_path(manifest_dir, "logs/HEAD");
     track_git_path(manifest_dir, "packed-refs");
+    // The ref store of a reftable repository (no loose refs, no logs/HEAD).
+    track_git_path(manifest_dir, "reftable/tables.list");
     if let Some(reference) = git(manifest_dir, &["symbolic-ref", "-q", "HEAD"]) {
         track_git_path(manifest_dir, &reference);
     }

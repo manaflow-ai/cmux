@@ -125,7 +125,14 @@ export type ComposerHandle = {
   send(): boolean;
   /// Puts the caret in the prompt (Edit and Resend).
   focus(): void;
+  /// What it holds that acpmux's draft does not, for a page about to let go (`pane.wakeState`):
+  /// file chips and shell mode's unrun command. Shell runs and move chips stay with their page.
+  wakeState(): ComposerWake;
+  /// Puts back what a released page's composer held (the handshake's `wake`).
+  wake(state: ComposerWake): void;
 };
+
+export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean; shellText?: string };
 
 type Props = {
   snapshot: AcpmuxSnapshot;
@@ -279,6 +286,8 @@ export function Composer({
   /// prompt stays mounted under it, keeping its own draft.
   const [shell, setShell] = useState(false);
   const [shellText, setShellText] = useState("");
+  const shellRef = useRef({ shell, shellText });
+  shellRef.current = { shell, shellText };
   const shellField = useRef<HTMLTextAreaElement>(null);
   const shellCaret = useRef<number | undefined>(undefined);
   const [caret, setCaret] = useState(0);
@@ -288,6 +297,8 @@ export function Composer({
   const [mentionActive, setMentionActive] = useState(0);
   const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
   const [attachError, setAttachError] = useState<string | undefined>();
   const [dropping, setDropping] = useState(false);
   const field = useRef<MarkdownFieldHandle>(null);
@@ -402,6 +413,23 @@ export function Composer({
       },
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
+      wakeState: () => ({
+        attachments: attachmentsRef.current.filter((chip) => !chip.shellRun && !chip.move),
+        shell: shellRef.current.shell,
+        shellText: shellRef.current.shellText,
+      }),
+      wake(state) {
+        const back = state.attachments ?? [];
+        if (back.length)
+          setAttachments((current) =>
+            [...back, ...current.filter((chip) => !back.some((kept) => kept.id === chip.id))].slice(0, MAX_ATTACHMENTS),
+          );
+        if (state.shell) {
+          setShell(true);
+          setShellText(state.shellText ?? "");
+          shellCaret.current = state.shellText?.length ?? 0;
+        }
+      },
     }),
     [],
   );

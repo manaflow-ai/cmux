@@ -42,16 +42,16 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `tab`: 90
 - `terminal`: 36
 - `browser`: 167
-- `sidebar`: 70
+- `sidebar`: 72
 - `notifications`: 21
 - `agents`: 58
 - `cloud`: 52
 - `remote`: 10
 - `settings`: 71
 
-## Counts (937 actions)
+## Counts (939 actions)
 
-Palette 901, CLI verbs 498, right-click 488, MCP tools 437.
+Palette 903, CLI verbs 500, right-click 490, MCP tools 439.
 
 ## Menus
 
@@ -70,6 +70,7 @@ Palette 901, CLI verbs 498, right-click 488, MCP tools 437.
 - **browserSelection**: browser.selection.copy | browser.selection.search browser.selection.lookUp
 - **cloudMachine**: cloudNewTerminal cloudOpenMachine cloudSSH | cloudRenameMachine | [connection] > (cloudResizeMachine palette.cloud.status palette.cloud.snapshot palette.cloud.fork palette.cloud.handoff palette.cloud.ports palette.cloud.promoteTemplate palette.cloud.restore cloudPauseMachine cloudResumeMachine | palette.cloud.deleteSnapshot) | [copy] > (cloudCopyMachineID cloudCopyLink cloudCopyPort) [tools] > (cloudFilesList cloudFileRead cloudFileWrite cloudFileMkdir cloudFileRemove cloudFileStat cloudPrepareSCP cloudTunnelAttach cloudTunnelDetach cloudTunnelRotateKey cloudNetworkList cloudFirewallList cloudFirewallGet cloudFirewallCreate cloudFirewallDelete | palette.cloud.tools) | cloudKillMachine
 - **sshMachine**: remote.newWorkspace | remote.reconnect remote.disconnect remote.install | remote.copyError | remote.forget
+- **machineSection**: [appearance] > (machine.setIcon machine.clearIcon)
 - **newTab**: newSurface openBrowser.chromium browserProfile.newTab palette.newAgentChat newTab.page
 - **profile**: space.newWorkspace space.newWindow | space.setIcon space.clearIcon space.rename space.setColor > (space.color.grey space.color.blue space.color.red space.color.yellow space.color.green space.color.pink space.color.purple space.color.cyan space.color.orange | space.clearColor | space.setTheme[choices] space.clearTheme) browserProfile.setSpaceDefault[choices] | space.newGroup | sidebar.spaces.hide | space.delete
 - **browserProfile**: browserProfile.newTab browserProfile.newWindow browserProfile.newWorkspace | browserProfile.new | browserProfile.rename browserProfile.setColor browserProfile.clearColor browserProfile.setIcon browserProfile.clearIcon | browserProfile.manageExtensions | browserProfile.clearBrowsingData | browserProfile.delete

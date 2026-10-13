@@ -681,8 +681,9 @@ fn a_remote_connection_never_falls_back_to_the_local_user() {
     assert_ne!(fixture.mux.conversation_principal(client), "user_local");
     fixture.mux.unbind_conversation_principal(client);
     assert_ne!(fixture.mux.conversation_principal(client), "user_local");
+    // An authenticated WebSocket client is the person (`ws-conversations-v1`).
     let websocket = fixture.mux.control_clients.register(ClientTransport::WebSocket, writer().0);
-    assert_ne!(fixture.mux.conversation_principal(websocket), "user_local");
+    assert_eq!(fixture.mux.conversation_principal(websocket), "user_local");
 }
 
 // Security review round 1 (P2-1, P2-2, P3-1, P3-2, P3-6).

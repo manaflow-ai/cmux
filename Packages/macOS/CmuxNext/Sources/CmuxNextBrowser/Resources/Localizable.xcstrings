@@ -20829,6 +20829,137 @@
           }
         }
       }
+    },
+    "browser.formResubmission.message": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This page is the result of a form. Send the form again?"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "هذه الصفحة نتيجة نموذج. هل تريد إرسال النموذج مرة أخرى؟"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ova stranica je rezultat obrasca. Poslati obrazac ponovo?"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne side er resultatet af en formular. Vil du sende formularen igen?"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diese Seite ist das Ergebnis eines Formulars. Formular erneut senden?"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta página es el resultado de un formulario. ¿Enviar el formulario de nuevo?"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cette page est le résultat d’un formulaire. Renvoyer le formulaire ?"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questa pagina è il risultato di un modulo. Inviare di nuovo il modulo?"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このページはフォーム送信の結果です。フォームを再送信しますか？"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រនេះជាលទ្ធផលនៃទម្រង់មួយ។ ផ្ញើទម្រង់ម្តងទៀតឬ?"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 페이지는 양식 제출 결과입니다. 양식을 다시 보내시겠습니까?"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne siden er resultatet av et skjema. Vil du sende skjemaet på nytt?"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ta strona jest wynikiem formularza. Wysłać formularz ponownie?"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Esta página é o resultado de um formulário. Enviar o formulário de novo?"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Эта страница — результат отправки формы. Отправить форму ещё раз?"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้านี้เป็นผลลัพธ์ของแบบฟอร์ม ส่งแบบฟอร์มอีกครั้งไหม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu sayfa bir formun sonucudur. Form yeniden gönderilsin mi?"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ця сторінка — результат надсилання форми. Надіслати форму ще раз?"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang này là kết quả của một biểu mẫu. Gửi lại biểu mẫu?"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此页面是表单提交的结果。要再次发送表单吗？"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此頁面是表單送出的結果。要再次送出表單嗎？"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

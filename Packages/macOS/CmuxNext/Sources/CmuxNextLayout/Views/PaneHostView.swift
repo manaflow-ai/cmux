@@ -53,6 +53,10 @@ final class PaneHostView: NSView {
 
     /// Whether the pane sits in a docked (docked) column: it then shows the
     /// user's docks background under its content (`appearance.surfaces.docks`).
+    /// What of the host shows while a spring rect reveals it (a split's arriving pane, a zooming
+    /// one; superview coordinates); nil, its whole frame. Panes under it are clipped by this.
+    var revealRect: CGRect?
+
     var isDocked = false {
         didSet { if isDocked != oldValue { applyDockFill() } }
     }

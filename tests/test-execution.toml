@@ -953,6 +953,10 @@ path = "tests/test_pr_red_checks_comment.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_crash_ratchet_compare.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_owned_catch_up.py"
 lane = "linux-guard"
 

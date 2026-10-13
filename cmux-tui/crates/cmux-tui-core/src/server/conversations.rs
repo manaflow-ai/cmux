@@ -38,6 +38,11 @@ pub const CONVERSATION_THREADS_CAPABILITY: &str = "conversation-threads-v1";
 /// `conversation-snapshot` and `conversation-history`, and with
 /// `cloud-conversations-v1` also `cloud-conversation-thread` (cx-59n8.6).
 pub const CONVERSATION_THREAD_READ_CAPABILITY: &str = "conversation-thread-v1";
+/// The local conversation owner on an authenticated WebSocket connection
+/// (static credential or approved pairing) as `user_local`, the same as on
+/// the Unix socket: `conversation-*` commands, `conversation.*` operations
+/// and the conversation events of `subscribe` (cmux#13742).
+pub const WS_CONVERSATIONS_CAPABILITY: &str = "ws-conversations-v1";
 /// `link_preview` message parts on the local conversation owner.
 pub const LINK_PREVIEW_CAPABILITY: &str = "link-preview-v1";
 
@@ -184,9 +189,20 @@ pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
     rejected.then(|| ConversationRejected::CODE.to_string())
 }
 
-fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
+/// The agent-identity commands (`conversation-bind`, `conversation-agent-token`)
+/// and `conversation-import` stay on the Unix socket: a WebSocket client is
+/// the person, never an agent, and never rewrites history.
+fn require_unix(mux: &Mux, client: u64) -> anyhow::Result<()> {
     anyhow::ensure!(
         mux.control_clients.is_unix(client),
+        "this conversation command requires a local Unix socket connection"
+    );
+    Ok(())
+}
+
+fn require_local(mux: &Mux, client: u64) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        mux.control_clients.is_owner_client(client),
         "local conversations require a trusted local connection"
     );
     Ok(())
@@ -242,7 +258,7 @@ pub(super) fn create(mux: &Mux, client: u64, params: CreateParams) -> anyhow::Re
 
 pub(super) fn import(mux: &Mux, client: u64, params: ImportParams) -> anyhow::Result<Value> {
     anyhow::ensure!(!mux.is_remote_client(client), "conversation-import is local only");
-    require_local(mux, client)?;
+    require_unix(mux, client)?;
     anyhow::ensure!(
         mux.conversation_principal(client) == LOCAL_USER,
         "only the local user imports conversation history"
@@ -440,7 +456,7 @@ pub(super) fn publish_typing(
 }
 
 pub(super) fn bind(mux: &Mux, client: u64, params: BindParams) -> anyhow::Result<Value> {
-    require_local(mux, client)?;
+    require_unix(mux, client)?;
     let BindParams { participant, token } = params;
     anyhow::ensure!(participant.starts_with("agent_"), "only agent participants bind with a token");
     let valid = mux.with_conversations(|store| store.verify_agent_token(&participant, &token))?;
@@ -454,7 +470,7 @@ pub(super) fn agent_token(
     client: u64,
     params: AgentTokenParams,
 ) -> anyhow::Result<Value> {
-    require_local(mux, client)?;
+    require_unix(mux, client)?;
     anyhow::ensure!(
         mux.conversation_principal(client) == LOCAL_USER,
         "only the local user mints agent tokens"

@@ -68072,7 +68072,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Show Hints"
+            "value" : "Show Tips"
           }
         },
         "ja" : {
@@ -68084,37 +68084,37 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "إظهار التلميحات"
+            "value" : "إظهار النصائح"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Prikaži nagovještaje"
+            "value" : "Prikaži savjete"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Vis hints"
+            "value" : "Vis tips"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hinweise anzeigen"
+            "value" : "Tipps anzeigen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mostrar pistas"
+            "value" : "Mostrar consejos"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Afficher les indices"
+            "value" : "Afficher les astuces"
           }
         },
         "it" : {
@@ -68126,25 +68126,25 @@
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បង្ហាញការណែនាំ"
+            "value" : "បង្ហាញគន្លឹះ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "힌트 표시"
+            "value" : "팁 표시"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Vis hint"
+            "value" : "Vis tips"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pokazuj podpowiedzi"
+            "value" : "Pokaż wskazówki"
           }
         },
         "pt-BR" : {
@@ -68156,13 +68156,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Показывать подсказки"
+            "value" : "Показывать советы"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "แสดงคำแนะนำ"
+            "value" : "แสดงเคล็ดลับ"
           }
         },
         "tr" : {
@@ -68174,13 +68174,13 @@
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Показувати підказки"
+            "value" : "Показувати поради"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hiện gợi ý"
+            "value" : "Hiển thị mẹo"
           }
         },
         "zh-Hans" : {
@@ -68203,127 +68203,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once."
+            "value" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "アカウントボタンの上のヒントカードに、まだ使っていない cmux の機能を 1 日に 1 つ表示します。各ヒントは一度だけ表示されます。"
+            "value" : "アカウントボタンの上の「ご存知でしたか」カードに、まだ使っていない cmux の機能を 1 日に 1 つ表示します。各ヒントは一度だけ表示されます。"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تعرض بطاقة تلميح فوق زر الحساب ميزة واحدة من cmux يوميًا لم تستخدمها بعد. يظهر كل تلميح مرة واحدة فقط."
+            "value" : "تعرض بطاقة \"هل تعلم\" فوق زر الحساب ميزة واحدة من cmux يوميًا لم تستخدمها بعد. تظهر كل نصيحة مرة واحدة فقط."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kartica s nagovještajem iznad dugmeta računa prikazuje jednu cmux funkciju dnevno koju još niste koristili. Svaki nagovještaj se prikazuje samo jednom."
+            "value" : "Kartica \"Jeste li znali\" iznad dugmeta računa prikazuje jednu cmux funkciju dnevno koju još niste koristili. Svaki savjet se prikazuje samo jednom."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Et hint-kort over kontoknappen viser én cmux-funktion om dagen, som du ikke har brugt endnu. Hvert hint vises kun én gang."
+            "value" : "Et \"Vidste du\"-kort over kontoknappen viser én cmux-funktion om dagen, som du ikke har brugt endnu. Hvert tip vises kun én gang."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Eine Hinweiskarte über der Kontotaste zeigt täglich eine cmux-Funktion, die du noch nicht genutzt hast. Jeder Hinweis erscheint nur einmal."
+            "value" : "Eine „Schon gewusst?“-Karte über der Kontotaste zeigt täglich eine cmux-Funktion, die du noch nicht genutzt hast. Jeder Tipp erscheint nur einmal."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Una tarjeta de pista sobre el botón de cuenta muestra cada día una función de cmux que aún no has usado. Cada pista aparece solo una vez."
+            "value" : "Una tarjeta «¿Sabías que?» sobre el botón de cuenta muestra cada día una función de cmux que aún no has usado. Cada consejo aparece solo una vez."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Une carte d’indice au-dessus du bouton de compte présente chaque jour une fonction de cmux que vous n’avez pas encore utilisée. Chaque indice n’apparaît qu’une fois."
+            "value" : "Une carte « Le saviez-vous ? » au-dessus du bouton du compte présente chaque jour une fonctionnalité de cmux que vous n’avez pas encore utilisée. Chaque astuce n’apparaît qu’une fois."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Una scheda di suggerimento sopra il pulsante dell’account mostra ogni giorno una funzione di cmux che non hai ancora usato. Ogni suggerimento appare una sola volta."
+            "value" : "Una scheda «Lo sapevi?» sopra il pulsante dell’account mostra ogni giorno una funzione di cmux che non hai ancora usato. Ogni suggerimento appare una sola volta."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កាតការណែនាំនៅលើប៊ូតុងគណនីបង្ហាញមុខងារ cmux មួយក្នុងមួយថ្ងៃ ដែលអ្នកមិនទាន់បានប្រើ។ ការណែនាំនីមួយៗបង្ហាញតែម្តងប៉ុណ្ណោះ។"
+            "value" : "កាត \"តើអ្នកដឹងទេ\" នៅលើប៊ូតុងគណនី បង្ហាញមុខងារ cmux មួយក្នុងមួយថ្ងៃ ដែលអ្នកមិនទាន់បានប្រើ។ គន្លឹះនីមួយៗបង្ហាញតែម្តងប៉ុណ្ណោះ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "계정 버튼 위의 힌트 카드가 아직 사용하지 않은 cmux 기능을 하루에 하나씩 보여 줍니다. 각 힌트는 한 번만 표시됩니다."
+            "value" : "계정 버튼 위의 \"알고 계셨나요\" 카드가 아직 사용하지 않은 cmux 기능을 하루에 하나씩 보여 줍니다. 각 팁은 한 번만 표시됩니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Et hintkort over kontoknappen viser én cmux-funksjon om dagen som du ikke har brukt ennå. Hvert hint vises bare én gang."
+            "value" : "Et «Visste du»-kort over kontoknappen viser én cmux-funksjon om dagen som du ikke har brukt ennå. Hvert tips vises bare én gang."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Karta podpowiedzi nad przyciskiem konta pokazuje codziennie jedną funkcję cmux, której jeszcze nie używasz. Każda podpowiedź pojawia się tylko raz."
+            "value" : "Karta „Czy wiesz, że” nad przyciskiem konta pokazuje codziennie jedną funkcję cmux, której jeszcze nie używasz. Każda wskazówka pojawia się tylko raz."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Um cartão de dica acima do botão da conta mostra por dia um recurso do cmux que você ainda não usou. Cada dica aparece só uma vez."
+            "value" : "Um cartão \"Você sabia?\" acima do botão da conta mostra, por dia, um recurso do cmux que você ainda não usou. Cada dica aparece só uma vez."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Карточка подсказки над кнопкой учётной записи каждый день показывает одну функцию cmux, которой вы ещё не пользовались. Каждая подсказка показывается только один раз."
+            "value" : "Карточка «А вы знали?» над кнопкой учётной записи раз в день показывает функцию cmux, которой вы ещё не пользовались. Каждый совет показывается только один раз."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "การ์ดคำแนะนำเหนือปุ่มบัญชีจะแสดงฟีเจอร์ของ cmux ที่คุณยังไม่เคยใช้วันละหนึ่งอย่าง คำแนะนำแต่ละรายการจะแสดงเพียงครั้งเดียว"
+            "value" : "การ์ด \"รู้หรือไม่\" เหนือปุ่มบัญชีจะแสดงฟีเจอร์ของ cmux ที่คุณยังไม่เคยใช้วันละหนึ่งอย่าง เคล็ดลับแต่ละรายการจะแสดงเพียงครั้งเดียว"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hesap düğmesinin üstündeki ipucu kartı, henüz kullanmadığınız bir cmux özelliğini her gün gösterir. Her ipucu yalnızca bir kez gösterilir."
+            "value" : "Hesap düğmesinin üstündeki \"Biliyor muydunuz?\" kartı, henüz kullanmadığınız bir cmux özelliğini günde bir kez gösterir. Her ipucu yalnızca bir kez gösterilir."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Картка підказки над кнопкою облікового запису щодня показує одну функцію cmux, якою ви ще не користувалися. Кожна підказка з’являється лише один раз."
+            "value" : "Картка «А ви знали?» над кнопкою облікового запису раз на день показує функцію cmux, якою ви ще не користувалися. Кожна порада з’являється лише один раз."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Thẻ gợi ý phía trên nút tài khoản mỗi ngày hiện một tính năng cmux bạn chưa dùng. Mỗi gợi ý chỉ hiện một lần."
+            "value" : "Thẻ \"Bạn có biết\" phía trên nút tài khoản mỗi ngày giới thiệu một tính năng cmux bạn chưa dùng. Mỗi mẹo chỉ hiện một lần."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "账户按钮上方的提示卡片每天展示一项你还没用过的 cmux 功能。每条提示只显示一次。"
+            "value" : "账户按钮上方的“你知道吗”卡片每天介绍一项你还没用过的 cmux 功能。每条提示只显示一次。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "帳號按鈕上方的提示卡片每天展示一項你還沒用過的 cmux 功能。每則提示只顯示一次。"
+            "value" : "帳號按鈕上方的「你知道嗎」卡片每天介紹一項你還沒用過的 cmux 功能。每則提示只顯示一次。"
           }
         }
       }
@@ -82113,49 +82113,49 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A daily hint about a feature you haven't used"
+            "value": "A daily tip about a feature you haven't used"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تلميح يومي عن ميزة لم تستخدمها بعد"
+            "value": "نصيحة يومية عن ميزة لم تستخدمها بعد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dnevni nagovještaj o funkciji koju niste koristili"
+            "value": "Dnevni savjet o funkciji koju niste koristili"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Et dagligt hint om en funktion, du ikke har brugt"
+            "value": "Et dagligt tip om en funktion, du ikke har brugt"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Täglich ein Hinweis zu einer ungenutzten Funktion"
+            "value": "Täglich ein Tipp zu einer ungenutzten Funktion"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Una pista diaria sobre una función que no has usado"
+            "value": "Un consejo diario sobre una función que no has usado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un indice quotidien sur une fonction que vous n’avez pas utilisée"
+            "value": "Une astuce par jour sur une fonction jamais utilisée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un suggerimento al giorno su una funzione che non hai usato"
+            "value": "Un consiglio al giorno su una funzione mai usata"
           }
         },
         "ja": {
@@ -82167,25 +82167,25 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការណែនាំប្រចាំថ្ងៃអំពីមុខងារដែលអ្នកមិនទាន់បានប្រើ"
+            "value": "គន្លឹះប្រចាំថ្ងៃអំពីមុខងារដែលអ្នកមិនទាន់បានប្រើ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아직 사용하지 않은 기능에 대한 하루 한 번의 힌트"
+            "value": "아직 쓰지 않은 기능을 매일 하나씩 소개"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Et daglig hint om en funksjon du ikke har brukt"
+            "value": "Et daglig tips om en funksjon du ikke har brukt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codzienna podpowiedź o funkcji, której nie używasz"
+            "value": "Codzienna wskazówka o nieużywanej funkcji"
           }
         },
         "pt-BR": {
@@ -82197,43 +82197,43 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ежедневная подсказка о функции, которой вы не пользовались"
+            "value": "Совет дня о функции, которой вы ещё не пользовались"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "คำแนะนำรายวันเกี่ยวกับฟีเจอร์ที่คุณยังไม่ได้ใช้"
+            "value": "เคล็ดลับรายวันเกี่ยวกับฟีเจอร์ที่คุณยังไม่ได้ใช้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kullanmadığınız bir özellik hakkında günlük ipucu"
+            "value": "Henüz kullanmadığınız bir özellik için günlük ipucu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Щоденна підказка про функцію, якою ви не користувалися"
+            "value": "Щоденна порада про функцію, якою ви ще не користувалися"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gợi ý hằng ngày về một tính năng bạn chưa dùng"
+            "value": "Mẹo mỗi ngày về một tính năng bạn chưa dùng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每天一条关于未用功能的提示"
+            "value": "每天介绍一项你还没用过的功能"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每天一則關於未用功能的提示"
+            "value": "每天介紹一項你還沒用過的功能"
           }
         }
       }
@@ -86307,6 +86307,2765 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "開發者工具"
+          }
+        }
+      }
+    },
+    "settings.browser.omnibar.glass": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Address Bar Glass"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "زجاج شريط العنوان"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Staklo adresne trake"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adresselinjens glas"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Glas der Adressleiste"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cristal de la barra de direcciones"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Verre de la barre d’adresse"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Vetro della barra degli indirizzi"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "アドレスバーのガラス"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "កញ្ចក់របារអាសយដ្ឋាន"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "주소 막대 글래스"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adressefeltets glass"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Szkło paska adresu"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Vidro da barra de endereços"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Стекло адресной строки"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "กระจกแถบที่อยู่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adres çubuğu camı"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Скло адресного рядка"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kính thanh địa chỉ"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "地址栏玻璃"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "網址列玻璃"
+        }
+      }
+    }
+  },
+    "settings.browser.omnibar.glass.help": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "مادة شريط العنوان. يُظهر الشفاف المزيد مما خلفه. إيقاف يستخدم لون السمة المسطح."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Materijal adresne trake. Prozirno pokazuje više onoga što je iza nje. Isključeno koristi ravnu boju teme."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adresselinjens materiale. Klart viser mere af det, der er bagved. Fra bruger temaets flade farve."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Das Material der Adressleiste. Klar zeigt mehr vom Hintergrund. Aus verwendet die flache Themenfarbe."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "El material de la barra de direcciones. Transparente muestra más de lo que hay detrás. Desactivado usa el color plano del tema."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "La matière de la barre d’adresse. Transparent laisse voir davantage l’arrière-plan. Désactivé utilise la couleur unie du thème."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Il materiale della barra degli indirizzi. Trasparente mostra di più ciò che c’è dietro. Disattivato usa il colore piatto del tema."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "アドレスバーの素材です。クリアは背後をより多く見せます。オフはテーマの単色を使います。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "សម្ភារៈនៃរបារអាសយដ្ឋាន។ ថ្លាបង្ហាញអ្វីដែលនៅខាងក្រោយច្រើនជាង។ បិទប្រើពណ៌រាបស្មើនៃធីម។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "주소 막대의 재질입니다. 투명은 뒤에 있는 내용을 더 많이 보여 줍니다. 끔은 테마의 단색을 사용합니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Materialet i adressefeltet. Klart viser mer av det som er bak. Av bruker temaets flate farge."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Materiał paska adresu. Przezroczysty pokazuje więcej tego, co jest pod spodem. Wyłączone używa jednolitego koloru motywu."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "O material da barra de endereços. Transparente mostra mais do que está atrás. Desativado usa a cor sólida do tema."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Материал адресной строки. Прозрачное показывает больше того, что за ней. «Выкл.» использует сплошной цвет темы."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "วัสดุของแถบที่อยู่ แบบใสจะแสดงสิ่งที่อยู่ด้านหลังมากขึ้น ปิดจะใช้สีเรียบของธีม"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adres çubuğunun malzemesi. Şeffaf, arkasındakileri daha çok gösterir. Kapalı, temanın düz rengini kullanır."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Матеріал адресного рядка. Прозоре показує більше того, що за ним. «Вимк.» використовує суцільний колір теми."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Chất liệu của thanh địa chỉ. Trong suốt cho thấy nhiều hơn phía sau. Tắt dùng màu phẳng của chủ đề."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "地址栏的材质。透明会显示更多背后的内容。关闭则使用主题的纯色。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "網址列的材質。透明會顯示更多後方的內容。關閉則使用主題的純色。"
+        }
+      }
+    }
+  },
+    "settings.browser.omnibar.glassTint": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Glass Tint"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "صبغة الزجاج"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nijansa stakla"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Glasfarvetone"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Glastönung"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tinte del cristal"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Teinte du verre"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tinta del vetro"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ガラスの色合い"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ពណ៌លាបកញ្ចក់"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "글래스 색조"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Glassfarge"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Odcień szkła"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tonalidade do vidro"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Оттенок стекла"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "สีกระจก"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cam tonu"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Відтінок скла"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Màu phủ kính"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "玻璃色调"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "玻璃色調"
+        }
+      }
+    }
+  },
+    "settings.browser.omnibar.glassTint.help": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "اللون فوق الزجاج، من سمة الطرفية. التمييز هو لون التمييز الخاص بالسمة، أو رمادي إذا لم يكن لها لون."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Boja preko stakla, iz teme terminala. Akcent je vlastita akcentna boja teme, ili siva kada je tema nema."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Farven over glasset, fra terminaltemaet. Accent er temaets egen accentfarve, eller grå når temaet ikke har nogen."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Die Farbe über dem Glas, aus dem Terminal-Thema. Akzent ist die eigene Akzentfarbe des Themas, oder Grau, wenn es keine hat."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "El color sobre el cristal, del tema del terminal. Acento es el color de acento propio del tema, o gris si no tiene."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "La couleur au-dessus du verre, issue du thème du terminal. Accent est la couleur d’accent du thème, ou gris s’il n’en a pas."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Il colore sopra il vetro, dal tema del terminale. Accento è il colore di accento del tema, o grigio se non ne ha."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ガラスに重ねる色で、ターミナルのテーマから取ります。アクセントはテーマ自身のアクセントカラーで、ない場合はグレーです。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ពណ៌លើកញ្ចក់ ពីធីមទែមីណាល់។ សង្កត់ធ្ងន់គឺពណ៌សង្កត់ធ្ងន់ផ្ទាល់របស់ធីម ឬពណ៌ប្រផេះ ពេលធីមគ្មាន។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "글래스 위의 색상으로, 터미널 테마에서 가져옵니다. 강조는 테마 자체의 강조 색상이며, 없으면 회색입니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Fargen over glasset, fra terminaltemaet. Aksent er temaets egen aksentfarge, eller grå når temaet ikke har noen."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kolor nad szkłem, z motywu terminala. Akcent to własny kolor akcentu motywu lub szary, gdy motyw go nie ma."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "A cor sobre o vidro, do tema do terminal. Destaque é a cor de destaque do próprio tema, ou cinza quando o tema não tem."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Цвет поверх стекла из темы терминала. Акцент — собственный акцентный цвет темы или серый, если его нет."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "สีที่อยู่บนกระจก จากธีมของเทอร์มินัล สีเน้นคือสีเน้นของธีมเอง หรือสีเทาเมื่อธีมไม่มี"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Camın üzerindeki renk, terminal temasından. Vurgu, temanın kendi vurgu rengidir; yoksa gridir."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Колір поверх скла з теми термінала. Акцент — власний акцентний колір теми або сірий, якщо його немає."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Màu phủ lên kính, lấy từ chủ đề terminal. Nhấn mạnh là màu nhấn của chính chủ đề, hoặc xám nếu chủ đề không có."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "玻璃上方的颜色，取自终端主题。强调色是主题自身的强调色，没有时为灰色。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "玻璃上方的顏色，取自終端機主題。強調色是主題自身的強調色，沒有時為灰色。"
+        }
+      }
+    }
+  },
+    "settings.browser.omnibar.glassTintStrength": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Tint Strength"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "قوة الصبغة"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Jačina nijanse"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Farvetonestyrke"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tönungsstärke"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Intensidad del tinte"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Intensité de la teinte"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Intensità della tinta"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "色合いの強さ"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "កម្លាំងពណ៌លាប"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "색조 강도"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Fargestyrke"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Siła odcienia"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Intensidade da tonalidade"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Сила оттенка"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ความเข้มของสี"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ton yoğunluğu"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Сила відтінку"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Độ đậm màu phủ"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "色调强度"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "色調強度"
+        }
+      }
+    }
+  },
+    "settings.browser.omnibar.cornerRadius": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Address Bar Corners"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "زوايا شريط العنوان"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Uglovi adresne trake"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adresselinjens hjørner"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ecken der Adressleiste"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Esquinas de la barra de direcciones"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Coins de la barre d’adresse"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Angoli della barra degli indirizzi"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "アドレスバーの角"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ជ្រុងរបារអាសយដ្ឋាន"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "주소 막대 모서리"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adressefeltets hjørner"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Narożniki paska adresu"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cantos da barra de endereços"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Углы адресной строки"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "มุมของแถบที่อยู่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adres çubuğu köşeleri"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Кути адресного рядка"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Góc thanh địa chỉ"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "地址栏圆角"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "網址列圓角"
+        }
+      }
+    }
+  },
+    "settings.browser.omnibar.cornerRadius.help": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Match Theme uses the standard bar radius. Capsule rounds the ends fully."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "مطابقة السمة تستخدم نصف القطر القياسي للشريط. الكبسولة تجعل الطرفين مستديرين بالكامل."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Prema temi koristi standardni radijus trake. Kapsula potpuno zaobljuje krajeve."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Følg tema bruger linjens standardradius. Kapsel runder enderne helt."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Wie Thema verwendet den Standardradius der Leiste. Kapsel rundet die Enden vollständig ab."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Igual que el tema usa el radio estándar de la barra. Cápsula redondea por completo los extremos."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Comme le thème utilise le rayon standard de la barre. Capsule arrondit entièrement les extrémités."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Come il tema usa il raggio standard della barra. Capsula arrotonda completamente le estremità."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "「テーマに合わせる」は標準のバーの半径を使います。「カプセル」は両端を完全に丸めます。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ដូចធីមប្រើកាំស្តង់ដាររបស់របារ។ កន្សោមធ្វើឱ្យចុងទាំងពីរមូលទាំងស្រុង។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "테마에 맞춤은 표준 막대 반경을 사용합니다. 캡슐은 양 끝을 완전히 둥글게 만듭니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Følg tema bruker feltets standardradius. Kapsel runder endene helt."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Jak motyw używa standardowego promienia paska. Kapsuła w pełni zaokrągla końce."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Igual ao tema usa o raio padrão da barra. Cápsula arredonda totalmente as pontas."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "«Как в теме» использует стандартный радиус строки. «Капсула» полностью скругляет края."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ตามธีมจะใช้รัศมีมาตรฐานของแถบ แคปซูลจะทำให้ปลายทั้งสองโค้งมนเต็มที่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Temaya uy, standart çubuk yarıçapını kullanır. Kapsül, uçları tamamen yuvarlar."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "«Як у темі» використовує стандартний радіус рядка. «Капсула» повністю заокруглює краї."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Theo chủ đề dùng bán kính chuẩn của thanh. Viên nang bo tròn hoàn toàn hai đầu."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "“匹配主题”使用标准栏圆角。“胶囊”会将两端完全变圆。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "「符合主題」使用標準列圓角。「膠囊」會將兩端完全變圓。"
+        }
+      }
+    }
+  },
+    "settings.browser.omnibar.shadow": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Address Bar Shadow"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ظل شريط العنوان"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sjena adresne trake"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adresselinjens skygge"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Schatten der Adressleiste"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sombra de la barra de direcciones"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ombre de la barre d’adresse"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ombra della barra degli indirizzi"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "アドレスバーの影"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ស្រមោលរបារអាសយដ្ឋាន"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "주소 막대 그림자"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adressefeltets skygge"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cień paska adresu"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sombra da barra de endereços"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Тень адресной строки"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "เงาของแถบที่อยู่"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Adres çubuğu gölgesi"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Тінь адресного рядка"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bóng thanh địa chỉ"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "地址栏阴影"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "網址列陰影"
+        }
+      }
+    }
+  },
+    "settings.browser.omnibar.shadow.help": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "A soft shadow under the glass address bar."
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ظل ناعم أسفل شريط العنوان الزجاجي."
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Blaga sjena ispod staklene adresne trake."
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "En blød skygge under glasadresselinjen."
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Ein weicher Schatten unter der gläsernen Adressleiste."
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Una sombra suave bajo la barra de direcciones de cristal."
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Une ombre douce sous la barre d’adresse en verre."
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Un’ombra morbida sotto la barra degli indirizzi in vetro."
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "ガラスのアドレスバーの下に柔らかい影を付けます。"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ស្រមោលស្រាលនៅក្រោមរបារអាសយដ្ឋានកញ្ចក់។"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "글래스 주소 막대 아래의 부드러운 그림자입니다."
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "En myk skygge under glassadressefeltet."
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Miękki cień pod szklanym paskiem adresu."
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Uma sombra suave sob a barra de endereços de vidro."
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Мягкая тень под стеклянной адресной строкой."
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "เงาอ่อนใต้แถบที่อยู่แบบกระจก"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cam adres çubuğunun altında yumuşak bir gölge."
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "М’яка тінь під скляним адресним рядком."
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Bóng mờ nhẹ dưới thanh địa chỉ bằng kính."
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "玻璃地址栏下方的柔和阴影。"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "玻璃網址列下方的柔和陰影。"
+        }
+      }
+    }
+  },
+    "settings.choice.themeBackground": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Theme Background"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "خلفية السمة"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Pozadina teme"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Temabaggrund"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Themenhintergrund"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Fondo del tema"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Arrière-plan du thème"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Sfondo del tema"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "テーマの背景"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ផ្ទៃខាងក្រោយធីម"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "테마 배경"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Temabakgrunn"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tło motywu"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Fundo do tema"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Фон темы"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "พื้นหลังธีม"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tema arka planı"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Тло теми"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Nền chủ đề"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "主题背景"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "主題背景"
+        }
+      }
+    }
+  },
+    "settings.choice.themeAccent": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Theme Accent"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "لون تمييز السمة"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Akcent teme"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Temaaccent"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Themenakzent"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Acento del tema"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Accent du thème"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Accento del tema"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "テーマのアクセント"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ពណ៌សង្កត់ធ្ងន់ធីម"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "테마 강조"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Temaaksent"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Akcent motywu"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Destaque do tema"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Акцент темы"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "สีเน้นของธีม"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Tema vurgusu"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Акцент теми"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Màu nhấn chủ đề"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "主题强调色"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "主題強調色"
+        }
+      }
+    }
+  },
+    "settings.choice.matchTheme": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Match Theme"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "مطابقة السمة"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Prema temi"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Følg tema"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Wie Thema"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Igual que el tema"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Comme le thème"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Come il tema"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "テーマに合わせる"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ដូចធីម"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "테마에 맞춤"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Følg tema"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Jak motyw"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Igual ao tema"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Как в теме"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "ตามธีม"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Temaya uy"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Як у темі"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Theo chủ đề"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "匹配主题"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "符合主題"
+        }
+      }
+    }
+  },
+    "settings.choice.capsule": {
+    "extractionState": "manual",
+    "localizations": {
+      "en": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "Capsule"
+        }
+      },
+      "ar": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "كبسولة"
+        }
+      },
+      "bs": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kapsula"
+        }
+      },
+      "da": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kapsel"
+        }
+      },
+      "de": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kapsel"
+        }
+      },
+      "es": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cápsula"
+        }
+      },
+      "fr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Capsule"
+        }
+      },
+      "it": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Capsula"
+        }
+      },
+      "ja": {
+        "stringUnit": {
+          "state": "translated",
+          "value": "カプセル"
+        }
+      },
+      "km": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "កន្សោម"
+        }
+      },
+      "ko": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "캡슐"
+        }
+      },
+      "nb": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kapsel"
+        }
+      },
+      "pl": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kapsuła"
+        }
+      },
+      "pt-BR": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Cápsula"
+        }
+      },
+      "ru": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Капсула"
+        }
+      },
+      "th": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "แคปซูล"
+        }
+      },
+      "tr": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Kapsül"
+        }
+      },
+      "uk": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Капсула"
+        }
+      },
+      "vi": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "Viên nang"
+        }
+      },
+      "zh-Hans": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "胶囊"
+        }
+      },
+      "zh-Hant": {
+        "stringUnit": {
+          "state": "needs_review",
+          "value": "膠囊"
+        }
+      }
+    }
+  },
+    "settings.tabs.toolbarButtons.splitRight": {
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split Right"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقسيم إلى اليمين"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podijeli desno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdel til højre"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechts teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividir a la derecha"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diviser à droite"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividi a destra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "右に分割"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំបែកទៅស្ដាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "오른쪽으로 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del til høyre"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podziel w prawo"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividir à direita"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разделить вправо"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบ่งไปทางขวา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sağa Böl"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розділити праворуч"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia sang phải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向右拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向右分割"
+          }
+        }
+      }
+    },
+    "settings.tabs.toolbarButtons.splitDown": {
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Split Down"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تقسيم إلى الأسفل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podijeli dolje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Opdel nedad"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nach unten teilen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividir hacia abajo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diviser vers le bas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividi in basso"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下に分割"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បំបែកចុះក្រោម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아래로 분할"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Del nedover"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podziel w dół"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dividir para baixo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разделить вниз"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แบ่งลงด้านล่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aşağı Böl"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Розділити донизу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chia xuống dưới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向下拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向下分割"
+          }
+        }
+      }
+    },
+    "settings.tabs.toolbarButtons.diffViewer": {
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff Viewer"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عارض الفروقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pregled razlika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff-visning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff-Ansicht"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visor de diferencias"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visionneuse de différences"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizzatore differenze"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差分ビューア"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កម្មវិធីមើលភាពខុសគ្នា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff 뷰어"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diff-visning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Podgląd różnic"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualizador de diferenças"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Просмотр изменений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ตัวดูความแตกต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fark Görüntüleyici"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Перегляд змін"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trình xem khác biệt"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差异查看器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "差異檢視器"
+          }
+        }
+      }
+    },
+    "settings.tabs.toolbarButtons.openFile": {
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open File"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "فتح ملف"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otvori datoteku"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åbn fil"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Datei öffnen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir archivo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ouvrir un fichier"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Apri file"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ファイルを開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បើកឯកសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "파일 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Åpne fil"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Otwórz plik"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Abrir arquivo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Открыть файл"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เปิดไฟล์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dosya Aç"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відкрити файл"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mở tệp"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开文件"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "開啟檔案"
+          }
+        }
+      }
+    },
+    "settings.tabs.toolbarButtons.searchChats": {
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search Agent Chats"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث في محادثات الوكيل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pretraži razgovore agenta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søg i agentchats"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Chats durchsuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar chats del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher dans les discussions d’agent"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca nelle chat agente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャットを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្វែងរកការជជែកភ្នាក់ងារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Søk i agentchatter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szukaj w czatach agenta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar chats do agente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск по чатам агента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ค้นหาแชทของเอเจนต์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ajan Sohbetlerinde Ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пошук у чатах агента"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tìm trong trò chuyện tác tử"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索代理聊天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋代理聊天"
+          }
+        }
+      }
+    },
+    "settings.tabs.toolbarButtons.paneZoom": {
+      "comment": "Settings: an action tabs.toolbarButtons can pin next to the tab bar's More button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pane Zoom"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تكبير الجزء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvećanje okna"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rudezoom"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bereichszoom"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom del panel"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom du panneau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom del riquadro"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ペインのズーム"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពង្រីកផ្ទាំងចំណែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "패널 확대"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rutezoom"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Powiększenie panelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zoom do painel"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Масштаб панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ซูมบานหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bölme Yakınlaştırma"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Масштаб панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Thu phóng ngăn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格缩放"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "窗格縮放"
+          }
+        }
+      }
+    },
+    "settings.tabs.toolbarButtons": {
+      "comment": "Settings: tabs.toolbarButtons, the actions pinned as buttons next to a pane's tab bar More button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tab Bar Buttons"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "أزرار شريط علامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dugmad trake kartica"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knapper på fanelinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tableisten-Tasten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botones de la barra de pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Boutons de la barre d’onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pulsanti della barra dei pannelli"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーのボタン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ប៊ូតុងរបារផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 막대 버튼"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Knapper i fanelinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Przyciski paska kart"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Botões da Barra de Abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки панели вкладок"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ปุ่มแถบแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme Çubuğu Düğmeleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кнопки панелі вкладок"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các nút thanh tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签栏按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "標籤列按鈕"
+          }
+        }
+      }
+    },
+    "settings.tabs.toolbarButtons.help": {
+      "comment": "Settings: tabs.toolbarButtons, the actions pinned as buttons next to a pane's tab bar More button.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الإجراءات المعروضة كأزرار بجوار زر «المزيد» في شريط علامات التبويب. البقية في قائمة «المزيد»، حيث يثبّتها «إظهار في شريط علامات التبويب» مجددًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akcije prikazane kao dugmad pored dugmeta Više na traci kartica. Ostale su u meniju Više, gdje ih Prikaži na traci kartica ponovo prikačuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlinger vist som knapper ved siden af fanelinjens Mere-knap. Resten er i menuen Mere, hvor Vis på fanelinjen fastgør dem igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aktionen, die als Tasten neben der Mehr-Taste der Tableiste erscheinen. Die übrigen stehen im Menü „Mehr“, wo „In der Tableiste anzeigen“ sie wieder anheftet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Acciones que se muestran como botones junto al botón Más de la barra de pestañas. El resto está en el menú Más, donde Mostrar en la barra de pestañas vuelve a fijarlas."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Actions affichées comme boutons à côté du bouton Plus de la barre d’onglets. Les autres sont dans le menu Plus, où Afficher dans la barre d’onglets les épingle à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Azioni mostrate come pulsanti accanto al pulsante Altro della barra dei pannelli. Le altre sono nel menu Altro, dove Mostra nella barra dei pannelli le fissa di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "タブバーの「その他」ボタンの横にボタンとして表示するアクション。それ以外は「その他」メニューにあり、「タブバーに表示」で再び固定できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "សកម្មភាពដែលបង្ហាញជាប៊ូតុងនៅជាប់ប៊ូតុង ច្រើនទៀត របស់របារផ្ទាំង។ សកម្មភាពផ្សេងទៀតនៅក្នុងម៉ឺនុយ ច្រើនទៀត ដែល បង្ហាញក្នុងរបារផ្ទាំង ខ្ទាស់វាវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "탭 막대의 더 보기 버튼 옆에 버튼으로 표시할 동작입니다. 나머지는 더 보기 메뉴에 있으며, 탭 막대에 표시로 다시 고정할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Handlinger som vises som knapper ved siden av fanelinjens Mer-knapp. Resten er i Mer-menyen, der Vis i fanelinjen fester dem igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Akcje wyświetlane jako przyciski obok przycisku Więcej na pasku kart. Pozostałe są w menu Więcej, gdzie Pokaż na pasku kart przypina je z powrotem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ações mostradas como botões ao lado do botão Mais da barra de abas. As demais ficam no menu Mais, onde Mostrar na barra de abas as fixa de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Действия, показанные кнопками рядом с кнопкой «Ещё» на панели вкладок. Остальные — в меню «Ещё», где пункт «Показывать на панели вкладок» снова закрепляет их."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การทำงานที่แสดงเป็นปุ่มข้างปุ่ม เพิ่มเติม ของแถบแท็บ ส่วนที่เหลืออยู่ในเมนู เพิ่มเติม ซึ่ง แสดงในแถบแท็บ จะปักหมุดกลับมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sekme çubuğunun Daha Fazla düğmesinin yanında düğme olarak gösterilen eylemler. Diğerleri Daha Fazla menüsündedir; Sekme Çubuğunda Göster onları yeniden sabitler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дії, показані кнопками поруч із кнопкою «Більше» на панелі вкладок. Решта — в меню «Більше», де пункт «Показувати на панелі вкладок» знову закріплює їх."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các hành động hiển thị thành nút cạnh nút Thêm của thanh tab. Phần còn lại nằm trong menu Thêm, nơi Hiển thị trên thanh tab ghim lại chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在标签栏“更多”按钮旁显示为按钮的操作。其余操作位于“更多”菜单中，可通过“在标签栏中显示”重新固定。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在標籤列「更多」按鈕旁顯示為按鈕的動作。其餘動作位於「更多」選單中，可透過「在標籤列中顯示」重新固定。"
           }
         }
       }

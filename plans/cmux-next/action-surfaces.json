@@ -20822,6 +20822,60 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "machine set-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "machineSection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "machine.setIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Machine Icon…",
+      "title_key" : "action.machine.setIcon",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "machine clear-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "machineSection"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "machine.clearIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Machine Icon",
+      "title_key" : "action.machine.clearIcon",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "settings reload-configuration",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -29070,6 +29124,51 @@
 
             ]
           }
+        }
+      ],
+      "implied" : [
+
+      ]
+    },
+    "machineSection" : {
+      "entries" : [
+        {
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "machine.setIcon",
+              "kind" : "action",
+              "label" : "Set Icon…",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "machine.clearIcon",
+              "kind" : "action",
+              "label" : "Remove Icon",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "appearance",
+          "kind" : "folder",
+          "order" : 0,
+          "title" : "Appearance",
+          "title_key" : "menu.folder.appearance",
+          "title_table" : "Localizable"
         }
       ],
       "implied" : [

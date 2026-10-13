@@ -194,9 +194,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         return .resolve(isLoading: page?.isLoading ?? false, isDormant: services.cache.dormantTabs.contains(key), favicon: image, url: url, isWaiting: page?.isWaiting ?? false)
     }
 
-    /// Pushes daemon truth into the strip. `force` resets optimistic strip
-    /// state after a rejected command (order, membership, closes).
-    func apply(_ snapshot: Snapshot, force: Bool = false) {
+    /// Pushes daemon truth (a New Tab page's replacement in its slot: NewTabSuccession) into the strip. `force` resets optimistic strip state after a rejected command.
+    func apply(_ reported: Snapshot, force: Bool = false) {
+        let snapshot = NewTabSuccession.order(reported, in: self)
         if force { view.stripView.discardPendingReorder() }
         if view.hidesStrip != snapshot.hidesStrip { view.hidesStrip = snapshot.hidesStrip }
         if stripModel.groups != snapshot.groups { stripModel.groups = snapshot.groups }

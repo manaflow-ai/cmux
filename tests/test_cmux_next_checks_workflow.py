@@ -11,6 +11,7 @@ so it can never mask the Swift god-type check.
 """
 from __future__ import annotations
 
+import fnmatch
 import os
 import re
 import subprocess
@@ -707,8 +708,8 @@ class ReusedWorkspaceSubmodules(unittest.TestCase):
                     following = job_steps[after] if after < len(job_steps) else {}
                     self.assertIn(RESET_STALE_SUBMODULES, following.get("run", ""),
                                   "the step after checkout must drop stale submodule checkouts")
-        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "generated-files", "release-compile",
-                                           "request-nightly-next", "swift-canary", "swift-test"])
+        self.assertEqual(sorted(checked), ["cmux-scheme-compile", "daemon-test", "fast-tier", "generated-files",
+                                           "release-compile", "request-nightly-next", "swift-canary", "swift-test"])
 
 
 
@@ -819,6 +820,32 @@ class SameTreeIsAnEvent(unittest.TestCase):
                 # A notify failure must not turn a good publication red.
                 self.assertTrue(notify[0].get("continue-on-error"))
 
+
+
+class FastTierBuildsLibghosttyVt(unittest.TestCase):
+    def test_the_fast_tier_job_can_build_cmux_tui_core(self):
+        """cmux-tui-core's ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with
+        zig (#20290: `the ghostty-next submodule is empty`), as cmux-tui.yml's jobs do."""
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        self.assertEqual(job["env"]["GHOSTTY_ZIG_SOURCE"], "ghostty-next")
+        self.assertEqual(job["env"]["CMUX_GHOSTTY_SRC"], "")
+        runs = [step.get("run", "") for step in job["steps"]]
+        tier = next(i for i, run in enumerate(runs) if "scripts/cmux-next/fast-tier.py" in run)
+        init = next(i for i, run in enumerate(runs) if "git submodule update --init" in run and "ghostty-next" in run)
+        zig = next(i for i, run in enumerate(runs) if "scripts/install-zig-ci.sh" in run)
+        self.assertLess(max(init, zig), tier)
+
+
+class FastTierTriggers(unittest.TestCase):
+    def test_a_fast_tier_registry_change_runs_the_workflow(self):
+        """A PR that only adds a fast-tier entry (#20232) must run the tier it changes."""
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        triggers = document.get("on", document.get(True))
+        for event in ("pull_request", "push"):
+            paths = triggers[event]["paths"]
+            for path in ("scripts/cmux-next/fast-tier.py", "scripts/cmux-next/fast-tier.json",
+                         "scripts/cmux-next/quarantine.json", "scripts/cmux-next/tests/fast-tier.test.sh"):
+                self.assertTrue(any(fnmatch.fnmatch(path, pattern) for pattern in paths), f"{event}: {path}")
 
 if __name__ == "__main__":
     unittest.main()

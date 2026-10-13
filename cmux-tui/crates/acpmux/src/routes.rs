@@ -939,7 +939,7 @@ pub fn classify(status: u16) -> ProbeStatus {
 
 fn resolve_reference(value: &str) -> Result<String, String> {
     if let Some(var) = value.strip_prefix("env:") {
-        return crate::login_env::var(var)
+        return crate::login_env::allowed_var(var)
             .or_else(|| std::env::var(var).ok())
             .ok_or_else(|| format!("{var} is not set in the login environment"));
     }

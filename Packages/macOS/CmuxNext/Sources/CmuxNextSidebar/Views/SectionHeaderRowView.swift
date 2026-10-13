@@ -5,6 +5,8 @@ import QuartzCore
 
 final class SectionHeaderRowView: SidebarRowView {
     private let glyph = NSImageView()
+    /// The machine's own icon (`SidebarMachine.icon`) before the name; hidden without one.
+    private let machineIcon = SidebarIconView()
     private let name = SidebarRowView.label(font: SidebarStyle.headerFont)
     private let status = CALayer()
     /// "Update needed" after the status dot, for a machine whose cmux-tui
@@ -24,7 +26,7 @@ final class SectionHeaderRowView: SidebarRowView {
     required init(key: SidebarRowKey) {
         super.init(key: key)
         layer?.addSublayer(status)
-        [glyph, name, badge, chevron, addButton].forEach(addSubview)
+        [glyph, machineIcon, name, badge, chevron, addButton].forEach(addSubview)
         addButton.onPress = { [weak self] in self?.onAdd?() }
     }
 
@@ -51,6 +53,7 @@ final class SectionHeaderRowView: SidebarRowView {
         isEmpty = content.isEmpty
         let symbol: IconName
         var title: String
+        var ownIcon: WorkspaceIcon?
         switch section.kind {
         case .pinned:
             symbol = .statePinned
@@ -65,6 +68,7 @@ final class SectionHeaderRowView: SidebarRowView {
             case .ssh, .server: symbol = .machineRemote
             }
             title = machine.name
+            ownIcon = machine.icon
             switch (machine.kind, machine.status) {
             case (.local, .connected): statusTone = nil
             case (_, .connected), (_, .updateAvailable): statusTone = .success
@@ -105,6 +109,7 @@ final class SectionHeaderRowView: SidebarRowView {
         // workspace list, apart from the destinations above it.
         if row.titlesProjects {
             title = Strings.projects
+            ownIcon = nil
             statusTone = nil
             badgeText = nil
             themedToolTip = nil
@@ -112,6 +117,7 @@ final class SectionHeaderRowView: SidebarRowView {
         }
         if section.kind == .pinned || row.titlesProjects { setAccessibilityLabel(title) }
         glyph.image = NSImage.icon(symbol, size: .iconRowSize(forLabelPointSize: SidebarStyle.headerFont.pointSize))
+        machineIcon.configure(icon: ownIcon)
         name.stringValue = title
         name.font = SidebarStyle.headerFont
         badge.stringValue = badgeText ?? ""
@@ -162,7 +168,13 @@ final class SectionHeaderRowView: SidebarRowView {
         // Quiet text header: no glyph, the name aligns with row titles.
         glyph.isHidden = true
         name.isHidden = false
-        let nameX = SidebarStyle.horizontalInset
+        // A machine's own icon leads the name; without one the header stays text only.
+        var nameX = SidebarStyle.horizontalInset
+        if !machineIcon.isHidden {
+            let side = Metrics.smallIconSize
+            machineIcon.frame = NSRect(x: nameX, y: (b.height - side) / 2, width: side, height: side)
+            nameX += side + Metrics.space2
+        }
         var trailing = b.width - Metrics.space2
         // The add button keeps its slot, so the name never re-truncates on hover.
         // Section actions stay available at rest. Hiding them until hover made
@@ -202,6 +214,9 @@ final class SectionHeaderRowView: SidebarRowView {
 
     /// Whether the fold chevron shows (tests).
     var showsChevron: Bool { !chevron.isHidden }
+
+    /// Whether the machine's own icon shows before the name (tests).
+    var showsMachineIcon: Bool { !machineIcon.isHidden }
 }
 
 // MARK: - Empty section drop zone
