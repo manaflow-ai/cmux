@@ -24,7 +24,7 @@ final class FolderHeaderRowView: SidebarRowView {
         super.layout()
         let b = layoutBounds
         let h = ceil(name.intrinsicContentSize.height)
-        let x = SidebarStyle.titleLeading
+        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
         name.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
         needsDisplay = true
     }
