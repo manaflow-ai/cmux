@@ -288,9 +288,12 @@ public final class UpdaterService {
         return task
     }
 
-    /// Installs and relaunches: the downloaded update at once, the one
-    /// downloading as soon as it is ready, else the newest after a fresh
-    /// check (the shared driver's attempt flow, so never a stale version).
+    /// Installs and relaunches the downloaded update at once, or the one
+    /// being checked for or downloaded as soon as it is staged. With
+    /// nothing found yet, it runs a fresh check (the shared driver's attempt
+    /// flow, so never a stale version) whose progress and result show on the
+    /// notice card; a found update downloads and waits as the staged update
+    /// card (Restart to Update).
     public func installAvailableUpdate() throws {
         guard let controller, disabledReason == nil else { throw UpdaterUnavailable(reason: disabledReason) }
         #if DEBUG

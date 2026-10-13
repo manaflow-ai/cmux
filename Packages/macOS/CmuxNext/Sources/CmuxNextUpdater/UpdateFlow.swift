@@ -65,7 +65,12 @@ nonisolated public struct UpdateFlow: Equatable, Sendable {
             // carry over to a later update.
             installRequested = false
             return []
-        case .checking, .downloading, .available:
+        case .available:
+            // A click held while the check ran: download now, install once staged.
+            guard installRequested else { return [] }
+            userAsked = true
+            return [.download]
+        case .checking, .downloading:
             return []
         }
     }

@@ -329,8 +329,11 @@ def run_attempt_scenario(a, sock, marks, pid, result):
     log("scenario", json.dumps(result["scenario"])[:3000])
     if not hit:
         raise SystemExit(f"{a.scenario}: the update UI never showed {expected}; it showed {shown}")
-    if a.scenario == "attempt-update" and not any(m in shown for m in ("card.checking", "card.downloading")):
-        raise SystemExit(f"attempt-update: no checking or downloading card before the staged card: {shown}")
+    # The result must come from this click's check: a progress card first, then the result.
+    progress = [i for i, m in enumerate(shown) if m in ("card.checking", "card.downloading")]
+    result_at = min(i for i, m in enumerate(shown) if m in expected)
+    if not progress or progress[0] > result_at:
+        raise SystemExit(f"{a.scenario}: no checking or downloading card before {expected}: {shown}")
     if a.scenario == "attempt-update" and not status.get("badge"):
         raise SystemExit("attempt-update: the staged update has no Restart to Update pill")
     if a.scenario == "attempt-download-error" and not (failure and "downloadManually" in failure["name"]):
@@ -599,10 +602,11 @@ def main():
             # Check for Updates while the update waits: the staged card stays (Sparkle skips the check).
             log("check while staged", json.dumps(rpc(sock, "action.run", {"id": CHECK_ACTION}))[:200])
             status = rpc(sock, "updates.status").get("result") or {}
-            result["staged_check"] = {"badge": status.get("badge"), "card": status.get("card"),
+            answered = any("check while an update waits" in line for line in status.get("log") or [])
+            result["staged_check"] = {"badge": status.get("badge"), "card": status.get("card"), "answered_by_staged": answered,
                                       "card_marks": card_marks(marks.read(), v1_pid)}
             log("staged check", json.dumps(result["staged_check"]))
-            if not status.get("badge") or "card.ready" not in result["staged_check"]["card_marks"]:
+            if not status.get("badge") or not answered:
                 raise SystemExit("a check while the update waits did not keep the staged update card")
         install_action = ATTEMPT_ACTION if a.scenario == "attempt-staged" else INSTALL_ACTION
         result["install_action"] = install_action
