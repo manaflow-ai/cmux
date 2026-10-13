@@ -257,6 +257,16 @@ Built-in Markdown viewer settings from Settings > App.
 | `markdown.fontFamily` | string | `""` | Default body font family for newly opened Markdown viewers. Leave empty for the system Markdown font stack. |
 | `markdown.maxWidth` | integer (320–2400) | `980` | Default maximum reading column width, in CSS pixels, for newly opened Markdown viewers. |
 
+## statusBar
+
+A one-line bar along the bottom of every window, filled by a program you choose.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `statusBar.command` | string | `""` | Shell command that feeds the bar, run once per app with `/bin/sh -c`. The bar shows the last line it printed, with ANSI colors and OSC 8 links; a `cmux-action:<id>` link runs that entry from `actions`. Clicking the bar writes a newline to the command's stdin to ask for a refresh. If it exits, cmux starts it again 10 seconds later, so a command that prints one line and quits refreshes every 10 seconds. Empty hides the bar. |
+| `statusBar.fontSize` | number (8–20) | `11` | Font size of the bar's text, in points. |
+| `statusBar.alignment` | `"left"` or `"center"` or `"right"` | `"left"` | Horizontal placement of the line when it is narrower than the window. |
+
 ## fileEditor
 
 Built-in text editor settings used by text file previews.

@@ -42,6 +42,8 @@ public struct SettingCatalog: SettingCatalogSection {
     public let markdown = MarkdownCatalogSection()
     /// Settings for the freeform canvas workspace layout (the `canvas.*` keys).
     public let canvas = CanvasCatalogSection()
+    /// Settings for the program-driven bar along the bottom of each window (the `statusBar.*` keys).
+    public let statusBar = StatusBarCatalogSection()
     /// Settings for the built-in plain-text file editor (the `fileEditor.*` keys).
     public let fileEditor = FileEditorCatalogSection()
     /// Settings for Mobile pairing and sync.

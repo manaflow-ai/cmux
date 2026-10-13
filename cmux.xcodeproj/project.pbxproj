@@ -394,6 +394,8 @@
 		D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */; };
 		D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */; };
 		AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */; };
+		B07700010000000000000002 /* BottomStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B07700010000000000000001 /* BottomStatusBar.swift */; };
+		D82C6608990DCD4CEE8E2174 /* BottomStatusBarRunTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1585CD366D62550402A1A6C /* BottomStatusBarRunTests.swift */; };
 		B7E1A0000000000000000002 /* browser-repl in Resources */ = {isa = PBXBuildFile; fileRef = B7E1A0000000000000000001 /* browser-repl */; };
 		986900080000000000000001 /* BrowserAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900080000000000000002 /* BrowserAction.swift */; };
 		986900020000000000000001 /* BrowserActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900020000000000000002 /* BrowserActionDispatcher.swift */; };
@@ -5092,6 +5094,8 @@
 		D0B10011A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarDebug.swift; sourceTree = "<group>"; };
 		D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarPassThrough.swift; sourceTree = "<group>"; };
 		AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabDragUITests.swift; sourceTree = "<group>"; };
+		B07700010000000000000001 /* BottomStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomStatusBar.swift; sourceTree = "<group>"; };
+		C1585CD366D62550402A1A6C /* BottomStatusBarRunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BottomStatusBarRunTests.swift"; sourceTree = "<group>"; };
 		B7E1A0000000000000000001 /* browser-repl */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "browser-repl"; sourceTree = "<group>"; };
 		986900080000000000000002 /* BrowserAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserAction.swift; sourceTree = "<group>"; };
 		986900020000000000000002 /* BrowserActionDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserActionDispatcher.swift; sourceTree = "<group>"; };
@@ -10098,6 +10102,7 @@
 					D36090020000000000000002 /* NSWindow+CmuxPeerWindow.swift */,
 					C0DE35860000000000000002 /* BackgroundWorkspacePrimeCoordinator.swift */,
 					A5001012 /* ContentView.swift */,
+					B07700010000000000000001 /* BottomStatusBar.swift */,
 					C51A740000000000000000B2 /* ContentView+SidebarSurfaceKind.swift */,
 					C0DE86060000000000000002 /* CommandPaletteFocusRestoreCoordinator.swift */,
 					C0DE86060000000000000004 /* CommandPaletteRestoreFocusTarget.swift */,
@@ -13832,6 +13837,7 @@
 				6363F4EA9220ADE6FA369B16 /* CLIMuseHookInstallTests.swift */,
 				80B2BBAC8B90CA286F4B2BF7 /* MainWindowHitTestMutationMonitorTests.swift */,
 				DB2534FB1BD7FDBD3A7474EE /* CloudManualMirrorHandshakeTests.swift */,
+				C1585CD366D62550402A1A6C /* BottomStatusBarRunTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14906,6 +14912,7 @@
 				74060000000000000000001B /* BonsplitConfiguration+RemoteTmuxEmbedded.swift in Sources */,
 					D0B10010A1B2C3D4E5F60001 /* BonsplitTabBarDebug.swift in Sources */,
 				D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */,
+				B07700010000000000000002 /* BottomStatusBar.swift in Sources */,
 				986900080000000000000001 /* BrowserAction.swift in Sources */,
 				986900020000000000000001 /* BrowserActionDispatcher.swift in Sources */,
 				986900030000000000000001 /* BrowserActionTarget.swift in Sources */,
@@ -17825,6 +17832,7 @@
 				74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */,
 				048825756F06479D745E276B /* AutoNamingOpenCodeArgumentsTests.swift in Sources */,
 				B00FC393AB29CFA85FB6D9F5 /* BackgroundPrimeStartableSurfaceTests.swift in Sources */,
+				D82C6608990DCD4CEE8E2174 /* BottomStatusBarRunTests.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
 				8054B0030000000000000003 /* BrowserAutomationRecoveryLifecycleTests.swift in Sources */,
 				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,

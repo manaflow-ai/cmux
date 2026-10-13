@@ -2548,19 +2548,22 @@ struct ContentView: View {
         }
 
         return AnyView(
-            layout
-                .overlay(alignment: .leading) {
-                    if sidebarState.isVisible {
-                        sidebarResizerOverlay
-                            .zIndex(1000)
+            VStack(spacing: 0) {
+                layout
+                    .overlay(alignment: .leading) {
+                        if sidebarState.isVisible {
+                            sidebarResizerOverlay
+                                .zIndex(1000)
+                        }
                     }
-                }
-                .overlay(alignment: .leading) {
-                    if rightSidebarVisible {
-                        rightSidebarResizerOverlay
-                            .zIndex(1000)
+                    .overlay(alignment: .leading) {
+                        if rightSidebarVisible {
+                            rightSidebarResizerOverlay
+                                .zIndex(1000)
+                        }
                     }
-                }
+                BottomStatusBar(runAction: { executeConfiguredAction(id: $0) })
+            }
         )
     }
 

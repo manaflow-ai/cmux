@@ -412,6 +412,33 @@ extension CmuxSettingsFileStore {
         }
     }
 
+    func parseStatusBarSection(
+        _ section: [String: Any],
+        sourcePath: String,
+        snapshot: inout ResolvedSettingsSnapshot
+    ) {
+        let statusBar = StatusBarCatalogSection()
+        if let value = jsonString(section["command"]) {
+            snapshot.managedUserDefaults[statusBar.command.userDefaultsKey] = .string(
+                value.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        } else if section.keys.contains("command") {
+            logInvalid("statusBar.command", sourcePath: sourcePath)
+        }
+
+        if let value = jsonDouble(section["fontSize"]), StatusBarCatalogSection.fontSizeRange.contains(value) {
+            snapshot.managedUserDefaults[statusBar.fontSize.userDefaultsKey] = .double(value)
+        } else if section.keys.contains("fontSize") {
+            logInvalid("statusBar.fontSize", sourcePath: sourcePath)
+        }
+
+        if let raw = jsonString(section["alignment"]), let alignment = SessionContentAlignment(rawValue: raw) {
+            snapshot.managedUserDefaults[statusBar.alignment.userDefaultsKey] = .string(alignment.rawValue)
+        } else if section.keys.contains("alignment") {
+            logInvalid("statusBar.alignment", sourcePath: sourcePath)
+        }
+    }
+
     func parseSidebarWorkspaceTodosBeta(
         _ beta: [String: Any],
         sourcePath: String,
