@@ -10,6 +10,10 @@ public struct AgentHookDeliveryPolicy: Sendable {
     public static let routeSnapshotEnvironmentKey =
         "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT"
 
+    /// The PID of the process that ran a spooled hook, recorded by the spool
+    /// producer so a later forwarder can apply ``hookAgentPID(environmentPID:invocationAgentPID:controllingTerminal:)``.
+    public static let invokerPIDEnvironmentKey = "CMUX_AGENT_HOOK_INVOKER_PID"
+
     /// The largest payload accepted by the local delivery queue.
     public static let maximumPayloadBytes = 64 * 1_024
 
@@ -103,5 +107,41 @@ public struct AgentHookDeliveryPolicy: Sendable {
             return true
         }
         return Self.auxiliaryQueuedSubcommands[normalizedAgent]?.contains(normalizedSubcommand) == true
+    }
+
+    /// Chooses the agent process that owns one hook invocation.
+    ///
+    /// - Parameters:
+    ///   - environmentPID: The agent PID exported in the hook's environment.
+    ///   - invocationAgentPID: The nearest non-shell ancestor of the hook
+    ///     process, which is the agent that ran the hook.
+    ///   - controllingTerminal: Returns a live process's controlling terminal
+    ///     device, or `nil` when the process has none or no longer exists.
+    /// - Returns: The PID whose terminal identifies the hook's pane.
+    ///
+    /// The exported PID is inherited by everything the agent starts, so a
+    /// second agent launched outside the wrapper (a fork in a tmux pane, a
+    /// shell started from the first agent) carries the first agent's PID.
+    /// When that PID is alive on a different terminal than the agent that ran
+    /// the hook, it names another pane, and the hook's own agent wins. On the
+    /// same terminal, or without terminal evidence, the exported PID is kept:
+    /// a launcher shim may export its own PID while the agent runs as its child.
+    public func hookAgentPID(
+        environmentPID: Int?,
+        invocationAgentPID: Int?,
+        controllingTerminal: (Int) -> Int64?
+    ) -> Int? {
+        let invocationAgentPID = invocationAgentPID.flatMap { $0 > 1 ? $0 : nil }
+        guard let environmentPID, environmentPID > 0 else {
+            return invocationAgentPID
+        }
+        guard let invocationAgentPID,
+              invocationAgentPID != environmentPID,
+              let invocationTerminal = controllingTerminal(invocationAgentPID),
+              let environmentTerminal = controllingTerminal(environmentPID),
+              invocationTerminal != environmentTerminal else {
+            return environmentPID
+        }
+        return invocationAgentPID
     }
 }

@@ -121,6 +121,7 @@ extension Workspace {
                         // while autosaving or closing a workspace.
                         revalidateProcessEvidence: false
                     ),
+                    restorableAgentIndex: restorableAgentIndex,
                     resumeBinding: effectiveSurfaceResumeBinding(
                         panelId: panelId,
                         surfaceResumeBindingIndex: surfaceResumeBindingIndex,
@@ -453,6 +454,7 @@ extension Workspace {
         panelId: UUID,
         includeScrollback: Bool,
         restorableAgentObservation: RestorableAgentSessionIndex.Entry?,
+        restorableAgentIndex: RestorableAgentSessionIndex? = nil,
         resumeBinding: SurfaceResumeBindingSnapshot?,
         terminalFontSizeSnapshotProjection:
             WorkspaceTerminalFontSizeSnapshotProjection? = nil,
@@ -616,6 +618,11 @@ extension Workspace {
                 resumeBinding: resumeBinding,
                 terminal: terminalPanel,
                 observation: restorableAgentObservation,
+                observationIsAuthoritative: restorableAgentIndex?.isComplete(
+                    forWorkspaceId: id,
+                    panelId: panelId,
+                    kind: resumeBinding?.kind ?? effectiveRestorableAgent?.kind.rawValue
+                ) ?? true,
                 currentAgentProcessIdentity: currentAgentProcessIdentity,
                 agentProcessPresence: agentProcessPresence
             )
@@ -2611,6 +2618,7 @@ extension Workspace {
         resumeBinding: SurfaceResumeBindingSnapshot?,
         terminal: TerminalPanel,
         observation: RestorableAgentSessionIndex.Entry?,
+        observationIsAuthoritative: Bool = true,
         currentAgentProcessIdentity: (Int) -> AgentPIDProcessIdentity? = {
             guard $0 > 0, $0 <= Int(Int32.max) else { return nil }
             return AgentPIDProcessIdentity(pid: pid_t($0))
@@ -2659,7 +2667,12 @@ extension Workspace {
                       rhs: bindingSessionId
                   ),
                   let matchingObservation else {
-                return false
+                // An incomplete index (for example the cached index a quit
+                // falls back to) may predate this session (#20186). A shell
+                // back at its prompt still shows the agent has exited.
+                guard !observationIsAuthoritative,
+                      panelShellActivityStates[panelId] != .promptIdle else { return false }
+                return nil
             }
             return matchingObservation.wasRunningForSnapshot(
                 restorableAgent,
