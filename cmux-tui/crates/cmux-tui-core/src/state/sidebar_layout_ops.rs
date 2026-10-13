@@ -46,7 +46,7 @@ impl Mux {
             |transaction, _| {
                 // An icon names a symbol, an emoji or an asset this store
                 // holds, like every other icon field (icon-assets-v1).
-                if let Some(icon) = parsed.introduced_icon() {
+                for icon in parsed.introduced_icons() {
                     require_icon_asset(transaction, icon)?;
                 }
                 let current = store::document(transaction)?;

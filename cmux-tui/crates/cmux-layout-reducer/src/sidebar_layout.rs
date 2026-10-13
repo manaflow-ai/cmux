@@ -414,13 +414,17 @@ pub enum Op {
 }
 
 impl Op {
-    /// The item icon this op would store (an item added with one, or an
-    /// update that sets one), which its owner checks before it stores it.
-    pub fn introduced_icon(&self) -> Option<&str> {
+    /// The item icons this op would store (items added with one, in a
+    /// section or alone, or an update that sets one), which their owner
+    /// checks before it stores them.
+    pub fn introduced_icons(&self) -> Vec<&str> {
         match self {
-            Op::ItemAdd { item, .. } => item.icon.as_deref(),
-            Op::ItemUpdate { icon: Update::Set(icon), .. } => Some(icon),
-            _ => None,
+            Op::SectionAdd { section, .. } => {
+                section.items.iter().filter_map(|item| item.icon.as_deref()).collect()
+            }
+            Op::ItemAdd { item, .. } => item.icon.as_deref().into_iter().collect(),
+            Op::ItemUpdate { icon: Update::Set(icon), .. } => vec![icon.as_str()],
+            _ => Vec::new(),
         }
     }
 
@@ -693,6 +697,9 @@ fn add_section(section: &Section, index: i64, sections: &mut Vec<Section>) -> Re
     }
     for item in &section.items {
         validate_span(item.span)?;
+        if let Some(icon) = &item.icon {
+            validate_icon(icon)?;
+        }
     }
     let mut ids: Vec<&str> =
         sections.iter().flat_map(|s| s.items.iter().map(|item| item.id.as_str())).collect();

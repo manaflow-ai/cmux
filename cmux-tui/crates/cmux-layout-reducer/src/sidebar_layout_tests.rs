@@ -579,6 +579,7 @@ fn random_op(rng: &mut Rng, step: usize) -> Op {
                 reference: ItemRef::new("built_in", &reference),
                 shows_label: flag,
                 span: (rows < 14).then_some(rows),
+                icon: None,
                 extra: Default::default(),
             },
             section,

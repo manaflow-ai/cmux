@@ -255,10 +255,27 @@ fn a_layout_item_takes_a_user_icon_and_keeps_its_asset_from_the_sweep() {
     set(json!("house.fill"), "icon-symbol").unwrap();
     assert_eq!(home()["icon"], "house.fill");
     let missing = format!("svg:sha256-{}", "0".repeat(64));
-    for (index, bad) in [json!("Not A Symbol"), json!(""), json!(missing)].into_iter().enumerate() {
+    for (index, bad) in [json!("Not A Symbol"), json!(""), json!(&missing)].into_iter().enumerate()
+    {
         assert_eq!(error_code(set(bad, &format!("icon-bad-{index}"))), "validation.invalid");
     }
     assert_eq!(home()["icon"], "house.fill");
+    // An item added with a section is checked the same way.
+    let section = json!({"id": "sec_icons", "region": "top", "look": "list", "content": "items",
+        "items": [{"id": "itm_icon", "ref": {"kind": "built_in", "value": "history"}, "icon": missing}]});
+    assert_eq!(
+        error_code(update(
+            &mux,
+            "icon-section",
+            json!({"kind": "section.add", "section": section.clone(), "index": 9})
+        )),
+        "validation.invalid"
+    );
+    // The same section with a stored icon is taken (the refusal was the icon's).
+    let mut valid = section.clone();
+    valid["items"][0]["icon"] = json!("clock");
+    update(&mux, "icon-section-ok", json!({"kind": "section.add", "section": valid, "index": 9}))
+        .unwrap();
 
     let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>"#;
     let icon = mux
