@@ -34,6 +34,10 @@ from tag_teardown import TagTeardown  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 INSTALL_ACTION = "palette.applyUpdateIfAvailable"
 CHECK_ACTION = "palette.checkForUpdates"
+ATTEMPT_ACTION = "palette.attemptUpdate"
+# --scenario: the palette's Attempt Update (Cmd+Shift+P), run through action.run (the registry path
+# the palette runs), and what the update UI shows (the card.* marks, updates.status).
+SCENARIOS = ["attempt-up-to-date", "attempt-update", "attempt-staged", "attempt-feed-error", "attempt-download-error"]
 RESTORED_MARKS = ["launch.first_window_frame_committed", "launch.launch_snapshot_shown",
                   "launch.daemon_connected", "launch.daemon_version_handoff", "launch.daemon_snapshot_loaded",
                   "launch.sidebar_rows_shown", "launch.first_terminal_content"]
@@ -328,6 +332,42 @@ def second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock
             "v3_pid": opened and opened["pid"], "installed_build": installed, "v3_build": i3["CFBundleVersion"]}
 
 
+def card_marks(rows, pid):
+    """The update card kinds v1 showed, in order (card.* marks)."""
+    return [r["name"] for r in rows if r["pid"] == pid and r["name"].startswith("card.")]
+
+
+def run_attempt_scenario(a, sock, marks, pid, result):
+    """Runs Attempt Update once and checks what the update UI shows (the card.* marks, then
+    updates.status). Exits non-zero when the expected result never shows."""
+    before = len(card_marks(marks.read(), pid))
+    reply = rpc(sock, "action.run", {"id": ATTEMPT_ACTION})
+    log("attempt", json.dumps(reply)[:300])
+    expected = {"attempt-up-to-date": ["card.up_to_date"], "attempt-update": ["card.ready"],
+                "attempt-feed-error": ["card.check_failed"], "attempt-download-error": ["card.check_failed"]}[a.scenario]
+    hit = marks.wait(lambda rows: any(m in card_marks(rows, pid)[before:] for m in expected), a.stage_timeout)
+    rows = marks.read()
+    status = rpc(sock, "updates.status").get("result") or {}
+    shown = card_marks(rows, pid)[before:]
+    failure = first(rows, "failure_content.*", pid=pid)
+    result["scenario"] = {"name": a.scenario, "reply": reply, "card_marks": shown,
+                          "phases": [r["name"] for r in rows if r["pid"] == pid and r["name"].startswith("phase.")],
+                          "failure_content": failure and failure["name"],
+                          "status": {k: status.get(k) for k in ("phase", "card", "badge", "detected_version", "log")}}
+    log("scenario", json.dumps(result["scenario"])[:3000])
+    if not hit:
+        raise SystemExit(f"{a.scenario}: the update UI never showed {expected}; it showed {shown}")
+    # The result must come from this click's check: a progress card first, then the result.
+    progress = [i for i, m in enumerate(shown) if m in ("card.checking", "card.downloading")]
+    result_at = min(i for i, m in enumerate(shown) if m in expected)
+    if not progress or progress[0] > result_at:
+        raise SystemExit(f"{a.scenario}: no checking or downloading card before {expected}: {shown}")
+    if a.scenario == "attempt-update" and not status.get("badge"):
+        raise SystemExit("attempt-update: the staged update has no Restart to Update pill")
+    if a.scenario == "attempt-download-error" and not (failure and "downloadManually" in failure["name"]):
+        raise SystemExit(f"attempt-download-error: the failure offers no Download Manually: {failure}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", required=True)
@@ -373,6 +413,13 @@ def main():
                     help="after the relaunch, publish a v3 and update the relaunched build again")
     ap.add_argument("--click-at-stage", action="store_true",
                     help="click the moment the update stages, not after the staging work (the rollback keep) ends")
+    ap.add_argument("--scenario", choices=SCENARIOS,
+                    help="the palette's Attempt Update: up-to-date (the feed offers v1 itself) -> the up to date card; "
+                         "update -> checking or downloading, then the staged update card (Restart to Update); "
+                         "staged (a check stages first) -> Check for Updates keeps the staged card, then Attempt "
+                         "Update installs and relaunches; feed-error (no appcast) -> the check failed card; "
+                         "download-error (the archive is missing) -> the check failed card and the failure sheet "
+                         "content with Download Manually")
     a = ap.parse_args()
     if a.island_lifecycle and not (a.surface_shots and a.notes):
         ap.error("--island-lifecycle needs --surface-shots and --notes")
@@ -446,13 +493,18 @@ def main():
       <sparkle:version>{i2['CFBundleVersion']}</sparkle:version>
       <sparkle:shortVersionString>{short}</sparkle:shortVersionString>
       <description><![CDATA[New: the update harness relaunch]]></description>
-      <enclosure url="http://127.0.0.1:{a.port}/update.zip" length="{length}" type="application/octet-stream" sparkle:edSignature="{signature}"/>
+      <enclosure url="http://127.0.0.1:{a.port}/{'missing.zip' if a.scenario == 'attempt-download-error' else 'update.zip'}" length="{length}" type="application/octet-stream" sparkle:edSignature="{signature}"/>
     </item>
   </channel>
 </rss>
 """
-        with open(os.path.join(feed, "appcast.xml"), "w") as f:
-            f.write(appcast)
+        if a.scenario == "attempt-up-to-date":
+            # The feed's newest item is the running build: nothing to update to.
+            appcast = appcast.replace(f"<sparkle:version>{i2['CFBundleVersion']}</sparkle:version>",
+                                      f"<sparkle:version>{i1['CFBundleVersion']}</sparkle:version>")
+        if a.scenario != "attempt-feed-error":
+            with open(os.path.join(feed, "appcast.xml"), "w") as f:
+                f.write(appcast)
         if a.notes:
             write_notes(feed, keys, i2, log)
         server = subprocess.Popen([sys.executable, "-m", "http.server", str(a.port), "--bind", "127.0.0.1", "--directory", feed],
@@ -530,6 +582,9 @@ def main():
             log("island lifecycle", json.dumps(result["island_lifecycle"]))
         if not first(marks.read(), "updater_created", pid=v1_pid):
             raise SystemExit("v1 did not start the harness updater (is it a DEBUG build with the harness keys?)")
+        if a.scenario and a.scenario != "attempt-staged":
+            run_attempt_scenario(a, sock, marks, v1_pid, result)
+            return
         # Sparkle's launch check may already run; an explicit check makes the run deterministic.
         if not a.sparkle_auto:
             log("check", json.dumps(rpc(sock, "action.run", {"id": CHECK_ACTION}))[:200])
@@ -578,8 +633,20 @@ def main():
                                       "org.sparkle-project.Sparkle/Installation")
             result["broken_staged"] = os.listdir(staged_dir) if os.path.isdir(staged_dir) else []
             shutil.rmtree(staged_dir, ignore_errors=True)
+        if a.scenario == "attempt-staged":
+            # Check for Updates while the update waits: the staged card stays (Sparkle skips the check).
+            log("check while staged", json.dumps(rpc(sock, "action.run", {"id": CHECK_ACTION}))[:200])
+            status = rpc(sock, "updates.status").get("result") or {}
+            answered = any("check while an update waits" in line for line in status.get("log") or [])
+            result["staged_check"] = {"badge": status.get("badge"), "card": status.get("card"), "answered_by_staged": answered,
+                                      "card_marks": card_marks(marks.read(), v1_pid)}
+            log("staged check", json.dumps(result["staged_check"]))
+            if not status.get("badge") or not answered:
+                raise SystemExit("a check while the update waits did not keep the staged update card")
+        install_action = ATTEMPT_ACTION if a.scenario == "attempt-staged" else INSTALL_ACTION
+        result["install_action"] = install_action
         t_send = time.time()
-        reply = rpc(sock, "action.run", {"id": INSTALL_ACTION})
+        reply = rpc(sock, "action.run", {"id": install_action})
         t_reply = time.time()
         log("install", json.dumps(reply)[:200])
         if a.break_staged or a.readonly_install:
