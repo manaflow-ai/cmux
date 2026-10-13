@@ -35,11 +35,7 @@ struct BrowserReplSecretSourceLockTests {
         let finished = DispatchSemaphore(value: 0)
         let finishedInWindow = NavigationOutcome()
         let opened: (BrowserReplFileIdentity) throws -> Void = { identity in
-            Thread.detachNewThread {
-                let started = (try? BrowserReplFileSandbox.withPinnedFileAccess(url, roots: [root]) { _ in true }) ?? false
-                loaded.set(started)
-                finished.signal()
-            }
+            Self.startNavigation(to: url, roots: [root], loaded: loaded, finished: finished)
             // The wait only bounds the test's time: a navigation that waits
             // for the lock cannot finish while the hook runs under it.
             finishedInWindow.set(finished.wait(timeout: .now() + 1) == .success)
@@ -53,6 +49,23 @@ struct BrowserReplSecretSourceLockTests {
         if finishedInWindow.value != true { finished.wait() }
         #expect(loaded.value == false, "a file navigation started loading the secrets file between its open and its protection")
         #expect(finishedInWindow.value == false, "the navigation's check ran while secrets.load had the file open and unprotected")
+    }
+
+    /// Starts a file navigation's check on a thread of its own. Its block is
+    /// formed here, outside any actor, so it carries no actor isolation the
+    /// runtime would check on that thread (macOS 15 traps on such a check).
+    private nonisolated static func startNavigation(
+        to url: String,
+        roots: [BrowserReplFileRoot],
+        loaded: NavigationOutcome,
+        finished: DispatchSemaphore
+    ) {
+        let thread = Thread {
+            let started = (try? BrowserReplFileSandbox.withPinnedFileAccess(url, roots: roots) { _ in true }) ?? false
+            loaded.set(started)
+            finished.signal()
+        }
+        thread.start()
     }
 }
 
