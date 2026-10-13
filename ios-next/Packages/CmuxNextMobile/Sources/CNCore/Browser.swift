@@ -163,3 +163,38 @@ public struct BrowserMacStatus: Codable, Sendable, Hashable {
         self.state = state; self.reason = reason; self.restartRequired = restartRequired; self.hostName = hostName
     }
 }
+
+/// One entry of a tab's session history (`browser.history`).
+public struct BrowserHistoryEntry: Codable, Sendable, Hashable, Identifiable {
+    public var id: Int
+    public var url: String
+    /// May be empty (Safari then shows the address).
+    public var title: String
+    public init(id: Int, url: String, title: String) { self.id = id; self.url = url; self.title = title }
+}
+
+/// `browser.history {tabId}` result: oldest first, `entries[currentIndex]` is shown.
+public struct BrowserHistoryList: Codable, Sendable, Hashable {
+    public var currentIndex: Int
+    public var entries: [BrowserHistoryEntry]
+    public init(currentIndex: Int, entries: [BrowserHistoryEntry]) { self.currentIndex = currentIndex; self.entries = entries }
+
+    /// The back menu: the previous page first, going back.
+    public var backEntries: [BrowserHistoryEntry] {
+        guard currentIndex > 0, currentIndex <= entries.count else { return [] }
+        return entries[..<currentIndex].reversed()
+    }
+
+    /// The forward menu: the next page first.
+    public var forwardEntries: [BrowserHistoryEntry] {
+        guard currentIndex >= 0, currentIndex + 1 < entries.count else { return [] }
+        return Array(entries[(currentIndex + 1)...])
+    }
+}
+
+/// `browser.goToHistory {tabId, entryId}`.
+public struct BrowserGoToHistoryParams: Codable, Sendable, Hashable {
+    public var tabId: String
+    public var entryId: Int
+    public init(tabId: String, entryId: Int) { self.tabId = tabId; self.entryId = entryId }
+}

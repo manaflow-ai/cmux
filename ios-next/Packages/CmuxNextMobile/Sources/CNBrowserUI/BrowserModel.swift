@@ -137,7 +137,14 @@ final class BrowserModel {
         case .browserTab(let tab):
             if let i = tabs.firstIndex(where: { $0.id == tab.id }) {
                 if tabs[i].url != tab.url, !tab.url.isEmpty, tab.url != "about:blank" { startPageTabs.remove(tab.id) }
+                let old = tabs[i]
                 tabs[i] = tab
+                // Keep the long-press back/forward menus current.
+                if tab.id == activeTabId, !tab.loading,
+                   old.url != tab.url || old.title != tab.title || old.canGoBack != tab.canGoBack
+                    || old.canGoForward != tab.canGoForward || old.loading {
+                    refreshHistory(tab.id)
+                }
             } else {
                 tabs.append(tab)
             }
@@ -362,7 +369,10 @@ final class BrowserModel {
             frames[tabId] = PageFrame(image: cg, cssSize: CGSize(width: Double(vp.width), height: Double(vp.width) * Double(cg.height) / Double(cg.width)),
                                       topColor: Self.topColor(of: cg), seq: 0)
         }
-        Task { await attach(tabId) }
+        Task {
+            await attach(tabId)
+            refreshHistory(tabId)
+        }
     }
 
     /// Opens a new tab showing the start page; returns its id.
@@ -465,6 +475,29 @@ final class BrowserModel {
         if looksLikeHost { return "https://" + text }
         let q = text.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? text
         return "https://www.google.com/search?q=" + q
+    }
+
+    /// Session history per tab for the long-press back/forward menus,
+    /// refreshed from browser.tab changes and when a menu opens.
+    private(set) var histories: [String: BrowserHistoryList] = [:]
+
+    func refreshHistory(_ tabId: String? = nil) {
+        guard let id = tabId ?? activeTabId, let client = connection.client else { return }
+        Task {
+            if let h = try? await client.history(id) { if histories[id] != h { histories[id] = h } }
+        }
+    }
+
+    /// A row of the back/forward menu: straight to that page.
+    func goToHistory(_ entry: BrowserHistoryEntry) {
+        guard let id = activeTabId else { return }
+        Task {
+            do {
+                try await connection.requireClient().goToHistory(id, entryId: entry.id)
+            } catch {
+                notice = "Couldn't open that page: \((error as? LocalizedError)?.errorDescription ?? "\(error)")"
+            }
+        }
     }
 
     func goBack() { history(.back) }

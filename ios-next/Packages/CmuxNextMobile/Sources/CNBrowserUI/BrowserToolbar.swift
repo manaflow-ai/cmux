@@ -72,6 +72,12 @@ struct BrowserToolbar: View {
     var onGo: (String) -> Void
     var onSwipeChanged: (CGFloat) -> Void
     var onSwipeEnded: (CGFloat, CGFloat) -> Void
+    /// Long-press back/forward menus: the pages before (most recent first)
+    /// and after (next first) the current one.
+    var navigationHistory: BrowserHistoryList? = nil
+    var onHistory: (BrowserHistoryEntry) -> Void = { _ in }
+    /// A history menu is opening: refresh the entries.
+    var onHistoryMenu: () -> Void = {}
 
     @State private var labelWidth: CGFloat = 69
     @State private var progressShown: CGFloat = 0
@@ -144,26 +150,18 @@ struct BrowserToolbar: View {
             // it slides and fades with the capsule; the button over it only
             // exists while there is forward history (a hidden, scaled-down
             // button stayed in the hit and accessibility trees).
-            if splitBack {
-                // Inserted and removed with the capsule's animation (fade,
-                // scale and slide from the back circle's center): a
-                // transparent symbol kept in place stayed in the
-                // accessibility tree as a stray "Forward".
-                Image(systemName: "chevron.right").font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(style.colors.label)
-                    .frame(width: max(1, r.width / 2), height: r.height)
-                    .offset(x: r.width / 2)
-                    .transition(.asymmetric(
-                        insertion: .opacity.combined(with: .scale(scale: 0.6, anchor: .leading)).combined(with: .offset(x: control / 2 - r.width / 2)),
-                        removal: .opacity.combined(with: .scale(scale: 0.6, anchor: .leading)).combined(with: .offset(x: control / 2 - r.width / 2))))
-                    .allowsHitTesting(false)
-                    .accessibilityHidden(true)
-            }
-            Button(action: onBack) {
+            // Tap goes back; a long press opens Safari's history menu (the
+            // system glass context menu from the button).
+            Menu {
+                historyMenu(navigationHistory?.backEntries ?? [])
+            } label: {
                 Image(systemName: "chevron.left").font(.system(size: 19, weight: .medium))
                     .frame(width: half, height: r.height)
                     .contentShape(.rect)
+            } primaryAction: {
+                onBack()
             }
+            .menuStyle(.button)
             .disabled(!canBack)
             .foregroundStyle(canBack ? style.colors.label : style.colors.glyphDisabled)
             .frame(width: half, height: r.height)
@@ -171,22 +169,53 @@ struct BrowserToolbar: View {
             if splitBack {
                 // Laid out (not offset) beside the back half, so its hit
                 // area is exactly the forward half.
+                // The forward glyph is this button's label, inserted and
+                // removed with the capsule's animation (fades in sliding out
+                // of the back circle's center); a separate transparent glyph
+                // stayed in the accessibility tree as a stray "Forward".
                 HStack(spacing: 0) {
                     Spacer(minLength: 0).frame(width: half)
-                    Button(action: onForward) {
-                        Color.clear
+                    Menu {
+                        historyMenu(navigationHistory?.forwardEntries ?? [])
+                    } label: {
+                        Image(systemName: "chevron.right").font(.system(size: 19, weight: .medium))
+                            .foregroundStyle(style.colors.label)
                             .frame(width: max(1, r.width - half), height: r.height)
                             .contentShape(.rect)
+                    } primaryAction: {
+                        onForward()
                     }
+                    .menuStyle(.button)
                     .accessibilityLabel("Forward")
                 }
+                .transition(.opacity.combined(with: .offset(x: control / 2 - r.width / 2)))
             }
         }
         .buttonStyle(.plain)
         .opacity(chrome.menuOpen ? 0.3 : 1)
         .frame(width: r.width, height: r.height, alignment: .leading)
+        .accessibilityElement(children: .contain)
         .clipShape(.capsule)
         .glassEffect(.regular.interactive(), in: .capsule)
+    }
+
+    /// One row per page, as Safari: the title with the address under it
+    /// (scheme and "www." dropped); the address alone when there is no title.
+    @ViewBuilder private func historyMenu(_ entries: [BrowserHistoryEntry]) -> some View {
+        ForEach(entries) { entry in
+            Button {
+                onHistory(entry)
+            } label: {
+                let address = entry.menuAddress
+                if entry.title.isEmpty {
+                    Text(address)
+                } else {
+                    Text(entry.title)
+                    Text(address)
+                }
+            }
+        }
+        .onAppear(perform: onHistoryMenu)
     }
 
     // MARK: Tabs / close

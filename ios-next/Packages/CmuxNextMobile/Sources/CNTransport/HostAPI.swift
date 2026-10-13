@@ -280,6 +280,16 @@ extension HostClient {
         try await call(HostMethod.browserNavigate.rawValue, BrowserNavigateParams(tabId: tabId, url: url))
     }
 
+    /// The tab's session history (long-press back/forward menus).
+    public func history(_ tabId: String) async throws -> BrowserHistoryList {
+        try await request(HostMethod.browserHistory.rawValue, BrowserTabRef(tabId: tabId), as: BrowserHistoryList.self)
+    }
+
+    /// Jumps to one history entry.
+    public func goToHistory(_ tabId: String, entryId: Int) async throws {
+        try await call(HostMethod.browserGoToHistory.rawValue, BrowserGoToHistoryParams(tabId: tabId, entryId: entryId))
+    }
+
     public func goBack(_ tabId: String) async throws { try await call(HostMethod.browserBack.rawValue, BrowserTabRef(tabId: tabId)) }
     public func goForward(_ tabId: String) async throws { try await call(HostMethod.browserForward.rawValue, BrowserTabRef(tabId: tabId)) }
     public func reload(_ tabId: String) async throws { try await call(HostMethod.browserReload.rawValue, BrowserTabRef(tabId: tabId)) }

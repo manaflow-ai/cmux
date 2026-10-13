@@ -207,6 +207,29 @@ extension MockEngine {
         startLoading(id, url: next, pushHistory: false)
     }
 
+    /// The tab's history as `browser.history`: back stack, current page,
+    /// forward stack (next first); ids are positions + 1.
+    func history(_ id: String) throws -> BrowserHistoryList {
+        let t = try tabOrThrow(id)
+        let urls = t.back + [t.tab.url] + t.forward.reversed()
+        let entries = urls.enumerated().map { i, url in
+            BrowserHistoryEntry(id: i + 1, url: url, title: url == t.tab.url ? t.tab.title : fixtures.page(for: url).title)
+        }
+        return BrowserHistoryList(currentIndex: t.back.count, entries: entries)
+    }
+
+    func goToHistory(_ id: String, entryId: Int) throws {
+        var t = try tabOrThrow(id)
+        let urls = t.back + [t.tab.url] + t.forward.reversed()
+        let index = entryId - 1
+        guard urls.indices.contains(index) else { throw notFound("history entry", String(entryId)) }
+        guard index != t.back.count else { return }
+        t.back = Array(urls[..<index])
+        t.forward = Array(urls[(index + 1)...].reversed())
+        tabs[id] = t
+        startLoading(id, url: urls[index], pushHistory: false)
+    }
+
     // MARK: Input
 
     func scroll(_ id: String, dy: Double) throws {

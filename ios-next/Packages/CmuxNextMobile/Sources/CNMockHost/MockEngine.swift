@@ -290,6 +290,12 @@ actor MockEngine {
         case .browserForward:
             try goForward(try decode(params, BrowserTabRef.self).tabId)
             return Self.empty
+        case .browserHistory:
+            return try encode(try history(try decode(params, BrowserTabRef.self).tabId))
+        case .browserGoToHistory:
+            let p = try decode(params, BrowserGoToHistoryParams.self)
+            try goToHistory(p.tabId, entryId: p.entryId)
+            return Self.empty
         case .browserReload:
             let id = try decode(params, BrowserTabRef.self).tabId
             guard let tab = tabs[id] else { throw notFound("tab", id) }

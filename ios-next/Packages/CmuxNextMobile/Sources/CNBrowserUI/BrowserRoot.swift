@@ -302,7 +302,10 @@ struct BrowserScreen: View {
                            onBack: model.goBack, onForward: model.goForward, onReload: model.reloadOrStop,
                            onMenu: openMenu, onTabs: openOverview, onBeginEditing: beginEditing,
                            onEndEditing: { endEditing() }, onGo: go,
-                           onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded)
+                           onSwipeChanged: swipeChanged, onSwipeEnded: swipeEnded,
+                           navigationHistory: model.activeTabId.flatMap { model.histories[$0] },
+                           onHistory: model.goToHistory,
+                           onHistoryMenu: { model.refreshHistory() })
                 .opacity(1 - overviewShown)
                 // Usable on the page, and while a zoom heads back to the page
                 // (the tabs button then reverses it).

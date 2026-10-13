@@ -36,6 +36,18 @@ enum BrowserHistoryStep: Sendable {
     }
 }
 
+extension BrowserHistoryEntry {
+    /// The address line of a history menu row, as Safari shows it: no
+    /// scheme, no "www.", no trailing slash.
+    var menuAddress: String {
+        var s = url
+        for prefix in ["https://", "http://"] where s.hasPrefix(prefix) { s.removeFirst(prefix.count) }
+        if s.hasPrefix("www.") { s.removeFirst(4) }
+        if s.hasSuffix("/") { s.removeLast() }
+        return s
+    }
+}
+
 #if os(iOS)
 extension BrowserModel {
     /// The toast for a refused create (`what`: "a new tab", "a terminal");
