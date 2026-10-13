@@ -73,7 +73,6 @@ extension CmuxSettingsFileStore {
         "terminal.textEditingGesturesInFullScreenApps",
         "terminal.showPasswordInputIndicator",
         "terminal.showPasswordInputDots",
-        "terminal.showJumpToBottomButton",
         "terminal.predictiveLocalEcho",
         "terminal.autoResumeAgentSessions",
         "terminal.showTextBoxOnNewTerminals",
