@@ -1,0 +1,106 @@
+//! Codex over `codex app-server`, presented to the hub as an ACP agent, in
+//! process (the cmux-codex-acp library).
+//!
+//! A profile whose command line is `codex app-server` (kind ACP) is bridged
+//! here: acpmux spawns the app-server, and the translator turns the hub's
+//! ACP into app-server JSON-RPC and back, in the agent host (durable
+//! sessions) or beside a direct child. `codex app-server` never speaks ACP
+//! itself, so the command line names the bridge without a new harness kind,
+//! and the hub sees a plain ACP agent: sessions, modes, config options,
+//! permission requests and native subagent sessions. Nothing outside this
+//! file and the library knows the app-server wire format.
+
+use crate::rpc::Message;
+use cmux_codex_acp::{Options, Out};
+use serde_json::Value;
+use std::path::Path;
+use std::sync::Arc;
+
+pub use cmux_codex_acp::Translator;
+
+/// Whether `program args...` runs `codex app-server`: a program named
+/// `codex` (or `codex-<something>`, a renamed build; any extension) whose
+/// first argument that is not a global option is `app-server`, with no
+/// app-server subcommand after it. Global options before the subcommand
+/// (`-c key=value`, `--enable x`, `-p profile`) take one value each.
+pub fn is_launch(program: &str, args: &[String]) -> bool {
+    let name = Path::new(program).file_stem().and_then(|n| n.to_str()).unwrap_or("");
+    if !(name == "codex" || name.starts_with("codex-")) {
+        return false;
+    }
+    let mut i = 0;
+    while let Some(a) = args.get(i) {
+        if a == "app-server" {
+            // `codex app-server <subcommand>` (generate-json-schema, proxy,
+            // daemon) is not the server; options after it are.
+            return args.get(i + 1).is_none_or(|next| next.starts_with('-'));
+        }
+        if !a.starts_with('-') {
+            return false;
+        }
+        // `--flag=value` carries its value; `-c value` and `--flag value` do not.
+        i += if a.contains('=') { 1 } else { 2 };
+    }
+    false
+}
+
+/// `is_launch` for a profile's argv.
+pub fn is_profile_launch(argv: &[String]) -> bool {
+    argv.split_first().is_some_and(|(program, args)| is_launch(program, args))
+}
+
+/// A translator for one app-server process.
+pub fn translator() -> Arc<Translator> {
+    Arc::new(Translator::new(Options {
+        client_name: "acpmux".into(),
+        client_title: "cmux".into(),
+        client_version: env!("CARGO_PKG_VERSION").into(),
+        ..Options::default()
+    }))
+}
+
+/// What the translator produced: lines for the app-server's stdin and ACP
+/// messages for the hub.
+#[derive(Default)]
+pub struct Split {
+    pub server: Vec<Value>,
+    pub hub: Vec<Message>,
+}
+
+pub fn split(outs: Vec<Out>) -> Split {
+    let mut s = Split::default();
+    for o in outs {
+        match o {
+            Out::Server(v) => s.server.push(v),
+            Out::Client(v) => match Message::from_value(v) {
+                Ok(m) => s.hub.push(m),
+                Err(e) => {
+                    tracing::warn!("cmux-codex-acp produced a message acpmux cannot parse: {e}")
+                }
+            },
+        }
+    }
+    s
+}
+
+/// The session-log kind of a raw app-server line (`codex.<method>`, or
+/// `codex.response`), or None for item notifications and streaming deltas.
+pub fn tap_kind(raw: &Value) -> Option<String> {
+    match raw.get("method").and_then(Value::as_str) {
+        // Item notifications become session updates that carry what they
+        // say; logging the raw line too would double the busiest records.
+        Some(m) if cmux_codex_acp::is_delta(m) || m.starts_with("item/") => None,
+        Some(m) => Some(format!("codex.{m}")),
+        None => Some("codex.response".into()),
+    }
+}
+
+/// The session-log kind of a line written to the app-server.
+pub const STDIN_KIND: &str = "codex.stdin";
+
+/// One line for the app-server's stdin.
+pub fn line(v: &Value) -> String {
+    let mut s = v.to_string();
+    s.push('\n');
+    s
+}
