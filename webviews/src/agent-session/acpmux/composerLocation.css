@@ -300,14 +300,7 @@
   display: inline-flex;
   align-items: center;
 }
-.acpmux-composer-bar .acpmux-effort::before,
-.acpmux-composer-bar .acpmux-access::before {
-  content: "";
-  width: 1px;
-  height: 18px;
-  margin: 0 5px;
-  background: var(--acpmux-composer-edge);
-}
+/* Footer controls share one rhythm; separators are reserved for explicit group boundaries. */
 @media (max-width: 480px) {
   /* At compact pane widths the rail keeps every action available but uses the same icon-first
      treatment as the mode picker. The button labels remain in aria-label/title metadata, so

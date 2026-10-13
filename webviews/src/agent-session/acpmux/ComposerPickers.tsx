@@ -479,7 +479,7 @@ export function ComposerPickers({
         />
       )}
       {!(effort && efforts.length > 1) && awaiting && <ChipSkeleton kind="effort" />}
-      <span className="acpmux-chips-spacer" />
+      <span className="acpmux-chips-spacer" aria-hidden="true" />
       {modes.length === 0 && awaiting && <ChipSkeleton kind="mode" />}
       {modes.length > 0 && (
         <AccessMenu
