@@ -155,6 +155,11 @@ Page zoom of an app browser tab is `cmux tab <tab_…> zoom in|out|reset`, which
 runs the app's zoom action on the tab's pane (the tab must be the one its pane
 shows); the CLI never writes the browser tab record.
 
+Agents cannot delete browser profiles, not even the ones they made. Only a
+person deletes one (Settings, the palette or the menu, then the confirmation
+sheet). `cmux browser-profile delete` and the daemon's `delete-browser-profile`
+refuse every agent, script and CLI call.
+
 ## Troubleshooting
 
 If `snapshot` or `eval` fails on a complex page, check where the page is first,
