@@ -33,11 +33,14 @@ struct SwitchToColdTabTypeAheadTests {
 
     /// A plain key-down, delivered as `CmuxApplication.sendEvent` delivers it.
     private static func type(_ text: String, in window: NSWindow, router: KeyRouter) {
-        let codes: [Character: UInt16] = ["h": 4, "e": 14, "l": 37, "o": 31, "x": 7]
+        let codes: [Character: UInt16] = ["h": 4, "e": 14, "l": 37, "o": 31, "x": 7, "s": 1, "\u{03}": 8]
         for character in text {
-            guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+            // ^C is Control-C, a chord the terminal takes.
+            let control = character == "\u{03}"
+            guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: control ? [.control] : [],
+                                               timestamp: ProcessInfo.processInfo.systemUptime,
                                                windowNumber: window.windowNumber, context: nil, characters: String(character),
-                                               charactersIgnoringModifiers: String(character), isARepeat: false,
+                                               charactersIgnoringModifiers: control ? "c" : String(character), isARepeat: false,
                                                keyCode: codes[character] ?? 0) else { continue }
             if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
         }
@@ -105,5 +108,20 @@ struct SwitchToColdTabTypeAheadTests {
         #expect(pane.currentTabKey == cold)
         #expect(after[shown] == nil, "keys typed after Ctrl-\(number) went to the tab it left: \(after)")
         #expect(after.count == 1 && after.values.first == 5, "the selected tab's terminal got \(after) of 5 typed bytes")
+
+        // Another cold tab, then typing and a terminal chord behind it: the chord waits its turn.
+        let count = pane.orderedIDs.count
+        _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .cli))
+        await Self.wait(within: .seconds(30)) { pane.orderedIDs.count > count }
+        let second = try #require(pane.orderedIDs.last?.rawValue)
+        #expect(!services.cache.hasContent(for: second), "the second script tab already has a surface")
+        seq = Self.lastSeq()
+        _ = services.registry.perform("selectSurfaceByNumber", invocation: ActionInvocation(arguments: ["index": .int(pane.orderedIDs.count)]))
+        Self.type("ls\u{03}", in: window, router: router)
+        await Self.wait(within: .seconds(15)) { Self.inputBytes(after: seq).values.reduce(0, +) >= 3 }
+        try? await Task.sleep(for: .milliseconds(300))
+        let chorded = Self.inputBytes(after: seq)
+        #expect(pane.currentTabKey == second)
+        #expect(chorded.count == 1 && chorded.values.first == 3, "typing then ^C onto a cold tab reached \(chorded) of 3 bytes")
     }
 }

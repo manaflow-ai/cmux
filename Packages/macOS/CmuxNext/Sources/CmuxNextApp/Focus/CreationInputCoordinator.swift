@@ -14,10 +14,11 @@ import os
 ///
 /// The same hold covers a selection that shows a terminal with no surface yet (Ctrl-1…9 onto a
 /// tab this window never showed, hq#1925 item 3): the pane makes the surface frames later, and
-/// until then the window is the first responder. Such a hold takes only typing, never a chord
-/// (held Ctrl-Tab or Ctrl-1…9 moves on at once and makes no surface for a tab it passed), and is
-/// bounded: it ends, giving its keys in order to whatever has focus, after `holdLimit`. Any hold
-/// ends as soon as focus leaves the content (the held keys go on before the next one).
+/// until then the window is the first responder. A chord ends such a hold while it holds nothing
+/// (held Ctrl-Tab or Ctrl-1…9 moves on at once and makes no surface for a tab it passed); behind
+/// typing it waits its turn. It is bounded: it ends, giving its keys in order to whatever has
+/// focus, after `holdLimit`. Any hold ends as soon as focus leaves the content (the held keys go
+/// on before the next one).
 @MainActor
 final class CreationInputCoordinator {
     weak var router: KeyRouter?
@@ -84,20 +85,23 @@ final class CreationInputCoordinator {
         // A Chromium page window is a child of the shell, whose number keys the buffer.
         let shell = controller?.window ?? window
         guard let buffer = buffers[shell.windowNumber] else { return false }
-        // Focus left the content (a sidebar or bar field), a surface-only hold ran out or met a
-        // chord: the held keys go on first, then this one, in typing order (into the hold a
-        // replayed key opened, if one did).
-        let surfaceOnly = !buffer.holdsCreation
-        let chord = !event.modifierFlags.intersection([.command, .control]).isEmpty
-        guard kind == .content, controller != nil,
-              !surfaceOnly || (!chord && ContinuousClock.now - buffer.began < holdLimit) else {
+        // Focus left the content (a sidebar or bar field), a surface-only hold ran out or an empty
+        // one met a chord: the held keys go on first, then this one, in typing order (into the
+        // hold a replayed key opened, if it holds this one).
+        guard kind == .content, controller != nil, holds(event, in: buffer, expiring: true) else {
             flush(in: shell, force: true)
-            guard let next = buffers[shell.windowNumber] else { return false }
+            guard let next = buffers[shell.windowNumber], holds(event, in: next, expiring: false) else { return false }
             next.capture(event)
             return true
         }
         buffer.capture(event)
         return true
+    }
+
+    private func holds(_ event: NSEvent, in buffer: CreationInputBuffer, expiring: Bool) -> Bool {
+        guard !buffer.holdsCreation else { return true }
+        if expiring, ContinuousClock.now - buffer.began >= holdLimit { return false }
+        return !(buffer.isEmpty && !event.modifierFlags.intersection([.command, .control]).isEmpty)
     }
 
     /// A focus settle in `window`: the keys may go on (in a new turn, after the focus queue).
@@ -179,6 +183,7 @@ final class CreationInputBuffer {
     var isResolved: Bool { pending.isEmpty }
     /// A creation opened in this hold: only its reply (or the request timeout) ends it.
     var holdsCreation: Bool { nextID > 0 }
+    var isEmpty: Bool { events.isEmpty }
 
     func open(generation: UInt64) -> Ticket {
         nextID += 1
