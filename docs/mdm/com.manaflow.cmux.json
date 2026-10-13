@@ -1579,8 +1579,7 @@
       "type" : "number"
     },
     "layout.paneSeparation" : {
-      "default" : "borders",
-      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.",
+      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise.",
       "enum" : [
         "none",
         "dividers",

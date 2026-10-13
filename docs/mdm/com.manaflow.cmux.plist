@@ -1807,10 +1807,8 @@
 			<string>string</string>
 		</dict>
 		<dict>
-			<key>pfm_default</key>
-			<string>borders</string>
 			<key>pfm_description</key>
-			<string>How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.</string>
+			<string>How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise.</string>
 			<key>pfm_name</key>
 			<string>layout.paneSeparation</string>
 			<key>pfm_range_list</key>
