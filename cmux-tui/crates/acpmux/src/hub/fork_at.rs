@@ -56,10 +56,14 @@ pub(super) fn claude_transcript_through(
 }
 
 /// Copies the rollout of Codex thread `parent` in the store at `store` (a
-/// CODEX_HOME) up to its first record written at or after `cut_ms` (as
+/// CODEX_HOME) up to its first turn started at or after `cut_ms` (as
 /// `claude_transcript_through`), beside the parent's under a new thread id,
 /// and returns that id. Codex finds a thread by the id in its rollout's file
 /// name; its `session_meta` names the thread too.
+///
+/// The cut is a turn's start, not any record: Codex stamps a record when its
+/// writer flushes it, so the kept turn's last records (`task_complete`, token
+/// counts) can carry a time after the chat moved past it.
 pub(super) fn codex_rollout_through(
     store: &Path,
     parent: &str,
@@ -87,10 +91,10 @@ pub(super) fn codex_rollout_through(
             {
                 *thread = Value::String(id.clone());
             }
-        } else if written_ms(&record).is_some_and(|at| at >= cut_ms) {
-            break;
-        } else if kind.as_deref() == Some("event_msg") && event.as_deref() == Some("task_complete")
-        {
+        } else if is_turn_start(kind.as_deref(), event.as_deref()) {
+            if written_ms(&record).is_some_and(|at| at >= cut_ms) {
+                break;
+            }
             turns += 1;
         }
         lines.push(serde_json::to_string(&record)?);
@@ -106,6 +110,12 @@ pub(super) fn codex_rollout_through(
         writeln!(copy, "{line}")?;
     }
     Ok(id)
+}
+
+/// A Codex rollout record that opens a turn: `task_started`, written before
+/// the turn's context and the person's message.
+fn is_turn_start(kind: Option<&str>, event: Option<&str>) -> bool {
+    kind == Some("event_msg") && event == Some("task_started")
 }
 
 /// A line the person sent: a user message that is not a tool result, a
