@@ -100,6 +100,11 @@ extension Workspace {
                 status = "ended"
                 stateSince = nil
             }
+            let lifecycle = Self.customSidebarAgentLifecycle(
+                state: record.state,
+                agentSource: record.agentKind.sourceName,
+                panelLifecycles: panelId.flatMap { agentLifecycleStatesByPanelId[$0] }
+            )
             agents.append(
                 CustomSidebarAgentSnapshot(
                     sessionId: record.sessionID,
@@ -122,12 +127,24 @@ extension Workspace {
                             startedAt: child.startedAt,
                             endedAt: child.endedAt
                         )
-                    }
+                    },
+                    lifecycle: lifecycle
                 )
             )
             if agents.count >= Self.customSidebarAgentLimit { break }
         }
         return agents
+    }
+
+    /// Returns the custom-sidebar wire value for the lifecycle recorded on an
+    /// agent's hosting panel.
+    static func customSidebarAgentLifecycle(
+        state: ChatAgentState,
+        agentSource: String,
+        panelLifecycles: [String: AgentHibernationLifecycleState]?
+    ) -> String? {
+        // The implementation is completed in the repair commit.
+        nil
     }
 
     private func customSidebarSurfaceSnapshots(focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {

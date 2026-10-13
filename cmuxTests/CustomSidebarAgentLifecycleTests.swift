@@ -1,0 +1,100 @@
+import CmuxAgentChat
+import Foundation
+import Testing
+
+#if canImport(cmux_DEV)
+@testable import cmux_DEV
+#elseif canImport(cmux)
+@testable import cmux
+#endif
+
+/// Covers the lifecycle projection that lets custom sidebars distinguish
+/// pending background work from an idle agent session.
+@MainActor
+@Suite
+struct CustomSidebarAgentLifecycleTests {
+    @Test("background work pending has a stable wire name")
+    func backgroundWorkPendingWireName() {
+        let lifecycle = Workspace.customSidebarAgentLifecycle(
+            state: .idle,
+            agentSource: "claude",
+            panelLifecycles: ["claude_code": .backgroundWorkPending]
+        )
+        #expect(lifecycle == "background_work_pending")
+    }
+
+    @Test("all lifecycle phases map to their custom-sidebar wire names")
+    func everyPhaseHasWireName() {
+        let expected: [AgentHibernationLifecycleState: String] = [
+            .unknown: "unknown",
+            .running: "running",
+            .backgroundWorkPending: "background_work_pending",
+            .needsInput: "needs_input",
+            .idle: "idle",
+        ]
+
+        for phase in AgentHibernationLifecycleState.allCases {
+            let lifecycle = Workspace.customSidebarAgentLifecycle(
+                state: .working(since: Date(timeIntervalSince1970: 1)),
+                agentSource: "codex",
+                panelLifecycles: ["codex": phase]
+            )
+            #expect(lifecycle == expected[phase])
+        }
+    }
+
+    @Test("lifecycle lookup uses the same provider key as the built-in sidebar")
+    func readsAgentStatusKey() {
+        let panelLifecycles: [String: AgentHibernationLifecycleState] = [
+            "claude_code": .needsInput,
+            "codex": .running,
+        ]
+
+        #expect(Workspace.customSidebarAgentLifecycle(
+            state: .idle,
+            agentSource: "claude",
+            panelLifecycles: panelLifecycles
+        ) == "needs_input")
+        #expect(Workspace.customSidebarAgentLifecycle(
+            state: .idle,
+            agentSource: "codex",
+            panelLifecycles: panelLifecycles
+        ) == "running")
+        #expect(Workspace.customSidebarAgentLifecycle(
+            state: .idle,
+            agentSource: "opencode",
+            panelLifecycles: panelLifecycles
+        ) == nil)
+    }
+
+    @Test("ended sessions and unbound panels omit lifecycle")
+    func endedOrUnboundOmitted() {
+        #expect(Workspace.customSidebarAgentLifecycle(
+            state: .ended,
+            agentSource: "claude",
+            panelLifecycles: ["claude_code": .running]
+        ) == nil)
+        #expect(Workspace.customSidebarAgentLifecycle(
+            state: .idle,
+            agentSource: "claude",
+            panelLifecycles: nil
+        ) == nil)
+    }
+
+    @Test("panel lifecycle set by the workspace is projected")
+    func projectsWorkspacePanelLifecycle() throws {
+        let workspace = Workspace()
+        let panelId = try #require(workspace.focusedPanelId)
+        workspace.setAgentLifecycle(
+            key: "claude_code",
+            panelId: panelId,
+            lifecycle: .backgroundWorkPending
+        )
+
+        #expect(Workspace.customSidebarAgentLifecycle(
+            state: .idle,
+            agentSource: "claude",
+            panelLifecycles: workspace.agentLifecycleStatesByPanelId[panelId]
+        ) == "background_work_pending")
+    }
+}
