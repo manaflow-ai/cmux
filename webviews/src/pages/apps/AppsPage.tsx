@@ -5,7 +5,7 @@ import { useSyncExternalStore, type KeyboardEvent } from "react";
 import type { Strings } from "../shared/i18n";
 import { AppDetailView } from "./AppDetailView";
 import { InstalledView } from "./InstalledView";
-import { categoryLabel, TierLabel } from "./model";
+import { categoryLabel, isRemovable, TierLabel } from "./model";
 import { AppIcon, Badge } from "./parts";
 import type { AppsSnapshot, AppsStore } from "./store";
 import type { CatalogApp } from "./types";
@@ -124,6 +124,21 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
 }
 
 function InstallButton({ app, store, strings }: { app: CatalogApp; store: AppsStore; strings: Strings }) {
+  // A first-party app ships with cmux: it is hidden or shown, never removed (FIRST-PARTY-APPS).
+  if (app.installed && !isRemovable(app)) {
+    return (
+      <button
+        type="button"
+        className="apps-button"
+        onClick={(event) => {
+          event.stopPropagation();
+          void store.setHidden(app.id, !app.hidden);
+        }}
+      >
+        {strings.t(app.hidden ? "store.action.show" : "store.action.hide")}
+      </button>
+    );
+  }
   return (
     <button
       type="button"
