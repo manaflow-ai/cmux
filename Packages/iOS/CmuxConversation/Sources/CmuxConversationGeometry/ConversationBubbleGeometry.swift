@@ -139,3 +139,17 @@ public enum ConversationBubbleGeometry {
         return p
     }
 }
+
+/// Where "Select"'s edit menu points: Messages hangs it under the selected
+/// text, arrow up, even with room above (iOS 27.0: text bottom 387 -> menu
+/// top 392.7).
+public enum BubbleSelectionMenuGeometry {
+    public struct Anchor: Equatable, Sendable {
+        public var point: CGPoint
+        public var pointsUp: Bool
+    }
+
+    public static func anchor(selection: CGRect) -> Anchor {
+        Anchor(point: CGPoint(x: selection.midX, y: selection.maxY), pointsUp: true)
+    }
+}
