@@ -2,13 +2,15 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextBrowser
 import CmuxNextBrowserImport
+import CmuxNextDesign
 import Foundation
 import Testing
 
 /// Import from Browser's conflicts (cx-dwg.8): one run reads several
 /// source profiles into one destination, one store write each. Every
 /// write's conflicts stay held for the person's Replace, each into the
-/// profile it was written to, not only the last write's.
+/// profile it was written to, not only the last write's. The run's toast
+/// offers Replace; without it the held passwords are zeroed.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct BrowserImportConflictTests {
     private static func login(_ username: String) -> ImportedLogin {
@@ -37,5 +39,36 @@ struct BrowserImportConflictTests {
         #expect(result.updated == 2)
         #expect(replaced == [.default, other], "each source's sign-ins go back into the profile they were imported to")
         #expect(first.password.count == 0 && second.password.count == 0, "every held password is zeroed after the Replace")
+    }
+
+    @Test func theRunsToastReplacesOrLetsTheHeldPasswordsGo() async throws {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false // ARC owns it; close() would release it on top of ARC's references.
+        defer { window.close() }
+        var writes = 0
+        let hold = PasswordConflictHold { _, _ in
+            writes += 1
+            return ChromiumPasswordReplaceResult(updated: 1, missing: 0, rejected: 0)
+        }
+        hold.keep([Self.login("first-source")], profile: .default)
+        hold.keep([Self.login("second-source")], profile: BrowserProfileID(rawValue: UUID()))
+
+        BrowserImportConflictOffer.offer(hold) { window }
+        let toast = { CmuxToastCenter.shared.toasts(in: window).first { $0.id == BrowserImportConflictOffer.toastID } }
+        #expect(toast()?.action?.title == PasswordCSVStrings.replace)
+        #expect(CmuxToastCenter.shared.runAction(id: BrowserImportConflictOffer.toastID, in: window))
+        for _ in 0..<50 where toast()?.message != PasswordCSVStrings.replaced(2) { await Task.yield() }
+        #expect(toast()?.message == PasswordCSVStrings.replaced(2))
+        #expect(writes == 2 && hold.count == 0)
+
+        let ignored = Self.login("ignored")
+        hold.keep([ignored], profile: .default)
+        BrowserImportConflictOffer.offer(hold) { window }
+        for index in 1...CmuxToastStack.limit {
+            CmuxToastCenter.shared.show(CmuxToast(id: "unrelated-\(index)", message: "unrelated \(index)"), in: window)
+        }
+        #expect(toast() == nil)
+        #expect(hold.count == 0 && ignored.password.count == 0, "the toast went without Replace: the held password is zeroed")
+        #expect(writes == 2, "nothing was saved over without the person")
     }
 }
