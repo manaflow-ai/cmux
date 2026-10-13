@@ -25,7 +25,7 @@ private final class DeferredRefreshProbe {
 @MainActor
 struct PaneHostDetachedRefreshTests {
     @Test("A deferred refresh after a pane host leaves BonsplitView does not trap")
-    func deferredRefreshAfterPaneHostLeavesBonsplitView() throws {
+    func deferredRefreshAfterPaneHostLeavesBonsplitView() async throws {
         print("PaneHostDetachedRefreshTests: macOS \(ProcessInfo.processInfo.operatingSystemVersionString)")
         _ = NSApplication.shared
         let controller = BonsplitController()
@@ -92,14 +92,22 @@ struct PaneHostDetachedRefreshTests {
         #expect(!paneHost.isDescendant(of: bonsplitHost))
 
         // 3. Drain the main queue: the refresh lays the window out.
-        for _ in 0..<50 where !refresh.ran {
-            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        //    Swift Testing runs this test as a main-queue job, so the queue
+        //    drains only while the test is suspended, not inside RunLoop.run.
+        for _ in 0..<5 where !refresh.ran {
+            await Self.drainMainQueue()
         }
         #expect(refresh.ran)
         window.displayIfNeeded()
         contentView.layoutSubtreeIfNeeded()
         #expect(paneHost.window === window)
         paneHost.removeFromSuperview()
+    }
+
+    private static func drainMainQueue() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.main.async { continuation.resume() }
+        }
     }
 
     private static func settle(_ window: NSWindow) {
