@@ -256,7 +256,7 @@ public struct WorkspaceRemoteConfiguration: Equatable, Sendable {
 
     private var isManagedCloudVMSSHD: Bool {
         skipDaemonBootstrap &&
-            persistentDaemonSlot == "cmux-default-freestyle-sshd-v1" &&
+            persistentDaemonSlot == ManagedCloudVMConstants.persistentDaemonSlot &&
             managedCloudVMID != nil
     }
 
@@ -562,7 +562,7 @@ extension WorkspaceRemoteConfiguration {
                 preserveAfterTerminalExit: true,
                 skipDaemonBootstrap: true,
                 relayPort: nil,
-                persistentDaemonSlot: "cmux-default-freestyle-sshd-v1",
+                persistentDaemonSlot: ManagedCloudVMConstants.persistentDaemonSlot,
                 managedCloudVMID: managedCloudVMID
             )
         }

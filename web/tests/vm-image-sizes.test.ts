@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  diskByMemoryMb,
   VM_IMAGE_SIZES,
   VM_IMAGE_SIZE_NAMES,
   pickVmImageSizeForMemory,
@@ -13,6 +14,7 @@ import {
   type DevboxImageManifest,
   type DevboxManifestEntry,
 } from "../scripts/devbox-image-common";
+import { vmRuntimeMetadataFor } from "../services/vms/images/resolver";
 
 // Machine sizes are Freestyle's t-shirt ladder plus cmux's validated 24 GiB
 // intermediate snapshot, one cmux snapshot per size, picked by plan memory.
@@ -161,5 +163,26 @@ describe("vcpusByMemoryMb", () => {
     });
     // An operator override between rows boots on the next row up; one above the ladder has no row.
     expect(vcpusByMemoryMb([20480, 131072])).toEqual({ "20480": 12 });
+  });
+});
+
+describe("diskByMemoryMb", () => {
+  test("maps offered memory to the server image disk", () => {
+    expect(diskByMemoryMb([4096, 24576, 65536])).toEqual({
+      "4096": 16384,
+      "24576": 98304,
+      "65536": 131072,
+    });
+  });
+
+  test("omits sizes above the image catalog", () => {
+    expect(diskByMemoryMb([20480, 131072])).toEqual({ "20480": 98304 });
+  });
+});
+
+describe("runtime metadata", () => {
+  test("advertises the desktop listener only for desktop images", () => {
+    expect(vmRuntimeMetadataFor("freestyle", "xfce-test-image")).toEqual({ runtime: { desktopPort: 6901 } });
+    expect(vmRuntimeMetadataFor("freestyle", "shell-test-image")).toEqual({});
   });
 });

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Desktop starter for the cmux devbox image (/usr/local/bin/start-vnc.sh).
 # CONTRACT FILE (web/services/vms/images/desktop.ts; tests/vm-devbox-desktop.test.ts
-# pins it): the desktop is reached on two fixed ports, and the Mac app
-# (CmuxTuiSnapshotParser.desktopPort), the CLI (cloudVMDesktopPort) and the
-# Freestyle driver's port-open heal depend on them:
+# pins it): the desktop is reached on two image ports. The Cloud API advertises
+# the noVNC port to clients; legacy clients retain a 6901 fallback. The
+# Freestyle driver's port-open heal uses the image constant:
 #   - RFB on 5901, loopback only, no VNC-level auth (the only ingress is the
 #     owner's private network; a VNC password would be a second prompt
 #     noVNC's autoconnect cannot answer).

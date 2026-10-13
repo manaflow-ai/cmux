@@ -30,10 +30,11 @@ import {
 // (services/vms/images/devbox/desktop): TigerVNC + openbox + the tint2 dock +
 // noVNC, ported from the retired Blaxel cmux-devbox image, baked by the
 // Dockerfile (started from cmux-devbox-boot) and by build-devbox-freestyle.ts
-// (started from the cmux-desktop systemd unit). The Mac app opens the
-// machine's screen on 6901 (CmuxTuiSnapshotParser.desktopPort), the CLI on
-// cloudVMDesktopPort, and the Freestyle driver's openPort heals the unit, so
-// the ports, user, display, file paths and the session env are pinned here.
+// (started from the cmux-desktop systemd unit). The image serves the machine's
+// screen on 6901; the Cloud API advertises that runtime port to clients, while
+// legacy clients retain their 6901 fallback. The Freestyle driver's openPort
+// heals the unit, so the ports, user, display, file paths and session env are
+// pinned here.
 
 const read = (name: string) => readFileSync(path.join(devboxDesktopDir, name), "utf8");
 const startVnc = read("start-vnc.sh");
@@ -88,9 +89,9 @@ async function launchedWebsockifyArguments(): Promise<string[]> {
 }
 
 describe("devbox desktop contract (services/vms/images/desktop.ts)", () => {
-  test("the values shipped clients hardcode", () => {
-    // CmuxTuiSnapshotParser.desktopPort / CLI cloudVMDesktopPort open 6901;
-    // the verifier and the driver's heal read the same constants.
+  test("the image values and legacy fallback stay compatible", () => {
+    // The image serves 6901; the verifier and driver's heal read the same
+    // server-side constants, while the API advertises the port to clients.
     expect(DEVBOX_DESKTOP_NOVNC_PORT).toBe(6901);
     expect(DEVBOX_DESKTOP_RFB_PORT).toBe(5901);
     expect(DEVBOX_DESKTOP_DISPLAY).toBe(":1");

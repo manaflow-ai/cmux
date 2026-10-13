@@ -118,12 +118,15 @@ struct CloudMachineCreatorTests {
                 status: "running",
                 image: "desktop-vnc",
                 createdAt: 0,
+                runtime: VMRuntimeMetadata(desktopPort: 7042),
                 createdBy: VMCreator(userId: "user-a", displayName: "Ada Lovelace")
             )
         )
         let createdBy = try #require(payload["createdBy"] as? [String: Any])
         #expect(createdBy["userId"] as? String == "user-a")
         #expect(createdBy["displayName"] as? String == "Ada Lovelace")
+        let runtime = try #require(payload["runtime"] as? [String: Any])
+        #expect(runtime["desktopPort"] as? Int == 7042)
 
         // No author sends no key. The backend sends an explicit null here, and
         // both readers treat absent and null alike, so this is the narrower of
