@@ -37,14 +37,30 @@ enum RemoteLocalhostHandlers {
         }
         let prompt = DestructiveConfirmation.Prompt(
             title: ConfirmationStrings.remoteLocalhostTitle,
-            body: ConfirmationStrings.remoteLocalhostBody(model.displayName, choiceTitle(raw, services.registry)),
+            body: ConfirmationStrings.remoteLocalhostBody(quoted(model.displayName), choiceTitle(raw, services.registry)),
             button: ConfirmationStrings.userOnlySettingButton)
         services.registry.track(Task {
-            guard await UserOnlySettingConfirmation.ask(prompt, services: services) else {
+            // The sheet goes before the caller stops waiting (the router never
+            // cancels tracked work): a change nobody waits for never happens.
+            let sheet = Task { await UserOnlySettingConfirmation.ask(prompt, services: services) }
+            let deadline = Task {
+                try? await Task.sleep(for: ActionDescriptor.resultDeadline - .seconds(5))
+                sheet.cancel()
+            }
+            defer { deadline.cancel() }
+            guard await sheet.value, !sheet.isCancelled else {
                 return ActionWorkFailure(refusal: .unavailable, reason: RefusalStrings.localhostChoiceNotApproved)
             }
             return await services.machines.local.failure("set-personal-workspace") { try await $0.setPersonalWorkspace(request) }
         })
+    }
+
+    /// The workspace's name for the sheet: one quoted line, so a name an
+    /// agent chose cannot read as part of the question.
+    private static func quoted(_ name: String) -> String {
+        let line = name.split(whereSeparator: \.isNewline).joined(separator: " ")
+        let shown = line.count > 60 ? String(line.prefix(59)) + "\u{2026}" : line
+        return "\u{201C}\(shown)\u{201D}"
     }
 
     /// The menu title of a choice, for the sheet.
