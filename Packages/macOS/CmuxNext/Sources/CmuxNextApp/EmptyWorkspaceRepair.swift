@@ -32,13 +32,8 @@ import os
 ///
 /// Observable through `states` (`isSettling`): a window shows nothing,
 /// rather than the new-workspace actions, while its workspace is settling.
-///
-/// A first terminal that fails to start (a slow or broken host: the start
-/// deadline passes, the daemon refuses) is recorded in `failures` and shown
-/// by the empty state with a retry, never an endless blank page (cx-tzlqb).
-/// A workspace with a recorded failure is not refilled again by itself;
-/// the person's New (Return, Cmd-T) retries, and a pane that arrives late
-/// (the terminal may still appear after its deadline) clears it.
+/// A failed first terminal is kept in `failures` and shown with a retry,
+/// not refilled by itself on that connection (cx-tzlqb).
 @MainActor @Observable
 final class EmptyWorkspaceRepair {
     /// Who is giving a workspace its first terminal.
@@ -65,15 +60,11 @@ final class EmptyWorkspaceRepair {
     /// Whether commands can run now. Tests replace it.
     @ObservationIgnored var canCreate: @MainActor () -> Bool
     private(set) var states: [WorkspaceKey: FirstTerminal] = [:]
-    /// Why the last first-terminal create of a workspace failed, until a
-    /// pane shows or the person asks again.
+    /// Why a workspace's first terminal failed, until a pane shows or New.
     private(set) var failures: [WorkspaceKey: String] = [:]
-    /// The connection epoch each failure happened on: a reconnect lifts the
-    /// hold on the automatic refill (a dropped connection is not a broken
-    /// host), so a slow host still costs at most one try per connection.
+    /// Each failure's connection epoch: a reconnect lifts the refill hold.
     @ObservationIgnored private var failureEpochs: [WorkspaceKey: Int] = [:]
-    /// Workspaces whose create failed and whose close afterwards failed too:
-    /// still there and empty, so they are released, not left `.closing`.
+    /// Created workspaces whose terminal and then close failed: released.
     @ObservationIgnored private var keptAfterFailedClose: Set<WorkspaceKey> = []
     /// The last emptied workspaces and what this app did with each (closed,
     /// or kept with a new terminal), newest last, for `debug.windows`: a
@@ -216,10 +207,7 @@ final class EmptyWorkspaceRepair {
                 do {
                     _ = try await create(key)
                 } catch {
-                    if states[key] == .awaitingPane {
-                        states[key] = nil
-                        recordFailure(key, error)
-                    }
+                    if states[key] == .awaitingPane { states[key] = nil; recordFailure(key, error) }
                     logger.error("refilling a workspace with a lost terminal failed: \(String(describing: error), privacy: .public)")
                 }
                 return
@@ -272,10 +260,7 @@ final class EmptyWorkspaceRepair {
             do {
                 if let surface = try await create(key) { created(surface) }
             } catch {
-                if states[key] == .awaitingPane {
-                    states[key] = nil
-                    recordFailure(key, error)
-                }
+                if states[key] == .awaitingPane { states[key] = nil; recordFailure(key, error) }
                 logger.error("creating a terminal for an empty workspace failed: \(String(describing: error), privacy: .public)")
             }
         }
@@ -298,24 +283,16 @@ final class EmptyWorkspaceRepair {
         if states[key] == .closing { states[key] = nil }
     }
 
-    /// A person's first tab in an existing empty workspace (Cmd-T, Cmd-I with
-    /// no pane): owned like a repair while `body` runs. A failure leaves the
-    /// workspace empty with its reason (`failure`), never claimed: unlike
-    /// `populating`, no creator closes this workspace afterwards (cx-tzlqb:
-    /// a failed Cmd-T on a slow host kept it blank and every later Cmd-T
-    /// was dropped).
-    /// Like a repair, a timed-out start may still bring its pane late (it
-    /// clears the failure); a Return pressed before that adds a second tab.
+    /// A person's first tab in an existing empty workspace (Cmd-T): a failure
+    /// releases it with its reason; `populating` would leave it `.closing`
+    /// (blank, every later Cmd-T dropped, cx-tzlqb).
     func fillFirstTab<T>(_ key: WorkspaceKey, _ body: () async throws -> T) async throws -> T {
         states[key] = .awaitingPane
         clearFailure(key)
         do {
             return try await body()
         } catch {
-            if states[key] == .awaitingPane {
-                states[key] = nil
-                recordFailure(key, error)
-            }
+            if states[key] == .awaitingPane { states[key] = nil; recordFailure(key, error) }
             throw error
         }
     }
@@ -337,8 +314,7 @@ final class EmptyWorkspaceRepair {
         }
     }
 
-    /// The creator could not close `key` after its first terminal failed
-    /// (`WorkspaceCreation`): it stays, empty, and must not stay `.closing`.
+    /// `WorkspaceCreation` could not close `key` after its terminal failed.
     func closeFailed(_ key: WorkspaceKey) { keptAfterFailedClose.insert(key) }
 
     private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
@@ -356,9 +332,6 @@ final class EmptyWorkspaceRepair {
         if count > 1 {
             states[key] = .populating(count - 1)
         } else if !succeeded, keptAfterFailedClose.remove(key) != nil {
-            // Created, its terminal failed, and the close failed too (a slow
-            // or broken host, cx-tzlqb): released with its reason, never a
-            // blank page that drops every Cmd-T.
             states[key] = nil
             if let error { recordFailure(key, error) }
         } else {
