@@ -180,6 +180,13 @@ struct WindowRegistry: Equatable, Sendable {
         return id
     }
 
+    /// Marks restored window `id` open or closed (a relaunch keeps a closed
+    /// window closed, `WindowRecord.isClosed`).
+    mutating func setRestored(_ id: String, open: Bool) {
+        guard let index = windows.firstIndex(where: { $0.id == id }) else { return }
+        windows[index].isOpen = open
+    }
+
     /// Opens closed window `id` again (Reopen Closed of its `window` group).
     /// False when it is not a closed window of this app.
     mutating func reopen(id: String) -> Bool {
