@@ -35,7 +35,9 @@ export class StatsStore {
     return this.load(this.snapshot.range);
   }
 
+  /** Reads the logs again, unless a read is already on its way (each one scans every log). */
   refresh(): Promise<void> {
+    if (this.snapshot.loading) return Promise.resolve();
     return this.load(this.snapshot.range);
   }
 

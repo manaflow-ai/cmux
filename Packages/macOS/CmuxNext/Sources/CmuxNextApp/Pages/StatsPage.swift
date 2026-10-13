@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextAgentActivity
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 extension InternalPageID {
@@ -84,17 +85,21 @@ final class StatsPageProvider: PageProvider {
         return result
     }
 
-    /// `initialize`, then the stats request; the reply to the second is the answer.
-    nonisolated static func request(path: String, params: CmuxNextSettings.JSONValue) async throws -> CmuxNextSettings.JSONValue {
+    /// `initialize`, then the stats request; the reply to the second is the answer. Fails when the
+    /// connection closes, the task is cancelled (the tab closed or reloaded) or after `deadline`.
+    nonisolated static func request(path: String, params: CmuxNextSettings.JSONValue,
+                                    deadline: Duration = .seconds(30)) async throws -> CmuxNextSettings.JSONValue {
         let initialize: CmuxNextSettings.JSONValue = ["jsonrpc": "2.0", "id": 1, "method": "initialize",
             "params": ["protocolVersion": 1, "clientInfo": ["name": "cmux-next-stats", "version": "1"], "clientCapabilities": .object([:])]]
         let stats: CmuxNextSettings.JSONValue = ["jsonrpc": "2.0", "id": 2, "method": "_acpmux/stats", "params": params]
         let send = Data((initialize.compactText + "\n" + stats.compactText + "\n").utf8)
         let connection = AgentActivityLineConnection(path: path)
         let reply = StatsReply()
+        let timeout = DemandTimer(owner: "stats.request-deadline")
+        defer { timeout.cancel() }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CmuxNextSettings.JSONValue, any Error>) in
-                reply.continuation = continuation
+                guard reply.park(continuation) else { return }
                 connection.start(send: send, onLine: { line in
                     guard let message = try? CmuxNextSettings.JSONValue.parse(line), message["id"]?.doubleValue == 2 else { return }
                     reply.finish(.success(message))
@@ -102,25 +107,43 @@ final class StatsPageProvider: PageProvider {
                 }, onClose: {
                     reply.finish(.failure(PageError(code: "cmux.stats.unavailable", message: StatsStrings.unavailable, retryable: true)))
                 })
+                // A cancel that ran before `start` closed nothing; this one is queued after it.
+                if Task.isCancelled { connection.cancel() }
+                timeout.schedule(after: deadline) {
+                    reply.finish(.failure(PageError(code: "cmux.stats.timed_out", message: StatsStrings.timedOut, retryable: true)))
+                    connection.cancel()
+                }
             }
         } onCancel: {
+            reply.finish(.failure(CancellationError()))
             connection.cancel()
         }
     }
 }
 
-/// Resumes the stats request once: the reply line and the connection's close race.
+/// Resumes the stats request once: the reply line, the connection's close, the deadline and a
+/// cancel race, and a cancel may come before the continuation exists.
 private nonisolated final class StatsReply: @unchecked Sendable { // crash-allow: every field is read and written under `lock`
-    private let lock = NSLock() // concurrency-allow: guards one optional swap, never held across an await or IO
+    private let lock = NSLock() // concurrency-allow: guards two optional swaps, never held across an await or IO
     private var pending: CheckedContinuation<CmuxNextSettings.JSONValue, any Error>?
+    private var outcome: Result<CmuxNextSettings.JSONValue, any Error>?
 
-    var continuation: CheckedContinuation<CmuxNextSettings.JSONValue, any Error>? {
-        get { lock.withLock { pending } }
-        set { lock.withLock { pending = newValue } }
+    /// Parks `continuation` until ``finish(_:)``; false when it already finished (and resumed it).
+    func park(_ continuation: CheckedContinuation<CmuxNextSettings.JSONValue, any Error>) -> Bool {
+        let early: Result<CmuxNextSettings.JSONValue, any Error>? = lock.withLock {
+            if let outcome { return outcome }
+            pending = continuation
+            return nil
+        }
+        guard let early else { return true }
+        continuation.resume(with: early)
+        return false
     }
 
     func finish(_ result: Result<CmuxNextSettings.JSONValue, any Error>) {
-        let waiter = lock.withLock {
+        let waiter: CheckedContinuation<CmuxNextSettings.JSONValue, any Error>? = lock.withLock {
+            guard outcome == nil else { return nil }
+            outcome = result
             defer { pending = nil }
             return pending
         }
@@ -133,6 +156,9 @@ nonisolated enum StatsStrings {
     static var unavailable: String {
         String(localized: "stats.unavailable", defaultValue: "The agent service is not running, so there is nothing to count yet.",
                table: "Stats", bundle: .module)
+    }
+    static var timedOut: String {
+        String(localized: "stats.timedOut", defaultValue: "Counting took too long. Try again in a moment.", table: "Stats", bundle: .module)
     }
     static var preview: String {
         String(localized: "stats.refusal.preview", defaultValue: "Agent Stats is a preview feature: turn on Show Preview Features in Settings.",

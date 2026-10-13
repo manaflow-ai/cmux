@@ -6,7 +6,7 @@ import type { Strings } from "../shared/i18n";
 import { harnessName } from "./harnessNames";
 import { formatCount, formatDays, formatDuration, heatmap, hourShares } from "./shape";
 import type { StatsStore } from "./store";
-import { RANGES, type Range, type StatsSummary } from "./types";
+import { RANGES, type StatsSummary } from "./types";
 
 export function StatsPage({ store, strings }: { store: StatsStore; strings: Strings }) {
   const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot);
@@ -40,14 +40,16 @@ export function StatsPage({ store, strings }: { store: StatsStore; strings: Stri
       ) : !summary ? (
         <p className="stats-message stats-muted">{strings.t("stats.page.loading")}</p>
       ) : (
-        <Summary summary={summary} range={range} strings={strings} />
+        <Summary summary={summary} strings={strings} />
       )}
     </div>
   );
 }
 
-function Summary({ summary, range, strings }: { summary: StatsSummary; range: Range; strings: Strings }) {
+function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings }) {
   const language = strings.language;
+  // The range this summary covers: while another range loads, the old summary keeps its own grid.
+  const range = Math.round((summary.until - summary.since) / 86_400_000);
   const count = (value: number) => formatCount(value, language);
   const duration = (ms: number) => formatDuration(ms, language);
   const empty = summary.turns === 0 && summary.workingMs === 0;
