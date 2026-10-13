@@ -111,7 +111,8 @@ fn an_orphaned_host_exits_after_the_grace_and_a_served_one_does_not() {
     }
     let tree = request(&harness.socket, serde_json::json!({"id":9,"cmd":"list-workspaces"}));
     let kept = tree["workspaces"].as_array().unwrap().iter().any(|workspace| {
-        workspace["name"] == "orphan" && first_tab(workspace).is_some_and(|tab| tab["dead"] == false)
+        workspace["name"] == "orphan"
+            && first_tab(workspace).is_some_and(|tab| tab["dead"] == false)
     });
     assert!(kept, "the next owner did not keep the orphan-ended terminal's tab live: {tree}");
 }
