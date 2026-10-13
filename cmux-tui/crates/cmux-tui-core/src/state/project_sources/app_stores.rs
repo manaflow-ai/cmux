@@ -60,20 +60,32 @@ pub(crate) fn scan_conductor(layout: &Layout) -> Option<SourceScan> {
     Some(SourceScan { source: "conductor", entries: rows })
 }
 
-/// `(path, UTC time)` rows; any failed row reports nothing (a partial list
-/// sent as complete would drop projects).
+/// `(path, UTC time)` rows; a read that fails reports nothing (a partial list
+/// sent as complete would drop projects). A cell that is NULL or not text
+/// (another app's schema drift) is no path or no time, not a failure.
 fn query(db: &std::path::Path, sql: &str) -> Option<Vec<Observation>> {
     let connection = open_read_only(db)?;
     let mut statement = connection.prepare(sql).ok()?;
     let rows = statement
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| Ok((text(row.get_ref(0)?), text(row.get_ref(1)?))))
         .ok()?
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
     Some(
         rows.into_iter()
+            .filter_map(|(path, time)| Some((path?, time)))
             .filter(|(path, _)| path.starts_with('/'))
-            .map(|(path, time)| Observation { last_used_ms: utc_ms(&time).unwrap_or(1), path })
+            .map(|(path, time)| Observation {
+                last_used_ms: time.as_deref().and_then(utc_ms).unwrap_or(1),
+                path,
+            })
             .collect(),
     )
+}
+
+fn text(value: rusqlite::types::ValueRef<'_>) -> Option<String> {
+    match value {
+        rusqlite::types::ValueRef::Text(bytes) => std::str::from_utf8(bytes).ok().map(str::to_string),
+        _ => None,
+    }
 }

@@ -184,7 +184,14 @@ pub(super) fn utc_ms(text: &str) -> Option<i64> {
     let second: i64 = whole.parse().ok()?;
     // Milliseconds from the first three fraction digits, padded.
     let millis: i64 = format!("{fraction:0<3}").get(..3)?.parse().ok()?;
-    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+    // Another app's database: out-of-range parts report no time rather than overflow.
+    if !(1970..=9999).contains(&year)
+        || !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || !(0..=23).contains(&hour)
+        || !(0..=59).contains(&minute)
+        || !(0..=60).contains(&second)
+    {
         return None;
     }
     // Days from the civil date (Howard Hinnant's algorithm).

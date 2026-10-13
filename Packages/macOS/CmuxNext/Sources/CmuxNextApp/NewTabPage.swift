@@ -237,8 +237,11 @@ enum NewTabPage {
             listProjects: { [weak services] query in
                 guard let services else { return [] }
                 // The daemon's project list (plans/cmux-next/projects.md): user edits and removals win.
+                // An empty answer (the first import still running, or the sources off) falls
+                // back to the scan, so the picker is never empty while folders exist.
                 if let client = projectStore(services),
-                   let paths = try? await client.listPaths(query: query, limit: AgentPaneOmnibar.maximumEntries) {
+                   let paths = try? await client.listPaths(query: query, limit: AgentPaneOmnibar.maximumEntries),
+                   !paths.isEmpty {
                     return paths
                 }
                 let hints = services.history.agents.sessions.compactMap(\.cwd) + services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)

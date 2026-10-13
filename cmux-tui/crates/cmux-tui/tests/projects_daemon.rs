@@ -82,6 +82,23 @@ impl Daemon {
         }
     }
 
+    /// The daemon's build-level capabilities from a raw `identify`.
+    fn capabilities(&self) -> Vec<Value> {
+        let stream = transport::connect(&self.socket).unwrap();
+        let mut writer = stream.try_clone_box().unwrap();
+        let mut reader = BufReader::new(stream);
+        writeln!(writer, "{}", json!({"id": 1, "cmd": "identify"})).unwrap();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            assert!(reader.read_line(&mut line).unwrap() > 0, "identify: connection closed");
+            let reply: Value = serde_json::from_str(line.trim()).unwrap();
+            if reply["id"] == 1 {
+                return reply["data"]["capabilities"].as_array().cloned().unwrap_or_default();
+            }
+        }
+    }
+
     fn mutate(&self, operation: &str, params: Value, key: &str) -> Value {
         self.send(operation, params, Some(key))
             .unwrap_or_else(|error| panic!("{operation}: {error}"))
@@ -437,6 +454,10 @@ fn projects_daemon_watch_picks_up_a_new_codex_app_project_and_keeps_user_edits()
 #[test]
 fn projects_daemon_a_source_turned_off_leaves_and_is_ignored_until_turned_on() {
     let daemon = Daemon::start("toggles");
+    let capabilities = daemon.capabilities();
+    for capability in ["project-list-v1", "project-sources-v1"] {
+        assert!(capabilities.contains(&json!(capability)), "{capability} in {capabilities:?}");
+    }
     let both = "/srv/cx-m0p7-toggles/both";
     let only = "/srv/cx-m0p7-toggles/only-claude";
     let edited = "/srv/cx-m0p7-toggles/edited";

@@ -7,8 +7,12 @@ use serde_json::{Value, json};
 
 use super::projects::{Project, Projects, Refusals};
 
-/// `project.list|observe|add|update|remove|sync|source.update`.
+/// `project.list|observe|add|update|remove|sync`.
 pub const CAPABILITY: &str = "project-list-v1";
+/// `project.source.update` and `sources` in the `project.list` result: a client
+/// gates per-source toggles on it, since a daemon with only `project-list-v1`
+/// has neither.
+pub const SOURCES_CAPABILITY: &str = "project-sources-v1";
 /// The resource kind of a project on `session.events`.
 pub(crate) const RESOURCE: &str = "project";
 /// The most projects a list returns at once.

@@ -31,17 +31,24 @@ public struct ProjectStateClient: Sendable {
     }
 
     /// The listed folders (`project.list`): pinned first, then by last use,
-    /// hidden ones left out; `query` filters by path or name.
-    public func listPaths(query: String?, limit: Int) async throws -> [String] {
+    /// hidden ones and folders gone from disk (`state: missing`) left out;
+    /// `query` filters by path or name, a leading `~` read as `home`. A reply
+    /// without a project array throws, so the caller can fall back.
+    public func listPaths(query: String?, limit: Int, home: String = NSHomeDirectory()) async throws -> [String] {
         var params: [String: JSONValue] = ["limit": .number(Double(limit))]
-        if let query, !query.isEmpty { params["query"] = .string(query) }
+        if let query, !query.isEmpty {
+            params["query"] = .string(query == "~" || query.hasPrefix("~/") ? home + query.dropFirst() : query)
+        }
         let fields = params
         let result = try await connection.resourceRequest({ id in
             ResourceRequestEnvelope(id: id, operation: "project.list", params: fields, idempotencyKey: nil)
         }, as: JSONValue.self)
-        guard case .object(let object) = result, case .array(let projects)? = object["projects"] else { return [] }
+        guard case .object(let object) = result, case .array(let projects)? = object["projects"] else {
+            throw ProjectListReplyError()
+        }
         return projects.compactMap { project in
             guard case .object(let fields) = project, case .string(let path)? = fields["path"] else { return nil }
+            if case .string("missing")? = fields["state"] { return nil }
             return path
         }
     }
@@ -53,4 +60,9 @@ public struct ProjectStateClient: Sendable {
                                     idempotencyKey: idempotencyKey)
         }, as: ResourceMutationResult<JSONValue>.self)
     }
+}
+
+/// A `project.list` reply without its `projects` array.
+public struct ProjectListReplyError: Error, Sendable {
+    public init() {}
 }
