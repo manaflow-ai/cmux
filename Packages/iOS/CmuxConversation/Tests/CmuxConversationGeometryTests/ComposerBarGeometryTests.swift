@@ -79,3 +79,24 @@ import Testing
         #expect(ComposerBarGeometry.sideInset(keyboardProgress: 2, keyboardInset: 16) == 16)
     }
 }
+
+/// The empty field's trailing glyph. Messages 26.5 shows the dictation
+/// microphone (New Message and SMS conversations) until audio has been sent;
+/// Messages 27.0 has no in-field dictation and shows the record waveform in
+/// New Message. Its disabled plus reads 190 (26.5) and 176 (27.0) on the
+/// light glass.
+@Suite struct ComposerTrailingGlyphTests {
+    @Test func iOS26ShowsTheMicrophoneUntilAudioWasSent() {
+        #expect(!ComposerBarGeometry.showsRecordGlyph(iOS27: false, sentAudio: false))
+        #expect(ComposerBarGeometry.showsRecordGlyph(iOS27: false, sentAudio: true))
+    }
+
+    @Test func iOS27AlwaysShowsTheRecordWaveform() {
+        #expect(ComposerBarGeometry.showsRecordGlyph(iOS27: true, sentAudio: false))
+    }
+
+    @Test func disabledPlusInk() {
+        #expect(ComposerBarGeometry.disabledPlusAlpha(iOS27: false) == 0.24)
+        #expect(ComposerBarGeometry.disabledPlusAlpha(iOS27: true) == 0.3)
+    }
+}
