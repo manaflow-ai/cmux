@@ -134,6 +134,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         let composer = UIHostingController(rootView: TerminalComposer(model: model))
         keyBar.safeAreaRegions = []
         composer.safeAreaRegions = []
+        // The terminal is dark in both appearances; so are its key bar and
+        // composer (in light mode inside a workspace they drew light glass
+        // over the black grid).
+        keyBar.overrideUserInterfaceStyle = .dark
+        composer.overrideUserInterfaceStyle = .dark
         composer.sizingOptions = [.intrinsicContentSize]
         bottomStack.addSubview(keyBarClip)
         for host in [keyBar as UIViewController, composer] {
