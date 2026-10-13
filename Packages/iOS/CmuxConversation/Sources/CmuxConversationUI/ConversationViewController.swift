@@ -356,8 +356,9 @@ public final class ConversationViewController: UIViewController {
 
     private func startDecelerationFill() {
         #if DEBUG
-        // The lab's dynamics draw every frame themselves.
-        if transcriptDynamics?.dynamics == true { return }
+        // The lab's dynamics draw every frame themselves;
+        // CMUX_UITEST_CONVERSATION_FILL=0 turns the fill off for A/B runs.
+        if transcriptDynamics?.dynamics == true || ProcessInfo.processInfo.environment["CMUX_UITEST_CONVERSATION_FILL"] == "0" { return }
         #endif
         decelerationFill.start()
     }

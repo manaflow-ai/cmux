@@ -75,7 +75,7 @@ final class ConversationScrollProbe {
         self.link = link
         let screen = scrollView.window?.screen ?? UIScreen.main
         let environment = ProcessInfo.processInfo.environment
-        let toggles = ["CMUX_UITEST_CONVERSATION_DYNAMICS", "CMUX_UITEST_CONVERSATION_SCROLL_RATE", ConversationAutoScrollDriver.environmentKey]
+        let toggles = ["CMUX_UITEST_CONVERSATION_DYNAMICS", "CMUX_UITEST_CONVERSATION_SCROLL_RATE", "CMUX_UITEST_CONVERSATION_FILL", ConversationAutoScrollDriver.environmentKey]
             .compactMap { key in environment[key].map { "\(key)=\($0)" } }.joined(separator: " ")
         let header = "# label=\(label) maxFPS=\(screen.maximumFramesPerSecond) scale=\(screen.scale) os=\(UIDevice.current.systemVersion) \(toggles)\n"
             + "frame,model,present,deadline,t0,t1,t2,t3,t4,t5,offset,content,tracking,decel,dragging,vel,touchT,touchY,touchN,newCells,cells\n"
