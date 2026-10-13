@@ -156,6 +156,10 @@ int cmux_shim_password_prompt_answer(int prompt_id, int action, const char* user
   return fork_api().password_prompt_answer ? fork_api().password_prompt_answer(prompt_id, action, username) : 0;
 }
 
+int cmux_shim_set_password_generation_enabled(int enabled) {
+  return fork_api().set_password_generation_enabled ? fork_api().set_password_generation_enabled(enabled ? 1 : 0) : 0;
+}
+
 int cmux_shim_password_core_available(void) {
   const ForkApi& api = fork_api();
   return api.password_list && api.password_remove && api.password_exception_remove && api.password_set_username &&

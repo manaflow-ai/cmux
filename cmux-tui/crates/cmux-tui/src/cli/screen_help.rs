@@ -5,6 +5,7 @@ USAGE
   cmux screen list
   cmux screen create [--correlation-key <value>]
   cmux screen <selector> show|focus|close
+  cmux screen <selector> close --others|--to-right|--to-left|--all [--include-pinned]
   cmux screen <selector> rename <name>|--name <name>
   cmux screen <selector> pin|unpin
   cmux screen <selector> update [--pinned <bool>] [--color <value>|--clear-color]
@@ -24,6 +25,9 @@ USAGE
   cmux screen group <group> add --screens <screen_…,...>
   cmux screen group remove --screens <screen_…,...>
 
+A bulk close (--others, --to-right, --to-left, --all) is one closed group
+that `cmux closed reopen` restores whole; it keeps pinned screens unless
+--include-pinned.
 Pinned screens sort first and leave their group. Group colors: grey, blue,
 red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. A group
 icon is one emoji, an SF Symbol name, or a stored image:sha256-<hex> or

@@ -41,7 +41,7 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `screen`: 63
 - `tab`: 88
 - `terminal`: 36
-- `browser`: 164
+- `browser`: 165
 - `sidebar`: 70
 - `notifications`: 21
 - `agents`: 58
@@ -49,9 +49,9 @@ Declare its placements (menu, group, rank) and whether the CLI offers it, or nam
 - `remote`: 10
 - `settings`: 71
 
-## Counts (929 actions)
+## Counts (930 actions)
 
-Palette 893, CLI verbs 491, right-click 481, MCP tools 430.
+Palette 894, CLI verbs 492, right-click 482, MCP tools 431.
 
 ## Menus
 
@@ -72,7 +72,7 @@ Palette 893, CLI verbs 491, right-click 481, MCP tools 430.
 - **sshMachine**: remote.newWorkspace | remote.reconnect remote.disconnect remote.install | remote.copyError | remote.forget
 - **newTab**: newSurface openBrowser.chromium browserProfile.newTab palette.newAgentChat newTab.page
 - **profile**: space.newWorkspace space.newWindow | space.setIcon space.clearIcon space.rename space.setColor > (space.color.grey space.color.blue space.color.red space.color.yellow space.color.green space.color.pink space.color.purple space.color.cyan space.color.orange | space.clearColor | space.setTheme[choices] space.clearTheme) browserProfile.setSpaceDefault[choices] | space.newGroup | sidebar.spaces.hide | space.delete
-- **browserProfile**: browserProfile.newTab browserProfile.newWindow browserProfile.newWorkspace | browserProfile.new | browserProfile.rename browserProfile.setColor browserProfile.clearColor browserProfile.setIcon browserProfile.clearIcon | browserProfile.manageExtensions | browserProfile.delete
+- **browserProfile**: browserProfile.newTab browserProfile.newWindow browserProfile.newWorkspace | browserProfile.new | browserProfile.rename browserProfile.setColor browserProfile.clearColor browserProfile.setIcon browserProfile.clearIcon | browserProfile.manageExtensions | browserProfile.clearBrowsingData | browserProfile.delete
 - **bookmark**: bookmark.open bookmark.openInNewTab bookmark.openInBackgroundTab bookmark.openAll | bookmark.addPage bookmark.newFolder bookmark.addAllTabs | bookmark.edit | bookmark.copyLink | bookmark.toggleBar bookmark.manager | bookmark.remove
 - **bookmarksBar**: bookmark.addPage bookmark.newFolder bookmark.addAllTabs | bookmark.toggleBar bookmark.manager
 - **screenBar**: screen.new screen.newWith screen.reopenClosed

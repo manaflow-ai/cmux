@@ -7,8 +7,8 @@ import Foundation
 // `debug.browser.external_opens`, `debug.browser.prompts` and `debug.browser.page_status`
 // (DEBUG builds), for the scripts/cmux-next live checks: the links a recording build sent
 // to other apps (`BrowserExternalApps`), a browser tab's pending prompts, and the cmux
-// pages over a tab's page (error page, certificate warning, sad tab; `press: "proceed"`
-// presses the warning's Proceed).
+// pages over a tab's page (error page, certificate warning, sad tab, Page unresponsive;
+// `press` presses Proceed, Wait or Exit page).
 enum DebugBrowserExternal {
     static func register(on router: ControlRouter?, services: AppServices) {
         #if DEBUG

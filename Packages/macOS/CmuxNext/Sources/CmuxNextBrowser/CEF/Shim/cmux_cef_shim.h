@@ -506,6 +506,12 @@ CMUX_SHIM_EXPORT int cmux_shim_download_favicon(int browser_id, int reply, const
 // every cookie was handled: a = written, s1 = {"written","rejected"}.
 // Returns 0 when nothing was started (bad path or JSON).
 CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* profile_cache_path, int reply, const char* json);
+// Clear Browsing Data: deletes the cookies of profile_cache_path (a
+// persistent profile; an off-the-record key returns 0) created at or after
+// `since` (microseconds since 1601; 0 deletes every cookie), creating the
+// context when no tab opened it yet. REPLY with `reply` and browser 0
+// follows: a = cookies deleted. Returns 0 when nothing was started.
+CMUX_SHIM_EXPORT int cmux_shim_clear_cookies(const char* profile_cache_path, int reply, int64_t since);
 // Browser import: saved passwords into the Chromium password store of
 // profile_cache_path (a persistent profile; an off-the-record key returns 0),
 // the store autofill reads, encrypted with cmux's own Keychain key. Every
@@ -542,6 +548,10 @@ CMUX_SHIM_EXPORT int cmux_shim_password_import_available(void);
 // submitted one. Returns 0 for a gone or answered prompt, or a fork without
 // the prompt handler (API 20).
 CMUX_SHIM_EXPORT int cmux_shim_password_prompt_answer(int prompt_id, int action, const char* username);
+// Chromium suggests generated passwords without a Google account (fork API
+// 20; Chromium's default needs sync). Still only where saving and filling
+// are on. Returns 0 when the fork lacks it. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_set_password_generation_enabled(int enabled);
 // 1 when an import reply lists the conflicting rows ("conflicts": indices
 // into the entries) and those can be replaced (API 20).
 CMUX_SHIM_EXPORT int cmux_shim_password_replace_available(void);

@@ -95,6 +95,7 @@ struct ForkApi {
   // API version 20: save and update prompts go to the host (shim_password_core.mm).
   void (*set_password_prompt_handler)(void (*)(void*, const char*), void*) = nullptr;
   int (*password_prompt_answer)(int, int, const char*) = nullptr;
+  int (*set_password_generation_enabled)(int) = nullptr;
   // API version 22: the chrome.bookmarks bridge (shim_bookmarks.mm).
   int (*bookmarks_observe)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*bookmarks_sync)(const char*, const char*) = nullptr;

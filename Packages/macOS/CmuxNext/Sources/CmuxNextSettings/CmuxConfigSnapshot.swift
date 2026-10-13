@@ -250,7 +250,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ChatSettings.validate(root, diagnostics: &snapshot.diagnostics)
-        snapshot.browserOmnibar = BrowserOmnibarSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        CmuxConfigSnapshot.parseBrowser(root, into: &snapshot)
         CmuxConfigSnapshot.parseAgentPane(root, into: &snapshot)
         snapshot.agentPaneZoom = AgentPaneZoomSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)

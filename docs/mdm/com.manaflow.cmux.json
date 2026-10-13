@@ -1063,6 +1063,24 @@
       "title" : "Open Terminal Links in cmux Browser",
       "type" : "boolean"
     },
+    "browser.passwords.allowExport" : {
+      "default" : false,
+      "description" : "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password.",
+      "title" : "Allow Password Export",
+      "type" : "boolean"
+    },
+    "browser.passwords.generate" : {
+      "default" : true,
+      "description" : "Offers a generated password when a site asks for a new one, and saves it.",
+      "title" : "Suggest Strong Passwords",
+      "type" : "boolean"
+    },
+    "browser.passwords.offerToSave" : {
+      "default" : true,
+      "description" : "A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask.",
+      "title" : "Offer to Save Passwords",
+      "type" : "boolean"
+    },
     "browser.remoteLocalhost" : {
       "default" : true,
       "description" : "browser.remoteLocalhost",
