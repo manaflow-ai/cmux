@@ -24632,6 +24632,268 @@
         }
       }
     },
+    "handlers.refusal.agentRemoteStart.homeUnconfirmed": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Choose the home folder on %@ with Use Home Folder first."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に「ホームフォルダを使用」で %@ のホームフォルダを選んでください。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "اختر مجلد المنزل على %@ عبر «استخدام مجلد المنزل» أولًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prvo odaberite početni folder na %@ pomoću opcije Koristi početni folder."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vælg først hjemmemappen på %@ med Brug hjemmemappe."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle zuerst den Benutzerordner auf %@ mit „Benutzerordner verwenden“."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primero elige la carpeta de inicio en %@ con Usar carpeta de inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Choisissez d’abord le dossier personnel sur %@ avec Utiliser le dossier personnel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scegli prima la cartella Inizio su %@ con Usa cartella Inizio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសថតផ្ទះនៅលើ %@ ដោយប្រើ «ប្រើថតផ្ទះ» ជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "먼저 홈 폴더 사용으로 %@의 홈 폴더를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Velg først hjemmemappen på %@ med Bruk hjemmemappe."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Najpierw wybierz folder domowy na %@ opcją Użyj folderu domowego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Primeiro escolha a pasta pessoal em %@ com Usar pasta pessoal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сначала выберите домашнюю папку на %@ через «Использовать домашнюю папку»."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกโฟลเดอร์บ้านบน %@ ด้วย ใช้โฟลเดอร์บ้าน ก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Önce %@ üzerindeki ana klasörü Ana Klasörü Kullan ile seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Спершу виберіть домашню папку на %@ через «Використати домашню папку»."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hãy chọn thư mục nhà trên %@ bằng Dùng thư mục nhà trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "请先用“使用主文件夹”选择 %@ 上的主文件夹。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "請先用「使用主資料夾」選擇 %@ 上的主資料夾。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.agentRemoteStart.aboveHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A chat on %@ never runs in a folder above its home folder."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ のチャットは、ホームフォルダより上のフォルダでは実行されません。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا تعمل الدردشة على %@ أبدًا في مجلد أعلى من مجلد المنزل."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chat na %@ nikada ne radi u folderu iznad početnog foldera."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En chat på %@ kører aldrig i en mappe over hjemmemappen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein Chat auf %@ läuft nie in einem Ordner oberhalb des Benutzerordners."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un chat en %@ nunca se ejecuta en una carpeta por encima de la carpeta de inicio."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une discussion sur %@ ne s’exécute jamais dans un dossier au-dessus du dossier personnel."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una chat su %@ non viene mai eseguita in una cartella sopra la cartella Inizio."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការជជែកនៅលើ %@ មិនដំណើរការក្នុងថតខាងលើថតផ្ទះឡើយ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@의 채팅은 홈 폴더보다 위의 폴더에서 실행되지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En chat på %@ kjører aldri i en mappe over hjemmemappen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Czat na %@ nigdy nie działa w folderze powyżej folderu domowego."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Um chat em %@ nunca é executado em uma pasta acima da pasta pessoal."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чат на %@ никогда не запускается в папке выше домашней."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แชทบน %@ จะไม่ทำงานในโฟลเดอร์ที่อยู่เหนือโฟลเดอร์บ้าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ üzerindeki bir sohbet asla ana klasörün üstündeki bir klasörde çalışmaz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Чат на %@ ніколи не працює в папці вище за домашню."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện trên %@ không bao giờ chạy trong thư mục phía trên thư mục nhà."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的聊天绝不会在主文件夹之上的文件夹中运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 上的聊天絕不會在主資料夾之上的資料夾中執行。"
+          }
+        }
+      }
+    },
     "handlers.refusal.agentRemoteStart.agentServiceDown": {
       "extractionState": "manual",
       "localizations": {

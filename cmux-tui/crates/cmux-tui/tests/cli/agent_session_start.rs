@@ -332,6 +332,10 @@ fn agent_session_trust_records_the_persons_answer_and_the_start_runs() {
         .rpc(json!({"id": 18, "cmd": "agent-session-trust", "surface": surface,
                                         "cwd": home, "level": "trusted", "home_confirmed": true}));
     assert_eq!(home_chosen["ok"], true, "{home_chosen}");
+    // A chat starts in the home folder only with the person's choice of it, trusted or not.
+    let home_start = daemon.rpc(json!({"id": 19, "cmd": "agent-session-start", "surface": surface,
+                                       "harness": "sample", "cwd": home}));
+    assert_eq!(home_start["error_code"], "agent_session.home_unconfirmed", "{home_start}");
     let set = trust(14, json!({"level": "trusted"}));
     assert_eq!(set["ok"], true, "{set}");
     let again = trust(15, json!({}));
