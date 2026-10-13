@@ -124,6 +124,7 @@ extension VerticalTabsSidebar {
             canMarkAllUnread: canMarkAllUnread,
             statusGlyph: statusGlyph,
             compactsAgentStatus: settings.compactsAgentStatus,
+            compactStatusStyle: settings.compactStatusStyle,
             shortcutHintText: nil,
             shortcutHintXOffset: settings.sidebarShortcutHintXOffset,
             shortcutHintYOffset: settings.sidebarShortcutHintYOffset,
