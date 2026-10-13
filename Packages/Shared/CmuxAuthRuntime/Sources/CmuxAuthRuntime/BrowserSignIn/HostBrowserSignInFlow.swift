@@ -170,7 +170,7 @@ public final class HostBrowserSignInFlow {
             log.log("auth.callback.external.routeToActive attempt=\(attemptID) trustedHandoff=\(trustedHandoff)")
             cancelAttemptTimeout()
             cancelSlowSignInHint()
-            let signedIn = await completeCallback(url: url, attemptID: attemptID)
+            let signedIn = await completeCallback(url: url, attemptID: attemptID, trustedHandoff: trustedHandoff)
             resumeActiveSessionContinuation(
                 returning: .cancelled(reason: "external_callback"),
                 reason: "externalCallback",
@@ -485,14 +485,17 @@ public final class HostBrowserSignInFlow {
 
     /// Seed the callback tokens and publish the session through the shared
     /// coordinator, guarding against a sign-out racing the round trip.
-    private func completeCallback(url: URL, attemptID: UInt64?, acceptedExternalState: String? = nil) async -> Bool {
+    /// - Parameter trustedHandoff: The trusted embedded browser's stateless handoff, which an
+    ///   open attempt accepts without its state.
+    private func completeCallback(url: URL, attemptID: UInt64?, acceptedExternalState: String? = nil,
+                                  trustedHandoff: Bool = false) async -> Bool {
         log.log("auth.callback.complete.begin attempt=\(attemptID.map(String.init) ?? "external") \(authCallbackSummary(url))")
         guard let payload = callbackRouter.callbackPayload(from: url) else {
             log.log("auth.callback rejected: invalid payload")
             lastFailure = .invalidCallback
             return false
         }
-        if let attemptID {
+        if let attemptID, !trustedHandoff {
             guard HostBrowserIssuedCallbackStates.constantTimeEquals(authCallbackState(from: url), activeCallbackState) else {
                 log.log("auth.callback rejected: state mismatch attempt=\(attemptID)")
                 lastFailure = .invalidCallback
