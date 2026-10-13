@@ -48,7 +48,7 @@ final class AppModel {
         if hosts.isEmpty, let data = UserDefaults.standard.data(forKey: "cachedHosts"),
            let cached = try? JSONDecoder().decode([APIClient.Host].self, from: data) {
             hosts = cached
-            if let host = cached.first(where: { $0.id == selectedHostID }) ?? cached.first { connect(host) }
+            if let host = cached.launchHost(selectedID: selectedHostID) { connect(host, remember: false) }
         }
         async let hosts: Void = reloadHosts()
         do {
@@ -116,8 +116,8 @@ final class AppModel {
                 hostsLoaded = true
                 hostsError = nil
                 UserDefaults.standard.set(try? JSONEncoder().encode(loaded), forKey: "cachedHosts")
-                if connection == nil, let host = loaded.first(where: { $0.id == selectedHostID }) ?? loaded.first {
-                    connect(host)
+                if connection == nil, let host = loaded.launchHost(selectedID: selectedHostID) {
+                    connect(host, remember: false)
                 }
                 return
             } catch let error as APIClient.APIError where error.status == 401 {
@@ -174,10 +174,12 @@ final class AppModel {
         connect(host)
     }
 
-    func connect(_ host: APIClient.Host) {
+    /// `remember: false` for automatic picks, so only a Mac the user chose
+    /// sticks across launches.
+    func connect(_ host: APIClient.Host, remember: Bool = true) {
         if connection?.host.id == host.id { return }
         connection?.stop()
-        selectedHostID = host.id
+        if remember { selectedHostID = host.id }
         var configuration = WebRTCHostLink.Configuration(apiBase: APIClient.configuredBase, hostID: host.id, token: { [tokenStore] in tokenStore.value ?? "" })
         // QA: `-relayOnly YES` forces the TURN relay path (no direct candidates).
         configuration.relayOnly = UserDefaults.standard.bool(forKey: "relayOnly")
@@ -230,5 +232,14 @@ enum ForegroundRecovery: Equatable {
         case .connecting: .wait
         case .reconnecting, .offline: .reconnect
         }
+    }
+}
+
+extension [APIClient.Host] {
+    /// The Mac to open at launch: the one the user picked, else one that is
+    /// online now, else the first. A fresh install with an old, offline Mac
+    /// listed first would otherwise sit on "Reconnecting…".
+    func launchHost(selectedID: String?) -> APIClient.Host? {
+        first { $0.id == selectedID } ?? first { $0.online == true } ?? first
     }
 }
