@@ -41,6 +41,20 @@ import Testing
     /// (iPhone 17 Pro Max) at each text size; iOS 26.5 logs the same values.
     /// Caption line spacing (13, 18, 20, 22, 25, 29, 35, 41) for Large, XL,
     /// XXL, XXXL, AX1, AX2, AX3, AX4.
+    /// With Arabic among the reader's languages, iOS grows every text style
+    /// font's line height (caption 2: 13.13 -> 15.13 pt, body 20.29 ->
+    /// 22.29) and bubble text runs on a 24 pt pitch, in Messages and ours
+    /// alike (iPhone 17 Pro Max, iOS 26.4, en-US + ar). Messages' spaces
+    /// stay put: a run's bubbles 4 pt apart, not 4.67.
+    @Test func spacesIgnoreTheLanguageAwareLineHeight() {
+        let english = ConversationTranscriptMetrics.captionLineSpacing(lineHeight: 13.126953125, leading: -0.126953125, languageNeutralLineHeight: 13.126953125)
+        let arabic = ConversationTranscriptMetrics.captionLineSpacing(lineHeight: 15.126953125, leading: -0.126953125, languageNeutralLineHeight: 13.126953125)
+        #expect(abs(english - 13) < 0.001)
+        #expect(abs(arabic - 13) < 0.001)
+        #expect(ConversationTranscriptMetrics.space(4, captionLineSpacing: arabic, scale: 3) == 4)
+        #expect(ConversationTranscriptMetrics.space(10, captionLineSpacing: arabic, scale: 3) == 10)
+    }
+
     @Test func spacesScaleWithTheCaptionLineSpacing() {
         func space(_ base: CGFloat, _ line: CGFloat) -> CGFloat {
             ConversationTranscriptMetrics.space(base, captionLineSpacing: line, scale: 3)
