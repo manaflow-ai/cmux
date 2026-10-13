@@ -18,11 +18,22 @@ import CmuxNextCompat
         self.now = now
     }
 
-    /// A real user event reached the pane.
-    public func record() {
+    /// A real user event reached the pane. `click`: a click on the page or the native permission
+    /// shortcut, the only gestures that may answer a permission prompt (``hasFreshAnswerGesture``).
+    public func record(click: Bool = false) {
         last = now()
         lastScope = last
+        if click { lastClick = last }
     }
+
+    /// How old the person's click may be when a permission answer uses it (cx-ocdz).
+    public static let answerWindow: TimeInterval = 1.5
+    private var lastClick: TimeInterval?
+
+    /// Whether the person clicked in the pane (or pressed the permission shortcut) just now: an
+    /// Allow needs that, not a gesture left by typing, so a click another process posts on Allow
+    /// while the person types cannot spend the person's keystroke.
+    public var hasFreshAnswerGesture: Bool { lastClick.map { now() - $0 <= Self.answerWindow } ?? false }
 
     /// Uses the gesture: true once per recorded gesture, false when there is none or it expired.
     public func consume() -> Bool {
