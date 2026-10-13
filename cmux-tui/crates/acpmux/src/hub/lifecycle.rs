@@ -54,7 +54,13 @@ impl Hub {
         // A fork resumes nothing as itself: its process forks the adopted id
         // into a new conversation, so the adopted id is not this session's.
         let fork_from = adopt.as_ref().filter(|_| fork).map(|a| a.agent_session_id.clone());
-        let cwd = session_cwd(cwd, recorded, &family)?;
+        // A gone recorded folder may be remapped: git runs to compare repositories.
+        let cwd_map = adopt.as_ref().map(|a| a.cwd_map.clone()).unwrap_or_default();
+        let fam = family.clone();
+        let (cwd, adopted_cwd) =
+            tokio::task::spawn_blocking(move || session_cwd(cwd, recorded, &fam, &cwd_map))
+                .await
+                .map_err(|e| RpcError::internal(e.to_string()))??;
         // A folder profile runs only in chats whose folder is inside its folder (H4).
         if let Some(root) = &folder_root
             && !std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone()).starts_with(root)
@@ -80,7 +86,8 @@ impl Hub {
             policy,
             remote,
         });
-        (meta.session_env, meta.chat_store) = (session_env, chat_store);
+        (meta.session_env, meta.chat_store, meta.adopted_cwd) =
+            (session_env, chat_store, adopted_cwd);
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
