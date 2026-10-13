@@ -108,6 +108,27 @@ struct BookmarkFolderIconTests {
         #expect(set.arguments.contains { $0.name == "icon" }, "the CLI and MCP name the icon")
     }
 
+    /// The CLI names a folder by its title even when a bookmark inside it matches the same words
+    /// first, and the palette (which has no folder to act on) leaves both actions out.
+    @Test func theCLINamesAFolderByTitleAheadOfAMatchingBookmark() throws {
+        for id in ["bookmark.setIcon", "bookmark.clearIcon"] {
+            let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == id })
+            #expect(!descriptor.surfaces.contains(.palette), "\(id) has no folder to act on from the palette")
+        }
+        let services = Self.services()
+        var tree = BookmarkTree()
+        try tree.apply(.create(.folder("Work", in: BookmarkRoot.bar.rawValue, id: "bm_folder"), index: nil))
+        let url = try #require(URL(string: "https://example.com/work"))
+        try tree.apply(.create(.bookmark("Work docs", url: url, in: "bm_folder", id: "bm_url"), index: nil))
+        services.bookmarks.trees["default"] = tree
+        let resolver = BookmarkResolver(services: services)
+        let named = try BookmarkIconHandlers.folder(ActionInvocation(arguments: ["bookmark": .string("work")]), resolver)
+        #expect(named.id == "bm_folder")
+        #expect(throws: (any Error).self) {
+            try BookmarkIconHandlers.folder(ActionInvocation(arguments: ["bookmark": .string("bm_url")]), resolver)
+        }
+    }
+
     /// Folder icons live in the home daemon's bookmarks: without `bookmark-icon-v1` there (an
     /// older daemon, or none yet) the actions say why instead of doing nothing.
     @Test func folderIconActionsWaitForAHomeDaemonThatServesThem() {
