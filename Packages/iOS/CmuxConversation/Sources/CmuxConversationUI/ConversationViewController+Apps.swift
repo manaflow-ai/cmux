@@ -485,6 +485,30 @@ extension ConversationViewController {
         photoDrawer = drawer
         // The composer's field sits 4 pt above its container's bottom.
         let composerBottom = top - (PhotoDrawerGeometry.fieldGap - 4) - (view.bounds.height - view.safeAreaInsets.bottom)
+        // Pulled down, the sheet follows the finger with the composer on its
+        // top, and closes or springs back on release (Messages' sheet).
+        drawer.onDrag = { [weak self, weak drawer] offset in
+            guard let self, let drawer, self.photoDrawer === drawer else { return }
+            drawer.frame.origin.y = top + offset
+            self.composerBottomConstraintConstant(composerBottom + offset)
+            self.view.layoutIfNeeded()
+        }
+        drawer.onRelease = { [weak self, weak drawer] offset, velocity in
+            guard let self, let drawer, self.photoDrawer === drawer else { return }
+            if PhotoDrawerGeometry.shouldClose(offset: offset, velocity: velocity, height: height) {
+                self.dismissPhotoDrawer()
+                return
+            }
+            let distance = max(1, abs(offset))
+            UIView.animate(
+                springDuration: 0.5, bounce: 0, initialSpringVelocity: -velocity / distance, options: [.beginFromCurrentState, .allowUserInteraction],
+                animations: {
+                    drawer.frame.origin.y = top
+                    self.composerBottomConstraintConstant(composerBottom)
+                    self.view.layoutIfNeeded()
+                }
+            )
+        }
         // On the keyboard's own curve: the keyboard leaving and the drawer
         // arriving move the composer as one motion, never down then up.
         animateAlongsideKeyboard {
