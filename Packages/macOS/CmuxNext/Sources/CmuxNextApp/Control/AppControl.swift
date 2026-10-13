@@ -272,8 +272,7 @@ final class AppControl {
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let attachments = call.params["attachments"]?.boolValue ?? false
-                // `new`: one more fixture tab, also when the window lists one already (a fixture tab the daemon
-                // restored from an earlier run of the same tag shows no transcript).
+                // `new`: one more fixture tab, also when the window lists one already.
                 let fresh = call.params["new"]?.boolValue ?? false
                 return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
             },
