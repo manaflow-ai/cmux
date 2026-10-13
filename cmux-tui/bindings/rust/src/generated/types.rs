@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR e80b517cb44304433691e88f906ee727d150fb68080082f6ab48caf2890d54d3.
+// cmux-tui mux protocol 12, IR e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -155,7 +155,7 @@ pub struct Bookmark {
     pub created_ms: u64,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub favicon_key: Option<String>,
-    /// Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>.
+    /// Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}.
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
     /// \`bm_\` and 32 lowercase hex digits.

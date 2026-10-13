@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "e80b517cb44304433691e88f906ee727d150fb68080082f6ab48caf2890d54d3";
+pub const ir_sha256 = "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -172,7 +172,7 @@ pub const Bookmark = struct {
     browser_profile_id: []const u8,
     created_ms: u64,
     favicon_key: ?[]const u8 = null,
-    /// Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>.
+    /// Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}.
     icon: ?[]const u8 = null,
     /// `bm_` and 32 lowercase hex digits.
     id: []const u8,

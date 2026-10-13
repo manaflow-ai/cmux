@@ -127,7 +127,7 @@
     },
     {
       "path": "Bookmark.java",
-      "sha256": "7bec99405a83212c8bc57a42fcf27c12746afa8f10e0d3f7956dbad679b61a30",
+      "sha256": "abd7669fe5d37a6cec6954c2aa3ffc5fa59d925ac81ae99c68e1c7d7cd2eabc0",
       "size": 10448
     },
     {
@@ -1772,7 +1772,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "2eccf4fb3f1d01f9a68b86c6b03af9b9e497f7f102dc4828aab4c52defc7ee41",
+      "sha256": "bdecbae58f8e1d0e5d40429389a843e664fe8642c17e0f641c0ab59e01475111",
       "size": 6393
     },
     {
@@ -3012,7 +3012,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "e80b517cb44304433691e88f906ee727d150fb68080082f6ab48caf2890d54d3",
+  "ir_sha256": "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

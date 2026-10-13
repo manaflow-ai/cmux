@@ -257,7 +257,7 @@ impl Mux {
             .ok_or_else(|| ResourceError::not_found("workspace", "<resolved>"))?;
         let id = workspace.as_str().to_owned();
         // The agent-home folder is named by the workspace's durable key, as the app names it
-        // (`AgentHome.path(for: workspace.id)`) and moves it on a History reopen.
+        // (`AgentHome.path(for: workspace.id)`); closed.reopen moves it (agent_home_moves).
         let key = self
             .with_state(|state| {
                 state

@@ -236,7 +236,8 @@ def island_check(result, name, state, **expected):
 
 
 def write_notes(feed, keys, info, log):
-    """Signed release notes for `info`'s build, laid out like the real feed: notes/<build>.json + .sig."""
+    """Signed release notes for `info`'s build, laid out like the real feed: notes/<build>.json + .sig
+    and the index the changelog page lists (notes/index.json + .sig)."""
     build, short = info["CFBundleVersion"], info.get("CFBundleShortVersionString", "0")
     notes = {
         "version": 1, "build": build, "shortVersion": short, "date": time.strftime("%Y-%m-%d", time.gmtime()),
@@ -255,7 +256,34 @@ def write_notes(feed, keys, info, log):
         json.dump(notes, f, ensure_ascii=False)
     with open(path + ".sig", "w") as f:
         f.write(run(["swift", os.path.join(HERE, "keys.swift"), "sign", keys, path]) + "\n")
-    log("notes", path)
+    index = os.path.join(folder, "index.json")
+    with open(index, "w") as f:
+        json.dump({"builds": [{"build": build, "shortVersion": short, "date": notes["date"], "highlights": 0}]}, f)
+    with open(index + ".sig", "w") as f:
+        f.write(run(["swift", os.path.join(HERE, "keys.swift"), "sign", keys, index]) + "\n")
+    log("notes", path, index)
+
+
+# The narrow sidebar width for the --changelog-shots captures (the sidebar's minimum, Metrics.sidebarMinWidth).
+NARROW_SIDEBAR = 160
+
+
+def changelog_shots(sock, out, phase, log, action, popover):
+    """cx-7rone: the sidebar's update card at the narrow width (light and dark), then, at the width
+    before, the What's New page its button opens (`action`: open-changes or open-whats-new), light
+    and dark. The ready phase leaves that page's tab open in the session the relaunch restores."""
+    shots = {"width": rpc(sock, "debug.update_surfaces", {"action": "sidebar-width", "width": NARROW_SIDEBAR}).get("result")}
+    time.sleep(1.0)  # capture timing only: the card's page re-measures at the new width
+    shots.update(surface_shots(sock, out, f"{phase}-narrow", log, popover=popover))
+    # Back to the width before, so later captures (and the relaunched session) keep it.
+    previous = (shots["width"] or {}).get("previous")
+    if previous:
+        rpc(sock, "debug.update_surfaces", {"action": "sidebar-width", "width": previous})
+    shots["open"] = rpc(sock, "debug.update_surfaces", {"action": action}).get("result")
+    time.sleep(3.0)  # capture timing only: the page loads the notes list and the newest notes
+    shots["windows"] = rpc(sock, "debug.window_list").get("result", {}).get("windows", [])
+    shots.update(surface_shots(sock, out, f"{phase}-changelog", log, popover=False))
+    return shots
 
 
 def second_hop(a, work, feed, keys, name, public_key, harness, base, marks, sock, installed_path, old_pids, click_after_keep):
@@ -378,6 +406,9 @@ def main():
                          "no highlights page before staging, the highlights page drawn (the popover opens only with "
                          "a measured page) and 3 staged items (the updater's data) once staged, the Updated card's "
                          "page drawn after the restart")
+    ap.add_argument("--changelog-shots", action="store_true",
+                    help="with --surface-shots and --notes: after each surface capture, capture the card at the "
+                         "narrow sidebar width and the What's New page its button opens, light and dark (cx-7rone)")
     ap.add_argument("--second-hop", action="store_true",
                     help="after the relaunch, publish a v3 and update the relaunched build again")
     ap.add_argument("--click-at-stage", action="store_true",
@@ -392,6 +423,8 @@ def main():
     a = ap.parse_args()
     if a.island_lifecycle and not (a.surface_shots and a.notes):
         ap.error("--island-lifecycle needs --surface-shots and --notes")
+    if a.changelog_shots and not (a.surface_shots and a.notes):
+        ap.error("--changelog-shots needs --surface-shots and --notes")
 
     if a.port == 0:
         probe = socket.socket()
@@ -588,6 +621,8 @@ def main():
             shown = result["ready_shots"].get("ready-light-popover-shown", {})
             island_check(result, "v1-staged", dict(island_state(sock), items=items, popoverShown=shown.get("shown")),
                          card="true", highlights="true", items=3, popoverShown="true")
+        if a.changelog_shots:
+            result["ready_changelog_shots"] = changelog_shots(sock, out, "ready", log, "open-changes", popover=True)
         if terminal:
             terminal.start(v1)
             agent.start()
@@ -702,6 +737,9 @@ def main():
                 state = island_state(sock)
                 island_check(result, "v2-updated", dict(state, drawn=float(state.get("updatedHeight", "0")) > 0),
                              updatedCard="true", updatedPage="true", drawn=True)
+            # After the lifecycle check: "See What's New" marks the update seen, so the card goes.
+            if a.changelog_shots:
+                result["updated_changelog_shots"] = changelog_shots(sock, out, "updated", log, "open-whats-new", popover=False)
         except OSError as error:
             result["v2_socket_error"] = str(error)
         if a.second_hop:

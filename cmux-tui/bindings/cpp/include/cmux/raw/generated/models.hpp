@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e80b517cb44304433691e88f906ee727d150fb68080082f6ab48caf2890d54d3";
+inline constexpr std::string_view kProtocolIrSha256 = "e81b8aed2fef0fc47f11d3defab497d360a58c8873f6da133e969a98536acf67";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;

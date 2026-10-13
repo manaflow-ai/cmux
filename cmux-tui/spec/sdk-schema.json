@@ -8229,7 +8229,7 @@
      "nullable": false,
      "since": 12,
      "capability": "bookmark-icon-v1",
-     "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>."
+     "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-{hex} or svg:sha256-{hex}."
     }
    },
    "additional_properties": true
