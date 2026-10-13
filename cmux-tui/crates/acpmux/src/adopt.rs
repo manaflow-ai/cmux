@@ -198,7 +198,7 @@ pub(crate) fn find_claude(root: &Path, id: &str) -> Option<PathBuf> {
 }
 
 /// `<codex>/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl`.
-fn find_codex(root: &Path, id: &str) -> Option<PathBuf> {
+pub(crate) fn find_codex(root: &Path, id: &str) -> Option<PathBuf> {
     let suffix = format!("-{id}.jsonl");
     let mut dirs = vec![(root.join("sessions"), 0)];
     while let Some((dir, depth)) = dirs.pop() {
