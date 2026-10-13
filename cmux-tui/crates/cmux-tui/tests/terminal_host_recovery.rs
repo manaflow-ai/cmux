@@ -54,6 +54,8 @@ struct RecoveryHarness {
     template_completion_failures: Option<u64>,
     adopt_template_terminal: bool,
     extra_args: Vec<String>,
+    /// Extra environment of the daemon (a test's own data folders).
+    extra_env: Vec<(String, String)>,
     /// `false` launches shells without Ghostty shell integration, so they
     /// emit no OSC 7 or OSC 133 reports that commit registry revisions.
     shell_integration: bool,
@@ -83,6 +85,7 @@ impl RecoveryHarness {
             template_completion_failures: None,
             adopt_template_terminal: false,
             extra_args: Vec::new(),
+            extra_env: Vec::new(),
             shell_integration: true,
             binary: None,
             respawn: true,
@@ -95,6 +98,15 @@ impl RecoveryHarness {
     fn start_with_args(name: &str, args: &[&str]) -> Self {
         let mut harness = Self::start_unstarted(name);
         harness.extra_args = args.iter().map(|arg| (*arg).to_string()).collect();
+        harness.restart();
+        harness
+    }
+
+    /// A harness whose daemon runs with `env` added.
+    fn start_with_env(name: &str, env: &[(&str, &str)]) -> Self {
+        let mut harness = Self::start_unstarted(name);
+        harness.extra_env =
+            env.iter().map(|(key, value)| ((*key).to_string(), (*value).to_string())).collect();
         harness.restart();
         harness
     }
@@ -163,6 +175,7 @@ impl RecoveryHarness {
             template_completion_failures: None,
             adopt_template_terminal: false,
             extra_args: Vec::new(),
+            extra_env: Vec::new(),
             shell_integration: true,
             binary: None,
             respawn: true,
@@ -188,6 +201,7 @@ impl RecoveryHarness {
             .arg("--state")
             .arg(&self.state)
             .args(&self.extra_args)
+            .envs(self.extra_env.iter().map(|(key, value)| (key.as_str(), value.as_str())))
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             // Host copies stay in the test directory, not the user's home.

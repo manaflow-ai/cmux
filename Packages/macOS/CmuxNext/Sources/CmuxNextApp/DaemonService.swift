@@ -80,7 +80,7 @@ final class DaemonService {
     @ObservationIgnored var startupDeadline: Duration = DaemonStartup.shared.defaultDeadline
     @ObservationIgnored var startupClock: any Clock<Duration> = ContinuousClock()
     /// Times the wait for a reopened workspace to reach the mirror
-    /// (`DaemonClosedHistory.workspaceAfterReopen`); tests advance it.
+    /// (`DaemonStore.workspace(afterReopen:)`); tests advance it.
     @ObservationIgnored var reopenClock: any Clock<Duration> = ContinuousClock()
     @ObservationIgnored private var startupDeadlineTimer: DemandTimer?
     @ObservationIgnored private var lastStartupError: DaemonError?
