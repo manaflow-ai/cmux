@@ -8,4 +8,10 @@ struct NewTabAlwaysPageSettingTests {
     @Test func settingsOffersNoNewTabOpensChoice() {
         #expect(SettingsSchema.descriptor(for: ["tabs", "newTabKind"]) == nil)
     }
+
+    /// A cmux.json the old toggle wrote still loads, and a `settings.set` of the key says it was
+    /// removed instead of writing a value nothing reads.
+    @Test func anOldNewTabOpensValueIsARetiredKey() {
+        #expect(SettingsSchema.isRetired(["tabs", "newTabKind"]))
+    }
 }
