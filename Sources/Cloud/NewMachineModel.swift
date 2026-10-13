@@ -314,7 +314,7 @@ final class NewMachineModel {
     }
 
     func applyPage(_ page: VMListPage) {
-        applyPlan(activeCount: page.vms.count, limits: page.limits)
+        applyPlan(activeCount: page.activeMachineCount, limits: page.limits)
     }
 
     /// Replaces the plan in place (a background refresh of the cached plan).

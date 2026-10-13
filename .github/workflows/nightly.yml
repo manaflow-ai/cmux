@@ -1571,7 +1571,8 @@ jobs:
 
       - name: Initialize cmux-next notices submodule
         if: github.ref_name == 'nightly-next'
-        run: git submodule update --init --depth 1 ghostty-next
+        shell: bash
+        run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -1722,9 +1723,9 @@ jobs:
             --manifest-url "https://files.cmux.com/cmux-tui/${cmux_tui_commit}/manifest.json" \
             --expected-commit "$cmux_tui_commit" \
             --require-capability wireguard-hub
-          # Same local-symbol strip scripts/strip-release-bundle.sh applied when
-          # the client was bundled before the unsigned app was archived.
-          strip -S -x "$app/Contents/Resources/bin/cmux-tui"
+          # The client and its SSH payloads arrive after the build job's strip, so
+          # strip again; already-stripped binaries are unchanged.
+          ./scripts/strip-release-bundle.sh "$app"
 
       - name: Run bundled Ghostty theme picker helper regression
         run: |
@@ -1757,7 +1758,6 @@ jobs:
             "$APP/Contents/Resources/bin/cmux" \
             "$APP/Contents/Resources/bin/ghostty" \
             "$APP/Contents/Resources/bin/cmux-tui" \
-            "$APP/Contents/Resources/bin/cmux-cua" \
             "$APP/Contents/Resources/bin/cmux-diff-sidecar" \
             "$APP/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua"
           do

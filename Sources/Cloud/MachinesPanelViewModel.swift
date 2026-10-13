@@ -505,7 +505,9 @@ final class MachinesPanelViewModel: ObservableObject {
             let now = Date()
             self.machines = MachineSnapshotBuilder.applyingFreeAccess(to: self.machines, windowDays: windowDays, now: now)
             self.plan = MachineSnapshotBuilder.planSnapshot(
-                activeCount: self.machines.count, limits: self.lastLimits, machines: self.machines, now: now
+                // Keep the server's count from the last list read; only the free-access state moved.
+                activeCount: self.plan?.activeCount ?? MachineSnapshotBuilder.activeCount(of: self.machines),
+                limits: self.lastLimits, machines: self.machines, now: now
             )
             self.scheduleFreeAccessTransition(now: now)
         }
@@ -661,7 +663,7 @@ final class MachinesPanelViewModel: ObservableObject {
             refreshStats()
             refreshUsage()
             readCatalog()
-            plan = MachineSnapshotBuilder.planSnapshot(activeCount: snapshots.count, limits: page.limits, machines: snapshots)
+            plan = MachineSnapshotBuilder.planSnapshot(activeCount: page.activeMachineCount, limits: page.limits, machines: snapshots)
             lastErrorDescription = nil
             listProblem = nil
             initialTransientFailureCount = 0

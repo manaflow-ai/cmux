@@ -19,7 +19,12 @@ struct CmuxSocketEventMapperTests {
         CmuxSocketEventMapper.publish(command: command, response: localResponse)
         CmuxSocketEventMapper.publish(command: command, response: remoteResponse)
 
-        let events = CmuxEventBus.shared.retainedSnapshot()
+        // The bus is process-wide and other suites run in parallel, so an
+        // unrelated surface teardown can publish between reset and snapshot.
+        // Assert only on the events this test's commands map to.
+        let events = CmuxEventBus.shared.retainedSnapshot().filter {
+            ($0["name"] as? String)?.hasPrefix("pane.resize") == true
+        }
         #expect(events.compactMap { $0["name"] as? String } == [
             "pane.resized",
             "pane.resize_requested",

@@ -147,7 +147,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git submodule update --init --depth 1 ghostty
+          bash scripts/ci/init-submodule.sh ghostty
           [[ "$(git -C ghostty rev-parse --show-toplevel)" == "$GITHUB_WORKSPACE/ghostty" ]] || {
             echo "::error::ghostty did not initialize as its own submodule checkout" >&2
             exit 1

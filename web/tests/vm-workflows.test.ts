@@ -15,6 +15,7 @@ import {
   type VmCreateCreditReservation,
 } from "../services/vms/billingGateway";
 import type { AttachEndpoint, SSHEndpoint, VMHandle } from "../services/vms/drivers";
+import { ProviderGuestUnresponsiveError } from "../services/vms/drivers/types";
 import { vmCapabilitiesFor } from "../services/vms/drivers";
 import { VmProviderGateway, type VmProviderGatewayShape } from "../services/vms/providerGateway";
 import {
@@ -45,6 +46,7 @@ import {
   VmOperationUnsupportedError,
   VmProviderOperationError,
   VmSnapshotNotFoundError,
+  VmUsageLimitExceededError,
   isVmCreateDisabledError,
   vmWorkflowErrorCause,
 } from "../services/vms/errors";
@@ -92,6 +94,9 @@ const runDbTests = process.env.CMUX_DB_TEST === "1";
 // concurrent tests for this file.
 const serialTest = (test as typeof test & { serial: typeof test }).serial;
 const dbTest = runDbTests ? serialTest : test.skip;
+// Virtual-clock tests advance the TestClock one step per real event-loop
+// turn; on a loaded CI runner that takes seconds of wall time.
+const VIRTUAL_CLOCK_TEST_TIMEOUT_MS = 30_000;
 
 describe("Cloud prompt rename", () => {
   test("publishes the committed name to the running guest", async () => {
@@ -1802,7 +1807,9 @@ describe("VM Effect workflows", () => {
   };
 
   // Runs `execVm` on the test clock, advancing virtual time in `stepMs` steps
-  // until it answers; returns the answer and the virtual time it took.
+  // until it answers; returns the answer and the virtual time it took. Each
+  // step yields one real event-loop turn, so a test driven this way needs
+  // VIRTUAL_CLOCK_TEST_TIMEOUT_MS rather than Bun's 5 s default.
   const execOnTestClock = (layer: ReturnType<typeof workflowLayer>, input: Parameters<typeof execVm>[0], stepMs = 10) =>
     Effect.runPromise(Effect.gen(function* () {
       const fiber = yield* Effect.fork(execVm(input).pipe(Effect.provide(layer)));
@@ -1830,7 +1837,7 @@ describe("VM Effect workflows", () => {
     expect(result.stdout).toBe("");
     expect(result.stderr).toContain("did not finish within 60s");
     expect(usageEvents.find((event) => event.eventType === "vm.exec")?.metadata).toMatchObject({ exitCode: 124 });
-  });
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
 
   test("exec reads a provider failure after the command timeout elapsed as that timeout", async () => {
     const late = providerOperationError("exec", "Internal server error");
@@ -1847,7 +1854,7 @@ describe("VM Effect workflows", () => {
     });
     expect(result.exitCode).toBe(124);
     expect(result.stderr).toContain("may still be running");
-  });
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
 
   test("the exec answer budget is the timeout plus the margin, less the route's own time", () => {
     expect(execAnswerBudgetMs(60_000, 0)).toBe(60_000 + EXEC_ANSWER_MARGIN_MS);
@@ -1870,7 +1877,7 @@ describe("VM Effect workflows", () => {
       answerWithinMs: 0,
     });
     expect(result).toEqual({ exitCode: 0, stdout: "ran", stderr: "" });
-  });
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
 
   test("exec preflight resume failure propagates the resume error without exec", async () => {
     const vm = testCloudVmRow({
@@ -2048,6 +2055,33 @@ describe("VM Effect workflows", () => {
 
     expect(revokeCalls).toBe(1);
     expect(destroyCalls).toBe(0);
+  });
+
+  // A destroy the route answered as in progress may have removed the
+  // machine at the provider already; the retry treats that as done.
+  test("a destroy retry after the first destroy removed the machine finishes the row", async () => {
+    const vm = testCloudVmRow({
+      id: "00000000-0000-4000-8000-000000000133",
+      userId: "user-workflow-destroy-retry",
+      providerVmId: "provider-vm-destroy-retry",
+      status: "running",
+    });
+    const repo = testWorkflowRepo({ vm });
+    let destroyCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      destroy: () => {
+        destroyCalls += 1;
+        return Effect.fail(new VmProviderOperationError({
+          provider: "freestyle", operation: "destroy",
+          cause: Object.assign(new Error("VM not found"), { status: 404, code: "NOT_FOUND" }),
+        }));
+      },
+    };
+    await Effect.runPromise(
+      destroyVm({ userId: vm.userId, providerVmId: "provider-vm-destroy-retry" }).pipe(Effect.provide(workflowLayer(repo, provider))),
+    );
+    expect(destroyCalls).toBe(1);
   });
 
   test("destroyVm fails closed when active identity cleanup exceeds the hot-path cap", async () => {
@@ -3544,6 +3578,61 @@ describe("VM Effect workflows", () => {
     // A sized image reaches the driver as the shape to boot at, never to resize to.
     expect(providerImageSize).toEqual({ name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 });
     expect(usageEventAttempts).toBe(2);
+  });
+
+  dbTest("preflights Go runtime before replacing a destroyed idempotent row", async () => {
+    if (!sql) throw new Error("test database not initialized");
+    await sql`truncate cloud_vm_billing_grants, cloud_vm_usage_events, cloud_vm_leases, cloud_vms restart identity cascade`;
+    await sql`
+      insert into cloud_vms (
+        user_id, billing_team_id, billing_plan_id, provider, provider_vm_id,
+        image_id, status, idempotency_key, destroyed_at
+      )
+      values (
+        'user-workflow-go-destroyed-retry', 'team-workflow-go-destroyed-retry',
+        'go', 'freestyle', 'provider-vm-go-destroyed', 'snapshot-go',
+        'destroyed', 'go-destroyed-retry', now()
+      )
+    `;
+
+    let createCalls = 0;
+    const provider: VmProviderGatewayShape = {
+      ...unusedProviderGateway(),
+      create: () => Effect.sync(() => {
+        createCalls += 1;
+        return testVmHandle({ providerVmId: "provider-vm-should-not-start" });
+      }),
+    };
+
+    const result = await Effect.runPromise(Effect.either(
+      createVm({
+        userId: "user-workflow-go-destroyed-retry",
+        billingCustomerType: "team",
+        billingTeamId: "team-workflow-go-destroyed-retry",
+        billingPlanId: "go",
+        maxActiveVms: 1,
+        provider: "freestyle",
+        image: "snapshot-go",
+        // Default Go creates carry the fixed Go shape (the route sends the
+        // image selection's size). Without it the shape check rejects the
+        // request before the runtime allowance is read, and this test would
+        // not reach it.
+        imageSize: { name: "sm", cpu: 2, memoryMb: 4096, storageMb: 16384 },
+        idempotencyKey: "go-destroyed-retry",
+      }).pipe(Effect.provide(providerLayer(provider))),
+    ));
+
+    expect(result._tag).toBe("Left");
+    if (result._tag === "Left") expect(result.left).toBeInstanceOf(VmUsageLimitExceededError);
+    expect(createCalls).toBe(0);
+
+    const rows = await sql<{ status: string }[]>`
+      select status
+      from cloud_vms
+      where billing_team_id = 'team-workflow-go-destroyed-retry'
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.status).toBe("destroyed");
   });
 
   test("create configures the first guest prompt with the stored display name", async () => {
@@ -8947,6 +9036,99 @@ describe("private SCP workflow", () => {
     expect(leases).toHaveLength(0);
     expect(events.map(event => event.eventType)).toEqual(["vm.scp_endpoint"]);
   });
+
+  const scpOnTestClock = (layer: ReturnType<typeof workflowLayer>, providerVmId: string, userId: string) =>
+    Effect.runPromise(Effect.gen(function* () {
+      const fiber = yield* Effect.fork(prepareScpEndpoint({ userId, providerVmId, publicKey: "client-key", callerPlanId: "pro" })
+        .pipe(Effect.flip, Effect.provide(layer)));
+      let elapsedMs = 0;
+      while (Option.isNone(yield* Fiber.poll(fiber)) && elapsedMs < 300_000) {
+        yield* TestClock.adjust(500);
+        elapsedMs += 500;
+        yield* Effect.promise(() => new Promise<void>((resolve) => setImmediate(resolve)));
+      }
+      const done = yield* Fiber.poll(fiber);
+      if (Option.isNone(done)) {
+        yield* Fiber.interrupt(fiber);
+        return { error: null, elapsedMs };
+      }
+      return { error: yield* Fiber.join(fiber), elapsedMs };
+    }).pipe(Effect.provide(TestContext.TestContext)));
+
+  // Production 2026-10-11: the guest exec behind SCP setup hung in Freestyle's
+  // background-request poll for 3-4 minutes, then failed 502, while the Mac
+  // client had given up at 60 s. The setup now answers inside that budget.
+  test("answers a hung guest setup within the client's request budget", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-hung", status: "running", billingPlanId: "pro" });
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      getStatus: () => Effect.succeed("running" as const),
+      prepareSCP: () => Effect.never,
+    });
+    const { error, elapsedMs } = await scpOnTestClock(layer, "vm-scp-hung", vm.userId);
+    // The Mac's URLRequest gives up after 60 s without a response byte.
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error?._tag).toBe("VmProviderOperationError");
+    const cause = error && "cause" in error ? error.cause as { name?: string } : null;
+    expect(cause?.name).toBe("ProviderGuestUnresponsiveError");
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
+
+  test("the answer bound covers a slow status probe after a failed setup", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-slow-probe", status: "running", billingPlanId: "pro" });
+    let probes = 0;
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      // The preflight probe answers; the recovery probe after the failed setup hangs.
+      getStatus: () => (probes++ === 0 ? Effect.succeed("running" as const) : Effect.never),
+      resume: () => Effect.never,
+      prepareSCP: () => Effect.fail(providerOperationError("prepareSCP", "Internal server error")),
+    });
+    const { error, elapsedMs } = await scpOnTestClock(layer, "vm-scp-slow-probe", vm.userId);
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error?._tag).toBe("VmProviderOperationError");
+    expect(probes).toBeGreaterThanOrEqual(2);
+    // The setup failed before the deadline, so its own error is the answer.
+    expect(error && "cause" in error ? (error.cause as Error).message : "").toBe("Internal server error");
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
+
+  test("an early refusal keeps its own error when the recovery probe stalls past the deadline", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-early-401", status: "running", billingPlanId: "pro" });
+    let probes = 0;
+    const refused = providerOperationError("prepareSCP", "401 Unauthorized: invalid api key");
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      getStatus: () => (probes++ === 0 ? Effect.succeed("running" as const) : Effect.never),
+      resume: () => Effect.never,
+      prepareSCP: () => Effect.fail(refused),
+    });
+    const { error, elapsedMs } = await scpOnTestClock(layer, "vm-scp-early-401", vm.userId);
+    expect(elapsedMs).toBeLessThan(60_000);
+    expect(error).toBe(refused);
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
+
+  test("a guest that did not answer is not probed or resumed again in the same request", async () => {
+    const vm = testCloudVmRow({ providerVmId: "vm-scp-unanswered", status: "running", billingPlanId: "pro" });
+    let probes = 0;
+    let setups = 0;
+    const layer = workflowLayer(testWorkflowRepo({ vm }), {
+      ...unusedProviderGateway(),
+      // A recovery probe would see "paused" and resume; only the preflight may probe.
+      getStatus: () => Effect.succeed(probes++ === 0 ? "running" as const : "paused" as const),
+      resume: () => Effect.die("must not resume a guest that did not answer"),
+      prepareSCP: () => {
+        setups++;
+        return Effect.fail(new VmProviderOperationError({
+          provider: "freestyle", operation: "prepareSCP",
+          cause: new ProviderGuestUnresponsiveError("freestyle", "the machine did not answer the setup command"),
+        }));
+      },
+    });
+    const { error } = await scpOnTestClock(layer, "vm-scp-unanswered", vm.userId);
+    expect(error?._tag).toBe("VmProviderOperationError");
+    expect(setups).toBe(1);
+    // Only the preflight probe ran; the failure skipped the recovery probe.
+    expect(probes).toBe(1);
+  }, VIRTUAL_CLOCK_TEST_TIMEOUT_MS);
 
   test("refuses an inaccessible VM before installing a public key", async () => {
     const vm = testCloudVmRow({ providerVmId: "vm-scp", status: "running" });

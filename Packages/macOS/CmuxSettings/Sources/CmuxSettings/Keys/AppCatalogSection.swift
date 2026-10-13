@@ -58,6 +58,13 @@ public struct AppCatalogSection: SettingCatalogSection {
         userDefaultsKey: "newWorkspacePlacement"
     )
 
+    /// Ordering used by the Go to Workspace command-palette switcher.
+    public let goToWorkspaceOrder = DefaultsKey<WorkspaceSwitcherOrder>(
+        id: "app.goToWorkspaceOrder",
+        defaultValue: .sidebar,
+        userDefaultsKey: "goToWorkspaceOrder"
+    )
+
     /// Folder the Open Folder panel starts in. Empty keeps the active
     /// workspace's directory. Supports a leading `~`.
     public let defaultWorkspacePath = DefaultsKey<String>(

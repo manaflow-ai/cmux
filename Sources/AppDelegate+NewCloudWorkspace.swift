@@ -14,37 +14,108 @@ extension AppDelegate {
         debugSource: String = "newCloudWorkspace",
         destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
+        if introduceCloudIfNeeded(
+            over: preferredWindow ?? preferredTabManager.flatMap { mainWindowContext(for: $0) }.flatMap { resolvedWindow(for: $0) },
+            resume: { [weak self, weak preferredTabManager, weak preferredWindow] in
+                _ = self?.performNewCloudWorkspaceOnResolvedMachineAction(
+                    tabManager: preferredTabManager,
+                    preferredWindow: preferredWindow,
+                    debugSource: "\(debugSource).afterEnable",
+                    destination: destination
+                )
+            }
+        ) {
+            return true
+        }
         guard let coordinator = cloudWorkspaceCoordinator,
               let operationController = cloudWorkspaceOperationController,
-              coordinator.isAvailable, let scopeID = coordinator.scopeIdentifier else { return false }
+              coordinator.isAvailable, let scopeID = coordinator.scopeIdentifier else {
+            return performNewCloudMachineAction(
+                tabManager: preferredTabManager,
+                preferredWindow: preferredWindow,
+                debugSource: "\(debugSource).fallback"
+            )
+        }
         guard let context = preferredTabManager.flatMap({ mainWindowContext(for: $0) })
             ?? preferredWindow.flatMap({ contextForMainWindow($0) })
-            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource) else { return false }
+            ?? preferredMainWindowContextForWorkspaceCreation(event: nil, debugSource: debugSource) else {
+            return performNewCloudMachineAction(
+                tabManager: preferredTabManager,
+                preferredWindow: preferredWindow,
+                debugSource: "\(debugSource).fallback"
+            )
+        }
         let manager = context.tabManager
         manager.recordCloudWorkspaceSelection()
         let selection = manager.rememberedCloudWorkspaceSelection
         let revision = manager.cloudWorkspaceSelection.revision
         let windowID = context.windowId
+        // Hold the manager weakly so a create in flight does not keep a closed
+        // window's manager alive.
         return operationController.start(key: "new-cloud-workspace.resolved.\(windowID.uuidString)") { [weak self, weak manager] in
+            let fallbackToNewMachine: @MainActor () -> Void = { [weak self, weak manager] in
+                guard let self, !Task.isCancelled else { return }
+                let fallbackWindow = self.mainWindowContexts.values
+                    .first(where: { $0.windowId == windowID })
+                    .flatMap { self.resolvedWindow(for: $0) }
+                _ = self.performNewCloudMachineAction(
+                    tabManager: manager,
+                    preferredWindow: fallbackWindow,
+                    debugSource: "\(debugSource).fallback"
+                )
+            }
             let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
             let token = manager.map { reveals.begin(in: $0) }
-            try await reveals.revealing(token) {
-                do {
-                    guard let workspaceID = try await coordinator.createOnResolvedMachine(
-                        selection: selection, windowID: windowID, scopeID: scopeID
-                    ), !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return nil }
-                    destination?.apply(workspaceID: workspaceID)
-                    return self?.focusCreatedCloudWorkspace(workspaceID, manager: manager, revision: revision, windowID: windowID)
-                } catch CloudWorkspaceCreationError.noMachines {
-                    guard !Task.isCancelled, coordinator.scopeIdentifier == scopeID else { return nil }
-                    self?.presentNoCloudMachineAvailableAlert(windowID: windowID)
-                    return nil
+            var selectedWorkspace: Workspace?
+            defer {
+                if let token {
+                    if let selectedWorkspace {
+                        reveals.receive(token, revealing: selectedWorkspace)
+                    } else {
+                        reveals.withdraw(token)
+                    }
                 }
+            }
+            var accessBecameUnavailable = false
+            do {
+                let workspaceID = try await coordinator.createOnResolvedMachine(
+                    selection: selection, windowID: windowID, scopeID: scopeID, selectionRevision: revision
+                )
+                if workspaceID == nil {
+                    accessBecameUnavailable = !coordinator.isAvailable
+                        || coordinator.scopeIdentifier != scopeID
+                }
+                if let workspaceID {
+                    // A successful create is already committed on the Cloud
+                    // machine. Availability can change while the result is
+                    // being projected into the sidebar; that must not turn a
+                    // completed workspace into a spurious New Machine flow.
+                    guard !Task.isCancelled else { return }
+                    destination?.apply(workspaceID: workspaceID)
+                    selectedWorkspace = self?.focusCreatedCloudWorkspace(
+                        workspaceID, manager: manager, revision: revision, windowID: windowID
+                    )
+                }
+                // Losing access mid-create falls back to New Machine only
+                // while Cloud can still run; the welcome is for a direct press.
+                if accessBecameUnavailable, self?.cloudCreationGate() == .proceed {
+                    fallbackToNewMachine()
+                }
+            } catch CloudWorkspaceCreationError.noMachines {
+                guard !Task.isCancelled else { return }
+                fallbackToNewMachine()
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Creation failures are reported by the operation controller.
+                // New Machine is reserved for a missing or unusable Cloud
+                // context, never for an arbitrary provider error.
+                throw error
             }
         }
     }
 
-    /// Creates on the machine explicitly selected by Cmd+N and configured New Workspace.
+    /// Creates on the machine explicitly selected by a context-following New Workspace action.
     @discardableResult
     func performNewCloudWorkspaceOnCurrentMachineAction(
         tabManager: TabManager,
@@ -61,17 +132,29 @@ extension AppDelegate {
                 referenceWorkspaceId: target.referenceWorkspaceId, initialWorkspaceId: nil
             )
         }
-        let request = CloudWorkspaceCreationRequest(machineID: vmID, scopeID: scopeID, windowID: context.windowId)
         let revision = tabManager.cloudWorkspaceSelection.revision
+        let request = CloudWorkspaceCreationRequest(
+            machineID: vmID, scopeID: scopeID, windowID: context.windowId, selectionRevision: revision
+        )
         return operationController.start(key: "new-cloud-workspace.\(vmID).\(context.windowId.uuidString)") { [weak self, weak tabManager] in
             let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
             let token = tabManager.map { reveals.begin(in: $0) }
-            try await reveals.revealing(token) {
-                guard let workspaceID = try await coordinator.createOnMachine(request),
-                      !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return nil }
-                resolvedDestination?.apply(workspaceID: workspaceID)
-                return self?.focusCreatedCloudWorkspace(workspaceID, manager: tabManager, revision: revision, windowID: request.windowID)
+            var selectedWorkspace: Workspace?
+            defer {
+                if let token {
+                    if let selectedWorkspace {
+                        reveals.receive(token, revealing: selectedWorkspace)
+                    } else {
+                        reveals.withdraw(token)
+                    }
+                }
             }
+            guard let workspaceID = try await coordinator.createOnMachine(request),
+                  !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return }
+            resolvedDestination?.apply(workspaceID: workspaceID)
+            selectedWorkspace = self?.focusCreatedCloudWorkspace(
+                workspaceID, manager: tabManager, revision: revision, windowID: request.windowID
+            )
         }
     }
 
@@ -93,26 +176,22 @@ extension AppDelegate {
 
     /// Returns the workspace it selected, which the window's Cloud tree then reveals.
     private func focusCreatedCloudWorkspace(_ workspaceID: UUID, manager: TabManager?, revision: UInt64, windowID: UUID) -> Workspace? {
-        guard let manager, manager.cloudWorkspaceSelection.revision == revision,
+        guard let manager,
               tabManagerFor(windowId: windowID) === manager,
               cloudWorkspaceCreationFocusWindow(windowID: windowID) != nil,
               let workspace = manager.workspacesById[workspaceID] else { return nil }
+        // Admission selects the loading workspace before provider lookup. That
+        // intentional selection advances the navigation fence once; accept it
+        // only when it is exactly that admission revision. A later away/back
+        // navigation leaves the same workspace selected but has a newer fence,
+        // so it still withdraws the reveal instead of stealing focus.
+        if manager.selectedTabId == workspaceID {
+            guard manager.cloudWorkspaceSelection.revision == revision &+ 1 else { return nil }
+            return workspace
+        }
+        guard manager.cloudWorkspaceSelection.revision == revision else { return nil }
         manager.selectWorkspace(workspace)
         return manager.selectedTabId == workspace.id ? workspace : nil
-    }
-
-    private func presentNoCloudMachineAvailableAlert(windowID: UUID) {
-        guard let context = mainWindowContexts.values.first(where: { $0.windowId == windowID }),
-              let window = resolvedWindow(for: context) else { return }
-        let alert = NSAlert()
-        alert.alertStyle = .informational
-        alert.messageText = String(localized: "machines.empty.title", defaultValue: "No machines yet")
-        alert.informativeText = String(
-            localized: "machines.workspace.noMachines",
-            defaultValue: "Create a machine with New Cloud Machine, then try again."
-        )
-        alert.addButton(withTitle: String(localized: "common.ok", defaultValue: "OK"))
-        alert.beginSheetModal(for: window)
     }
 
     /// Places a machine's reservation immediately; later provisioning cannot undo user navigation.
@@ -121,11 +200,23 @@ extension AppDelegate {
         tabManager preferredTabManager: TabManager? = nil,
         event: NSEvent? = nil,
         preferredWindow: NSWindow? = nil,
-        debugSource: String = "newCloudWorkspace",
+        debugSource: String = "newCloudMachine",
         destination: CloudWorkspaceGroupDestination? = nil
     ) -> Bool {
-        if CloudMachinesFeature.isAvailable, !CloudMachinesFeature.isEnabled {
-            Self.presentPreferencesWindow(navigationTarget: .cloudMachines)
+        let introductionWindow = preferredWindow
+            ?? preferredTabManager.flatMap { mainWindowContext(for: $0) }.flatMap { resolvedWindow(for: $0) }
+            ?? event?.window
+        if introduceCloudIfNeeded(
+            over: introductionWindow,
+            resume: { [weak self, weak preferredTabManager, weak introductionWindow] in
+                _ = self?.performNewCloudMachineAction(
+                    tabManager: preferredTabManager,
+                    preferredWindow: introductionWindow,
+                    debugSource: "\(debugSource).afterEnable",
+                    destination: destination
+                )
+            }
+        ) {
             return true
         }
         guard let operationController = cloudWorkspaceOperationController,
@@ -143,5 +234,29 @@ extension AppDelegate {
                 destination?.apply(workspaceID: workspaceID)
             }
         }
+    }
+
+    private func cloudCreationGate() -> CloudCreationGate {
+        CloudCreationGate.resolve(
+            isAvailable: CloudMachinesFeature.isAvailable,
+            isEnabled: CloudMachinesFeature.isEnabled,
+            canRunCloudOperations: cloudWorkspaceOperationController?.isCurrentlyAvailable,
+            isAuthInProgress: auth?.accountFlow.isWorkingOnAuth == true
+        )
+    }
+
+    /// Cloud creation shortcuts and menu rows introduce Cloud while it is off
+    /// or signed out, instead of doing nothing. The welcome card's own next
+    /// step decides between Enable and Upgrade; Enable then resumes `resume`.
+    private func introduceCloudIfNeeded(
+        over window: NSWindow?,
+        resume: @escaping @MainActor () -> Void
+    ) -> Bool {
+        guard cloudCreationGate() == .introduceCloud else { return false }
+        cloudWelcomeWindowController.present(
+            over: window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+            onEnabled: resume
+        )
+        return true
     }
 }

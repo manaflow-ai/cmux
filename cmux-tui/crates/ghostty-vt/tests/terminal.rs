@@ -1197,3 +1197,13 @@ fn theme_portable_replay_omits_terminal_color_osc_state() {
     assert_no_dynamic_color_overrides(&target.color_overrides());
     assert!(target.viewport_text().unwrap().contains("hello"));
 }
+
+#[test]
+fn empty_kitty_graphics_probe_keeps_checkpoint_replay_readable() {
+    let mut term = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+    let accepted = term.vt_write_with_normalized(b"ready\x1b_G\x1b\\");
+    assert_eq!(accepted.as_ref(), b"ready".as_slice());
+    assert!(term.vt_stream_is_ground());
+    term.vt_replay_bounded(1024 * 1024)
+        .expect("an empty Kitty capability probe must not poison replay capture");
+}

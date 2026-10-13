@@ -49,9 +49,11 @@ import {
 } from "../../../services/vms/entitlements";
 import { vcpusByMemoryMb } from "../../../services/vms/images/sizes";
 import {
+  findVmImageManifestEntry,
   inferVmProviderForImage,
   resolveVmImage,
 } from "../../../services/vms/images/resolver";
+import { createAttachBlock } from "../../../services/vms/attachContract";
 import {
   reportVmImageConfigError,
   isVmImageKind,
@@ -77,6 +79,7 @@ import {
   type VmWorkflowErrorOverrides,
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale, vmUnsupportedCopy } from "../../../services/vms/vmErrorMessages";
+import { createRouteAnswerDeadline } from "../../../services/vms/routeDeadline";
 import { runVmRoute } from "../../../services/vms/routeWorkflow";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
@@ -92,13 +95,21 @@ import {
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 
 
-// Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
-// run minutes; without an explicit budget the platform default killed them
-// mid-provision. 600s caps a hung provider call well below the 20-minute
-// stuck-provisioning alert. The plan allows more (app/v1/responses/route.ts
-// uses 1800).
-export const maxDuration = 600;
+// Provisioning can run minutes; without an explicit budget the platform
+// default killed it mid-provision. 960 s leaves a create answered "in
+// progress" (routeDeadline.ts, 25 s) its full 15-minute provider deadline plus
+// failure bookkeeping, well below the 20-minute stuck-provisioning alert. The
+// plan allows more (app/v1/responses/route.ts uses 1800).
+export const maxDuration = 960;
 const VM_CREATE_ADMISSION_BUDGET_MS = 200;
+
+function createResourceFields(resourceReservation: { readonly vcpus: number; readonly memoryMb: number } | null | undefined) {
+  if (!resourceReservation) return {};
+  return {
+    resources: resourceReservation,
+    resourceReservation,
+  };
+}
 
 export async function GET(request: Request): Promise<Response> {
   return withAuthedVmApiRoute(
@@ -329,7 +340,10 @@ export async function POST(request: Request): Promise<Response> {
       if (!scope.ok) return scope.response;
       const { user, entitlements } = scope;
 
-      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request);
+      // Let the workflow inspect an idempotent existing row before rejecting
+      // an old, now-over-limit shape. New allocations still receive the same
+      // typed plan error from createVm.
+      const memory = await resolveCreateMemory(span, entitlements.planId, candidate.memoryMb as number | undefined, request, !!idempotencyKey);
       if (!memory.ok) return memory.response;
       const memoryMb = memory.memoryMb;
       const machineOptions = parseCreateMachineOptions(candidate);
@@ -399,11 +413,16 @@ export async function POST(request: Request): Promise<Response> {
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
+        ...createRouteAnswerDeadline(idempotencyKey),
         onError: createErrorResponders(entitlements),
       });
       if (!run.ok) return run.response;
       const created = run.value;
       setSpanAttributes(span, { "cmux.vm.id": created.providerVmId });
+      const attach = createAttachBlock({
+        entry: created,
+        manifestEntry: findVmImageManifestEntry(created.provider, created.image, imageSelection.kind),
+      });
       return jsonResponse({
         id: created.providerVmId,
         provider: created.provider,
@@ -426,6 +445,11 @@ export async function POST(request: Request): Promise<Response> {
         address: { ipv4: created.addressIpv4, ipv6: created.addressIpv6 },
         cmuxTuiContract: created.cmuxTuiContract,
         agentUpdates: created.agentUpdates,
+        // Keep the create response self-contained for clients that append it
+        // directly to their fleet model. Pool accounting and the per-machine
+        // resize shape are separate contracts even when they currently match.
+        ...createResourceFields(created.resourceReservation),
+        ...(attach ? { attach } : {}),
       });
     },
   );
@@ -768,14 +792,16 @@ async function resolveCreateMemory(
   planId: string,
   requestedMemoryMb: number | undefined,
   request: Request,
+  deferLockedPlanCheck = false,
 ): Promise<{ readonly ok: true; readonly memoryMb: number } | { readonly ok: false; readonly response: Response }> {
   const maxMemoryMb = maxMemoryMbForPlan(planId, process.env);
   const memoryOptionsMb = memoryOptionsMbForPlan(planId, process.env);
   const planMemoryMb = defaultMemoryMbForPlan(planId, process.env);
   const locked = lockedMemoryOptionsMbForPlan(planId, process.env);
+  const requestedLockedMemory = requestedMemoryMb !== undefined && locked.memoryOptionsMb.includes(requestedMemoryMb);
   if (
-    requestedMemoryMb !== undefined &&
-    locked.memoryOptionsMb.includes(requestedMemoryMb)
+    !deferLockedPlanCheck &&
+    requestedLockedMemory
   ) {
     const upgradePlanId = upgradePlanForMemory(requestedMemoryMb, planId);
     if (!upgradePlanId) return { ok: false, response: await vmMemoryUnavailableResponse(maxMemoryMb, vmRequestLocale(request)) };
@@ -796,7 +822,7 @@ async function resolveCreateMemory(
     };
   }
   const memoryMb =
-    requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb)
+    requestedMemoryMb === undefined || memoryOptionsMb.includes(requestedMemoryMb) || (deferLockedPlanCheck && requestedLockedMemory)
       ? requestedMemoryMb ?? planMemoryMb
       : planMemoryMb;
   setSpanAttributes(span, {
@@ -914,6 +940,7 @@ function createErrorResponders(entitlements: {
       vmActiveLimitExceededResponse({
         locale: context.locale,
         limit: error.limit,
+        activeMachines: error.activeMachines,
         planId: entitlements.planId,
         retryAction: "Run `cmux vm ls`, then delete an active VM with `cmux vm rm <id>` before creating another, or upgrade your plan.",
       }),

@@ -51,6 +51,19 @@ public struct AgentRestorePlanner: Sendable {
         )
     }
 
+    /// Whether a missing structured plan may fall back to a legacy shell command.
+    ///
+    /// OMP's executable must stay pinned through managed restore and fork. A
+    /// legacy command cannot establish that after structured planning failed.
+    /// Explicit direct command replays retain their existing behavior.
+    /// - Parameters:
+    ///   - kind: The persisted agent kind.
+    ///   - mode: The requested operation, or nil for an unrecognized legacy mode.
+    /// - Returns: Whether the caller may use its legacy compatibility command.
+    public static func allowsLegacyFallback(kind: String, mode: AgentRestoreRequestMode?) -> Bool {
+        kind.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() != "omp" || mode == .direct
+    }
+
     /// Produces the final direct process invocation for a persisted restore or fork request.
     ///
     /// - Parameters:
@@ -62,6 +75,14 @@ public struct AgentRestorePlanner: Sendable {
         ambientEnvironment: [String: String]
     ) -> AgentRestoreInvocation? {
         let kind = normalizedKind(request.kind)
+        // A rejected capture is never recoverable for managed OMP restore or
+        // fork. Do this before planning argv: an app-prepared absolute argv
+        // must not turn a rejected capture into a fresh-looking launch record.
+        guard kind != "omp"
+            || request.mode == .direct
+            || request.launchCommand?.isRejectedCapture != true else {
+            return nil
+        }
         let routedClaudeLaunch = routedClaudeResumeLaunch(
             for: request,
             kind: kind,
@@ -78,6 +99,16 @@ public struct AgentRestorePlanner: Sendable {
             routedClaudeResume: routedClaudeResume
         ),
               !plannedArguments.values.isEmpty else {
+            return nil
+        }
+
+        // The app may prepare argv from an unresolved capture before sending
+        // the restore request. Validate the selected executable, not whether
+        // a capture or prepared argv happened to be present.
+        if kind == "omp", request.mode != .direct,
+           !AgentLaunchCaptureTrust.ompLaunchHasDurableResumeEvidence(
+               AgentLaunchCommand(arguments: plannedArguments.values)
+           ) {
             return nil
         }
 
