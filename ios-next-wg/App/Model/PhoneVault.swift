@@ -32,12 +32,18 @@ struct PhoneVault: Sendable {
     }
 
     private func read(_ account: String) throws -> Data? {
+        #if targetEnvironment(simulator)
+        if let data = try? Data(contentsOf: Self.simulatorFile(account)) { return data }
+        #endif
         var request = query(account)
         request[kSecReturnData as String] = true
         request[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(request as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
+        #if targetEnvironment(simulator)
+        if status == errSecMissingEntitlement { return nil }
+        #endif
         guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
         return result as? Data
     }
@@ -51,6 +57,22 @@ struct PhoneVault: Sendable {
             add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
             status = SecItemAdd(add as CFDictionary, nil)
         }
+        #if targetEnvironment(simulator)
+        // An unsigned simulator build has no Keychain entitlement.
+        if status == errSecMissingEntitlement {
+            let file = Self.simulatorFile(account)
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try data.write(to: file, options: [.atomic, .completeFileProtection])
+            return
+        }
+        #endif
         guard status == errSecSuccess else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(status)) }
     }
+
+    #if targetEnvironment(simulator)
+    private static func simulatorFile(_ account: String) -> URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("vault", isDirectory: true).appendingPathComponent(account)
+    }
+    #endif
 }
