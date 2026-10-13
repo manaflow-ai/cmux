@@ -147,13 +147,53 @@ final class BonsplitTabDragUITests: XCTestCase {
             ("gamma to the bottom of the right pane", gammaTab, CGVector(dx: 0.85, dy: 0.95)),
             ("beta to the bottom of the left pane", betaTab, CGVector(dx: 0.35, dy: 0.95)),
         ]
-        for drop in drops {
+
+        let alphaTitle = ready["alphaTitle"] ?? "UITest Alpha"
+        let gammaTitle = ready["gammaTitle"] ?? "UITest Gamma"
+        let deltaTitle = ready["deltaTitle"] ?? "UITest Delta"
+        let betaTitle = ready["betaTitle"] ?? "UITest Beta"
+        let expectedPaneGroups = [
+            [[alphaTitle, betaTitle, gammaTitle], [deltaTitle]],
+            [[alphaTitle, betaTitle], [gammaTitle], [deltaTitle]],
+            [[alphaTitle], [betaTitle], [gammaTitle], [deltaTitle]],
+        ]
+
+        XCTAssertNotNil(
+            waitForPaneLayout(
+                paneCount: 1,
+                titles: [alphaTitle, betaTitle, gammaTitle, deltaTitle],
+                atPath: dataPath,
+                timeout: 5.0
+            ),
+            "Expected the four-tab fixture to start in one pane. data=\(loadJSON(atPath: dataPath) ?? [:])"
+        )
+
+        for (index, drop) in drops.enumerated() {
             XCTAssertTrue(drop.tab.waitForExistence(timeout: 5.0), "Expected tab to exist before dropping \(drop.name)")
             drop.tab.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
                 .press(forDuration: 0.25, thenDragTo: window.coordinate(withNormalizedOffset: drop.target))
             XCTAssertFalse(
                 waitForCondition(timeout: 2.0) { app.state == .notRunning },
                 "Expected the app to survive dropping \(drop.name)"
+            )
+
+            let expectedGroups = expectedPaneGroups[index]
+            guard let state = waitForPaneLayout(
+                paneCount: expectedGroups.count,
+                titles: expectedGroups.flatMap { $0 },
+                atPath: dataPath,
+                timeout: 5.0
+            ) else {
+                XCTFail(
+                    "Expected \(drop.name) to create \(expectedGroups.count) panes. " +
+                    "data=\(loadJSON(atPath: dataPath) ?? [:])"
+                )
+                continue
+            }
+            assertPaneGroups(
+                expectedGroups,
+                in: state,
+                after: drop.name
             )
         }
 
@@ -1134,6 +1174,76 @@ final class BonsplitTabDragUITests: XCTestCase {
             return data
         }
         return nil
+    }
+
+    /// Waits for the app-host recorder to publish a complete pane layout.
+    private func waitForPaneLayout(
+        paneCount: Int,
+        titles: [String],
+        atPath path: String,
+        timeout: TimeInterval
+    ) -> [String: String]? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let data = loadJSON(atPath: path),
+               data["trackedPaneCount"] == String(paneCount),
+               let placements = panePlacements(from: data),
+               titles.allSatisfy({ placements[$0] != nil }) {
+                return data
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.05))
+        }
+        guard let data = loadJSON(atPath: path),
+              data["trackedPaneCount"] == String(paneCount),
+              let placements = panePlacements(from: data),
+              titles.allSatisfy({ placements[$0] != nil }) else {
+            return nil
+        }
+        return data
+    }
+
+    /// Asserts that each expected title group occupies one pane and groups are distinct.
+    private func assertPaneGroups(
+        _ groups: [[String]],
+        in data: [String: String],
+        after drop: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        guard let placements = panePlacements(from: data) else {
+            XCTFail("Missing pane placements after \(drop). data=\(data)", file: file, line: line)
+            return
+        }
+
+        let groupPaneIds = groups.map { group in
+            Set(group.compactMap { placements[$0] })
+        }
+        XCTAssertTrue(
+            groupPaneIds.allSatisfy { $0.count == 1 },
+            "Expected each title group to share one pane after \(drop). placements=\(placements)",
+            file: file,
+            line: line
+        )
+        let paneIds = groupPaneIds.compactMap(\.first)
+        XCTAssertEqual(
+            Set(paneIds).count,
+            groups.count,
+            "Expected each pane group to occupy a distinct pane after \(drop). placements=\(placements)",
+            file: file,
+            line: line
+        )
+    }
+
+    /// Parses the app-host recorder's stable title-to-pane layout snapshot.
+    private func panePlacements(from data: [String: String]) -> [String: String]? {
+        guard let rawPlacements = data["trackedPanePlacements"] else { return nil }
+        var placements: [String: String] = [:]
+        for entry in rawPlacements.split(separator: "|", omittingEmptySubsequences: true) {
+            let parts = entry.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard parts.count == 2 else { return nil }
+            placements[String(parts[0])] = String(parts[1])
+        }
+        return placements
     }
 
     private func waitForJSONNumber(
