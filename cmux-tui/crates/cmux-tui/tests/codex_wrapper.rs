@@ -75,18 +75,22 @@ impl Launch {
                     result => panic!("hook must reach this session: {result:?}"),
                 }
             };
-            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            // run_hook waits for the hook before this reads its requests, so
+            // the hook's bounded agent message lookup (1.5 s) may have closed
+            // its connection already: skip a connection that is gone.
+            if stream.set_read_timeout(Some(Duration::from_secs(3))).is_err() {
+                continue;
+            }
             let mut line = String::new();
-            BufReader::new(&stream).read_line(&mut line).unwrap();
+            if BufReader::new(&stream).read_line(&mut line).unwrap_or(0) == 0 {
+                continue;
+            }
             let request: serde_json::Value = serde_json::from_str(&line).unwrap();
             if request["operation"] == "agent.message.list" {
                 let response = serde_json::json!({
                     "protocol":"cmux.protocol/2", "type":"response", "id":request["id"],
                     "ok":true, "result":[]
                 });
-                // run_hook waits for the hook before this reads its requests,
-                // so the hook's bounded message lookup may have given up
-                // already; a closed connection here is expected.
                 let _ = writeln!(stream, "{response}");
                 continue;
             }
