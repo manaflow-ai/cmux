@@ -1901,114 +1901,6 @@
     },
     {
       "accepts" : [
-        [
-
-        ],
-        [
-          "toggleSplitZoom",
-          "agentPane.searchChats",
-          "file.open",
-          "openDiffViewer",
-          "splitDown",
-          "splitRight"
-        ]
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.splitRight",
-            "text" : "Split Right"
-          },
-          "value" : "splitRight"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.splitDown",
-            "text" : "Split Down"
-          },
-          "value" : "splitDown"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.diffViewer",
-            "text" : "Diff Viewer"
-          },
-          "value" : "openDiffViewer"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.openFile",
-            "text" : "Open File"
-          },
-          "value" : "file.open"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.searchChats",
-            "text" : "Search Agent Chats"
-          },
-          "value" : "agentPane.searchChats"
-        },
-        {
-          "title" : {
-            "key" : "settings.tabs.toolbarButtons.paneZoom",
-            "text" : "Pane Zoom"
-          },
-          "value" : "toggleSplitZoom"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : [
-
-      ],
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.toolbarButtons.help",
-        "text" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.toolbarButtons",
-      "keywords" : [
-        "toolbar",
-        "split",
-        "buttons",
-        "pin",
-        "more"
-      ],
-      "kind" : "string_list",
-      "ordered" : true,
-      "page_hidden" : true,
-      "path" : [
-        "tabs",
-        "toolbarButtons"
-      ],
-      "refuses" : [
-        "splitRight",
-        [
-          "__not_a_choice__"
-        ],
-        [
-          1
-        ]
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.toolbarButtons",
-        "text" : "Tab Bar Buttons"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         true,
         false
       ],
@@ -14070,14 +13962,13 @@
       },
       "help" : {
         "key" : "settings.sidebar.cards.tips.help",
-        "text" : "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once."
+        "text" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.cards.tips",
       "keywords" : [
         "sidebar",
         "tips",
-        "hints",
         "did you know",
         "cards",
         "learn",
@@ -14098,11 +13989,11 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.sidebar.cards.tips.summary",
-        "text" : "A daily hint about a feature you haven't used"
+        "text" : "A daily tip about a feature you haven't used"
       },
       "title" : {
         "key" : "settings.sidebar.cards.tips",
-        "text" : "Show Hints"
+        "text" : "Show Tips"
       },
       "validation" : "portable"
     },
@@ -22963,7 +22854,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "fc3247cdbdbe223132ca751f4069c9cd4fe708694b3029670dc106d1891c3fd8",
+  "schema_hash" : "fba2852098774a687edad89c7fd7f9a6e1a13a4bcd281f1c166a521dcfb2b35d",
   "sections" : [
     {
       "id" : "general",

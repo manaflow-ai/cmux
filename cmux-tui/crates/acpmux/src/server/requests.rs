@@ -43,6 +43,9 @@ pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &st
     }
 }
 
+/// The tag the chat lists hide a session by (webviews sessionList.ts `ARCHIVED_TAG`).
+const ARCHIVED_TAG: &str = "archived";
+
 pub(super) async fn handle_request(
     hub: &Arc<Hub>,
     conn: &Arc<Conn>,
@@ -123,7 +126,7 @@ async fn dispatch_request(
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
-                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD,
+                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer"], "trustGate": true}}
@@ -860,6 +863,23 @@ async fn dispatch_request(
                 &remove,
                 params.get("ttlSeconds").and_then(Value::as_u64),
             );
+            Ok(hub.session_summary(&s))
+        }
+        // One tag with one value, so a page relay can allow it without
+        // reading tag names (`_acpmux/tag` may set any tag).
+        method::MUX_ARCHIVE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let archived = params
+                .get("archived")
+                .and_then(Value::as_bool)
+                .ok_or_else(|| RpcError::invalid_params("archived must be true or false"))?;
+            if archived {
+                let mut set = serde_json::Map::new();
+                set.insert(ARCHIVED_TAG.into(), Value::String(crate::store::now_ms().to_string()));
+                hub.set_tags(&s, Some(&set), &[], None);
+            } else {
+                hub.set_tags(&s, None, &[ARCHIVED_TAG.to_owned()], None);
+            }
             Ok(hub.session_summary(&s))
         }
         method::MUX_HARNESS_ENABLE => {

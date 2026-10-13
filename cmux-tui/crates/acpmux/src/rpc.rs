@@ -225,6 +225,9 @@ pub mod method {
     pub const MUX_SET_POLICY: &str = "_acpmux/set_policy";
     pub const MUX_SET_RULES: &str = "_acpmux/set_rules";
     pub const MUX_TAG: &str = "_acpmux/tag";
+    /// The chat menu's Archive (`archived: true`) or Unarchive of one session:
+    /// the `archived` tag, valued with when (milliseconds), set or removed.
+    pub const MUX_ARCHIVE: &str = "_acpmux/archive";
     pub const MUX_WAIT: &str = "_acpmux/wait";
     /// Start the agent children for the most recent project sessions.
     pub const MUX_WARM: &str = "_acpmux/warm";
