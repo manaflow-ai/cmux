@@ -19,7 +19,9 @@ extension DaemonService {
     public func ensurePageListener() async throws -> PageListenerOutcome {
         guard let connection, let identity else { throw DaemonError.notConnected }
         if identity.supports(DaemonCapabilities.shared.wsListen) {
-            _ = try await connection.request(WsListenRequest(allowOrigin: Self.pageOrigin))
+            let request = identity.supports(DaemonCapabilities.shared.wsListenOrigins)
+                ? WsListenRequest(allowOrigins: Self.pageOrigins) : WsListenRequest(allowOrigin: Self.channelsPageOrigin)
+            _ = try await connection.request(request)
             return .ready
         }
         if let handOff = pageListenerHandOff, await handOff(connection, identity) { return .restarting }

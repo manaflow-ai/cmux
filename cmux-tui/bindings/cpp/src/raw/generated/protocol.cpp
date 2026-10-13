@@ -29604,6 +29604,11 @@ Result<Json> Codec<WsListenRequest>::encode(const WsListenRequest& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("allow_origin", std::move(encoded).value());
     }
+    if (!value.allow_origins.is_absent()) {
+        auto encoded = encode_value(value.allow_origins);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("allow_origins", std::move(encoded).value());
+    }
     return Json(std::move(object));
 }
 
@@ -29619,6 +29624,16 @@ Result<WsListenRequest> Codec<WsListenRequest>::decode(const Json& value) {
             auto decoded = decode_value<std::string>(*field_allow_origin);
             if (!decoded) return std::move(decoded).error();
             result.allow_origin = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    const Json* field_allow_origins = value.find("allow_origins");
+    if (field_allow_origins) {
+        if (field_allow_origins->is_null()) {
+            result.allow_origins = Field<std::vector<std::string>>::null();
+        } else {
+            auto decoded = decode_value<std::vector<std::string>>(*field_allow_origins);
+            if (!decoded) return std::move(decoded).error();
+            result.allow_origins = Field<std::vector<std::string>>(std::move(decoded).value());
         }
     }
     return result;

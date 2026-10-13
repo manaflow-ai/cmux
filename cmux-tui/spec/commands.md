@@ -6567,15 +6567,16 @@ person's Cloud lease.
 | status | implemented |
 | since | protocol 12 additive extension; capability `ws-listen-v1` |
 
-`ws-listen {allow_origin?}` opens the owner's loopback page listener on a
+`ws-listen {allow_origin?, allow_origins?}` opens the owner's loopback page listener on a
 running daemon that started without one (transports.md "App listener and page
 files"): it binds `127.0.0.1:0`, mints a 256-bit credential into
 `<socket>.websocket.json` (mode 0600, atomic rename, removed with the daemon)
 and serves the page files on the same listener. `allow_origin`
 (`scheme://host[:port]`, never `null`) is one page origin the listener admits
-besides its own. Returns `object{url, pages, opened}`: `opened` is false when
+besides its own; `allow_origins` (capability `ws-listen-origins-v1`) is a list
+of them (the app's first-party pages), joined with `allow_origin`. Returns `object{url, pages, opened}`: `opened` is false when
 the listener already existed (from `server ensure --ws-loopback` or an
-earlier `ws-listen`). An `allow_origin` the existing listener does not admit is
+earlier `ws-listen`). An origin the existing listener does not admit is
 refused with an error that says so: the admitted origins are fixed when the
 listener binds. The credential
 is never in the reply. Trusted local (Unix) connections only; a WebSocket

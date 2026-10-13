@@ -17,10 +17,12 @@ use serde_json::Value;
 use super::Mux;
 
 pub const WS_LISTEN_CAPABILITY: &str = "ws-listen-v1";
+/// `ws-listen {allow_origins}`: a list of page origins (cx-hnmbt.10).
+pub const WS_LISTEN_ORIGINS_CAPABILITY: &str = "ws-listen-origins-v1";
 
-/// Opens (or reports) the owner's loopback page listener for one extra
-/// allowed page origin; answers `{url, pages, opened}`.
-pub type PageListenerOpener = Arc<dyn Fn(Option<String>) -> anyhow::Result<Value> + Send + Sync>;
+/// Opens (or reports) the owner's loopback page listener for the extra
+/// allowed page origins; answers `{url, pages, opened}`.
+pub type PageListenerOpener = Arc<dyn Fn(Vec<String>) -> anyhow::Result<Value> + Send + Sync>;
 
 /// `ws-listen`.
 #[derive(Deserialize)]
@@ -29,6 +31,10 @@ pub(super) struct WsListenParams {
     /// One page origin the listener admits besides its own (`scheme://host[:port]`).
     #[serde(default)]
     allow_origin: Option<String>,
+    /// The page origins the listener admits besides its own (`ws-listen-origins-v1`;
+    /// the app's first-party pages). Joined with `allow_origin`.
+    #[serde(default)]
+    allow_origins: Option<Vec<String>>,
 }
 
 impl Mux {
@@ -52,14 +58,17 @@ pub(super) fn ws_listen(mux: &Mux, client: u64, params: WsListenParams) -> anyho
         mux.control_clients.is_unix(client),
         "ws-listen requires a trusted local connection"
     );
-    let origin = match params.allow_origin {
-        None => None,
-        Some(raw) => Some(super::parse_websocket_origin(&raw).ok_or_else(|| {
+    let mut origins = Vec::new();
+    for raw in params.allow_origin.into_iter().chain(params.allow_origins.into_iter().flatten()) {
+        let origin = super::parse_websocket_origin(&raw).ok_or_else(|| {
             anyhow::anyhow!(
-                "bad request: allow_origin needs scheme://host[:port], with no path; null is never allowed"
+                "bad request: allow_origin and allow_origins need scheme://host[:port], with no path; null is never allowed"
             )
-        })?),
-    };
+        })?;
+        if !origins.contains(&origin) {
+            origins.push(origin);
+        }
+    }
     let opener = mux
         .control_clients
         .page_listener
@@ -67,5 +76,5 @@ pub(super) fn ws_listen(mux: &Mux, client: u64, params: WsListenParams) -> anyho
         .ok()
         .and_then(|opener| opener.clone())
         .ok_or_else(|| anyhow::anyhow!("this daemon cannot open a page listener"))?;
-    opener(origin)
+    opener(origins)
 }

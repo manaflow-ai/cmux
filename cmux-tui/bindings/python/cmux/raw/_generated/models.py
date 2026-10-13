@@ -4422,6 +4422,7 @@ class WaitForRequest:
 class WsListenRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/ws-listen/request'
     allow_origin: Union[str, None, MissingType] = field(default=MISSING)
+    allow_origins: Union[List[str], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)

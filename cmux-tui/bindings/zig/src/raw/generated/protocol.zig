@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "af1996aebfc46ba3499df03d7cf0899fe1832984aaade42fcac9dc6d73fd7e52";
+pub const ir_sha256 = "df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -8835,6 +8835,7 @@ pub fn waitFor(client: anytype, request: WaitForRequest) !wire.Decoded(WaitForRe
 
 pub const WsListenRequest = struct {
     allow_origin: wire.Field([]const u8) = .absent,
+    allow_origins: wire.Field([]const []const u8) = .absent,
 };
 
 pub const WsListenResult = JsonValue;

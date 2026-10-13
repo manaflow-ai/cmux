@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR af1996aebfc46ba3499df03d7cf0899fe1832984aaade42fcac9dc6d73fd7e52. */
+/* cmux-tui mux protocol 12, IR df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85. */
 
 
 import type * as T from "./types.js";
@@ -2518,6 +2518,7 @@ export interface WaitForRequest extends CmuxRequestBase {
 export interface WsListenRequest extends CmuxRequestBase {
   cmd: "ws-listen";
   "allow_origin"?: (string) | null;
+  "allow_origins"?: (Array<string>) | null;
 }
 export type WsListenResult = T.JsonValue;
 

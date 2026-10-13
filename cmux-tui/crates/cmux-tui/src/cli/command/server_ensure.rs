@@ -5,7 +5,7 @@ use crate::cli::lifecycle::ServerAction;
 use crate::local_owner::EnsureWebSocket;
 
 /// `server ensure [--terminal-reap-grace-seconds <n>] [--install-key-stdin]
-/// [--restore-progress] [--ws-loopback [--ws-allow-origin <origin>]]`: the
+/// [--restore-progress] [--ws-loopback [--ws-allow-origin <origin>[,<origin>...]]]`: the
 /// grace has the owner's own startup bounds, checked before any spawn.
 pub(super) fn parse(flags: &mut Flags) -> Result<ServerAction, UsageError> {
     let install_key_stdin = flags.boolean("install-key-stdin");
@@ -36,19 +36,29 @@ pub(super) fn parse(flags: &mut Flags) -> Result<ServerAction, UsageError> {
 /// `--ws-loopback` (private app contract): an owner this call spawns opens
 /// its WebSocket listener on 127.0.0.1 with a credential it mints itself
 /// (spec/transports.md "App listener and page files"). `--ws-allow-origin`
-/// adds the one host page origin that may connect besides the listener's own.
+/// adds the host page origins that may connect besides the listener's own: a
+/// comma-separated list (the app's first-party pages, `cmux-page://cmux.<page>`;
+/// an origin has no comma). One malformed member refuses the whole list.
 fn websocket(flags: &mut Flags) -> Result<Option<EnsureWebSocket>, UsageError> {
     let loopback = flags.boolean("ws-loopback");
-    let origin = flags.take("ws-allow-origin");
-    match (loopback, origin) {
+    let origins = flags.take("ws-allow-origin");
+    match (loopback, origins) {
         (false, None) => Ok(None),
         (false, Some(_)) => Err(UsageError::new("--ws-allow-origin needs --ws-loopback")),
-        (true, None) => Ok(Some(EnsureWebSocket { allow_origin: None })),
-        (true, Some(origin)) => match cmux_tui_core::server::parse_websocket_origin(&origin) {
-            Some(origin) => Ok(Some(EnsureWebSocket { allow_origin: Some(origin) })),
-            None => Err(UsageError::new(
-                "--ws-allow-origin needs scheme://host[:port], with no path; null is never allowed",
-            )),
-        },
+        (true, None) => Ok(Some(EnsureWebSocket { allow_origins: Vec::new() })),
+        (true, Some(list)) => {
+            let mut allow_origins = Vec::new();
+            for origin in list.split(',') {
+                let origin = cmux_tui_core::server::parse_websocket_origin(origin).ok_or_else(|| {
+                    UsageError::new(
+                        "--ws-allow-origin needs scheme://host[:port] (a comma-separated list), with no path; null is never allowed",
+                    )
+                })?;
+                if !allow_origins.contains(&origin) {
+                    allow_origins.push(origin);
+                }
+            }
+            Ok(Some(EnsureWebSocket { allow_origins }))
+        }
     }
 }

@@ -16,8 +16,15 @@ public struct WsListenRequest: DaemonRequest {
     public static var requiredCapability: String? { DaemonCapabilities.shared.wsListen }
     /// One page origin the listener admits besides its own.
     public var allowOrigin: String?
+    /// The page origins the listener admits besides its own (`ws-listen-origins-v1`; an older
+    /// daemon refuses the member).
+    public var allowOrigins: [String]?
 
     public init(allowOrigin: String?) {
         self.allowOrigin = allowOrigin
+    }
+
+    public init(allowOrigins: [String]) {
+        self.allowOrigins = allowOrigins
     }
 }

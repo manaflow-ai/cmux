@@ -21342,6 +21342,21 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "allow_origins": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "constraints": [
+       "The page origins the listener admits besides its own (capability ws-listen-origins-v1), joined with allow_origin."
+      ]
      }
     },
     "additional_properties": false

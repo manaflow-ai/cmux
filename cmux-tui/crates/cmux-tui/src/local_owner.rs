@@ -179,14 +179,15 @@ pub(crate) fn signal_ready(fd: i32) {
     let _ = fd;
 }
 
-/// `server ensure --ws-loopback [--ws-allow-origin <origin>]` (private app
+/// `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
 /// contract, cx-hnmbt.2): the owner opens `--ws 127.0.0.1:0` and, with no
 /// token configured, mints its credential into a 0600 file next to the
 /// socket (`websocket_credential`), never on argv.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct EnsureWebSocket {
-    /// One extra page origin the listener accepts (the app's page scheme).
-    pub allow_origin: Option<String>,
+    /// The extra page origins the listener accepts (the app's first-party
+    /// pages, `cmux-page://cmux.<page>`).
+    pub allow_origins: Vec<String>,
 }
 
 /// How the owner process is launched.
@@ -719,7 +720,7 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(websocket) = &spec.websocket {
         command.arg("--ws").arg("127.0.0.1:0");
-        if let Some(origin) = &websocket.allow_origin {
+        for origin in &websocket.allow_origins {
             command.arg("--ws-allow-origin").arg(origin);
         }
     }

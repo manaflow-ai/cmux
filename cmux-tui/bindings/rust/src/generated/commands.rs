@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR af1996aebfc46ba3499df03d7cf0899fe1832984aaade42fcac9dc6d73fd7e52.
+// cmux-tui mux protocol 12, IR df8c9daf225126e9dd396ec581cd5eb4b3e45c980a25b054d83ce072f65fff85.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3581,6 +3581,8 @@ pub struct WaitForRequest {
 pub struct WsListenRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub allow_origin: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub allow_origins: Optional<Vec<String>>,
 }
 
 #[rustfmt::skip]

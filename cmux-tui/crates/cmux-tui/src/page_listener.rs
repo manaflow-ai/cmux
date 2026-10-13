@@ -57,7 +57,7 @@ impl PageListener {
             state: Mutex::new(State { listener: startup, token, origins, closed: false }),
         });
         let opener = listener.clone();
-        mux.set_page_listener(Some(Arc::new(move |origin| opener.open(origin))));
+        mux.set_page_listener(Some(Arc::new(move |origins| opener.open(origins))));
         listener
     }
 
@@ -68,7 +68,7 @@ impl PageListener {
         state.listener.take()
     }
 
-    fn open(&self, origin: Option<String>) -> anyhow::Result<Value> {
+    fn open(&self, origins: Vec<String>) -> anyhow::Result<Value> {
         let mut state = self.state.lock().unwrap_or_else(PoisonError::into_inner);
         anyhow::ensure!(!state.closed, "the daemon is shutting down");
         let state = &mut *state;
@@ -78,9 +78,7 @@ impl PageListener {
                     "this daemon's WebSocket listener uses a configured credential (--ws-token or server.ws_token), so it has no credential file to share"
                 );
             };
-            if let Some(origin) = &origin
-                && !state.origins.contains(origin)
-            {
+            if let Some(origin) = origins.iter().find(|origin| !state.origins.contains(origin)) {
                 anyhow::bail!(
                     "this daemon's page listener does not admit the origin {origin}; restart the daemon to admit it"
                 );
@@ -95,10 +93,10 @@ impl PageListener {
         let mux =
             self.mux.upgrade().ok_or_else(|| anyhow::anyhow!("the daemon is shutting down"))?;
         let mut access = self.access.clone();
-        if let Some(origin) = origin
-            && !access.origins.contains(&origin)
-        {
-            access.origins.push(origin);
+        for origin in origins {
+            if !access.origins.contains(&origin) {
+                access.origins.push(origin);
+            }
         }
         let token = websocket_credential::mint_token()?;
         let server = cmux_tui_core::server::serve_websocket_with_pages(
