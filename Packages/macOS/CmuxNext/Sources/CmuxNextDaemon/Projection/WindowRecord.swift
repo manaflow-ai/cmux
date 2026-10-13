@@ -68,12 +68,15 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
     /// client's route, `home` or `page:<id>`); nil shows the workspace.
     /// Opaque to the daemon and to other clients.
     public var page: String?
+    /// The user closed the window: it keeps its workspaces (one closed
+    /// group, reopen-closed.md 4) and stays closed across a relaunch.
+    public var isClosed: Bool
 
     public init(id: String, workspaceKey: WorkspaceKey? = nil, workspaceKeys: [WorkspaceKey] = [], machine: String? = nil,
                 screenID: ResourceID? = nil, frame: WindowFrame? = nil, display: String? = nil, isFullScreen: Bool = false,
                 sidebarWidth: Double? = nil, sidebarHidden: Bool = false,
                 selectedTabs: [String: String] = [:], order: Int = 0, profile: ProfileID? = nil,
-                profileWorkspaces: [String: WorkspaceKey] = [:], page: String? = nil) {
+                profileWorkspaces: [String: WorkspaceKey] = [:], page: String? = nil, isClosed: Bool = false) {
         self.id = id
         self.workspaceKey = workspaceKey
         self.workspaceKeys = workspaceKeys
@@ -91,10 +94,12 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         self.profile = profile
         self.profileWorkspaces = profileWorkspaces
         self.page = page
+        self.isClosed = isClosed
     }
 
     enum CodingKeys: String, CodingKey {
         case id, frame, order, machine, display, profile, page
+        case isClosed = "closed"
         case profileWorkspaces = "profile_workspaces"
         case workspaceKey = "workspace_key"
         case workspaceKeys = "workspace_keys"
@@ -136,5 +141,6 @@ public struct WindowRecord: Codable, Sendable, Hashable, Identifiable {
         profile = try c.decodeIfPresent(ProfileID.self, forKey: .profile)
         profileWorkspaces = try c.decodeIfPresent([String: WorkspaceKey].self, forKey: .profileWorkspaces) ?? [:]
         page = try c.decodeIfPresent(String.self, forKey: .page)
+        isClosed = try c.decodeIfPresent(Bool.self, forKey: .isClosed) ?? false
     }
 }
