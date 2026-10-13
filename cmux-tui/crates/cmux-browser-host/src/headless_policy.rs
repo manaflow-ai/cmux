@@ -9,7 +9,12 @@
 //! Tabs from before the policy are outside the store: the session engine
 //! reopens the tabs it created there (crate::provider_engine), and any
 //! other tab refuses the session's calls but `tabs.close` while the policy
-//! is set, so no page the session drives keeps a way out.
+//! is set. Such a tab (one the session only drove, or one the person holds)
+//! keeps its page running unchecked: the session can no longer drive it.
+//!
+//! Not covered: WebRTC UDP on a host that is not isolated (the browser-wide
+//! switch that forces it through the proxy is set only on isolated hosts),
+//! and raw CDP under the `browser.cdp` grant.
 
 use crate::headless_source::HeadlessSource;
 use crate::policy_proxy::{ConnectionPolicy, PolicyListener};
@@ -21,6 +26,9 @@ use std::sync::PoisonError;
 #[derive(Default)]
 pub struct Policies {
     sessions: HashMap<u64, SessionPolicy>,
+    /// Listeners of ended sessions whose store holds a kept tab: the tab's
+    /// connections still go through them, until the host exits.
+    kept: Vec<PolicyListener>,
 }
 
 struct SessionPolicy {
@@ -36,13 +44,15 @@ impl HeadlessSource {
     }
 
     /// The session's connection policy. True when its new tabs just moved
-    /// to the policy store (the first policy of the session).
+    /// to the policy store (the first policy of the session). The setup
+    /// runs under the lock, so two syncs never make two stores.
     pub(crate) fn set_connection_policy(
         &self,
         session: u64,
         policy: Option<ConnectionPolicy>,
     ) -> Result<bool, DriverError> {
-        if let Some(current) = self.policies().sessions.get_mut(&session) {
+        let mut policies = self.policies();
+        if let Some(current) = policies.sessions.get_mut(&session) {
             current.active = policy.is_some();
             current.listener.set_policy(policy);
             return Ok(false);
@@ -52,7 +62,7 @@ impl HeadlessSource {
             DriverError::closed(format!("the session's policy listener did not start: {e}"))
         })?;
         let store = self.policy_store(session, &listener.proxy_server())?;
-        self.policies().sessions.insert(session, SessionPolicy { listener, store, active: true });
+        policies.sessions.insert(session, SessionPolicy { listener, store, active: true });
         Ok(true)
     }
 
@@ -83,9 +93,12 @@ impl HeadlessSource {
         ))
     }
 
-    /// The session ended: its listener stops (its store closes with the
-    /// session's other stores).
+    /// The session ended: its listener stops with its store, or, when a
+    /// tab in the store was kept, stays for that tab with the last policy.
     pub(crate) fn connection_policy_ended(&self, session: u64) {
-        self.policies().sessions.remove(&session);
+        let Some(ended) = self.policies().sessions.remove(&session) else { return };
+        if self.store_kept(&ended.store) {
+            self.policies().kept.push(ended.listener);
+        }
     }
 }

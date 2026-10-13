@@ -93,6 +93,9 @@ fn arrives(upgrades: &Mutex<Vec<String>>, host: &str, count: usize) -> usize {
     arrived()
 }
 
+/// How long a refused socket gets to arrive after an allowed one did.
+const SETTLE: Duration = Duration::from_secs(3);
+
 /// Allowed: 127.0.0.1 only.
 fn allow_only_loopback_ip(gate: &Gate) {
     let allowed = parse_patterns(&["127.0.0.1".to_owned()]).unwrap();
@@ -137,7 +140,9 @@ fn websockets_reach_only_allowed_hosts_under_a_domain_policy() {
         1,
         "a WebSocket to an allowed host never arrived ({page})"
     );
-    // Checked once the later, allowed socket is in, so a delayed one counts.
+    // Checked once the later, allowed socket is in and a while after, so a
+    // delayed one counts.
+    std::thread::sleep(SETTLE);
     assert_eq!(
         arrives(&upgrades, "localhost", 1),
         1,
@@ -189,6 +194,7 @@ fn a_tab_opened_before_the_policy_reopens_under_it() {
         1,
         "the reopened tab's allowed WebSocket never arrived ({page})"
     );
+    std::thread::sleep(SETTLE);
     assert_eq!(
         arrives(&upgrades, "localhost", 0),
         0,

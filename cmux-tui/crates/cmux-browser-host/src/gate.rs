@@ -261,13 +261,19 @@ impl Gate {
             filter
         });
         let installed = self.driver.set_request_filter(filter);
-        self.filter_enforced.store(!active || installed, std::sync::atomic::Ordering::SeqCst);
         let policy = self.policy.clone();
-        self.driver.set_connection_policy(active.then(|| {
+        let connections = self.driver.set_connection_policy(active.then(|| {
             Arc::new(move |host: &str, port: u16| {
                 policy.lock().unwrap_or_else(PoisonError::into_inner).allows_connection(host, port)
             }) as crate::policy_proxy::ConnectionPolicy
-        }))
+        }));
+        // A policy the engine could not apply fails closed: the session's
+        // calls are refused until it is cleared (or a later sync applies it).
+        self.filter_enforced.store(
+            !active || (installed && connections.is_ok()),
+            std::sync::atomic::Ordering::SeqCst,
+        );
+        connections
     }
 
     /// Owner-side secrets (`browser.secrets.load`): values never enter the VM.
