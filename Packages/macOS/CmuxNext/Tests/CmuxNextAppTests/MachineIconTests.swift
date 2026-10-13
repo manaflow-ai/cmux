@@ -2,8 +2,10 @@ import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
+import CmuxNextCloud
 @testable import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextRemote
 import CmuxNextSettingsWindow
 @testable import CmuxNextSidebar
 import Foundation
@@ -33,6 +35,17 @@ struct MachineIconTests {
             SessionRecord(id: record, transport: .object(["kind": .string("local")]), migrated: true, icon: icon),
         ])
         services.machines.local.store.apply(snapshot: tree)
+    }
+
+    /// A Cloud machine `id` this run has not loaded (stopped, or its link has not answered).
+    static func cloudMachine(_ services: AppServices, id: String) -> CloudMachineSession {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-machine-icon-\(UUID().uuidString.prefix(8))")
+        let paths = CloudPaths(root: root), binary = URL(fileURLWithPath: "/usr/bin/false"), api = services.cloud.api
+        let hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: "cn-icon-test")
+        let link = CloudMachineLink(machineID: id, api: api, hub: hub, paths: paths, binary: binary, deviceName: "cn-icon-test")
+        let session = CloudMachineSession(machine: CloudMachine(id: id, displayName: "Icon VM"), link: link)
+        services.machines.add(session)
+        return session
     }
 
     /// This Mac's sidebar header.
@@ -198,5 +211,71 @@ struct MachineIconTests {
         for id: ActionID in ["machine.setIcon", "machine.clearIcon"] {
             #expect(services.registry.unavailableReason(for: id) != nil, "\(id) runs without session-icon-v1")
         }
+    }
+
+    // MARK: Before a machine loads
+
+    /// A machine whose daemon has not loaded this run (an SSH host that is down, a stopped Cloud
+    /// machine, an unreachable server) has no `registry_id` yet, but the home registry still holds
+    /// its record: the record whose `transport` names it, read back the way the services that
+    /// restore it read it. Its header draws that record's icon and Set/Remove aim at it.
+    @Test func aMachineThatHasNotLoadedTakesItsIconFromItsHomeRegistryRecord() throws {
+        let services = Self.services()
+        _ = Self.cloudMachine(services, id: "vm-icon1")
+        let ssh = try SSHHost(destination: SSHDestination(parsing: "me@box"))
+        let route = try #require(ServerReach.brainRoute(serverName: "mini"))
+        let server = try ServerReach(hostID: "host_abcdef12", installID: "inst_abcdef12", name: "mini", route: route)
+        func transport(_ fields: [String: String]) -> JSONValue { .object(fields.mapValues(JSONValue.string)) }
+        var tree = DaemonTree(registryID: "s-local")
+        tree.personal = PersonalState(sessions: [
+            SessionRecord(id: "s-local", transport: transport(["kind": "local"]), migrated: true),
+            SessionRecord(id: "s-vm", transport: transport(["kind": "cloud", "machine": "vm-icon1"]), migrated: true, icon: "🚀"),
+            SessionRecord(id: "s-ssh", transport: transport(ssh.transportFields.merging(["connect": "false"]) { $1 }), migrated: true,
+                          icon: "star.fill"),
+            SessionRecord(id: "s-server", transport: transport(server.transportFields), migrated: true, icon: "🦊"),
+        ])
+        services.machines.local.store.apply(snapshot: tree)
+
+        let header = SidebarBridge.sections(services.machines, profile: .defaultProfile).lazy.compactMap(\.machine)
+            .first { $0.id.rawValue == "vm-icon1" }
+        #expect(header?.icon == .emoji("🚀"), "the stopped Cloud machine's header draws its record's icon")
+        #expect(services.machines.icon(machine: ssh.machineID) == "star.fill", "an SSH machine, by its route")
+        #expect(services.machines.icon(machine: server.machineID) == "🦊", "a paired server, by its host")
+        #expect(services.machines.icon(machine: "vm-other") == nil, "another machine's record is not this one's")
+
+        let target = ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-icon1"))
+        #expect(try MachineIconHandlers.machineID(target, services) == "vm-icon1", "Set/Remove aim at the recorded machine")
+    }
+
+    /// Until `SessionRegistrar`'s `put-session` lands, the machine has a `registry_id` but no home
+    /// record, and `set-session-icon` would answer `unknown session` after the undo was offered:
+    /// the actions refuse first.
+    @Test func machineIconActionsRefuseUntilTheHomeRegistryRecordsTheMachine() {
+        let services = Self.services()
+        Self.record(services, session: "s-local", record: "s-other", icon: nil)
+        let target = ActionInvocation(target: ActionTargetRef(kind: .machine, id: MachineRegistry.localID))
+        #expect(throws: ActionFailure.self) { try MachineIconHandlers.machineID(target, services) }
+        Self.record(services, icon: nil)
+        #expect((try? MachineIconHandlers.machineID(target, services)) == MachineRegistry.localID)
+    }
+
+    /// With only This Mac, its header is the list's "Projects" title and draws no machine icon,
+    /// so its menu offers no machine icon rows (they would change nothing visible).
+    @Test func theLoneProjectsHeaderMenuOffersNoMachineIconRows() throws {
+        let services = Self.services()
+        AppActions.bind(services)
+        Self.record(services, icon: "🚀")
+        func machineRows(_ sections: [SidebarSection]) throws -> [ActionID] {
+            let model = SidebarModel(sections: sections)
+            let menu = try #require(SidebarContextMenus.menu(for: .section(.machine(.local)), model: model, services: services,
+                                                             scope: ThemeScope(level: .room)))
+            func all(_ items: [NSMenuItem]) -> [NSMenuItem] { items.flatMap { [$0] + ($0.submenu.map { all($0.items) } ?? []) } }
+            return all(menu.items).compactMap { ActionRegistry.menuRun(of: $0)?.id }.filter { $0.rawValue.hasPrefix("machine.") }
+        }
+        let local = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
+        let cloud = SidebarSection(kind: .machine(SidebarMachine(id: CmuxNextSidebar.MachineID("vm-1"), name: "cloud-a1", kind: .cloud)),
+                                   nodes: [])
+        #expect(try machineRows([local]) == [], "the lone Projects header draws no machine icon")
+        #expect(try machineRows([local, cloud]) == ["machine.setIcon", "machine.clearIcon"], "This Mac's own header offers them")
     }
 }
