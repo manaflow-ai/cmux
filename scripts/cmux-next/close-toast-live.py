@@ -147,29 +147,49 @@ try:
     check("settings-close-ran", reply.get("performed"), reply)
     check("settings-close-no-toast", no_toast_for(), toasts())
 
+    def second_tab(name):
+        """A workspace with two terminal tabs: closing the second closes only that tab."""
+        made = cli("workspace", "create", "--name", name, "--json")
+        pane = ((json.loads(made).get("value") or {}) if made.startswith("{") else {}).get("pane_id")
+        extra = cli("tab", "create", "terminal", "--pane", pane or "", "--json") if pane else ""
+        value = (json.loads(extra).get("value") or {}) if extra.startswith("{") else {}
+        return pane, value
+
+    def pane_tabs(pane):
+        listed = cli("tab", "list", "--json")
+        try:
+            rows = json.loads(listed)
+        except ValueError:
+            return -1
+        rows = rows.get("value", rows) if isinstance(rows, dict) else rows
+        return sum(1 for row in rows if isinstance(row, dict) and row.get("pane_id") == pane)
+
     # An idle terminal closes with no toast.
-    idle = cli("workspace", "create", "--name", "ct-idle", "--json")
-    idle_tab = (json.loads(idle).get("value") or {}).get("tab_id") if idle.startswith("{") else None
-    check("idle-setup", idle_tab, idle)
-    if idle_tab:
+    pane, value = second_tab("ct-idle")
+    check("idle-setup", value.get("tab_id"), value)
+    if value.get("tab_id"):
         time.sleep(1)  # test harness: the shell starts
-        reply = close_tab(idle_tab)
+        before = pane_tabs(pane)
+        reply = close_tab(value["tab_id"])
         check("idle-close-ran", reply.get("performed"), reply)
+        check("idle-close-closes", wait(lambda: pane_tabs(pane) == before - 1, 10), (before, pane_tabs(pane)))
         check("idle-close-no-toast", no_toast_for(), toasts())
 
-    # A terminal running `sleep` closes with the undo toast.
-    busy = cli("workspace", "create", "--name", "ct-busy", "--json")
-    value = (json.loads(busy).get("value") or {}) if busy.startswith("{") else {}
-    check("busy-setup", value.get("tab_id"), busy)
+    # A terminal running `sleep` closes with the undo toast; Undo brings it back.
+    pane, value = second_tab("ct-busy")
+    check("busy-setup", value.get("tab_id"), value)
     if value.get("tab_id"):
         cli("terminal", value["terminal_id"], "write", "--text", "sleep 1000\n")
         time.sleep(2)  # test harness: sleep becomes the foreground program
+        before = pane_tabs(pane)
         reply = close_tab(value["tab_id"])
         check("busy-close-ran", reply.get("performed"), reply)
+        check("busy-close-closes", wait(lambda: pane_tabs(pane) == before - 1, 10), (before, pane_tabs(pane)))
         shown = wait(lambda: tab_closed_toasts(), 10)
         check("busy-close-toast", shown, toasts())
         reply = rpc("debug.toast", {"undo": True})
         check("busy-undo-ran", reply.get("undone"), reply)
+        check("busy-undo-restores", wait(lambda: pane_tabs(pane) == before, 10), (before, pane_tabs(pane)))
     rpc("debug.window_snapshot", {"kind": "main", "path": os.path.join(OUT, "end.png")}, timeout=60)
 finally:
     print("teardown quit:", json.dumps(rpc("action.run", {"id": "quit", "args": {"endSessions": True}}, timeout=10))[:200])
