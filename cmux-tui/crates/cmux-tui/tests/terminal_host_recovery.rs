@@ -102,7 +102,9 @@ impl RecoveryHarness {
         harness
     }
 
-    /// A harness whose daemon runs with `env` added.
+    /// A harness whose daemon runs with `env` added. Only the Linux-only
+    /// agent-home test uses it.
+    #[cfg(target_os = "linux")]
     fn start_with_env(name: &str, env: &[(&str, &str)]) -> Self {
         let mut harness = Self::start_unstarted(name);
         harness.extra_env =
