@@ -91,6 +91,10 @@ export const HOVER_INTENT_MS = 150;
 /// The width one side submenu takes beside the menu: the widest (the reasoning slider, 240px)
 /// plus the 10px gap. Family and model submenus are at least 210px.
 export const SUBMENU_ROOM = 250;
+/// The tallest the open picker gets (Lawrence 2026-10-13: it grew to the window's height when a
+/// machine lists many harnesses). Less when the pane has less room above or below the chip; the
+/// harness rail and the model list scroll inside it.
+export const MODEL_PICKER_MAX_HEIGHT = 480;
 
 export type PickerLayout = "cascade" | "drill";
 

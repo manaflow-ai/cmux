@@ -63,6 +63,52 @@ const curated: ModelPickerProps = {
     })),
 };
 
+/// A machine with many agents installed (Lawrence 2026-10-13: the picker grew to the window's
+/// height): each is its own harness profile, several of one brand (Claude Code, Claude Agent,
+/// the subrouter and CodeRouter Claude routes).
+const manyHarnesses: ModelPickerProps["catalog"] = [
+  ...catalog.filter((entry) => entry.pickable !== false),
+  ...[
+    ["claude-acp", "Claude Agent"],
+    ["claude-sr", "Claude (subrouter)"],
+    ["claude-cr", "Claude (CodeRouter)"],
+    ["cmux-codex", "cmux Codex"],
+    ["gemini", "Gemini CLI"],
+    ["opencode", "OpenCode"],
+    ["pi", "Pi"],
+    ["cursor", "Cursor"],
+    ["kimi", "Kimi CLI"],
+    ["amp-acp", "Amp"],
+    ["goose", "goose"],
+    ["qwen-code", "Qwen Code"],
+    ["github-copilot-cli", "Copilot"],
+    ["cline", "Cline"],
+    ["auggie", "Auggie CLI"],
+    ["junie", "Junie"],
+    ["kilo", "Kilo"],
+    ["mistral-vibe", "Mistral Vibe"],
+    ["factory-droid", "Factory Droid"],
+    ["devin", "Devin"],
+    ["grok-build", "Grok Build"],
+    ["deepagents", "DeepAgents"],
+    ["poolside", "Poolside"],
+    ["qoder", "Qoder CLI"],
+  ].map(([id, name]) => ({ id: id!, name: name!, models: [{ id: `${id}-default`, name: "Default" }] })),
+];
+
+/// The open picker stays at most MODEL_PICKER_MAX_HEIGHT (480px) on a tall stage, and the rail
+/// scrolls inside it instead of stretching the menu.
+const cappedHeight: Play = async (ctx) => {
+  await ctx.click({ role: "button", name: "Model" });
+  await ctx.waitFor(() => {
+    const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
+    const rail = ctx.document.querySelector<HTMLElement>(".acpmux-mp-rail-viewport");
+    if (!menu || !rail || menu.style.visibility !== "visible") return false;
+    const height = menu.getBoundingClientRect().height;
+    return height > 300 && height <= 481 && rail.scrollHeight > rail.clientHeight + 100;
+  });
+};
+
 const openModels: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Model" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mp-older") !== null);
@@ -121,6 +167,12 @@ export default componentEntry<ModelPickerProps>({
         await openModels(ctx);
         await ctx.click({ selector: ".acpmux-mp-older" });
       },
+    },
+    // Many installed agents on a tall stage: the menu is capped and the harness rail scrolls.
+    "many-harnesses": {
+      props: { ...base, catalog: manyHarnesses },
+      height: 1000,
+      play: cappedHeight,
     },
     "numeric-search": {
       props: { ...base },
