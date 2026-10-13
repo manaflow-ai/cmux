@@ -4306,6 +4306,7 @@ class UpdateFrontendBrowserTabRequest:
     surface: Id
     favicon_url: Union[str, None, MissingType] = field(default=MISSING)
     owner: Union[str, None, MissingType] = field(default=MISSING)
+    profile_id: Union[str, None, MissingType] = field(default=MISSING)
     title: Union[str, None, MissingType] = field(default=MISSING)
     url: Union[str, None, MissingType] = field(default=MISSING)
 

@@ -7,6 +7,13 @@ USAGE
   cmux browser open <url> [--workspace <selector>] [--screen <selector>]
     [--pane <selector>] [--name <value>] [--width-px <n> --height-px <n>]
   cmux browser list
+  cmux browser profile list
+  cmux browser profile create --name <name> [--profile <id>] [--color <value>]
+    [--icon <value>] [--index <n>]
+  cmux browser profile move --profile <id-or-name> --index <n>
+  cmux browser profile delete --profile <id-or-name>
+  cmux browser profile open <url> --engine webkit|cef --profile <id-or-name>
+    [--pane <selector>] [--title <value>] [--background]
   cmux browser <selector> show|navigate|back|forward|reload|activate
   cmux browser <selector> key|text [OPTIONS]
   cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]
