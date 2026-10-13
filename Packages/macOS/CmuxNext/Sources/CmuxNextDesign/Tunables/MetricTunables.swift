@@ -52,11 +52,15 @@ public nonisolated enum MetricTunables {
     // MARK: Tabs
 
     public static let tabStripHeight = MetricTunable.make("tabStripHeight", .tabs, "Tab strip height", help: "Height of a pane's tab strip.",
-                                                          compact: 28, comfortable: 36, key: .tabStripHeight)
+                                                          compact: 26, comfortable: 36, key: .tabStripHeight)
     public static let tabHeight = MetricTunable.make("tabHeight", .tabs, "Tab height", help: "Height of a tab inside the strip.",
-                                                     compact: 24, comfortable: 30)
+                                                     compact: 22, comfortable: 30)
+    /// Fields and small controls (the strip's +, toolbar and editor fields): the tab height before
+    /// compact tabs (Leo 2026-10-12: the tab shrinks, the controls keep their size).
+    public static let controlHeight = MetricTunable.make("controlHeight", .shape, "Control height", help: "Height of fields and small controls, and the tab strip's + button.",
+                                                         compact: 24, comfortable: 30)
     public static let tabMaxWidth = MetricTunable.make("tabMaxWidth", .tabs, "Tab max width", help: "Widest an unpinned tab gets.",
-                                                       compact: 200, comfortable: 240, key: .tabMaxWidth)
+                                                       compact: 180, comfortable: 240, key: .tabMaxWidth)
     public static let tabMinWidth = MetricTunable.make("tabMinWidth", .tabs, "Tab min width", help: "Icon-only width (pinned and fully shrunk tabs).",
                                                        compact: 32, comfortable: 40)
 
@@ -93,7 +97,7 @@ public nonisolated enum MetricTunables {
 
     static var metrics: [MetricTunable] {
         [sidebarWidth, titlebarHeight, sidebarRowHeight, sidebarRowHeightWithSubtitle, sidebarHeaderHeight, roomDotDiameter, roomDotSlot,
-         tabStripHeight, tabHeight, tabMaxWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
+         tabStripHeight, tabHeight, controlHeight, tabMaxWidth, tabMinWidth, paletteRowHeight, paletteSearchHeight, paletteWidth, panelInset,
          columnGap, densityPaneCornerRadius, panelCornerRadius, itemCornerRadius, iconSize, smallIconSize, scrollEdgeFade]
     }
 }

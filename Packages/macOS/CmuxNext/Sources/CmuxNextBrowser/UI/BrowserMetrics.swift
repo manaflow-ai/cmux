@@ -8,7 +8,7 @@ enum BrowserMetrics {
     /// Toolbar row: same height as a pane tab strip (28 pt compact).
     static var toolbarHeight: CGFloat { Metrics.tabStripHeight }
     /// Omnibox capsule and toolbar buttons: tab height (24 pt compact).
-    static var controlHeight: CGFloat { Metrics.tabHeight }
+    static var controlHeight: CGFloat { Metrics.controlHeight }
     static var controlCornerRadius: CGFloat { Metrics.itemCornerRadius }
     /// SF Symbol point size inside controls.
     static var symbolPointSize: CGFloat { Metrics.smallIconSize }
