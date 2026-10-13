@@ -88,7 +88,7 @@ enum TabLifecycle {
             let services = ctx.services, page = invocation.origin == .user && followsSetting && services.agentTabs.opensFirstPage(on: daemon)
             ctx.registry.track(Task { @MainActor in
                 do {
-                    _ = try await repair.populating(key) {
+                    _ = try await repair.fillFirstTab(key) {
                         if page { return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services) }
                         return try await connection.createTerminal(in: key, cwd: daemon.defaultCwd).surface
                     }

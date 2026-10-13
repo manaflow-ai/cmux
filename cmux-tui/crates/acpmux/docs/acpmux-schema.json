@@ -61,6 +61,7 @@
     "_acpmux/permission_chat_revoke": {"params":{"sessionId":"string"}, "result":{"active":false}, "note":"Revokes future chat approvals; already accepted operations are not undone."},
     "_acpmux/set_policy": {"params": {"sessionId": "string", "policy": "ask|approve-reads|approve-edits|approve-all|deny-all"}, "result": "SessionSummary"},
     "_acpmux/set_rules": {"params": {"sessionId": "string", "rules": "{autoApprove?: string[], autoDeny?: string[], ask?: string[], default?: 'approve'|'deny'|'ask'} | null"}, "result": "SessionSummary"},
+    "_acpmux/archive": {"params": {"sessionId": "string", "archived": "boolean"}, "result": "SessionSummary", "note": "The chat menu's Archive (true: sets the `archived` tag to now in milliseconds; the lists hide the chat) or Unarchive (false: removes it). One tag with one value, so a page relay allows it without reading tag names (cx-jlzsf)."},
     "_acpmux/tag": {"params": {"sessionId": "string", "set": "{key: value}?", "remove": "string[]?", "ttlSeconds": "number?"}, "result": "SessionSummary"},
     "_acpmux/export": {"params": {"sessionId": "string", "dest": "string?"}, "result": {"path": "string"}},
     "_acpmux/import": {"params": {"path": "string", "name": "string?"}, "result": "SessionSummary"},

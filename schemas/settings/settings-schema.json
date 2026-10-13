@@ -633,6 +633,16 @@
             }
           },
           {
+            "key" : "settings.group.toolbar",
+            "rows" : [
+              "browser.toolbarButtons"
+            ],
+            "title" : {
+              "key" : "settings.group.toolbar",
+              "text" : "Toolbar"
+            }
+          },
+          {
             "key" : "settings.group.bookmarks",
             "rows" : [
               "browser.showBookmarksBar"
@@ -12406,7 +12416,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.statusIndicator",
@@ -13952,14 +13962,13 @@
       },
       "help" : {
         "key" : "settings.sidebar.cards.tips.help",
-        "text" : "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once."
+        "text" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.cards.tips",
       "keywords" : [
         "sidebar",
         "tips",
-        "hints",
         "did you know",
         "cards",
         "learn",
@@ -13980,11 +13989,11 @@
       "section" : "appearance",
       "summary" : {
         "key" : "settings.sidebar.cards.tips.summary",
-        "text" : "A daily hint about a feature you haven't used"
+        "text" : "A daily tip about a feature you haven't used"
       },
       "title" : {
         "key" : "settings.sidebar.cards.tips",
-        "text" : "Show Hints"
+        "text" : "Show Tips"
       },
       "validation" : "portable"
     },
@@ -18235,6 +18244,134 @@
       "title" : {
         "key" : "settings.workspaceRow.secondLineOrder",
         "text" : "Second Line Order"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "devTools",
+          "theme",
+          "profile",
+          "designMode",
+          "downloads",
+          "favorites",
+          "zoom",
+          "media"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.media",
+            "text" : "Media Controls"
+          },
+          "value" : "media"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.zoom",
+            "text" : "Zoom Level"
+          },
+          "value" : "zoom"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.favorites",
+            "text" : "Bookmarks"
+          },
+          "value" : "favorites"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.downloads",
+            "text" : "Downloads"
+          },
+          "value" : "downloads"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.designMode",
+            "text" : "Design Mode"
+          },
+          "value" : "designMode"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.profile",
+            "text" : "Browser Profile"
+          },
+          "value" : "profile"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.theme",
+            "text" : "Browser Theme"
+          },
+          "value" : "theme"
+        },
+        {
+          "title" : {
+            "key" : "settings.browser.toolbarButtons.devTools",
+            "text" : "Developer Tools"
+          },
+          "value" : "devTools"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+        "media",
+        "zoom",
+        "downloads"
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.toolbar",
+        "text" : "Toolbar"
+      },
+      "help" : {
+        "key" : "settings.browser.toolbarButtons.help",
+        "text" : "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbarButtons",
+      "keywords" : [
+        "toolbar",
+        "buttons",
+        "pin",
+        "more",
+        "extensions",
+        "devtools",
+        "bookmarks"
+      ],
+      "kind" : "string_list",
+      "ordered" : false,
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "toolbarButtons"
+      ],
+      "refuses" : [
+        "media",
+        [
+          "__not_a_choice__"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.toolbarButtons",
+        "text" : "Toolbar Buttons"
       },
       "validation" : "portable"
     },
@@ -22717,7 +22854,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f6cd49bdb75c8376d138695e5656c8705d8e170b315df17fff07f799946588f4",
+  "schema_hash" : "fba2852098774a687edad89c7fd7f9a6e1a13a4bcd281f1c166a521dcfb2b35d",
   "sections" : [
     {
       "id" : "general",
