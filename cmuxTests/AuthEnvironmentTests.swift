@@ -793,9 +793,9 @@ struct CheckoutAttributionTests {
 
     @Test
     func upgradeCopyNamesTheNextPersonalPlan() {
-        #expect(ProUpgradePresenter.upgradeMenuTitle(isProActive: false, isMaxActive: false).contains("cmux Pro"))
-        #expect(ProUpgradePresenter.upgradeMenuTitle(isProActive: true, isMaxActive: false).contains("cmux Max"))
-        #expect(ProUpgradePresenter.upgradeMenuTitle(isProActive: true, isMaxActive: true).contains("cmux Max"))
+        #expect(ProUpgradePresenter.upgradeMenuTitle(isPersonalProActive: false, isMaxActive: false).contains("cmux Pro"))
+        #expect(ProUpgradePresenter.upgradeMenuTitle(isPersonalProActive: true, isMaxActive: false).contains("cmux Max"))
+        #expect(ProUpgradePresenter.upgradeMenuTitle(isPersonalProActive: true, isMaxActive: true).contains("cmux Max"))
     }
 
     @Test

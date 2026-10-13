@@ -18,6 +18,11 @@ public struct BillingPlanState: Sendable, Equatable {
         planID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "max"
     }
 
+    /// Whether the personal plan is Pro, independently of team or Go access.
+    public var isPersonalPro: Bool {
+        planID?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "pro"
+    }
+
     /// Creates an entitlement snapshot.
     ///
     /// - Parameters:
@@ -97,6 +102,10 @@ public struct BillingPlanClient: Sendable {
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
+        return try Self.decode(data)
+    }
+
+    static func decode(_ data: Data) throws -> BillingPlanDetails {
         let decoded = try JSONDecoder().decode(Response.self, from: data)
         // The default endpoint returns both personal and active-team plans.
         // A paid team grants Cloud access even when the personal subscription

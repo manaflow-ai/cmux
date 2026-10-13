@@ -11,6 +11,29 @@ import Testing
 /// Auth command visibility and the Cloud team's existing customizable command.
 @MainActor
 struct CommandPaletteAuthCommandTests {
+    @Test func upgradeTitleTracksBillingContextAndInvalidatesCachedCommands() throws {
+        let command = try #require(ContentView.commandPaletteProCommandContributions().first {
+            $0.commandId == ContentView.commandPaletteProUpgradeCommandId
+        })
+        var context = CommandPaletteContextSnapshot()
+        let freeTitle = command.title(context)
+        let freeFingerprint = context.fingerprint()
+        #expect(freeTitle.contains("cmux Pro"))
+
+        context.setBool(ContentView.commandPalettePersonalProActiveKey, true)
+        let proTitle = command.title(context)
+        let proFingerprint = context.fingerprint()
+        #expect(proTitle.contains("cmux Max"))
+        #expect(proFingerprint != freeFingerprint)
+
+        context.setBool(ContentView.commandPalettePersonalProActiveKey, false)
+        context.setBool(ContentView.commandPaletteMaxActiveKey, true)
+        let maxTitle = command.title(context)
+        #expect(maxTitle.contains("cmux Max"))
+        #expect(maxTitle != proTitle)
+        #expect(context.fingerprint() != proFingerprint)
+    }
+
     @Test func signedOutContextShowsSignInCommandOnly() {
         var context = CommandPaletteContextSnapshot()
         context.setBool(CommandPaletteContextKeys.authSignedIn, false)

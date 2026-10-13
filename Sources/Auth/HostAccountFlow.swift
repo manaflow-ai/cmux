@@ -22,6 +22,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     private(set) var billingPlanState = BillingPlanState.unknown
     var isProActive: Bool { billingPlanState.isPro }
     var isMaxActive: Bool { billingPlanState.isMax }
+    var isPersonalProActive: Bool { billingPlanState.isPersonalPro }
     var canManageBilling: Bool { billingPlanState.canManageBilling }
     /// The account whose plan is known, or nil while the plan is unknown.
     var billingPlanIdentityID: String? { billingPlanState.accountID }

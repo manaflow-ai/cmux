@@ -26,12 +26,14 @@ struct ProUpgradeCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
-            if shouldShowAction {
+            if flow?.planAction != nil {
                 Button {
-                    if flow?.canManageBilling == true {
-                        flow?.openBillingPortal()
-                    } else {
-                        flow?.openProUpgrade()
+                    guard let flow, let action = flow.planAction else { return }
+                    switch action {
+                    case .manageBilling:
+                        flow.openBillingPortal()
+                    case .upgradeToPro, .upgradeToMax:
+                        flow.openProUpgrade()
                     }
                 } label: {
                     Text(buttonTitle)
@@ -60,12 +62,12 @@ struct ProUpgradeCard: View {
             if flow?.canManageBilling == true {
                 return String(
                     localized: "settings.account.max.activeSubtitle",
-                    defaultValue: "Your Max subscription is active. Manage billing or cancel in Stripe."
+                    defaultValue: "Your Max subscription is active. Manage billing or cancel it anytime."
                 )
             }
             return String(
                 localized: "settings.account.max.externalSubtitle",
-                defaultValue: "Your Max access is managed by our previous billing system. Contact support to make changes."
+                defaultValue: "Your Max access is active. Contact support to make changes."
             )
         }
         if flow?.isProActive == true {
@@ -87,13 +89,14 @@ struct ProUpgradeCard: View {
     }
 
     private var buttonTitle: String {
-        if flow?.canManageBilling == true {
+        switch flow?.planAction {
+        case .manageBilling:
             return String(localized: "settings.account.pro.manageBilling", defaultValue: "Manage billing")
-        }
-        if flow?.isProActive == true {
+        case .upgradeToMax:
             return String(localized: "settings.account.pro.upgradeMax", defaultValue: "Upgrade to Max…")
+        case .upgradeToPro, nil:
+            return String(localized: "settings.account.pro.upgrade", defaultValue: "Upgrade…")
         }
-        return String(localized: "settings.account.pro.upgrade", defaultValue: "Upgrade…")
     }
 
     private var titleText: String {
@@ -103,7 +106,4 @@ struct ProUpgradeCard: View {
         return String(localized: "settings.account.pro.title", defaultValue: "cmux Pro")
     }
 
-    private var shouldShowAction: Bool {
-        flow?.isProActive != true || flow?.canManageBilling == true
-    }
 }

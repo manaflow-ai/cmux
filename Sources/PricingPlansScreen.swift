@@ -18,16 +18,16 @@ enum ProUpgradePresenter {
     @MainActor
     static var upgradeMenuTitle: String {
         upgradeMenuTitle(
-            isProActive: AppDelegate.shared?.auth?.accountFlow.isProActive == true,
+            isPersonalProActive: AppDelegate.shared?.auth?.accountFlow.isPersonalProActive == true,
             isMaxActive: AppDelegate.shared?.auth?.accountFlow.isMaxActive == true
         )
     }
 
-    nonisolated static func upgradeMenuTitle(isProActive: Bool, isMaxActive: Bool) -> String {
+    nonisolated static func upgradeMenuTitle(isPersonalProActive: Bool, isMaxActive: Bool) -> String {
         if isMaxActive {
             return String(localized: "menu.help.viewMax", defaultValue: "View cmux Max…")
         }
-        if isProActive {
+        if isPersonalProActive {
             return String(localized: "menu.help.upgradeToMax", defaultValue: "Upgrade to cmux Max…")
         }
         return String(localized: "menu.help.upgradeToPro", defaultValue: "Upgrade to cmux Pro…")
@@ -35,7 +35,8 @@ enum ProUpgradePresenter {
 
     @MainActor
     private static var pricingWorkspaceTitle: String {
-        if AppDelegate.shared?.auth?.accountFlow.isProActive == true {
+        let flow = AppDelegate.shared?.auth?.accountFlow
+        if flow?.isPersonalProActive == true || flow?.isMaxActive == true {
             return String(localized: "pricing.max.workspace.title", defaultValue: "cmux Max")
         }
         return String(localized: "pricing.pro.workspace.title", defaultValue: "cmux Pro")
@@ -43,10 +44,6 @@ enum ProUpgradePresenter {
 
     @MainActor
     private static var workspaceReuseState = ProUpgradeWorkspaceReuseState()
-    @MainActor
-    private static var pricingPresentationTask: Task<Void, Never>?
-    @MainActor
-    private static var pricingPresentationGeneration = 0
 
     @MainActor
     static func present(source: ProUpgradeSource) {
@@ -85,50 +82,8 @@ enum ProUpgradePresenter {
             NSWorkspace.shared.open(url)
             return
         }
-        // Exchange the native auth session for an isolated WebKit data store
-        // before opening pricing. Falling straight through to the system
-        // browser loses the cmux session and sends signed-in users to sign-in.
-        pricingPresentationTask?.cancel()
-        pricingPresentationGeneration &+= 1
-        let generation = pricingPresentationGeneration
-        pricingPresentationTask = Task { @MainActor in
-            defer {
-                if pricingPresentationGeneration == generation {
-                    pricingPresentationTask = nil
-                }
-            }
-            await presentAuthenticatedPricing(url: url)
-        }
-    }
-
-    @MainActor
-    private static func presentAuthenticatedPricing(url: URL) async {
-        guard !Task.isCancelled else { return }
-        guard let auth = AppDelegate.shared?.auth else {
-            guard !Task.isCancelled else { return }
-            presentAppPricingWebWithoutSession(url: url)
-            return
-        }
-
-        var outcome = await auth.browserAppSession.request(destinationURL: url)
-        if outcome.shouldRetry {
-            guard !Task.isCancelled else { return }
-            outcome = await auth.browserAppSession.request(destinationURL: url)
-        }
-        if case .cancelled = outcome { return }
-        guard !Task.isCancelled else { return }
-        if case let .navigation(navigation) = outcome {
-            // Do not discard an authenticated WebKit store and reopen the
-            // page anonymously if the selected workspace cannot accept it.
-            _ = presentBrowserSplit(navigation: navigation)
-            return
-        }
-        guard !Task.isCancelled else { return }
-        presentAppPricingWebWithoutSession(url: url)
-    }
-
-    @MainActor
-    private static func presentAppPricingWebWithoutSession(url: URL) {
+        // BrowserPanel owns native session bootstrap for every app-pricing
+        // navigation, including reused workspaces and the fallback browser tab.
         if presentDedicatedPricingWorkspace(url: url) {
             return
         }
@@ -208,25 +163,6 @@ enum ProUpgradePresenter {
             return
         }
         NSWorkspace.shared.open(url)
-    }
-
-    @MainActor
-    private static func presentBrowserSplit(navigation: BrowserAppSessionNavigation) -> Bool {
-        guard let workspace = AppDelegate.shared?.tabManager?.selectedWorkspace,
-              let sourcePanelId = workspace.focusedPanelId else {
-            return false
-        }
-        return workspace.newBrowserSplit(
-            from: sourcePanelId,
-            orientation: .horizontal,
-            initialRequest: navigation.request,
-            focus: true,
-            allowsExternalBrowserFallback: false,
-            chromeVisibility: .hidden,
-            transparentBackground: true,
-            initialDividerPosition: 0.58,
-            websiteDataStore: navigation.websiteDataStore
-        ) != nil
     }
 
     @MainActor
