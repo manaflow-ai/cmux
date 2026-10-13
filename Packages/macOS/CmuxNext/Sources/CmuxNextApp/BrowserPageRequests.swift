@@ -108,6 +108,20 @@ final class BrowserPageRequests: BrowserTabDelegate {
             default: break
             }
         }
+        // Chromium's password manager opened from one of its pages
+        // (`chrome://settings`) is cmux's Passwords page (ChromiumPageRoute),
+        // a person's page only.
+        let person = !services.cache.agentDrivenTabs.contains(key)
+        switch intent {
+        case .openURL(let url, _) where person && ChromiumPageRoute(url) == .passwordsPage:
+            try? services.showPasswordsPage(focus: true)
+            return
+        case .adoptTab(let child, _) where person && child.state.url.flatMap({ ChromiumPageRoute($0) }) == .passwordsPage:
+            child.close()
+            try? services.showPasswordsPage(focus: true)
+            return
+        default: break
+        }
         let engine = BrowserEngineResolver.tag(for: page.engineKind).rawValue
         // A page's new tabs stay in its browser profile (its cookies, and the
         // store an engine-made child page already uses).
