@@ -343,20 +343,24 @@ RUN mkdir -p /etc/cmux/blesh-cache-seed \
 # proves the persisted-env re-source path, then proves the image itself
 # ships no generated config.
 COPY agent-config.sh /etc/cmux/agent-config.sh
-COPY cmux-opencode /etc/cmux/opencode
-RUN mkdir -p /usr/local/libexec \
-  && ln -s "$(readlink -f /usr/local/bin/opencode)" /usr/local/libexec/cmux-opencode-real \
-  && rm -f /usr/local/bin/opencode \
-  && chmod 755 /etc/cmux/opencode && ln -s /etc/cmux/opencode /usr/local/bin/opencode
-# Claude Code sign-in mode: the launcher adds the CodeRouter env per launch
-# in team mode only, so a user's own /login is never outranked (agent-auth.sh).
+# Agent sign-in launchers: /usr/local/bin/<agent> resolves the team or
+# own-login mode per launch (agent-auth.sh) and execs
+# /usr/local/libexec/cmux-<agent>-real. mise's shims come first on PATH, so
+# they point at the launchers too.
 COPY agent-auth.sh /etc/cmux/agent-auth.sh
 COPY cmux-claude /etc/cmux/claude
-RUN sh -n /etc/cmux/agent-auth.sh && bash -n /etc/cmux/claude \
-  && ln -s "$(readlink -f /usr/local/bin/claude)" /usr/local/libexec/cmux-claude-real \
-  && rm -f /usr/local/bin/claude \
-  && chmod 755 /etc/cmux/claude && ln -s /etc/cmux/claude /usr/local/bin/claude \
-  && claude --version
+COPY cmux-codex /etc/cmux/codex
+COPY cmux-opencode /etc/cmux/opencode
+RUN sh -n /etc/cmux/agent-auth.sh && mkdir -p /usr/local/libexec \
+  && for a in claude codex opencode; do \
+       bash -n /etc/cmux/$a \
+       && ln -s "$(readlink -f "$(mise which $a)")" /usr/local/libexec/cmux-$a-real \
+       && test -f /usr/local/libexec/cmux-$a-real \
+       && rm -f /usr/local/bin/$a \
+       && chmod 755 /etc/cmux/$a && ln -s /etc/cmux/$a /usr/local/bin/$a \
+       && ln -sfn /etc/cmux/$a /opt/mise/shims/$a \
+       && /usr/local/bin/$a --version >/dev/null || exit 1; \
+     done
 RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \

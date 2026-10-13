@@ -15,7 +15,7 @@ import {
  * Every agent comes from its own GitHub release asset (services/vms/images/agents.ts).
  * A version unpacks to /opt/cmux-agents/<binary>/<version>/, and
  * /usr/local/bin/<binary> links to the executable inside it. The
- * /usr/local/bin entries of opencode and claude stay their /etc/cmux/<binary>
+ * /usr/local/bin entries of claude, codex and opencode stay their /etc/cmux/<binary>
  * launchers, which exec /usr/local/libexec/cmux-<binary>-real, the link that
  * moves instead.
  *
@@ -112,7 +112,7 @@ setting_path = os.path.join(config_dir, "agent-updates")
 state_path = os.path.join(config_dir, "agent-updates.state")
 lock_path = os.path.join(config_dir, ".agent-updates.lock")
 # Agents whose /usr/local/bin entry is a cmux launcher (/etc/cmux/<binary>).
-wrapped = ("opencode", "claude")
+wrapped = ("opencode", "claude", "codex")
 release = re.compile(r"^\d+\.\d+\.\d+$")
 reported_version = re.compile(r"(\d+\.\d+\.\d+)")
 sha256_digest = re.compile(r"^sha256:([0-9a-f]{64})$")

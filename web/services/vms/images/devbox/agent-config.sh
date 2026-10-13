@@ -199,13 +199,16 @@ CMUX_TOML_CHECK
 
 # Optional provider discovery belongs to OpenCode launch, never shell startup.
 # Python owns the advisory lock so process exit releases it even after a crash.
+# The CodeRouter providers go to a cmux-owned file, not opencode's global
+# config: the opencode launcher layers it on (OPENCODE_CONFIG) only in team
+# mode, so an own-login launch sees none of them (agent-auth.sh).
 cmux_ensure_opencode_config() {
-  [ -e "$HOME/.config/opencode/opencode.json" ] && return 0
+  [ -e "$HOME/.config/cmux/opencode-team.json" ] && return 0
   [ -n "${CMUX_CODEROUTER_URL-}" ] && [ -n "${OPENAI_API_KEY-}" ] || return 0
   python3 - <<'CMUX_OPENCODE_CONFIG'
 import fcntl, hashlib, json, os, pathlib, re, subprocess, sys, tempfile, time
 
-config = pathlib.Path.home() / ".config/opencode/opencode.json"
+config = pathlib.Path.home() / ".config/cmux/opencode-team.json"
 origin = os.environ["CMUX_CODEROUTER_URL"].rstrip("/")
 key = os.environ["OPENAI_API_KEY"]
 state = pathlib.Path.home() / ".cache/cmux"
@@ -229,7 +232,7 @@ def redact(value):
 with (state / "opencode-config.lock").open("a") as lock:
     fcntl.flock(lock, fcntl.LOCK_EX)
     # Waiting callers must observe the result of the first request before
-    # deciding to retry or launch. Existing user configuration always wins.
+    # deciding to retry or launch. An existing file always wins.
     if config.exists() or config.is_symlink():
         sys.exit(0)
     try:
@@ -258,7 +261,7 @@ with (state / "opencode-config.lock").open("a") as lock:
                 output.flush()
                 os.fsync(output.fileno())
             try:
-                # Atomic write-if-absent, never replace a user edit made while
+                # Atomic write-if-absent, never replace a file written while
                 # the request was in flight, including an existing symlink.
                 os.link(temporary, config)
             except FileExistsError:
@@ -274,14 +277,16 @@ with (state / "opencode-config.lock").open("a") as lock:
 CMUX_OPENCODE_CONFIG
 }
 
-# The installed executable wrapper also covers exec/direct agent launches.
-# This function retains the lazy path when this file is updated independently.
+# opencode sign-in mode: every launch goes through the launcher, which owns
+# the team configuration and the own-login path, whatever PATH order a shell
+# has (the base's login PATH puts nvm's bin first). The installed launcher
+# also covers exec/direct agent launches.
 opencode() {
-  if [ "$#" -eq 1 ]; then
-    case "$1" in --version|-v|--help|-h) command opencode "$@"; return $? ;; esac
+  if [ -x /etc/cmux/opencode ]; then
+    /etc/cmux/opencode "$@"
+  else
+    command opencode "$@"
   fi
-  cmux_ensure_opencode_config || return $?
-  command opencode "$@"
 }
 
 # claude sign-in mode: every launch goes through the launcher, whatever PATH
@@ -340,8 +345,11 @@ codex() {
     case $d in ''|*[\"\\]*|*[![:print:]]*) continue ;; esac
     entries="${entries:+$entries, }\"$d\" = { trust_level = \"trusted\" }"
   done
-  if [ -n "$entries" ]; then
-    command codex -c "projects={ $entries }" "$@"
+  if [ -n "$entries" ]; then set -- -c "projects={ $entries }" "$@"; fi
+  # Through the sign-in launcher (/etc/cmux/codex) whatever PATH order a
+  # shell has; it picks the team or own-login provider per launch.
+  if [ -x /etc/cmux/codex ]; then
+    /etc/cmux/codex "$@"
   else
     command codex "$@"
   fi

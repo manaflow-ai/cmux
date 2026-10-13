@@ -44,6 +44,7 @@ export const DEVBOX_TEMPLATE_FILES = [
   "agent-config.sh",
   "agent-auth.sh",
   "cmux-claude",
+  "cmux-codex",
   "cmux-opencode",
   "chrome-managed-policy.json",
   "cmux-bashrc",

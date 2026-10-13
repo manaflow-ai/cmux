@@ -243,8 +243,8 @@ const CODEX_LAUNCH_MARKER = "Ask Codex to do anything";
 const CODEX_GATE_TEXTS = "Do you trust|new version|bubblewrap|sandbox prerequisites|Sign in with ChatGPT";
 const AGENT_LAUNCH_CHECKS: readonly string[] = [
   agentLaunchCheck("root", "/root", "claude-root-launch", "CMUX_CLAUDE_AUTH=team claude --dangerously-skip-permissions", CLAUDE_LAUNCH_MARKER, CLAUDE_GATE_TEXTS),
-  agentLaunchCheck("root", "/root", "codex-root-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
-  agentLaunchCheck(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "codex-work-user-launch", "codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  agentLaunchCheck("root", "/root", "codex-root-launch", "CMUX_CODEX_AUTH=team codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  agentLaunchCheck(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "codex-work-user-launch", "CMUX_CODEX_AUTH=team codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
   // Nothing a launch wrote in the work user's home may be root-owned (the
   // root probes ran with HOME=/root, never the work user's home).
   `[ "$(find ${DEVBOX_DESKTOP_HOME} -not -user ${DEVBOX_DESKTOP_USER} | wc -l)" = 0 ] && echo home-still-owned-by-${DEVBOX_DESKTOP_USER}`,
@@ -276,10 +276,11 @@ const FREESTYLE_BASE_CHECKS: readonly string[] = [
   `sudo -n -u ${DEVBOX_WORK_USER} bash -ic 'head -1 ~/.bash_history' | grep -q claude && echo work-user-shell-ok`,
   "test ! -e /opt/mise && test ! -e /usr/local/bin/mise && readlink /usr/local/bin/node | grep -q /usr/local/nvm/ && echo base-toolchain-in-use",
   "for b in node claude codex opencode pi agent-browser bun; do test -L /usr/local/bin/$b || exit 1; done && echo agent-symlinks-ok",
-  // Claude Code sign-in mode: the entry is the launcher, which adds the
-  // CodeRouter env per launch in team mode only (agent-auth.sh).
-  // A login shell's PATH (nvm first) must resolve claude to the launcher too.
-  'test "$(readlink /usr/local/bin/claude)" = /etc/cmux/claude && test -x /usr/local/libexec/cmux-claude-real && sh -n /etc/cmux/agent-auth.sh && bash -lc \'test -z "${ANTHROPIC_API_KEY-}" && test -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" && test "$(readlink -f "$(type -P claude)")" = /etc/cmux/claude && test "$(type -t claude)" = function\' && echo claude-launcher-ok',
+  // Agent sign-in modes: each entry is its launcher, which resolves team or
+  // own login per launch (agent-auth.sh); a login shell's PATH (nvm first)
+  // resolves each agent to its launcher too, and no shell carries Claude's
+  // model-plane key.
+  'for a in claude codex opencode; do test "$(readlink /usr/local/bin/$a)" = /etc/cmux/$a && test -x /usr/local/libexec/cmux-$a-real || exit 1; done && sh -n /etc/cmux/agent-auth.sh && bash -lc \'test -z "${ANTHROPIC_API_KEY-}" && test -n "${CMUX_CLAUDE_TEAM_BASE_URL-}" && for a in claude codex opencode; do test "$(readlink -f "$(type -P $a)")" = /etc/cmux/$a && test "$(type -t $a)" = function || exit 1; done\' && echo agent-launchers-ok',
   ...pins.map((pin) => `env -i HOME=${DEVBOX_WORK_HOME} TERM=xterm sudo -n -u ${DEVBOX_WORK_USER} bash -lc '${pin.binary} --version' | grep -F '${pin.version}' >/dev/null && echo ${pin.binary}-login-pin-ok`),
   // Non-login probe, as the work user: probing as root with the work user's
   // HOME would itself leave root-owned state dirs behind.

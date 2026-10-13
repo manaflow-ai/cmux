@@ -1,22 +1,27 @@
 # cmux Cloud devbox agent sign-in mode (/etc/cmux/agent-auth.sh). POSIX sh:
-# sourced by the claude launcher (/etc/cmux/claude) at every launch and by
-# the in-VM `cr use` command to report the mode.
+# sourced by the agent launchers (/etc/cmux/claude, /etc/cmux/codex,
+# /etc/cmux/opencode) at every launch and by the in-VM `cr use` command to
+# report the mode.
 #
-# Each agent on a machine runs in one of two modes:
+# Each agent (claude, codex, opencode) on a machine runs in one of two modes:
 #   team  the team's CodeRouter accounts, through the machine's TLS edge
-#         (zero setup; the launcher adds the model-plane env)
-#   own   the user's own sign-in to the agent (Claude Code: /login); the
-#         launcher adds no CodeRouter env, so nothing outranks that login
+#         (zero setup; the launcher adds the CodeRouter configuration)
+#   own   the user's own sign-in to the agent (Claude Code /login, codex
+#         login, opencode auth login); the launcher adds no CodeRouter
+#         configuration and drops the model-plane env, so nothing outranks
+#         that sign-in and no own credential is sent to CodeRouter
 #
 # CMUX_<AGENT>_AUTH=team|own in the environment pins one launch (automation,
 # image verification). Otherwise the choice lives in
 # ~/.config/cmux/agent-auth/<agent> ("team" or "own"), written by `cr use`.
-# Without one, an own sign-in on the machine counts as
-# choosing own; otherwise team when the team has a usable account, else own,
-# so Claude Code shows its normal sign-in instead of a CodeRouter refusal.
-#
-# Only claude reads this today; the file layout and the resolve function are
-# keyed by agent so codex can adopt the same switch.
+# Without one, an own sign-in to that agent on the machine counts as choosing
+# own; otherwise team when the team has an account for the agent, else own,
+# so the agent shows its normal sign-in instead of a CodeRouter refusal.
+
+# The public placeholder every guest sends (VM_PLACEHOLDER_API_KEY in
+# services/coderouter/vmGuestEnv.ts); the machine's edge swaps in the real
+# credential. The only key this file ever sends anywhere.
+cmux_aa_placeholder=cmux-vm-edge-placeholder
 
 # The file holding <agent>'s explicit choice.
 cmux_agent_auth_file() {
@@ -31,67 +36,105 @@ cmux_agent_auth_choice() {
   case "$cmux_aa_value" in team|own) printf '%s' "$cmux_aa_value" ;; esac
 }
 
-# 0 when Claude Code has its own sign-in on this machine: a /login session in
-# its credentials file, or a long-lived token from `claude setup-token`.
-cmux_claude_has_own_login() {
-  [ -n "${CLAUDE_CODE_OAUTH_TOKEN-}" ] && return 0
-  cmux_aa_credentials="${CLAUDE_CONFIG_DIR:-${HOME:-/root}/.claude}/.credentials.json"
-  [ -f "$cmux_aa_credentials" ] && grep -q '"claudeAiOauth"' "$cmux_aa_credentials" 2>/dev/null
+# 0 when <agent> has its own sign-in on this machine.
+#   claude    a /login session in its credentials file, or a long-lived
+#             token from `claude setup-token`
+#   codex     `codex login` (ChatGPT tokens or an API key) in auth.json, or
+#             CODEX_API_KEY
+#   opencode  any provider credential from `opencode auth login`
+cmux_agent_has_own_login() {
+  case "$1" in
+    claude)
+      [ -n "${CLAUDE_CODE_OAUTH_TOKEN-}" ] && return 0
+      cmux_aa_login="${CLAUDE_CONFIG_DIR:-${HOME:-/root}/.claude}/.credentials.json"
+      [ -f "$cmux_aa_login" ] && grep -q '"claudeAiOauth"' "$cmux_aa_login" 2>/dev/null
+      ;;
+    codex)
+      [ -n "${CODEX_API_KEY-}" ] && return 0
+      cmux_aa_login="${CODEX_HOME:-${HOME:-/root}/.codex}/auth.json"
+      [ -f "$cmux_aa_login" ] && python3 -c '
+import json, sys
+try:
+    auth = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+tokens = auth.get("tokens") if isinstance(auth, dict) else None
+key = auth.get("OPENAI_API_KEY") if isinstance(auth, dict) else None
+sys.exit(0 if (isinstance(tokens, dict) and tokens) or (isinstance(key, str) and key) else 1)
+' "$cmux_aa_login" 2>/dev/null
+      ;;
+    opencode)
+      cmux_aa_login="${XDG_DATA_HOME:-${HOME:-/root}/.local/share}/opencode/auth.json"
+      [ -f "$cmux_aa_login" ] && python3 -c '
+import json, sys
+try:
+    auth = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(1)
+sys.exit(0 if isinstance(auth, dict) and auth else 1)
+' "$cmux_aa_login" 2>/dev/null
+      ;;
+    *) return 1 ;;
+  esac
 }
 
-# The team's CodeRouter Claude accounts as this machine sees them:
-# 0 at least one active account, 1 the answer lists none, 2 no answer
-# (no model plane, edge unreachable, unreadable reply). Only the public
-# placeholder from the model plane is ever sent: a user's own key never goes
-# to the CodeRouter origin. A launch reuses an answer for 60 s
-# (~/.cache/cmux/claude-team-accounts) so back-to-back launches, including
-# headless `claude -p` runs, pay for the check at most once a minute
-# (`cr use` clears it, so its report and the next launch are current).
-cmux_claude_team_upstream() {
-  cmux_aa_origin="${CMUX_CODEROUTER_URL-}"
-  case "$cmux_aa_origin" in https://*) ;; *) return 2 ;; esac
-  cmux_aa_key="${CMUX_CLAUDE_TEAM_API_KEY-}"
-  [ -n "$cmux_aa_key" ] || return 2
-  cmux_aa_cache="${HOME:-/root}/.cache/cmux/claude-team-accounts"
+# Whether the team's CodeRouter can serve <agent> on this machine:
+# 0 it has an account for the agent, 1 it has none, 2 no answer (no model
+# plane, edge unreachable, unreadable reply, a server without the endpoint).
+# One GET /api/coderouter/agent-access answers every agent; the answer is
+# reused for 60 s (~/.cache/cmux/agent-access) so back-to-back launches,
+# including headless runs, pay for the check at most once a minute. `cr use`
+# clears it, so its report and the next launch are current.
+cmux_agent_team_access() {
+  case "$1" in claude) cmux_aa_field=2 ;; codex) cmux_aa_field=3 ;; opencode) cmux_aa_field=4 ;; *) return 2 ;; esac
+  cmux_aa_cache="${HOME:-/root}/.cache/cmux/agent-access"
   cmux_aa_now=$(date +%s 2>/dev/null) || cmux_aa_now=0
+  cmux_aa_line=""
   if [ -f "$cmux_aa_cache" ]; then
-    read -r cmux_aa_at cmux_aa_cached < "$cmux_aa_cache" 2>/dev/null || cmux_aa_at=""
-    case "$cmux_aa_at:${cmux_aa_cached-}" in
-      *[!0-9:]*|:*|*:) ;;
+    cmux_aa_line=$(head -n 1 "$cmux_aa_cache" 2>/dev/null) || cmux_aa_line=""
+    case "$cmux_aa_line" in
+      *[!0-9\ ]*|'') cmux_aa_line="" ;;
       *)
-        if [ "$cmux_aa_now" -ge "$cmux_aa_at" ] && [ $((cmux_aa_now - cmux_aa_at)) -lt 60 ]; then
-          return "$cmux_aa_cached"
-        fi
+        cmux_aa_at=${cmux_aa_line%% *}
+        if [ "$cmux_aa_now" -lt "$cmux_aa_at" ] || [ $((cmux_aa_now - cmux_aa_at)) -ge 60 ]; then cmux_aa_line=""; fi
         ;;
     esac
   fi
-  cmux_aa_rc=2
-  if command -v curl >/dev/null 2>&1; then
-    set -- -fsS --connect-timeout 2 --max-time 5 -H "authorization: Bearer $cmux_aa_key" -H 'accept: application/json'
-    if [ -f /usr/local/share/ca-certificates/freestyle-tls.crt ]; then
-      set -- "$@" --cacert /usr/local/share/ca-certificates/freestyle-tls.crt
-    fi
-    if cmux_aa_body=$(curl "$@" "${cmux_aa_origin%/}/api/coderouter/claude-upstream" 2>/dev/null); then
-      if printf '%s' "$cmux_aa_body" | python3 -c '
-import json, sys
-try:
-    accounts = json.load(sys.stdin)["accounts"]
-    assert isinstance(accounts, list)
-except Exception:
-    sys.exit(2)
-sys.exit(0 if any(isinstance(a, dict) and a.get("state") == "active" for a in accounts) else 1)
-' 2>/dev/null; then cmux_aa_rc=0; else cmux_aa_rc=$?; fi
-    fi
+  if [ -z "$cmux_aa_line" ]; then
+    cmux_aa_line="$cmux_aa_now $(cmux_agent_team_access_fetch)"
+    { mkdir -p "${cmux_aa_cache%/*}" && printf '%s\n' "$cmux_aa_line" > "$cmux_aa_cache"; } 2>/dev/null || :
   fi
-  { mkdir -p "${cmux_aa_cache%/*}" && printf '%s %s\n' "$cmux_aa_now" "$cmux_aa_rc" > "$cmux_aa_cache"; } 2>/dev/null || :
-  return "$cmux_aa_rc"
+  cmux_aa_code=$(printf '%s\n' "$cmux_aa_line" | cut -d ' ' -f "$cmux_aa_field")
+  case "$cmux_aa_code" in 0|1) return "$cmux_aa_code" ;; *) return 2 ;; esac
 }
 
-# Sets cmux_agent_auth_mode (team|own) and cmux_agent_auth_reason:
+# Prints "<claude> <codex> <opencode>" codes (0 account, 1 none, 2 unknown).
+cmux_agent_team_access_fetch() {
+  cmux_aa_origin="${CMUX_CODEROUTER_URL-}"
+  case "$cmux_aa_origin" in https://*) ;; *) echo "2 2 2"; return 0 ;; esac
+  command -v curl >/dev/null 2>&1 || { echo "2 2 2"; return 0; }
+  set -- -fsS --connect-timeout 2 --max-time 5 -H "authorization: Bearer $cmux_aa_placeholder" -H 'accept: application/json'
+  if [ -f /usr/local/share/ca-certificates/freestyle-tls.crt ]; then
+    set -- "$@" --cacert /usr/local/share/ca-certificates/freestyle-tls.crt
+  fi
+  curl "$@" "${cmux_aa_origin%/}/api/coderouter/agent-access" 2>/dev/null | python3 -c '
+import json, sys
+try:
+    agents = json.load(sys.stdin)["agents"]
+except Exception:
+    agents = {}
+def code(name):
+    value = agents.get(name) if isinstance(agents, dict) else None
+    return "0" if value is True else "1" if value is False else "2"
+print(code("claude"), code("codex"), code("opencode"))
+' 2>/dev/null || echo "2 2 2"
+}
+
+# Sets cmux_agent_auth_mode (team|own) and cmux_agent_auth_reason for <agent>:
 #   env             CMUX_<AGENT>_AUTH pins this launch
 #   chosen          `cr use` recorded the mode
 #   login           no choice; the agent has its own sign-in here
-#   team-account    no choice or sign-in; the team has a usable account
+#   team-account    no choice or sign-in; the team has an account for it
 #   no-team-account no choice or sign-in; the team has none
 #   team-unknown    no choice or sign-in; the account check got no answer,
 #                   so the long-standing default (team) applies
@@ -105,17 +148,12 @@ cmux_agent_auth_resolve() {
     cmux_agent_auth_reason=chosen
     return 0
   fi
-  case "$1" in
-    claude)
-      if cmux_claude_has_own_login; then
-        cmux_agent_auth_mode=own
-        cmux_agent_auth_reason=login
-        return 0
-      fi
-      if cmux_claude_team_upstream; then cmux_aa_rc=0; else cmux_aa_rc=$?; fi
-      ;;
-    *) cmux_aa_rc=2 ;;
-  esac
+  if cmux_agent_has_own_login "$1"; then
+    cmux_agent_auth_mode=own
+    cmux_agent_auth_reason=login
+    return 0
+  fi
+  if cmux_agent_team_access "$1"; then cmux_aa_rc=0; else cmux_aa_rc=$?; fi
   case "$cmux_aa_rc" in
     0) cmux_agent_auth_mode=team; cmux_agent_auth_reason=team-account ;;
     1) cmux_agent_auth_mode=own; cmux_agent_auth_reason=no-team-account ;;
@@ -123,11 +161,30 @@ cmux_agent_auth_resolve() {
   esac
 }
 
+# Own mode: drop every model-plane value from this launch's env, never a
+# user-set endpoint or key. The values are the model plane's when they are
+# the CodeRouter origin or the public placeholder.
+cmux_agent_drop_model_plane_env() {
+  cmux_aa_origin="${CMUX_CODEROUTER_URL-}"
+  cmux_aa_origin="${cmux_aa_origin%/}"
+  cmux_aa_openai="${OPENAI_BASE_URL-}"
+  if [ -n "${ANTHROPIC_BASE_URL-}" ] && { [ "$ANTHROPIC_BASE_URL" = "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] || [ "${ANTHROPIC_BASE_URL%/}" = "$cmux_aa_origin" ]; }; then
+    unset ANTHROPIC_BASE_URL
+  fi
+  if [ "${ANTHROPIC_API_KEY-}" = "$cmux_aa_placeholder" ]; then unset ANTHROPIC_API_KEY; fi
+  if [ -n "$cmux_aa_origin" ] && [ "${cmux_aa_openai%/}" = "$cmux_aa_origin/v1" ]; then unset OPENAI_BASE_URL; fi
+  if [ "${OPENAI_API_KEY-}" = "$cmux_aa_placeholder" ]; then unset OPENAI_API_KEY; fi
+  # The usage headers name the cmux workspace and terminal; they mean nothing
+  # to any other endpoint.
+  if [ -n "${ANTHROPIC_CUSTOM_HEADERS-}" ] && ! printf '%s\n' "$ANTHROPIC_CUSTOM_HEADERS" | grep -qv '^x-cmux-'; then
+    unset ANTHROPIC_CUSTOM_HEADERS
+  fi
+}
+
 # Shapes the environment of a claude launch for its mode. team: the
 # model-plane pair agent-config.sh set aside, unless the user exported their
 # own ANTHROPIC_BASE_URL/ANTHROPIC_API_KEY (those always win). own: no
-# CodeRouter env at all, including the usage headers, which name the cmux
-# workspace and terminal and mean nothing to any other endpoint.
+# CodeRouter env at all.
 cmux_claude_apply_auth_mode() {
   cmux_agent_auth_resolve claude
   if [ "$cmux_agent_auth_mode" = team ]; then
@@ -138,12 +195,32 @@ cmux_claude_apply_auth_mode() {
     fi
     return 0
   fi
-  # A shell from an older agent-config.sh still exports the pair; drop it
-  # only when it is the model plane's, never a user-set endpoint or key.
-  if [ -n "${ANTHROPIC_BASE_URL-}" ] && { [ "$ANTHROPIC_BASE_URL" = "${CMUX_CLAUDE_TEAM_BASE_URL-}" ] || [ "$ANTHROPIC_BASE_URL" = "${CMUX_CODEROUTER_URL-}" ]; }; then
-    unset ANTHROPIC_BASE_URL ANTHROPIC_API_KEY
+  cmux_agent_drop_model_plane_env
+}
+
+# codex reads its provider from ~/.codex/config.toml, which agent-config.sh
+# generates with model_provider = "cmux" (CodeRouter). Own mode sets
+# cmux_codex_own_provider=1: the launcher then starts codex with
+# -c model_provider="openai", the built-in provider that uses `codex login`.
+# Only a config cmux generated is overridden; a user's own provider choice is
+# left alone.
+cmux_codex_apply_auth_mode() {
+  cmux_codex_own_provider=0
+  cmux_agent_auth_resolve codex
+  [ "$cmux_agent_auth_mode" = own ] || return 0
+  cmux_agent_drop_model_plane_env
+  if grep -qx 'model_provider = "cmux"' "${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml" 2>/dev/null; then
+    cmux_codex_own_provider=1
   fi
-  if [ -n "${ANTHROPIC_CUSTOM_HEADERS-}" ] && ! printf '%s\n' "$ANTHROPIC_CUSTOM_HEADERS" | grep -qv '^x-cmux-'; then
-    unset ANTHROPIC_CUSTOM_HEADERS
-  fi
+}
+
+# opencode: team mode layers the CodeRouter providers on the user's own
+# configuration for this launch (the launcher sets OPENCODE_CONFIG); own mode
+# adds nothing and drops the model-plane env, because opencode sends a key
+# from `opencode auth login` to whatever OPENAI_BASE_URL/ANTHROPIC_BASE_URL
+# name.
+cmux_opencode_apply_auth_mode() {
+  cmux_agent_auth_resolve opencode
+  [ "$cmux_agent_auth_mode" = own ] || return 0
+  cmux_agent_drop_model_plane_env
 }
