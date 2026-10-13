@@ -119,6 +119,26 @@ struct CloudTreeCategoryCreateActionTests {
         #expect(fixture.events.workspaceMachine == .cloud(fixture.machineID))
     }
 
+    @Test("Hovering a create row does not rehost its SwiftUI content")
+    func createRowHoverKeepsHostedRoot() throws {
+        let fixture = Fixture()
+        defer { fixture.close() }
+
+        fixture.apply(machines: [fixture.machine])
+        let machine = try #require(fixture.machineNode)
+        let action = try #require(machine.children.first { node in
+            if case .createAction(.newWorkspace) = node.kind { return true }
+            return false
+        })
+        let cell = try fixture.cell(for: action)
+        let host = try fixture.createHost(for: action)
+        let replacementCount = host.rootReplacementCount
+
+        cell.setHovered(true)
+
+        #expect(host.rootReplacementCount == replacementCount)
+    }
+
     @MainActor
     final class Fixture {
         let defaultsSuiteName = "CloudTreeCreateAction-\(UUID().uuidString)"

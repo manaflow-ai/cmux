@@ -28,7 +28,7 @@ final class CloudTreeDevicesEmptyCell: NSTableCellView {
     func configure(section: CloudTreeDevicesSection, actions: CloudTreeNodeActions, style: CloudTreeStyle, level: Int) {
         let inset = CloudTreeNSOutlineView.leadingMargin + CGFloat(max(0, level)) * style.indentPerLevel
             + style.rowGrid.disclosureSlot + style.rowGrid.disclosureGap
-        host.rootView = AnyView(CloudTreeDevicesEmptyView(section: section, actions: actions, style: style, contentInset: inset))
+        host.setHostedRootView(AnyView(CloudTreeDevicesEmptyView(section: section, actions: actions, style: style, contentInset: inset)))
         host.invalidateIntrinsicContentSize()
     }
 }
