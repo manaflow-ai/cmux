@@ -599,13 +599,39 @@ fn machine_update_apply_step_refuses_before_changing_anything() {
     fs::write(elsewhere.join("cmux-tui"), &old).unwrap();
     let elsewhere_result = elsewhere.join(".cmux-tui.update-00000000000000cc.json");
     let (code, outcome) = apply(&sha, &elsewhere.join("cmux-tui"), &pid, &elsewhere_result);
+    assert_eq!((code, outcome), (Some(1), None), "an outcome was written outside its home");
+    unchanged("an install path outside its home");
+    assert_eq!(fs::read(elsewhere.join("cmux-tui")).unwrap(), old);
+    let written: Vec<_> =
+        fs::read_dir(&elsewhere).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert_eq!(written, ["cmux-tui"], "files were written outside its home");
+
+    // A process of the installed binary that is not the daemon serving
+    // this machine (a second daemon on another socket).
+    let other_socket = vm.dir.join("other.sock");
+    let mut other = vm
+        .command(vm.bin().to_str().unwrap())
+        .env("CMUX_TUI_STATE_DIR", vm.dir.join("other-state"))
+        .arg("--socket")
+        .arg(&other_socket)
+        .args(["--session", "machine-update-other", "server", "start"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    wait_until(60, "the second daemon", || {
+        std::os::unix::net::UnixStream::connect(&other_socket).ok()
+    });
+    let (code, outcome) = apply(&sha, &install, &other.id().to_string(), &result);
+    // The test's own child, by its own pid.
+    let _ = other.kill();
+    let _ = other.wait();
     assert_eq!(
         (code, outcome.as_ref().map(|o| o["state"].clone())),
         (Some(1), Some(json!("failed"))),
         "{outcome:?}"
     );
-    unchanged("an install path outside its home");
-    assert_eq!(fs::read(elsewhere.join("cmux-tui")).unwrap(), old);
+    unchanged("a pid of the binary that is not the serving daemon");
 
     let (code, outcome) =
         apply(&sha, &install, &pid, &root.join(".cmux-tui.update-00000000000000dd.json"));

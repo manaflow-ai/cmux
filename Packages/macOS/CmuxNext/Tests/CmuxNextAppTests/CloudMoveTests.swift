@@ -128,6 +128,7 @@ struct CloudMoveTests {
             #expect(move.services.cloud.moveRetries[move.key] == .update(machineID: "vm-move"))
 
             // The argument from anywhere but this app's own UI: never an update, only the move again.
+            var performed: [ActionOrigin] = []
             for origin in [ActionOrigin.cli, .mcp, .script, .remote] {
                 let before = move.calls().count
                 let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: move.key),
@@ -136,6 +137,7 @@ struct CloudMoveTests {
                                                   origin: origin)
                 // An origin the registry refuses outright updates nothing either.
                 guard move.services.registry.perform(CloudMove.action, invocation: invocation) else { continue }
+                performed.append(origin)
                 let deadline = ContinuousClock.now + .seconds(30)
                 while move.calls().count < before + 2, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
                 let ran = move.calls().dropFirst(before).map { Array($0.prefix(3)) }
@@ -143,6 +145,7 @@ struct CloudMoveTests {
                 // The stop's own bookkeeping, after its last call.
                 try? await Task.sleep(for: .milliseconds(300))
             }
+            #expect(performed.contains(.cli), "the CLI's invocation never ran: \(performed)")
             #expect(!move.calls().contains { $0.prefix(3) == ["link", "machine", "update"] }, "an update ran: \(move.calls())")
             #expect(move.services.locateTab(move.tabID) != nil)
 

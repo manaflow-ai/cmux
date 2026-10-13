@@ -22,7 +22,7 @@ enum CloudMachineUpdate {
     /// whose Retry is `retry` when trying again can help.
     static func run(_ services: AppServices, name: String, socket: String, cli: CloudMoveCLI, toast toastID: String,
                     retry: CloudMoveRetries.Retry) async throws {
-        CloudMove.toast(services, toastID, CloudMachineUpdateStrings.updating(name), duration: .seconds(1800))
+        CloudMove.toast(services, toastID, CloudMachineUpdateStrings.updating(name), duration: CloudMoveCLI.machineUpdateTimeout)
         let answer: CloudMoveCLI.Answer
         do {
             answer = try await cli.machineUpdate(socket: socket)

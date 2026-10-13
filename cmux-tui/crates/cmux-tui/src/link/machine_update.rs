@@ -9,7 +9,9 @@
 //!
 //! 1. The machine's `identify` must show it outdated by the gate's own rule
 //!    (another build that lacks one of those verbs); a machine that serves
-//!    them all is left alone, so this never downgrades a newer machine. It
+//!    them all is left alone. (A newer build that lacks one, say without
+//!    acpmux configured, is not told apart: there is no version order to
+//!    compare yet.) It
 //!    must serve `fs-v1` and `detached-terminals-v1`, and run the daemon from
 //!    `<home>/.cmux/bin/cmux-tui`, the binary its supervisor restarts.
 //! 2. The new build is this client's own Linux build, pinned by the signed
@@ -101,14 +103,6 @@ fn update(socket: &Path) -> Result<Value, Failed> {
     if machine_gate::outdated_identity(&before, &NEEDED).is_none() {
         return Ok(json!({"updated": false, "build": previous}));
     }
-    // Never a downgrade: a machine whose cmux-tui reports a newer version
-    // than this client keeps its build, whatever it lacks.
-    if newer_version(before["version"].as_str()) {
-        return Err(Failed::new(
-            "machine_update_newer",
-            "the machine runs a newer cmux-tui than this app; update the app instead",
-        ));
-    }
     let served = machine_gate::served(&before).unwrap_or_default();
     if let Some(missing) = REACHES.iter().find(|capability| !served.contains(capability)) {
         return Err(Failed::new(
@@ -198,17 +192,6 @@ fn pinned_payload() -> Result<(PathBuf, String), Failed> {
     }
 }
 
-/// Whether `version` (identify's `version`) is newer than this client's.
-fn newer_version(version: Option<&str>) -> bool {
-    let parse = |text: &str| -> Option<Vec<u64>> {
-        text.split(['-', '+']).next()?.split('.').map(|part| part.parse().ok()).collect()
-    };
-    match (version.and_then(parse), parse(env!("CARGO_PKG_VERSION"))) {
-        (Some(theirs), Some(ours)) => theirs > ours,
-        _ => false,
-    }
-}
-
 /// Writes `payload` to `staged` on the machine, executable, once its local
 /// copy hashes to `sha256`.
 fn stage(
@@ -227,14 +210,23 @@ fn stage(
         .create(&local)
         .and_then(|()| std::fs::copy(payload, &copy))
         .and_then(|_| std::fs::set_permissions(&copy, std::fs::Permissions::from_mode(0o755)));
-    let checked = staged_locally.map_err(anyhow::Error::from).and_then(|()| {
-        let actual = apply::file_sha256(&copy)?;
-        anyhow::ensure!(actual == sha256, "the build's copy does not match its pin");
-        Ok(())
-    });
-    if let Err(error) = checked {
-        let _ = std::fs::remove_dir_all(&local);
-        return Err(Failed::new("machine_update_payload_rejected", format!("{error:#}")));
+    let checked = staged_locally.and_then(|()| apply::file_sha256(&copy));
+    match checked {
+        Ok(actual) if actual == sha256 => {}
+        Ok(_) => {
+            let _ = std::fs::remove_dir_all(&local);
+            return Err(Failed::new(
+                "machine_update_payload_rejected",
+                "the build's copy does not match its pin",
+            ));
+        }
+        Err(error) => {
+            let _ = std::fs::remove_dir_all(&local);
+            return Err(Failed::new(
+                "machine_update_failed",
+                format!("cannot stage the build here: {error}"),
+            ));
+        }
     }
     let written = super::sync_cli::copy_file(socket, &copy, staged);
     let _ = std::fs::remove_dir_all(&local);

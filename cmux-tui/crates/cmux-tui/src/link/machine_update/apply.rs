@@ -18,6 +18,9 @@
 //! JSON object: `{"state":"updated"|"rolled_back"|"pending"|"failed",
 //! "detail":...}`.
 //!
+//! The lock orders this mode's own runs only; the image's root fleet
+//! upgrade script keeps its own lock.
+//!
 //! Linux only: a Cloud machine is a Linux machine.
 
 use std::os::unix::fs::MetadataExt as _;
@@ -88,7 +91,10 @@ pub(crate) fn run(args: &[String]) -> i32 {
     let (state, detail) = apply(&args);
     let outcome = json!({"state": state, "detail": detail});
     eprintln!("cmux machine update: {outcome}");
-    let written = write_atomically(&args.result, outcome.to_string().as_bytes());
+    // The outcome goes only next to this user's own binary.
+    let written = own_install(&args.install)
+        .map_err(std::io::Error::other)
+        .and_then(|()| write_atomically(&args.result, outcome.to_string().as_bytes()));
     if written.is_err() || state != "updated" { 1 } else { 0 }
 }
 
@@ -131,6 +137,10 @@ fn parse(args: &[String]) -> Option<Args> {
 
 /// The update itself: its outcome state and a detail line.
 fn apply(args: &Args) -> (&'static str, String) {
+    // Nothing is written next to an install path that is not this user's own.
+    if let Err(why) = own_install(&args.install) {
+        return ("failed", why);
+    }
     let Some(_lock) = lock(&args.install) else {
         return ("busy", "another update of this machine is running".into());
     };
@@ -154,7 +164,11 @@ fn apply(args: &Args) -> (&'static str, String) {
     }
     // SAFETY: kill has no memory preconditions; the pid was checked to run
     // the installed binary and to serve this terminal's daemon socket.
-    if unsafe { libc::kill(args.daemon_pid, libc::SIGTERM) } != 0 {
+    // A daemon already gone (ESRCH) counts as stopped: its supervisor may be
+    // starting the new binary right now.
+    if unsafe { libc::kill(args.daemon_pid, libc::SIGTERM) } != 0
+        && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH)
+    {
         // The old daemon still runs (and serves): only put its binary back.
         return match put_back(args, &previous) {
             Ok(()) => ("rolled_back", "the daemon could not be stopped; nothing changed".into()),
@@ -186,15 +200,23 @@ struct Staged {
     ino: u64,
 }
 
-/// Every check before anything changes.
-fn check(args: &Args) -> Result<Staged, String> {
+/// Whether `install` is this user's `~/.cmux/bin/cmux-tui`.
+fn own_install(install: &Path) -> Result<(), String> {
     let home = std::env::var_os("HOME").ok_or("no HOME")?;
     let expected = PathBuf::from(home).join(".cmux/bin/cmux-tui");
     let canonical =
         |path: &Path| std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()));
-    if canonical(&args.install)? != canonical(&expected)? {
+    if canonical(install)? != canonical(&expected)? {
         return Err("the install path is not this user's ~/.cmux/bin/cmux-tui".into());
     }
+    Ok(())
+}
+
+/// Every check before anything changes.
+fn check(args: &Args) -> Result<Staged, String> {
+    own_install(&args.install)?;
+    let canonical =
+        |path: &Path| std::fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()));
     let own = std::env::current_exe().map_err(|e| e.to_string())?;
     if own.parent() != canonical(&args.install)?.parent() {
         return Err("the new build is not staged beside the binary".into());
