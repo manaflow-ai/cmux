@@ -173,9 +173,6 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
               {t("permission.coverage")}
             </span>
           </div>
-          <p className="acpmux-permission-scope">
-            {t(group.items.length === 1 ? "permission.count.one" : "permission.count.other", { n: group.items.length })}
-          </p>
           {group.state === "pending" && (
             <button type="button" onClick={() => setExpandSignal((value) => value + 1)}>
               {withShortcut(t("permission.expand"), expandShortcut)}

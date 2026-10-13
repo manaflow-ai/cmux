@@ -4369,6 +4369,13 @@ function AcpmuxPane() {
     <PermissionStatus
       trusted={trustAsk.trusted}
       chatAllowed={snapshot.permissionGroups?.chatAllowance === true}
+      trustLabel={
+        trustAsk.ask?.state === "decided" && trustAsk.ask.level === "trusted"
+          ? isAgentHome(trustAsk.ask.cwd)
+            ? t("trust.trustedPrivate")
+            : t("trust.trusted", { folder: projectName(trustAsk.ask.cwd) ?? trustAsk.ask.cwd })
+          : undefined
+      }
       recentTrust={trustAsk.justTrusted}
       onUndoTrust={trustAsk.undo}
       onRevoke={

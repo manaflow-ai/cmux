@@ -64,12 +64,16 @@ function geometry(ctx: PlayContext) {
     ".acpmux-composer-box",
   ];
   const layers = selectors.flatMap((selector) =>
-    [...ctx.document.querySelectorAll(selector)].map((node) => ({ selector, rect: node.getBoundingClientRect() })),
+    [...ctx.document.querySelectorAll(selector)].map((node) => ({ selector, node, rect: node.getBoundingClientRect() })),
   );
   for (let i = 0; i < layers.length; i++)
     for (let j = i + 1; j < layers.length; j++) {
       const a = layers[i]!;
       const b = layers[j]!;
+      // Containers intentionally contain their cards and the composer contains its queue. Only
+      // peer layers can overlap in the user-visible stack, so ancestor pairs are not geometry
+      // failures.
+      if (a.node.contains(b.node) || b.node.contains(a.node)) continue;
       const width = Math.min(a.rect.right, b.rect.right) - Math.max(a.rect.left, b.rect.left);
       const height = Math.min(a.rect.bottom, b.rect.bottom) - Math.max(a.rect.top, b.rect.top);
       if (width > 1 && height > 1)
@@ -106,7 +110,7 @@ const trustThenPermission: Play = async (ctx) => {
   ctx.find({ role: "button", name: "Allow once" });
   ctx.find({ role: "button", name: "Allow for this chat" });
   geometry(ctx);
-  await ctx.click({ role: "button", name: "Allow for this chat" });
+  await ctx.click({ selector: '[data-menu="permission-status"]' });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menu"]') !== null);
   await ctx.click({ role: "menuitem", name: "Undo" });
   await checkTrust(ctx);

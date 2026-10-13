@@ -10,30 +10,33 @@ import { LockIcon, ChevronIcon } from "./ComposerPickers";
 export function PermissionStatus({
   trusted,
   chatAllowed,
+  trustLabel,
   recentTrust = false,
   onUndoTrust,
   onRevoke,
 }: {
   trusted: boolean;
   chatAllowed: boolean;
+  trustLabel?: string;
   recentTrust?: boolean;
   onUndoTrust?(): void;
   onRevoke?(): void;
 }) {
   const t = useT();
   if (!trusted && !chatAllowed) return null;
+  const label = trusted && !chatAllowed ? trustLabel ?? t("trust.trustedPrivate") : t("permission.allowChat");
   return (
     <span className="acpmux-permission-status">
       <Menu>
         <MenuButton
           className="acpmux-permission-status-trigger"
-          label={t("permission.allowChat")}
-          title={t("permission.allowChat")}
+          label={label}
+          title={label}
           aria-haspopup="menu"
           data-menu="permission-status"
         >
           <LockIcon />
-          <span className="acpmux-permission-status-label">{t("permission.allowChat")}</span>
+          <span className="acpmux-permission-status-label">{label}</span>
           <ChevronIcon />
         </MenuButton>
         <MenuPopup side="top" align="start" className="acpmux-permission-status-menu">
