@@ -76,7 +76,11 @@ public final class ConversationViewController: UIViewController {
     /// What `rows` were built from: the store's transcript revision then,
     /// and the message that carried the delivery status. A live change
     /// rebuilds only the rows after what the store left alone since.
-    private var rowsBase: (revision: Int, statusMessageID: String?)?
+    private var rowsBase: RowsBase?
+    private struct RowsBase {
+        var revision: Int
+        var statusMessageID: String?
+    }
     /// Height and leading spacing of each row, aligned with `rows` (NaN = not
     /// measured), valid for `rowMetricsKey`. An update re-measures only the
     /// rows it inserts or changes (and their followers' spacing), so a layout
@@ -693,7 +697,7 @@ public final class ConversationViewController: UIViewController {
                     // rows nor the page's splice match the rows on screen:
                     // one full build lands them together as a page, measured
                     // ahead, with no motion (what waited shows in place).
-                    rebuild(change: .prepended, measured: nil, splice: nil, generation: nil, revision: nil, fullBuild: true)
+                    rebuild(change: .prepended, measured: nil, splice: nil, generation: nil, builtFrom: nil, fullBuild: true)
                     return
                 }
                 rebuild(change: held)
@@ -718,7 +722,7 @@ public final class ConversationViewController: UIViewController {
     }
 
     func rebuild(change: ConversationStoreChange) {
-        rebuild(change: change, measured: nil, splice: nil, generation: nil, revision: nil)
+        rebuild(change: change, measured: nil, splice: nil, generation: nil, builtFrom: nil)
     }
 
     /// `measured` carries rows a measure-ahead built from the store as it
@@ -727,9 +731,10 @@ public final class ConversationViewController: UIViewController {
     /// `splice` describes `measured` when it was built from the page alone
     /// (see `ConversationRowBuilder.rowsAfterPrepend`).
     /// `generation` is the row memo pass `measured` came from, and
-    /// `revision` the store's transcript revision it was built at.
+    /// `builtFrom` the store's transcript revision and status message when
+    /// it was built (live changes held meanwhile are not in it).
     /// `fullBuild` skips the page splice (see `storeDidChange`).
-    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?, revision: Int?, fullBuild: Bool = false) {
+    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?, builtFrom: RowsBase?, fullBuild: Bool = false) {
         rebuildSerial &+= 1
         if store.hasLoadedNewest, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
@@ -738,7 +743,7 @@ public final class ConversationViewController: UIViewController {
         var splice = splice
         var generation = generation
         var tail: ConversationTailRows?
-        let revision = revision ?? store.transcriptRevision
+        let builtFrom = builtFrom ?? RowsBase(revision: store.transcriptRevision, statusMessageID: ConversationRowBuilder.statusMessageID(store: store))
         let newRows: [ConversationRow]
         if let measured {
             newRows = measured
@@ -761,9 +766,9 @@ public final class ConversationViewController: UIViewController {
             newRows = ConversationRowBuilder.rows(store: store, memo: rowMemo)
             generation = rowMemo.generation
         }
-        if measured == nil, change == .prepended, measureAhead(newRows, splice: splice, generation: generation, revision: revision) { return }
+        if measured == nil, change == .prepended, measureAhead(newRows, splice: splice, generation: generation, builtFrom: builtFrom) { return }
         apply(newRows, change: change, splice: splice, tail: tail, generation: generation)
-        rowsBase = (revision, ConversationRowBuilder.statusMessageID(store: store))
+        rowsBase = builtFrom
         updateCatchUp()
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
             hasConfiguredHeader = true
@@ -781,7 +786,7 @@ public final class ConversationViewController: UIViewController {
     /// A landed page's rows are measured off the main thread before they
     /// are applied, so the frame that shows them only places them. Returns
     /// whether the rows wait for that (the measured rows rebuild again).
-    private func measureAhead(_ newRows: [ConversationRow], splice: ConversationPrependRows?, generation: Int?, revision: Int) -> Bool {
+    private func measureAhead(_ newRows: [ConversationRow], splice: ConversationPrependRows?, generation: Int?, builtFrom: RowsBase) -> Bool {
         let width = collectionView.bounds.width
         let margin = layoutMargin
         guard hasPositionedInitially, width > 0 else { return false }
@@ -816,7 +821,7 @@ public final class ConversationViewController: UIViewController {
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
             let held = self.liveGate.finishMeasuring()
-            self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil, revision: current ? revision : nil)
+            self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil, builtFrom: current ? builtFrom : nil)
             // What arrived meanwhile follows the page, with its own motion
             // (or waits again, when the store had another page to measure).
             if let held, !self.liveGate.hold(held) { self.rebuild(change: held) }
