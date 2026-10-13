@@ -6303,7 +6303,7 @@
     "settings.sidebar.bottomBandMaxShare.help": "La part de la barre latérale occupée par les sections du bas avant défilement.",
     "settings.sidebar.cards.tips": "Afficher les indices",
     "settings.sidebar.cards.tips.help": "Une carte d’indice au-dessus du bouton de compte présente chaque jour une fonction de cmux que vous n’avez pas encore utilisée. Chaque indice n’apparaît qu’une fois.",
-    "settings.sidebar.cards.tips.summary": "Un indice quotidien sur une fonction que vous n’avez pas utilisée",
+    "settings.sidebar.cards.tips.summary": "Un indice quotidien sur une fonction inutilisée",
     "settings.sidebar.cmd9": "Command-9",
     "settings.sidebar.cmd9.help": "Va au dernier élément, comme dans les navigateurs, ou au neuvième.",
     "settings.sidebar.cmd9.last": "Dernier élément",
