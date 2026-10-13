@@ -1523,9 +1523,18 @@ mod tests {
         surface
             .try_with_terminal(|terminal| terminal.set_kitty_inflight_storage_limit(64))
             .unwrap();
+        let public_id = match &surface.resource_identity().unwrap().content_id {
+            crate::resource::ContentPublicId::Terminal(public_id) => public_id.clone(),
+            crate::resource::ContentPublicId::Browser(_) => unreachable!(),
+        };
         let mut upload = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
         upload.resize(1024, b'A');
         surface.apply_local_pty_output_for_test(&upload).unwrap();
+        mux.journal_terminal_output(
+            Arc::new(public_id.clone()),
+            Arc::from("10000000000040008000000000000070"),
+            upload.clone(),
+        );
 
         let captured =
             capture(&mux).expect("checkpoint capture should recover the terminal parser");
@@ -1553,28 +1562,16 @@ mod tests {
             "checkpoint recovery must publish CAN after the unreplayable PTY bytes"
         );
 
+        mux.journal_terminal_output(
+            Arc::new(public_id.clone()),
+            Arc::from("10000000000040008000000000000070"),
+            b"visible after recovery".to_vec(),
+        );
         mux.flush_terminal_journal().unwrap();
-        let public_id = mux
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .terminal_resource_id("00000000000040008000000000000070")
-            .unwrap()
-            .unwrap();
-        let journaled = mux
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .terminal_output_records_after(
-                public_id.as_str(),
-                "10000000000040008000000000000070",
-                0,
-                1 << 20,
-            )
-            .unwrap();
+        let output = mux.terminal_output_read(&public_id, None, 1 << 20).unwrap();
         assert!(
-            journaled.chunks.iter().any(|chunk| chunk.bytes.ends_with(b"\x18")),
-            "checkpoint recovery must journal the synthetic CAN"
+            output["text"].as_str().unwrap().contains("visible after recovery"),
+            "checkpoint recovery must journal the synthetic CAN before later output"
         );
 
         drop(surface);

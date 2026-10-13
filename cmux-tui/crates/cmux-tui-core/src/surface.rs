@@ -5177,7 +5177,7 @@ impl Surface {
         pty.observe_terminal_output(&output);
         pty.broadcast_attach_output(&output);
         if let Some(journal_target) = pty.journal_target() {
-            pty.journal_output_if_open(journal_target, output.clone());
+            pty.journal_output_if_open(journal_target, output);
         }
         pty.stream_progress.notify();
         Ok(Some(f(&mut terminal)))
