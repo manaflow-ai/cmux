@@ -961,6 +961,10 @@
       "scope": "project:write",
       "class": "mutation"
     },
+    "project.source.update": {
+      "scope": "project:write",
+      "class": "mutation"
+    },
     "project.sync": {
       "scope": "project:write",
       "class": "mutation"

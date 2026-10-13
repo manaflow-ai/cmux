@@ -1540,6 +1540,7 @@ dependencies = [
  "ghostty-vt",
  "jsonschema",
  "libc",
+ "notify",
  "parking_lot",
  "proptest",
  "quick-xml",

@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "e7fabf99fcf84ac03ac42a2d328b1a49b58879b0dafb440d373590058d66d5e8",
+  "catalog_sha256": "74803784cbb97b49562052d5a3f95f0c82e9de1929d5c10b426331e879535100",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -332,6 +332,9 @@
       "class": "mutation"
     },
     "project.remove": {
+      "class": "mutation"
+    },
+    "project.source.update": {
       "class": "mutation"
     },
     "project.sync": {

@@ -117,7 +117,8 @@ const fn access(operation: Op) -> Access {
         | Op::ProjectAdd
         | Op::ProjectUpdate
         | Op::ProjectRemove
-        | Op::ProjectSync => Access::Denied(Denied::FileSystem),
+        | Op::ProjectSync
+        | Op::ProjectSourceUpdate => Access::Denied(Denied::FileSystem),
         // A browser profile's visited pages: never a page's to read or delete.
         Op::HistoryEntriesList
         | Op::HistoryEntriesRemove

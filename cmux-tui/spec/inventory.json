@@ -114,6 +114,7 @@
     "project.list",
     "project.observe",
     "project.remove",
+    "project.source.update",
     "project.sync",
     "project.update",
     "request.cancel",

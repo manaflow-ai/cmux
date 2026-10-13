@@ -29,4 +29,28 @@ public struct ProjectStateClient: Sendable {
                                     idempotencyKey: idempotencyKey)
         }, as: ResourceMutationResult<JSONValue>.self)
     }
+
+    /// The listed folders (`project.list`): pinned first, then by last use,
+    /// hidden ones left out; `query` filters by path or name.
+    public func listPaths(query: String?, limit: Int) async throws -> [String] {
+        var params: [String: JSONValue] = ["limit": .number(Double(limit))]
+        if let query, !query.isEmpty { params["query"] = .string(query) }
+        let fields = params
+        let result = try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "project.list", params: fields, idempotencyKey: nil)
+        }, as: JSONValue.self)
+        guard case .object(let object) = result, case .array(let projects)? = object["projects"] else { return [] }
+        return projects.compactMap { project in
+            guard case .object(let fields) = project, case .string(let path)? = fields["path"] else { return nil }
+            return path
+        }
+    }
+
+    /// The user picked `path` (`project.add`): it is listed as the user's own.
+    public func add(path: String, idempotencyKey: String) async throws {
+        _ = try await connection.resourceRequest({ id in
+            ResourceRequestEnvelope(id: id, operation: "project.add", params: ["path": .string(path)],
+                                    idempotencyKey: idempotencyKey)
+        }, as: ResourceMutationResult<JSONValue>.self)
+    }
 }

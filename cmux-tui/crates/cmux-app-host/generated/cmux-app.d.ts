@@ -259,11 +259,12 @@ declare namespace Cmux {
   type PolicyMode = "enforced" | "default"
   type ProcessInfoResult = { pid: number; executable?: string; argv: Array<string>; cwd?: string; foreground_cwd: string | null; foreground_executable: string | null; children: Array<number> }
   type ProjectChange = { changed: Array<string> }
-  type ProjectList = { projects: Array<Cmux.ProjectSnapshot> }
+  type ProjectList = { projects: Array<Cmux.ProjectSnapshot>; sources: Array<Cmux.ProjectSourceSummary> }
   type ProjectObservation = { path: string; last_used_ms: string }
   type ProjectOverlay = { rename?: string; pinned?: boolean; hidden?: boolean; order?: number }
   type ProjectSnapshot = { path: string; name: string; last_used_ms: string; sources: Record<string, Cmux.ProjectSourceSeen>; overlay: Cmux.ProjectOverlay; state: "present" | "missing" }
   type ProjectSourceSeen = { first_seen_ms: string; last_used_ms: string }
+  type ProjectSourceSummary = { id: string; enabled: boolean; projects: number }
   type PublicJwk = { kty: "EC"; crv: "P-256"; x: string; y: string }
   type PushTarget = { token: Cmux.PushToken; topic: string; environment: "development" | "production"; install: string; device_name: string; registered_at: number }
   type PushToken = string
@@ -1048,6 +1049,10 @@ interface CmuxGlobal {
     observe: CmuxOp<{ machine?: string; session?: string; source: string; entries: Array<Cmux.ProjectObservation>; complete?: boolean }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.remove` (mutation, scope `project:write`) */
     remove: CmuxOp<{ machine?: string; session?: string; path: string }, Cmux.MutationResult<Cmux.ProjectChange>>
+    source: {
+      /** `project.source.update` (mutation, scope `project:write`) */
+      update: CmuxOp<{ machine?: string; session?: string; source: string; enabled: boolean }, Cmux.MutationResult<Cmux.ProjectChange>>
+    }
     /** `project.sync` (mutation, scope `project:write`) */
     sync: CmuxOp<{ machine?: string; session?: string; existing?: Array<string>; gone?: Array<string> }, Cmux.MutationResult<Cmux.ProjectChange>>
     /** `project.update` (mutation, scope `project:write`) */

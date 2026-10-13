@@ -224,10 +224,19 @@ enum NewTabPage {
             editShortcut: { [weak services] kind in if let services { editShortcut(kind, services: services) } },
             browseProject: { [weak services] in
                 guard let services else { return nil }
-                return await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path
+                guard let path = await NewTabPage.chooseFolder(in: services.windows.active?.window)?.path else { return nil }
+                if let client = projectStore(services) {
+                    try? await client.add(path: path, idempotencyKey: UUID().uuidString)
+                }
+                return path
             },
             listProjects: { [weak services] query in
                 guard let services else { return [] }
+                // The daemon's project list (plans/cmux-next/projects.md): user edits and removals win.
+                if let client = projectStore(services),
+                   let paths = try? await client.listPaths(query: query, limit: AgentPaneOmnibar.maximumEntries) {
+                    return paths
+                }
                 let hints = services.history.agents.sessions.compactMap(\.cwd) + services.daemon.store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).compactMap(\.cwd)
                 return await Task.detached {
                     RecentProjectScan.live().complete(query: query ?? "", hints: hints, limit: AgentPaneOmnibar.maximumEntries)
@@ -238,6 +247,14 @@ enum NewTabPage {
                 _ = services.registry.perform(ActionID(rawValue: id), invocation: ActionInvocation(origin: .user))
             }
         )
+    }
+
+    /// The local daemon's project store, or nil before it is connected or
+    /// when it predates `project-list-v1` (the page then scans as before).
+    static func projectStore(_ services: AppServices) -> ProjectStateClient? {
+        guard let connection = services.machines.local.connection,
+              services.machines.local.supports(DaemonCapabilities.shared.projectList) else { return nil }
+        return ProjectStateClient(connection: connection)
     }
 
     /// Through the palette's switchers, the one path that reveals a tab's or
