@@ -674,3 +674,82 @@ after jumping two pages back), then ours live on cmux15 (back, then forward
 after jumping to Example Domain).
 
 ![History menus](browser/history-menus.png)
+
+## Round 10: how Safari brings in the close buttons and titles
+
+**Sources.** I measured `tab-zoom-device.mp4` (iPhone 17 Pro Max, dark mode,
+two cards, real `pts_time` per frame). I used the page → grid zoom at
+3.18 s, the grid → page zoom at 7.18 s and `tab-reverse-device.mp4`.
+`browser-tools/chromefit2.py` finds the zooming card's rect from its Google
+"G" logo. It finds every close glyph and title from bright pixels in their
+boxes, and normalizes opacity to the settled grid. Times are from the zoom's
+first moving frame (3.183 s). The recorder inserted one stray frame of the
+finished grid at 3.150 s, which I ignored.
+
+### Page → grid
+
+`X₀` and `T₀` are the zooming card's close button and title; `X₁` and `T₁`
+belong to the other card.
+
+| t (ms) | progress | X₀ | T₀ | X₁ | T₁ |
+|---|---|---|---|---|---|
+| 133 | 0.76 | 0.04 | 0 | 0 | 0 |
+| 150 | 0.82 | 0.31 | 0 | 0 | 0 |
+| 183 | 0.92 | 0.76 | 0 | 0 | 0 |
+| 217 | 0.96 | 0.89 | 0 | 0 | 0 |
+| 233 | 0.96 | 0.87 | 0.04 | 0 | 0.03 |
+| 250 | 0.98 | 0.86 | 0.32 | 0.07 | 0.20 |
+| 267 | 1.00 | 0.94 | 0.51 | 0.25 | 0.42 |
+| 283 | 1.00 | 0.98 | 0.62 | 0.51 | 0.61 |
+| 300 | 1.00 | 0.94 | 0.71 | 0.77 | 0.63 |
+| 333 | 1.00 | 0.97 | 0.79 | 0.79 | 0.79 |
+| 367 | 1.00 | 0.98 | 0.93 | 0.90 | 0.86 |
+| 417 | 1.00 | 0.99 | 0.89 | 1.03 | 0.92 |
+| 517 | 1.00 | 1.0 | 0.98 | 1.0 | 0.98 |
+
+- **The zooming card's close button** rides the card's top-trailing corner at
+  its final size the whole way. Its glyph is 9.3 pt wide in every frame, so it
+  is not scaled with the card. It fades in with progress, linearly from 0.76
+  to 0.96. Its centre settles at (card.maxX − 15, card.minY + 15).
+- **All the title rows and the other close buttons** stay hidden until the
+  zoom reaches 0.96, about 230 ms after the tap. They then fade in on their own
+  clock, not with progress: progress is already 1.0 at 267 ms while they keep
+  rising until about 520 ms.
+  - **Titles** (both cards) follow `1 − e^(−t/58 ms)`.
+  - **Close buttons** follow `1 − e^(−(t−16 ms)/45 ms)`.
+  - Nothing staggers between cards; they start on the same frame.
+  - The titles rise about 2 pt into place (centroid 415.2 → 413.1); the close
+    glyphs do not move or scale.
+  - Nothing is blurred apart from the grid's own blur.
+
+### Grid → page
+
+On the first moving frame (+17 ms, progress 0.92) X₀ is 0.05, X₁ 0.48, T₁ 0.65
+and T₀ 0. One frame later all of them are 0. Everything leaves at once, a
+roughly 33 ms linear fade, whatever the progress. In the reverse recording,
+the close button reappears with progress after a reversal back toward the grid.
+The titles reappear only once 0.96 is passed again.
+
+### Ours
+
+`CardChrome` implements these rules. `TabZoomDriver` runs it on the display
+clock and keeps the clock running until the fade-in ends. It is used by both
+shells, since `TabsRoot` and `BrowserRoot` share the grid. During a pinch, the
+titles and close buttons follow the same 0.96 rule. Unit tests
+(`CardChromeTests`) check the table above within 0.05.
+
+I recorded ours on the iPhone 17 Pro simulator with
+`CMUX_NEXT_BROWSER_AUTO=1` and `CMUX_NEXT_BROWSER_ZOOM_TRACE=1`, which logs
+progress and both opacities on every display frame:
+
+| | Safari | Ours |
+|---|---|---|
+| Zooming card close: 0.3 / 0.76 / ≈1 | 150 / 183 / 233 ms | 167 / 200 / 233 ms |
+| Titles start (progress 0.96) | 233 ms | 250 ms |
+| Titles at +17 / +33 / +50 / +100 / +150 ms after start | .26 / .47 / .62 / .79 / .91 | .25 / .44 / .58 / .82 / .92 |
+| Close buttons at +33 / +50 / +67 / +117 ms | .25 / .51 / .77 / .90 | .32 / .53 / .68 / .89 |
+| Grid → page, first frame / second frame | .48–.65 / 0 | .49 / 0 |
+
+The start differs by one frame because our zoom spring reaches 0.96 one frame
+later. The values after the start are within 0.05, except one close-button
+sample at +67 ms, which is off by 0.09; the device data is noisy there.

@@ -11,6 +11,8 @@ import os
 @Observable
 final class TabZoomDriver {
     private(set) var state = TabZoomState()
+    /// The cards' close buttons and titles (their own clock after 0.96).
+    private(set) var chrome = CardChrome()
     @ObservationIgnored var onSettle: ((TabZoomState.Phase) -> Void)?
     @ObservationIgnored private var link: CADisplayLink?
     @ObservationIgnored private var lastTimestamp: CFTimeInterval?
@@ -52,12 +54,23 @@ final class TabZoomDriver {
         if UIAccessibility.isReduceMotionEnabled, state.phase == .animating {
             state.jump(toOverview: state.target == 1)
         }
-        if state.phase == .animating {
+        stepChrome(0)
+        if UIAccessibility.isReduceMotionEnabled, state.phase != .animating {
+            chrome.settle(onOverview: state.phase == .overview)
+        }
+        if state.phase == .animating || chrome.animating {
             startLink()
         } else {
             stopLink()
-            if before != state.phase, state.phase == .page || state.phase == .overview { onSettle?(state.phase) }
         }
+        if state.phase != .animating, before != state.phase, state.phase == .page || state.phase == .overview { onSettle?(state.phase) }
+    }
+
+    private func stepChrome(_ dt: Double) {
+        var c = chrome
+        c.step(dt, progress: state.progress, headingToOverview: state.phase == .interactive || (state.headingToOverview && state.phase != .page),
+               settledOnOverview: state.phase == .overview)
+        if c != chrome { chrome = c }
     }
 
     private func startLink() {
@@ -94,14 +107,14 @@ final class TabZoomDriver {
             }
         }
         #endif
-        let settled = state.step(dt)
+        let wasAnimating = state.phase == .animating
+        let settled = wasAnimating && state.step(dt)
+        stepChrome(dt)
         #if DEBUG
-        if Self.trace { Self.traceLog.notice("zoom t=\(now, format: .fixed(precision: 4)) p=\(self.state.progress, format: .fixed(precision: 5)) target=\(self.state.target)") }
+        if Self.trace { Self.traceLog.notice("zoom t=\(now, format: .fixed(precision: 4)) p=\(self.state.progress, format: .fixed(precision: 5)) target=\(self.state.target) title=\(self.chrome.titleOpacity, format: .fixed(precision: 3)) close=\(self.chrome.closeOpacity, format: .fixed(precision: 3))") }
         #endif
-        if settled || state.phase != .animating {
-            stopLink()
-            onSettle?(state.phase)
-        }
+        if wasAnimating, settled || state.phase != .animating { onSettle?(state.phase) }
+        if state.phase != .animating, !chrome.animating { stopLink() }
     }
 }
 

@@ -163,8 +163,6 @@ struct BrowserScreen: View {
     private var overviewVisible: Bool { zoomState.showsOverview }
     /// 0 = page, 1 = grid, clamped (the spring may overshoot slightly).
     private var overviewShown: Double { min(1, max(0, zoomState.progress)) }
-    /// Card titles and close buttons appear over the last fifth of the way.
-    private var overviewDetails: Double { min(1, max(0, (zoomState.progress - 0.8) / 0.2)) }
 
     /// The zooming tab's rect: full screen at progress 0, its card at 1.
     /// The zooming tab's rect: full screen at progress 0, its card at 1.
@@ -226,7 +224,7 @@ struct BrowserScreen: View {
             // Kept mounted (hidden) so opening it does not pay for building
             // the grid on the first animation frame.
             if tabs.loaded {
-                TabOverview(tabs: tabs, images: overviewImages, layout: overviewLayout, shown: overviewShown, detailsOpacity: overviewDetails,
+                TabOverview(tabs: tabs, images: overviewImages, layout: overviewLayout, shown: overviewShown, chrome: zoomDriver.chrome,
                             hiddenTabId: zoomState.phase == .overview ? nil : zoomTabId,
                             gridInteractive: zoomState.gridInteractive,
                             controlsInteractive: overviewVisible && zoomState.headingToOverview,
@@ -271,6 +269,15 @@ struct BrowserScreen: View {
                 }
                     .frame(width: max(1, g.rect.width), height: max(1, g.rect.height))
                     .clipShape(.rect(cornerRadius: g.radius, style: .continuous))
+                    // The card's close button rides its corner at full size
+                    // and fades in with the zoom's progress (CardChrome).
+                    .overlay(alignment: .topTrailing) {
+                        if zoomTabId != Self.newTabMarker {
+                            CardCloseGlyph()
+                                .padding(4)
+                                .opacity(CardChrome.zoomCloseOpacity(progress: zoomState.progress, headingToOverview: zoomState.phase == .interactive || zoomState.headingToOverview))
+                        }
+                    }
                     #if DEBUG
                     // Recordings: outline the zoom rect so a frame-by-frame
                     // check can find it exactly (DEBUG pinch driver only).
@@ -380,6 +387,7 @@ struct BrowserScreen: View {
         .onChange(of: model.thumbnails) { _, _ in if overviewVisible { captureOverviewImages() } }
         #if DEBUG
         .task(id: model.activeFrame != nil) { await debugPinchScript() }
+        .task(id: model.activeFrame != nil) { await debugOverviewScript() }
         #endif
         .onChange(of: size.width, initial: true) { _, w in zoomDriver.span = Double(w - overviewLayout.cardWidth) }
         .onAppear {
@@ -881,6 +889,21 @@ struct BrowserScreen: View {
     /// two-finger pinch path (scale and centroid over time) through
     /// `handlePinch` on the display clock, and draws the synthetic fingers so
     /// recordings show the rect against them (AXe has no multitouch).
+    /// DEBUG (`CMUX_NEXT_BROWSER_AUTO=<n>`): n times, open the grid with the
+    /// tabs button and close it with Done (1.5 s apart), for recordings
+    /// without taps.
+    private func debugOverviewScript() async {
+        guard model.activeFrame != nil || showsStartPage,
+              let n = ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_AUTO"].flatMap(Int.init) else { return }
+        try? await Task.sleep(for: .seconds(3))  // recording lead-in (test script only)
+        for _ in 0..<n {
+            openOverview()
+            try? await Task.sleep(for: .seconds(1.5))
+            closeOverview(selecting: tabs.activeKey)
+            try? await Task.sleep(for: .seconds(1.5))
+        }
+    }
+
     private func debugPinchScript() async {
         guard model.activeFrame != nil || showsStartPage,
               let mode = ProcessInfo.processInfo.environment["CMUX_NEXT_BROWSER_PINCH"] else { return }
