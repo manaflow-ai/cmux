@@ -205,8 +205,12 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
       return err(402, "usage.user_limit_reached", "You reached your monthly AI spending limit for this team. A team admin can raise it.", { details: { limit_usd: held.limit_usd, spent_usd: held.spent_usd, resets_at: nextMonthStart(Date.now()) } })
     }
   }
-  /** The member's reservation ends: real cost, or null when no provider was billed. */
-  const settleMember = (micros: number | null) => (caller.kind === "team" ? env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team)).settleUser(caller.team, id, micros) : Promise.resolve())
+  /**
+   * The member's reservation ends: real cost, or null when no provider was billed. One UsageMeterDO
+   * call writes the call's fact, the member's spend and the team's model spend in one transaction
+   * (cx-y79zh S1): the limit and the team counter read the same fact.
+   */
+  const settleMember = (micros: number | null) => (caller.kind === "team" ? env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team)).settleCall(caller.team, id, micros) : Promise.resolve())
 
   const upstreamBody: Record<string, unknown> = {}
   for (const k of PASS_FIELDS) if (body[k] !== undefined) upstreamBody[k] = body[k]
@@ -246,10 +250,6 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
         const settled = await Promise.allSettled([guard(env).settle(id, plan.provider, usd * 1_000_000, r.ttfbMs), settleMember(usd * 1_000_000)])
         for (const x of settled) if (x.status === "rejected") console.error(JSON.stringify({ msg: "inference.settle_failed", id, error: String(x.reason).slice(0, 160) }))
         if (caller.kind === "free") await freeSettle(env, caller.device, id, r.usage ? r.usage.input + r.usage.output : r.charged === "none" ? 0 : Math.min(promptBound, model.context) + maxTokens)
-        else if (usd > 0) {
-          const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
-          await meter.record(caller.team, [{ key: `inference:${id}`, meter: "model.spend_usd", quantity: usd, source: "coderouter", observed_at: Date.now() }])
-        }
         log(env, { id, model: model.id, provider: plan.provider, caller: caller.kind, status: r.status, attempt, input: r.usage?.input ?? null, output: r.usage?.output ?? null, usd, priced_by: r.usage?.costUsd !== undefined ? "provider" : r.usage ? "card" : "reservation", ttfb_ms: r.ttfbMs, stream: body.stream === true })
       }
     })
