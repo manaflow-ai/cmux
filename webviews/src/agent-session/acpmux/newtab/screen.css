@@ -25,16 +25,16 @@
 .nt-chats-head{display:flex;align-items:center;gap:14px;height:28px;font-size:13px}
 .nt-chats-tab{color:var(--acpmux-composer-dim)}
 .nt-chats-tab.is-selected{color:var(--agent-text);font-weight:500}
-.nt-chats-all{margin-left:auto;display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:12.5px;cursor:pointer}
+.nt-chats-all{margin-left:auto;display:flex;align-items:center;gap:2px;border:0;padding:0;background:none;color:var(--acpmux-composer-dim);font:inherit;font-size:12.5px;cursor:default}
 .nt-chats-all:hover{color:var(--agent-text)}
 .nt-chats-empty{margin:8px 0 0;color:var(--acpmux-composer-dim);font-size:13px}
 .nt-chats-failed{display:block}
-.nt-chats-retry{margin-left:8px;border:0;padding:2px 8px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;cursor:pointer}
+.nt-chats-retry{margin-left:8px;border:0;padding:2px 8px;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;cursor:default}
 .nt-chats-retry:disabled{opacity:.5;cursor:default}
 .nt-chats-retry:not(:disabled):hover{background:color-mix(in srgb,var(--agent-text) 12%,transparent)}
 .nt-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:8px}
 @container (max-width:520px){.nt-cards{grid-template-columns:minmax(0,1fr)}.nt-hint{display:none}}
-.nt-card{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0;min-height:84px;padding:12px 14px;box-sizing:border-box;border:0;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);color:var(--agent-soft);font:inherit;text-align:left;cursor:pointer}
+.nt-card{display:flex;flex-direction:column;align-items:stretch;gap:6px;min-width:0;min-height:84px;padding:12px 14px;box-sizing:border-box;border:0;border-radius:16px;background:color-mix(in srgb,var(--acpmux-composer-bg) 70%,transparent);box-shadow:inset 0 0 0 .5px var(--acpmux-composer-edge);color:var(--agent-soft);font:inherit;text-align:left;cursor:default}
 .nt-card:hover{background:var(--acpmux-composer-bg);color:var(--agent-text)}
 .nt-card-meta{display:flex;align-items:center;gap:6px;color:var(--acpmux-composer-dim);font-size:11.5px}
 .nt-card-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-text);font-size:13.5px;font-weight:500}
