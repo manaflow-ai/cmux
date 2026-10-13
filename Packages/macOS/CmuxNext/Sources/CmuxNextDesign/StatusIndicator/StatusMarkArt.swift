@@ -232,9 +232,14 @@ enum StatusMarkArt {
         let configuration = NSImage.SymbolConfiguration(pointSize: rect.height * 0.8, weight: .semibold)
         guard let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(configuration) else { return }
         let fit = min(rect.width / image.size.width, rect.height / image.size.height)
-        let size = CGSize(width: image.size.width * fit, height: image.size.height * fit)
-        let target = CGRect(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2, width: size.width, height: size.height)
-        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+        // Whole pixels (both callers draw a mask in pixels), rendered at that size and drawn 1:1.
+        // Without a proposed size the symbol rendered at the screen's scale and was resampled into
+        // the mask, which read soft (Leo 2026-10-13).
+        let size = CGSize(width: (image.size.width * fit).rounded(), height: (image.size.height * fit).rounded())
+        let target = CGRect(x: (rect.midX - size.width / 2).rounded(), y: (rect.midY - size.height / 2).rounded(),
+                            width: size.width, height: size.height)
+        var proposed = CGRect(origin: .zero, size: size)
+        guard let cg = image.cgImage(forProposedRect: &proposed, context: nil, hints: [.ctm: NSAffineTransform()]) else { return }
         // The template's alpha is the mark.
         context.draw(cg, in: target)
     }
