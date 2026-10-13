@@ -2,6 +2,7 @@ import AppKit
 import Bonsplit
 import CmuxTerminal
 import Foundation
+import SwiftUI
 import Testing
 
 #if canImport(cmux_DEV)
@@ -118,13 +119,17 @@ final class BonsplitPaneHostDeferredRefreshTests {
         }
     }
 
-    /// Bonsplit's per-pane hosting views (`NonDraggableHostingView`, internal
-    /// to Bonsplit, so matched by type name) that are on screen in `window`.
+    /// Bonsplit's per-pane hosting views on screen in `window`: the
+    /// `NSHostingView` each split arranged container
+    /// (`SplitArrangedContainerView`, internal to Bonsplit, so matched by type
+    /// name) holds.
     private func paneHosts(in window: NSWindow) -> [NSView] {
         guard let root = window.contentView?.superview ?? window.contentView else { return [] }
         var found: [NSView] = []
         func visit(_ view: NSView) {
-            if String(describing: type(of: view)).hasPrefix("NonDraggableHostingView") {
+            if view is NSHostingView<AnyView>,
+               let parent = view.superview,
+               String(describing: type(of: parent)).contains("SplitArrangedContainerView") {
                 if !view.isHiddenOrHasHiddenAncestor, view.bounds.width > 0, view.bounds.height > 0 {
                     found.append(view)
                 }

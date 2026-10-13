@@ -42,8 +42,10 @@ struct PaneHostDetachedRefreshTests {
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil) }
         let contentView = try #require(window.contentView)
-        bonsplitHost.frame = contentView.bounds
-        bonsplitHost.autoresizingMask = [.width, .height]
+        // A headless test host can leave the window's content view 1x0, so
+        // size the views explicitly instead of following the content view.
+        contentView.setFrameSize(NSSize(width: 900, height: 600))
+        bonsplitHost.frame = NSRect(x: 0, y: 0, width: 900, height: 600)
         contentView.addSubview(bonsplitHost)
         // Stand-in for the terminal portal's hosted surface: an AppKit view in
         // the same window, outside BonsplitView, whose refresh is deferred.
@@ -79,6 +81,7 @@ struct PaneHostDetachedRefreshTests {
         //    the window and still needs layout.
         paneHost.removeFromSuperview()
         contentView.addSubview(paneHost)
+        paneHost.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         paneHost.needsLayout = true
         surfaceStandIn.needsDisplay = true
         // A drop also moves focus. Every pane's body reads it, so the detached
@@ -116,14 +119,16 @@ struct PaneHostDetachedRefreshTests {
         return line
     }
 
-    /// Bonsplit's per-pane hosting views (`NonDraggableHostingView`), found by
-    /// class name because the type is internal to Bonsplit.
+    /// Bonsplit's per-pane hosting views: the `NSHostingView` each split
+    /// arranged container (`SplitArrangedContainerView`, internal to Bonsplit,
+    /// so matched by type name) holds.
     private static func paneHosts(in root: NSView) -> [NSView] {
         var found: [NSView] = []
         func visit(_ view: NSView) {
             if view !== root,
-               String(describing: type(of: view)).hasPrefix("NonDraggableHostingView")
-                || NSStringFromClass(type(of: view)).contains("NonDraggableHostingView") {
+               view is NSHostingView<AnyView>,
+               let parent = view.superview,
+               String(describing: type(of: parent)).contains("SplitArrangedContainerView") {
                 found.append(view)
                 return
             }
