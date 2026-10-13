@@ -657,3 +657,20 @@ bar, light and dark:
 ![Tabs grid with terminals](browser/tabs-grid-with-terminals.png)
 
 Round 7's pane canvas is superseded.
+
+## Round 9: back/forward history menus
+
+A long press on back or forward opens the system glass context menu from the
+button. A tap still goes back or forward. I captured the reference from Mobile
+Safari in the simulator: I opened several pages in one tab and long-pressed
+back. Safari's rows show the page title with the address under it (no scheme
+and no "www."). A page without a title shows only its address. The most recent
+page sits next to the button. Ours shows the same rows in the same order. The
+back menu lists the previous page first and the forward menu lists the next
+page first, and the system puts the first row next to the button. Tapping a
+row calls `browser.goToHistory`. The entries come from `browser.history`.
+Images, left to right: Safari, then ours on the mock host (back, then forward
+after jumping two pages back), then ours live on cmux15 (back, then forward
+after jumping to Example Domain).
+
+![History menus](browser/history-menus.png)
