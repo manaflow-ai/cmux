@@ -166,7 +166,7 @@ pub(super) fn parse_browser(
 fn private_browser_command(command: &str, mut params: Map<String, Value>) -> CommandPlan {
     params.insert("id".into(), Value::from(1));
     params.insert("cmd".into(), Value::String(command.to_owned()));
-    CommandPlan::RawCommand(super::raw::RawCommandPlan {
+    CommandPlan::RawCommand(super::super::raw::RawCommandPlan {
         request: Value::Object(params),
         stream: false,
     })
