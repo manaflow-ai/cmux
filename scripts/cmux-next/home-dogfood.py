@@ -114,7 +114,7 @@ try:
         sys.exit("the tagged app did not come up")
     time.sleep(2)
     shot("01-home-chief-tab")
-    print("fixture:", rpc("debug.home_native_fixture.open", {"attachments": True}), flush=True)
+    print("fixture:", rpc("debug.home_native_fixture.open", {"attachments": True, "new": True}), flush=True)
     time.sleep(6)
     shot("02-conversation-photo-video-file")
     # The fixture's video is on screen now: it plays in its bubble.

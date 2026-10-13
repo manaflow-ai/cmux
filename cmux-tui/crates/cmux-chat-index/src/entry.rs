@@ -58,10 +58,12 @@ pub enum AdapterKind {
     /// OpenHands CLI. Root: `~/.openhands/conversations`.
     #[serde(rename = "openhands")]
     OpenHands,
+    /// Meta Muse Code. Root: `<XDG_DATA_HOME|~/.local/share>/muse` (`session-index.db`).
+    Muse,
 }
 
 impl AdapterKind {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::ClaudeCode,
         Self::Codex,
         Self::OpenCode,
@@ -85,6 +87,7 @@ impl AdapterKind {
         Self::Auggie,
         Self::Continue,
         Self::OpenHands,
+        Self::Muse,
     ];
 
     pub fn id(self) -> &'static str {
@@ -112,6 +115,7 @@ impl AdapterKind {
             Self::Auggie => "auggie",
             Self::Continue => "continue",
             Self::OpenHands => "openhands",
+            Self::Muse => "muse",
         }
     }
 

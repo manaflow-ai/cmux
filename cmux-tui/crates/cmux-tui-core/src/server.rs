@@ -141,6 +141,7 @@ use command_args::{
 };
 mod origin_gate;
 mod orphan_shutdown;
+mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
@@ -154,7 +155,10 @@ mod cloud_conversations;
 mod conversation_attachments;
 mod conversation_resource;
 mod resource_trust;
-use resource_trust::{handles_resource_connection_operation, trusted_local_resource_client};
+use resource_trust::{
+    conversation_resource_client, handles_resource_connection_operation,
+    trusted_local_resource_client,
+};
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
@@ -193,6 +197,11 @@ mod cmd_terminals;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod command_history;
+mod page_credential;
+mod page_files;
+mod page_listener;
+pub use page_files::page_bundle_dir;
+pub use page_listener::{PageListenerOpener, WS_LISTEN_CAPABILITY, WS_LISTEN_ORIGINS_CAPABILITY};
 mod responses;
 mod rows;
 mod screen_json;
@@ -1628,6 +1637,11 @@ enum Command {
     CloudSessionSet(cloud_conversations::SessionSetParams),
     CloudSessionClear,
     CloudSessionStatus,
+    /// `page-credential` (`page-credential-v1`, server/page_credential.rs).
+    PageCredential,
+    /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the
+    /// owner's loopback page listener on request.
+    WsListen(page_listener::WsListenParams),
     CloudInboxList(cloud_conversations::InboxListParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
@@ -2448,7 +2462,7 @@ pub use restoring::RestoringServer;
 use websocket_listener::handle_websocket_connection;
 pub use websocket_listener::{
     WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
-    serve_websocket_with_access,
+    serve_websocket_with_access, serve_websocket_with_pages,
 };
 
 #[cfg(test)]
@@ -2551,6 +2565,14 @@ fn handle_connection_frame(
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
     }
     if let Some(request) = crate::resource_router::parse_resource_line(message) {
+        // A v2 line the catalog parse refuses may name a routed namespace
+        // operation (page-router-v1): the same JSON parse decides, so every
+        // spelling of the line gets one answer.
+        if request.is_err()
+            && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
+        {
+            return keep_open;
+        }
         return origin_gate::handle_resource_line(mux, client, message, request, writer);
     }
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
@@ -3469,6 +3491,8 @@ fn handle_command_with_cancellation(
         Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),
         Command::CloudSessionClear => cloud_conversations::session_clear(mux, client),
         Command::CloudSessionStatus => cloud_conversations::session_status(mux, client),
+        Command::PageCredential => page_credential::page_credential(mux, client),
+        Command::WsListen(params) => page_listener::ws_listen(mux, client, params),
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)

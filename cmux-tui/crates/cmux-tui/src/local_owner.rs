@@ -179,6 +179,17 @@ pub(crate) fn signal_ready(fd: i32) {
     let _ = fd;
 }
 
+/// `server ensure --ws-loopback [--ws-allow-origin <origin>[,<origin>...]]` (private app
+/// contract, cx-hnmbt.2): the owner opens `--ws 127.0.0.1:0` and, with no
+/// token configured, mints its credential into a 0600 file next to the
+/// socket (`websocket_credential`), never on argv.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct EnsureWebSocket {
+    /// The extra page origins the listener accepts (the app's first-party
+    /// pages, `cmux-page://cmux.<page>`).
+    pub allow_origins: Vec<String>,
+}
+
 /// How the owner process is launched.
 pub(crate) struct OwnerSpec {
     pub session: String,
@@ -200,6 +211,9 @@ pub(crate) struct OwnerSpec {
     /// Chief brain's tools socket, so the owner serves chief.engine.* and
     /// chief.stop (only `cmux chief` sets it, for its Chief home's owner).
     pub chief_tools_socket: Option<PathBuf>,
+    /// The loopback WebSocket listener for an owner this call spawns; a
+    /// running owner keeps the listener it was started with.
+    pub websocket: Option<EnsureWebSocket>,
 }
 
 /// A validated, client-ready owner.
@@ -703,6 +717,12 @@ fn spawn_detached_owner(spec: &OwnerSpec) -> io::Result<SpawnedOwner> {
     }
     if let Some(grace) = spec.terminal_reap_grace {
         command.arg("--terminal-reap-grace-seconds").arg(grace.as_secs().to_string());
+    }
+    if let Some(websocket) = &spec.websocket {
+        command.arg("--ws").arg("127.0.0.1:0");
+        for origin in &websocket.allow_origins {
+            command.arg("--ws-allow-origin").arg(origin);
+        }
     }
     if let Some(colors) = spec.initial_host_colors {
         if let Some(foreground) = colors.fg {
