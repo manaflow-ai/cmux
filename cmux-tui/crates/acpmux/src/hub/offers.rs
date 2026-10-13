@@ -1,0 +1,189 @@
+//! Sessions an agent offers the person (cx-807da): work it noticed outside
+//! the task at hand, as a chip in the chat that starts a parallel session.
+//!
+//! The agent's `offer_session` tool (`offer_mcp.rs`) calls
+//! `_acpmux/offer_session {sessionId, title, prompt, cwd?, worktree?,
+//! harness?, model?}`, which records `session_offer` and returns at once:
+//! the turn goes on, and the chat shows the chip. The person accepts it (the
+//! pane starts the new session, in a new git worktree when asked, and sends
+//! the prompt) or dismisses it: `_acpmux/offer_respond {sessionId, offerId,
+//! outcome, childSessionId?}`, accepted only from the person's connection,
+//! records `session_offer_decision`. An accepted offer's new session records
+//! the offering session as its parent (`parentId`, with no `forkSeq`: it is
+//! not a fork).
+//!
+//! - The records are the state: an offer is open until its decision is
+//!   recorded, across daemon restarts. The daemon reads a chat's records
+//!   once, at its first offer call, and keeps its open offers from then on.
+//!   A chat holds at most [`OPEN_LIMIT`] open offers.
+//! - Title, prompt and folder are the agent's text: the chip shows them as
+//!   plain text, and nothing runs before the person accepts.
+
+use super::{Hub, Session};
+use crate::rpc::RpcError;
+use serde_json::{Value, json};
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::sync::Mutex as StdMutex;
+
+pub(super) const MAX_TITLE_CHARS: usize = 80;
+pub(super) const MAX_PROMPT_CHARS: usize = 20_000;
+pub(super) const OPEN_LIMIT: usize = 8;
+const MAX_NAME_CHARS: usize = 120;
+
+/// Each chat's open offer ids, read from its records at its first offer call.
+#[derive(Default)]
+pub(crate) struct Offers {
+    open: StdMutex<HashMap<String, HashSet<String>>>,
+}
+
+/// The offer `params` describe, checked: what `session_offer` records.
+fn offer_record(session: &Session, params: &Value) -> Result<Value, RpcError> {
+    let text = |key: &str| params.get(key).and_then(Value::as_str).map(str::trim).unwrap_or("");
+    let title = text("title");
+    if title.is_empty() || title.chars().count() > MAX_TITLE_CHARS {
+        return Err(RpcError::invalid_params(format!(
+            "title must be 1 to {MAX_TITLE_CHARS} characters"
+        )));
+    }
+    let prompt = text("prompt");
+    if prompt.is_empty() || prompt.chars().count() > MAX_PROMPT_CHARS {
+        return Err(RpcError::invalid_params(format!(
+            "prompt must be 1 to {MAX_PROMPT_CHARS} characters"
+        )));
+    }
+    let cwd = match text("cwd") {
+        "" => session.meta().cwd,
+        given => {
+            let path = Path::new(given);
+            if !path.is_absolute() || !path.is_dir() {
+                return Err(RpcError::invalid_params("cwd must be an existing absolute folder"));
+            }
+            path.to_path_buf()
+        }
+    };
+    let worktree = match params.get("worktree") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err(RpcError::invalid_params("worktree must be true or false")),
+    };
+    let mut record = json!({
+        "offerId": super::person::new_nonce(),
+        "title": title,
+        "prompt": prompt,
+        "cwd": cwd,
+        "worktree": worktree,
+    });
+    for key in ["harness", "model"] {
+        let value = text(key);
+        if value.chars().count() > MAX_NAME_CHARS {
+            return Err(RpcError::invalid_params(format!("{key} is too long")));
+        }
+        if !value.is_empty() {
+            record[key] = Value::String(value.to_owned());
+        }
+    }
+    Ok(record)
+}
+
+impl Hub {
+    /// Records the agent's offer; the chat shows it as a chip.
+    pub fn offer_session(&self, session: &Session, params: &Value) -> Result<Value, RpcError> {
+        let record = offer_record(session, params)?;
+        let offer_id = record["offerId"].as_str().unwrap_or_default().to_owned();
+        self.with_open_offers(session, |open| {
+            if open.len() >= OPEN_LIMIT {
+                return Err(RpcError::invalid_params(format!(
+                    "this chat already has {OPEN_LIMIT} open offers; wait for the user to answer them"
+                )));
+            }
+            open.insert(offer_id.clone());
+            Ok(())
+        })?;
+        self.append(session, "mux", "session_offer", record);
+        Ok(json!({"offerId": offer_id, "outcome": "offered"}))
+    }
+
+    /// The person's answer to an open offer: `accepted` names the session it
+    /// started (`childSessionId`), which takes this chat as its parent.
+    pub fn answer_offer(
+        &self,
+        session: &Session,
+        offer_id: &str,
+        outcome: &str,
+        child: Option<&str>,
+    ) -> Result<Value, RpcError> {
+        let child = match (outcome, child) {
+            ("dismissed", None) => None,
+            ("accepted", Some(key)) => {
+                let child = self.resolve(key)?;
+                let meta = child.meta();
+                if child.id == session.id {
+                    return Err(RpcError::invalid_params("an offer cannot start its own chat"));
+                }
+                if meta.parent_id.is_some() || meta.fork_seq.is_some() {
+                    return Err(RpcError::invalid_params(
+                        "childSessionId already has a parent: start a new chat for the offer",
+                    ));
+                }
+                Some(child)
+            }
+            ("accepted", None) => {
+                return Err(RpcError::invalid_params("an accepted offer names childSessionId"));
+            }
+            _ => {
+                return Err(RpcError::invalid_params(
+                    "outcome must be accepted (with childSessionId) or dismissed",
+                ));
+            }
+        };
+        // Closed under the lock: a second answer to the same offer is refused.
+        if !self.with_open_offers(session, |open| Ok(open.remove(offer_id)))? {
+            return Err(RpcError::invalid_params("no open offer has that offerId"));
+        }
+        let mut decision = json!({"offerId": offer_id, "outcome": outcome});
+        if let Some(child) = child {
+            child.meta.lock().unwrap_or_else(|e| e.into_inner()).parent_id =
+                Some(session.id.clone());
+            self.save_meta(&child);
+            decision["childSessionId"] = Value::String(child.id.clone());
+        }
+        self.append(session, "mux", "session_offer_decision", decision.clone());
+        Ok(decision)
+    }
+
+    /// Runs `f` on the chat's open offer ids, read from its records the first time.
+    fn with_open_offers<T>(
+        &self,
+        session: &Session,
+        f: impl FnOnce(&mut HashSet<String>) -> Result<T, RpcError>,
+    ) -> Result<T, RpcError> {
+        let loaded =
+            self.offers.open.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&session.id);
+        let read = if loaded { None } else { Some(self.recorded_open_offers(session)?) };
+        let mut all = self.offers.open.lock().unwrap_or_else(|e| e.into_inner());
+        let open = all.entry(session.id.clone()).or_insert_with(|| read.unwrap_or_default());
+        f(open)
+    }
+
+    /// The ids of the chat's recorded offers without a recorded decision.
+    fn recorded_open_offers(&self, session: &Session) -> Result<HashSet<String>, RpcError> {
+        let events = self
+            .events(&session.id, 0, usize::MAX)
+            .map_err(|e| RpcError::internal(format!("{e:#}")))?;
+        let mut open = HashSet::new();
+        for event in events.iter().filter(|e| e.dir == "mux") {
+            let Some(id) = event.msg.get("offerId").and_then(Value::as_str) else { continue };
+            match event.kind.as_str() {
+                "session_offer" => {
+                    open.insert(id.to_owned());
+                }
+                "session_offer_decision" => {
+                    open.remove(id);
+                }
+                _ => {}
+            }
+        }
+        Ok(open)
+    }
+}

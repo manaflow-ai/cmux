@@ -49,6 +49,7 @@ mod router_socket;
 pub mod routes;
 pub mod rpc;
 pub mod schema;
+pub mod offer_mcp;
 pub mod secret_mcp;
 pub mod server;
 pub mod session_env;
