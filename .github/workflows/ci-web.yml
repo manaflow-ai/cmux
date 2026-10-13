@@ -224,8 +224,10 @@ jobs:
     # has twice the memory. Fork pull requests run the same suite on it.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-8vcpu-ubuntu-2404' }}
     # The 10-minute siblings in this workflow, plus the browser engines and the
-    # browser-lane suites they run.
-    timeout-minutes: 15
+    # browser-lane suites they run. The webviews suite alone (243 files, then 62
+    # dev-server files) passed 188 files in 12.5 min before 15 cut it off (#20276,
+    # 2026-10-13, after a typecheck red had hidden the growth), so 30.
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
