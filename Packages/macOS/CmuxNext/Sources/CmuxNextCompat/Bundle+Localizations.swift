@@ -5,7 +5,7 @@ extension Bundle {
     /// call shape of `localizedString(forKey:value:table:localizations:)` (macOS 15.4), so that
     /// cmux-next runs on macOS 14 (plans/cmux-next/macos-floor.md). macOS 15.4 and later use the
     /// system call. Below it, the best match of the bundle's `.lproj` directories answers; with no
-    /// match the bundle's own preferred language does, which is also what the system call does.
+    /// match that is the development localization (en).
     public func localizedString(forKey key: String, value: String?, table: String?,
                                 preferredLocalizations: [String]) -> String {
         if #available(macOS 15.4, *) {
