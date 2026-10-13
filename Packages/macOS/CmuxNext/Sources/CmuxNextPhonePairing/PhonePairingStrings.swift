@@ -6,7 +6,7 @@ struct PhonePairingStrings {
     static var title: String { String(localized: "pairing.title", defaultValue: "Pair your iPhone", bundle: .module) }
     static var subtitle: String {
         String(localized: "pairing.subtitle",
-               defaultValue: "Open cmux next on your iPhone and scan this code. It works once and expires in 10 minutes.",
+               defaultValue: "Open cmux on your iPhone and scan this code. It works once and expires in 10 minutes.",
                bundle: .module)
     }
     static var newCode: String { String(localized: "pairing.newCode", defaultValue: "New Code", bundle: .module) }

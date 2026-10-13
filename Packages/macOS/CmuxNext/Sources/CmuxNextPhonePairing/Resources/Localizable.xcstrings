@@ -1579,127 +1579,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "افتح cmux next على iPhone وامسح هذا الرمز. يعمل مرة واحدة وتنتهي صلاحيته بعد 10 دقائق."
+            "value": "افتح cmux على iPhone وامسح هذا الرمز. يعمل مرة واحدة وتنتهي صلاحيته بعد 10 دقائق."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otvorite cmux next na iPhoneu i skenirajte ovaj kod. Radi jednom i ističe za 10 minuta."
+            "value": "Otvorite cmux na iPhoneu i skenirajte ovaj kod. Radi jednom i ističe za 10 minuta."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åbn cmux next på din iPhone, og scan denne kode. Den virker én gang og udløber om 10 minutter."
+            "value": "Åbn cmux på din iPhone, og scan denne kode. Den virker én gang og udløber om 10 minutter."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Öffne cmux next auf dem iPhone und scanne diesen Code. Er funktioniert einmal und läuft nach 10 Minuten ab."
+            "value": "Öffne cmux auf dem iPhone und scanne diesen Code. Er funktioniert einmal und läuft nach 10 Minuten ab."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open cmux next on your iPhone and scan this code. It works once and expires in 10 minutes."
+            "value": "Open cmux on your iPhone and scan this code. It works once and expires in 10 minutes."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abre cmux next en tu iPhone y escanea este código. Funciona una vez y caduca en 10 minutos."
+            "value": "Abre cmux en tu iPhone y escanea este código. Funciona una vez y caduca en 10 minutos."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ouvrez cmux next sur votre iPhone et scannez ce code. Il fonctionne une fois et expire dans 10 minutes."
+            "value": "Ouvrez cmux sur votre iPhone et scannez ce code. Il fonctionne une fois et expire dans 10 minutes."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Apri cmux next sull’iPhone e scansiona questo codice. Funziona una volta e scade tra 10 minuti."
+            "value": "Apri cmux sull’iPhone e scansiona questo codice. Funziona una volta e scade tra 10 minuti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhoneでcmux nextを開き、このコードをスキャンしてください。1回だけ使え、10分で期限切れになります。"
+            "value": "iPhoneでcmuxを開き、このコードをスキャンしてください。1回だけ使え、10分で期限切れになります。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បើក cmux next នៅលើ iPhone ហើយស្កេនកូដនេះ។ វាដំណើរការម្តង ហើយផុតកំណត់ក្នុង 10 នាទី។"
+            "value": "បើក cmux នៅលើ iPhone ហើយស្កេនកូដនេះ។ វាដំណើរការម្តង ហើយផុតកំណត់ក្នុង 10 នាទី។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone에서 cmux next를 열고 이 코드를 스캔하세요. 한 번만 사용할 수 있으며 10분 후 만료됩니다."
+            "value": "iPhone에서 cmux를 열고 이 코드를 스캔하세요. 한 번만 사용할 수 있으며 10분 후 만료됩니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Åpne cmux next på iPhonen og skann denne koden. Den virker én gang og utløper om 10 minutter."
+            "value": "Åpne cmux på iPhonen og skann denne koden. Den virker én gang og utløper om 10 minutter."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Otwórz cmux next na iPhonie i zeskanuj ten kod. Działa raz i wygasa po 10 minutach."
+            "value": "Otwórz cmux na iPhonie i zeskanuj ten kod. Działa raz i wygasa po 10 minutach."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Abra o cmux next no iPhone e escaneie este código. Ele funciona uma vez e expira em 10 minutos."
+            "value": "Abra o cmux no iPhone e escaneie este código. Ele funciona uma vez e expira em 10 minutos."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Откройте cmux next на iPhone и отсканируйте этот код. Он действует один раз и истекает через 10 минут."
+            "value": "Откройте cmux на iPhone и отсканируйте этот код. Он действует один раз и истекает через 10 минут."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เปิด cmux next บน iPhone แล้วสแกนรหัสนี้ ใช้ได้ครั้งเดียวและหมดอายุใน 10 นาที"
+            "value": "เปิด cmux บน iPhone แล้วสแกนรหัสนี้ ใช้ได้ครั้งเดียวและหมดอายุใน 10 นาที"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "iPhone’unuzda cmux next’i açın ve bu kodu tarayın. Bir kez çalışır ve 10 dakika içinde sona erer."
+            "value": "iPhone’unuzda cmux’i açın ve bu kodu tarayın. Bir kez çalışır ve 10 dakika içinde sona erer."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Відкрийте cmux next на iPhone і зіскануйте цей код. Він діє один раз і спливає за 10 хвилин."
+            "value": "Відкрийте cmux на iPhone і зіскануйте цей код. Він діє один раз і спливає за 10 хвилин."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Mở cmux next trên iPhone và quét mã này. Mã chỉ dùng một lần và hết hạn sau 10 phút."
+            "value": "Mở cmux trên iPhone và quét mã này. Mã chỉ dùng một lần và hết hạn sau 10 phút."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在 iPhone 上打开 cmux next 并扫描此代码。它只能使用一次，10 分钟后过期。"
+            "value": "在 iPhone 上打开 cmux 并扫描此代码。它只能使用一次，10 分钟后过期。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在 iPhone 上打開 cmux next 並掃描此代碼。它只能使用一次，10 分鐘後過期。"
+            "value": "在 iPhone 上打開 cmux 並掃描此代碼。它只能使用一次，10 分鐘後過期。"
           }
         }
       }
