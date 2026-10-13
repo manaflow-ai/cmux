@@ -5,7 +5,8 @@ Pin pushes always built, even when their tree key was published: 222 pin runs
 built on 2026-10-12, 25,215 job-minutes. A pin ref is also the repair path for
 a missing Windows daemon (pin-cmux-tui.sh points at it), so only a true
 duplicate is skipped: the key's arm64 binaries, completion manifest and Windows
-completion are all published. A manual dispatch still republishes.
+completion are all published. A pin push also publishes its commit's binaries for cmux-tui.pin, so those
+must be published too. A manual dispatch still republishes.
 
 This runs tree-preflight's own inspect step on this checkout with a fake curl
 that serves files.cmux.com.
@@ -34,9 +35,11 @@ out = args[args.index("-o") + 1] if "-o" in args else None
 name = url.rsplit("/", 1)[1]
 if name == "completion-windows.json" and os.environ.get("FAKE_WINDOWS") != "1":
     sys.exit(22)
-key = url.split("/tree/")[1].split("/")[0]
 if os.environ.get("FAKE_PUBLISHED") != "1":
     sys.exit(22)
+if "/tree/" not in url:
+    sys.exit(0 if os.environ.get("FAKE_COMMIT") != "0" else 22)
+key = url.split("/tree/")[1].split("/")[0]
 names = ["cmux-tui-aarch64-apple-darwin", "cmux-tui-app-host-aarch64-apple-darwin", "cmux-tui-cloud-server-aarch64-apple-darwin"]
 if name == "completion.json":
     body = json.dumps({"key": key, "binaries": {n: "a" * 64 for n in names}})
@@ -102,6 +105,10 @@ def main():
     result, out = preflight(pin, FAKE_PUBLISHED="1", FAKE_WINDOWS="0")
     _check(result.returncode == 0 and out.get("run_macos") == "true",
            f"a pin push whose Windows daemon is missing still builds to repair it ({out.get('run_macos')})")
+
+    result, out = preflight(pin, FAKE_PUBLISHED="1", FAKE_WINDOWS="1", FAKE_COMMIT="0")
+    _check(result.returncode == 0 and out.get("run_macos") == "true",
+           f"a pin push of a new commit with a published tree still publishes that commit's binaries ({out.get('run_macos')})")
 
     result, out = preflight(pin, event="workflow_dispatch", FAKE_PUBLISHED="1", FAKE_WINDOWS="1")
     _check(result.returncode == 0 and out.get("run_macos") == "true",
