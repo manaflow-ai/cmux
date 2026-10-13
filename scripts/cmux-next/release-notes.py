@@ -59,10 +59,10 @@ INTERNAL_WORDS = re.compile(
     r"e2e|gallery|release notes?|publish\w*|pipeline|workflow|telemetry|crash reporting|exception reporting|benchmark|"
     r"frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|"
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
-    r"boundary|frames?|on the wire|debug reports?|dom events?|keybind actions?|main actor|reads?|readys?|shims?|"
+    r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
     r"consumers?|metrics)\b", re.I)
 # Code-looking subjects (dotted names, snake_case, versioned ids, backticks) are internal.
-CODE_LIKE = re.compile(r"`|\b\w+\.\w+\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\b[A-Z]{4,}S?\b|\{\w+\}")
+CODE_LIKE = re.compile(r"`|\b\w+\.\w+\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}")
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
 AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
 # "(#123)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)": references, anywhere in the subject.
@@ -281,31 +281,19 @@ def backfill(args):
     serves a copy whose signature verifies, add "summary" and "items" from its commit subjects when
     missing, and write it to --out for re-signing. Prints the written paths. Never fails the job: a
     build that cannot be fetched or verified is skipped."""
-    import urllib.request
     with open(args.index, encoding="utf-8") as f:
-        builds = [b.get("build", "") for b in json.load(f).get("builds", [])][: args.limit]
+        builds = [b.get("build", "") for b in json.load(f).get("builds", []) if isinstance(b, dict)][: args.limit]
     written = []
     for build in builds:
         out_path = os.path.join(args.out, f"{build}.json")
-        if not re.fullmatch(r"[0-9.]+", build) or os.path.exists(out_path):
+        if not re.fullmatch(r"[0-9.]+", build) or os.path.exists(os.path.join(args.existing or args.out, f"{build}.json")):
             continue
-        with tempfile.TemporaryDirectory() as tmp:
-            path = os.path.join(tmp, f"{build}.json")
-            for base in args.base:
-                try:
-                    for name in (f"{build}.json", f"{build}.json.sig"):
-                        request = urllib.request.Request(f"{base.rstrip('/')}/notes/{name}", headers={"User-Agent": "cmux-release-notes/1"})
-                        with urllib.request.urlopen(request, timeout=20) as response, open(os.path.join(tmp, name), "wb") as f:
-                            f.write(response.read())
-                    if verified(path, args.public_key):
-                        break
-                except OSError:
-                    continue
-            else:
-                continue
-            with open(path, encoding="utf-8") as f:
-                notes = json.load(f)
-        if notes.get("build") != build or ("summary" in notes and "items" in notes):
+        try:
+            notes = fetch_verified_notes(build, args.base, args.public_key)
+        except Exception as error:  # one bad build never stops the others or the job
+            print(f"backfill: skipped {build}: {error}", file=sys.stderr)
+            continue
+        if not isinstance(notes, dict) or notes.get("build") != build or ("summary" in notes and "items" in notes):
             continue
         changes = [c for c in notes.get("changes", []) if isinstance(c, str)]
         notes.setdefault("summary", summarize_changes(changes))
@@ -315,6 +303,26 @@ def backfill(args):
         written.append(out_path)
     print("\n".join(written))
     return 0
+
+
+def fetch_verified_notes(build, bases, public_key):
+    """The notes of `build` from the first base whose copy verifies, else None."""
+    import urllib.request
+    for base in bases:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, f"{build}.json")
+            try:
+                for name in (f"{build}.json", f"{build}.json.sig"):
+                    request = urllib.request.Request(f"{base.rstrip('/')}/notes/{name}", headers={"User-Agent": "cmux-release-notes/1"})
+                    with urllib.request.urlopen(request, timeout=20) as response, open(os.path.join(tmp, name), "wb") as f:
+                        f.write(response.read())
+                if not verified(path, public_key):
+                    continue
+            except Exception:
+                continue
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+    return None
 
 
 def verified(path, public_key):
@@ -363,6 +371,7 @@ def main():
     f.add_argument("--base", action="append", required=True)
     f.add_argument("--public-key", required=True)
     f.add_argument("--out", required=True)
+    f.add_argument("--existing", help="a folder whose notes are not backfilled (this build's)")
     f.add_argument("--limit", type=int, default=50)
     n = sub.add_parser("since")
     n.add_argument("--index", required=True)
