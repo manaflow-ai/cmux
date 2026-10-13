@@ -20,7 +20,8 @@ export type ScreenRow =
   | { type: "search"; text: string }
   /// Load `url` (what `text` resolved to, or a top site that completes it).
   | { type: "open"; url: string; text: string }
-  | { type: "tab"; id: string; title: string; detail?: string; icon?: string }
+  /// An open tab; `url` is a browser tab's page as `canonicalAddress` gives it.
+  | { type: "tab"; id: string; title: string; detail?: string; icon?: string; url?: string }
   | { type: "workspace"; id: string; title: string; detail?: string }
   | { type: "history"; url: string; title?: string; icon?: string }
   /// The text as a prompt to `harness`, named `agent` (its `model` when known).
@@ -29,8 +30,10 @@ export type ScreenRow =
 /// The agent the Ask row names.
 export type ScreenAsk = { harness: string; agent: string; model?: string };
 
-/// Open tabs, workspaces and visited pages shown under the completions.
+/// Open tabs, workspaces and visited pages shown under Ask.
 export const MAX_MATCH_ROWS = 4;
+/// Every row, the web search and Ask included.
+export const MAX_SUGGESTIONS = 8;
 /// Addresses that complete the typed word ("reddit" to reddit.com).
 export const MAX_COMPLETIONS = 3;
 /// The shortest word an address completes: "go" or "no" stays a prompt, not google.com or notion.so.
@@ -51,10 +54,11 @@ export function defaultHarness(agents: readonly ScreenAgent[], lastAgent?: strin
   return orderedAgents(agents, lastAgent)[0]?.id;
 }
 
-/// The popover's rows. Empty text and `!`: none. An address: open it, the pages and matches after
-/// it, a web search (none for a local file) and Ask. A word that completes an address: the
-/// completions first, then the matches, a web search and Ask. Other text: Ask first, a web search,
-/// then the matching tabs, workspaces and pages.
+/// The popover's rows (Leo 10-13: Chrome's and Arc's order). Empty text and `!`: none. An address,
+/// or a word that completes one: the top hit (the address, else its best completion), then the
+/// matching open tabs, workspaces and visited pages, a web search (none for a local file) and Ask.
+/// Other text: Ask first, a web search, then the matches. One row per page: a page an open tab
+/// shows is that tab ("Switch to tab"), and addresses compare without their tracking parameters.
 export function screenRows(
   text: string,
   context: { omnibar: OmnibarContext; home?: string; ask?: ScreenAsk },
@@ -64,14 +68,15 @@ export function screenRows(
   const query = text.trim();
   const search: ScreenRow = { type: "search", text: query };
   const ask: ScreenRow[] = context.ask ? [{ type: "ask", text: query, ...context.ask }] : [];
-  if (intent.kind === "url") {
-    const open: ScreenRow = { type: "open", url: intent.url, text: query };
-    const rest = distinct([open, ...completions(query, context.omnibar), ...matches(query, context.omnibar)]);
-    return intent.url.startsWith("file:") ? rest : [...rest, search, ...ask];
-  }
+  const open: ScreenRow[] = intent.kind === "url" ? [{ type: "open", url: intent.url, text: query }] : [];
   const completed = completions(query, context.omnibar);
-  const found = distinct([...completed, ...matches(query, context.omnibar)]).slice(completed.length);
-  return completed.length ? [...completed, ...found, search, ...ask] : [...ask, search, ...found];
+  const found = suggestions([...open, ...completed, ...matches(query, context.omnibar)], context.omnibar);
+  if (open.length || completed.length) {
+    const tail = intent.kind === "url" && intent.url.startsWith("file:") ? [] : [search, ...ask];
+    const [top, ...rest] = found;
+    return [...(top ? [top] : []), ...ranked(rest).slice(0, MAX_SUGGESTIONS - 1 - tail.length), ...tail];
+  }
+  return [...ask, search, ...ranked(found).slice(0, Math.min(MAX_MATCH_ROWS, MAX_SUGGESTIONS - 1 - ask.length))];
 }
 
 /// The row Return takes before Down or Ctrl-N: the top one, unless it is only a web search for a
@@ -102,9 +107,7 @@ function matches(query: string, omnibar: OmnibarContext): ScreenRow[] {
     workspaces: omnibar.workspaces,
     history: omnibar.history.filter((entry) => !blankPage(entry.url)),
   };
-  return omnibarRows(query, "browser", navigable)
-    .flatMap((row) => screenRow(row))
-    .slice(0, MAX_MATCH_ROWS);
+  return omnibarRows(query, "browser", navigable).flatMap((row) => screenRow(row, omnibar));
 }
 
 /// Visited pages, then top sites, whose address starts with the typed word.
@@ -112,19 +115,14 @@ function completions(query: string, omnibar: OmnibarContext): ScreenRow[] {
   if (query.length < MIN_COMPLETION_LENGTH || /\s/.test(query)) return [];
   const needle = bareAddress(query.toLowerCase());
   const visited = omnibar.history
-    .filter((entry) => /^https?:/i.test(entry.url) && bareAddress(entry.url.toLowerCase()).startsWith(needle))
-    .map((entry): ScreenRow => ({
-      type: "history",
-      url: entry.url,
-      ...(entry.title ? { title: entry.title } : {}),
-      ...(entry.icon ? { icon: entry.icon } : {}),
-    }));
+    .filter((entry) => /^https?:/i.test(entry.url) && canonicalAddress(entry.url).toLowerCase().startsWith(needle))
+    .map((entry) => historyRow(entry));
   const sites = TOP_SITES.filter((site) => site.startsWith(needle)).map((site): ScreenRow => ({
     type: "open",
     url: `https://${site}`,
     text: site,
   }));
-  return distinct([...visited, ...sites]).slice(0, MAX_COMPLETIONS);
+  return suggestions([...visited, ...sites], EMPTY_OMNIBAR).slice(0, MAX_COMPLETIONS);
 }
 
 /// `about:blank` and the other internal pages.
@@ -140,45 +138,138 @@ function bareAddress(url: string): string {
     .replace(/\/$/, "");
 }
 
-/// The rows without a second row for the same address, tab or workspace; the first one stays.
-function distinct(rows: ScreenRow[]): ScreenRow[] {
-  const seen = new Set<string>();
-  return rows.filter((row) => {
-    const key =
-      row.type === "open" || row.type === "history"
-        ? `url:${bareAddress(row.url.toLowerCase())}`
-        : row.type === "tab" || row.type === "workspace"
-          ? `${row.type}:${row.id}`
-          : row.type;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+/// `reddit.com` for `https://www.reddit.com/?solution=<token>&utm_source=x#top`: what two pages
+/// compare by and what a row shows. The scheme, `www.`, the fragment, a trailing slash and the
+/// parameters that only track or carry a one-off token go; the ones that name the page stay.
+export function canonicalAddress(url: string): string {
+  const text = url.trim();
+  let parsed: URL;
+  try {
+    parsed = new URL(/^[a-z][a-z0-9+.-]*:/i.test(text) ? text : `https://${text}`);
+  } catch {
+    return bareAddress(text.toLowerCase());
+  }
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return text;
+  const parameters = [...parsed.searchParams];
+  const challenge = parameters.some(([name]) => /_challenge$|^__cf_chl_/i.test(name));
+  const kept = parameters.filter(
+    ([name]) => !NOISE_PARAMETER.test(name) && !(challenge && CHALLENGE_ANSWER.test(name)),
+  );
+  const query = new URLSearchParams(kept).toString();
+  const host = parsed.hostname.replace(/^www\./, "") + (parsed.port ? `:${parsed.port}` : "");
+  return `${host}${parsed.pathname.replace(/\/+$/, "")}${query ? `?${query}` : ""}`;
 }
 
-function screenRow(row: OmnibarRow): ScreenRow[] {
+/// Parameters that only track the click or carry a bot check's one-off answer (reddit's
+/// `?solution=…&js_challenge=1`). An id, a list, a query, a commit or a page token names the page:
+/// it stays.
+const NOISE_PARAMETER =
+  /^(utm_\w+|fbclid|gclid|dclid|gbraid|wbraid|msclkid|yclid|twclid|igshid|mc_[ce]id|_ga|_gl|_hsenc|_hsmi|mkt_tok|ref_src|ref_url|si|spm|\w*_challenge|__cf_chl_\w+)$/i;
+/// A bot check's answer, noise only beside the check's own parameter.
+const CHALLENGE_ANSWER = /^(solution|token)$/i;
+
+/// The host a row shows for a page: `reddit.com`.
+/// A page not on the web shows its path.
+export function shortHost(address: string): string {
+  if (/^file:/i.test(address.trim())) return address.trim().replace(/^file:\/\//i, "");
+  return canonicalAddress(address).split(/[/?]/)[0] ?? address;
+}
+
+const TITLE_SEPARATOR = /\s+[-|·—–]\s+/g;
+
+/// A page's title without its site's tagline on its front page ("Reddit - The heart of the
+/// internet" is "Reddit"; off it, "GitHub - owner/repo" names the page) or its trailing site name
+/// ("Borrowing in loops : r/rust - Reddit"): the row shows the host.
+export function cleanTitle(title: string, url: string): string {
+  const labels = shortHost(url).split(":")[0]!.split(".");
+  const site = labels.length > 1 ? labels[labels.length - 2] : labels[0];
+  const cuts = [...title.matchAll(TITLE_SEPARATOR)];
+  const first = cuts[0];
+  const last = cuts.at(-1);
+  if (!site || !first || !last) return title;
+  const word = (part: string) => part.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+  const head = title.slice(0, first.index).trim();
+  const front = !/[/?]/.test(canonicalAddress(url));
+  if (front && head && word(head) === site) return head;
+  const rest = title.slice(0, last.index).trim();
+  if (rest && word(title.slice(last.index + last[0].length)) === site) return rest;
+  return title;
+}
+
+/// One row per page and per tab or workspace, the first one staying, where a page an open browser
+/// tab shows is that tab.
+function suggestions(rows: ScreenRow[], omnibar: OmnibarContext): ScreenRow[] {
+  const tabs = new Map<string, ScreenRow>();
+  for (const tab of omnibar.tabs) {
+    const row = tabRow(tab);
+    if (row.url && !tabs.has(row.url)) tabs.set(row.url, row);
+  }
+  const seen = new Set<string>();
+  return rows
+    .map((row) => (row.type === "open" || row.type === "history" ? (tabs.get(canonicalAddress(row.url)) ?? row) : row))
+    .filter((row) => {
+      const keys = rowKeys(row);
+      if (keys.some((key) => seen.has(key))) return false;
+      for (const key of keys) seen.add(key);
+      return true;
+    });
+}
+
+function rowKeys(row: ScreenRow): string[] {
   switch (row.type) {
+    case "open":
+    case "history":
+      return [`url:${canonicalAddress(row.url)}`];
     case "tab":
-      return [
-        {
-          type: "tab",
-          id: row.id,
-          title: row.title,
-          ...(row.detail ? { detail: row.detail } : {}),
-          ...(row.icon ? { icon: row.icon } : {}),
-        },
-      ];
+      return [`tab:${row.id}`, ...(row.url ? [`url:${row.url}`] : [])];
+    case "workspace":
+      return [`workspace:${row.id}`];
+    default:
+      return [row.type];
+  }
+}
+
+/// Open tabs, then workspaces, then pages to open; the order inside each kind stays.
+function ranked(rows: ScreenRow[]): ScreenRow[] {
+  const rank = (row: ScreenRow) => (row.type === "tab" ? 0 : row.type === "workspace" ? 1 : 2);
+  return rows
+    .map((row, index) => ({ row, index }))
+    .sort((a, b) => rank(a.row) - rank(b.row) || a.index - b.index)
+    .map((entry) => entry.row);
+}
+
+/// A browser tab by its page (a clean title, the host); another tab by its workspace and detail.
+function tabRow(tab: OmnibarContext["tabs"][number]): Extract<ScreenRow, { type: "tab" }> {
+  const icon = tab.icon ? { icon: tab.icon } : {};
+  if (tab.kind === "browser") {
+    const address = tab.detail ?? tab.title;
+    const url = canonicalAddress(address);
+    const title = tab.title === address ? url : cleanTitle(tab.title, address);
+    return { type: "tab", id: tab.id, title, detail: shortHost(address), ...icon, url };
+  }
+  const detail = [tab.workspace, tab.detail].filter(Boolean).join(" · ");
+  return { type: "tab", id: tab.id, title: tab.title, ...(detail ? { detail } : {}), ...icon };
+}
+
+function historyRow(entry: OmnibarContext["history"][number]): ScreenRow {
+  return {
+    type: "history",
+    url: entry.url,
+    ...(entry.title ? { title: cleanTitle(entry.title, entry.url) } : {}),
+    ...(entry.icon ? { icon: entry.icon } : {}),
+  };
+}
+
+function screenRow(row: OmnibarRow, omnibar: OmnibarContext): ScreenRow[] {
+  switch (row.type) {
+    case "tab": {
+      const tab = omnibar.tabs.find((candidate) => candidate.id === row.id);
+      return tab ? [tabRow(tab)] : [];
+    }
     case "workspace":
       return [{ type: "workspace", id: row.id, title: row.title, ...(row.detail ? { detail: row.detail } : {}) }];
     case "history":
-      return [
-        {
-          type: "history",
-          url: row.url,
-          ...(row.title ? { title: row.title } : {}),
-          ...(row.icon ? { icon: row.icon } : {}),
-        },
-      ];
+      return [historyRow(row)];
     default:
       return [];
   }
