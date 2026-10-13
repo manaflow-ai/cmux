@@ -51,6 +51,10 @@ enum RemoteStrings {
     static func unknownMachine(_ name: String) -> String {
         String(format: String(localized: "remote.failed.unknownMachine", defaultValue: "No SSH machine is named “%@”.", table: "Remote", bundle: .module), name)
     }
+    static func newWorkspaceFailed(_ name: String, _ error: Error) -> String {
+        String(format: String(localized: "remote.failed.newWorkspace", defaultValue: "Couldn’t create a workspace on %1$@: %2$@",
+                              table: "Remote", bundle: .module), name, String(describing: error))
+    }
     static func notConnected(_ name: String) -> String {
         String(format: String(localized: "remote.failed.notConnected", defaultValue: "%@ is not connected yet.", table: "Remote", bundle: .module), name)
     }
