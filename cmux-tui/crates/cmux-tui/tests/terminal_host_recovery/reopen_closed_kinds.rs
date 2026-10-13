@@ -803,6 +803,16 @@ fn a_closed_browser_reopens_on_its_url() {
     );
 }
 
+/// A harness whose daemon runs with `env` added.
+#[cfg(target_os = "linux")]
+fn harness_with_env(name: &str, env: &[(&str, &str)]) -> RecoveryHarness {
+    let mut harness = RecoveryHarness::start_unstarted(name);
+    harness.extra_env =
+        env.iter().map(|(key, value)| ((*key).to_string(), (*value).to_string())).collect();
+    harness.restart();
+    harness
+}
+
 /// The key of the workspace named `name`, once the tree lists it.
 #[cfg(target_os = "linux")]
 fn workspace_key(app: &mut AppConnection, name: &str) -> Option<String> {
@@ -825,8 +835,7 @@ fn a_closed_workspaces_agent_home_follows_its_reopen_and_goes_to_trash_on_delete
     let _ = fs::remove_dir_all(&data);
     fs::create_dir_all(&data).unwrap();
     let data_text = data.to_string_lossy().into_owned();
-    let harness =
-        RecoveryHarness::start_with_env("reopen-agent-home", &[("XDG_DATA_HOME", &data_text)]);
+    let harness = harness_with_env("reopen-agent-home", &[("XDG_DATA_HOME", &data_text)]);
     let mut app = AppConnection::open(&harness);
     app.send(serde_json::json!({"cmd":"new-workspace","name":"ah"}));
     let key = workspace_key(&mut app, "ah").expect("the workspace has a key");
