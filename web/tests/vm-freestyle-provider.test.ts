@@ -1010,7 +1010,7 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
   test("the desktop heal blocks on the unit's readiness signal, never a sleep loop, and tells a base image apart", () => {
     const command = freestyleDesktopHealCommand();
     expect(command).toBe(
-      "[ -x /usr/local/bin/start-vnc.sh ] || exit 3; if [ -d /run/systemd/system ]; then systemctl start cmux-desktop || exit 1; fi; ss -tln 2>/dev/null | grep -q ':6901 '",
+      "[ -x /usr/local/bin/start-vnc.sh ] || exit 3; if [ -d /run/systemd/system ]; then systemctl start cmux-desktop || exit 1; fi; ss -tln 2>/dev/null | grep -q '127.0.0.1:6901 '",
     );
     expect(command).not.toContain("sleep");
     expect(command).not.toContain("seq ");

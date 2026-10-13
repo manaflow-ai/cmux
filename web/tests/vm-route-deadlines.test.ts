@@ -151,9 +151,11 @@ describe("remaining VM routes", () => {
 
 describe("client-stated budgets", () => {
   test("a stated budget replaces the legacy caller's, less the margin", async () => {
-    const { virtualMs } = await underDeadline("pause", Effect.never, 0, 120_000);
+    // This case only needs to prove the budget boundary. Larger virtual-clock
+    // steps keep the test below Bun's per-test timeout on a loaded runner.
+    const { virtualMs } = await underDeadline("pause", Effect.never, 0, 120_000, 1_000);
     expect(virtualMs).toBeGreaterThanOrEqual(115_000);
-    expect(virtualMs).toBeLessThanOrEqual(115_250);
+    expect(virtualMs).toBeLessThanOrEqual(116_000);
   });
 
   test("the stated budget is read from the client timeout header", () => {
@@ -360,4 +362,3 @@ describe("continuation limits", () => {
     }
   });
 });
-

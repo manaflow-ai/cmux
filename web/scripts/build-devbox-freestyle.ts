@@ -461,6 +461,7 @@ try {
         `test -s ${DEVBOX_DESKTOP_ENV_FILE}`,
         `ss -tln | grep -q ':${DEVBOX_DESKTOP_RFB_PORT} ' && ss -tln | grep -q ':${DEVBOX_DESKTOP_NOVNC_PORT} '`,
         `ss -tln | grep ':${DEVBOX_DESKTOP_RFB_PORT} ' | grep -q '127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}'`,
+        `ss -tln | grep ':${DEVBOX_DESKTOP_NOVNC_PORT} ' | grep -q '127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}'`,
         `curl -fsS http://127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc`,
         `pgrep -u ${WORK_USER} -x 'Xvnc|Xtigervnc' >/dev/null && pgrep -u ${WORK_USER} -x openbox >/dev/null && pgrep -u ${WORK_USER} -x tint2 >/dev/null && pgrep -u ${WORK_USER} -x vncconfig >/dev/null && pgrep -u ${WORK_USER} -f at-spi-bus-launcher >/dev/null`,
         `[ "$(pgrep -u ${WORK_USER} -f ${DEVBOX_DESKTOP_SUPERVISOR} | wc -l)" = 1 ]`,

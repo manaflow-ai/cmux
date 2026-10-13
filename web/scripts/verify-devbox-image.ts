@@ -181,7 +181,7 @@ const DAEMON_CHECKS: readonly string[] = [
 // The desktop layer (Freestyle bakes; /etc/cmux/image-stamp says "desktop"),
 // the contract in web/services/vms/images/desktop.ts: the cmux-desktop
 // systemd unit runs start-vnc.sh as the work user, RFB 5901 (hex 170D) is
-// loopback-only, noVNC answers on 6901 (hex 1AF5), the window manager, dock,
+// loopback-only, noVNC answers on loopback port 6901 (hex 1AF5), the window manager, dock,
 // clipboard helper and accessibility bus are up, the wallpaper is on the
 // root window, root reaches the display too, exactly one desktop supervisor
 // runs (systemd's), every login shell inherits DISPLAY from the published
@@ -208,8 +208,10 @@ const desktopChecks = (): readonly string[] => [
   // 5901 must be loopback-only: every listener on it is bound to 127.0.0.1 (0100007F) or ::1.
   `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_RFB_PORT)}$/ && $4 == "0A" && $2 !~ /^0100007F:/ && $2 !~ /^00000000000000000000000001000000:/ { bad=1 } END { exit bad }' /proc/net/tcp /proc/net/tcp6 && echo vnc-5901-loopback-only`,
   `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_NOVNC_PORT)}$/ && $4 == "0A" { found=1 } END { exit !found }' /proc/net/tcp /proc/net/tcp6 && echo novnc-6901-listening`,
+  // noVNC is exposed to the authenticated browser carrier over guest loopback,
+  // never as a second private-network ingress.
+  `awk '$2 ~ /:${hexPort(DEVBOX_DESKTOP_NOVNC_PORT)}$/ && $4 == "0A" && $2 !~ /^0100007F:/ { bad=1 } END { exit bad }' /proc/net/tcp && echo novnc-6901-loopback-only`,
   `curl -fsS http://127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc && echo novnc-6901-serves-client`,
-  `curl --noproxy '*' -g -fsS http://[::1]:${DEVBOX_DESKTOP_NOVNC_PORT}/ | grep -qi novnc && echo novnc-6901-serves-ipv6-client`,
   // start-vnc.sh runs whichever of Xvnc/Xtigervnc is on PATH; the process
   // name follows the invoked path (Ubuntu's Xvnc is a symlink to Xtigervnc).
   `pgrep -u ${DEVBOX_DESKTOP_USER} -x 'Xvnc|Xtigervnc' >/dev/null && pgrep -u ${DEVBOX_DESKTOP_USER} -x openbox >/dev/null && pgrep -u ${DEVBOX_DESKTOP_USER} -x tint2 >/dev/null && echo desktop-session-ok`,

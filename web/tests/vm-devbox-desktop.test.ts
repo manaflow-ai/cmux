@@ -186,7 +186,7 @@ describe("devbox desktop layer", () => {
     // The app's desktop port: the noVNC web client must answer on 6901.
     expect(await launchedWebsockifyArguments()).toEqual([
       "--web", "/usr/share/novnc", "--heartbeat", "30",
-      `[::]:${DEVBOX_DESKTOP_NOVNC_PORT}`, `127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}`,
+      `127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}`, `127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}`,
     ]);
     expect(dockerfile).toContain("ln -s vnc.html /usr/share/novnc/index.html");
     expect(freestyleBake).toContain("ln -s vnc.html /usr/share/novnc/index.html");
@@ -195,6 +195,7 @@ describe("devbox desktop layer", () => {
     expect(verify).toContain("hexPort(DEVBOX_DESKTOP_RFB_PORT)");
     expect(verify).toContain("hexPort(DEVBOX_DESKTOP_NOVNC_PORT)");
     expect(verify).toContain("vnc-5901-loopback-only");
+    expect(verify).toContain("novnc-6901-loopback-only");
     expect(DEVBOX_DESKTOP_RFB_PORT.toString(16).toUpperCase()).toBe("170D");
     expect(DEVBOX_DESKTOP_NOVNC_PORT.toString(16).toUpperCase()).toBe("1AF5");
   });
@@ -320,6 +321,7 @@ describe("devbox desktop layer", () => {
     expect(driver).toContain("freestyleDesktopHealCommand");
     expect(driver).toContain("systemctl start ${DEVBOX_DESKTOP_UNIT} || exit 1");
     expect(driver).toContain("[ -x ${DEVBOX_DESKTOP_START_SCRIPT} ] || exit 3");
+    expect(driver).toContain("127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}");
     expect(driver).not.toContain("sleep 1; done");
     expect(driver).toContain("devboxDesktopOpenUrl(address)");
   });

@@ -4,10 +4,12 @@
 # pins it): the desktop is reached on two fixed ports, and the Mac app
 # (CmuxTuiSnapshotParser.desktopPort), the CLI (cloudVMDesktopPort) and the
 # Freestyle driver's port-open heal depend on them:
-#   - RFB on 5901, loopback only, no VNC-level auth (the only ingress is the
-#     owner's private network; a VNC password would be a second prompt
+#   - RFB on 5901, loopback only, no VNC-level auth (websockify is the only
+#     process that can reach it; a VNC password would be a second prompt
 #     noVNC's autoconnect cannot answer).
-#   - noVNC web client via websockify on 6901, at `/`.
+#   - noVNC web client via websockify on 6901, at `/`, loopback-only. The
+#     authenticated cmux-tui browser carrier is the only path that forwards
+#     this listener to a local pane.
 # It runs as the work user `cmux` with HOME=/home/cmux and DISPLAY=:1
 # (cmux-desktop-boot under the cmux-desktop systemd unit on Freestyle, or
 # under cmux-devbox-boot in a container; a driver heal runs exactly the same
@@ -188,9 +190,11 @@ if ! mine -f cmux-desktop-resize-watch; then
   ' cmux-desktop-resize-watch >>"$LOG_DIR/resize-watch.log" 2>&1 &
 fi
 
-# noVNC uses a dual-stack listener so either private address can reach the desktop.
+# Keep noVNC on the guest loopback. The authenticated cmux-tui browser carrier
+# dials this address inside the workspace; no private-network peer gets a
+# direct screen connection.
 if ! listening 6901; then
-  websockify --web /usr/share/novnc --heartbeat 30 '[::]:6901' 127.0.0.1:5901 \
+  websockify --web /usr/share/novnc --heartbeat 30 '127.0.0.1:6901' 127.0.0.1:5901 \
     >>"$LOG_DIR/websockify.log" 2>&1 &
 fi
 

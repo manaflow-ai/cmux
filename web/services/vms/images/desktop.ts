@@ -8,7 +8,8 @@
  * with a tint2 dock, started and supervised as the work user by the
  * `cmux-desktop` systemd unit (desktop/start-vnc.sh, desktop/cmux-desktop-boot).
  * Two fixed ports carry it: RFB on 5901, loopback only and with no VNC-level
- * auth, and noVNC through websockify on 6901. The Mac app opens the noVNC page
+ * auth, and noVNC through a loopback-only websockify listener on 6901. The Mac
+ * app opens the noVNC page through the authenticated cmux-tui browser carrier
  * (`CmuxTuiSnapshotParser.desktopPort`, CLI `cloudVMDesktopPort`), so these
  * values are a contract with shipped clients, not tunables.
  */
