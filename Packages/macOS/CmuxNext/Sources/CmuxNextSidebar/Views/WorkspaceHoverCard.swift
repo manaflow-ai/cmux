@@ -134,6 +134,7 @@ final class WorkspaceHoverCardView: NSView {
         ageLabel.setContentHuggingPriority(.required, for: .horizontal)
         kindIcon.setContentHuggingPriority(.required, for: .horizontal)
         kindIcon.line = titleLabel
+        kindIcon.side = Self.iconSize
         activityLabel.font = Typography.body
         activityLabel.lineBreakMode = .byTruncatingTail
         resourceLabel.font = Typography.caption
@@ -146,7 +147,12 @@ final class WorkspaceHoverCardView: NSView {
         titleRow.alignment = .firstBaseline
         titleRow.spacing = Metrics.space2
         titleRow.setCustomSpacing(Metrics.space4, after: titleLabel)
-        activityRow.setViews([activity, activityLabel], in: .leading)
+        // The indicator's slot is a box that never hides, so a style that draws no glyph keeps the
+        // word on the text column.
+        let activitySlot = NSView()
+        activity.translatesAutoresizingMaskIntoConstraints = false
+        activitySlot.addSubview(activity)
+        activityRow.setViews([activitySlot, activityLabel], in: .leading)
         activityRow.orientation = .horizontal
         activityRow.alignment = .centerY
         activityRow.spacing = Metrics.space2
@@ -171,8 +177,12 @@ final class WorkspaceHoverCardView: NSView {
             titleRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
             kindIcon.widthAnchor.constraint(equalToConstant: Self.iconSize),
             kindIcon.heightAnchor.constraint(equalToConstant: Self.iconSize),
+            activitySlot.widthAnchor.constraint(equalToConstant: Self.iconSize),
+            activitySlot.heightAnchor.constraint(equalToConstant: Self.iconSize),
             activity.widthAnchor.constraint(equalToConstant: Self.iconSize),
             activity.heightAnchor.constraint(equalToConstant: Self.iconSize),
+            activity.centerXAnchor.constraint(equalTo: activitySlot.centerXAnchor),
+            activity.centerYAnchor.constraint(equalTo: activitySlot.centerYAnchor),
         ])
     }
 
@@ -197,7 +207,7 @@ final class WorkspaceHoverCardView: NSView {
         activity.configure(content.activity, style: content.activityStyle)
         let word = Strings.activity(content.activity)
         activityLabel.stringValue = word ?? ""
-        activityRow.isHidden = word == nil || !activity.showsGlyph
+        activityRow.isHidden = word == nil
         // The width the title wraps at (the panel sizes the card in one
         // pass): the row less its icon and the age.
         let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space4
@@ -278,9 +288,11 @@ extension WorkspaceHoverCardView {
 /// between its ascender and descender), so it stays with the name's first line when the name wraps.
 private final class LineIconView: NSImageView {
     weak var line: NSTextField?
+    /// The icon's height (its constraint), not `bounds`, which is zero before the first layout.
+    var side: CGFloat = 0
 
     override var firstBaselineOffsetFromTop: CGFloat {
         guard let font = line?.font else { return super.firstBaselineOffsetFromTop }
-        return bounds.height / 2 + (font.ascender + font.descender) / 2
+        return side / 2 + (font.ascender + font.descender) / 2
     }
 }

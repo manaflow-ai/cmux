@@ -95,8 +95,11 @@ def check_grid(shown, label):
         name = f"{label}: {glyph['kind']} glyph at ({x:.1f}, {y:.1f})"
         check(w >= MIN_GLYPH and h >= MIN_GLYPH, f"{name} is at least {MIN_GLYPH:g} pt ({w:.1f} x {h:.1f})")
         mid = y + h / 2
-        beside = [l for l in labels if l["frame"][0] >= x + w and abs(l["frame"][1] + l["frame"][3] / 2 - mid) <= TOLERANCE]
-        check(bool(beside), f"{name} has a label beside it on its line")
+        # The nearest text to its right on its line (a later label, the age, does not count).
+        right = sorted((l for l in labels if l["frame"][0] >= x + w and l["frame"][1] <= mid <= l["frame"][1] + l["frame"][3]),
+                       key=lambda l: l["frame"][0])
+        beside = right[:1] and abs(right[0]["frame"][1] + right[0]["frame"][3] / 2 - mid) <= TOLERANCE
+        check(bool(beside), f"{name} has a label beside it, centered on its line ({right[0]['text'] if right else 'none'})")
     columns = sorted({round(g["frame"][0], 1) for g in glyphs})
     check(len(columns) == 1, f"{label}: glyphs share one icon column (x = {columns})")
     # A text field's frame sits its 2 pt text inset outside the text.
