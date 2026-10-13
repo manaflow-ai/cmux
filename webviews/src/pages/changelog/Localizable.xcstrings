@@ -2501,138 +2501,6 @@
         }
       }
     },
-    "updates.card.noHighlights": {
-      "comment": "Updated card text when the update lists no highlights.",
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "See what changed in this version."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "اطّلع على ما تغيّر في هذا الإصدار."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Pogledajte šta je novo u ovoj verziji."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se, hvad der er ændret i denne version."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Sehen Sie, was sich in dieser Version geändert hat."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Mira qué cambió en esta versión."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Découvrez ce qui a changé dans cette version."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Scopri cosa è cambiato in questa versione."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "このバージョンの変更点を確認できます。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "មើលអ្វីដែលបានផ្លាស់ប្ដូរក្នុងកំណែនេះ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "이 버전에서 바뀐 점을 확인하세요."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Se hva som er endret i denne versjonen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Zobacz, co zmieniło się w tej wersji."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Veja o que mudou nesta versão."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Посмотрите, что изменилось в этой версии."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "ดูสิ่งที่เปลี่ยนแปลงในเวอร์ชันนี้"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Bu sürümde nelerin değiştiğini görün."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Перегляньте, що змінилося в цій версії."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Xem những thay đổi trong phiên bản này."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "查看此版本的变化。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "查看此版本的變更。"
-          }
-        }
-      }
-    },
     "updates.card.more": {
       "comment": "Count of further changes not listed; %@ is a number. Keep it short.",
       "extractionState": "manual",
@@ -2897,134 +2765,134 @@
         }
       }
     },
-    "updates.card.share": {
-      "comment": "Updated card quiet action: opens the Share cmux sheet.",
+    "updates.card.whatsNewInBuild": {
+      "comment": "Updated card text when the update lists no highlights.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Share cmux"
+            "value": "What's new in this build"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مشاركة cmux"
+            "value": "ما الجديد في هذا الإصدار"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Podijeli cmux"
+            "value": "Novo u ovoj verziji"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del cmux"
+            "value": "Nyheder i denne version"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux teilen"
+            "value": "Neu in diesem Build"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compartir cmux"
+            "value": "Novedades de esta compilación"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Partager cmux"
+            "value": "Nouveautés de cette version"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Condividi cmux"
+            "value": "Novità di questa build"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux を共有"
+            "value": "このビルドの新機能"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ចែករំលែក cmux"
+            "value": "អ្វីថ្មីក្នុងកំណែនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux 공유"
+            "value": "이 빌드의 새로운 점"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Del cmux"
+            "value": "Nytt i denne versjonen"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Udostępnij cmux"
+            "value": "Nowości w tej wersji"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Compartilhar cmux"
+            "value": "Novidades desta versão"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поделиться cmux"
+            "value": "Что нового в этой сборке"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แชร์ cmux"
+            "value": "มีอะไรใหม่ในบิลด์นี้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "cmux'u paylaş"
+            "value": "Bu derlemedeki yenilikler"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Поділитися cmux"
+            "value": "Що нового в цій збірці"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chia sẻ cmux"
+            "value": "Có gì mới trong bản dựng này"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "分享 cmux"
+            "value": "此构建的新内容"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "分享 cmux"
+            "value": "此建置的新內容"
           }
         }
       }

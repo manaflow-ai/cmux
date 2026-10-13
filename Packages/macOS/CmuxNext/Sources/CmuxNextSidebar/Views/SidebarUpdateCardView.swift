@@ -3,7 +3,8 @@ import CmuxNextDesign
 import QuartzCore
 
 /// The staged update card above the sidebar footer (UPDATE-CARD, Arc-style
-/// in cmux's colors): the theme's surface with a hairline border, "Update
+/// in cmux's colors): the composer's surface (`CardSurfaceView`, shared by
+/// every sidebar card), "Update
 /// Ready", the short version and date ("nightly 3845050 · Oct 13", whole at the
 /// sidebar's default width), the Automatic Updates checkbox and one full-width
 /// Restart to Update button (one click installs and relaunches; disabled,
@@ -17,6 +18,8 @@ final class SidebarUpdateCardView: NSView {
     /// "See all changes" (the button's accessibility action): the What's New page.
     var onOpenChanges: (() -> Void)?
     private(set) var card: SidebarUpdateCard?
+    /// The composer's surface, under everything else.
+    let surface = CardSurfaceView()
     private let titleLabel = NSTextField(labelWithString: "")
     /// The short version and build date.
     let detailLabel = NSTextField(labelWithString: "")
@@ -74,8 +77,7 @@ final class SidebarUpdateCardView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
-        layer?.borderWidth = 1
+        addSubview(surface)
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.maximumNumberOfLines = 1
         detailLabel.lineBreakMode = .byTruncatingTail
@@ -147,7 +149,8 @@ final class SidebarUpdateCardView: NSView {
     override func layout() {
         super.layout()
         let b = bounds, pad = Self.padding
-        layer?.cornerRadius = Metrics.space3
+        surface.frame = b
+        surface.cornerRadius = Metrics.space3
         titleLabel.font = Self.titleFont
         let width = max(0, b.width - 2 * pad)
         let th = ceil(Self.titleFont.boundingRectForFont.height)
@@ -166,8 +169,6 @@ final class SidebarUpdateCardView: NSView {
 
     override func updateLayer() {
         performWithTheme {
-            layer?.backgroundColor = Palette.elevatedBackground.cgColor
-            layer?.borderColor = Palette.separator.cgColor
             titleLabel.textColor = Palette.textPrimary
             detailLabel.textColor = Palette.textSecondary
         }

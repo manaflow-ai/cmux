@@ -1,12 +1,15 @@
 /* The Updated card and the update-ready highlights (cx-urd.61): the changelog page's tokens and
    type steps, nested radii, a hairline instead of a shadow. The host draws the surface's material
    (glass or opaque) around them; these paint only the content and the elevated fill. */
+/* The composer's surface (--acpmux-composer-bg/-edge, agent-session/acpmux/styles.css), as every
+   sidebar card's (CardSurfaceView in Swift, Leo 2026-10-13): the text at 13% over the wallpaper
+   (this page is transparent), a 0.5px edge at 18%, no shadow. Opaque under Reduce Transparency. */
 .wn-card {
   position: relative;
   padding: 10px 12px;
   border-radius: 12px;
-  background: var(--page-elevated);
-  box-shadow: 0 0 0 1px var(--page-separator);
+  background: color-mix(in srgb, var(--page-text) 13%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--page-text) 18%, transparent);
   color: var(--page-text);
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
@@ -46,9 +49,9 @@
   overflow: hidden;
 }
 .wn-card-line { color: var(--page-text-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
-/* The button and Share keep one line each; in a narrow sidebar Share moves under the button
-   (nxdog93: "See What's New" wrapped onto two lines in a 160 pt sidebar, cx-7rone). */
-.wn-card-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px 8px; margin-top: 10px; }
+/* The button keeps one line (nxdog93: "See What's New" wrapped onto two lines in a 160 pt
+   sidebar, cx-7rone). */
+.wn-card-actions { display: flex; align-items: center; margin-top: 10px; }
 /* Self-contained: the sidebar's surface document loads this file, not the page's styles.css. */
 .wn-card-primary {
   height: 24px;
@@ -66,16 +69,6 @@
   cursor: default;
 }
 .wn-card-primary:hover { background: var(--page-selection); }
-.wn-card-quiet {
-  white-space: nowrap;
-  border: 0;
-  padding: 0;
-  background: transparent;
-  color: var(--page-text-3);
-  font-size: var(--text-detail);
-  cursor: default;
-}
-.wn-card-quiet:hover { color: var(--page-text); }
 
 .wn-pop {
   width: 300px;
@@ -104,4 +97,7 @@
   cursor: default;
 }
 .wn-pop-all:hover { text-decoration: underline; text-underline-offset: 3px; }
-:is(.wn-card-close, .wn-card-primary, .wn-card-quiet, .wn-pop-all):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+:is(.wn-card-close, .wn-card-primary, .wn-pop-all):focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: 2px; }
+@media (prefers-reduced-transparency: reduce) {
+  .wn-card { background: var(--page-elevated); box-shadow: inset 0 0 0 1px var(--page-separator); }
+}

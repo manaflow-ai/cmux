@@ -20,7 +20,6 @@ export const SurfaceOps = {
   size: "cmux.changelog.surface.size",
   openChangelog: "cmux.changelog.surface.openChangelog",
   dismiss: "cmux.changelog.surface.dismiss",
-  share: "cmux.changelog.surface.share",
   stream: "cmux.changelog.surface.changes",
 } as const;
 
@@ -39,7 +38,6 @@ export function mountUpdateSurface(root: HTMLElement, kind: SurfaceKind, client:
     kind === "updated"
       ? {
           openChangelog: () => call(SurfaceOps.openChangelog),
-          share: () => call(SurfaceOps.share),
           dismiss: () => call(SurfaceOps.dismiss),
         }
       : { openChangelog: () => call(SurfaceOps.openChangelog) };

@@ -65,19 +65,18 @@ enum SidebarCardFeed {
         case .noticeAction(let card, let action):
             noticeAction(card, action, updater: services.updater, open: { openUpdateLink($0, services: services) })
         case .dismissNotice(let card): dismissNotice(card, updater: services.updater)
-        case .openWhatsNew, .shareCmux, .dismissUpdated: route(intent, registry: services.registry, updater: services.updater)
+        case .openWhatsNew, .dismissUpdated: route(intent, registry: services.registry, updater: services.updater)
         default: break
         }
     }
 
-    /// The "cmux Updated!" card (cx-7py7): its rows run the palette's own
-    /// actions as the user's (`updates.whatsNew` opens the page and marks
-    /// this version seen; `app.shareCmux` opens the modal); its x marks this
-    /// version seen, so the card and the What's New dot go together.
+    /// The "cmux Updated!" card (cx-7py7): its button runs the palette's
+    /// `updates.whatsNew` as the user's (it opens the page and marks this
+    /// version seen); its x marks this version seen, so the card and the
+    /// What's New dot go together. Share cmux is the palette's (`app.shareCmux`).
     static func route(_ intent: SidebarIntent, registry: ActionRegistry, updater: UpdaterService) {
         switch intent {
         case .openWhatsNew: _ = registry.perform("updates.whatsNew", invocation: ActionInvocation(origin: .user))
-        case .shareCmux: _ = registry.perform("app.shareCmux", invocation: ActionInvocation(origin: .user))
         case .dismissUpdated: updater.whatsNew.dismissUpdated()
         default: break
         }
@@ -88,7 +87,7 @@ enum SidebarCardFeed {
     static func updatedCard(_ updater: UpdaterService) -> SidebarUpdatedCard? {
         guard updater.readyCard == nil, updater.card == nil, updater.testFeedURL == nil, updater.whatsNew.showsUpdatedCard else { return nil }
         return SidebarUpdatedCard(title: UpdaterService.updatedCardTitle, whatsNewTitle: UpdaterService.updatedCardWhatsNewTitle,
-                                  shareTitle: UpdaterService.updatedCardShareTitle, dismissLabel: UpdaterService.updatedCardDismissLabel)
+                                  dismissLabel: UpdaterService.updatedCardDismissLabel)
     }
 
     /// A link in the update card's popover (a pull request, the release

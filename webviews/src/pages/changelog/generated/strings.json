@@ -22,10 +22,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Close",
     "updates.card.more": "+%@ more",
-    "updates.card.noHighlights": "See what changed in this version.",
     "updates.card.seeWhatsNew": "See What's New",
-    "updates.card.share": "Share cmux",
     "updates.card.updatedTo": "Updated to %@",
+    "updates.card.whatsNewInBuild": "What's new in this build",
     "updates.popover.seeAll": "See all changes"
   },
   "ar": {
@@ -51,10 +50,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "إغلاق",
     "updates.card.more": "+%@ أخرى",
-    "updates.card.noHighlights": "اطّلع على ما تغيّر في هذا الإصدار.",
     "updates.card.seeWhatsNew": "اطّلع على الجديد",
-    "updates.card.share": "مشاركة cmux",
     "updates.card.updatedTo": "تم التحديث إلى %@",
+    "updates.card.whatsNewInBuild": "ما الجديد في هذا الإصدار",
     "updates.popover.seeAll": "عرض كل التغييرات"
   },
   "bs": {
@@ -80,10 +78,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Zatvori",
     "updates.card.more": "+%@ još",
-    "updates.card.noHighlights": "Pogledajte šta je novo u ovoj verziji.",
     "updates.card.seeWhatsNew": "Pogledajte novosti",
-    "updates.card.share": "Podijeli cmux",
     "updates.card.updatedTo": "Ažurirano na %@",
+    "updates.card.whatsNewInBuild": "Novo u ovoj verziji",
     "updates.popover.seeAll": "Pogledajte sve promjene"
   },
   "da": {
@@ -109,10 +106,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Luk",
     "updates.card.more": "+%@ mere",
-    "updates.card.noHighlights": "Se, hvad der er ændret i denne version.",
     "updates.card.seeWhatsNew": "Se nyheder",
-    "updates.card.share": "Del cmux",
     "updates.card.updatedTo": "Opdateret til %@",
+    "updates.card.whatsNewInBuild": "Nyheder i denne version",
     "updates.popover.seeAll": "Se alle ændringer"
   },
   "de": {
@@ -138,10 +134,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Schließen",
     "updates.card.more": "+%@ weitere",
-    "updates.card.noHighlights": "Sehen Sie, was sich in dieser Version geändert hat.",
     "updates.card.seeWhatsNew": "Neuerungen ansehen",
-    "updates.card.share": "cmux teilen",
     "updates.card.updatedTo": "Aktualisiert auf %@",
+    "updates.card.whatsNewInBuild": "Neu in diesem Build",
     "updates.popover.seeAll": "Alle Änderungen ansehen"
   },
   "es": {
@@ -167,10 +162,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Cerrar",
     "updates.card.more": "+%@ más",
-    "updates.card.noHighlights": "Mira qué cambió en esta versión.",
     "updates.card.seeWhatsNew": "Ver novedades",
-    "updates.card.share": "Compartir cmux",
     "updates.card.updatedTo": "Actualizado a %@",
+    "updates.card.whatsNewInBuild": "Novedades de esta compilación",
     "updates.popover.seeAll": "Ver todos los cambios"
   },
   "fr": {
@@ -196,10 +190,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Fermer",
     "updates.card.more": "+%@ autres",
-    "updates.card.noHighlights": "Découvrez ce qui a changé dans cette version.",
     "updates.card.seeWhatsNew": "Voir les nouveautés",
-    "updates.card.share": "Partager cmux",
     "updates.card.updatedTo": "Mis à jour vers %@",
+    "updates.card.whatsNewInBuild": "Nouveautés de cette version",
     "updates.popover.seeAll": "Voir toutes les modifications"
   },
   "it": {
@@ -225,10 +218,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Chiudi",
     "updates.card.more": "+%@ altre",
-    "updates.card.noHighlights": "Scopri cosa è cambiato in questa versione.",
     "updates.card.seeWhatsNew": "Scopri le novità",
-    "updates.card.share": "Condividi cmux",
     "updates.card.updatedTo": "Aggiornato a %@",
+    "updates.card.whatsNewInBuild": "Novità di questa build",
     "updates.popover.seeAll": "Vedi tutte le modifiche"
   },
   "ja": {
@@ -254,10 +246,9 @@
     "changelog.page.versions": "バージョン",
     "updates.card.dismiss": "閉じる",
     "updates.card.more": "ほか %@ 件",
-    "updates.card.noHighlights": "このバージョンの変更点を確認できます。",
     "updates.card.seeWhatsNew": "新機能を見る",
-    "updates.card.share": "cmux を共有",
     "updates.card.updatedTo": "%@ にアップデートしました",
+    "updates.card.whatsNewInBuild": "このビルドの新機能",
     "updates.popover.seeAll": "すべての変更を見る"
   },
   "km": {
@@ -283,10 +274,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "បិទ",
     "updates.card.more": "+%@ ទៀត",
-    "updates.card.noHighlights": "មើលអ្វីដែលបានផ្លាស់ប្ដូរក្នុងកំណែនេះ។",
     "updates.card.seeWhatsNew": "មើលអ្វីដែលថ្មី",
-    "updates.card.share": "ចែករំលែក cmux",
     "updates.card.updatedTo": "បានធ្វើបច្ចុប្បន្នភាពទៅ %@",
+    "updates.card.whatsNewInBuild": "អ្វីថ្មីក្នុងកំណែនេះ",
     "updates.popover.seeAll": "មើលការផ្លាស់ប្ដូរទាំងអស់"
   },
   "ko": {
@@ -312,10 +302,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "닫기",
     "updates.card.more": "외 %@개",
-    "updates.card.noHighlights": "이 버전에서 바뀐 점을 확인하세요.",
     "updates.card.seeWhatsNew": "새로운 기능 보기",
-    "updates.card.share": "cmux 공유",
     "updates.card.updatedTo": "%@(으)로 업데이트됨",
+    "updates.card.whatsNewInBuild": "이 빌드의 새로운 점",
     "updates.popover.seeAll": "모든 변경 사항 보기"
   },
   "nb": {
@@ -341,10 +330,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Lukk",
     "updates.card.more": "+%@ til",
-    "updates.card.noHighlights": "Se hva som er endret i denne versjonen.",
     "updates.card.seeWhatsNew": "Se hva som er nytt",
-    "updates.card.share": "Del cmux",
     "updates.card.updatedTo": "Oppdatert til %@",
+    "updates.card.whatsNewInBuild": "Nytt i denne versjonen",
     "updates.popover.seeAll": "Se alle endringer"
   },
   "pl": {
@@ -370,10 +358,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Zamknij",
     "updates.card.more": "+%@ więcej",
-    "updates.card.noHighlights": "Zobacz, co zmieniło się w tej wersji.",
     "updates.card.seeWhatsNew": "Zobacz nowości",
-    "updates.card.share": "Udostępnij cmux",
     "updates.card.updatedTo": "Zaktualizowano do %@",
+    "updates.card.whatsNewInBuild": "Nowości w tej wersji",
     "updates.popover.seeAll": "Zobacz wszystkie zmiany"
   },
   "pt-BR": {
@@ -399,10 +386,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Fechar",
     "updates.card.more": "+%@ mais",
-    "updates.card.noHighlights": "Veja o que mudou nesta versão.",
     "updates.card.seeWhatsNew": "Ver novidades",
-    "updates.card.share": "Compartilhar cmux",
     "updates.card.updatedTo": "Atualizado para %@",
+    "updates.card.whatsNewInBuild": "Novidades desta versão",
     "updates.popover.seeAll": "Ver todas as alterações"
   },
   "ru": {
@@ -428,10 +414,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Закрыть",
     "updates.card.more": "ещё %@",
-    "updates.card.noHighlights": "Посмотрите, что изменилось в этой версии.",
     "updates.card.seeWhatsNew": "Что нового",
-    "updates.card.share": "Поделиться cmux",
     "updates.card.updatedTo": "Обновлено до %@",
+    "updates.card.whatsNewInBuild": "Что нового в этой сборке",
     "updates.popover.seeAll": "Все изменения"
   },
   "th": {
@@ -457,10 +442,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "ปิด",
     "updates.card.more": "อีก %@",
-    "updates.card.noHighlights": "ดูสิ่งที่เปลี่ยนแปลงในเวอร์ชันนี้",
     "updates.card.seeWhatsNew": "ดูสิ่งใหม่",
-    "updates.card.share": "แชร์ cmux",
     "updates.card.updatedTo": "อัปเดตเป็น %@ แล้ว",
+    "updates.card.whatsNewInBuild": "มีอะไรใหม่ในบิลด์นี้",
     "updates.popover.seeAll": "ดูการเปลี่ยนแปลงทั้งหมด"
   },
   "tr": {
@@ -486,10 +470,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Kapat",
     "updates.card.more": "+%@ daha",
-    "updates.card.noHighlights": "Bu sürümde nelerin değiştiğini görün.",
     "updates.card.seeWhatsNew": "Yenilikleri gör",
-    "updates.card.share": "cmux'u paylaş",
     "updates.card.updatedTo": "%@ sürümüne güncellendi",
+    "updates.card.whatsNewInBuild": "Bu derlemedeki yenilikler",
     "updates.popover.seeAll": "Tüm değişiklikleri gör"
   },
   "uk": {
@@ -515,10 +498,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Закрити",
     "updates.card.more": "ще %@",
-    "updates.card.noHighlights": "Перегляньте, що змінилося в цій версії.",
     "updates.card.seeWhatsNew": "Що нового",
-    "updates.card.share": "Поділитися cmux",
     "updates.card.updatedTo": "Оновлено до %@",
+    "updates.card.whatsNewInBuild": "Що нового в цій збірці",
     "updates.popover.seeAll": "Усі зміни"
   },
   "vi": {
@@ -544,10 +526,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "Đóng",
     "updates.card.more": "+%@ nữa",
-    "updates.card.noHighlights": "Xem những thay đổi trong phiên bản này.",
     "updates.card.seeWhatsNew": "Xem tính năng mới",
-    "updates.card.share": "Chia sẻ cmux",
     "updates.card.updatedTo": "Đã cập nhật lên %@",
+    "updates.card.whatsNewInBuild": "Có gì mới trong bản dựng này",
     "updates.popover.seeAll": "Xem tất cả thay đổi"
   },
   "zh-Hans": {
@@ -573,10 +554,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "关闭",
     "updates.card.more": "另外 %@ 项",
-    "updates.card.noHighlights": "查看此版本的变化。",
     "updates.card.seeWhatsNew": "查看新功能",
-    "updates.card.share": "分享 cmux",
     "updates.card.updatedTo": "已更新到 %@",
+    "updates.card.whatsNewInBuild": "此构建的新内容",
     "updates.popover.seeAll": "查看所有更改"
   },
   "zh-Hant": {
@@ -602,10 +582,9 @@
     "changelog.page.versions": "Versions",
     "updates.card.dismiss": "關閉",
     "updates.card.more": "另外 %@ 項",
-    "updates.card.noHighlights": "查看此版本的變更。",
     "updates.card.seeWhatsNew": "查看新功能",
-    "updates.card.share": "分享 cmux",
     "updates.card.updatedTo": "已更新至 %@",
+    "updates.card.whatsNewInBuild": "此建置的新內容",
     "updates.popover.seeAll": "查看所有變更"
   }
 }

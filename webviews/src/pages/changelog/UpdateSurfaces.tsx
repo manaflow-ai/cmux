@@ -1,8 +1,9 @@
 // The update surfaces of the What's New system (cx-urd.61, Lawrence picked card A and popover A,
 // 2026-10-11), in the same tokens and type steps as the changelog page:
-//  - UpdatedCard (after an update, the sidebar's bottom card slot): the tip card's shape, a quiet
-//    eyebrow with the new version, the update's lead change as its headline, how many more
-//    changes came with it, one button, and Share as quiet text.
+//  - UpdatedCard (after an update, the sidebar's bottom card slot): the composer's surface, as every
+//    sidebar card (Leo 2026-10-13), a quiet eyebrow with the short version ("Updated to nightly
+//    3845050"), the update's lead change as its headline (else "What's new in this build"), how
+//    many more changes came with it, and one button. Share cmux is the palette's (app.shareCmux).
 //  - UpdateReadyHighlights (hovering the staged "Restart to Update" card): only what the card lacks
 //    (Leo 2026-10-13; the card has Update Ready, the short version and the date): the full build,
 //    the top three changes numbered, each a title and one line, and "See all changes", once.
@@ -10,6 +11,13 @@
 import { useId } from "react";
 import type { Strings } from "../shared/i18n";
 import type { UpdateHighlights, UpdateSurfaceActions } from "./updateHighlights";
+
+/** "1.0.0-nightly.3845050428001" reads "nightly 3845050", as the native Update Ready card
+ * (UpdateChangelog.cardVersion): every nightly is 1.0.0. Any other version reads as itself. */
+export function cardVersion(version: string): string {
+  const match = /^[^-]+-nightly\.(\d+)$/.exec(version);
+  return match ? `nightly ${match[1]!.slice(0, 7)}` : version;
+}
 
 export function UpdatedCard({
   data,
@@ -26,7 +34,7 @@ export function UpdatedCard({
   return (
     <section className="wn-card" aria-labelledby={titleId}>
       <div className="wn-card-eyebrow" id={titleId}>
-        {strings.format("updates.card.updatedTo", data.version)}
+        {strings.format("updates.card.updatedTo", cardVersion(data.version))}
       </div>
       {actions.dismiss && (
         <button
@@ -41,17 +49,12 @@ export function UpdatedCard({
           </svg>
         </button>
       )}
-      <div className="wn-card-headline">{lead ? lead.title : strings.t("updates.card.noHighlights")}</div>
+      <div className="wn-card-headline">{lead ? lead.title : strings.t("updates.card.whatsNewInBuild")}</div>
       {lead && more > 0 && <div className="wn-card-line">{strings.format("updates.card.more", String(more))}</div>}
       <div className="wn-card-actions">
         <button type="button" className="wn-card-primary" onClick={actions.openChangelog}>
           {strings.t("updates.card.seeWhatsNew")}
         </button>
-        {actions.share && (
-          <button type="button" className="wn-card-quiet" onClick={actions.share}>
-            {strings.t("updates.card.share")}
-          </button>
-        )}
       </div>
     </section>
   );

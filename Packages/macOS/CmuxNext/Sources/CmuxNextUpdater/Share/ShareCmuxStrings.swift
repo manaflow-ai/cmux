@@ -5,7 +5,6 @@ import Foundation
 nonisolated enum ShareCmuxStrings {
     static var cardTitle: String { UpdaterStrings.text("updater.updated.title", "cmux Updated!") }
     static var cardWhatsNew: String { UpdaterStrings.text("updater.updated.whatsNew", "See What's New") }
-    static var cardShare: String { UpdaterStrings.text("updater.updated.share", "Share cmux") }
     static var cardDismiss: String { UpdaterStrings.text("updater.updated.dismiss", "Hide Until the Next Update") }
 
     static var title: String { UpdaterStrings.text("share.title", "Share cmux with a Friend") }
@@ -23,7 +22,6 @@ extension UpdaterService {
     /// The "cmux Updated!" card's text (the App fills `SidebarUpdatedCard`).
     public static var updatedCardTitle: String { ShareCmuxStrings.cardTitle }
     public static var updatedCardWhatsNewTitle: String { ShareCmuxStrings.cardWhatsNew }
-    public static var updatedCardShareTitle: String { ShareCmuxStrings.cardShare }
     /// The x's tooltip and VoiceOver label.
     public static var updatedCardDismissLabel: String { ShareCmuxStrings.cardDismiss }
 }
