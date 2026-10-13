@@ -568,14 +568,18 @@ custom popover. Alerts follow `claude-04-new-session-alert`: title, body, two bu
 
 ### 5.2 Welcome (signed out)
 
-No multi-page carousel and no feature copy: like ChatGPT (centered mark/wordmark over the
-sign-in stack) and Claude (wordmark and one headline above the buttons), the screen is the mark,
-one line and the buttons. Layout on `bg`:
+No carousel and no feature copy. The structure follows Claude's welcome
+(`verify/login-claude-reference.md`): a small brand lockup at the top, one illustration and one
+serif line in the middle, the sign-in stack at the bottom. Layout on `bg`:
 
-- Hero, centered in the space above the button stack: the cmux chevron, 60 pt, filled with the
-  app icon's gradient (`#06CDFE` → `#2AA0F9` → `#5170F3`, leading to trailing, sampled from
-  `AppIcon.icon`) with a soft `#2AA0F9` glow (55% dark / 30% light). 30 pt below it, centered
-  `heroTitle` `label`: "Your Macs, in your pocket." Nothing else.
+- Lockup, centered under the status bar (6 pt): the cmux chevron, 22 pt, filled with the app
+  icon's gradient (`#06CDFE` → `#2AA0F9` → `#5170F3`, leading to trailing, sampled from
+  `AppIcon.icon`), 7 pt gap, "cmux" in `welcomeWordmark` (`title2` semibold) `label`.
+- Hero, centered in the space between the lockup and the buttons: the illustration (a Mac and an
+  iPhone drawn as one 3.3 pt round-capped `label` line, 291 x 233 pt), a gradient `>_` prompt on
+  the Mac's screen and the gradient chevron (30 pt, soft `#2AA0F9` glow) on the phone's screen.
+  26 pt below it, centered `welcomeTitle` (`title`, serif, regular) `label`: "Your Macs, in your
+  pocket."
 - Bottom stack, 20 pt margins, 10 pt spacing, all 52 h capsules (ChatGPT's order, Apple first and
   no smaller than the others, as the HIG requires):
   1. "Continue with Apple": solid `accent` (white in dark, black in light), `onAccent` text.
@@ -585,13 +589,28 @@ one line and the buttons. Layout on `bg`:
   4. "Continue with email": same style, `envelope` symbol.
 - Footer `caption2` `label3`, centered: "By continuing, you agree to the Terms and Privacy
   Policy." with the two links.
-- Cold-launch intro (Reduce Motion: the launch mark crossfades into the hero mark over `snap`,
-  everything else fades): the mark starts at the launch screen's size and center, then after
-  0.12 s glides up into the hero slot (spring 0.7 s, no bounce) while scaling 72 → 60 and taking
-  the gradient and glow. The headline fades in, un-blurs (6 → 0) and rises 10 pt with `gentle`
-  0.22 s in; the buttons fade in and rise 12 pt with `snappy`, starting 0.3 s in, 50 ms apart;
-  the footer fades in at 0.45 s. Afterwards the glow breathes slowly (2.8 s ease in-out,
-  autoreversing), the only idle motion. After sign-out Welcome just crossfades in, settled.
+- Cold-launch intro, about 5 s, one clock (`t` from the handoff; it advances with rendered frames,
+  each step capped at 1/30 s, so a stalled main thread pauses it instead of skipping it):
+  - 0.04-0.68 s: the launch mark (72 pt, centered, `label`) glides into the lockup slot and
+    shrinks to 22 pt (ease-out quint), taking the gradient over 0.12-0.6 s. "cmux" fades in and
+    slides 8 pt right over 0.3-0.85 s.
+  - 0.08-0.5 s: the headline fades in, un-blurs 8 → 0 and rises 8 pt. 0.12-0.65 s: the buttons
+    fade in and rise 14 pt, 45 ms apart; the footer fades in over 0.35-0.75 s. Buttons work from
+    their first visible frame; tapping one mid-intro does not stop the intro.
+  - 0.3-1.55 s: the Mac is drawn (stroke trim, ease in-out); 1.05-2.0 s the phone; 1.55-1.95 s
+    the prompt.
+  - 1.95-3.3 s: a network of gradient nodes grows from the prompt over the gap to the phone,
+    each edge growing in 0.25-0.35 s and each node popping (ease-out back) as its edge arrives.
+    3.1-4.2 s: the nodes sway (3.6 pt). 4.0-4.7 s: they fold into the phone's screen, farther
+    nodes first, and fade.
+  - 4.4-5.15 s: the chevron blooms on the phone (scale 0.25 → 1 with overshoot) and its glow comes
+    up. The intro is settled at 5.2 s and the timeline stops.
+  - Idle (Claude's welcome has one idle event): 4 s after settling and then every 9 s, three
+    small dots run along the network's path from the Mac to the phone (1.35 s) and the chevron
+    beats (scale 1.09, glow up). Nothing else moves.
+  - Plays once per process. After sign-out Welcome crossfades in, settled.
+  - Reduce Motion: the launch mark crossfades into the settled screen over 0.35 s; no idle
+    pulse.
 
 ### 5.3 OAuth (Apple, Google, GitHub)
 
@@ -1197,8 +1216,8 @@ Every transition in the app. "System" means do not customize.
 | Transition | Motion | Notes |
 | --- | --- | --- |
 | Launch → first screen | Mark scale 1 → 0.92 + fade (`snap`); destination fade in (`gentle`) | 5.1 |
-| Welcome buttons appear | Fade + rise 12 pt, `snappy`, 50 ms stagger | 5.2 |
-| Welcome hero loop | Typing at 35 chars/s, 6 s loop | Static under Reduce Motion |
+| Welcome intro | One ~5 s choreography: lockup glide, text and buttons in by 0.65 s, illustration drawn, network grows and folds into the chevron | 5.2; crossfade under Reduce Motion |
+| Welcome idle | Sync pulse along the network path, chevron beat, every 9 s | 5.2; off under Reduce Motion |
 | Onboarding step push | System navigation push | |
 | Email code step | System push inside the sheet | |
 | Code boxes invalid | `shake` + `.error` | |
