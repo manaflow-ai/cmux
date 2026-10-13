@@ -5,8 +5,14 @@ public import AppKit
 /// theme: dialog fields and Home's sheet and settings fields. While its field edits, the hairline
 /// is the theme's focus ring (`Palette.focusRing`); a click anywhere in the box, padding included,
 /// gives the field the keyboard. Callers set its width; it sets its own height.
+/// Without chrome (`drawsChrome` false) it is the bare themed field, for a caller that draws its
+/// own container (a row, a capsule search, a filled reply box).
 public final class ThemedFieldBox: NSView {
     public let field: NSTextField
+    /// The field fill and hairline; false leaves them to the caller's container.
+    public let drawsChrome: Bool
+    /// Called with true when the field takes the keyboard and false when its edit ends.
+    public var onEditingChange: ((Bool) -> Void)?
     private var editing = false
     private var heightConstraint: NSLayoutConstraint?
 
@@ -16,8 +22,9 @@ public final class ThemedFieldBox: NSView {
         set { if heightConstraint?.constant != newValue { heightConstraint?.constant = newValue } }
     }
 
-    public init(field: NSTextField, height: CGFloat) {
+    public init(field: NSTextField, height: CGFloat, drawsChrome: Bool = true) {
         self.field = field
+        self.drawsChrome = drawsChrome
         super.init(frame: .zero)
         field.isBezeled = false
         field.isBordered = false
@@ -30,20 +37,21 @@ public final class ThemedFieldBox: NSView {
         wantsLayer = true
         layer?.cornerRadius = Metrics.itemCornerRadius
         layer?.cornerCurve = .continuous
-        layer?.borderWidth = Metrics.dividerThickness
+        layer?.borderWidth = drawsChrome ? Metrics.dividerThickness : 0
         translatesAutoresizingMaskIntoConstraints = false
         addSubview(field)
         (field as? any ThemedTextInput)?.onEditingChange = { [weak self] editing in
             guard let self else { return }
             self.editing = editing
             applyTheme()
+            onEditingChange?(editing)
         }
         let heightConstraint = heightAnchor.constraint(equalToConstant: height)
         self.heightConstraint = heightConstraint
         NSLayoutConstraint.activate([
             heightConstraint,
-            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.space2),
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.space2),
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: drawsChrome ? Metrics.space2 : 0),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: drawsChrome ? -Metrics.space2 : 0),
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         applyTheme()
@@ -71,6 +79,7 @@ public final class ThemedFieldBox: NSView {
     }
 
     private func applyTheme() {
+        guard drawsChrome else { return }
         performWithTheme {
             layer?.backgroundColor = Palette.chromeBackground.cgColor
             layer?.borderColor = (editing ? Palette.focusRing : Palette.separator).cgColor
