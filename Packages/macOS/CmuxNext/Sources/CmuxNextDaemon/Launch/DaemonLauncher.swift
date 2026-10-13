@@ -51,13 +51,20 @@ public struct DaemonLauncher: Sendable {
         /// on a loaded machine and start an owner that never reaps. An
         /// external binary (`CMUX_NEXT_TUI_BIN`) is still probed.
         public var binaryIsBundled: Bool
+        /// The app's page origin (`cmux-page://cmux.home-channels`): an owner `ensure` spawns opens
+        /// its loopback WebSocket listener for the app's pages (`--ws-loopback`, which mints the
+        /// credential into a 0600 file next to the socket) and admits this origin. Nil: no listener.
+        /// Only the bundled binary gets it (an external one may lack the option).
+        public var webSocketPageOrigin: String?
 
         public init(binary: URL, session: String, stateDirectory: URL? = nil, configFile: URL? = nil,
                     runtimeBase: URL = DaemonLauncher.userTemporaryDirectory(),
                     terminalReapGraceSeconds: UInt32 = 30, rememberedSocket: String? = nil,
-                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false) {
+                    installKey: FrontendInstallKey? = nil, binaryIsBundled: Bool = false,
+                    webSocketPageOrigin: String? = nil) {
             self.binary = binary
             self.binaryIsBundled = binaryIsBundled
+            self.webSocketPageOrigin = webSocketPageOrigin
             self.session = session
             self.stateDirectory = stateDirectory
             self.configFile = configFile
@@ -132,6 +139,7 @@ public struct DaemonLauncher: Sendable {
         bundleID: String?,
         terminalEnvironment: [String: String],
         daemonEnvironment: [String: String] = [:],
+        webSocketPageOrigin: String? = nil,
         bundle: Bundle = .main,
         processEnvironment: [String: String] = ProcessInfo.processInfo.environment,
         socketMemory: DaemonSocketMemory = DaemonSocketMemory(),
@@ -146,7 +154,8 @@ public struct DaemonLauncher: Sendable {
         let configuration = Configuration(binary: binary, session: session, stateDirectory: stateDirectory,
                                           rememberedSocket: socketMemory.socket(session: session),
                                           installKey: keyStore?.loadOrCreate(),
-                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle))
+                                          binaryIsBundled: isBundledBinary(binary, bundle: bundle),
+                                          webSocketPageOrigin: webSocketPageOrigin)
         var overrides = terminalEnvironment
         if let stateDirectory { overrides["CMUX_TUI_STATE_DIR"] = stateDirectory.path }
         // A terminal the daemon starts with no caller env gets this env; its
@@ -349,6 +358,7 @@ public struct DaemonLauncher: Sendable {
             + (reapGrace ? ["--terminal-reap-grace-seconds", String(configuration.terminalReapGraceSeconds)] : [])
             + (configuration.installKey == nil ? [] : ["--install-key-stdin"])
             + (progress ? ["--restore-progress"] : [])
+            + (configuration.binaryIsBundled ? configuration.webSocketPageOrigin.map { ["--ws-loopback", "--ws-allow-origin", $0] } ?? [] : [])
     }
 
     /// `server status`: the running owner, or nil when none runs (or the
