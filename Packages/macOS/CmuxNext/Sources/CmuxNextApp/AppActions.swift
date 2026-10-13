@@ -130,7 +130,11 @@ enum AppActions {
         registry.bind("quitKeepSessions") { services.quit.requestQuit(.explicit(.keep)) }
         registry.bind("quitEndSessions") { services.quit.requestQuit(.explicit(.endKeepLayout)) }
         registry.bind("quitEndEverything") { services.quit.requestQuit(.explicit(.endEverything)) }
-        registry.bind("newWindow") { services.windows.newWindow() }
+        // Keys typed after Cmd-Shift-N wait for the new window's New Tab field (cx-kql5h).
+        registry.bind("newWindow") {
+            let keys = services.keyRouter.newTabInputCoordinator.beginIncoming(in: services.windows.active?.window, followsNewWindow: true)
+            services.windows.newWindow(inputToken: keys)
+        }
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
             services.windows.active?.window?.performClose(nil)

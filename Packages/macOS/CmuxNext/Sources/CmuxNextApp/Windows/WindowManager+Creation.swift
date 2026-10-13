@@ -42,9 +42,22 @@ extension WindowManager {
     /// New window with a new workspace. Returns the window id right away;
     /// the window opens once the daemon reports the workspace.
     @discardableResult
-    func newWindow(frame: CGRect? = nil) -> String {
+    /// `inputToken`: the key hold of the Cmd-Shift-N that asked (NewTabInputCoordinator); the new
+    /// workspace's first New Tab page carries it, and the creation's end closes it when no page came.
+    func newWindow(frame: CGRect? = nil, inputToken: String? = nil) -> String {
         let windowID = UUID().uuidString.lowercased()
-        Task { [services] in await createWorkspace(into: windowID, frame: frame, newTabPage: true); withExtendedLifetime(services) {} }
+        Task { [services] in
+            var spawn = WorkspaceSpawn(newTabPage: true)
+            spawn.inputToken = inputToken
+            var pageMade = false
+            defer { services.keyRouter.newTabInputCoordinator.endIncoming(inputToken, pageMade: pageMade) }
+            do {
+                _ = try await createWorkspace(spawn, on: services.daemon, into: windowID, frame: frame)
+                pageMade = true
+            } catch {
+                services.daemon.logger.error("create workspace failed: \(String(describing: error), privacy: .public)")
+            }
+        }
         return windowID
     }
 

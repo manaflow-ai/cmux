@@ -26,6 +26,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--cold", type=int, default=10)
 parser.add_argument("--warm", type=int, default=10)
+parser.add_argument("--flow", choices=["workspace", "window"], default="workspace",
+                    help="workspace: Cmd-N, Cmd-T, split and palette runs; window: Cmd-Shift-N (New Window) runs")
 parser.add_argument("--others", type=int, default=10, help="warm runs of each other flow (Cmd-T, split, palette)")
 parser.add_argument("--rate", type=float, default=30.0)
 parser.add_argument("--delay-ms", type=int, default=40)
@@ -168,6 +170,7 @@ def field_text():
 
 
 CMD_N = [{"chord": [45, "cmd"]}]
+CMD_SHIFT_N = [{"chord": [45, "cmd,shift"]}]
 CMD_T = [{"chord": [17, "cmd"]}]
 CMD_D = [{"chord": [2, "cmd"]}]
 PALETTE = [{"chord": [35, "cmd,shift"]}, {"wait_ms": 400}, {"type": "new tab page", "rate": 30}, {"wait_ms": 250},
@@ -197,6 +200,43 @@ def fresh_page_workspace():
     print("  setup Cmd-N:", rpc("debug.key", {"key": "n", "modifiers": ["command"]}), flush=True)
     wait(lambda: focused_tab() not in (None, before) and field_text() == "", 8)
     time.sleep(1)  # test harness: the page settles
+
+
+def window_tabs():
+    """Each window's focused tab, in window order (debug.focus and debug.new_tab share it)."""
+    return [((w.get("model") or {}).get("resolved_tab")) for w in (rpc("debug.focus") or {}).get("windows") or []]
+
+
+def new_window_field(before):
+    """The field text of a window whose focused tab is new since `before`, or None."""
+    for index, tab in enumerate(window_tabs()):
+        if tab and tab not in before:
+            reply = rpc("debug.new_tab", {"action": "field", "window": index}) or {}
+            if "error" not in reply and reply.get("text") is not None:
+                return reply.get("text")
+    return None
+
+
+def run_window(name, helper):
+    """Cmd-Shift-N, then the text: it must land whole in the NEW window's New Tab field."""
+    pid = app_pid()
+    before = set(filter(None, window_tabs()))
+    count = len(window_tabs())
+    result = subprocess.run([helper, str(pid), json.dumps(plan(CMD_SHIFT_N))], capture_output=True, text=True, timeout=60)
+    try:
+        timing = json.loads(result.stdout.strip().splitlines()[-1])
+    except (ValueError, IndexError):
+        timing = {"error": (result.stdout + result.stderr)[-300:]}
+    got = wait(lambda: (lambda t: t if t == opts.text else None)(new_window_field(before)), 8)
+    text = got if got is not None else new_window_field(before)
+    focus = rpc("debug.focus") or {}
+    ok = got is not None and len(window_tabs()) > count and "error" not in timing
+    if not ok:
+        print("  hold log:", json.dumps((focus.get("new_tab_key_log") or [])[-20:]), flush=True)
+    row = {"run": name, "field": text, "pass": ok, "windows_before": count, "windows_after": len(window_tabs()),
+           "holds_after": focus.get("new_tab_key_holds"), **timing}
+    print(("PASS" if ok else "FAIL"), json.dumps(row), flush=True)
+    return row
 
 
 def run(name, helper, steps, setup=None):
@@ -232,10 +272,19 @@ def main():
         handle.write(HELPER)
     subprocess.run(["xcrun", "swiftc", "-O", source, "-o", helper], check=True)
     rows = []
-    for index in range(opts.cold):
+    if opts.flow == "window":
+        for index in range(opts.cold):
+            launch()
+            rows.append(run_window(f"cold-newwin-{index + 1}", helper))
+        if opts.warm and not opts.cold:
+            launch()
+        for index in range(opts.warm):
+            time.sleep(1)  # test harness: the previous window settles
+            rows.append(run_window(f"warm-newwin-{index + 1}", helper))
+    for index in range(opts.cold if opts.flow == "workspace" else 0):
         launch()
         rows.append(run(f"cold-cmdn-{index + 1}", helper, CMD_N))
-    if opts.warm or opts.others:
+    if opts.flow == "workspace" and (opts.warm or opts.others):
         if not opts.cold:
             launch()
         for index in range(opts.warm):
