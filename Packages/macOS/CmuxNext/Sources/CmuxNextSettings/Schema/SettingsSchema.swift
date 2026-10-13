@@ -183,7 +183,6 @@ public nonisolated enum SettingsSchema {
                 default: .bool(CmuxConfigSnapshot.startAgentGlobalHotKeyFallback),
                 keywords: ["global", "hotkey", "hot key", "summon", "start agent", "agent", "quick", "chat", "launcher", "system-wide"]
             ),
-            TabSettingsSchema.newTabKind(group: tabs),
             TabSettingsSchema.newTabTemplate(group: tabs),
             TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),

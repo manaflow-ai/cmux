@@ -28,8 +28,6 @@ export type TabKind = (typeof TAB_KINDS)[number];
 export const FOCUS_LOCATION_EVENT = "acpmux-focus-location";
 
 /// What Cmd-T and + open (`tabs.newTabKind`), in the order the "default" toggle cycles.
-export const DEFAULT_KINDS = ["same-kind", "terminal", "browser", "agent", "page", "auto"] as const;
-export type DefaultKind = (typeof DEFAULT_KINDS)[number];
 
 /// New tab page copy: keys of the pane's string table.
 export const NEW_TAB_LABELS = {
@@ -60,17 +58,6 @@ export const NEW_TAB_LABELS = {
     open: "newTabPage.row.open",
   } satisfies Record<Exclude<OmnibarRow["type"], "ask">, StringKey>,
   ask: "newTabPage.ask",
-  /// `{kind}` is one of `defaultKinds`.
-  defaultKind: "newTabPage.defaultKind",
-  defaultKinds: {
-    "same-kind": "newTabPage.defaultKind.sameKind",
-    terminal: "newTabPage.defaultKind.terminal",
-    browser: "newTabPage.defaultKind.browser",
-    agent: "newTabPage.defaultKind.agent",
-    page: "newTabPage.defaultKind.page",
-    auto: "newTabPage.defaultKind.auto",
-  } satisfies Record<DefaultKind, StringKey>,
-  defaultKindHint: "newTabPage.defaultKindHint",
   allSessions: "newTabPage.allSessions",
   thisMac: "newTabPage.thisMac",
 } as const;
@@ -88,14 +75,11 @@ export type NewTabHost = {
   omnibar?: OmnibarContext;
   /// The workspace's tabs a split's page offers to move into its pane (cx-jfo7).
   openTabs?: OmnibarContext["tabs"];
-  defaultKind?: DefaultKind;
   /// Which design (Debug Settings `newTab.layout`): "b" the one-input screen (default),
   /// "a" this Terminal | Browser | Agent page, kept until B passes dogfood (decision Q6).
   layout: "a" | "b";
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
-  /// Shows the template dots (Debug Settings `newTab.templateSwitcher`, on by default since cx-l1jv).
-  templateSwitcher?: boolean;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
   /// The home folder, so `~/path` reads as a folder.
@@ -140,12 +124,8 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
             .slice(0, MAX_NEW_TAB_ENTRIES),
         }
       : {}),
-    ...(DEFAULT_KINDS.includes(object.defaultKind as DefaultKind)
-      ? { defaultKind: object.defaultKind as DefaultKind }
-      : {}),
     layout: object.layout === "a" ? "a" : "b",
     ...(template ? { template } : {}),
-    ...(object.templateSwitcher === true ? { templateSwitcher: true } : {}),
     ...(typeof object.lastAgent === "string" && object.lastAgent ? { lastAgent: object.lastAgent } : {}),
     ...(typeof object.home === "string" && object.home.startsWith("/") ? { home: object.home } : {}),
     ...(typeof object.inputToken === "string" && object.inputToken ? { inputToken: object.inputToken } : {}),
@@ -214,10 +194,6 @@ type Props = {
   /// The current tab's URL or folder: in the field and selected when the page opens,
   /// so typing replaces it.
   location?: string;
-  /// What Cmd-T opens; the "default" toggle shows it when the host sends it.
-  defaultKind?: DefaultKind;
-  /// The toggle picked the next default.
-  onSetDefaultKind?(kind: DefaultKind): void;
   /// Recent projects are offered inline before Browse is needed.
   projects?: Project[];
   /// Make the tab `kind`: run `text` (in `cwd`), open it, or ask it.
@@ -244,8 +220,6 @@ export function NewTabPage({
   chips: Chips,
   omnibar = EMPTY_OMNIBAR,
   location,
-  defaultKind: initialDefault,
-  onSetDefaultKind,
   projects = [],
   onSubmit,
   onJump,
@@ -258,7 +232,6 @@ export function NewTabPage({
 }: Props) {
   const t = useT();
   const [kind, setKind] = useState<TabKind>(initialKind);
-  const [defaultKind, setDefaultKind] = useState(initialDefault);
   const [projectCwd, setProjectCwd] = useState(cwd);
   const [text, setText] = useState(location ?? "");
   // The location stays a suggestion until edited: the rows are the empty bar's.
@@ -497,20 +470,6 @@ export function NewTabPage({
               )}
               {kind === "agent" && Chips && <Chips snapshot={snapshot} />}
             </span>
-            {defaultKind && onSetDefaultKind && (
-              <button
-                type="button"
-                className="acpmux-newtab-default"
-                title={t(NEW_TAB_LABELS.defaultKindHint)}
-                onClick={() => {
-                  const next = DEFAULT_KINDS[(DEFAULT_KINDS.indexOf(defaultKind) + 1) % DEFAULT_KINDS.length]!;
-                  setDefaultKind(next);
-                  onSetDefaultKind(next);
-                }}
-              >
-                {t(NEW_TAB_LABELS.defaultKind, { kind: t(NEW_TAB_LABELS.defaultKinds[defaultKind]) })}
-              </button>
-            )}
             <button
               type="submit"
               className={`acpmux-send${query.trim() || kind !== "browser" ? " acpmux-send-ready" : ""}`}
