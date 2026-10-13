@@ -5161,6 +5161,15 @@ impl Surface {
         let Some(pty) = self.as_pty() else {
             anyhow::bail!("browser surface does not have a VT terminal");
         };
+        // A connected terminal host owns the authoritative parser. The daemon
+        // terminal is only a mirror, so injecting CAN here would leave the two
+        // parsers at different sequence boundaries when the next host output
+        // frame arrives. Source-side recovery needs a host protocol command;
+        // refuse this local-only mutation until one exists.
+        #[cfg(unix)]
+        if matches!(&*pty.runtime.lock().unwrap(), PtyRuntime::Hosted(_)) {
+            anyhow::bail!("cannot discard unreplayable replay on a hosted terminal");
+        }
         let mut terminal = pty.term.lock().unwrap();
         let Some(output) = terminal.discard_unreplayable_replay() else {
             return Ok(None);
