@@ -15,7 +15,7 @@ struct BillingPlanClientTests {
          "teamPlanId":"free","teamBillingManagement":"none","user":null}
         """))
 
-        await #expect(throws: (any Error).self) {
+        await #expect(throws: URLError(.userAuthenticationRequired)) {
             _ = try await client.fetch(from: BillingPlanStubURLProtocol.url, accessToken: nil)
         }
     }
