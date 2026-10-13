@@ -19,6 +19,7 @@ enum DebugFocus {
             "app_active": .bool(NSApp.isActive),
             "keyboard_given_back": keyboardGuard(services),
             // Windows whose keys wait for a New Tab field (NewTabInputCoordinator); never stays.
+            "new_tab_key_log": .array(services.keyRouter.newTabInputCoordinator.log.map(JSONValue.string)),
             "new_tab_key_holds": .array(services.windows.controllers.filter {
                 services.keyRouter.newTabInputCoordinator.isHolding(in: $0.window)
             }.map { .string($0.state.id) }),
