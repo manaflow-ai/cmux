@@ -284,7 +284,7 @@ impl Mux {
                 .get(state.active_workspace)
                 .map(|workspace| workspace.public_id.to_string())
         });
-        self.commit_state(
+        let commit = self.commit_state(
             mutation,
             OPERATION,
             &fingerprint,
@@ -293,7 +293,10 @@ impl Mux {
             |transaction, _| {
                 commit_reopen(transaction, &closed_id, &restore, &reopened, active.as_deref())
             },
-        )
+        )?;
+        // Each reopened workspace keeps its agent-home folder (chat files), before its first chat.
+        super::agent_home_moves::follow_reopen(&reopened.placements);
+        Ok(commit)
     }
 
     fn reopen_member(
