@@ -2551,6 +2551,19 @@ fn insert_u32(
     Ok(())
 }
 
+fn insert_u64(
+    params: &mut Map<String, Value>,
+    field: &str,
+    flag: &str,
+    value: String,
+) -> Result<(), UsageError> {
+    let number = value
+        .parse::<u64>()
+        .map_err(|_| UsageError::new(format!("{flag} must be an unsigned 64-bit integer")))?;
+    params.insert(field.into(), Value::Number(Number::from(number)));
+    Ok(())
+}
+
 fn insert_positive_u32(
     params: &mut Map<String, Value>,
     field: &str,

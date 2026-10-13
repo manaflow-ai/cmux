@@ -5,7 +5,7 @@ use cmux_tui_core::resource::ResourceOperation;
 use super::{
     CommandPlan, Flags, Selectors, UsageError, add_optional_parent_selectors, add_pixel_size,
     add_stream_id, insert_float, insert_optional_enum_list, insert_optional_string, insert_u32,
-    map_with, request, strs, usage, validate_decimal, validate_one_of,
+    insert_u64, map_with, request, strs, usage, validate_decimal, validate_one_of,
 };
 
 pub(super) fn parse_browser(
@@ -227,7 +227,7 @@ fn parse_browser_profile_open(
     params.insert("engine".into(), Value::String(flags.required("engine")?));
     params.insert("profile_id".into(), Value::String(flags.required("profile")?));
     if let Some(pane) = flags.take("pane") {
-        insert_u32(&mut params, "pane", "--pane", pane)?;
+        insert_u64(&mut params, "pane", "--pane", pane)?;
     }
     insert_optional_string(&mut params, flags, "title", "title");
     insert_optional_string(&mut params, flags, "owner", "owner");
