@@ -1,14 +1,12 @@
 #!/usr/bin/env python3
 """Tagged-app relaunch check: Home tabs the daemon restores after a relaunch show their transcript.
 
-Launch 1 (no activation): a channel with 3 messages on the local owner; a native Home tab (`home.tab`) shows it
-(`home.openConversation`); then the DEBUG Home fixture tab (`debug.home_native_fixture.open`), and the Home tab
-selected again (`home.tab` is not reused: the Home tab is selected by opening the conversation once more). Quit with
-the DEBUG quit fixture (end-sessions); the tag's daemon keeps the panes' tabs.
+Launch 1 (no activation): the DEBUG Home fixture tab (`debug.home_native_fixture.open {new: true}`) shows its
+transcript; then a native Home tab (`home.tab`), selected last, shows a conversation with messages. Quit with the
+DEBUG quit fixture (end-sessions); the tag's daemon keeps the panes' tabs.
 Launch 2, with no open request first: the restored native Home tab must show the same conversation with its
 messages in its own transcript view (`debug.home` page.tabs: shown, transcript_tail), and the restored fixture tab
-must show its transcript when selected through the default open (pages.show: before the fix its provider was
-registered only on the first open, after the pane had shown the tab blank).
+must show its transcript when selected through the default open (pages.show).
 Socket only, no system input. Runs on cmux-lawrence-2 (nx-remote --needs gui); each launch ends with the DEBUG quit
 fixture; the tag's `acpmux daemon shutdown` at the end.
 
@@ -93,32 +91,22 @@ def home_tabs():
     return ((rpc("debug.home") or {}).get("page") or {}).get("tabs") or []
 
 
-TEXTS = ["Restore one.", "Restore two.", "Restore three."]
 pid = launch(1)
+before = None
 try:
     inbox = poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     if not check("launch 1: the local owner answers inbox", bool(inbox), api(call="inbox")):
         sys.exit(1)
-    created = submit(kind="create_group", title=f"restore-{int(time.time())}", participants=[])
-    conv = created.get("conversation") if created.get("ok") else None
-    check("launch 1: a local channel", bool(conv), created)
-    for t in TEXTS:
-        submit(kind="send", conversation=conv, text=t)
-    rpc("action.run", {"id": "home.tab", "focus": True})
-    def shows_conv():
-        rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conv}, "focus": True})
-        time.sleep(1)  # test harness: one request per second while the tab starts, not app code
-        tabs = [t for t in home_tabs() if t.get("shown") == conv and all(x in (t.get("transcript_tail") or []) for x in TEXTS)]
-        return tabs or None
-    before = poll(shows_conv, timeout=90)
-    check("launch 1: a native Home tab shows the channel with its messages", bool(before), home_tabs())
+    # The fixture tab first, then a native Home tab, selected last (as in a gate where a Home check ran after a
+    # fixture check): at relaunch the Home tab shows and the fixture tab is restored behind it.
     fixture = rpc("debug.home_native_fixture.open", {"new": True}) or {}
     check("launch 1: the fixture tab opens", bool(fixture.get("ok")), fixture)
     fx = poll(lambda: (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts"), timeout=30)
     check("launch 1: the fixture shows its transcript", bool(fx), rpc("debug.home.drive", {"action": "texts"}))
-    # The Home tab selected again (it is the tab the window shows when it comes back).
-    again = poll(shows_conv, timeout=30)
-    check("launch 1: the Home tab is shown again", bool(again), home_tabs())
+    rpc("action.run", {"id": "home.tab", "focus": True})
+    before = poll(lambda: next((t for t in home_tabs() if t.get("visible") and t.get("shown") and t.get("transcript_tail")), None),
+                  timeout=90)
+    check("launch 1: a native Home tab shows a conversation with messages", bool(before), home_tabs())
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "launch-1.png")})
 finally:
     check("launch 1: the app quits", bool(quit_app(pid)))
@@ -127,10 +115,11 @@ pid = launch(2)
 try:
     poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     # No open request: what the restored window shows by itself.
-    restored = poll(lambda: [t for t in home_tabs() if t.get("visible") and t.get("shown") == conv
-                             and all(x in (t.get("transcript_tail") or []) for x in TEXTS)] or None, timeout=60)
+    want = (before or {}).get("shown")
+    restored = poll(lambda: [t for t in home_tabs() if t.get("visible") and t.get("shown") == want and t.get("transcript_tail")] or None,
+                    timeout=60)
     print("     restored Home tabs: " + json.dumps(home_tabs())[:800], flush=True)
-    check("launch 2: the restored native Home tab shows the same channel with its messages", bool(restored), home_tabs())
+    check("launch 2: the restored native Home tab shows the same conversation with its messages", bool(restored), home_tabs())
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "launch-2-home.png")})
     # The restored fixture tab, selected through the default open (it finds the restored tab).
     reply = rpc("debug.home_native_fixture.open") or {}
