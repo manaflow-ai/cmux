@@ -85,7 +85,7 @@ document.title='rb edge '+c('date').concat(c('sel')).map(Math.round).join(',')</
 </body></html>"""
 # The stats pages: an animated canvas (every frame repaints a moving box and a counter), and a
 # still page whose background changes on each mousedown (the title counts the clicks).
-MOTION = """<!doctype html><html><head><title>rb motion loading</title></head><body style="margin:0;background:#111">
+MOTION = """<!doctype html><html><head><title>loading</title></head><body style="margin:0;background:#111">
 <canvas id="c" style="width:100vw;height:100vh;display:block"></canvas><script>
 const c=document.getElementById('c'),g=c.getContext('2d');let n=0;
 function f(t){c.width=innerWidth*devicePixelRatio;c.height=innerHeight*devicePixelRatio;g.fillStyle='#223';
@@ -306,6 +306,9 @@ def stats(opened):
                     pass
         return out
 
+    def on_tab(prefix):
+        return lambda: session_where(lambda s: s["tab"] == tab and (s.get("title") or "") == prefix)
+
     def pct(values, q):
         values = sorted(values)
         return values[min(len(values) - 1, int(round(q * (len(values) - 1))))] if values else None
@@ -314,19 +317,21 @@ def stats(opened):
         ms = sum(w["ms"] for w in windows)
         frames = sum(w["frames"] for w in windows)
         nbytes = sum(w["bytes"] for w in windows)
-        enc = [v for w in windows for v in w["encode_ms"]]
+        enc = [w["encode_ms"] for w in windows if w["encode_ms"]["n"]]
         lat = [v for w in windows for v in w["input_to_frame_ms"]]
         secs = max(ms, 1) / 1000
         return {"windows": len(windows), "ms": ms, "frames": frames, "keyframes": sum(w["keyframes"] for w in windows),
                 "bytes": nbytes, "fps": round(frames / secs, 1), "kbps": round(nbytes * 8 / 1000 / secs, 1),
                 "target_kbps": windows[-1]["target_kbps"] if windows else None,
-                "encode_ms": {"n": len(enc), "p50": pct(enc, 0.5), "p95": pct(enc, 0.95), "max": max(enc, default=None)},
+                "encode_ms": {"n": sum(e["n"] for e in enc), "p50_median": pct([e["p50"] for e in enc], 0.5),
+                              "p95_max": max((e["p95"] for e in enc), default=None),
+                              "max": max((e["max"] for e in enc), default=None)},
                 "input_to_frame_ms": {"n": len(lat), "p50": pct(lat, 0.5), "p95": pct(lat, 0.95), "max": max(lat, default=None)}}
 
     numbers = {"host_log": host_log}
     # An animated page: the capture runs at the page's frame rate, capped at 60.
     rb("navigate", tab=tab, url=BASE + "/motion")
-    wait(title_is("rb motion"), 30)
+    wait(on_tab("rb motion"), 30)
     time.sleep(2)
     start = mark()
     time.sleep(8)
@@ -334,10 +339,12 @@ def stats(opened):
     numbers["motion"] = summary(lines_since(start))
     # A still page sends nothing once it has painted.
     rb("navigate", tab=tab, url=BASE + "/tap")
-    wait(title_is("rb tap 0"), 30)
+    wait(on_tab("rb tap 0"), 30)
+    # The host flushes a window at most 1 s after its last frame (a timer), so after 3 s the
+    # paint of the page is logged; frames in the next 3 s show up by the read 1.5 s later.
     time.sleep(3)
     start = mark()
-    time.sleep(3)
+    time.sleep(4.5)
     numbers["still"] = summary(lines_since(start))
     # Clicks that repaint the page: input to the frame that answers it.
     start = mark()
@@ -345,7 +352,7 @@ def stats(opened):
     for i in range(clicks):
         rb("click", tab=tab, x=400 + (i % 5) * 40, y=300, button="left")
         time.sleep(0.4)
-    tapped = wait(title_is(f"rb tap {clicks}"), 15)
+    tapped = wait(on_tab(f"rb tap {clicks}"), 15)
     time.sleep(1.5)  # the next window flushes the last samples
     shot("stats-tap")
     numbers["tap"] = summary(lines_since(start))
@@ -358,7 +365,7 @@ def stats(opened):
          motion["windows"] > 0 and motion["fps"] >= 20 and motion["kbps"] > 0, motion)
     step("a still page sends no frames", still["frames"] == 0, still)
     step("each click that repaints the page is answered by a frame (input to frame sent)",
-         tapped and tap["input_to_frame_ms"]["n"] >= clicks * 3 // 4, tap)
+         bool(tapped) and tap["input_to_frame_ms"]["n"] >= clicks * 3 // 4, tap)
 
 
 if os.path.exists(SOCKET):

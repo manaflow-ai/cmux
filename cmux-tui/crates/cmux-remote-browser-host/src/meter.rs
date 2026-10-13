@@ -1,8 +1,11 @@
 //! Media numbers of one viewer for the host log (`serve: stats {json}`):
 //! frames, keyframes and bytes sent per window, the time of each pump call
-//! that encoded a frame (VideoToolbox encode plus packetize), and the time
-//! from viewer input to the next frame sent (page render, capture, encode
-//! and packetize; the network, decode and present are the viewer's).
+//! that encoded a frame on capture (VideoToolbox encode plus packetize;
+//! frames the fps cap held and encoded later on a tick are counted but not
+//! timed), and the time from viewer input that can draw (key down, button
+//! down, wheel) to the next frame sent (page render, capture, encode and
+//! packetize; the network, decode and present are the viewer's). Popup
+//! surface streams count with the page.
 //! The live check (scripts/cmux-next/remote-browser-local-live.py --stats)
 //! reads these lines from the host log the app keeps. Every time is the
 //! caller's monotonic clock in microseconds.
@@ -28,13 +31,34 @@ pub struct Window {
     pub kbps: f64,
     /// The encoder's target bitrate at the end of the window.
     pub target_kbps: u32,
-    /// Pump call time of each encoded frame, milliseconds.
-    pub encode_ms: Vec<f64>,
+    /// Pump call time of the frames encoded on capture, milliseconds.
+    pub encode_ms: Summary,
     /// Viewer input to the next frame sent, milliseconds.
     pub input_to_frame_ms: Vec<f64>,
     /// Totals since the viewer joined.
     pub total_frames: u64,
     pub total_bytes: u64,
+}
+
+/// Count, median, 95th percentile and largest of some times (milliseconds).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Summary {
+    pub n: usize,
+    pub p50: Option<f64>,
+    pub p95: Option<f64>,
+    pub max: Option<f64>,
+}
+
+impl Summary {
+    fn of(us: &[u64]) -> Self {
+        let mut v = us.to_vec();
+        v.sort_unstable();
+        let at = |q: f64| {
+            let last = v.len().checked_sub(1)?;
+            Some(ms(v[((q * last as f64).round() as usize).min(last)]))
+        };
+        Self { n: v.len(), p50: at(0.5), p95: at(0.95), max: v.last().map(|&us| ms(us)) }
+    }
 }
 
 /// Counters of one viewer since it joined.
@@ -53,17 +77,28 @@ pub struct Meter {
 
 impl Meter {
     /// Bytes put on the stream carrier (datagram payloads).
-    pub fn sent(&mut self, bytes: usize, now_us: u64) {
-        self.start_us.get_or_insert(now_us);
+    /// They open no window: feedback answers on a still page are no media.
+    pub fn sent(&mut self, bytes: usize) {
         let bytes = bytes as u64;
         self.bytes += bytes;
         self.total_bytes += bytes;
     }
 
-    /// Viewer input reached the page; the next frame answers it.
+    /// Viewer input that can draw reached the page; the next frame answers
+    /// it. A pending input older than [`INPUT_STALE_US`] drew nothing and
+    /// gives way.
     pub fn input(&mut self, now_us: u64) {
         self.start_us.get_or_insert(now_us);
-        self.pending_input_us.get_or_insert(now_us);
+        match self.pending_input_us {
+            Some(t) if now_us.saturating_sub(t) <= INPUT_STALE_US => {}
+            _ => self.pending_input_us = Some(now_us),
+        }
+    }
+
+    /// When the open window is full (a timer flushes it on a page that
+    /// went still); `None` while nothing was counted.
+    pub fn deadline_us(&self) -> Option<u64> {
+        self.start_us.map(|t| t + WINDOW_US)
     }
 
     /// `frames` frames (`keyframes` of them IDR) were encoded by one pump
@@ -89,7 +124,7 @@ impl Meter {
 
     /// The line for the window that ends now: once the window is
     /// [`WINDOW_US`] long (or at once with `flush`), and only when it sent
-    /// something. Starts the next window.
+    /// a frame. Starts the next window.
     pub fn take(&mut self, target_kbps: u32, flush: bool, now_us: u64) -> Option<Window> {
         let start = self.start_us?;
         let elapsed = now_us.saturating_sub(start);
@@ -97,8 +132,12 @@ impl Meter {
             return None;
         }
         // Input that waits for a frame stays pending into the next window.
-        let pending = self.pending_input_us;
-        let line = (self.frames > 0 || self.bytes > 0).then(|| {
+        // A window that sent something is followed at once by the next
+        // (steady streaming has no gap); after a silent one, the next starts
+        // at its first activity.
+        let pending = self.pending_input_us.filter(|&t| now_us.saturating_sub(t) <= INPUT_STALE_US);
+        let busy = self.frames > 0;
+        let line = busy.then(|| {
             let secs = (elapsed.max(1) as f64) / 1e6;
             Window {
                 ms: elapsed / 1000,
@@ -108,7 +147,7 @@ impl Meter {
                 fps: round1(self.frames as f64 / secs),
                 kbps: round1(self.bytes as f64 * 8.0 / 1000.0 / secs),
                 target_kbps,
-                encode_ms: self.encode_us.iter().map(|&us| ms(us)).collect(),
+                encode_ms: Summary::of(&self.encode_us),
                 input_to_frame_ms: self.input_us.iter().map(|&us| ms(us)).collect(),
                 total_frames: self.total_frames,
                 total_bytes: self.total_bytes,
@@ -116,7 +155,7 @@ impl Meter {
         });
         let (total_frames, total_bytes) = (self.total_frames, self.total_bytes);
         *self = Self {
-            start_us: pending.map(|_| now_us),
+            start_us: (busy || pending.is_some()).then_some(now_us),
             pending_input_us: pending,
             total_frames,
             total_bytes,

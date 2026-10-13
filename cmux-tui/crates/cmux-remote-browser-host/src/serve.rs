@@ -28,7 +28,7 @@ use cmux_rd_proto::{
     MAX_DATAGRAM_DEFAULT, SERVICE_REMOTE_BROWSER, STREAM_CONTROL, STREAM_DATAGRAM,
     encode_stream_frame,
 };
-use cmux_remote_browser::proto::{Control, ScreenInfo, ViewerCaps};
+use cmux_remote_browser::proto::{Control, InputEvent, PointerKind, ScreenInfo, ViewerCaps};
 
 use crate::ffi::{
     RbCallbacks, RbFrame, ShimPresentation, rb_shim_capture_refresh, rb_shim_context_menu_result,
@@ -269,14 +269,13 @@ impl Host {
         let now = self.now();
         let Some(v) = self.viewer.as_mut() else { return };
         let bytes: usize = out.datagrams.iter().map(Vec::len).sum();
-        if bytes > 0 {
-            v.meter.sent(bytes, now);
-        }
+        v.meter.sent(bytes);
         let stats = v.pump.stats();
-        let (frames, idr) = (stats.encoded - v.seen.0, stats.idr - v.seen.1);
+        let frames = stats.encoded.saturating_sub(v.seen.0);
+        let idr = stats.idr.saturating_sub(v.seen.1);
         v.seen = (stats.encoded, stats.idr);
         v.meter.encoded(frames, idr, call_us.filter(|_| frames > 0), now);
-        if !out.input.is_empty() {
+        if out.input.iter().any(draws) {
             v.meter.input(now);
         }
         let kbps = v.pump.encoder().kbps();
@@ -300,7 +299,14 @@ impl Host {
 
     /// Posts a tick for the pump's next deadline (none while idle).
     fn arm(&mut self) {
-        let Some(due) = self.viewer.as_ref().and_then(|v| v.pump.next_deadline_us()) else {
+        // The pump's deadline, or the stats window's (so a page that went
+        // still logs its last window now, not at its next frame).
+        let Some(due) = self.viewer.as_ref().and_then(|v| {
+            match (v.pump.next_deadline_us(), v.meter.deadline_us()) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            }
+        }) else {
             return;
         };
         if self.timer.is_some_and(|t| t <= due) {
@@ -729,6 +735,16 @@ unsafe extern "C" fn on_surface_frame(_: *mut c_void, surface: c_int, f: *const 
         h.apply_timed(out, Some(call_us));
         h.arm();
     });
+}
+
+/// Input after which the page may draw (stats: input to frame).
+fn draws(event: &InputEvent) -> bool {
+    match event {
+        InputEvent::Key { down, .. } => *down,
+        InputEvent::Pointer { kind, .. } => *kind == PointerKind::Down,
+        InputEvent::Wheel { .. } => true,
+        _ => false,
+    }
 }
 
 /// The frame's update rect, or all of it.
