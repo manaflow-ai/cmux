@@ -25,6 +25,10 @@ public struct CloudGuestDisplay: Decodable, Sendable {
     }
 
     /// The noVNC page for a guest display reached directly over the machine's private address.
+    /// `/vnc.html?path=websockify` is the shipped desktop-image endpoint. The
+    /// Cloud runtime contract advertises its listener port; the page and
+    /// websocket path remain image compatibility constants until a future
+    /// image advertises a different endpoint explicitly.
     ///
     /// - Parameters:
     ///   - privateAddress: The machine's private network address.

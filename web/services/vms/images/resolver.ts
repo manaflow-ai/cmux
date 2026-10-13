@@ -196,7 +196,10 @@ export function vmImageKindFor(provider: ProviderId, image: string): VmImageKind
 /**
  * Deployment details that clients need to route a machine's capabilities.
  * Image ids and provider defaults stay private to this module; clients receive
- * the runtime contract that applies to the resolved image instead.
+ * the runtime contract that applies to the resolved image instead. The
+ * noVNC path and the RFB/noVNC port pairing remain shipped image
+ * compatibility constants; a future image that changes either must extend
+ * this contract before clients can consume it.
  */
 export function vmRuntimeMetadataFor(provider: ProviderId, image: string): {
   readonly runtime?: { readonly desktopPort: number };
