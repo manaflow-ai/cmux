@@ -384,6 +384,28 @@ struct FeedPostView: View {
         .padding(.top, 2)
     }
 
+    private var canSendReply: Bool {
+        !replyText.trimmingCharacters(in: .whitespaces).isEmpty && !sending
+    }
+
+    private func sendReply() {
+        let text = replyText
+        sending = true
+        replyError = nil
+        Task {
+            defer { sending = false }
+            do {
+                try await store.reply(item, text: text)
+                replyText = ""
+                replying = false
+            } catch {
+                // Keep the draft; say why it didn't go.
+                replyError = error.localizedDescription
+                Haptics.warning()
+            }
+        }
+    }
+
     private var replyField: some View {
         HStack(alignment: .bottom, spacing: 8) {
             TextField(String(localized: "Reply to \(item.agent.map(FeedStore.displayName) ?? "agent")"), text: $replyText, axis: .vertical)
@@ -393,23 +415,14 @@ struct FeedPostView: View {
                 .padding(.horizontal, 14).padding(.vertical, 9)
                 .background(RoundedRectangle(cornerRadius: 20).strokeBorder(Color.primary.opacity(0.15)))
                 .accessibilityIdentifier("feed.replyField")
-            Button {
-                let text = replyText
-                sending = true
-                replyError = nil
-                Task {
-                    defer { sending = false }
-                    do {
-                        try await store.reply(item, text: text)
-                        replyText = ""
-                        replying = false
-                    } catch {
-                        // Keep the draft; say why it didn't go.
-                        replyError = error.localizedDescription
-                        Haptics.warning()
-                    }
+                // Hardware Return sends (Shift-Return adds a line), as in
+                // the composer.
+                .onKeyPress(.return, phases: .down) { press in
+                    guard !press.modifiers.contains(.shift) else { return .ignored }
+                    if canSendReply { sendReply() }
+                    return .handled
                 }
-            } label: {
+            Button(action: sendReply) {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(Color(uiColor: .systemBackground))
@@ -417,7 +430,7 @@ struct FeedPostView: View {
                     .background(Circle().fill(Color.primary))
             }
             .buttonStyle(.plain)
-            .disabled(replyText.trimmingCharacters(in: .whitespaces).isEmpty || sending)
+            .disabled(!canSendReply)
             .opacity(replyText.trimmingCharacters(in: .whitespaces).isEmpty ? 0.4 : 1)
             .accessibilityIdentifier("feed.replySend")
         }

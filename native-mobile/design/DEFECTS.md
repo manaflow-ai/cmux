@@ -99,6 +99,7 @@ owner-handoff (written up for the owning agent).
 | 71 | Files | Browse opened in the working directory with no way up to its parents. The Files title is now a menu of parent folders on Browse (same as pushed folders). | fixed | qa5 |
 | 72 | Files | Logs, notes and CSVs showed the code icon; a stray separator sat above the first folder row. Prose files use doc.text; the top separator is hidden. | fixed | qa5 |
 | 73 | Diff | "Expand remaining lines" showed under hunks that already reached the end of the file (and under new files); tapping it did nothing. Git (now pinned to -U3 on the host) stops short of 3 trailing context lines only at EOF; ambiguous files (exactly 3) are read once in the background, up to 12. | fixed | qa5 |
+| 74 | Feed | Hardware Return in the inline reply field dropped focus without sending. Return now sends (Shift-Return adds a line). Verified end to end on the mini: the reply ran in the terminal and the post shows "You replied". | fixed | qa5 |
 
 ## Performance
 
