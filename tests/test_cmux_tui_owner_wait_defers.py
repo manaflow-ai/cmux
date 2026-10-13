@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""A run whose cmux-tui tree key has an active owner ends at once (cx-urd.26 cut b).
+
+tree-owner-wait used to poll the owner every minute for up to 55 minutes on a
+Linux runner: 21,801 job-minutes on 2026-10-12, and 221 of the 765 waits ended
+by building the key anyway after a chain of failed owners. Now a waiter checks
+once: a published tree or a live owner means no build here, an ended owner is
+taken over by winning the key's claim, and a missing tree is repaired by the
+next push of the key or cmux-tui-tree-request.yml (which re-runs a commit's run).
+
+This runs the job's own script with fake curl, sleep and claim script, and
+checks that the run that publishes asks for the nightly-next promotion even
+when it is not a feat-cmux-next push (the feat push that shares its key no
+longer waits to ask).
+"""
+
+import os
+import stat
+import subprocess
+import sys
+import tempfile
+
+import yaml
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+WORKFLOW = os.path.join(ROOT, ".github", "workflows", "cmux-tui-artifacts.yml")
+FAILURES = []
+KEY = "8729cadfd262d8c13cad8f8ad5d7d54ca4984e01"
+
+FAKE_CURL = r"""#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+url = next(a for a in args if a.startswith("http"))
+out = args[args.index("-o") + 1] if "-o" in args else None
+if "/actions/runs/" in url:
+    print(json.dumps({"status": os.environ["FAKE_OWNER_STATUS"], "conclusion": os.environ.get("FAKE_OWNER_CONCLUSION", "")}))
+    sys.exit(0)
+if os.environ.get("FAKE_TREE_PUBLISHED") != "1":
+    sys.exit(22)
+key = url.split("/tree/")[1].split("/")[0]
+names = ["cmux-tui-aarch64-apple-darwin", "cmux-tui-app-host-aarch64-apple-darwin", "cmux-tui-cloud-server-aarch64-apple-darwin"]
+if "completion.json" in url:
+    open(out, "w").write(json.dumps({"key": key, "binaries": {n: "a" * 64 for n in names}}))
+elif ".sha256" in url:
+    print("a" * 64 + "  x")
+"""
+
+FAKE_SLEEP = """#!/bin/sh
+echo "sleep $*" >> "$FAKE_LOG"
+exit 99
+"""
+
+FAKE_CLAIM = """#!/bin/sh
+echo "claim $*" >> "$FAKE_LOG"
+echo "$FAKE_CLAIM_RESULT"
+"""
+
+
+def _check(cond, msg):
+    (FAILURES.append(msg), print(f"FAIL: {msg}")) if not cond else print(f"ok: {msg}")
+
+
+def job(name):
+    return yaml.safe_load(open(WORKFLOW, encoding="utf-8"))["jobs"][name]
+
+
+def wait_script():
+    steps = job("tree-owner-wait")["steps"]
+    return next(s["run"] for s in steps if s.get("id") == "wait")
+
+
+def run_wait(owner, **fake):
+    with tempfile.TemporaryDirectory() as tmp:
+        bin_dir = os.path.join(tmp, "bin")
+        os.makedirs(os.path.join(tmp, "scripts", "ci"))
+        os.makedirs(bin_dir)
+        for path, body in ((os.path.join(bin_dir, "curl"), FAKE_CURL), (os.path.join(bin_dir, "sleep"), FAKE_SLEEP),
+                           (os.path.join(tmp, "scripts", "ci", "cmux-tui-tree-claim.sh"), FAKE_CLAIM)):
+            with open(path, "w") as handle:
+                handle.write(body)
+            os.chmod(path, os.stat(path).st_mode | stat.S_IXUSR)
+        output = os.path.join(tmp, "out")
+        log = os.path.join(tmp, "log")
+        open(output, "w").close()
+        open(log, "w").close()
+        env = dict(os.environ, PATH=f"{bin_dir}:{os.environ['PATH']}", KEY=KEY, OWNER_RUN_ID=owner,
+                   API_URL="https://api.github.invalid", REPOSITORY="manaflow-ai/cmux", GH_TOKEN="x",
+                   SERVER_URL="https://github.invalid", GITHUB_OUTPUT=output, GITHUB_RUN_ID="5", RUNNER_TEMP=tmp,
+                   FAKE_LOG=log)
+        env = {**env, "FAKE_OWNER_STATUS": "in_progress", "FAKE_CLAIM_RESULT": "owner=7 granted=false", **fake}
+        result = subprocess.run(["bash", "-e", "-c", wait_script()], cwd=tmp, env=env, capture_output=True, text=True, timeout=60)
+        return result, open(output).read(), open(log).read()
+
+
+def main():
+    result, out, log = run_wait("4")
+    _check(result.returncode == 0 and "takeover=false" in out and "sleep" not in log,
+           f"a live owner and an unpublished tree: no build and no waiting ({result.returncode}, {out.strip()!r}, {log.strip()!r})")
+
+    result, out, log = run_wait("4", FAKE_OWNER_STATUS="completed", FAKE_OWNER_CONCLUSION="failure",
+                                FAKE_CLAIM_RESULT="owner=5 granted=true")
+    _check(result.returncode == 0 and "takeover=true" in out and "sleep" not in log,
+           f"an owner that ended without publishing is taken over by the claim winner ({out.strip()!r}, {log.strip()!r})")
+
+    result, out, log = run_wait("4", FAKE_OWNER_STATUS="completed", FAKE_OWNER_CONCLUSION="failure",
+                                FAKE_CLAIM_RESULT="owner=7 granted=false")
+    _check(result.returncode == 0 and "takeover=false" in out and "sleep" not in log,
+           f"a claim another live run holds: no build and no waiting ({out.strip()!r}, {log.strip()!r})")
+
+    result, out, log = run_wait("4", FAKE_TREE_PUBLISHED="1")
+    _check(result.returncode == 0 and "takeover=false" in out, f"a published tree: no build ({out.strip()!r})")
+
+    result, out, log = run_wait("")
+    _check(result.returncode == 0 and "takeover=true" in out, f"the owner itself builds ({out.strip()!r})")
+
+    _check(int(job("tree-owner-wait")["timeout-minutes"]) <= 5, "the owner check holds a runner for at most 5 minutes")
+
+    promote = job("request-nightly-next")
+    condition = promote["if"]
+    _check("refs/heads/feat-cmux-next" in condition and "github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree.result == 'success'" in condition,
+           "a publishing run on another branch asks for the nightly-next promotion of the feat-cmux-next head that shares its key")
+    checkout = next(s for s in promote["steps"] if "checkout" in str(s.get("uses", "")))
+    _check("feat-cmux-next" in str(checkout["with"]["ref"]), "that request runs from the feat-cmux-next head's own checkout")
+
+    if FAILURES:
+        print(f"{len(FAILURES)} failure(s)")
+        return 1
+    print("PASS: a waiter checks its key's owner once instead of holding a runner")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
