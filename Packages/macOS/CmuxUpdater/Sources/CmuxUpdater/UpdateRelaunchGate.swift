@@ -5,35 +5,42 @@ public struct UpdateRelaunchBlockers: Equatable, Sendable {
     /// Other foreground commands in local terminals (a dev server, a build). They may never
     /// exit, so the gate holds the relaunch until the user chooses Install Now.
     public var runningCommandCount: Int
+    /// Hardware input happened during the quiet window. Automatic installs wait until it clears.
+    public var userInputActive: Bool
+
+    /// How long hardware input must be quiet before an automatic relaunch.
+    public static let quietInputPeriod: Duration = .seconds(60)
 
     /// Nothing would be interrupted.
     public static let empty = UpdateRelaunchBlockers(busyAgentCount: 0, runningCommandCount: 0)
 
     /// Creates a blocker report.
-    public init(busyAgentCount: Int, runningCommandCount: Int) {
+    public init(busyAgentCount: Int, runningCommandCount: Int, userInputActive: Bool = false) {
         self.busyAgentCount = busyAgentCount
         self.runningCommandCount = runningCommandCount
+        self.userInputActive = userInputActive
     }
 
     /// Whether the relaunch would interrupt nothing.
     public var isEmpty: Bool {
-        busyAgentCount == 0 && runningCommandCount == 0
+        busyAgentCount == 0 && runningCommandCount == 0 && !userInputActive
     }
 }
 
 /// Holds a ready update's relaunch until nothing would be interrupted by it.
 ///
-/// Busy agents are waited out, bounded by ``agentTimeout`` so a lifecycle state that never
-/// settles cannot hold an update forever; agents interrupted then are resumed by session
-/// restore. Other running commands are shown as a warning and only the user's Install Now
-/// stops them. While waiting, the gate publishes ``UpdateState/installing(_:)`` carrying the
-/// current ``UpdateRelaunchBlockers``; Install Now and Later are that state's existing
-/// `retryTerminatingApplication` and `dismiss` actions.
+/// Automatic updates wait for busy agents to finish instead of interrupting a turn. Explicit
+/// installs retain the bounded agent wait for a lifecycle state that never settles; agents
+/// interrupted then are resumed by session restore. Other running commands are shown as a
+/// warning and only the user's Install Now stops them. A focused typing or pointer session also
+/// keeps the relaunch behind a short quiet window. While waiting, the gate publishes
+/// ``UpdateState/installing(_:)`` carrying the current ``UpdateRelaunchBlockers``; Install Now
+/// and Later are that state's existing `retryTerminatingApplication` and `dismiss` actions.
 @MainActor
 final class UpdateRelaunchGate {
     /// How often a waiting gate re-reads the host's blockers.
     static let recheckInterval: Duration = .seconds(2)
-    /// How long the gate waits for busy agents before relaunching anyway.
+    /// How long an explicit install waits for busy agents before relaunching anyway.
     static let agentTimeout: Duration = .seconds(30 * 60)
 
     private let clock: any UpdateClock
@@ -79,11 +86,13 @@ final class UpdateRelaunchGate {
     /// Whether the relaunch may proceed given `blockers` after waiting `waited`.
     nonisolated static func shouldRelaunch(
         _ blockers: UpdateRelaunchBlockers,
+        isAutoUpdate: Bool,
         waited: Duration,
         agentTimeout: Duration
     ) -> Bool {
         if blockers.runningCommandCount > 0 { return false }
-        if blockers.busyAgentCount > 0 { return waited >= agentTimeout }
+        if blockers.userInputActive { return false }
+        if blockers.busyAgentCount > 0 { return !isAutoUpdate && waited >= agentTimeout }
         return true
     }
 
@@ -134,7 +143,8 @@ final class UpdateRelaunchGate {
         blockers current: UpdateRelaunchBlockers,
         publish: @MainActor (UpdateState) -> Void
     ) -> Bool {
-        if Self.shouldRelaunch(current, waited: request.waited, agentTimeout: agentTimeout) {
+        if Self.shouldRelaunch(current, isAutoUpdate: request.isAutoUpdate,
+                               waited: request.waited, agentTimeout: agentTimeout) {
             if current.busyAgentCount > 0 {
                 log.append("update relaunch gate timed out with \(current.busyAgentCount) busy agent(s)")
             }
