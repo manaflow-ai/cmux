@@ -127,7 +127,7 @@ final class DaemonPageRelay: PageProvider {
         let key = Self.idempotencyKey(members.removeValue(forKey: "idempotency_key")?.stringValue, context: context)
         do {
             // The page relay connection: origin `page`, or the user with a native-sheet token.
-            let result = try await PageRelayChannel.shared(for: services.machines.local).send(
+            let result = try await PageRelayChannel.shared(for: services.machines.local, page: context.page).send(
                 operation: String(op.dropFirst("cmux.".count)), params: try Self.daemonParams(members), idempotencyKey: key,
                 context: context)
             return try Self.pageValue(result)

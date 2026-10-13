@@ -141,6 +141,7 @@ use command_args::{
 };
 mod origin_gate;
 mod orphan_shutdown;
+mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
@@ -2564,6 +2565,14 @@ fn handle_connection_frame(
         return pending_handoff::reject_message_during_pending_handoff(message, writer);
     }
     if let Some(request) = crate::resource_router::parse_resource_line(message) {
+        // A v2 line the catalog parse refuses may name a routed namespace
+        // operation (page-router-v1): the same JSON parse decides, so every
+        // spelling of the line gets one answer.
+        if request.is_err()
+            && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
+        {
+            return keep_open;
+        }
         return origin_gate::handle_resource_line(mux, client, message, request, writer);
     }
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {

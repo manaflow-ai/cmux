@@ -316,6 +316,9 @@ public struct DaemonCapabilities: Sendable {
     /// The page relay's origin claim (`ResourceRelay.originClaimCapability`,
     /// `ClientHello.originClaimCapability`).
     public let originClaim = "origin-claim-v1"
+    /// Page ids on page relays and the per-page allow list (`page-router-v1`;
+    /// `DaemonClientRole.pageRouterCapability`).
+    public let pageRouter = "page-router-v1"
     /// `read-session-journal` for agent history (`AgentHistory`).
     public let sessionJournal = "session-journal-v1"
     /// Per-terminal resource usage (`TerminalResourcesRequest.capability`).
@@ -339,7 +342,7 @@ public struct DaemonCapabilities: Sendable {
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
-                                            originClaim, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
+                                            originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
     /// feature shows disabled with its reason (or refuses with it) while the

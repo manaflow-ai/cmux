@@ -10,30 +10,53 @@ import os
 /// the op, its exact params and this relay connection, and attaches it to that one request. The
 /// page never sees the token.
 ///
+/// One relay connection per page (`page-router-v1`): its `client-hello` names the page
+/// (`cmux.history` -> `history`), so the daemon applies that page's allow list
+/// (cmux-tui/spec/page-router.json). A call the list marks `gesture` goes out with a confirmation
+/// token when a real key or pointer event backs it (``PageCallContext/userGesture``).
+///
 /// Against a daemon without `origin-claim-v1` there is no relay connection: page calls go on the
 /// main connection as before, with a logged warning that they are not narrowed.
 @MainActor
 final class PageRelayChannel {
     private static let logger = Logger(subsystem: "dev.cmux.next", category: "page-relay")
-    private static var channels: [ObjectIdentifier: PageRelayChannel] = [:]
+    private struct Key: Hashable {
+        let service: ObjectIdentifier
+        let page: String?
+    }
 
-    /// The channel of the local daemon service (one relay connection per app).
-    static func shared(for service: DaemonService) -> PageRelayChannel {
-        let key = ObjectIdentifier(service)
+    private static var channels: [Key: PageRelayChannel] = [:]
+
+    /// The channel of `page` (a page descriptor id) on the local daemon service.
+    static func shared(for service: DaemonService, page: String) -> PageRelayChannel {
+        let id = relayPageID(page)
+        let key = Key(service: ObjectIdentifier(service), page: id)
         if let channel = channels[key] { return channel }
-        let channel = PageRelayChannel(service: service)
+        let channel = PageRelayChannel(service: service, page: id)
         channels[key] = channel
         return channel
     }
 
+    /// The daemon page id of a descriptor id (`cmux.history` -> `history`), or nil when it is not
+    /// one (1-64 of `a-z 0-9 -`, a letter first): such a relay serves no page and may call nothing.
+    static func relayPageID(_ descriptor: String) -> String? {
+        let id = descriptor.hasPrefix("cmux.") ? String(descriptor.dropFirst("cmux.".count)) : descriptor
+        guard (1...64).contains(id.count), let first = id.unicodeScalars.first, ("a"..."z").contains(first),
+              id.unicodeScalars.allSatisfy({ ("a"..."z").contains($0) || ("0"..."9").contains($0) || $0 == "-" }) else {
+            return nil
+        }
+        return id
+    }
+
     private weak var service: DaemonService?
     private var relay: DaemonConnection?
-    private let identity = PageRelayIdentity()
+    private let identity: PageRelayIdentity
     private var starting: Task<DaemonConnection, any Error>?
     private var warned = false
 
-    init(service: DaemonService) {
+    init(service: DaemonService, page: String?) {
         self.service = service
+        self.identity = PageRelayIdentity(page: page)
     }
 
     /// One page call: the v2 op `operation` with `params`, as `page`, or as the user with a token
@@ -50,7 +73,10 @@ final class PageRelayChannel {
         }
         let relay = try await relayConnection(service)
         var origin = CmuxNextDaemon.JSONValue.object(["claim": .string("page")])
-        if context.isConfirmedUser {
+        // A native sheet, or the person's own key or pointer event on a call the page's list
+        // marks `gesture` (a History delete): the daemon then takes it as the user's.
+        let gesture = context.userGesture && identity.gestureOperations.contains(operation)
+        if context.isConfirmedUser || gesture {
             let token = try await confirmationToken(main: main, relay: relay, operation: operation, params: params)
             origin = .object(["claim": .string("user"), "confirmation": .string(token)])
         }

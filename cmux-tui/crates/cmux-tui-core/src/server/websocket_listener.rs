@@ -220,6 +220,17 @@ fn check_websocket_handshake(
     policy.check(&values("host"), &values("origin"))
 }
 
+/// The page id of an accepted handshake's Origin, when it is one Origin
+/// that names a cmux page.
+fn handshake_page(request: &tungstenite::handshake::server::Request) -> Option<String> {
+    let mut origins = request.headers().get_all("origin").iter();
+    let origin = origins.next()?.to_str().ok()?;
+    if origins.next().is_some() {
+        return None;
+    }
+    crate::request_origin::page_router_table::page_from_origin(origin)
+}
+
 // The handshake callback's error type is tungstenite's HTTP response.
 #[allow(clippy::result_large_err)]
 fn handle_websocket_connection_with_permit(
@@ -251,10 +262,16 @@ fn handle_websocket_connection_with_permit(
         .max_write_buffer_size(WEBSOCKET_INBOUND_MESSAGE_MAX_BYTES)
         .max_message_size(Some(WEBSOCKET_AUTH_MAX_BYTES))
         .max_frame_size(Some(WEBSOCKET_AUTH_MAX_BYTES));
+    // The page a host's page Origin names (`cmux-page://cmux.<page>`,
+    // page-router-v1): the web view sets it, page script cannot.
+    let page = std::cell::Cell::new(None::<String>);
     let callback = |request: &tungstenite::handshake::server::Request,
                     response: tungstenite::handshake::server::Response| {
         match check_websocket_handshake(&rules.policy, request) {
-            Ok(()) => Ok(response),
+            Ok(()) => {
+                page.set(handshake_page(request));
+                Ok(response)
+            }
             Err(refusal) => {
                 let mut denied = tungstenite::handshake::server::ErrorResponse::new(Some(
                     refusal.reason().to_owned(),
@@ -317,6 +334,9 @@ fn handle_websocket_connection_with_permit(
     let client = mux.control_clients.register(ClientTransport::WebSocket, writer.clone());
     if person {
         mux.control_clients.mark_person(client);
+    }
+    if let Some(page) = page.take() {
+        origin_gate::set_page(&mux, client, page);
     }
     let mut hello = client_hello::HelloGate::new(ClientTransport::WebSocket);
     let surface_scheduler = Arc::new(ConnectionSurfaceScheduler::new_inner(

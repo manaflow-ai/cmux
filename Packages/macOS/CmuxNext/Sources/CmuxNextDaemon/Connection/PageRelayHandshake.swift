@@ -19,10 +19,15 @@ enum PageRelayHandshake {
             transport.close()
             throw DaemonError.missingCapabilities([DaemonClientRole.originClaimCapability])
         }
-        let hello = await transport.pipeline([PipelinedLine(ClientHelloRequest(role: .pageRelay))], timeout: timeout)
+        // The page this relay serves, only to a daemon that knows page ids (an older one would
+        // refuse nothing but apply no page list).
+        let page = identity.supports(DaemonClientRole.pageRouterCapability) ? configuration.relayIdentity?.page : nil
+        let request = ClientHelloRequest(role: .pageRelay, page: page)
+        let hello = await transport.pipeline([PipelinedLine(request)], timeout: timeout)
         do {
             let reply = try WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: hello[0].get().line)
             configuration.relayIdentity?.connectionID = reply.connectionId
+            configuration.relayIdentity?.gestureOperations = Set(reply.pageOperations?.gesture ?? [])
             return identity
         } catch {
             transport.close()
@@ -32,14 +37,26 @@ enum PageRelayHandshake {
 }
 
 /// The page relay connection's daemon id from `client-hello` (a confirmation token is bound to it),
-/// shared between the connection's handshake and the relay that issues tokens.
+/// shared between the connection's handshake and the relay that issues tokens, with the page it
+/// serves and that page's gesture operations from the hello reply (`page-router-v1`).
 public final class PageRelayIdentity: Sendable {
     private let value = Mutex<String?>(nil)
+    private let gestures = Mutex<Set<String>>([])
+    /// The page id (`history`), or nil for a relay that serves no one page.
+    public let page: String?
 
-    public init() {}
+    public init(page: String? = nil) {
+        self.page = page
+    }
 
     public var connectionID: String? {
         get { value.withLock { $0 } }
         set { value.withLock { $0 = newValue } }
+    }
+
+    /// The operations the page may call only on the person's gesture.
+    public var gestureOperations: Set<String> {
+        get { gestures.withLock { $0 } }
+        set { gestures.withLock { $0 = newValue } }
     }
 }

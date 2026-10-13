@@ -1,6 +1,9 @@
 //! `client-hello` step 1 (plans/cmux-next/request-origin.md, "Hello and
 //! capability"): `{cmd: "client-hello", role: "main"|"page_relay",
-//! install_id?}` -> `{connection_id, user_origin_allowed, nonce?}`.
+//! install_id?, page?}` -> `{connection_id, user_origin_allowed, nonce?,
+//! page?, page_operations?}`. `page` (page relays only, `page-router-v1`)
+//! names the page the relay serves; the reply carries that page's allow
+//! list from spec/page-router.json.
 //!
 //! The hello is accepted only as a connection's first line, or as its second
 //! line right after exactly one `identify`; any other line first (a second
@@ -30,7 +33,7 @@ use cmux_local_auth::frontend_proof::{self, NONCE_LEN};
 use zeroize::Zeroizing;
 
 use super::*;
-use crate::request_origin::{HelloRole, RequestOrigin, valid_install_id};
+use crate::request_origin::{HelloRole, RequestOrigin, page_router_table, valid_install_id};
 
 const CLIENT_HELLO: &str = "client-hello";
 
@@ -159,10 +162,12 @@ impl HelloGate {
         peer: impl FnOnce() -> Peer,
     ) -> Result<Value, Refusal> {
         let bad = |field: &str| {
-            let message = if field == "role" {
-                "client-hello needs role main or page_relay"
-            } else {
-                "client-hello install_id must be 1-128 characters of A-Z a-z 0-9 _ -"
+            let message = match field {
+                "role" => "client-hello needs role main or page_relay",
+                "page" => {
+                    "client-hello page is for role page_relay: 1-64 characters of a-z 0-9 -, starting with a letter"
+                }
+                _ => "client-hello install_id must be 1-128 characters of A-Z a-z 0-9 _ -",
             };
             ("client_hello.bad_request", message, Some(json!({"field": field})))
         };
@@ -175,11 +180,22 @@ impl HelloGate {
         if install_id.is_some_and(|id| !id.as_str().is_some_and(valid_install_id)) {
             return Err(bad("install_id"));
         }
+        // The page this relay serves (page-router-v1): the host names it,
+        // never the page; it picks the page's allow list.
+        let page = match value.get("page") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(page))
+                if role == HelloRole::PageRelay && page_router_table::valid_page_id(page) =>
+            {
+                Some(page.clone())
+            }
+            Some(_) => return Err(bad("page")),
+        };
         let peer = peer();
         // Prover A, outside every lock: role main on a signed build.
         let signed =
             role == HelloRole::Main && mux.control_clients.app_trust.signature_proves(peer.token);
-        if !origin_gate::set_hello(mux, client, role, peer.key, signed) {
+        if !origin_gate::set_hello(mux, client, role, peer.key, signed, page.clone()) {
             return Err(("client_hello.window_closed", "this connection already has a role", None));
         }
         self.page_relay = role == HelloRole::PageRelay;
@@ -187,6 +203,10 @@ impl HelloGate {
             "connection_id": client.to_string(),
             "user_origin_allowed": user_origin_allowed(mux, client),
         });
+        if let Some(page) = page.as_deref() {
+            data["page"] = json!(page);
+            data["page_operations"] = page_router_table::page_operations(page);
+        }
         // Uniform nonce rule: role main with an install id always gets one,
         // known id or not and signed build or not (no oracle).
         let (HelloRole::Main, Some(install_id)) = (role, install_id.and_then(Value::as_str)) else {
