@@ -373,12 +373,22 @@ public final class ConversationViewController: UIViewController {
         }
         if traitCollection.changesTextMetrics(from: previousTraitCollection) {
             // Dynamic Type or Bold Text: every row re-measures at the new size.
+            let followsNewest = isPinnedToBottom && hasPositionedInitially
             layoutCache.invalidateAll()
             invalidateRowMetrics()
             layout.invalidateLayout()
             forgetAllMessageReuseIDs()
             collectionView.reloadData()
             view.setNeedsLayout()
+            // Messages keeps the newest message on the composer through a
+            // text size change (iOS 27 sim, XS -> L -> AX3 -> AX5); the rows
+            // above it grow or shrink. Without this the old offset stayed,
+            // landing days back in the history.
+            if followsNewest {
+                view.layoutIfNeeded()
+                collectionView.layoutIfNeeded()
+                collectionView.setContentOffset(bottomOffset, animated: false)
+            }
         }
     }
 
