@@ -179,6 +179,11 @@ export const PAGES = {
     out: "webviews/src/pages/files/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/files/Localizable.xcstrings" }],
   },
+  // The Stats page (cmux-page://cmux.stats/, hq#1920); its table lives next to it.
+  stats: {
+    out: "webviews/src/pages/stats/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/stats/Localizable.xcstrings" }],
+  },
   // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
   coderouter: {
     out: "webviews/src/pages/coderouter/generated/strings.json",
