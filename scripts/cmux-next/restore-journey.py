@@ -430,7 +430,7 @@ def page_html(name, base=""):
 function report(){{var p=location.pathname.replace(/^.*\\//,'/').replace(/\\.html$/,'');
 new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&t='+Date.now();}}
 {act}
-setInterval(report,1000); window.addEventListener('scroll',report); report();
+setInterval(report,1000); window.addEventListener('scroll',report); window.addEventListener('pageshow',report); report();
 </script></body></html>"""
 
 
