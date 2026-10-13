@@ -74,6 +74,13 @@ grep -qF 'is still queued or running; waiting on' <<<"$out" || fail "active run:
 (( took >= 8 )) || fail "active run: ended before the active cap"
 grep -qF 'no cmux-tui artifacts run will publish' <<<"$out" && fail "active run: failed fast"
 
+# In GitHub Actions the extension is off unless asked for: the old bounded wait holds.
+set_runs "$active_runs"
+fetch 3
+if [[ "$status" != 1 ]] || ! grep -qF 'is not published after' <<<"$out"; then fail "CI default: expected the bounded wait"; fi
+grep -qF 'waiting on' <<<"$out" && fail "CI default: extended the wait"
+(( took < 8 )) || fail "CI default: waited past the base wait"
+
 # A fleet build has no GH_TOKEN and no CMUX_TUI_TREE_PUBLISHER_SHA: the checkout is the publisher
 # and the public API is read without a token. Its queued run extends the wait; a cancelled one
 # fails fast instead of waiting the full base wait.
@@ -81,7 +88,7 @@ fleet_fetch() {
   local started
   started=$(date +%s)
   status=0
-  out=$(cd "$TMP/src" && env -u CI_JOB_DIR -u GH_TOKEN -u CMUX_TUI_TREE_PUBLISHER_SHA GITHUB_ACTIONS=true \
+  out=$(cd "$TMP/src" && env -u CI_JOB_DIR -u GH_TOKEN -u CMUX_TUI_TREE_PUBLISHER_SHA -u GITHUB_ACTIONS \
     GITHUB_REPOSITORY=o/r GITHUB_API_URL="file://$TMP/api" CMUX_TUI_PIN_BASE=https://127.0.0.1:9/cmux-tui \
     CMUX_TUI_TREE_WAIT_SECONDS="$1" CMUX_TUI_TREE_POLL_SECONDS=1 CMUX_TUI_TREE_RUN_CHECK_SECONDS=1 \
     CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS="$2" bash scripts/cmux-next/pin-cmux-tui.sh fetch 2>&1) || status=$?

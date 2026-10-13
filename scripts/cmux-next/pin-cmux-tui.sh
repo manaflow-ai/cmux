@@ -564,11 +564,14 @@ wait_for_tree() {
   wait_seconds="${CMUX_TUI_TREE_WAIT_SECONDS:-2700}"
   poll_seconds="${CMUX_TUI_TREE_POLL_SECONDS:-30}"
   check_seconds="${CMUX_TUI_TREE_RUN_CHECK_SECONDS:-300}"
-  # While the publisher's own artifacts run is still queued or running, the wait goes on past
-  # CMUX_TUI_TREE_WAIT_SECONDS up to this cap (2026-10-13: a side-branch run sat 70 min behind the
+  # While the publisher's own artifacts run (or another commit's run for the same tree) is still
+  # queued or running, the wait goes on past CMUX_TUI_TREE_WAIT_SECONDS up to this cap (2026-10-13: a side-branch run sat 70 min behind the
   # branch's previous run in its concurrency group and a fleet build gave up at 45 min, 36 min
   # before the tree was published).
-  active_cap="${CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS:-7200}"
+  # Default 7200 s off CI (the fleet); 0 in GitHub Actions, whose jobs keep their own bounded
+  # wait and timeout.
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then active_cap="${CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS:-0}"
+  else active_cap="${CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS:-7200}"; fi
   [[ "$wait_seconds" =~ ^[0-9]+$ && "$poll_seconds" =~ ^[1-9][0-9]*$ && "$check_seconds" =~ ^[1-9][0-9]*$ && "$active_cap" =~ ^[0-9]+$ ]] || {
     echo "error: CMUX_TUI_TREE_WAIT_SECONDS, CMUX_TUI_TREE_POLL_SECONDS, CMUX_TUI_TREE_RUN_CHECK_SECONDS and CMUX_TUI_TREE_ACTIVE_WAIT_SECONDS must be whole seconds" >&2; exit 2; }
   # The checkout itself is the publisher when it has this tree: its push run publishes the key, so
