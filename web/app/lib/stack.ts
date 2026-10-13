@@ -229,16 +229,12 @@ async function updateStackUserViaApi(
           method: "PATCH",
           headers: {
             "content-type": "application/json",
-            // Stack's current SDK uses the Hexclave-prefixed names; retain the
-            // Stack aliases for older project API versions during the migration.
+            // Hexclave names only: Stack answers 429 to a request that also
+            // carries the legacy x-stack-* secret headers (2026-10-13).
             "x-hexclave-access-type": "server",
             "x-hexclave-project-id": projectId,
             "x-hexclave-secret-server-key": secretServerKey,
             "x-hexclave-override-error-status": "true",
-            "x-stack-access-type": "server",
-            "x-stack-project-id": projectId,
-            "x-stack-secret-server-key": secretServerKey,
-            "x-stack-override-error-status": "true",
           },
           body: JSON.stringify(patch),
           signal: AbortSignal.timeout(10_000),
