@@ -705,6 +705,7 @@ describe("VM REST auth", () => {
     runVmWorkflow.mockResolvedValue({
       tunnelId: "tunnel-test", provider: "freestyle", deviceFingerprint: "device-test",
       clientConfig: "[Interface]\\nMTU = 1380\\n",
+      mtu: 1380,
       routes: [], network: { id: "home", cidr: "10.1.0.0/24", cidrV6: null },
       networks: [], created: false, rotated: false,
     });

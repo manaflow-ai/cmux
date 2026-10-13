@@ -57,6 +57,8 @@ export type VmTunnelDescriptor = {
   readonly serverPublicKey: string;
   readonly endpointHost: string | null;
   readonly endpointPort: number;
+  /** The provider-advertised interface MTU, when present. */
+  readonly mtu?: number;
   /** The ranges the client routes through the tunnel (its `AllowedIPs`). */
   readonly routes: readonly string[];
   /** The tunnel's address inside the network — what the account's machines see it as. */
@@ -1239,6 +1241,7 @@ function describeTunnel(
     serverPublicKey: tunnel.serverPublicKey,
     endpointHost: tunnel.endpointHost,
     endpointPort: tunnel.endpointPort,
+    ...(tunnel.mtu === undefined ? {} : { mtu: tunnel.mtu }),
     routes: tunnel.routes,
     addressV4: tunnel.addressV4,
     addressV6: tunnel.addressV6,

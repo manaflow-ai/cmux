@@ -17,6 +17,12 @@ public struct WireGuardQuickConfig: Sendable, Equatable {
     /// The keepalive every phone tunnel uses, in seconds.
     public static let persistentKeepaliveSeconds = 25
 
+    /// Compatibility MTU for pre-metadata enrollment responses.
+    ///
+    /// Current responses carry a complete config or an explicit ``CloudTunnelEnrollment/mtu``;
+    /// this remains only for older control planes that return neither.
+    public static let legacyFallbackMTU = 1200
+
     /// The completed wg-quick text.
     public var text: String
 
@@ -57,18 +63,18 @@ public struct WireGuardQuickConfig: Sendable, Equatable {
     /// - Parameters:
     ///   - enrollment: The enrollment record (addresses, routes, endpoint, server key).
     ///   - privateKey: Base64 private key from the Keychain.
-    ///   - mtu: Interface MTU; Freestyle issues 1200.
+    ///   - mtu: Server-advertised interface MTU; nil uses the legacy fallback.
     ///   - persistentKeepalive: Keepalive to pin; default 25 s.
     public init(
         enrollment: CloudTunnelEnrollment,
         privateKey: String,
-        mtu: Int = 1200,
+        mtu: Int? = nil,
         persistentKeepalive: Int = persistentKeepaliveSeconds
     ) {
         var lines = ["[Interface]", "PrivateKey = \(privateKey)"]
         if let v4 = enrollment.addressV4 { lines.append("Address = \(Self.hostAddress(v4, bits: 32))") }
         if let v6 = enrollment.addressV6 { lines.append("Address = \(Self.hostAddress(v6, bits: 128))") }
-        lines.append("MTU = \(mtu)")
+        lines.append("MTU = \(mtu ?? Self.legacyFallbackMTU)")
         lines.append("")
         lines.append("[Peer]")
         lines.append("PublicKey = \(enrollment.serverPublicKey)")
@@ -87,7 +93,7 @@ public struct WireGuardQuickConfig: Sendable, Equatable {
         if !enrollment.clientConfig.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return try WireGuardQuickConfig(completing: enrollment.clientConfig, privateKey: privateKey)
         }
-        return WireGuardQuickConfig(enrollment: enrollment, privateKey: privateKey)
+        return WireGuardQuickConfig(enrollment: enrollment, privateKey: privateKey, mtu: enrollment.mtu)
     }
 
     private static func key(of line: String) -> String? {

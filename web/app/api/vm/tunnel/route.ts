@@ -362,6 +362,7 @@ function tunnelPayload(tunnel: VmTunnelDescriptor) {
     serverPublicKey: tunnel.serverPublicKey,
     endpointHost: tunnel.endpointHost,
     endpointPort: tunnel.endpointPort,
+    ...(tunnel.mtu === undefined ? {} : { mtu: tunnel.mtu }),
     routes: [...tunnel.routes],
     address: { ipv4: tunnel.addressV4, ipv6: tunnel.addressV6 },
     network: tunnel.network,

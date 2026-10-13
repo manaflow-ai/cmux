@@ -465,6 +465,8 @@ export type ProviderTunnel = {
   readonly serverPublicKey: string;
   readonly endpointHost: string | null;
   readonly endpointPort: number;
+  /** The provider's interface MTU, when present in its returned config. */
+  readonly mtu?: number;
   /** The client's `AllowedIPs` — every range it routes through the tunnel. */
   readonly routes: readonly string[];
   /** The tunnel's address inside the attached network, i.e. what the VMs see. */
