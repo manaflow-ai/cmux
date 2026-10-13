@@ -73,7 +73,8 @@ export const retryAfterMs = (res: Response): number | null => {
   const raw = res.headers.get("retry-after")
   const seconds = raw === null ? 1 : Number(raw)
   if (!Number.isFinite(seconds) || seconds < 0) return null
-  const ms = Math.ceil(seconds * 1000)
+  // At least 250 ms: "0" or an empty value never retries at once (review P3-2).
+  const ms = Math.max(250, Math.ceil(seconds * 1000))
   return ms <= RETRY_429_MAX_MS ? ms : null
 }
 
@@ -216,3 +217,12 @@ export const stackServer = (
       call<{ access_token: string; refresh_token: string }>("POST", "/auth/sessions", { user_id: userId, ...(expiresInMillis ? { expires_in_millis: expiresInMillis } : {}) })
   }
 }
+
+/**
+ * The shared pace of Stack webhook syncs (cx-f5tk4): one token per sync of a team (its reads of the team,
+ * the member list and the permissions). Without the binding (local runs) every sync passes; a limiter error
+ * is "not now" (fail closed). STACK_READ_LIMIT is 4 syncs per 60 s per project: a sync makes 3 or more
+ * reads, so about 12 to 20 reads a minute, below the about 27 a minute at which production got 429s.
+ */
+export const stackReadPace = (env: Env): Promise<boolean> =>
+  env.STACK_READ_LIMIT ? env.STACK_READ_LIMIT.limit({ key: `stack-reads:${env.STACK_PROJECT_ID}` }).then((r) => r.success, () => false) : Promise.resolve(true)

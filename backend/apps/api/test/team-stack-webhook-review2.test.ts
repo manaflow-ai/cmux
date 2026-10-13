@@ -67,7 +67,7 @@ describe("Stack team webhook re-review fixes (cx-3bi.43)", { timeout: 60_000 }, 
     expect(Object.keys(revoked)).toContain(String(serial))
   })
 
-  it("P3: a delivery whose deadline passed while queued is dropped before it runs", async () => {
+  it("P3: a delivery whose deadline passed while waiting reads nothing itself; the next delivery syncs it", async () => {
     const t = await mirroredTeam()
     let release: (() => void) | undefined
     const gate = new Promise<void>((r) => (release = r))
@@ -85,7 +85,8 @@ describe("Stack team webhook re-review fixes (cx-3bi.43)", { timeout: 60_000 }, 
       instance.stack = fake
       return lateReply
     })
-    expect(r).toMatchObject({ ok: false })
+    // Kept (cx-f5tk4): the late one answers `queued`, and its pending sync merged into the one after.
+    expect(r).toMatchObject({ ok: true, outcome: "queued" })
     // The slow one and the one after asked Stack (team and member list each); the late one never did.
     expect(t.w.calls() - base).toBe(4)
   })

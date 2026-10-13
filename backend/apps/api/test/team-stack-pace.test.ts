@@ -1,102 +1,167 @@
 import { env } from "cloudflare:workers"
 import { describe, expect, it } from "vitest"
-import { signSvixContent } from "../../../../libs/svix-webhook/src/svix.ts"
-import { stackServer } from "../src/stack-server.ts"
-import { handleStackWebhook } from "../src/stack-webhook.ts"
 import type { Env } from "../src/env.ts"
-import { SECRET, stackWorld, teamIdOf, teamStub } from "./team-stack-support.ts"
+import { stackServer } from "../src/stack-server.ts"
+import { deliver, memberRow, PROJECT, teamIdOf, teamStub } from "./team-stack-support.ts"
 import { inDO } from "./team-ssh-support.ts"
+import { userIdFor } from "../src/domains/user.ts"
 
 /**
- * cx-f5tk4: the sign-in service answered 429 to our team reads during a recovery burst, and every
- * 429 made the sender retry. The webhook route paces deliveries per project (STACK_READ_LIMIT):
- * over the pace it answers a retryable 503 with no TeamDO wake and no read; the sign-in client
- * retries one short 429 itself.
+ * cx-f5tk4: production's sign-in service answered 429 to our team reads during a recovery burst, and
+ * every failed delivery made the sender retry in waves. Now TeamDO records each delivery durably and
+ * answers 200; it reads Stack only with a token of the shared pace, and a sync that cannot read now
+ * backs off (1 min doubling to 1 h) and runs again from the alarm. These tests drive the real route,
+ * the real Stack client and a faked Stack HTTP boundary that answers 429 over its quota.
  */
 const testEnv = env as unknown as Env
 
-/** A fixed-window limiter like the Workers binding: `limit` passes per window, then refuses. */
-const windowLimiter = (limit: number) => {
+/** The shared pace, like the Workers rate limit: `limit` tokens per window; the test opens each window. */
+const pace = (limit: number) => {
   let used = 0
-  return { binding: { limit: async () => ({ success: ++used <= limit }) } as unknown as RateLimit, used: () => used }
+  let taken = 0
+  return { take: async () => (++used <= limit ? (taken++, true) : false), window: () => void (used = 0), taken: () => taken }
 }
 
-const signed = async (type: string, data: unknown) => {
-  const body = JSON.stringify({ type, data })
-  const id = `msg_${crypto.randomUUID().replace(/-/g, "")}`
-  const ts = String(Math.floor(Date.now() / 1000))
-  const sig = `v1,${await signSvixContent(SECRET, `${id}.${ts}.${body}`)}`
-  return new Request("https://api.test/v1/hooks/stack", { method: "POST", headers: { "content-type": "application/json", "svix-id": id, "svix-timestamp": ts, "svix-signature": sig }, body })
-}
-
-describe("Stack webhook pace (cx-f5tk4)", { timeout: 120_000 }, () => {
-  it("a burst of 150 signed deliveries never reads the sign-in service above the pace; each ends 200 or a retryable 503", async () => {
-    const PACE = 6
-    // The faked sign-in service: a 429 for any read past its quota in this window.
-    const QUOTA = 20
-    const w = stackWorld()
-    let reads = 0
-    let tooMany = 0
-    const guarded = <A extends Array<unknown>, R>(f: (...a: A) => Promise<R>) => async (...a: A): Promise<R> => {
-      if (++reads > QUOTA) {
-        tooMany++
-        throw new Error("stack GET team returned 429")
-      }
-      return f(...a)
+/** Stack over HTTP: teams with one member each; a 429 for every request past `quota` in a window. */
+const stackHttp = (quota: number) => {
+  const teams = new Map<string, string>()
+  let inWindow = 0
+  let requests = 0
+  let tooMany = 0
+  let storm = 0
+  const http = async (req: Request) => {
+    requests++
+    if (storm > 0 || ++inWindow > quota) {
+      if (storm > 0) storm--
+      tooMany++
+      return new Response("{}", { status: 429, headers: { "retry-after": "1" } })
     }
-    const fake = { ...w.fake, getTeam: guarded(w.fake.getTeam), listTeamMembers: guarded(w.fake.listTeamMembers), getTeamMember: guarded(w.fake.getTeamMember) }
-    const stackTeams = Array.from({ length: 30 }, (_, i) => `pace-${crypto.randomUUID().slice(0, 8)}-${i}`)
+    const url = new URL(req.url)
+    const team = url.pathname.startsWith("/api/v1/teams/") ? decodeURIComponent(url.pathname.slice("/api/v1/teams/".length)) : url.searchParams.get("team_id") ?? ""
+    const user = teams.get(team)
+    if (!user) return new Response("{}", { status: 404, headers: { "x-stack-known-error": "TEAM_NOT_FOUND" } })
+    if (url.pathname.startsWith("/api/v1/teams/")) return Response.json({ id: team, display_name: `Team ${team.slice(0, 6)}` })
+    if (url.pathname === "/api/v1/team-member-profiles") return Response.json({ is_paginated: false, items: [{ team_id: team, user_id: user, display_name: "Member" }] })
+    if (url.pathname === "/api/v1/team-permissions") return Response.json({ is_paginated: false, items: [{ id: "team_member", user_id: user, team_id: team }] })
+    return new Response("{}", { status: 404 })
+  }
+  return { teams, http, window: () => void (inWindow = 0), requests: () => requests, tooMany: () => tooMany, storm: (n: number) => void (storm = n) }
+}
+
+/** Points every team's TeamDO at the faked Stack and the test pace. */
+const wire = async (stackTeams: ReadonlyArray<string>, s: ReturnType<typeof stackHttp>, p: ReturnType<typeof pace>) => {
+  const client = stackServer({ ...testEnv, STACK_SECRET_SERVER_KEY: "test-server-key", STACK_PROJECT_ID: PROJECT } as Env, s.http, async () => undefined)!
+  for (const t of stackTeams)
+    await inDO(teamStub(teamIdOf(t)), async (instance) => {
+      instance.stack = client
+      instance.stackPace = p.take
+    })
+}
+
+const pending = (stackTeam: string) =>
+  inDO(teamStub(teamIdOf(stackTeam)), async (_i, state) => state.storage.sql.exec<{ k: string; due_at: number; fails: number }>(`SELECT k, due_at, fails FROM stack_team_recheck`).toArray())
+
+/** One step of the injected clock: a new pace and quota window, then every team's alarm work at `now`. */
+const step = async (stackTeams: ReadonlyArray<string>, s: ReturnType<typeof stackHttp>, p: ReturnType<typeof pace>, now: number) => {
+  p.window()
+  s.window()
+  for (const t of stackTeams) await inDO(teamStub(teamIdOf(t)), async (instance) => instance.stackSync.wake(now))
+}
+
+describe("Stack webhook: queued syncs under the shared pace (cx-f5tk4)", { timeout: 240_000 }, () => {
+  it("a burst of 150 signed deliveries: 150 x 200, reads within the pace, no 429, every team syncs in the end", async () => {
+    const PACE = 4
+    const s = stackHttp(PACE * 3 + 2)
+    const p = pace(PACE)
+    const stackTeams = Array.from({ length: 30 }, () => crypto.randomUUID())
+    for (const t of stackTeams) s.teams.set(t, crypto.randomUUID())
+    await wire(stackTeams, s, p)
+    const answers = await Promise.all(Array.from({ length: 150 }, (_, i) => deliver("team.created", { id: stackTeams[i % 30], display_name: "T", profile_image_url: null, created_at_millis: 0 })))
+    expect(answers.map((a) => a.status)).toEqual(Array(150).fill(200))
+    expect(answers.filter((a) => a.body.outcome !== "queued" && a.body.outcome !== "team_mirrored")).toEqual([])
+    // At most the pace's syncs read now: three requests each (team, member list, permissions).
+    expect(p.taken()).toBeLessThanOrEqual(PACE)
+    expect(s.requests()).toBeLessThanOrEqual(PACE * 3)
+    // The injected clock: each step opens one pace window and runs every alarm; backoff never passes 1 h.
+    let now = Date.now()
+    for (let i = 0; i < 40 && (await Promise.all(stackTeams.map(pending))).some((rows) => rows.length > 0); i++) {
+      now += 2 * 60 * 60_000
+      const before = s.requests()
+      await step(stackTeams, s, p, now)
+      expect(s.requests() - before).toBeLessThanOrEqual(PACE * 3)
+    }
     for (const t of stackTeams) {
-      w.teams.set(t, `Team ${t}`)
-      await inDO(teamStub(teamIdOf(t)), async (instance) => {
-        instance.stack = fake
-      })
+      expect(await pending(t)).toEqual([])
+      expect(await memberRow(teamIdOf(t), userIdFor(PROJECT, s.teams.get(t)!))).toMatchObject({ role: "member" })
     }
-    const limiter = windowLimiter(PACE)
-    const paced = { ...testEnv, STACK_READ_LIMIT: limiter.binding } as Env
-    const answers = await Promise.all(Array.from({ length: 150 }, async (_, i) => {
-      const res = await handleStackWebhook(await signed("team.created", { id: stackTeams[i % stackTeams.length] }), paced)
-      return { status: res.status, body: (await res.json()) as any }
-    }))
-    expect(limiter.used()).toBe(150)
-    const ok = answers.filter((a) => a.status === 200)
-    const later = answers.filter((a) => a.status === 503)
-    expect(ok.length + later.length).toBe(150)
-    expect(ok.length).toBeLessThanOrEqual(PACE)
-    expect(later.every((a) => a.body.error?.retryable === true)).toBe(true)
-    expect(later.filter((a) => a.body.error?.code === "webhook.paced").length).toBeGreaterThanOrEqual(150 - PACE)
-    // Only paced-through deliveries read: team.created reads the team and its member list.
-    expect(reads).toBeLessThanOrEqual(PACE * 2)
-    expect(tooMany).toBe(0)
+    expect(s.tooMany()).toBe(0)
   })
 
-  it("over the pace, a delivery wakes no TeamDO and reads nothing; a limiter error holds too", async () => {
-    const wake = { get: () => { throw new Error("TeamDO must not wake") }, idFromName: (n: string) => n }
-    for (const limiter of [{ limit: async () => ({ success: false }) }, { limit: async () => { throw new Error("limiter down") } }]) {
-      const res = await handleStackWebhook(await signed("team.created", { id: "pace-none" }), { ...testEnv, STACK_READ_LIMIT: limiter as unknown as RateLimit, TEAM_DO: wake as unknown as Env["TEAM_DO"] } as Env)
-      expect(res.status).toBe(503)
-      expect(((await res.json()) as any).error).toMatchObject({ code: "webhook.paced", retryable: true })
-    }
-  })
-
-  it("the sign-in client retries one short 429, and gives up on a second 429 or a long Retry-After", async () => {
-    const keyed = { ...testEnv, STACK_SECRET_SERVER_KEY: "test-server-key" } as Env
-    const team = { id: "t", display_name: "T", client_read_only_metadata: {} }
-    const replies = (list: Array<Response>) => {
-      let n = 0
-      return { http: async () => list[n++] ?? new Response("{}", { status: 500 }), calls: () => n }
-    }
+  it("a 429 storm backs off (1 min doubling to 1 h, ±20 % jitter) and then converges", async () => {
+    const s = stackHttp(1000)
+    const p = pace(1000)
+    const stackTeam = crypto.randomUUID()
+    s.teams.set(stackTeam, crypto.randomUUID())
+    await wire([stackTeam], s, p)
+    // Every request answers 429 for a while: the client's own retry and the delivery both meet it.
+    s.storm(1_000_000)
+    const r = await deliver("team.created", { id: stackTeam, display_name: "T", profile_image_url: null, created_at_millis: 0 })
+    expect(r).toMatchObject({ status: 200, body: { outcome: "queued" } })
+    let now = Date.now()
     const waits: Array<number> = []
-    const wait = async (ms: number) => void waits.push(ms)
-    const once = replies([new Response("{}", { status: 429, headers: { "retry-after": "1" } }), Response.json(team)])
-    expect(await stackServer(keyed, once.http, wait)!.getTeam("t")).toMatchObject({ display_name: "T" })
-    expect(once.calls()).toBe(2)
-    expect(waits).toEqual([1000])
-    const twice = replies([new Response("{}", { status: 429 }), new Response("{}", { status: 429 })])
-    await expect(stackServer(keyed, twice.http, wait)!.getTeam("t")).rejects.toThrow(/429/)
-    expect(twice.calls()).toBe(2)
-    const long = replies([new Response("{}", { status: 429, headers: { "retry-after": "30" } })])
-    await expect(stackServer(keyed, long.http, wait)!.getTeam("t")).rejects.toThrow(/429/)
-    expect(long.calls()).toBe(1)
+    for (let i = 0; i < 8; i++) {
+      const [row] = await pending(stackTeam)
+      expect(row!.fails).toBe(i + 1)
+      waits.push(row!.due_at - now)
+      now = row!.due_at
+      await step([stackTeam], s, p, now)
+    }
+    // 1, 2, 4, 8, 16, 32, 60, 60 min, each within ±20 %.
+    for (const [i, w] of waits.entries()) {
+      const want = Math.min(60, 2 ** i) * 60_000
+      expect(w).toBeGreaterThanOrEqual(want * 0.8 - 1000)
+      expect(w).toBeLessThanOrEqual(want * 1.2 + 1000)
+    }
+    s.storm(0)
+    const [row] = await pending(stackTeam)
+    await step([stackTeam], s, p, row!.due_at)
+    expect(await pending(stackTeam)).toEqual([])
+    expect(await memberRow(teamIdOf(stackTeam), userIdFor(PROJECT, s.teams.get(stackTeam)!))).toMatchObject({ role: "member" })
+  })
+
+  it("a reject ends the sync: logged, no pending row, no retry", async () => {
+    const s = stackHttp(1000)
+    const p = pace(1000)
+    const stackTeam = crypto.randomUUID()
+    s.teams.set(stackTeam, crypto.randomUUID())
+    await wire([stackTeam], s, p)
+    await inDO(teamStub(teamIdOf(stackTeam)), async (instance) => {
+      instance.realSubmit = instance.submitSystem
+      instance.submitSystem = () => ({ frames: [{ t: "reject", code: "test.rejected", message: "no", retryable: false }] })
+    })
+    const r = await deliver("team.created", { id: stackTeam, display_name: "T", profile_image_url: null, created_at_millis: 0 })
+    expect(r).toMatchObject({ status: 200, body: { outcome: "reject:test.rejected" } })
+    expect(await pending(stackTeam)).toEqual([])
+    const before = s.requests()
+    await step([stackTeam], s, p, Date.now() + 24 * 60 * 60_000)
+    expect(s.requests()).toBe(before)
+    await inDO(teamStub(teamIdOf(stackTeam)), async (instance) => {
+      instance.submitSystem = instance.realSubmit
+    })
+  })
+
+  it("a duplicate svix id answers duplicate, also while its sync is still queued, and reads nothing", async () => {
+    const s = stackHttp(1000)
+    const p = pace(0)
+    const stackTeam = crypto.randomUUID()
+    s.teams.set(stackTeam, crypto.randomUUID())
+    await wire([stackTeam], s, p)
+    const id = `msg_${crypto.randomUUID().replace(/-/g, "")}`
+    const first = await deliver("team.created", { id: stackTeam, display_name: "T", profile_image_url: null, created_at_millis: 0 }, { id })
+    expect(first.body.outcome).toBe("queued")
+    const again = await deliver("team.created", { id: stackTeam, display_name: "T", profile_image_url: null, created_at_millis: 0 }, { id })
+    expect(again).toMatchObject({ status: 200, body: { duplicate: true } })
+    expect(s.requests()).toBe(0)
+    expect((await pending(stackTeam)).length).toBe(1)
   })
 })

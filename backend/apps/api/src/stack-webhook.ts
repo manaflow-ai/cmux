@@ -11,7 +11,9 @@ import type { StackSyncReply } from "./team-stack-sync.ts"
  * team and membership from Stack as they are now and commits that (team-stack-sync.ts); every
  * other event is a 200 no-op.
  *
- * Answers: 503 while the secret is not configured, TeamDO or Stack fails (Svix retries), 401 for a
+ * Answers: 503 while the secret is not configured or TeamDO cannot record the delivery (Svix retries);
+ * 200 `queued` when TeamDO recorded it but Stack could not be read now (pace or 429: TeamDO syncs later
+ * from its alarm, team-stack-sync.ts, cx-f5tk4); 401 for a
  * bad, stale or missing signature, 200 otherwise (a replayed svix-id answers `duplicate`). A signed
  * body we cannot use (Stack's published examples carry only `type`) is a logged 200
  * `ignored_shape`, never a 4xx: Svix retries a 4xx and then disables the endpoint. Every answer logs its reason and the svix-id, never the
@@ -81,12 +83,6 @@ export const handleStackWebhook = async (request: Request, env: Env, nowMs: numb
   const stackUser = MEMBERSHIP_EVENTS.has(type) ? data.user_id : undefined
   if (typeof stackTeam !== "string" || !STACK_ID.test(stackTeam) || (MEMBERSHIP_EVENTS.has(type) && (typeof stackUser !== "string" || !STACK_ID.test(stackUser)))) return ignoredShape({ event_type, shape: "ids" })
   const team = stackTeamIdFor(env.STACK_PROJECT_ID, normalId(stackTeam))
-  // The shared pace of sign-in reads (cx-f5tk4): over it, a retryable 503 at once, no TeamDO wake and no
-  // read, so the sender's retries add no load on the sign-in service. Fails closed: a limiter error holds too.
-  if (env.STACK_READ_LIMIT) {
-    const paced = await env.STACK_READ_LIMIT.limit({ key: `stack-reads:${env.STACK_PROJECT_ID}` }).then((r) => !r.success, () => true)
-    if (paced) return finish(503, "paced", failure("webhook.paced", "too many sign-in reads now; retry", true), { svix_id, event_type, team })
-  }
   const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as TeamWebhookStub
   let reply: StackSyncReply
   try {
