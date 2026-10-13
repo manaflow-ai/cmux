@@ -2342,6 +2342,8 @@
 		A93770010000000000000002 /* GrokSessionLocator+ProcessDiscovery.swift in Sources */ = {isa = PBXBuildFile; fileRef = A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */; };
 		937700020000000000000001 /* GrokVaultAgentPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 937700010000000000000001 /* GrokVaultAgentPersistenceTests.swift */; };
 		C0DE34020000000000000005 /* HelpMenuUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE34020000000000000006 /* HelpMenuUITests.swift */; };
+		9A64450B4D141E4A80FC9397 /* HerdrResumeParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = A44D8B169E078B6036415AC7 /* HerdrResumeParser.swift */; };
+		37BCA223B0EBED2ABFEAF6BC /* HerdrResumeParserTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05BE49145FE4324D6FDDBC60 /* HerdrResumeParserTests.swift */; };
 		F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */; };
 		9520A0019520A0019520A001 /* HermesFirstClassSupportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9520B0019520B0019520B001 /* HermesFirstClassSupportTests.swift */; };
 		4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */; };
@@ -6887,6 +6889,8 @@
 		A93770010000000000000001 /* GrokSessionLocator+ProcessDiscovery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "GrokSessionLocator+ProcessDiscovery.swift"; sourceTree = "<group>"; };
 		937700010000000000000001 /* GrokVaultAgentPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GrokVaultAgentPersistenceTests.swift; sourceTree = "<group>"; };
 		C0DE34020000000000000006 /* HelpMenuUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HelpMenuUITests.swift; sourceTree = "<group>"; };
+		A44D8B169E078B6036415AC7 /* HerdrResumeParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HerdrResumeParser.swift; sourceTree = "<group>"; };
+		05BE49145FE4324D6FDDBC60 /* HerdrResumeParserTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "HerdrResumeParserTests.swift"; sourceTree = "<group>"; };
 		F5320001A1B2C3D4E5F60718 /* HermesAgentIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesAgentIndex.swift; sourceTree = "<group>"; };
 		9520B0019520B0019520B001 /* HermesFirstClassSupportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HermesFirstClassSupportTests.swift; sourceTree = "<group>"; };
 		4931A11B0000000000000001 /* HiddenRightSidebarContentMountingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HiddenRightSidebarContentMountingTests.swift; sourceTree = "<group>"; };
@@ -12256,6 +12260,7 @@
 				888DEA5181DA90BA20514C63 /* AgentSessionTurnNotifier.swift */,
 				9E6A96CCBDE353757B31D2BB /* VaultAgentRegistry+Muse.swift */,
 				603138BB51C4ADFD98885570 /* SessionIndexStore+Muse.swift */,
+				A44D8B169E078B6036415AC7 /* HerdrResumeParser.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13826,6 +13831,7 @@
 				FA4CD7C689E9A08DB5112238 /* MuseVaultRegistrationTests.swift */,
 				6363F4EA9220ADE6FA369B16 /* CLIMuseHookInstallTests.swift */,
 				DB2534FB1BD7FDBD3A7474EE /* CloudManualMirrorHandshakeTests.swift */,
+				05BE49145FE4324D6FDDBC60 /* HerdrResumeParserTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15809,6 +15815,7 @@
 					A6AC72010000000000000001 /* GPUSpinnerNSView.swift in Sources */,
 					A6AC72020000000000000001 /* GPUSpinnerStyle.swift in Sources */,
 					A93770010000000000000002 /* GrokSessionLocator+ProcessDiscovery.swift in Sources */,
+				9A64450B4D141E4A80FC9397 /* HerdrResumeParser.swift in Sources */,
 					F5320000A1B2C3D4E5F60718 /* HermesAgentIndex.swift in Sources */,
 				A10348010000000000000001 /* HistoryMenuActions.swift in Sources */,
 				C4160A020000000000000001 /* HistoryMenuCoordinator.swift in Sources */,
@@ -18419,6 +18426,7 @@
 				8561A0038561A0038561A003 /* GlobalSearchVisiblePopoverShortcutTests.swift in Sources */,
 				DD9DE998158FEA6242A9C15F /* GotoSplitActionTests.swift in Sources */,
 					937700020000000000000001 /* GrokVaultAgentPersistenceTests.swift in Sources */,
+				37BCA223B0EBED2ABFEAF6BC /* HerdrResumeParserTests.swift in Sources */,
 				9520A0019520A0019520A001 /* HermesFirstClassSupportTests.swift in Sources */,
 				4931A11B0000000000000002 /* HiddenRightSidebarContentMountingTests.swift in Sources */,
 				A10348030000000000000001 /* HistoryMenuCoordinatorTests.swift in Sources */,
