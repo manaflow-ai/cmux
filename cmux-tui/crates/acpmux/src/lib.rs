@@ -54,6 +54,7 @@ pub mod server;
 pub mod session_env;
 pub mod session_name;
 pub mod sha256;
+pub mod stats;
 pub mod store;
 pub mod subagents;
 pub mod transcript;
