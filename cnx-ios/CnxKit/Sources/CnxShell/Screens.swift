@@ -1,4 +1,5 @@
 #if os(iOS)
+import CnxAgentChat
 import CnxDesign
 import CnxModel
 import SwiftUI
@@ -32,11 +33,14 @@ struct HomeScreen: View {
                 ConversationRow(title: "Chief", preview: "Two agents need you. The transport PR is ready for review.", time: "now", isChief: true)
                 ForEach(store.workspaces) { ws in
                     if let tab = ws.tabs.first(where: { $0.kind == .agent }) {
-                        ConversationRow(title: "\(tab.title) · \(ws.title)", preview: tab.subtitle ?? "", time: ws.lastActivityAt.formatted(.relative(presentation: .numeric)), isChief: false)
+                        NavigationLink(value: AgentChatDestination(workspaceID: ws.id, tabID: tab.id)) {
+                            ConversationRow(title: "\(tab.title) · \(ws.title)", preview: tab.subtitle ?? "", time: ws.lastActivityAt.formatted(.relative(presentation: .numeric)), isChief: false)
+                        }
                     }
                 }
             }
             .listStyle(.plain)
+            .agentChatDestinations()
             .navigationTitle("Home")
             .toolbar {
                 SidebarToolbarItem(openSidebar: openSidebar)
@@ -141,55 +145,17 @@ struct WorkspaceDetailPlaceholder: View {
 
     var body: some View {
         let tab = store.openingTab(for: workspace)
+        if let tab, tab.kind == .agent {
+            AgentChatDestinationView(destination: AgentChatDestination(workspaceID: workspace.id, tabID: tab.id))
+        } else {
+            placeholder(tab)
+        }
+    }
+
+    private func placeholder(_ tab: WorkspaceTab?) -> some View {
         ContentUnavailableView(tab?.title ?? workspace.title, systemImage: tab?.systemImage ?? "square.stack", description: Text(tab?.subtitle ?? ""))
             .navigationTitle(workspace.title)
             .navigationBarTitleDisplayMode(.inline)
-    }
-}
-
-struct FeedScreen: View {
-    let openSidebar: () -> Void
-    @Environment(AppStore.self) private var store
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(store.feed) { event in
-                        FeedRowPlaceholder(event: event)
-                        Divider()
-                    }
-                }
-            }
-            .navigationTitle("Feed")
-            .toolbar { SidebarToolbarItem(openSidebar: openSidebar) }
-        }
-    }
-}
-
-struct FeedRowPlaceholder: View {
-    let event: FeedEvent
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(event.agentName).font(.subheadline.weight(.semibold))
-                Text(event.createdAt, format: .relative(presentation: .numeric)).font(.subheadline).foregroundStyle(.secondary)
-            }
-            if let quote = event.quotedPrompt {
-                Text(quote)
-                    .font(.subheadline)
-                    .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(Color(uiColor: .systemBlue), in: .rect(cornerRadius: 17, style: .continuous))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-            Text((try? AttributedString(markdown: event.markdown, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(event.markdown))
-                .font(.body)
-                .lineLimit(8)
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 }
 

@@ -2,3 +2,4 @@ CnxApp.xcodeproj/
 App/Info.plist
 .build/
 build/
+verify/evidence/
