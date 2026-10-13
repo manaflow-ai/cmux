@@ -171,11 +171,14 @@ test("with nothing hidden, the row keeps no menu of its own", async () => {
 // pass through it; a right-click in its search field keeps the field's own menu (Cut, Copy, Paste).
 test("a right-click in a popup the row opened keeps its own menu", async () => {
   await renderNewTab({ showDictation: false });
-  await act(async () => row().querySelector<HTMLButtonElement>('button[aria-label="Project"]')!.click());
-  const search = document.querySelector<HTMLInputElement>('input[aria-label="Search projects"]');
-  expect(search).not.toBeNull();
-  expect(row().contains(search)).toBe(false);
-  await rightClick(search!);
+  // The card's folder menu (its location row, below the bar) opens a popup outside the bar.
+  await act(async () =>
+    document.querySelector<HTMLButtonElement>('.acpmux-composer-context button[aria-label="Folder"]')!.click(),
+  );
+  const menu = document.querySelector<HTMLElement>(".acpmux-location-menu");
+  expect(menu).not.toBeNull();
+  expect(row().contains(menu)).toBe(false);
+  await rightClick(menu!);
   expect(item("Show Dictation Button")).toBeUndefined();
 });
 
