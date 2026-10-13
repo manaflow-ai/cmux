@@ -660,6 +660,8 @@ describe("claude proxy failover across accounts", () => {
       const { response } = await routed(messagesRequest({ model: "claude-sonnet-4-5", max_tokens: 8, messages: [{ role: "user", content: "hi" }] }));
       expect(response.status).toBe(200);
       expect(fetchCalls).toHaveLength(2);
+      expect(requestHeaders(fetchCalls[0]!).get("x-api-key")).toBe("sk-ant-api03-real-secret-key-value-1234");
+      expect(requestHeaders(fetchCalls[1]!).get("x-api-key")).toBe("sk-ant-api03-second-key-value-5678");
       expect(cooldowns).toEqual([{ accountId: "acct-api-1", durationMs: 20_000, failureCode: "upstream_unavailable" }]);
       expect((await response.json()).id).toBe(`msg-${status}`);
     }

@@ -729,7 +729,7 @@ async function probeClaudeStreamFailure(response: Response, signal: AbortSignal)
     await reader.cancel().catch(() => undefined);
     throw error;
   }
-  let buffered = chunks.slice();
+  const buffered = chunks.slice();
   let upstreamDone = false;
   const stream = new ReadableStream<Uint8Array>({
     async pull(controller) {
@@ -865,7 +865,7 @@ function classifyAttempt(attempt: Attempt): Verdict {
       stage: "upstream_response",
     };
   }
-  if (status === 500 || status === 502 || status === 503 || status === 529) {
+  if (status === 408 || status === 409 || status === 500 || status === 502 || status === 503 || status === 529) {
     return {
       kind: "failover",
       cooldownMs: UPSTREAM_UNAVAILABLE_COOLDOWN_MS,
