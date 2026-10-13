@@ -138,6 +138,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxAuthRuntime"),
         .package(path: "../../Shared/CMUXMobileCore"),
         .package(path: "../../Shared/CmuxTheme"),
+        // App Attest and DeviceCheck: the free tier's device proof (cx-ds09i).
+        .package(path: "../../Shared/CmuxAppAttest"),
         .package(path: "../../Shared/CmuxAgentBrands"),
         // Vendored from manaflow-ai/cmux-cua at CMUX_CUA_PINNED_SHA (scripts/cmux_agent_cursor_vendor.py).
         .package(path: "../../Shared/CmuxAgentCursor"),
@@ -184,6 +186,8 @@ let package = Package(
                 .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"),
                 // The signed approve answer format shared with the iPhone (cx-aocz).
                 .product(name: "CmuxFeedPushCore", package: "CmuxFeedPushCore"),
+                // The free tier's App Attest provider is composed here (cx-ds09i).
+                .product(name: "CmuxAppAttest", package: "CmuxAppAttest"),
                 "CmuxNextWakeups",
                 "CmuxNextActions",
                 "CmuxNextDaemon",
@@ -240,7 +244,8 @@ let package = Package(
         // token, session id). Everything above the handshake is TypeScript.
         .target(
             name: "CmuxNextAgentPane",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", "CmuxNextDictation", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups",
+                           .product(name: "CmuxAppAttest", package: "CmuxAppAttest")],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/agent-pane"),

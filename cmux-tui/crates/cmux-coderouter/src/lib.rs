@@ -25,6 +25,9 @@ use tokio::{
     net::TcpListener,
 };
 use tower_http::limit::RequestBodyLimitLayer;
+
+pub mod free_tier;
+use free_tier::FreeTier;
 use zeroize::Zeroize;
 
 pub const BODY_LIMIT: usize = 64 * 1024 * 1024;
@@ -336,6 +339,7 @@ struct AppState {
     port: u16,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
     upstream: SharedUpstream,
+    free: Arc<FreeTier>,
     http: reqwest::Client,
 }
 
@@ -505,11 +509,12 @@ async fn serve_owned(home: &Path) -> anyhow::Result<()> {
     let keys = Arc::new(tokio::sync::RwLock::new(KeyRing::new(store)?));
     let port = listener.local_addr()?.port();
     let upstream: SharedUpstream = Arc::new(tokio::sync::RwLock::new(None));
-    let data = data_server(listener, keys.clone(), upstream.clone());
+    let free = FreeTier::new(http_client());
+    let data = data_server(listener, keys.clone(), upstream.clone(), free.clone());
     let stop = Arc::new(tokio::sync::Notify::new());
     tokio::select! {
         _ = data => (),
-        result = admin_loop(admin, keys, upstream, port, stop.clone()) => result?,
+        result = admin_loop(admin, keys, upstream, free, port, stop.clone()) => result?,
         _ = stop.notified() => (),
     }
     drop(lock);
@@ -525,28 +530,36 @@ pub async fn spawn_data_plane(
         TcpListener::bind(LoopbackAddr::try_from("127.0.0.1:0".parse::<SocketAddr>()?)?.address())
             .await?;
     let address = listener.local_addr()?;
-    let task = tokio::spawn(data_server(listener, keys, upstream));
+    let free = FreeTier::new(http_client());
+    let task = tokio::spawn(data_server(listener, keys, upstream, free));
     Ok((address, task))
 }
 
-async fn data_server(
-    listener: TcpListener,
-    keys: Arc<tokio::sync::RwLock<KeyRing>>,
-    upstream: SharedUpstream,
-) {
-    let http = reqwest::Client::builder()
+/// The relay's HTTP client toward the hosted router: no redirects (a bearer
+/// never follows one to another host).
+fn http_client() -> reqwest::Client {
+    reqwest::Client::builder()
         .connect_timeout(std::time::Duration::from_secs(15))
         // Per read, not per request: a long stream keeps going while bytes
         // arrive; an upstream that stops sending ends the request.
         .read_timeout(std::time::Duration::from_secs(300))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+async fn data_server(
+    listener: TcpListener,
+    keys: Arc<tokio::sync::RwLock<KeyRing>>,
+    upstream: SharedUpstream,
+    free: Arc<FreeTier>,
+) {
     let state = AppState {
         port: listener.local_addr().map(|address| address.port()).unwrap_or(0),
         keys,
         upstream,
-        http,
+        free,
+        http: http_client(),
     };
     let app = Router::new()
         .fallback(any(data_request))
@@ -563,6 +576,7 @@ async fn admin_loop(
     listener: UnixListener,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
     upstream: SharedUpstream,
+    free: Arc<FreeTier>,
     port: u16,
     stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
@@ -570,9 +584,10 @@ async fn admin_loop(
         let (stream, _) = listener.accept().await?;
         let keys = keys.clone();
         let upstream = upstream.clone();
+        let free = free.clone();
         let stop = stop.clone();
         tokio::spawn(async move {
-            let _ = admin_connection(stream, keys, upstream, port, stop).await;
+            let _ = admin_connection(stream, keys, upstream, free, port, stop).await;
         });
     }
 }
@@ -619,12 +634,17 @@ enum AdminRequest {
     /// (`{adopted, stopping, pid}`); refused once the router is stopping, or
     /// when it has no owner FIFO (started by hand).
     Adopt,
+    /// The cmux app offers App Attest proofs for the free tier
+    /// (`free_tier`): the connection then carries relay requests and the
+    /// app's replies until it ends.
+    AttestProvider(free_tier::Register),
 }
 #[cfg(unix)]
 async fn admin_connection(
     stream: UnixStream,
     keys: Arc<tokio::sync::RwLock<KeyRing>>,
     upstream: SharedUpstream,
+    free: Arc<FreeTier>,
     port: u16,
     stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
@@ -652,7 +672,7 @@ async fn admin_connection(
             }
             AdminRequest::Status => {
                 let up = upstream.read().await;
-                serde_json::json!({"port": port, "build": router_build(), "pid": std::process::id(), "upstream": up.as_ref().map(Upstream::view)})
+                serde_json::json!({"port": port, "build": router_build(), "pid": std::process::id(), "upstream": up.as_ref().map(Upstream::view), "free": free.view()})
             }
             AdminRequest::Adopt => {
                 // The daemon opened the owner FIFO before it asked; a router
@@ -688,8 +708,17 @@ async fn admin_connection(
                 *upstream.write().await = None;
                 serde_json::json!({"upstream": null})
             }
+            AdminRequest::AttestProvider(register) => {
+                // The peer check runs on this very connection, before anything is written to it.
+                if !free_tier::provider_peer_allowed(lines.get_ref().get_ref().as_ref()) {
+                    write.write_all(b"{\"error\":\"provider refused\"}\n").await?;
+                    return Ok(());
+                }
+                return free.serve_provider(register, lines, write).await;
+            }
             AdminRequest::Shutdown => {
                 *upstream.write().await = None;
+                free.drop_token();
                 write.write_all(b"{\"stopping\":true}\n").await?;
                 stop.notify_one();
                 return Ok(());
@@ -714,7 +743,7 @@ fn upstream_path(method: &Method, path: &str) -> Option<&'static str> {
     }
 }
 
-fn json_error(status: StatusCode, code: &str, message: &str) -> Response<Body> {
+pub(crate) fn json_error(status: StatusCode, code: &str, message: &str) -> Response<Body> {
     let body = serde_json::json!({"error": {"code": code, "message": message}}).to_string();
     Response::builder()
         .status(status)
@@ -752,27 +781,31 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
             .body(Body::empty())
             .unwrap_or_else(|_| Response::new(Body::empty()));
     };
-    let (url, bearer) = {
+    // The account bearer wins while one is set; with none (signed out) the
+    // free-tier device token, leased at this first request (free_tier).
+    let account = {
         let up = state.upstream.read().await;
         match up.as_ref() {
-            Some(up) if up.live() => (format!("{}{path}", up.origin), up.bearer.expose().clone()),
-            Some(_) => {
-                return json_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "router.upstream_expired",
-                    "the cmux model router sign-in expired; open cmux to renew it",
-                );
+            Some(up) if up.live() => {
+                Some(Ok((format!("{}{path}", up.origin), up.bearer.expose().clone())))
             }
-            None => {
-                return json_error(
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "router.no_upstream",
-                    "the cmux model router is not connected; open cmux",
-                );
-            }
+            Some(_) => Some(Err(json_error(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "router.upstream_expired",
+                "the cmux model router sign-in expired; open cmux to renew it",
+            ))),
+            None => None,
         }
     };
-    let mut forward = state.http.request(method, &url).bearer_auth(bearer);
+    let (url, bearer, free) = match account {
+        Some(Ok((url, bearer))) => (url, bearer, false),
+        Some(Err(refused)) => return refused,
+        None => match state.free.bearer().await {
+            Ok((origin, bearer)) => (format!("{origin}{path}"), bearer, true),
+            Err(refused) => return *refused,
+        },
+    };
+    let mut forward = state.http.request(method, &url).bearer_auth(&bearer);
     for name in FORWARD_REQUEST_HEADERS {
         if let Some(value) = headers.get(*name) {
             forward = forward.header(*name, value);
@@ -789,6 +822,10 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
             );
         }
     };
+    // A refused free token (its grant ended, or the device is unknown): lease again next time.
+    if free && answer.status() == StatusCode::UNAUTHORIZED {
+        state.free.drop_token_if(&bearer);
+    }
     let mut out = Response::builder().status(answer.status().as_u16());
     for name in FORWARD_RESPONSE_HEADERS {
         if let Some(value) = answer.headers().get(*name) {
