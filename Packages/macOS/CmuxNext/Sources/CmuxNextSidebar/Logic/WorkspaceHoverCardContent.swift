@@ -37,7 +37,10 @@ struct WorkspaceHoverCardContent: Equatable {
         if let folder = workspace.directory.flatMap({ $0.isEmpty ? nil : folderName($0) }) { facts.append(Fact(icon: .folder, text: folder)) }
         if let branch = workspace.branch, !branch.isEmpty { facts.append(Fact(icon: .gitBranch, text: branch)) }
         if let pr = workspace.pullRequest, !pr.isEmpty { facts.append(Fact(icon: .gitPullrequest, text: pr)) }
-        if let remote { facts.append(Fact(icon: hostIcon(remote), text: remote.name)) }
+        if let remote {
+            let own = ownIcon(remote.icon)
+            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image))
+        }
         if let agent = workspace.agentName { facts.append(Fact(icon: .agentChat, text: agent)) }
         // As many entries as the row shows, then how many more (the daemon keeps up to 64).
         let entries = workspace.reported?.entries ?? []
@@ -66,6 +69,17 @@ struct WorkspaceHoverCardContent: Equatable {
         let path = (directory as NSString).expandingTildeInPath
         let name = (path as NSString).lastPathComponent
         return name.isEmpty ? directory : name
+    }
+
+    /// A machine's own icon (`SidebarMachine.icon`) as a fact's mark (an emoji or SF Symbol
+    /// name) or image (a stored asset); neither without one, so the kind's symbol draws.
+    private static func ownIcon(_ icon: WorkspaceIcon?) -> (mark: String?, image: SidebarFavicon?) {
+        switch icon {
+        case .symbol(let name, _)?: (name, nil)
+        case .emoji(let text, _)?: (text, nil)
+        case .favicon(let image)?: (nil, image)
+        case .swatch?, nil: (nil, nil)
+        }
     }
 
     private static func hostIcon(_ machine: SidebarMachine) -> IconName {
