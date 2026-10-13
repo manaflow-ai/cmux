@@ -166,8 +166,15 @@ fn trace_codex(paths: &Paths, trace: &crate::trace::Trace, log: &dyn Fn(String))
 /// Code puts the same text as reminders in the first user message, before
 /// the `<chat>` mark: it is read from the cache (a turn's directory is
 /// constant), and the date in it costs one cold turn a day.
-pub const TURN_CLAUDE_ENV: [(&str, &str); 1] =
-    [("CLAUDE_CODE_MODEL_CAPABILITIES", "-mid_conv_system")];
+///
+/// And no tool search: the Chief's MCP tools (`spawn`, `zoom`, ...) load
+/// with the turn. With tool search on (Claude Code's default on the
+/// first-party route) every subagent turn first called ToolSearch to load
+/// `spawn`: one more request, 8.1 s against 5.6 s for capture s12.
+pub const TURN_CLAUDE_ENV: [(&str, &str); 2] = [
+    ("CLAUDE_CODE_MODEL_CAPABILITIES", "-mid_conv_system"),
+    ("ENABLE_TOOL_SEARCH", "false"),
+];
 
 /// acpmux's profile for a configured CodeRouter Claude route.
 pub const CODEROUTER_HARNESS: &str = "claude-cr";
@@ -246,16 +253,9 @@ pub fn turn_preset(
 }
 
 /// The built-in tools a turn is offered (an allowlist: a built-in a later
-/// Claude Code adds is not offered); the Chief's MCP tools come on top.
-pub const TURN_TOOLS: [&str; 7] = [
-    "Bash",
-    "Read",
-    "Edit",
-    "Write",
-    "WebFetch",
-    "WebSearch",
-    "ToolSearch",
-];
+/// Claude Code adds is not offered); the Chief's MCP tools come on top,
+/// loaded with the turn (no ToolSearch, `TURN_CLAUDE_ENV`).
+pub const TURN_TOOLS: [&str; 6] = ["Bash", "Read", "Edit", "Write", "WebFetch", "WebSearch"];
 
 /// The Claude Code args of an isolated turn: no user or local setting
 /// source, no skills or slash commands, only `TURN_TOOLS` of the built-ins
