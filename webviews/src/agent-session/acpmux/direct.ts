@@ -1743,6 +1743,7 @@ export class AcpmuxDirectClient {
         : undefined,
       connection,
       origin: this.origin,
+      ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking: this.replayThrough === undefined && (this.turnOpen || summary?.status === "running"),
