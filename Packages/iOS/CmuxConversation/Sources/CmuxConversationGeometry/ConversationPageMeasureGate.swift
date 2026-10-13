@@ -30,7 +30,14 @@ public struct ConversationPageMeasureGate: Sendable, Equatable {
 
     /// Whether `change` waits for the page; if it does, the gate keeps it.
     public mutating func hold(_ change: ConversationStoreChange) -> Bool {
-        false
+        guard isMeasuring else { return false }
+        switch change {
+        case .live(_, sentByMe: false), .typing:
+            held = held.map { Self.merged($0, change) } ?? change
+            return true
+        default:
+            return false
+        }
     }
 
     /// The held changes, to apply now (before a change the gate let
@@ -48,6 +55,13 @@ public struct ConversationPageMeasureGate: Sendable, Equatable {
 
     /// One change standing for `earlier` then `later`, both live traffic.
     public static func merged(_ earlier: ConversationStoreChange, _ later: ConversationStoreChange) -> ConversationStoreChange {
-        later
+        switch (earlier, later) {
+        case let (.live(first, firstMine), .live(second, secondMine)):
+            return .live(insertedRowIDs: first + second, sentByMe: firstMine || secondMine)
+        case (.live, _):
+            return earlier
+        default:
+            return later
+        }
     }
 }
