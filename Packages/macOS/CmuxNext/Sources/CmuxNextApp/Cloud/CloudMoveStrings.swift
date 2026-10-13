@@ -46,6 +46,16 @@ enum CloudMoveStrings {
     static var unresolved: String {
         String(localized: "cloud.move.unresolved", defaultValue: "The move didn't finish, so the chat is paused. Retry to finish it.", table: "Cloud", bundle: .module)
     }
+    /// After a relaunch: the chat's move stopped before the chat moved (cx-rppd.16).
+    static var unfinishedMove: String {
+        String(localized: "cloud.move.unfinishedMove", defaultValue: "Moving this chat to Cloud didn't finish. Retry to finish it, or dismiss to keep it here.",
+               table: "Cloud", bundle: .module)
+    }
+    /// After a relaunch: the chat moved, but its tab on the machine never opened (cx-rppd.16).
+    static var unfinishedShow: String {
+        String(localized: "cloud.move.unfinishedShow", defaultValue: "This chat moved to Cloud, but its tab there didn't open. Retry to open it.",
+               table: "Cloud", bundle: .module)
+    }
     static var inProgress: String {
         String(localized: "cloud.move.inProgress", defaultValue: "This chat is already moving. Retry in a moment.", table: "Cloud", bundle: .module)
     }

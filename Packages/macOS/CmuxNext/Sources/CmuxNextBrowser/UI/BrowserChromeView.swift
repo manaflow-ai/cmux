@@ -44,7 +44,8 @@ public final class BrowserChromeView: NSView {
         }
     }
 
-    let toolbar = NSView()
+    /// The arrow over the whole row (`OmnibarPointer`).
+    let toolbar = ArrowCursorView()
     let separator = NSView()
     /// Holds an optional bar under the toolbar (the bookmarks bar); zero high when empty.
     let accessoryBar = NSView()
