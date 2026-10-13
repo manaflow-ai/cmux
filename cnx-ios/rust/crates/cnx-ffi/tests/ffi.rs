@@ -59,6 +59,14 @@ async fn round_trip(transport: Transport) {
     .await
     .expect("connect");
     assert_eq!(handle.transport(), transport);
+    // WireGuard starts on the relay and moves to direct once both sides
+    // confirm UDP reaches them.
+    for _ in 0..100 {
+        if handle.path() == LinkPath::Direct {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
     assert_eq!(handle.path(), LinkPath::Direct);
     let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
     channel.send(b"hello".to_vec()).await.unwrap();
@@ -73,7 +81,15 @@ async fn round_trip(transport: Transport) {
     tokio::time::sleep(Duration::from_millis(100)).await;
     let events = recorder.0.lock().unwrap().clone();
     assert_eq!(events.first(), Some(&LinkEvent::Connecting { transport }));
-    assert!(events.contains(&LinkEvent::Connected { transport, path: LinkPath::Direct }), "{events:?}");
+    assert!(
+        events.iter().any(|e| matches!(e, LinkEvent::Connected { transport: t, .. } if *t == transport)),
+        "{events:?}"
+    );
+    assert!(
+        events.contains(&LinkEvent::Connected { transport, path: LinkPath::Direct })
+            || events.contains(&LinkEvent::PathChanged { path: LinkPath::Direct }),
+        "{events:?}"
+    );
     assert!(events.iter().any(|e| matches!(e, LinkEvent::Rtt { .. })), "{events:?}");
     assert!(matches!(events.last(), Some(LinkEvent::Disconnected { .. })), "{events:?}");
 }
