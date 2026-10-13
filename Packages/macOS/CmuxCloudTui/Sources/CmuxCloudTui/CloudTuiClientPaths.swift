@@ -13,10 +13,14 @@ public struct CloudTuiClientPaths: Sendable {
     public struct DeviceRecord: Codable, Sendable, Equatable {
         public let deviceFingerprint: String
         public let updatedAtUnix: Int
+        /// The server-advertised daemon route, retained so reconnects do not
+        /// reconstruct a provider-specific port from an IP address.
+        public let route: String?
 
-        public init(deviceFingerprint: String, updatedAtUnix: Int) {
+        public init(deviceFingerprint: String, updatedAtUnix: Int, route: String? = nil) {
             self.deviceFingerprint = deviceFingerprint
             self.updatedAtUnix = updatedAtUnix
+            self.route = route
         }
     }
 
@@ -92,9 +96,27 @@ public struct CloudTuiClientPaths: Sendable {
         loadDevices()[machineID]?.deviceFingerprint
     }
 
+    /// The last server-advertised attach route for a machine, if one exists.
+    public func route(for machineID: String) -> String? {
+        loadDevices()[machineID]?.route
+    }
+
     public func saveDeviceFingerprint(_ fingerprint: String, for machineID: String) {
+        saveAttachState(deviceFingerprint: fingerprint, route: route(for: machineID), for: machineID)
+    }
+
+    /// Persists the device identity and attach route together. The route is
+    /// optional so records written by older builds remain valid migrations.
+    public func saveAttachState(deviceFingerprint: String? = nil, route: String? = nil, for machineID: String) {
         var store = loadDevices()
-        store[machineID] = DeviceRecord(deviceFingerprint: fingerprint, updatedAtUnix: Int(Date().timeIntervalSince1970))
+        let previous = store[machineID]
+        let fingerprint = deviceFingerprint ?? previous?.deviceFingerprint
+        guard let fingerprint, !fingerprint.isEmpty else { return }
+        store[machineID] = DeviceRecord(
+            deviceFingerprint: fingerprint,
+            updatedAtUnix: Int(Date().timeIntervalSince1970),
+            route: route ?? previous?.route
+        )
         guard let data = try? JSONEncoder().encode(store) else { return }
         try? FileManager.default.createDirectory(at: devicesStoreURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? data.write(to: devicesStoreURL, options: [.atomic])

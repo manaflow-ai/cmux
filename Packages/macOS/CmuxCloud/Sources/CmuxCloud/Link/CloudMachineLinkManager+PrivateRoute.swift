@@ -62,8 +62,7 @@ extension CloudMachineLinkManager {
         // Fresh discovery or the enrolled routes can leave a single candidate.
         // Use it directly rather than returning an older address-family route.
         guard addresses.count > 1 else {
-            let host = primary.contains(":") ? "[\(primary)]" : primary
-            return "ws://\(host):1337/v1/link"
+            return Self.route(host: primary, port: Self.routePort(fallbackRoute ?? privateRoute(for: machineID)), template: fallbackRoute ?? privateRoute(for: machineID))
         }
         var connector = privateRouteConnector
         if let deadline { connector.timeout = Self.remaining(until: deadline) }
@@ -71,7 +70,11 @@ extension CloudMachineLinkManager {
         do {
             connected = try await connector.connect(
                 endpoint: .unix(path: hub.socketPath),
-                target: CloudPortForwardTarget(host: primary, port: 1337, fallbackHosts: Array(addresses.dropFirst())),
+                target: CloudPortForwardTarget(
+                    host: primary,
+                    port: Self.routePort(fallbackRoute ?? privateRoute(for: machineID)),
+                    fallbackHosts: Array(addresses.dropFirst())
+                ),
                 queue: DispatchQueue.global(qos: .userInitiated)
             )
         } catch let error as CloudPortForwardRelay.RelayError where refreshIfNeeded {
@@ -89,7 +92,10 @@ extension CloudMachineLinkManager {
             )
         }
         connected.connection.cancel()
-        let host = connected.host.contains(":") ? "[\(connected.host)]" : connected.host
-        return "ws://\(host):1337/v1/link"
+        return Self.route(
+            host: connected.host,
+            port: Self.routePort(fallbackRoute ?? privateRoute(for: machineID)),
+            template: fallbackRoute ?? privateRoute(for: machineID)
+        )
     }
 }

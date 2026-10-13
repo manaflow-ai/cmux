@@ -17,6 +17,18 @@ struct CloudPrivateRouteSelectionTests {
             deviceFingerprint: CloudTuiClientPaths.carrierDeviceMarker
         ))
         #expect(!CloudMachineLinkManager.browserProxyNeedsTrustedListenerPreparation(deviceFingerprint: "stored-device"))
+        #expect(CloudMachineLinkManager.browserProxyCanPrepareRoute(
+            deviceFingerprint: nil,
+            privateAddresses: ["10.0.0.7"]
+        ))
+        #expect(!CloudMachineLinkManager.browserProxyCanPrepareRoute(
+            deviceFingerprint: nil,
+            privateAddresses: []
+        ))
+        #expect(!CloudMachineLinkManager.browserProxyCanPrepareRoute(
+            deviceFingerprint: "stored-device",
+            privateAddresses: ["10.0.0.7"]
+        ))
     }
 
     private final class RefreshState: @unchecked Sendable {
