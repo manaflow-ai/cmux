@@ -2,6 +2,7 @@
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <stdatomic.h>
 #include <string.h>
 #include <strings.h>
 #include <time.h>
@@ -50,7 +51,7 @@ static bool cmux_test_surface_free_should_block = false;
 static bool cmux_test_surface_free_started = false;
 static bool cmux_test_surface_free_released = false;
 static void* cmux_test_surface_free_target = NULL;
-static uint32_t cmux_test_surface_request_process_termination_count = 0;
+static _Atomic(uint32_t) cmux_test_surface_request_process_termination_count = 0;
 static pthread_mutex_t cmux_test_process_output_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t cmux_test_process_output_condition = PTHREAD_COND_INITIALIZER;
 static bool cmux_test_process_output_should_block = false;
@@ -178,7 +179,7 @@ void cmux_test_ghostty_runtime_stubs_reset(void) {
     cmux_test_surface_key_unshifted_codepoint_value = 0;
     cmux_test_surface_key_text_value[0] = '\0';
     cmux_test_input_event_count_value = 0;
-    cmux_test_surface_request_process_termination_count = 0;
+    atomic_store(&cmux_test_surface_request_process_termination_count, 0);
 }
 
 void cmux_test_ghostty_surface_key_reset(void) {
@@ -278,11 +279,11 @@ void cmux_test_ghostty_surface_free_blocking_reset(void) {
 }
 
 void cmux_test_ghostty_surface_request_process_termination_reset(void) {
-    cmux_test_surface_request_process_termination_count = 0;
+    atomic_store(&cmux_test_surface_request_process_termination_count, 0);
 }
 
 uint32_t cmux_test_ghostty_surface_request_process_termination_call_count(void) {
-    return cmux_test_surface_request_process_termination_count;
+    return atomic_load(&cmux_test_surface_request_process_termination_count);
 }
 
 void cmux_test_ghostty_process_output_blocking_begin(void *surface) {
@@ -592,7 +593,7 @@ bool ghostty_surface_set_font_size_action_callback(
 void ghostty_surface_config_new(void) {}
 void ghostty_surface_request_process_termination(void *surface) {
     (void)surface;
-    cmux_test_surface_request_process_termination_count += 1;
+    atomic_fetch_add(&cmux_test_surface_request_process_termination_count, 1);
 }
 void ghostty_surface_free(void *surface) {
     const struct timespec timeout = cmux_test_surface_free_timeout();

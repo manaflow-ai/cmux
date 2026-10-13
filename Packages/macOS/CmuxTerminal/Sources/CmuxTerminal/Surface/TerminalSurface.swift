@@ -895,6 +895,17 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // rather than passing a freed pointer to ghostty_surface_refresh (#432).
         let surfaceToFree = surface
         if let surfaceToFree {
+            // `deinit` is nonisolated, but Ghostty's retirement API is a
+            // bounded, thread-safe registry/process handoff. Retire before
+            // enqueueing the off-main free so a new main-actor surface cannot
+            // overlap native app routing teardown.
+#if DEBUG
+            if !runtimeSurfaceFreedOutOfBandForTesting {
+                ghostty_surface_request_process_termination(surfaceToFree)
+            }
+#else
+            ghostty_surface_request_process_termination(surfaceToFree)
+#endif
             registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         }
         surface = nil
