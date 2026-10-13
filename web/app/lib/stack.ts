@@ -271,8 +271,8 @@ async function updateStackUserViaApi(
 function stackActualStatus(response: Response): number {
   const header = response.headers.get("x-hexclave-actual-status") ??
     response.headers.get("x-stack-actual-status");
-  const status = header === null ? Number.NaN : Number(header);
-  return Number.isInteger(status) ? status : response.status;
+  const status = header === null || header.trim() === "" ? Number.NaN : Number(header);
+  return Number.isInteger(status) && status >= 100 && status <= 599 ? status : response.status;
 }
 
 export const stackServerApp = isStackConfigured() ? getStackServerApp() : null;
