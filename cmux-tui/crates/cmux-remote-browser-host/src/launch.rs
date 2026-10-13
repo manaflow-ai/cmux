@@ -8,7 +8,7 @@
 //! signal.
 
 use std::io::{ErrorKind, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::time::{Duration, Instant};
 
 use cmux_rd_proto::control::Control;
@@ -143,6 +143,47 @@ pub fn admit_within(
         Err(reason) => {
             write_control(stream, &Control::Refused { reason: "unauthorized".into() })?;
             Ok(Admission::Refused(format!("refused: {reason}")))
+        }
+    }
+}
+
+/// A viewer [`accept_viewers`] admitted: its stream, its hello and the bytes
+/// it sent after the hello.
+pub struct Admitted {
+    pub stream: TcpStream,
+    pub hello: Control,
+    pub deframer: StreamDeframer,
+}
+
+/// The `--serve` accept loop: admits callers on `listener` ([`admit_within`]
+/// with `deadline`) and runs `session` for each admitted viewer, one at a
+/// time. Returns when the listener fails for good.
+pub fn accept_viewers(
+    listener: TcpListener,
+    secret: Option<String>,
+    deadline: Duration,
+    mut session: impl FnMut(Admitted),
+) {
+    for conn in listener.incoming() {
+        // A failed accept or a peer that reset before setsockopt ends only
+        // that connection, never the listener.
+        let mut stream = match conn {
+            Ok(conn) => conn,
+            Err(e) => {
+                eprintln!("serve: accept failed: {e}");
+                continue;
+            }
+        };
+        if let Err(e) = stream.set_nodelay(true) {
+            eprintln!("serve: connection dropped: {e}");
+            continue;
+        }
+        match admit_within(&mut stream, secret.as_deref(), deadline) {
+            Ok(Admission::Admitted { hello, deframer }) => {
+                session(Admitted { stream, hello, deframer })
+            }
+            Ok(Admission::Refused(reason)) => eprintln!("serve: session ended: {reason}"),
+            Err(e) => eprintln!("serve: session failed: {e}"),
         }
     }
 }
