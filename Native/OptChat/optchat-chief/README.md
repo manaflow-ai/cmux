@@ -358,7 +358,7 @@ replies).
 | `OPTCHAT_COMPACTOR_SESSIONS` | `16` | compactor sessions that prompt at once (1-64) |
 | `OPTCHAT_COMPACTOR_SPARES` | `0` | extra slots where warm compactor sessions start ahead during a backlog (0-16; about 210 MB each) |
 | `OPTCHAT_COMPACTOR_WARM_IDLE_SECS` | `600` | warm compactor sessions end after this long without compactor work |
-| `OPTCHAT_COMPACTOR_EFFORT` | `medium` on a Claude or codex harness, else the harness's default | acpmux route: acpmux `effort` of the compactor sessions (section 4.2 runs the compactor at medium) |
+| `OPTCHAT_COMPACTOR_EFFORT` | `high` on a Claude harness, `medium` on codex, else the harness's default | acpmux route: acpmux `effort` of the compactor sessions (the reference client runs Haiku at high) |
 | `OPTCHAT_CHIEF_ISOLATE` | `1` | `0` runs turns with the user's own Claude Code configuration; it never changes the compactor's isolation |
 | `OPTCHAT_SUBAGENT_HARNESS` | the Chief's harness | section 9: the subagents' harness |
 | `OPTCHAT_SUBAGENT_MODEL` | harness default | the subagents' model |
@@ -1167,7 +1167,7 @@ compactions 98.1% of their prefix (spec: 98.6% and 96.2%). What differs:
 - **Single-flight** releases waiting calls at the writer's response start
   (on acpmux: its first streamed output), and the prefix then counts as
   written for 5 minutes, so later calls on it go at once.
-- **Model.** The compactor runs Claude Haiku 5.5 at medium effort (measured: as good as high, 20% cheaper, 36% faster)
+- **Model.** The compactor runs Claude Haiku 5.5 at high effort, as the reference client does (medium needed 2.2-2.4 prompts per node in the 2026-10-12 parity runs, against 1.2-2.1 on high)
   (`OPTCHAT_COMPACTOR_MODEL`, `OPTCHAT_COMPACTOR_EFFORT` or engine.json's
   `compactor-model` pick another), on a Claude route whatever the turns run
   on: a Claude turn harness's own (claude-sr stays claude-sr), else

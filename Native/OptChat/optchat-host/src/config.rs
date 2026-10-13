@@ -23,11 +23,12 @@ pub const SUBROUTER_KEY: &str = "subrouter";
 /// another, e.g. `claude-sonnet-5-5`.
 pub const DEFAULT_MODEL: &str = "claude-haiku-5-5";
 /// The compactor's `output_config.effort` (`OPTCHAT_COMPACTOR_EFFORT`):
-/// medium. Measured 2026-10-09 on 33 node inputs (Haiku 5.5 through Claude
-/// Code): 20% cheaper and 36% faster per node than high with lines as
-/// good; low was cheaper still but leaked reasoning into 3 of 12 lines and
-/// left 2 over the size limit.
-pub const DEFAULT_EFFORT: &str = "medium";
+/// high, the reference client's setting. Medium (2026-10-09, 33 node
+/// inputs: 20% cheaper and 36% faster per node in isolation) needed 2.2-2.4
+/// prompts per node in the 2026-10-12 parity runs against the reference's
+/// 1.2-2.1 on high: each extra prompt is a "Too long" retry. Low leaked
+/// reasoning into 3 of 12 lines and left 2 over the size limit.
+pub const DEFAULT_EFFORT: &str = "high";
 /// Where a node goes when the compactor model declines it. Claude Sonnet 5
 /// declines in fewer safeguard categories than Sonnet 5.5 (no bio,
 /// reasoning-extraction or general-harms classifiers on the same scale), so a
