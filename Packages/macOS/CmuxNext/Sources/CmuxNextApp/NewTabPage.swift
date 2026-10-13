@@ -207,9 +207,13 @@ enum NewTabPage {
         ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
     }
 
-    /// Projects discovered off the main actor during app startup. The current
-    /// session cwd still arrives immediately from the pane handshake.
-    static func projects(_ services: AppServices) -> [String] { services.onboarding.projectFolders }
+    /// The page's first project list. With the daemon's project list (`project-list-v1`) the page
+    /// asks `project.list` itself, so a project the user removed or hid stays gone (cx-m0p7); an
+    /// older daemon gets the folders discovered off the main actor at startup. The current session
+    /// cwd still arrives immediately from the pane handshake.
+    static func projects(_ services: AppServices) -> [String] {
+        projectStore(services) == nil ? services.onboarding.projectFolders : []
+    }
 
     /// The page's handler: `open` is the pane's (it replaces the page with
     /// a tab); the location bar's jumps, the shortcut and default-kind edits
