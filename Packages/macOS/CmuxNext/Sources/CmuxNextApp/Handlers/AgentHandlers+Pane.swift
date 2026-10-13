@@ -1,5 +1,6 @@
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import Observation
@@ -15,7 +16,11 @@ extension AgentHandlers {
                               _ open: @escaping @MainActor (PaneController) -> Void) {
         if let pane = context.scope(invocation).pane { return open(pane) }
         guard invocation.target == nil else { return context.refuse(MiscHandlerStrings.noPane) }
-        if openChatWorkspaceOverTopPage(invocation, context: context, seed: seed) { return }
+        // Over a top page the parked workspace's panes never mount: a new workspace, or a refusal now.
+        if context.activeWindow?.state.page != nil {
+            if !openChatWorkspaceOverTopPage(invocation, context: context, seed: seed) { context.refuse(MiscHandlerStrings.noPane) }
+            return
+        }
         guard let workspace = context.scope(invocation).workspace else { return context.refuse(MiscHandlerStrings.noPane) }
         _ = context.registry.perform("newTab.default", invocation: invocation)
         context.registry.track(Task { @MainActor in
@@ -36,12 +41,12 @@ extension AgentHandlers {
 
     /// A new workspace in the active window with the chat as its only tab, when that window shows
     /// a top page: the workspace under the page stays parked, and its panes never mount for a
-    /// chat to open in. False when no top page shows or the daemon cannot hold a chat.
+    /// chat to open in. False when the daemon cannot hold a chat.
     private static func openChatWorkspaceOverTopPage(_ invocation: ActionInvocation, context: AppActionContext,
                                                      seed: AgentPaneSeed) -> Bool {
         let services = context.services
         let daemon = services.activeDaemon
-        guard let window = context.activeWindow, window.state.page != nil, services.agentTabs.canHost(on: daemon) else { return false }
+        guard let window = context.activeWindow, services.agentTabs.canHost(on: daemon) else { return false }
         if invocation.origin == .user { services.newTabKinds.record(.agent, folder: nil) }
         let windowID = window.state.id
         context.registry.track(Task { @MainActor in
