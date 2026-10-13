@@ -40,7 +40,7 @@ struct DiffSummaryView: View {
                     ForEach(files) { file in
                         Button { jump(file.index) } label: {
                             HStack(spacing: 10) {
-                                DiffStatusBadge(status: file.status, isBinary: file.isBinary)
+                                DiffStatusBadge(status: file.status, isBinary: file.isBinary && !DiffImageSource.isPreviewable(file))
                                 DiffPathText.make(directory: file.directory, name: file.fileName, bold: false)
                                     .font(.footnote)
                                     .lineLimit(1)
@@ -81,7 +81,7 @@ struct DiffFileHeaderView: View {
                         .foregroundStyle(Theme.secondaryInk)
                         .rotationEffect(.degrees(isCollapsed ? -90 : 0))
                         .frame(width: 14)
-                    DiffStatusBadge(status: file.status, isBinary: file.isBinary)
+                    DiffStatusBadge(status: file.status, isBinary: file.isBinary && !DiffImageSource.isPreviewable(file))
                     VStack(alignment: .leading, spacing: 1) {
                         DiffPathText.make(directory: file.directory, name: file.fileName, bold: true)
                             .font(.footnote)

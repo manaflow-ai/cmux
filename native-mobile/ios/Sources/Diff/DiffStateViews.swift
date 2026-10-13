@@ -72,7 +72,8 @@ struct DiffCountsLabel: View {
     }
 }
 
-/// Status letter badge: A, D, M, R, C, or B for binary.
+/// Status letter badge: A, D, M, R, C, or B for a binary file the diff
+/// can't show (images show as Before/After and keep M).
 struct DiffStatusBadge: View {
     var status: DiffFile.Status
     var isBinary = false
