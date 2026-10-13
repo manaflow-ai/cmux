@@ -243,12 +243,26 @@ with (state / "opencode-config.lock").open("a") as lock:
         pass
     try:
         result = subprocess.run(
-            ["curl", "-fsS", "--connect-timeout", "2", "-m", "10",
+            ["curl", "-sS", "--connect-timeout", "2", "-m", "10", "-w", "\n%{http_code}",
              "-H", "authorization: Bearer " + key,
              origin + "/api/coderouter/opencode/config"],
             capture_output=True, timeout=12, check=True,
         )
-        document = json.loads(result.stdout)
+        body, _, status = result.stdout.rpartition(b"\n")
+        if status == b"403":
+            # The team has no OpenCode account: terminal, so say what the
+            # server says (add one, or use your own sign-in) instead of
+            # asking for a retry that cannot help.
+            try:
+                message = json.loads(body)["error"]["message"]
+            except Exception:
+                message = None
+            if isinstance(message, str) and message and len(message) < 2000:
+                print("cmux: " + "".join(c for c in message if c.isprintable()), file=sys.stderr)
+                sys.exit(78)
+        if status != b"200":
+            raise ValueError("unexpected status")
+        document = json.loads(body)
         if not isinstance(document, dict) or not isinstance(document.get("provider"), dict) or not document["provider"]:
             raise ValueError("missing provider catalog")
         document = redact(document)

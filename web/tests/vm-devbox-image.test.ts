@@ -1188,6 +1188,28 @@ describe("devbox image template", () => {
     }
   });
 
+  test("opencode config names the way out when the team has no OpenCode account", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-opencode-403-"));
+    const message = "No OpenCode account is shared with this Cloud machine's team. Or use your own provider sign-in on this machine: run `cr use own opencode`.";
+    const server = await listen((_request, response) => {
+      response.statusCode = 403;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ error: { message, type: "invalid_request_error", code: "no_account_configured" } }));
+    });
+    try {
+      const result = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; cmux_ensure_opencode_config`], {
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, CMUX_CODEROUTER_URL: server.origin, OPENAI_API_KEY: "cmux-vm-edge-placeholder" },
+      });
+      expect(result.status).toBe(78);
+      expect(result.stderr).toBe(`cmux: ${message}\n`);
+      expect(result.stderr).not.toContain("retry");
+      expect(existsSync(path.join(home, ".config/cmux/opencode-team.json"))).toBe(false);
+    } finally {
+      await server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
   test("claude transcript retention is pinned everywhere", () => {
     expect(dockerfile).toContain('{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }');
     expect(readScript("build-devbox-freestyle.ts")).toContain('{ "cleanupPeriodDays": 99999, "skipDangerousModePermissionPrompt": true }');
