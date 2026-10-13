@@ -3,19 +3,13 @@ import CmuxConversationGeometry
 import Photos
 import UIKit
 
-/// Messages' inline Photos drawer: a 3-column grid of recent library photos
-/// with hairline gutters; selected photos lighten and show a blue count badge.
+/// The Photos sheet's grid at its keyboard detent, as Messages' picker draws
+/// it there: three columns of recent library photos with hairline gutters;
+/// selected photos lighten and show a blue count badge.
 @MainActor
 final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICollectionViewDelegate {
-    var onToggle: ((PHAsset, Bool) -> Void)?
-    /// A pull on the sheet: its offset below rest (down positive).
-    var onDrag: ((CGFloat) -> Void)?
-    /// The pull let go: the offset and the finger's speed (points per
-    /// second, down positive).
-    var onRelease: ((CGFloat, CGFloat) -> Void)?
-    /// The finger's travel past the grid's top while pulling the sheet.
-    private var pullTranslation: CGFloat = 0
-    private var isSettingOffset = false
+    /// The selection changed: picked asset identifiers in selection order.
+    var onSelection: (([String]) -> Void)?
     private var assets: PHFetchResult<PHAsset>?
     private var selection: [String] = []
     private let imageManager = PHCachingImageManager()
@@ -26,41 +20,20 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         view.dataSource = self
         view.delegate = self
         view.register(Cell.self, forCellWithReuseIdentifier: "p")
-        // Pulled down at its top, the grid moves the sheet as Messages' does.
         view.alwaysBounceVertical = true
         view.accessibilityIdentifier = "conversation.photoGrid"
         return view
     }()
     private let message = UILabel()
-    /// The sheet grabber Messages draws over the first row of photos.
-    private let grabber = UIView()
 
     override init(frame: CGRect) {
         super.init(frame: frame)
-        backgroundColor = .systemBackground
-        accessibilityIdentifier = "conversation.photoDrawer"
-        // A card inset from the screen edges: 38 pt top corners and bottom
-        // corners concentric with the display's (measured ~57 pt on iPhone 17 Pro).
-        if #available(iOS 26.0, *) {
-            cornerConfiguration = .corners(
-                topLeftRadius: .fixed(38), topRightRadius: .fixed(38),
-                bottomLeftRadius: .containerConcentric(minimum: 38), bottomRightRadius: .containerConcentric(minimum: 38)
-            )
-        } else {
-            layer.cornerRadius = 38
-            layer.cornerCurve = .continuous
-        }
-        clipsToBounds = true
         addSubview(grid)
         message.textAlignment = .center
         message.numberOfLines = 0
         message.textColor = .secondaryLabel
         message.font = .systemFont(ofSize: 15)
         addSubview(message)
-        grabber.backgroundColor = UIColor.black.withAlphaComponent(0.3)
-        grabber.layer.cornerRadius = 2.5
-        grabber.isUserInteractionEnabled = false
-        addSubview(grabber)
         load()
     }
 
@@ -71,7 +44,6 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         super.layoutSubviews()
         grid.frame = bounds
         message.frame = bounds.insetBy(dx: 32, dy: 0)
-        grabber.frame = CGRect(x: (bounds.width - 35) / 2, y: 4.7, width: 35, height: 5)
         if let layout = grid.collectionViewLayout as? UICollectionViewFlowLayout {
             // Messages: three square columns with a 5 px (1.67 pt at 3x) gutter
             // and no slack, so the outer columns run to the card's edges.
@@ -82,36 +54,6 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
             layout.minimumLineSpacing = gutter
             layout.itemSize = CGSize(width: side, height: side)
         }
-    }
-
-    // MARK: Pull to close
-
-    func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard !isSettingOffset, scrollView.isTracking else { return }
-        let top = -scrollView.adjustedContentInset.top
-        let past = top - scrollView.contentOffset.y
-        guard past > 0 || pullTranslation != 0 else { return }
-        // The sheet takes the pull; the grid stays at its top.
-        pullTranslation = max(0, pullTranslation + past)
-        isSettingOffset = true
-        scrollView.contentOffset.y = top
-        isSettingOffset = false
-        onDrag?(PhotoDrawerGeometry.dragOffset(translation: pullTranslation))
-    }
-
-    func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
-        guard pullTranslation > 0 else { return }
-        targetContentOffset.pointee.y = -scrollView.adjustedContentInset.top
-        let offset = PhotoDrawerGeometry.dragOffset(translation: pullTranslation)
-        pullTranslation = 0
-        onRelease?(offset, -velocity.y * 1000)
-    }
-
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        guard pullTranslation > 0 else { return }
-        let offset = PhotoDrawerGeometry.dragOffset(translation: pullTranslation)
-        pullTranslation = 0
-        onRelease?(offset, 0)
     }
 
     private func load() {
@@ -153,29 +95,26 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: false)
         guard let asset = assets?.object(at: indexPath.item) else { return }
-        let selected: Bool
         if let index = selection.firstIndex(of: asset.localIdentifier) {
             selection.remove(at: index)
-            selected = false
-        } else {
+        } else if selection.count < PhotoDrawerGeometry.selectionLimit {
             selection.append(asset.localIdentifier)
-            selected = true
         }
         UISelectionFeedbackGenerator().selectionChanged()
-        for case let cell as Cell in collectionView.visibleCells {
-            // Messages shows and hides the badge and the lightening at once.
-            cell.setBadge(cell.assetID.flatMap { selection.firstIndex(of: $0) }.map { $0 + 1 })
-        }
-        onToggle?(asset, selected)
+        refreshBadges()
+        onSelection?(selection)
     }
 
-    func isSelected(assetID: String) -> Bool { selection.contains(assetID) }
+    var selectedAssetIDs: [String] { selection }
 
-    /// Drops one photo from the selection (its card preview was removed),
-    /// renumbering the remaining badges as Messages does.
-    func deselect(assetID: String) {
-        guard let index = selection.firstIndex(of: assetID) else { return }
-        selection.remove(at: index)
+    /// Takes a selection made elsewhere (the full picker, a removed card
+    /// preview), renumbering the badges as Messages does.
+    func setSelection(_ ids: [String]) {
+        selection = ids
+        refreshBadges()
+    }
+
+    private func refreshBadges() {
         for case let cell as Cell in grid.visibleCells {
             // Messages shows and hides the badge and the lightening at once.
             cell.setBadge(cell.assetID.flatMap { selection.firstIndex(of: $0) }.map { $0 + 1 })

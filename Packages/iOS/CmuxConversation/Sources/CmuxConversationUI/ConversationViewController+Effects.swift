@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// Per-controller send-effect state.
@@ -12,6 +13,8 @@ struct ConversationEffectsState {
     var screenView: ScreenEffectView?
     var inkRecognizer: InkRevealGestureRecognizer?
     var inkDelegate: InkRevealGestureDelegate?
+    /// The window the effect picker shows in, above the keyboard.
+    var pickerWindow: UIWindow?
 }
 
 /// Why an effect plays. Reduce Motion stops automatic playback of screen
@@ -41,32 +44,49 @@ extension ConversationViewController: ConversationEffectReplayHandling {
     // MARK: Picker
 
     func composerDidLongPressSend(_ composer: ConversationComposerView) {
-        guard editingMessageID == nil, presentedViewController == nil else { return }
+        guard editingMessageID == nil, presentedViewController == nil, effects.pickerWindow == nil,
+              let window = view.window, let scene = window.windowScene else { return }
         let text = composer.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        let wasEditing = composer.textView.isFirstResponder
         let sendFrame = composer.sendButton.convert(composer.sendButton.bounds, to: nil)
         let picker = MessageEffectPickerViewController(
             text: NSAttributedString(string: text),
             sendButtonFrame: sendFrame,
-            reduceMotion: prefersReducedMotion
+            reduceMotion: prefersReducedMotion,
+            backdropSource: view
         )
-        picker.onSend = { [weak self, weak picker] effect in
-            guard let self else { return }
+        // Messages shows the picker in its own window and leaves the field
+        // focused, so the keyboard holds still opening and closing it
+        // (ConversationKeyboardFocusPolicy.effectPickerTakesFocus). The draft
+        // holds while the picker shows it.
+        let pickerWindow = UIWindow(windowScene: scene)
+        pickerWindow.backgroundColor = .clear
+        let host = UIViewController()
+        host.view.backgroundColor = .clear
+        pickerWindow.rootViewController = host
+        pickerWindow.isHidden = false
+        effects.pickerWindow = pickerWindow
+        composer.holdsDraft = true
+        let close: (@escaping () -> Void) -> Void = { [weak self, weak picker] completion in
             picker?.dismiss(animated: true) {
+                guard let self else { return }
+                self.effects.pickerWindow?.isHidden = true
+                self.effects.pickerWindow = nil
+                self.composer.holdsDraft = false
+                completion()
+            }
+        }
+        picker.onSend = { [weak self] effect in
+            close {
+                guard let self else { return }
                 self.effects.pendingSendEffect = effect
                 self.composerDidTapSend(self.composer)
                 self.effects.pendingSendEffect = nil
-                if wasEditing { self.composer.textView.becomeFirstResponder() }
             }
         }
-        picker.onCancel = { [weak self, weak picker] in
-            picker?.dismiss(animated: true) {
-                if wasEditing { self?.composer.textView.becomeFirstResponder() }
-            }
-        }
+        picker.onCancel = { close {} }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-        present(picker, animated: true)
+        host.present(picker, animated: true)
     }
 
     // MARK: Playback

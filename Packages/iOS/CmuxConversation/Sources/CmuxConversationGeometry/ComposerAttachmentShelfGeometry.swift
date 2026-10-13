@@ -137,21 +137,26 @@ public enum PhotoDrawerGeometry {
         return keyboard - keyboardTopOffset - inset
     }
 
-    /// How far the sheet sits below its rest for a finger `translation`
-    /// (down positive): 1:1 down, rubber-banded up (UIScrollView's curve,
-    /// 50 pt at most).
-    public static func dragOffset(translation: CGFloat) -> CGFloat {
-        guard translation < 0 else { return translation }
-        let limit: CGFloat = 50
-        return -(1 - 1 / (-translation * 0.55 / limit + 1)) * limit
-    }
+    /// UIKit sizes a floating (inset) sheet this much taller than its custom
+    /// detent's value (iOS 27.0, iPhone 17 Pro: 300 gives 320.7).
+    public static let detentOverhang: CGFloat = 20.7
 
-    /// Whether a released pull closes the sheet: the offset plus its glide
-    /// at the normal deceleration rate (0.998/ms) passes half the sheet.
-    /// `velocity` is in points per second, down positive.
-    public static func shouldClose(offset: CGFloat, velocity: CGFloat, height: CGFloat) -> Bool {
-        let rate: CGFloat = 0.998
-        let glide = velocity / 1000 * rate / (1 - rate)
-        return offset + glide > height / 2
+    /// The custom detent value that sizes the sheet `height` tall.
+    public static func detentValue(height: CGFloat) -> CGFloat { height - detentOverhang }
+
+    /// The strip along the sheet's top (the grabber's) that drags the sheet
+    /// over the system picker.
+    public static let grabberStripHeight: CGFloat = 20
+
+    /// The picker's selection limit ("Select up to 50 items").
+    public static let selectionLimit = 50
+
+    /// The composer's bottom constraint (below the safe area's bottom,
+    /// `safeBottom`) for a sheet whose top is at `sheetTop`: its field rides
+    /// `fieldGap` above the sheet at or below the keyboard detent
+    /// (`restingSheetTop`), holds there while the sheet rises over it, and
+    /// never drops below its base line (-4).
+    public static func composerBottom(sheetTop: CGFloat, restingSheetTop: CGFloat, safeBottom: CGFloat) -> CGFloat {
+        min(-4, max(sheetTop, restingSheetTop) - (fieldGap - 4) - safeBottom)
     }
 }

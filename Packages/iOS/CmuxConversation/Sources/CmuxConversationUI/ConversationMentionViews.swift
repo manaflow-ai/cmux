@@ -310,7 +310,7 @@ final class ConversationMentionCardViewController: UIViewController {
 #if canImport(UIKit)
 extension ConversationComposerView {
     func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
-        mentionController.shouldChange(range, replacement: text)
+        !holdsDraft && mentionController.shouldChange(range, replacement: text)
     }
 
     /// The draft's mentions, captured before the composer clears on send.

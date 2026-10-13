@@ -51,4 +51,10 @@ import Testing
         state.keyboardGuideAtRest = false
         #expect(!ConversationKeyboardFocusPolicy.composerResigns(after: state))
     }
+
+    /// Messages shows Send with effect in a window over the keyboard and
+    /// leaves the field focused: no keyboard motion opening or closing it.
+    @Test func theEffectPickerLeavesTheFieldFocused() {
+        #expect(!ConversationKeyboardFocusPolicy.effectPickerTakesFocus)
+    }
 }

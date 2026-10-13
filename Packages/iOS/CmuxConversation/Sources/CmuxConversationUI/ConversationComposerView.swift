@@ -63,6 +63,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     let placeholder = UILabel()
     let sendButton = UIButton(type: .custom)
     let micButton = UIButton(type: .system)
+    /// While set the draft takes no edits (Send with effect shows it).
+    var holdsDraft = false
     /// Queued photos above the text row (Messages' photo shelf).
     let attachmentShelf = ComposerAttachmentShelf()
     private(set) var attachments: [ComposerAttachment] = []
@@ -174,7 +176,14 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         plusButton.tintColor = .label
         // Disabled (New Message before a recipient) Messages draws the plus
         // lighter than UIKit's own dimming (137 on the light glass).
-        plusButton.setImage(UIImage(systemName: "plus", withConfiguration: Self.plusSymbolConfiguration)?.withTintColor(UIColor.label.withAlphaComponent(ComposerBarGeometry.disabledPlusAlpha(iOS27: Self.isIOS27)), renderingMode: .alwaysOriginal), for: .disabled)
+        let disabledInk: UIColor = switch ComposerBarGeometry.disabledPlusInk(iOS27: Self.isIOS27) {
+        case .tertiaryHue(let lightAlpha, let darkAlpha): UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 235 / 255, green: 235 / 255, blue: 245 / 255, alpha: darkAlpha)
+                : UIColor(red: 60 / 255, green: 60 / 255, blue: 67 / 255, alpha: lightAlpha)
+        }
+        }
+        plusButton.setImage(UIImage(systemName: "plus", withConfiguration: Self.plusSymbolConfiguration)?.withTintColor(disabledInk, renderingMode: .alwaysOriginal), for: .disabled)
         plusButton.addAction(UIAction { [weak self] _ in
             guard let self else { return }
             self.delegate?.composerDidTapPlus(self)
@@ -275,8 +284,20 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     /// Messages' record-audio waveform in place of the microphone
     /// (`ComposerBarGeometry.showsRecordGlyph`).
     func showRecordGlyph() {
-        micButton.setImage(UIImage(systemName: "waveform", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
+        micButton.setImage(Self.recordGlyph, for: .normal)
     }
+
+    /// `ComposerBarGeometry.recordGlyphBars` as a template image.
+    private static let recordGlyph: UIImage = {
+        let side = ComposerBarGeometry.recordGlyphSide
+        let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            UIColor.black.setFill()
+            for bar in ComposerBarGeometry.recordGlyphBars {
+                UIBezierPath(roundedRect: bar, cornerRadius: bar.width / 2).fill()
+            }
+        }
+        return image.withRenderingMode(.alwaysTemplate)
+    }()
 
     /// Turns Send Later on (a date) or off (nil): the chip appears at the top
     /// of the field, which takes the Send Later fill and placeholder.

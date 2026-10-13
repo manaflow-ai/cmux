@@ -98,27 +98,41 @@ import Testing
     }
 }
 
-/// Messages' Photos drawer is a sheet: pulled down it follows the finger
-/// (the composer riding on its top) and, let go, it closes when the drag
-/// plus its projected glide passes half the sheet, else it springs back.
-/// iOS 27.0 17 Pro: a 120 pt pull held still springs back (sheet 315 pt).
-@Suite struct PhotoDrawerDragTests {
-    @Test func followsTheFingerDownAndResistsUp() {
-        #expect(PhotoDrawerGeometry.dragOffset(translation: 80) == 80)
-        let up = PhotoDrawerGeometry.dragOffset(translation: -100)
-        #expect(up < 0 && up > -30)
+/// Messages' Photos drawer is a page sheet (`AppCardContainerViewController`,
+/// detents large and a custom "keyboard" one, the keyboard detent selected
+/// and undimmed, grabber shown, iOS 27.0) holding the system photo picker
+/// ("Select up to 50 items"). The composer rides the sheet's top while it is
+/// at or below the keyboard detent, and stays there (covered) while the
+/// sheet rises to the large detent; it never drops below its base line.
+@Suite struct PhotoDrawerSheetTests {
+    let rest: CGFloat = 874 - 8 - PhotoDrawerGeometry.height(keyboardHeight: 335)
+
+    /// UIKit sizes a floating sheet 20.7 pt taller than its custom detent's
+    /// value (27.0, 17 Pro: value 300 gave 320.7), so the detent asks that
+    /// much less: Messages' sheet is 313.3 tall over a 327.3 pt keyboard.
+    @Test func detentLeavesUIKitsOverhang() {
+        #expect(abs(PhotoDrawerGeometry.detentValue(height: 320.7) - 300) < 0.05)
+        let height = PhotoDrawerGeometry.height(keyboardHeight: 327.3)
+        #expect(abs(height - 313.3) < 0.8)
     }
 
-    @Test func aSlowShortPullSpringsBack() {
-        #expect(!PhotoDrawerGeometry.shouldClose(offset: 120, velocity: 0, height: 315))
+    @Test func picksUpToFiftyItems() {
+        #expect(PhotoDrawerGeometry.selectionLimit == 50)
     }
 
-    @Test func aLongPullCloses() {
-        #expect(PhotoDrawerGeometry.shouldClose(offset: 170, velocity: 0, height: 315))
+    @Test func composerRidesTheSheetAtTheKeyboardDetent() {
+        let bottom = PhotoDrawerGeometry.composerBottom(sheetTop: rest, restingSheetTop: rest, safeBottom: 840)
+        #expect(abs(bottom - (rest - (PhotoDrawerGeometry.fieldGap - 4) - 840)) < 0.01)
+        let pulled = PhotoDrawerGeometry.composerBottom(sheetTop: rest + 100, restingSheetTop: rest, safeBottom: 840)
+        #expect(abs(pulled - bottom - 100) < 0.01)
     }
 
-    @Test func aFlickCloses() {
-        #expect(PhotoDrawerGeometry.shouldClose(offset: 30, velocity: 900, height: 315))
-        #expect(!PhotoDrawerGeometry.shouldClose(offset: 100, velocity: -400, height: 315))
+    @Test func composerHoldsWhileTheSheetRises() {
+        let bottom = PhotoDrawerGeometry.composerBottom(sheetTop: rest, restingSheetTop: rest, safeBottom: 840)
+        #expect(PhotoDrawerGeometry.composerBottom(sheetTop: 62, restingSheetTop: rest, safeBottom: 840) == bottom)
+    }
+
+    @Test func composerStopsAtItsBaseLine() {
+        #expect(PhotoDrawerGeometry.composerBottom(sheetTop: 874, restingSheetTop: rest, safeBottom: 840) == -4)
     }
 }

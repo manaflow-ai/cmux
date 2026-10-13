@@ -95,8 +95,30 @@ import Testing
         #expect(ComposerBarGeometry.showsRecordGlyph(iOS27: true, sentAudio: false))
     }
 
+    /// Messages 27.0 tints its disabled plus with tertiaryLabel's hue; on
+    /// its glass the stroke reads 188 over 252 light and 96 over 59 dark,
+    /// where ours (the label at 30 %) read 176 and 112.
     @Test func disabledPlusInk() {
-        #expect(ComposerBarGeometry.disabledPlusAlpha(iOS27: false) == 0.24)
-        #expect(ComposerBarGeometry.disabledPlusAlpha(iOS27: true) == 0.3)
+        // 26.5 too tints it tertiaryLabel: 190 over 253 light, 60 over 26
+        // dark (ours, the label at 24 %, read 192 and 81).
+        #expect(ComposerBarGeometry.disabledPlusInk(iOS27: false) == .tertiaryHue(lightAlpha: 0.326, darkAlpha: 0.163))
+        #expect(ComposerBarGeometry.disabledPlusInk(iOS27: true) == .tertiaryHue(lightAlpha: 0.335, darkAlpha: 0.21))
+    }
+}
+
+/// Messages draws its record glyph itself (a 44 pt image shown at 22 pt):
+/// five capsules 2 pt wide on a 4 pt pitch, 4, 8, 16, 8 and 4 pt tall,
+/// centered. SF Symbols' `waveform` has six uneven bars.
+@Suite struct ComposerRecordGlyphTests {
+    @Test func fiveCenteredCapsules() {
+        let bars = ComposerBarGeometry.recordGlyphBars
+        #expect(ComposerBarGeometry.recordGlyphSide == 22)
+        #expect(bars == [
+            CGRect(x: 2, y: 9, width: 2, height: 4),
+            CGRect(x: 6, y: 7, width: 2, height: 8),
+            CGRect(x: 10, y: 3, width: 2, height: 16),
+            CGRect(x: 14, y: 7, width: 2, height: 8),
+            CGRect(x: 18, y: 9, width: 2, height: 4),
+        ])
     }
 }

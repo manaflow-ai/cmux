@@ -12,9 +12,6 @@ extension ConversationViewController {
         case "drawer":
             presentPhotoDrawer()
             return "ok"
-        case "pick":
-            guard parts.count == 2, let item = Int(parts[1]), let drawer = photoDrawer else { return "error no drawer" }
-            return drawer.labToggle(item: item) ? "ok" : "error no item"
         case "send":
             guard composer.hasContent else { return "error empty" }
             composerDidTapSend(composer)
@@ -30,15 +27,6 @@ extension ConversationViewController {
         default:
             return "error unknown verb"
         }
-    }
-}
-
-extension ConversationPhotoGridView {
-    func labToggle(item: Int) -> Bool {
-        guard let grid = subviews.first(where: { $0 is UICollectionView }) as? UICollectionView,
-              item < grid.numberOfItems(inSection: 0) else { return false }
-        collectionView(grid, didSelectItemAt: IndexPath(item: item, section: 0))
-        return true
     }
 }
 
