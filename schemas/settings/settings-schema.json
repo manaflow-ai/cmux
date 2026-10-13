@@ -14216,7 +14216,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "allItems",
+      "default" : "workspacesOnly",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.sidebar",
@@ -22716,7 +22716,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f312815ba7560457325e76b02f8442caeb34a59332f37bcd188d49d6bd5768de",
+  "schema_hash" : "7240ced391e4d545ed5aeba7212f1ac976a0ea153d4d9292691d423b93567c76",
   "sections" : [
     {
       "id" : "general",
