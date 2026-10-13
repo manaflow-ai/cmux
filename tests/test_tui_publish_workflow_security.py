@@ -328,10 +328,10 @@ def test_feat_push_concurrency_cannot_drop_an_unpublished_tree_key() -> None:
     assert "group: cmux-tui-daemon-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in daemon
     assert "cancel-in-progress: false" in daemon
     tree_publisher = workflow_job(artifacts, "publish-tree")
-    assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.sha }}" in tree_publisher
+    assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.sha }}" in tree_publisher
     assert "cancel-in-progress: false" in tree_publisher
     pr_tree_publisher = workflow_job(artifacts, "publish-pr-tree")
-    assert "group: cmux-tui-tree-${{ needs.cmux-next-daemon-tests.outputs.key }}-${{ github.run_id }}" in pr_tree_publisher
+    assert "group: cmux-tui-tree-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}" in pr_tree_publisher
     assert "cancel-in-progress: false" in pr_tree_publisher
     assert "replaces an older pending job" in artifacts
 
@@ -2324,3 +2324,30 @@ def test_cmux_next_daemon_tests_take_the_owned_side_lane_like_the_build_legs() -
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_tree_publish_does_not_wait_for_daemon_tests_but_promotion_does() -> None:
+    # Chief 2026-10-13 (hq-11): the daemon tests' macOS runner queues up to ~1 h,
+    # so trees publish without them; nightly-next promotion still needs them,
+    # through the daemon-tests.json marker that publish-tree-tested writes.
+    import yaml
+    jobs = yaml.safe_load((ROOT / ".github/workflows/cmux-tui-artifacts.yml").read_text())["jobs"]
+    for name in ("publish-tree", "publish-pr-tree"):
+        assert "cmux-next-daemon-tests" not in jobs[name]["needs"], name
+        assert "cmux-next-daemon-tests" not in str(jobs[name]["if"]), name
+        assert "needs.cmux-next-daemon-tests.outputs" not in str(jobs[name]), name
+    marker = jobs["publish-tree-tested"]
+    assert {"publish-tree", "publish-pr-tree", "cmux-next-daemon-tests"} <= set(marker["needs"])
+    assert "needs.cmux-next-daemon-tests.result == 'success'" in marker["if"]
+    assert marker["environment"] == "artifacts"
+    assert "daemon-tests.json" in str(marker["steps"])
+    assert "--write-once" in str(marker["steps"])
+    promote = jobs["request-nightly-next"]
+    assert "publish-tree-tested" in promote["needs"]
+    assert "needs.publish-tree.result" not in promote["if"]
+    assert "needs.publish-tree-tested.result == 'success'" in promote["if"]
+    for name in ("publish-tree", "publish-pr-tree"):
+        assert '"daemonTests": "separate"' in str(jobs[name]["steps"]), name
+    script = (ROOT / "scripts/cmux-next/request-nightly-next.sh").read_text()
+    assert "daemon-tests.json" in script and '"separate"' in script
+

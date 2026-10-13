@@ -1,7 +1,7 @@
 @testable import CmuxNextControl
 import CmuxNextSettings
 import Foundation
-import Synchronization
+import CmuxNextCompat
 
 /// A frame source the test fires by hand (or never, to model a stalled
 /// main thread).

@@ -5,7 +5,8 @@ Launches the tagged app with no activation, opens the DEBUG Home fixture (the re
 HomeStore over the mock owner) and sends a message, so outgoing and incoming rows show. Moves the transcript by
 0.25 pt (half a device pixel at 2x) and reads the rows as drawn (`debug.home.drive {action: rows}`): each text
 row's anchored side (incoming left, my rows right) and top on whole device pixels at 2x. Then it makes a 1x
-virtual display (MessagesLab's tools/interactions/vdisplay.m, hidpi 0; the display ends by itself after 240 s)
+virtual display (the rig's ~/messageslab-rig/bin/vdisplay --detach --owner, hidpi 0; it ends with this script, by
+its pid at the end, or by itself after 240 s)
 and moves the window onto it (`debug.window_frame {screen: last}`): the window's backing scale changes to 1, Home's
 host calls MessagesWindowView.setRenderScale (HostView.viewDidChangeBackingProperties ->
 ChatController.displayScaleChanged), and the rows must snap again: read right after the move (no other move
@@ -135,17 +136,22 @@ try:
         rows_on_grid("2x, half a pixel", r2, 2)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "scale-2x.png")})
 
-    # A 1x virtual display, and the window onto it.
-    vdbin = os.path.join(opts.out, "vdisplay")
-    build = subprocess.run(["clang", "-fobjc-arc", "-framework", "Foundation", "-framework", "CoreGraphics", "-framework", "AppKit",
-                            os.path.join(opts.ml, "tools/interactions/vdisplay.m"), "-o", vdbin], capture_output=True, text=True)
-    if not check("the virtual display tool builds", build.returncode == 0, build.stderr[-400:]):
-        sys.exit(1)
+    # A 1x virtual display, and the window onto it: the rig's vdisplay (hq-34, ~/messageslab-rig/bin/vdisplay; a unique
+    # serial per display, so a display another run leaked no longer blocks this one). `--detach` prints one line and
+    # exits: `ready id=.. origin=X,Y size=WxH pixels=.. scale=.. hz=.. serial=N pid=N` or `failed reason=.. displays=..`.
+    # `--owner` ends the display with this script; the display's pid= is stopped at the end too (exact pid).
+    vdbin = os.path.expanduser("~/messageslab-rig/bin/vdisplay")
     vdlog = os.path.join(opts.out, "vdisplay.log")
-    vd = subprocess.Popen([vdbin, "1600", "1000", "60", "240", "0"], stdout=open(vdlog, "w"), stderr=subprocess.STDOUT,
-                          stdin=subprocess.DEVNULL, start_new_session=True)
-    up = poll(lambda: "origin" in open(vdlog).read(), timeout=20)
-    check("a 1x virtual display exists", bool(up), open(vdlog).read()[-300:])
+    run = subprocess.run([vdbin, "1600", "1000", "60", "240", "0", "--detach", "--owner", str(os.getpid()), "--log", vdlog],
+                         capture_output=True, text=True, stdin=subprocess.DEVNULL, timeout=60)
+    line = (run.stdout.strip().splitlines() or [""])[-1]
+    fields = dict(f.split("=", 1) for f in line.split()[1:] if "=" in f) if line.startswith("ready") else {}
+    vd = int(fields["pid"]) if fields.get("pid", "").isdigit() else None
+    if not check("a 1x virtual display exists", run.returncode == 0 and line.startswith("ready") and vd is not None,
+                 line or (run.stderr or "")[-300:]):
+        print(f"     vdisplay: {line or run.stderr.strip()[-300:]}", flush=True)
+        sys.exit(1)
+    print(f"     vdisplay: {line}", flush=True)
     moved = rpc("debug.window_frame", {"screen": "last"}) or {}
     check("the window moves onto the virtual display", moved.get("screen") == "MessagesLab Rig", moved)
     r1 = poll(lambda: (r := rows_report()) and r.get("scale") == 1 and r, timeout=10) or rows_report()
@@ -188,8 +194,8 @@ finally:
     acp = f"{home}/.acpmux/tags/{opts.tag}"
     subprocess.run([f"{app}/Contents/Resources/bin/acpmux", "daemon", "shutdown"], capture_output=True,
                    env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
-    if vd is not None and vd.poll() is None:
-        vd.terminate()  # the virtual display this script started (its own pid)
+    if vd is not None:
+        subprocess.run(["kill", str(vd)], capture_output=True)  # the virtual display this script started (its pid=)
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)
 if UNVERIFIED:

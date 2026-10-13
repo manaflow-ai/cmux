@@ -12,6 +12,11 @@ script writes the copies the app's Swift modules compile in. Sources so far:
   a value has one definition. SECTIONS below maps each file to its Swift type names (the only
   Swift-specific data; the JSON stays language-neutral). schemas/settings/settings-schema.json is
   still exported from Swift (SettingsSchemaExportTests); moving a section must not change it.
+- schemas/settings/source/sections.json: the Settings sections in sidebar order (Swift: the
+  SettingsSection enum, SettingsSection.generated.swift). Every row's section must be listed there.
+
+A generated Swift file this script no longer writes (for example a choices file after a section
+lost its choice rows) counts as drift under --check and is deleted when writing.
 
     python3 scripts/cmux-next/gen-settings-sources.py           # write the copies
     python3 scripts/cmux-next/gen-settings-sources.py --check   # exit 1 when a copy drifted
@@ -77,6 +82,9 @@ extension SettingsSchema {{
 
 # Swift names per section source: the schema type, each list's static var and the parser struct
 # that owns its constants, and the enum type of each choice row.
+SCHEMA_DIR = "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema"
+SECTIONS_SOURCE = "schemas/settings/source/sections.json"
+SECTIONS_SWIFT = SCHEMA_DIR + "/SettingsSection.generated.swift"
 SECTIONS = [
     {
         "source": "schemas/settings/source/updates.json",
@@ -86,9 +94,50 @@ SECTIONS = [
                   "announcements": ("announcements", "AnnouncementsSettings")},
         "enums": {"updates.meteredNetwork": "UpdatesMeteredSetting", "updates.notify": "UpdatesNotifySetting"},
     },
+    {
+        "source": "schemas/settings/source/labs.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Labs.generated.swift",
+        "type": "LabsSettingsSchema",
+        "lists": {"labs": ("descriptors", "CmuxConfigSnapshot")},
+        "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/picker.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Picker.generated.swift",
+        "type": "PickerSettingsSchema",
+        "lists": {"picker": ("descriptors", "PickerPinnedSetting")},
+        "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/shortcut-hints.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+ShortcutHints.generated.swift",
+        "type": "ShortcutHintsSettingsSchema",
+        "lists": {"shortcutHints": ("descriptors", "ModifierHoldHintsSetting")},
+        "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/chats.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Chats.generated.swift",
+        "type": "ChatSettingsSchema",
+        "lists": {"chats": ("descriptors", "ChatSettings")},
+        "enums": {},
+    },
+    {
+        "source": "schemas/settings/source/tasks.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Tasks.generated.swift",
+        "type": "TaskSettingsSchema",
+        "lists": {"tasks": ("descriptors", "TasksLayoutSetting")},
+        "enums": {"tasks.layout": "TasksLayoutPreference"},
+    },
+    {
+        "source": "schemas/settings/source/feed.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+Feed.generated.swift",
+        "type": "FeedSettingsSchema",
+        "lists": {"feed": ("descriptors", "FeedGitHubSettings")},
+        "enums": {},
+    },
 ]
-SECTION_IDS = {"general", "appearance", "terminal", "browser", "home", "notifications", "agents",
-               "accounts", "rooms", "machines", "advanced"}
+SYMBOL = __import__("re").compile(r"^[a-z0-9]+(\.[a-z0-9]+)*$")
 UNITS = {"points", "seconds", "minutes", "days", "count", "fraction"}
 ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choices", "range", "default",
               "default_label", "aliases", "keywords"}
@@ -139,7 +188,62 @@ def number_literal(value):
     return repr(float(value))
 
 
-def load_section(section, seen_keys):
+def load_sections():
+    """The section list; ids are lowercase identifiers, unique, in sidebar order."""
+    src = SECTIONS_SOURCE
+    with open(os.path.join(ROOT, src), encoding="utf-8") as handle:
+        data = json.load(handle)
+    if set(data) - {"$comment", "sections"} or not data.get("sections"):
+        fail(src, "needs a non-empty sections list")
+    ids = []
+    for entry in data["sections"]:
+        if set(entry) != {"id", "title", "symbol"}:
+            fail(src, "a section has exactly id, title, symbol: %r" % entry)
+        if not IDENT.match(entry["id"]) or entry["id"] in ids or entry["id"] in SWIFT_KEYWORDS:
+            fail(src, "bad or duplicate section id %r" % entry["id"])
+        if not SYMBOL.match(entry["symbol"]):
+            fail(src, "bad symbol %r" % entry["symbol"])
+        check_text(src, entry["id"] + ".title", entry["title"])
+        if entry["title"]["key"] != "settings.section." + entry["id"]:
+            fail(src, "%s: the title key is settings.section.<id> (SettingsSection.titleKey)" % entry["id"])
+        ids.append(entry["id"])
+    return data["sections"]
+
+
+def sections_swift(sections):
+    def cases(body):
+        return "\n".join("        case .%s: %s" % (entry["id"], body(entry)) for entry in sections)
+    return """// {header}
+
+/// The Settings window's sections, in sidebar order. The raw value is the
+/// `section` argument of Settings… (`cmux settings open --section keyboard`).
+public nonisolated enum SettingsSection: String, Sendable, Hashable, CaseIterable, Identifiable {{
+    case {ids}
+
+    public var id: String {{ rawValue }}
+
+    /// The string catalog key of `title`.
+    public var titleKey: String {{ "settings.section.\\(rawValue)" }}
+
+    public var title: String {{
+        switch self {{
+{titles}
+        }}
+    }}
+
+    /// SF Symbol for the sidebar row.
+    public var symbol: String {{
+        switch self {{
+{symbols}
+        }}
+    }}
+}}
+""".format(header=HEADER.format(c="//", src=SECTIONS_SOURCE), ids=", ".join(e["id"] for e in sections),
+           titles=cases(lambda e: "SettingsText.text(%s, %s)" % (swift_string(e["title"]["key"]), swift_string(e["title"]["text"]))),
+           symbols=cases(lambda e: swift_string(e["symbol"])))
+
+
+def load_section(section, seen_keys, section_ids):
     src = section["source"]
     with open(os.path.join(ROOT, src), encoding="utf-8") as handle:
         data = json.load(handle)
@@ -149,7 +253,7 @@ def load_section(section, seen_keys):
     if sorted(names) != sorted(section["lists"]):
         fail(src, "lists %s do not match the generator's SECTIONS %s" % (names, sorted(section["lists"])))
     for entry in data["lists"]:
-        if entry["section"] not in SECTION_IDS:
+        if entry["section"] not in section_ids:
             fail(src, "unknown section %r" % entry["section"])
         check_text(src, entry["name"] + ".group", entry["group"])
         check_note(src, entry["name"], entry.get("note"))
@@ -187,10 +291,17 @@ def load_section(section, seen_keys):
                 if key not in section["enums"]:
                     fail(src, "%s: add its Swift enum name to SECTIONS" % key)
                 for choice in row["choices"]:
+                    if set(choice) - {"value", "title", "note"}:
+                        fail(src, "%s choice %r: fields are value, title, note" % (key, choice.get("value")))
                     check_text(src, key + " choice " + choice["value"], choice["title"])
+                    check_note(src, key + " choice " + choice["value"], choice.get("note"))
                 for old, new in row.get("aliases", {}).items():
                     if new not in values or old in values:
                         fail(src, "%s: alias %r -> %r must map an old value to a choice" % (key, old, new))
+            elif kind == "folder_list":
+                if not isinstance(default, list) or not all(isinstance(item, str) and (item.startswith("/") or item.startswith("~/")) for item in default) \
+                        or "choices" in row or "range" in row:
+                    fail(src, "%s: a folder_list default is a list of absolute or ~/ paths" % key)
             else:
                 fail(src, "%s: kind %r is not supported by the generator yet" % (key, kind))
             if "aliases" in row and kind != "choice":
@@ -228,6 +339,8 @@ def enums_swift(section, rows):
             out.append("public nonisolated enum %s: String, Sendable, Hashable, CaseIterable {" % enum)
             for choice in row["choices"]:
                 case = camel(choice["value"])
+                if choice.get("note"):
+                    out.append("    /// " + choice["note"])
                 out.append("    case %s%s" % (case, "" if case == choice["value"] else " = " + swift_string(choice["value"])))
             if row.get("aliases"):
                 out.append("")
@@ -249,17 +362,19 @@ def section_swift(section, data):
         for row in entry["rows"]:
             name, kind = row["_name"], row["kind"]
             out.append("    /// `%s`%s" % (row["key"], (": " + row["note"]) if row.get("note") else "."))
-            out.append("    public static let %sPath = [%s]" % (name, ", ".join(swift_string(p) for p in row["key"].split("."))))
+            out.append("    public nonisolated static let %sPath = [%s]" % (name, ", ".join(swift_string(p) for p in row["key"].split("."))))
             if kind == "toggle":
-                out.append("    public static let %sDefault = %s" % (name, "true" if row["default"] else "false"))
+                out.append("    public nonisolated static let %sDefault = %s" % (name, "true" if row["default"] else "false"))
             elif kind == "number":
                 rng = row["range"]
-                out.append("    public static let %sDefault: Double = %s" % (name, number_literal(row["default"])))
-                out.append("    public static let %sRange: ClosedRange<Double> = %s...%s"
+                out.append("    public nonisolated static let %sDefault: Double = %s" % (name, number_literal(row["default"])))
+                out.append("    public nonisolated static let %sRange: ClosedRange<Double> = %s...%s"
                            % (name, number_literal(rng["min"]), number_literal(rng["max"])))
+            elif kind == "folder_list":
+                out.append("    public nonisolated static let %sDefault: [String] = [%s]" % (name, ", ".join(swift_string(p) for p in row["default"])))
             else:
                 enum = section["enums"][row["key"]]
-                out.append("    public static let %sDefault: %s = .%s" % (name, enum, camel(row["default"])))
+                out.append("    public nonisolated static let %sDefault: %s = .%s" % (name, enum, camel(row["default"])))
         out.append("}")
         out.append("")
     # Descriptors.
@@ -290,6 +405,8 @@ def section_swift(section, data):
                 args += ["kind: .number(SettingNumber(%s.%sRange, step: %s, unit: .%s%s))"
                          % (owner, name, number_literal(rng["step"]), rng["unit"], extra),
                          "default: .number(%s.%sDefault)" % (owner, name)]
+            elif kind == "folder_list":
+                args += ["kind: .folderList", "default: .array(%s.%sDefault.map { .string($0) })" % (owner, name)]
             else:
                 enum = section["enums"][row["key"]]
                 choices = "".join("\n                    SettingChoice(%s.%s.rawValue, %s)," % (enum, camel(c["value"]), keyed(c["title"]))
@@ -312,8 +429,11 @@ def main():
     check = "--check" in sys.argv[1:]
     outputs = {RETIRED_SWIFT: retired_swift(load_retired())}
     seen_keys = {entry["key"] for entry in load_retired()}
+    sections = load_sections()
+    outputs[SECTIONS_SWIFT] = sections_swift(sections)
+    section_ids = {entry["id"] for entry in sections}
     for section in SECTIONS:
-        data = load_section(section, seen_keys)
+        data = load_section(section, seen_keys, section_ids)
         outputs[section["swift"]] = section_swift(section, data)
         outputs.update(choices_swift(section, data))
     drifted = []
@@ -328,6 +448,20 @@ def main():
             with open(full, "w", encoding="utf-8") as handle:
                 handle.write(text)
             print("wrote " + path)
+    # Generated files this script no longer writes.
+    marker = "// GENERATED by scripts/cmux-next/gen-settings-sources.py"
+    for name in sorted(os.listdir(os.path.join(ROOT, SCHEMA_DIR))):
+        path = SCHEMA_DIR + "/" + name
+        if not name.endswith(".generated.swift") or path in outputs:
+            continue
+        with open(os.path.join(ROOT, path), encoding="utf-8") as handle:
+            if not handle.read(len(marker)) == marker:
+                continue
+        if check:
+            drifted.append(path + " (no longer generated)")
+        else:
+            os.remove(os.path.join(ROOT, path))
+            print("removed " + path)
     if drifted:
         print("generated settings copies differ from schemas/settings:\n  %s\nrun: python3 scripts/cmux-next/gen-settings-sources.py"
               % "\n  ".join(drifted), file=sys.stderr)
