@@ -4,9 +4,11 @@ Tart VM (stdlib only), never on a laptop or a shared Mac.
 
 Launches one cmux-next build the way the GUI proofs do (no-activate,
 automation socket, scratch config, bounded window), waits with deadlines for
-the first window and the control socket, opens one terminal tab and one
-browser tab through the socket, takes debug.window_snapshot, quits, and writes
-result.json. When the guest macOS is older than LSMinimumSystemVersion it
+the first window and the control socket, opens one terminal tab and types a
+command into it, opens the New Tab page, one browser tab, the Settings window
+and toggles the sidebar through the socket, takes a debug.window_snapshot
+after each step (terminal.png, newtab.png, window.png, settings.png,
+sidebar.png), quits, and writes result.json. When the guest macOS is older than LSMinimumSystemVersion it
 also records what LaunchServices (`open`) says, then still execs the binary
 directly so the dyld error is captured.
 
@@ -92,6 +94,14 @@ def wait(predicate, seconds, alive=None, step_s=0.5):
     return None
 
 
+def snap(name, file, kind="main"):
+    """debug.window_snapshot of the `kind` window into OUT/file; True when the PNG exists."""
+    path = os.path.join(OUT, file)
+    reply = rpc("debug.window_snapshot", {"kind": kind, "path": path}, timeout=60)
+    result.setdefault("snapshots", {})[name] = {"file": file, "reply": reply}
+    return os.path.exists(path) and os.path.getsize(path) > 0
+
+
 def write_result():
     failed = [name for name, s in result["steps"].items() if not s["ok"]]
     result["ok"] = bool(result["steps"]) and not failed
@@ -147,6 +157,17 @@ try:
         grown = wait(lambda: ((rpc("debug.surfaces") or {}).get("live_terminals") or 0) > before, TAB_DEADLINE, alive)
         step("terminal", grown and "error" not in (opened or {}), {"run": opened, "live_terminals_before": before,
                                                                    "after": (rpc("debug.surfaces") or {}).get("live_terminals")})
+        # Typing: one key-down per character into the focused terminal (debug.key, no system input).
+        typed = [rpc("debug.key", {"key": "space" if ch == " " else ch}) for ch in "echo %s-typed" % TITLE]
+        typed.append(rpc("debug.key", {"key": "return"}))
+        typed_errors = [t for t in typed if not isinstance(t, dict) or "error" in t]
+        snap("terminal", "terminal.png")
+        step("typing", grown and not typed_errors, {"keys": len(typed), "errors": typed_errors[:3]})
+        newtab = rpc("debug.new_tab", {"action": "open_and_type", "text": ""})
+        newtab_state = rpc("debug.new_tab", {"action": "state"})
+        snap("newtab", "newtab.png")
+        step("newtab", isinstance(newtab, dict) and "error" not in newtab and bool(newtab.get("opening")),
+             {"run": newtab, "state": newtab_state})
 
         class Page(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
@@ -171,6 +192,15 @@ try:
         shot_path = os.path.join(OUT, "window.png")
         shot = rpc("debug.window_snapshot", {"kind": "main", "path": shot_path}, timeout=60)
         step("snapshot", os.path.exists(shot_path) and os.path.getsize(shot_path) > 0, shot)
+        settings = rpc("settings.open", {"focus": False})
+        listed = wait(lambda: any(w.get("kind") == "settings" for w in ((rpc("debug.window_list") or {}).get("windows") or [])
+                                  if isinstance(w, dict)), TAB_DEADLINE, alive)
+        settings_shot = snap("settings", "settings.png", kind="settings")
+        step("settings", bool(listed) and settings_shot, {"run": settings})
+        sidebar = rpc("action.run", {"action": "toggleSidebar"})
+        snap("sidebar", "sidebar.png")
+        rpc("action.run", {"action": "toggleSidebar"})
+        step("sidebar", isinstance(sidebar, dict) and "error" not in sidebar, {"run": sidebar})
         with open(os.path.join(OUT, "surfaces.json"), "w") as f:
             json.dump(rpc("debug.surfaces"), f, indent=1)
 finally:
