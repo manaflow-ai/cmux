@@ -88,6 +88,9 @@ def main() -> int:
     c.focus_pane(left)
     time.sleep(0.3)
 
+    # Unbound by default (a person binds it in Settings > Shortcuts).
+    c.set_shortcut("pane_digits", "ctrl+cmd+1")
+
     cases = [
         ("ctrl+cmd+3", bottom_right, "3 focuses the third pane"),
         ("ctrl+cmd+2", top_right, "2 focuses the second pane"),
