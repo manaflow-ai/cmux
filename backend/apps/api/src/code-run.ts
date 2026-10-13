@@ -319,7 +319,7 @@ export const runCode = async (env: Env, step: WorkflowStep, input: CodeRunInput,
     if (!plan.ok) throw new Error("the team's AI limit could not be read")
     return plan.user_limit_usd
   })
-  const run: CodeRunInput = { ...input, limitMicros: userLimitMicros(env, limitUsd) }
+  const run: CodeRunInput = { ...input, limitMicros: userLimitMicros(limitUsd) }
   const egress = run.egress ?? []
   const id = await loaderId(env, run.team, run.automation, run.ref, egress)
   // Gate and start record in one harness step: the engine retries a short meter outage.
