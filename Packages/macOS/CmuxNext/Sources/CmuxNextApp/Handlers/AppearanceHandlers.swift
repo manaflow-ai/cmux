@@ -34,6 +34,12 @@ enum AppearanceHandlers {
         for speed in MotionSpeed.allCases {
             registry.bind(ActionID(rawValue: "appearance.animationSpeed.\(speed.rawValue)"), run: { _ in try setAnimationSpeed(speed, context) })
         }
+        for kind in MotionKind.allCases {
+            registry.bind(ActionID(rawValue: "appearance.animations.\(kind.rawValue).toggle"), run: { _ in try toggleAnimation(kind, context) })
+        }
+        for bounce in MotionBounce.allCases {
+            registry.bind(ActionID(rawValue: "appearance.animations.bounce.\(bounce.rawValue)"), run: { _ in try setAnimationBounce(bounce, context) })
+        }
         for mode in CenterFocusedColumn.allCases {
             let id = mode == .onOverflow ? "onOverflow" : mode.rawValue
             registry.bind(ActionID(rawValue: "layout.centerFocusedColumn.\(id)"), run: { _ in try setCenterFocusedColumn(mode, context) })
@@ -145,6 +151,22 @@ enum AppearanceHandlers {
         try requireUnmanaged(AnimationSpeedSetting.configPath, context)
         context.design.animationSpeed = speed
         context.writeSetting("set animation speed", AnimationSpeedSetting.configPath, .string(speed.rawValue), reloadOnFailure: true)
+    }
+
+    /// `ui.animations.<kind>`: flipped at once, then written (on removes the key).
+    private static func toggleAnimation(_ kind: MotionKind, _ context: AppActionContext) throws {
+        try requireUnmanaged(AnimationKindsSetting.path(kind), context)
+        let off = !context.design.disabledAnimations.contains(kind)
+        if off { context.design.disabledAnimations.insert(kind) } else { context.design.disabledAnimations.remove(kind) }
+        context.writeSetting("toggle \(kind.rawValue) animations", AnimationKindsSetting.path(kind), off ? .bool(false) : nil, reloadOnFailure: true)
+    }
+
+    /// `ui.animations.bounce`: applied at once, then written (none removes the key).
+    private static func setAnimationBounce(_ bounce: MotionBounce, _ context: AppActionContext) throws {
+        try requireUnmanaged(AnimationKindsSetting.bouncePath, context)
+        context.design.animationBounce = bounce
+        let value: JSONValue? = bounce == AnimationKindsSetting.bounceFallback ? nil : .string(bounce.rawValue)
+        context.writeSetting("set animation bounce", AnimationKindsSetting.bouncePath, value, reloadOnFailure: true)
     }
 
     /// `layout.centerFocusedColumn`: applied at once, then written to cmux.json.

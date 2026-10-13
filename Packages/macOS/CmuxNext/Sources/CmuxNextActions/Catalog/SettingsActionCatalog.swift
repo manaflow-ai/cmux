@@ -218,6 +218,36 @@ nonisolated enum SettingsActionCatalog: ActionCatalogGroup {
                 symbol: "figure.stand", surfaces: [.palette], cliName: "settings turn-off-animations"
             ),
             ActionDescriptor(
+                id: "appearance.animations.splits.toggle",
+                title: String(localized: "action.appearance.animations.splits.toggle", defaultValue: "Toggle Split Animations", bundle: .module),
+                keywords: ["animation", "motion", "split", "pane", "divider", "appearance"], category: .settings,
+                symbol: "rectangle.split.2x1", surfaces: [.palette], cliName: "settings toggle-split-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.newTab.toggle",
+                title: String(localized: "action.appearance.animations.newTab.toggle", defaultValue: "Toggle New Tab Animations", bundle: .module),
+                keywords: ["animation", "motion", "tab", "new tab", "appearance"], category: .settings,
+                symbol: "plus.rectangle.on.rectangle", surfaces: [.palette], cliName: "settings toggle-new-tab-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.newWorkspace.toggle",
+                title: String(localized: "action.appearance.animations.newWorkspace.toggle", defaultValue: "Toggle New Workspace Animations", bundle: .module),
+                keywords: ["animation", "motion", "workspace", "sidebar", "appearance"], category: .settings,
+                symbol: "sidebar.left", surfaces: [.palette], cliName: "settings toggle-new-workspace-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.bounce.subtle",
+                title: String(localized: "action.appearance.animations.bounce.subtle", defaultValue: "Use Bouncy Animations", bundle: .module),
+                keywords: ["animation", "motion", "spring", "bounce", "bouncy", "appearance"], category: .settings,
+                symbol: "arrow.up.and.down.and.sparkles", surfaces: [.palette], cliName: "settings use-bouncy-animations"
+            ),
+            ActionDescriptor(
+                id: "appearance.animations.bounce.none",
+                title: String(localized: "action.appearance.animations.bounce.none", defaultValue: "Use Animations Without Bounce", bundle: .module),
+                keywords: ["animation", "motion", "spring", "bounce", "critically damped", "appearance"], category: .settings,
+                symbol: "arrow.right.to.line", surfaces: [.palette], cliName: "settings use-animations-without-bounce"
+            ),
+            ActionDescriptor(
                 id: "browser.defaultEngine.chromium",
                 title: String(localized: "action.browser.defaultEngine.chromium", defaultValue: "Use Chromium for New Browser Tabs", bundle: .module),
                 keywords: ["browser", "engine", "default", "chrome", "chromium", "cef"], category: .settings,

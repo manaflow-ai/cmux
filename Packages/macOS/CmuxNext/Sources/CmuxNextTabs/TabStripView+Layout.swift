@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextDesign
+public import CmuxNextDesign
 import CmuxNextWakeups
 import QuartzCore
 // Layout, frame application, edge fades, and the FrameScheduler animation client.
@@ -194,9 +194,10 @@ extension TabStripView {
 
     func startAnimating() {
         guard window != nil else { return }
-        guard !animationClient.isActive else { return }
-        MotionTrace.begin("tabs")
-        animationClient.activate()
+        let clock = MotionClock.forView(self)
+        if let motionClock, motionClock !== clock { motionClock.stop(self) }
+        motionClock = clock
+        clock.run(self, trace: "tabs")
     }
 
     /// One animation frame; false when everything settled.
@@ -221,10 +222,17 @@ extension TabStripView {
         if autoscrollDuringDrag(dt) { active = true }
         scroll.step(dt)
         if !scroll.isSettled { active = true }
+        if MotionTrace.isEnabled {
+            // The points the strip's tabs have left to travel (x and width): its spring's path, for debug.motion.
+            MotionTrace.sample("tabs.travel", Double(motion.values.reduce(0) { $0 + abs($1.x.target - $1.x.value) + abs($1.width.target - $1.width.value) }))
+        }
         // Tabs sliding under a still pointer update hover (applyFrames ->
         // geometryDidChange).
         applyFrames()
-        if !active { MotionTrace.end("tabs") }
         return active
     }
+}
+
+extension TabStripView: MotionAnimating {
+    public func motionStep(_ dt: Double) -> Bool { advance(CGFloat(dt)) }
 }

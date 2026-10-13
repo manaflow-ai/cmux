@@ -82,10 +82,18 @@ public final class TabStripView: NSView {
     var lastModelOrder: [TabID] = []
     var lastStyle: TabStripStyle?
     var lastViewportWidth: CGFloat = -1
-    /// Springs and drag autoscroll tick on the window's FrameScheduler.
-    lazy var animationClient = FrameClient(owner: "TabStrip.animation", view: self) { [weak self] tick in
-        self?.advance(CGFloat(tick.elapsed)) ?? false
-    }
+    /// Springs and drag autoscroll step on the window's one `MotionClock`,
+    /// with the window's other chrome springs.
+    weak var motionClock: MotionClock?
+    /// A New Tab page whose replacement this strip waits for (`expectReplacement(of:)`).
+    var replacing: (page: TabID, since: CFTimeInterval)?
+    /// Newcomers shown in the cell of the page they replace, until the page leaves the model.
+    var adopted: [TabID: TabID] = [:]
+    /// A tab opened right after `anchor` that this strip waits for (`expectInsertion(after:)`).
+    var inserting: (anchor: TabID, since: CFTimeInterval)?
+    /// Newcomers shown right after their anchor (and its group) until the model puts them there.
+    var placed: [TabID: (anchor: TabID, since: CFTimeInterval)] = [:]
+    var isAnimating: Bool { motionClock?.isRunning(self) ?? false }
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
 
@@ -238,7 +246,8 @@ public final class TabStripView: NSView {
             observationTask = nil
             tokenObservationTask?.cancel()
             tokenObservationTask = nil
-            animationClient.deactivate()
+            motionClock?.stop(self)
+            motionClock = nil
             groupEditor.hide()
             groups.holdTask?.cancel()
             removeEscapeMonitor()

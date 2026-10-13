@@ -18,21 +18,35 @@
 //! read on macOS, Linux and Windows (`system_reduce_motion`; on Linux and
 //! Windows a watcher thread keeps it current). A `Spring` is a `SpringKind::Size`
 //! (a move to 0 uses `disappear`) unless built with `Spring::position`
-//! (positions and offsets never switch token). The numbers in `spring.rs`
-//! are the only animation timing constants; change them together with
-//! `docs/motion.md`.
+//! (positions and offsets never switch token).
+//!
+//! The token numbers (springs, fades, loops, speed, the bounce, the settle
+//! thresholds, the structural set and the per-kind switch defaults) are read
+//! at build time from the spec's `design-tokens.json` (`motion`; build.rs),
+//! the same file cmux-next macOS and cmux-theme-tokens read. Springs step in
+//! closed form (`SpringValue::solve`), so a path is exact at any frame rate.
+//! Structural springs (`MotionSpring::is_structural`) follow
+//! `ui.animations.bounce`; `ui.animations.splits|newTab|newWorkspace` turn
+//! one kind off (`MotionPolicy::animates`). The host passes these settings
+//! in (`set_animation_switches` or `MotionPolicy::with_animations`).
 
 mod clock;
+mod fade;
 mod marquee;
+mod policy;
 #[cfg(feature = "settings")]
 mod settings;
 mod spring;
+mod tokens;
 // The Reduce Motion reading off macOS (macOS asks NSWorkspace in settings.rs).
 #[cfg(all(feature = "settings", not(target_os = "macos")))]
 mod system;
 
 pub use clock::*;
+pub use fade::*;
 pub use marquee::*;
+pub use policy::*;
 #[cfg(feature = "settings")]
 pub use settings::*;
 pub use spring::*;
+pub use tokens::*;
