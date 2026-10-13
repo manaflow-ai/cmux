@@ -851,21 +851,17 @@ mod tests {
 
     #[test]
     fn checkpoint_capture_keeps_healthy_terminals_when_one_replay_is_quarantined() {
-        let skipped =
-            TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
-        let healthy =
-            TerminalPublicId::parse("term_00000000000000000000000000000002").unwrap();
-        let (captured, quarantined) = collect_terminal_replays(
-            [skipped.clone(), healthy.clone()],
-            |terminal_id| {
+        let skipped = TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
+        let healthy = TerminalPublicId::parse("term_00000000000000000000000000000002").unwrap();
+        let (captured, quarantined) =
+            collect_terminal_replays([skipped.clone(), healthy.clone()], |terminal_id| {
                 Some(if terminal_id == &skipped {
                     Err(anyhow::Error::new(ReplayBufferExhausted))
                 } else {
                     Ok(terminal_id.as_str().to_string())
                 })
-            },
-        )
-        .unwrap();
+            })
+            .unwrap();
 
         assert_eq!(captured, vec![healthy.as_str().to_string()]);
         assert_eq!(
@@ -879,8 +875,7 @@ mod tests {
 
     #[test]
     fn checkpoint_capture_still_fails_for_other_replay_errors() {
-        let terminal_id =
-            TerminalPublicId::parse("term_00000000000000000000000000000003").unwrap();
+        let terminal_id = TerminalPublicId::parse("term_00000000000000000000000000000003").unwrap();
         let error = collect_terminal_replays::<()>([terminal_id], |_| {
             Some(Err(anyhow::anyhow!("terminal changed during replay capture")))
         })
