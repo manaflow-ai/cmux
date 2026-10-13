@@ -424,6 +424,18 @@ impl CloudConversations {
         Ok(value)
     }
 
+    /// The account (JWT `sub`) and Stack project (JWT `aud`) of the current
+    /// person's lease, when its token carries both and is no chief token:
+    /// the inputs of the person's Worker user id. Never the token.
+    pub fn lease_person(&self) -> Option<(String, String)> {
+        let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+        let session = lease.session.as_ref()?;
+        if session.agent.is_some() {
+            return None;
+        }
+        Some((session.account.clone()?, session.audience.clone()?))
+    }
+
     /// The leased chief's wake queue (`cloud-mux-subscribe`): the agent is
     /// the lease token's `agt` claim, so a client can never name another
     /// chief's queue. Refused for a person's session token.

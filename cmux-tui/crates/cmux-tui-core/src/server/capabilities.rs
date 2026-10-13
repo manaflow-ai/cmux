@@ -18,6 +18,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
         capabilities.push(cloud_conversations::APP_ONLY_LEASE_CAPABILITY);
+        capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
     }
     if mux.history_search().is_some() {
         capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);

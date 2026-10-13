@@ -112,7 +112,9 @@ pub(super) fn subscribe_command(
                 MuxEvent::Conversation(_) if !conversation_client => {
                     continue;
                 }
-                MuxEvent::CloudConversation(_) if !trusted_pairing_client => {
+                // The person's own clients: Unix, or an authenticated page
+                // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
+                MuxEvent::CloudConversation(_) if !conversation_client => {
                     continue;
                 }
                 MuxEvent::CloudConversation(_)
