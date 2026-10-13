@@ -55,8 +55,9 @@
   font-size: 15px;
   caret-color: var(--agent-ansi-5, #d670d6); /* caret-color: the shell mode's color, as its glyph */
 }
-/* The pickers on the box's bottom row (cx-e2aa, board 008): the project, then the agent's model,
-   effort and speed chip, then Send. The chips keep the composer's own look. */
+/* The card's bar, the agent composer's (Leo 2026-10-13): the agent's model, effort and speed chip,
+   then the mic and Send at the end (acpmux-composer-actions). The chips keep the composer's own
+   look; the project is the location row's below (.nt-location). */
 .nt-pickers {
   display: flex;
   flex-wrap: wrap;
@@ -66,9 +67,10 @@
   padding: 0 10px 6px;
   box-sizing: border-box;
 }
-/* Send: the composer's own arrow-up disc (acpmux-send), at the row's end. */
-.nt-send {
-  margin-left: auto;
+/* The location row (ComposerContext, the composer's own) is the card's last row: its wrapper only
+   marks the page as touched, so it draws nothing of its own. */
+.nt-location {
+  display: contents;
 }
 /* Templates (cx-yabk, plans/cmux-next/new-tab-templates.md): the same screen, other sections and
    type. The theme's own tones only; no accent color. */
@@ -217,12 +219,8 @@
     box-shadow: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
 }
-/* The dictation mic beside Send (DictationMic): it takes the row's right edge, Send follows it. */
+/* The dictation mic beside Send (DictationMic), both in the bar's end group. */
 .nt-pickers .acpmux-mic {
-  margin-left: auto;
   width: 24px;
   height: 24px;
-}
-.nt-pickers .acpmux-mic-menu + .nt-send {
-  margin-left: 4px;
 }

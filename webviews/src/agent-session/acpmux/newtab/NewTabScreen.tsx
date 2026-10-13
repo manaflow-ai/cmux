@@ -1,12 +1,12 @@
 import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { DictationField } from "../dictation";
-import { FOCUS_LOCATION_EVENT, FolderIcon, type NewTabHost } from "../NewTabPage";
+import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
-import { type Project, ProjectChooser } from "../ProjectChooser";
+import { ComposerContext } from "../ComposerContext";
+import type { Project } from "../ProjectChooser";
 import { isAgentHome } from "../sessionList";
-import { projectName } from "../EmptyState";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
@@ -157,7 +157,6 @@ export function NewTabScreen(props: Props) {
   // the host's start folder, as a new chat's hero does; never the home ~ a fresh workspace's tab
   // inherits, nor the private agent-home folder a chat with neither starts in (cx-7fje0, cx-nn3e).
   const askFolder = project && project !== props.cwd ? project : props.startCwd;
-  const askFolderName = projectName(askFolder);
   // The agent Enter asks and the chip's model (newTabStart): the chip's pick, else the last pick.
   const remembered = useLastPick(chatFolder);
   const { harness, snapshot: chipSnapshot } = useMemo(
@@ -432,8 +431,9 @@ export function NewTabScreen(props: Props) {
       data-template={template}
       data-all-chats={allChats || undefined}
     >
-      {/* One box (board 008): the field on top, the folder and the agent's model chips on its bottom
-          row, the Send button at the end. */}
+      {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
+          bar with the agent's model chip, the mic and Send, then the location row with the project
+          the chat starts in (ComposerContext, the composer's own). */}
       <div ref={setBox} className="nt-box">
         <div className="nt-input">
           {shell ? (
@@ -473,31 +473,40 @@ export function NewTabScreen(props: Props) {
             this page draws no context ring. */}
         <ChromeArea className="acpmux-chrome-area" items={[chrome.dictation]}>
           <div className="nt-pickers" onPointerDownCapture={touch}>
-            <ProjectChooser
-              projects={props.projects ?? []}
-              {...(askFolder && askFolderName ? { current: askFolder, currentLabel: askFolderName } : {})}
-              icon={<FolderIcon />}
-              onPick={pickProject}
-              {...(browseProject ? { onBrowse: browseProject } : {})}
-              side="bottom"
-            />
             {/* The folder Enter asks in (screenActions: the picked project, else the tab's), so a pick's
               switch is the one Enter reuses. */}
             {Chips && <Chips snapshot={chipSnapshot} {...(chatFolder ? { cwd: chatFolder } : {})} />}
-            {props.accessory}
-            {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
-            <button
-              type="button"
-              className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
-              aria-label={t("composer.send")}
-              title={t("composer.sendTooltip")}
-              disabled={!text.trim()}
-              onClick={send}
-            >
-              <ArrowUpIcon />
-            </button>
+            <span className="acpmux-composer-actions">
+              {props.accessory}
+              {/* Send: a click does what Return does (a prompt, a row, or a shell command). */}
+              <button
+                type="button"
+                className={text.trim() ? "acpmux-send acpmux-send-ready nt-send" : "acpmux-send nt-send"}
+                aria-label={t("composer.send")}
+                title={t("composer.sendTooltip")}
+                disabled={!text.trim()}
+                onClick={send}
+              >
+                <ArrowUpIcon />
+              </button>
+            </span>
           </div>
         </ChromeArea>
+        {/* Where the chat starts: the folder Enter asks in (askFolder), picked as in the agent
+            composer's location row; never the home ~ the tab inherited (cx-7fje0). */}
+        <div className="nt-location" onPointerDownCapture={touch}>
+          <ComposerContext
+            summary={{
+              ...chipSnapshot.summary,
+              sessionId: chipSnapshot.summary?.sessionId ?? "",
+              ...(askFolder ? { cwd: askFolder } : { cwd: undefined }),
+            }}
+            sessions={snapshot.sessions}
+            projectChoices={props.projects ?? []}
+            onProject={(cwd) => pickProject(cwd)}
+            {...(browseProject ? { onBrowseProject: browseProject } : {})}
+          />
+        </div>
       </div>
       {rows.length > 0 && box && (
         <Popover

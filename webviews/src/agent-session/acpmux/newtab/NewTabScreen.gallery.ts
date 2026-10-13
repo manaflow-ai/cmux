@@ -99,6 +99,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/ClosedList.tsx#ClosedList",
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
+    "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "ui/HideableChrome.tsx#HideableChrome",
     "ui/HideableChrome.tsx#ChromeArea",
     "ui/VirtualList.tsx#VirtualList",
