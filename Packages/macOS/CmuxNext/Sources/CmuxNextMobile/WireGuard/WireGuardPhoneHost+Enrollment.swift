@@ -31,6 +31,10 @@ extension WireGuardPhoneHost {
             try? await stream.write(JSONLine().encode(EnrollmentResponse(error: PairingError.expired.localizedDescription)))
             return
         }
+        // Single use: retire the invitation now, before any await, so a
+        // second request on it is refused.
+        invitationExpiry.cancel()
+        invitation = nil
         do {
             let phone = try enroll(request)
             let response = EnrollmentResponse(address: phone.address, presharedKey: phone.presharedKey, deviceID: phone.id)
@@ -39,9 +43,13 @@ extension WireGuardPhoneHost {
         } catch {
             try? await stream.write(JSONLine().encode(EnrollmentResponse(error: error.localizedDescription)))
         }
-        invitationExpiry.cancel()
-        dropInvitation()
         publish()
+        // The answer still has to cross the tunnel through the bootstrap peer:
+        // keep it until the phone closes the connection (it does once it has
+        // read the answer) or the deadline closes it, then remove it.
+        // wakeup-allow: drains to end of stream; the 10 s deadline closes it
+        while let chunk = try? await stream.read(maximumBytes: 1024), !chunk.isEmpty {}
+        try? tunnel?.removePeer(pending.bootstrapPublicKey)
     }
 
     /// Adds (or re-adds) the phone's permanent peer and saves it.
