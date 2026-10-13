@@ -151,7 +151,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 let incognito = services.cache.browserTabs.isIncognitoTab(tab.id)
                 if incognito {
                     let live = services.cache.incognitoDisplay(tab)
-                    (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url)
+                    (item.title, item.subtitle) = (live.title ?? Strings.untitledBrowser, live.url.flatMap { BrowserNewTabPage.isNewTabPage($0) ? nil : $0 })
                 } else {
                     item.profileBadge = services.browserProfiles.tabBadge(for: tab, workspaceID: workspaceID())
                     if services.cache.pageRequests.titleAttention.marks(tab, selected: stripModel.selectedID?.rawValue == tab.id, in: services.cache) { item.isUnread = true }
