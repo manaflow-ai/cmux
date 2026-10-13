@@ -65,8 +65,6 @@ export function TeamBillingPanel({
 
 function personalPlanName(planId: string | null, translate: (key: string) => string): string | null {
   switch (planId) {
-    case "go":
-      return translate("picker.names.go");
     case "pro":
       return translate("picker.names.pro");
     case "max":

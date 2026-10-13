@@ -51,6 +51,21 @@ describe("Max as a personal plan", () => {
     expect(result.resourcePool).toEqual({ vcpus: 20, memoryMb: 40 * 1024 });
   });
 
+  test("a personal Go plan stays user-scoped instead of powering an unplanned team", () => {
+    const user = {
+      update: async () => undefined,
+      id: "user-go",
+      isAnonymous: false,
+      userBillingPlanId: "go",
+      teams: [{ id: "team-free", billingPlanId: null, billingSeats: null }],
+    } as never;
+
+    const result = resolveVmEntitlements(user, {}, { requestedBillingTeamId: "team-free" });
+    expect(result.planId).toBe("free");
+    expect(result.maxActiveVms).toBe(0);
+    expect(result.resourcePool).toBeNull();
+  });
+
   test("a Team subscription adds five shared VMs and one resource pool per paid seat", () => {
     const user = {
       update: async () => undefined,

@@ -1,3 +1,5 @@
+import { FOUNDERS_PLAN_ID, MAX_PLAN_ID, PRO_PLAN_ID } from "./pro";
+
 export type BillingTeamLike = {
   readonly id: string;
   readonly displayName: string | null;
@@ -90,7 +92,9 @@ export function effectiveTeamPlanId(
   const team = normalizedPlanId(teamPlanId);
   if (team) return team;
   const personal = normalizedPlanId(personalPlanId);
-  return personal && personal !== "team" ? personal : null;
+  return personal === PRO_PLAN_ID || personal === MAX_PLAN_ID || personal === FOUNDERS_PLAN_ID
+    ? personal
+    : null;
 }
 
 function normalizedPlanId(value: string | null | undefined): string | null {
