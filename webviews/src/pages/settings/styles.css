@@ -121,7 +121,6 @@ mark {
 .content {
   overflow-y: auto;
   overscroll-behavior: contain;
-  padding: 18px 28px 48px;
   --content-fade-top: 18px;
   --content-fade-bottom: 28px;
   mask-image:
@@ -682,10 +681,6 @@ mark {
     max-height: 40vh;
   }
 
-  .content {
-    padding: 14px 16px 40px;
-  }
-
   .row-main {
     flex-wrap: wrap;
   }
@@ -822,13 +817,12 @@ mark {
   margin-right: auto;
 }
 
+/* Part of its row (indented under the title), not a second outlined card inside the row's card. */
 .accounts-form {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  padding: 4px 0 0;
 }
 
 .accounts-mark {
