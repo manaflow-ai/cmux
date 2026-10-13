@@ -37,7 +37,7 @@ const originalFetch = globalThis.fetch;
  * (read through its interface, test-only), so our REST helpers are pinned to
  * the same Stack host as the SDK for every configuration.
  */
-function sdkServerBaseUrl(_: undefined): string {
+function sdkServerBaseUrl(): string {
   // The SDK starts a background backend-URL lookup; keep it off the network.
   globalThis.fetch = (async () => { throw new TypeError("network disabled in test"); }) as unknown as typeof fetch;
   const app = new StackServerApp({
@@ -72,19 +72,19 @@ describe("Stack REST host", () => {
     const api = createHexclaveServerApi({ projectId: "project-1", secretServerKey: "ssk", fetch: fetchImpl });
     await api.listUserTeams("user-1");
     expect(new URL(seen[0]!).origin).toBe("https://api.hexclave.com");
-    expect(new URL(seen[0]!).origin).toBe(sdkServerBaseUrl(undefined));
+    expect(new URL(seen[0]!).origin).toBe(sdkServerBaseUrl());
   });
 
   test("every SDK-recognized server or shared API URL variable resolves like the SDK", () => {
     for (const key of URL_KEYS.filter((name) => name !== "STACK_API_BASE_URL")) {
       clearUrlEnv();
       process.env[key] = "https://stack.example.test/";
-      expect(stackApiBaseURL()).toBe(sdkServerBaseUrl(undefined));
+      expect(stackApiBaseURL()).toBe(sdkServerBaseUrl());
     }
     clearUrlEnv();
     process.env.HEXCLAVE_API_URL = "https://shared.example.test";
     process.env.HEXCLAVE_API_URL_SERVER = "https://server.example.test";
-    expect(stackApiBaseURL()).toBe(sdkServerBaseUrl(undefined));
+    expect(stackApiBaseURL()).toBe(sdkServerBaseUrl());
     expect(stackApiBaseURL()).toBe("https://server.example.test");
   });
 
