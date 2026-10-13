@@ -154,7 +154,10 @@ mod cloud_conversations;
 mod conversation_attachments;
 mod conversation_resource;
 mod resource_trust;
-use resource_trust::{handles_resource_connection_operation, trusted_local_resource_client};
+use resource_trust::{
+    conversation_resource_client, handles_resource_connection_operation,
+    trusted_local_resource_client,
+};
 mod conversation_tabs_wire;
 mod conversations;
 mod detached_terminals;
