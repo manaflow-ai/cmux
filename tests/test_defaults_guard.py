@@ -146,7 +146,35 @@ class DefaultsGuardTests(unittest.TestCase):
     def test_a_compiled_flag_turned_on_fails(self):
         result = self.check(self.head(flags=FLAGS.replace("false", "true")))
         self.assertEqual(result.returncode, 1)
-        self.assertIn("DEFAULTS flag.PaneSplitCommand.optimisticSplitEnabled: false -> true", result.stdout)
+        self.assertIn("DEFAULTS flag.CmuxNextApp/PaneSplitCommand.optimisticSplitEnabled: false -> true", result.stdout)
+
+    def test_two_flags_with_one_name_are_judged_apart(self):
+        two = "enum A {\n    static let isEnabled = false\n}\nenum B {\n    static let isEnabled = true\n}\n"
+        self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift", two)
+        self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/Trace.swift", "enum C {\n    static let isEnabled = false\n}\n")
+        self.base = self.repo.commit("two flags")
+        head = self.head(extra={"Packages/macOS/CmuxNext/Sources/CmuxNextApp/Trace.swift": two.replace("= false", "= true"),
+                                "Packages/macOS/CmuxNext/Sources/CmuxNextTerminal/Trace.swift": "enum C {\n    static let isEnabled = false\n}\n"})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("DEFAULTS flag.CmuxNextApp/Trace.isEnabled: false -> true", result.stdout)
+
+    def test_a_default_that_steps_aside_in_a_terminal_fails(self):
+        swift = "public static let yieldsToTerminal: Set<ActionID> = [\n    \"focusHistoryBack\",\n]\n"
+        self.repo.write("Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift", swift)
+        self.base = self.repo.commit("steps aside")
+        head = self.head(extra={"Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift":
+                                swift.replace("]", '    "splitRight",\n]')})
+        result = self.check(head)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("DEFAULTS steps-aside.yieldsToTerminal: + splitRight", result.stdout)
+
+    def test_a_newline_in_a_default_cannot_start_a_workflow_command(self):
+        settings = [*BASE_SETTINGS, {"key": "x\n::error::forged @someone", "default": True}]
+        result = self.check(self.head(settings=settings))
+        self.assertNotIn("\n::error::forged", result.stdout)
+        self.assertNotIn("\n::error::forged", result.summary)
+        self.assertIn("`setting.x\\n::error::forged @someone`", result.summary)
 
     # Who may pass it.
 
