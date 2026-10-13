@@ -61,7 +61,7 @@ enum MachineIconHandlers {
             id = services.windows.active?.state.machineID ?? MachineRegistry.localID
         }
         guard let session = machines.sessionID(machine: id) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.machineNotConnected) }
-        guard machines.local.store.personal.session(session) != nil else { throw ActionFailure.invalidTarget(RefusalStrings.personalStateLoading) }
+        guard machines.local.store.personal.session(session) != nil else { throw ActionFailure.invalidTarget(RefusalStrings.machineIconNotRegistered) }
         return id
     }
 }
