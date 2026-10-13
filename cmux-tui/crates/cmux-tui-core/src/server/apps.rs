@@ -100,6 +100,10 @@ enum Command {
         #[serde(default)]
         follow: bool,
     },
+    /// The link registration changed (`cmux link ensure` or `stop` ran):
+    /// tell every app server that reads the link (`cmux.host.link.changed`).
+    #[serde(rename = "apps-link-changed")]
+    LinkChanged,
     /// The Mac app serves ops the daemon does not own (app-op-routing.md).
     #[serde(rename = "apps-provider-register")]
     ProviderRegister { families: Vec<String> },
@@ -282,6 +286,8 @@ pub(super) fn try_handle(
     let changes_apps = match &request.command {
         Command::Set { .. } => true,
         Command::Store { op, .. } => crate::apps::store_op_mutates(op),
+        // Only the app that runs the link reports its changes (cx-rtipa).
+        Command::LinkChanged => true,
         _ => false,
     };
     let user_authority = changes_apps || request.origin == crate::apps::Origin::User;
@@ -293,6 +299,20 @@ pub(super) fn try_handle(
     let origin_claim = claim_for(mux, client);
     if let Err(e) = crate::apps::admit_origin(request.origin, &origin_claim) {
         return Some(reply(writer, request.id, Err(e)));
+    }
+    // An agent-bound connection never reports a link change, also when it
+    // is the verified app's (as `apps-provider-register`).
+    if matches!(request.command, Command::LinkChanged)
+        && !crate::apps::hosting_app_connection(&origin_claim)
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.origin_forbidden",
+                "only the verified cmux app connection reports a link change",
+            )),
+        ));
     }
     if crate::apps::advertised().is_none() {
         return Some(reply(
@@ -312,6 +332,7 @@ pub(super) fn try_handle(
     let result = match command {
         Command::List => Ok(supervisor.list()),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
+        Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::Set {
             idempotency_key,
             app,

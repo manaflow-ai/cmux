@@ -1,5 +1,5 @@
 import { ATTACHMENT_LIMITS, DERIVED_IMAGE_TYPES, isSha256 } from "./attachments.ts"
-import type { LinkPreviewPart } from "./types.ts"
+import type { AttachmentPart, LinkPreviewPart, Part } from "./types.ts"
 
 /**
  * `link_preview` parts (iMessage-style sender-side previews): the sender fetches a page's title,
@@ -61,4 +61,17 @@ export const cleanLinkPreviewPart = (part: Record<string, unknown>): LinkPreview
     ...(site === undefined ? {} : { site: site as string }),
     ...(cleanImage ? { image: cleanImage } : {})
   }
+}
+
+/**
+ * The attachment that part `part` holds under `hash`, for a download: an attachment part's own
+ * record, or a link preview's image served as an attachment of its own record (no name of its own,
+ * no derived image). Undefined when the part holds no such hash.
+ */
+export const attachmentHeldBy = (part: Part | undefined, hash: string): AttachmentPart | undefined => {
+  if (part?.type === "link_preview" && part.image?.hash === hash) {
+    const { mime_type, byte_count } = part.image
+    return { type: "attachment", hash, name: `link-preview.${mime_type === "image/webp" ? "webp" : "jpg"}`, mime_type, byte_count }
+  }
+  return part?.type === "attachment" && part.hash === hash ? part : undefined
 }

@@ -66,9 +66,9 @@ nonisolated enum AgentPaneGitProcess {
         var executable: String, arguments: [String], directory: String?, environment: [String: String]
     }
 
-    /// State the pipe's reader and the input's writer share with the run. Unchecked for the input
-    /// handle, which only the writer touches.
-    private final class Shared: @unchecked Sendable {
+    /// State the pipe's reader and the input's writer share with the run: the output behind a
+    /// Mutex, and the input handle (FileHandle is Sendable), which only the writer touches.
+    private final class Shared: Sendable {
         private let data = Mutex(Data())
         let input: FileHandle
 
