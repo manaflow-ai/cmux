@@ -3,8 +3,8 @@ import AppKit
 import Testing
 
 /// The sidebar profile menu's rows sit at the plain menu inset (Leo 2026-10-13, cosmic-gray on
-/// macOS 27): a checkmark on the current profile reserved a state column, which pushed every row
-/// right by that column. With one profile the checkmark meant nothing.
+/// macOS 27): the current profile's checkmark reserved a state column and its avatar an image
+/// column, and every row of the menu sat right of both.
 @MainActor
 struct ProfileMenuInsetTests {
     /// The same rows with no state and no image on any of them, submenus included.
@@ -22,7 +22,7 @@ struct ProfileMenuInsetTests {
     }
 
     @Test func theProfileMenuReservesNoColumnBeyondThePlainInset() {
-        let menu = ProfileMenuBuilder(registry: .standard()).make(profile: ProfileMenuProfile(name: "Default", initial: "D"))
+        let menu = ProfileMenuBuilder(registry: .standard()).make(profile: ProfileMenuProfile(name: "Default"))
         #expect(menu.size.width == plain(menu).size.width)
     }
 }

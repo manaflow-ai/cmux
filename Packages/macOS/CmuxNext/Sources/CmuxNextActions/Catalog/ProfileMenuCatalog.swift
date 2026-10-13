@@ -25,7 +25,7 @@ nonisolated enum ProfileMenuActionCatalog: ActionCatalogGroup {
 }
 
 /// What the profile menu holds, top to bottom: the "Profiles" section (the
-/// current profile, checked, with its "…" options), the submenus, Settings,
+/// current profile with its "…" options), the submenus, Settings,
 /// then New Tab and Incognito Window. A submenu row or action the build
 /// does not register is left out, and a submenu with no row is left out
 /// (items whose feature does not exist are omitted, not disabled). "New
