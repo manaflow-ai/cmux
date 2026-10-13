@@ -365,6 +365,10 @@ path = "tests/test_shell_no_git_watch.py"
 lane = "macos-shell"
 
 [[test]]
+path = "tests/test_shell_claude_rereports_pwd.py"
+lane = "macos-shell"
+
+[[test]]
 path = "tests/test_shell_cli_shim_private_dir.py"
 lane = "macos-shell"
 

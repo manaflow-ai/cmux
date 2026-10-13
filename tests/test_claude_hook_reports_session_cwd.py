@@ -4,7 +4,8 @@
 `claude --worktree wt2` runs in `<repo>/.claude/worktrees/wt2`, but the shell
 that launched it stays in `<repo>` and cannot report the change while Claude is
 the foreground process. The Claude hooks carry the session's cwd, so they report
-it through the same `report_pwd` path shell integration uses, and SessionEnd
+the checkout root through the same `report_pwd` path shell integration uses.
+A `cd` inside the launch checkout keeps the launch directory, and SessionEnd
 reports the launch directory again because the shell only re-reports a
 directory it has not already sent. Discussions #1872 and #6371.
 """
@@ -178,7 +179,12 @@ def main() -> int:
         root = Path(root_name).resolve()
         repo = root / "wt-test-repo"
         worktree = repo / ".claude" / "worktrees" / "wt2"
-        worktree.mkdir(parents=True)
+        worktree_subdir = worktree / "src"
+        worktree_subdir.mkdir(parents=True)
+        (repo / ".git").mkdir()
+        (worktree / ".git").write_text(f"gitdir: {repo}/.git/worktrees/wt2\n")
+        repo_subdir = repo / "packages" / "foo"
+        repo_subdir.mkdir(parents=True)
         # The shell reports its logical $PWD, which the wrapper also exports as
         # the launch directory; Claude reports the physical path.
         repo_link = root / "repo-link"
@@ -202,11 +208,11 @@ def main() -> int:
 
             start_commands = run_phase(
                 "session-start",
-                {"session_id": session_id, "source": "startup", "cwd": str(worktree)},
+                {"session_id": session_id, "source": "startup", "cwd": str(worktree_subdir)},
             )
             want = expected_report(str(worktree), workspace_id, surface_id)
-            if want not in start_commands:
-                print("FAIL: SessionStart in a worktree must report the worktree as the pane directory")
+            if pwd_reports(start_commands) != [want]:
+                print("FAIL: SessionStart in a worktree subdirectory must report the worktree root")
                 print(f"want={want!r}")
                 print(f"commands={start_commands!r}")
                 return 1
@@ -215,7 +221,7 @@ def main() -> int:
                 "prompt-submit",
                 {"session_id": session_id, "turn_id": "turn-1", "cwd": str(worktree)},
             )
-            if want not in prompt_commands:
+            if pwd_reports(prompt_commands) != [want]:
                 print("FAIL: UserPromptSubmit must keep the worktree as the pane directory")
                 print(f"commands={prompt_commands!r}")
                 return 1
@@ -230,6 +236,19 @@ def main() -> int:
                     print(f"commands={bad_commands!r}")
                     return 1
 
+            # A Bash `cd` inside the launch checkout is not a move: the pane
+            # keeps the launch directory instead of following the subdirectory.
+            want_launch = expected_report(launch_cwd, workspace_id, surface_id)
+            subdir_commands = run_phase(
+                "prompt-submit",
+                {"session_id": session_id, "turn_id": "turn-2", "cwd": str(repo_subdir)},
+            )
+            if pwd_reports(subdir_commands) != [want_launch]:
+                print("FAIL: a cwd inside the launch checkout must report the launch directory")
+                print(f"want={want_launch!r}")
+                print(f"commands={subdir_commands!r}")
+                return 1
+
             # Claude back in the launch checkout (ExitWorktree) reports the
             # shell's spelling of that directory, not the physical path.
             back_commands = run_phase(
@@ -241,8 +260,7 @@ def main() -> int:
                     "last_assistant_message": "left the worktree",
                 },
             )
-            want_launch = expected_report(launch_cwd, workspace_id, surface_id)
-            if want_launch not in back_commands:
+            if pwd_reports(back_commands) != [want_launch]:
                 print("FAIL: a hook cwd that is the launch directory must report the launch spelling")
                 print(f"want={want_launch!r}")
                 print(f"commands={back_commands!r}")
