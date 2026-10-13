@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff";
+pub const ir_sha256 = "ecdf8e30a9c364d93374a8043682ee6b5eb5dfc59d599d6b568fd576c23cbd31";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -172,6 +172,8 @@ pub const Bookmark = struct {
     browser_profile_id: []const u8,
     created_ms: u64,
     favicon_key: ?[]const u8 = null,
+    /// Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>.
+    icon: ?[]const u8 = null,
     /// `bm_` and 32 lowercase hex digits.
     id: []const u8,
     /// Dense 0-based position among the node's siblings.
@@ -189,6 +191,7 @@ pub const Bookmark = struct {
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "favicon_key",
+        "icon",
         "last_used_ms",
         "source_key",
         "url",
@@ -8454,6 +8457,8 @@ pub fn unsaveTabGroup(client: anytype, request: UnsaveTabGroupRequest) !wire.Dec
 pub const UpdateBookmarkRequest = struct {
     bookmark: []const u8,
     favicon_key: wire.Field([]const u8) = .absent,
+    /// Folders only; null clears. Refused on a url node.
+    icon: wire.Field([]const u8) = .absent,
     last_used_ms: wire.Field(u64) = .absent,
     mutation_id: wire.Field([]const u8) = .absent,
     origin: wire.Field([]const u8) = .absent,
@@ -8471,6 +8476,9 @@ pub fn updateBookmark(client: anytype, request: UpdateBookmarkRequest) !wire.Dec
             .authority = "control",
             .since = 12,
             .capability = "bookmarks-v1",
+            .fields = &.{
+                .{ .name = "icon", .since = 12, .capability = "bookmark-icon-v1" },
+            },
         },
         request,
     );
