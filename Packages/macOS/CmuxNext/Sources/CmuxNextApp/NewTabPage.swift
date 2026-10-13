@@ -193,7 +193,7 @@ enum NewTabPage {
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        )
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
@@ -204,7 +204,7 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        )
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed)
     }
 
     /// Projects discovered off the main actor during app startup. The current
@@ -282,5 +282,14 @@ extension PaneController {
         // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
         // of another machine it is the same page; nothing starts there before a send (cx-k21v).
         NewTabPage.open(in: self, seed: nil, reusingShown: true)
+    }
+}
+
+extension AgentPaneNewTab {
+    /// The page with Integrate a harness off when it was dismissed for good.
+    func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.harnessHintDismissed = dismissed ? true : nil
+        return page
     }
 }

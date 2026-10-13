@@ -48,15 +48,12 @@ const base: Props = {
   host: "This Mac",
   chips: Chips,
   omnibar,
-  defaultKind: "same-kind",
   projects,
   onSubmit: () => undefined,
   onJump: () => undefined,
   onOpenSession: () => undefined,
   onShowAll: () => undefined,
-  onSetDefaultKind: () => undefined,
   onBrowseProject: async () => "/Users/you/src/relay",
-  onAddHarness: () => undefined,
 };
 
 function withReceipt(Component: typeof NewTabPage) {
@@ -83,17 +80,9 @@ function withReceipt(Component: typeof NewTabPage) {
             props.onShowAll();
             record("show-all");
           }}
-          onSetDefaultKind={(kind) => {
-            props.onSetDefaultKind?.(kind);
-            record(`default:${kind}`);
-          }}
           onBrowseProject={async () => {
             record("browse-project");
             return props.onBrowseProject?.();
-          }}
-          onAddHarness={() => {
-            props.onAddHarness?.();
-            record("add-harness");
           }}
         />
       </div>
@@ -154,12 +143,12 @@ const folderChooser: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-project-button")?.textContent?.includes("relay"));
 };
 
-const defaultKind: Play = async (ctx) => {
-  await ctx.click({ selector: ".acpmux-newtab-default" });
-  await ctx.waitFor(
-    () =>
-      ctx.document.querySelector(".newtab-page-gallery")?.getAttribute("data-newtab-receipt") === "default:terminal",
-  );
+// New Tab always lands on the page and offers no default-kind toggle (cx-39b5r, #20127).
+const noDefaultToggle: Play = async (ctx) => {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-newtab-field") !== null);
+  if (ctx.document.querySelector(".acpmux-newtab-default")) {
+    throw new Error("the New Tab page still shows the default-kind toggle");
+  }
 };
 
 const openSession: Play = async (ctx) => {
@@ -234,10 +223,10 @@ export default componentEntry<Props>({
       props: base,
       play: folderChooser,
     },
-    "default-kind": {
-      note: "The default-kind affordance cycles the kind opened by Cmd-T and records the host setting change.",
+    "no-default-toggle": {
+      note: "New Tab offers no default-kind toggle: it always lands on this page, and a terminal opens only when picked (cx-39b5r).",
       props: base,
-      play: defaultKind,
+      play: noDefaultToggle,
     },
     "open-session": {
       note: "An omnibar session match activates the host's existing chat instead of opening a duplicate.",
