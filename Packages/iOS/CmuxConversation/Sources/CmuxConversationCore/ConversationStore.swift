@@ -161,6 +161,8 @@ public final class ConversationStore {
                 guard let self else { return }
                 if case let .message(message, _) = event, let prepare = self.prepareLiveMessage?(message) {
                     await prepare()
+                    // Stopped while the message was readied.
+                    if Task.isCancelled { return }
                 }
                 self.apply(event)
             }
