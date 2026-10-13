@@ -5,6 +5,7 @@ import { ADMIN_ID, MEMBER_ID, MemoryInviteStore, noLock, OUTSIDER_ID, standardTe
 let stack: FakeStack = standardTeam();
 let store = new MemoryInviteStore();
 let currentUserId: string | null = ADMIN_ID;
+let currentUserBillingPlanId: string | null = null;
 let activeSubscription = false;
 
 function authedUser(id: string): AuthedUser {
@@ -17,7 +18,7 @@ function authedUser(id: string): AuthedUser {
     selectedTeamId: null,
     teams: [],
     teamIds: [],
-    userBillingPlanId: null,
+    userBillingPlanId: currentUserBillingPlanId,
     billingPlanId: null,
     billingSeats: null,
   };
@@ -79,6 +80,7 @@ beforeEach(() => {
   stack = standardTeam();
   store = new MemoryInviteStore();
   currentUserId = ADMIN_ID;
+  currentUserBillingPlanId = null;
   activeSubscription = false;
 });
 
@@ -119,6 +121,14 @@ describe("team routes", () => {
     const outsider = await teamRoute.GET(browserRequest(`/api/teams/${TEAM_ID}`), params({ teamId: TEAM_ID }));
     expect(outsider.status).toBe(403);
     expect((await outsider.json() as { error: { code: string } }).error.code).toBe("team_not_found");
+  });
+
+  test("GET exposes a viewer's personal plan for an unplanned team", async () => {
+    currentUserBillingPlanId = "pro";
+    const response = await teamRoute.GET(browserRequest(`/api/teams/${TEAM_ID}`), params({ teamId: TEAM_ID }));
+    expect(response.status).toBe(200);
+    const detail = await response.json() as { billing: { planId: string | null; memberLimit: number | null } };
+    expect(detail.billing).toMatchObject({ planId: "pro", memberLimit: 3 });
   });
 
   test("a member cannot create links; an admin can, then the link joins and revokes", async () => {

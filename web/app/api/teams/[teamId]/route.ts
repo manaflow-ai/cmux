@@ -10,7 +10,9 @@ const ROUTE = "/api/teams/[teamId]";
 
 export async function GET(request: Request, context: RouteContext): Promise<Response> {
   const { teamId } = await context.params;
-  return withTeamAccessRoute(request, ROUTE, teamId, {}, async (access) => teamJson(await loadTeamDetail(access)));
+  return withTeamAccessRoute(request, ROUTE, teamId, {}, async (access, user) => teamJson(
+    await loadTeamDetail(access, { personalPlanId: user.userBillingPlanId }),
+  ));
 }
 
 export async function PATCH(request: Request, context: RouteContext): Promise<Response> {

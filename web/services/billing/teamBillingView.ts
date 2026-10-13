@@ -12,6 +12,7 @@ import {
 } from "./teamBillingAccess";
 import { teamPlanStatusForTeam, type TeamPlanStatus } from "./teamPlanStatus";
 import {
+  effectiveTeamPlanId,
   billingPlanIdFromMetadata,
   billingSeatsFromMetadata,
   billingTeamFromUnknown,
@@ -31,6 +32,8 @@ export type ReadyTeamBillingView = {
   readonly role: TeamBillingRole;
   readonly canManageBilling: boolean;
   readonly planId: TeamPlanStatus["planId"];
+  /** Effective Cloud plan: Team, or the viewer's personal Pro/Max fallback. */
+  readonly effectivePlanId: string | null;
   /** "stripe" when the portal has a subscription to manage or recover. */
   readonly billingManagement: BillingManagementKind;
   /** Team access granted by an operator, with no subscription. */
@@ -77,12 +80,19 @@ export async function loadTeamBillingView(
     teamMemberCount(team),
   ]);
   const seats = subscription?.seats ?? billingSeatsFromMetadata(team.clientReadOnlyMetadata);
+  const teamPlanId = planStatus.planId === TEAM_PLAN_ID
+    ? TEAM_PLAN_ID
+    : billingPlanIdFromMetadata(team.clientReadOnlyMetadata);
   return {
     status: "ready",
     team: { id: team.id, displayName: billingTeamFromUnknown(team)?.displayName ?? null },
     role: access.role,
     canManageBilling: access.canManageBilling,
     planId: planStatus.planId,
+    effectivePlanId: effectiveTeamPlanId(
+      teamPlanId,
+      user.userBillingPlanId ?? billingPlanIdFromMetadata(user.clientReadOnlyMetadata),
+    ),
     billingManagement: planStatus.billingManagement,
     granted: planStatus.granted,
     subscription,
@@ -145,6 +155,9 @@ export type BillingTeamSummary = {
 
 export type BillingTeamListUser = {
   readonly id: string;
+  /** The viewer's personal plan, used for teams without a team plan. */
+  readonly userBillingPlanId?: string | null;
+  readonly clientReadOnlyMetadata?: unknown;
   readonly selectedTeam?: unknown;
   listTeams?(): Promise<readonly unknown[]>;
 };
@@ -162,7 +175,10 @@ export async function listBillingTeams(user: BillingTeamListUser): Promise<reado
       id: team.id,
       displayName: team.displayName,
       personal: false,
-      planId: billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
+      planId: effectiveTeamPlanId(
+        billingPlanIdFromMetadata(team.clientReadOnlyMetadata),
+        user.userBillingPlanId ?? billingPlanIdFromMetadata(user.clientReadOnlyMetadata),
+      ),
     });
   }
   return summaries;

@@ -1,4 +1,4 @@
-import { billingPlanIdFromMetadata, billingSeatsFromMetadata } from "../billing/teamResolution";
+import { billingPlanIdFromMetadata, billingSeatsFromMetadata, effectiveTeamPlanId } from "../billing/teamResolution";
 import { hasActiveTeamSubscriptionForTeam } from "../billing/pro";
 import { type TeamAccess } from "./access";
 import { TeamServiceUnavailableError } from "./errors";
@@ -12,6 +12,8 @@ import type { TeamDetail } from "./types";
 export type TeamDetailDependencies = {
   readonly store?: TeamInviteStore;
   readonly hasActiveSubscription?: (teamId: string) => Promise<boolean>;
+  /** Personal Pro/Max fallback for a team without a team-scoped plan. */
+  readonly personalPlanId?: string | null;
 };
 
 /**
@@ -45,7 +47,10 @@ export async function loadTeamDetail(access: TeamAccess, dependencies: TeamDetai
     invitations,
     links,
     billing: {
-      planId: billingPlanIdFromMetadata(access.team.clientReadOnlyMetadata),
+      planId: effectiveTeamPlanId(
+        billingPlanIdFromMetadata(access.team.clientReadOnlyMetadata),
+        dependencies.personalPlanId,
+      ),
       seats: billingSeatsFromMetadata(access.team.clientReadOnlyMetadata),
       memberLimit: memberLimitForTeam(access.team),
       memberCount: access.members.length,

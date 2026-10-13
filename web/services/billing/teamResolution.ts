@@ -1,3 +1,5 @@
+import { FOUNDERS_PLAN_ID, MAX_PLAN_ID, PRO_PLAN_ID } from "./pro";
+
 export type BillingTeamLike = {
   readonly id: string;
   readonly displayName: string | null;
@@ -72,6 +74,32 @@ export function billingPlanIdFromMetadata(metadata: unknown): string | null {
   const value = (metadata as { cmuxVmPlan?: unknown }).cmuxVmPlan ??
     (metadata as { cmuxPlan?: unknown }).cmuxPlan;
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * The plan a member sees when a real team has no team-scoped plan of its own.
+ *
+ * Pro/Max (and the legacy Founder's plan) are personal subscriptions, but the
+ * selected Stack team is still the Cloud billing scope. That lets a Pro user
+ * use each team they belong to while the team roster cap keeps the personal
+ * plan from becoming an uncapped organization plan. A Team plan is always
+ * team-scoped and must never be inherited from the user.
+ */
+export function effectiveTeamPlanId(
+  teamPlanId: string | null | undefined,
+  personalPlanId: string | null | undefined,
+): string | null {
+  const team = normalizedPlanId(teamPlanId);
+  if (team) return team;
+  const personal = normalizedPlanId(personalPlanId);
+  return personal === PRO_PLAN_ID || personal === MAX_PLAN_ID || personal === FOUNDERS_PLAN_ID
+    ? personal
+    : null;
+}
+
+function normalizedPlanId(value: string | null | undefined): string | null {
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return normalized || null;
 }
 
 /**

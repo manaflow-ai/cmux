@@ -62,9 +62,20 @@ describe("team catalog billing fields", () => {
 
     expect(teams.map(({ teamId, planId, seats, role, canManageBilling }) => ({ teamId, planId, seats, role, canManageBilling }))).toEqual([
       { teamId: "team-a", planId: "team", seats: 5, role: "admin", canManageBilling: true },
-      { teamId: "team-b", planId: null, seats: null, role: "member", canManageBilling: false },
+      { teamId: "team-b", planId: "pro", seats: null, role: "member", canManageBilling: false },
       { teamId: "user-1", planId: "pro", seats: null, role: "admin", canManageBilling: true },
     ]);
+  });
+
+  test("keeps an explicit team Free plan from inheriting the viewer's Pro plan", async () => {
+    const stackUser = fixtureStackUser({
+      id: "user-1",
+      teams: [fixtureTeam("team-free", { metadata: { cmuxPlan: "free" } })],
+      adminTeamIds: ["team-free"],
+    });
+    const user = { ...authedUser(), teams: [{ id: "team-free", displayName: "Team Free", billingPlanId: "free", billingSeats: null }], teamIds: ["team-free"], billingTeamId: "team-free" };
+    const teams = await billingCatalogTeams(user, async () => stackUser);
+    expect(teams.find((team) => team.teamId === "team-free")?.planId).toBe("free");
   });
 
   test("degrades every team to member when Stack cannot load the user", async () => {

@@ -36,6 +36,54 @@ describe("Max as a personal plan", () => {
     }
   });
 
+  test("a personal Pro plan on an unplanned team gets one shared five-VM allowance", () => {
+    const user = {
+      update: async () => undefined,
+      id: "user-pro",
+      isAnonymous: false,
+      userBillingPlanId: "pro",
+      teams: [{ id: "team-free", billingPlanId: null, billingSeats: null }],
+    } as never;
+
+    const result = resolveVmEntitlements(user, {}, { requestedBillingTeamId: "team-free" });
+    expect(result.planId).toBe("pro");
+    expect(result.maxActiveVms).toBe(5);
+    expect(result.resourcePool).toEqual({ vcpus: 20, memoryMb: 40 * 1024 });
+  });
+
+  test("a personal Go plan stays user-scoped instead of powering an unplanned team", () => {
+    const user = {
+      update: async () => undefined,
+      id: "user-go",
+      isAnonymous: false,
+      userBillingPlanId: "go",
+      teams: [{ id: "team-free", billingPlanId: null, billingSeats: null }],
+    } as never;
+
+    const result = resolveVmEntitlements(user, {}, { requestedBillingTeamId: "team-free" });
+    expect(result.planId).toBe("free");
+    expect(result.maxActiveVms).toBe(0);
+    expect(result.resourcePool).toBeNull();
+  });
+
+  test("a Team subscription adds five shared VMs and one resource pool per paid seat", () => {
+    const user = {
+      update: async () => undefined,
+      id: "user-team",
+      isAnonymous: false,
+      billingCustomerType: "team",
+      billingTeamId: "team-paid",
+      billingPlanId: "team",
+      billingSeats: 3,
+      teams: [{ id: "team-paid", billingPlanId: "team", billingSeats: 3 }],
+    } as never;
+
+    const result = resolveVmEntitlements(user, {}, { requestedBillingTeamId: "team-paid" });
+    expect(result.planId).toBe("team");
+    expect(result.maxActiveVms).toBe(15);
+    expect(result.resourcePool).toEqual({ vcpus: 60, memoryMb: 3 * 40 * 1024 });
+  });
+
   test("legacy memory overrides cannot sell Max sizes to Pro", () => {
     // Pro stops at the 16 GB machine; only Max sells the larger rows.
     expect(maxMemoryMbForPlan("pro", { CMUX_VM_PAID_MAX_MEMORY_MB: "65536" })).toBe(16384);

@@ -184,6 +184,25 @@ describe("personal plan member limit", () => {
     ).rejects.toMatchObject({ code: "seat_limit", status: 409 });
   });
 
+  test("a team without Team is capped at three members even before a plan is mirrored", async () => {
+    const stack = standardTeam();
+    const store = new MemoryInviteStore();
+    const mailer = new MemoryInviteMailer();
+    const access = await requireTeamAccess({ id: ADMIN_ID }, TEAM_ID, { stack: stack.app() });
+    if (!access.ok) throw new Error("access refused");
+    const deps = { store, mailer };
+
+    const first = await inviteTeamMembers(
+      access.access,
+      { emails: ["third@example.com"], role: "member", acceptUrl },
+      deps,
+    );
+    expect(first.invitations).toHaveLength(1);
+    await expect(
+      inviteTeamMembers(access.access, { emails: ["fourth@example.com"], role: "member", acceptUrl }, deps),
+    ).rejects.toMatchObject({ code: "seat_limit", status: 409 });
+  });
+
   test("a batch larger than the free seats is refused before any email is sent", async () => {
     const { mailer, access, deps } = await proTeam();
     await expect(

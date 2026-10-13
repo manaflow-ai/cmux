@@ -8,6 +8,7 @@ import {
   TEAM_PLAN_ID,
   isPaidPlanId,
 } from "../billing/pro";
+import { effectiveTeamPlanId } from "../billing/teamResolution";
 import {
   MAX_PLAN_RESOURCE_POOL,
   PAID_MAX_ACTIVE_VMS_DEFAULT,
@@ -144,7 +145,7 @@ function resolveBillingContext(
     return {
       billingCustomerType: "team",
       billingTeamId: team.id,
-      billingPlanId: team.billingPlanId ?? user.userBillingPlanId,
+      billingPlanId: team.billingPlanId ?? effectiveTeamPlanId(null, user.userBillingPlanId),
       billingSeats: team.billingSeats,
     };
   }
@@ -153,7 +154,7 @@ function resolveBillingContext(
     return {
       billingCustomerType: "team",
       billingTeamId: user.billingTeamId,
-      billingPlanId: user.billingPlanId ?? user.userBillingPlanId,
+      billingPlanId: user.billingPlanId ?? effectiveTeamPlanId(null, user.userBillingPlanId),
       billingSeats: user.billingSeats,
     };
   }

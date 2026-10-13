@@ -28,6 +28,10 @@ export type TeamBillingStackTeam = {
  */
 export type TeamBillingAccessUser = {
   readonly id: string;
+  /** The viewer's personal plan, used only when a team has no own plan. */
+  readonly userBillingPlanId?: string | null;
+  /** Stack users expose the same value as metadata rather than this field. */
+  readonly clientReadOnlyMetadata?: unknown;
   readonly selectedTeam?: TeamBillingStackTeam | null;
   getTeam?(teamId: string): Promise<TeamBillingStackTeam | null>;
   listTeams?(): Promise<readonly TeamBillingStackTeam[]>;

@@ -20,6 +20,7 @@ export const teamBillingViewSchema = z.discriminatedUnion("status", [
     role: z.enum(["admin", "member"]),
     canManageBilling: z.boolean(),
     planId: z.string(),
+    effectivePlanId: z.string().nullable(),
     billingManagement: billingManagementSchema,
     granted: z.boolean(),
     subscription: z.object({
