@@ -346,8 +346,9 @@ a paying team, and a canceled or moved subscription stops being billable within 
 policy: past_due subscriptions stay billable (Stripe retries the card); annual plans are never
 billable for usage (no monthly metered item) and so stop at the included amount; the stop counts the
 UTC month, so a team that moves off the card plan mid-month can stop at once (it errs toward
-refusing). A truncated subscription listing logs `billing.usage_sync.truncated` as an error; an alert
-on it is a live step.
+refusing). A truncated subscription listing logs `billing.usage_sync.truncated` as an error. A Stripe
+outage or a failing sync for more than 2 hours stops every paying team at its included amount (refusal
+by design); alerts on truncation and on sync failure are live steps.
 
 ## 12. S6 design: the live switch (note only, nothing built)
 
@@ -358,6 +359,8 @@ on it is a live step.
   2. the key is a restricted key (`rk_live_`), never a full secret key (`sk_live_` stays refused);
   3. a build-time constant in the bundle (`USAGE_LIVE_ENABLED = true`, compiled in by the reviewed
      change itself; a var cannot prove which build is running, because the same rail sets both);
+  5. every object the run reads from Stripe has `livemode` equal to the key's mode; any mismatch
+     refuses the run.
   4. the production catalog read finds the live meter with aggregation `last` and the `-v2` prices with
      the amounts that the catalog code names; any mismatch refuses the run (no writes).
 - First live run is staged: `BILLING_USAGE_LIVE_ALLOW` lists subscription ids (staff accounts); the sync
@@ -366,10 +369,9 @@ on it is a live step.
   production dry run (the sync's read-only mode: lists what it would add and send, writes nothing),
   the chief's go, and Lawrence's yes for money. The restricted key is created by Lawrence in the
   Dashboard and set on the production Worker through the release rails with a receipt.
-  5. every object the run reads from Stripe has `livemode` equal to the key's mode; any mismatch
-     refuses the run.
 - Order with the included-amount stop: first one complete, untruncated live sync with no allowlist
-  marks every billable team; only then `USAGE_HARD_STOP_UNBILLED=1` in production. With the staff-only
+  marks every billable team; only then `USAGE_HARD_STOP_UNBILLED=1` in production. During a deploy an
+  old isolate reserves without the included amount, so the stop applies once the deploy has rolled out. With the staff-only
   allowlist on, the stop must stay off (it would stop every other paying team).
 - The sync's read-only (dry-run) mode does not exist yet: it is a work item of S6.
 - Rollback: turn the stop off first (`USAGE_HARD_STOP_UNBILLED` unset), then delete the production
