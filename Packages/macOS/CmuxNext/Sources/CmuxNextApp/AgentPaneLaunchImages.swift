@@ -14,7 +14,7 @@ final class AgentPaneLaunchImages {
     private var taken: Set<String> = []
     /// Released pages' last frames (AgentPageHibernation), in memory as JPEGs: a page built
     /// again draws its old frame until it paints, as at launch.
-    private var held: [String: (data: Data, size: NSSize)] = [:]
+    private var held: [String: (data: Data, size: NSSize, appearance: NSAppearance.Name?)] = [:]
     /// A New Tab page's first frame this run, with the pane size and appearance it drew at: a
     /// New Tab page that has not painted draws it, so a Cmd-N right after launch shows the
     /// page's frame, never an empty pane, while its page loads (cx-ec99).
@@ -29,10 +29,12 @@ final class AgentPaneLaunchImages {
         self.init(directory: file?.url.deletingLastPathComponent().appending(path: Self.directoryName, directoryHint: .isDirectory))
     }
 
-    /// `key`'s saved page at its point size, the first time it is asked for (a released page's
-    /// frame comes first, once).
-    func take(_ key: String) -> NSImage? {
-        if let frame = held.removeValue(forKey: key), let rep = NSBitmapImageRep(data: frame.data) {
+    /// `key`'s saved page at its point size, the first time it is asked for. A released page's
+    /// frame comes first, once, when the pane still has its size (zero: not laid out yet) and
+    /// appearance: after a resize or a light/dark switch the pane shows its loading state instead.
+    func take(_ key: String, size: NSSize = .zero, appearance: NSAppearance.Name? = nil) -> NSImage? {
+        if let frame = held.removeValue(forKey: key), frame.appearance == appearance, size == .zero || size == frame.size,
+           let rep = NSBitmapImageRep(data: frame.data) {
             let image = NSImage(size: frame.size)
             rep.size = frame.size
             image.addRepresentation(rep)
@@ -53,10 +55,10 @@ final class AgentPaneLaunchImages {
     }
 
     /// Holds `image` as tab `key`'s frame until ``take(_:)`` or ``drop(_:)``.
-    func hold(_ key: String, _ frame: CGImage, size: NSSize) async {
+    func hold(_ key: String, _ frame: CGImage, size: NSSize, appearance: NSAppearance.Name?) async {
         guard size.width > 0 else { return }
         let data = await Task.detached { Self.encode(["frame": frame])["frame"] }.value
-        held[key] = data.map { ($0, size) }
+        held[key] = data.map { ($0, size, appearance) }
     }
 
     /// The tab closed or showed its live page: its held frame goes.

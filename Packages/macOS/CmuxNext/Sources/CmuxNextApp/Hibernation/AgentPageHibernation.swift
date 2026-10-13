@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBridge
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -14,9 +15,10 @@ import os
 /// builds the page on the same chat (``AgentTabStore/view(for:)``), which acpmux replays with its
 /// draft. Its last frame is drawn under the pane until the new page paints.
 ///
-/// A page stays when its tab is pinned (unless the setting includes pinned tabs), its agent
-/// works or waits on the person, it is a New Tab page or another machine's chat, or a shell
-/// command ran in it (closing the page ends the command or drops its output). A page waits at
+/// A page stays when its tab is pinned (unless the setting includes pinned tabs), its chat's
+/// turn runs or waits on the person (acpmux's turn state, `AgentTurnStateStore`), it is a New
+/// Tab page or another machine's chat, or a shell command ran in it (closing the page ends the
+/// command or drops its output). A page waits at
 /// least ``minimumHidden`` even under critical pressure, so the composer's last keystrokes reach
 /// acpmux. Events only, no polling: a page hides or shows (`TabContentCache`'s presentation
 /// changes), the setting or the pressure changes, and one deadline for the next page to come due.
@@ -34,14 +36,15 @@ final class AgentPageHibernation {
     private var shown: Set<String> = []
     private var releasing: Set<String> = []
     private let deadline = DemandTimer(owner: "AgentPageHibernation")
-    /// The tab's agent state (the store record); injected by the App.
-    var agentState: (String) -> AgentState? = { _ in nil }
+    /// The acpmux turn state of the tab's chat; injected by the App.
+    var turnState: (String) -> AgentTurnState? = { _ in nil }
     var isPinned: (String) -> Bool = { _ in false }
     /// The pane still hosting tab `key`'s page lets it go (it shows the tab again on demand).
     var displace: (String) -> Void = { _ in }
     /// The clock (tests set it).
     var now: () -> ContinuousClock.Instant = { .now }
     private(set) var releasedCount = 0
+    private var turnObservation: Task<Void, Never>?
 
     init(tabs: @escaping () -> AgentTabStore?) {
         store = tabs
@@ -52,12 +55,26 @@ final class AgentPageHibernation {
     convenience init(services: AppServices) {
         self.init(tabs: { [weak services] in services?.madeAgentTabs })
         isPinned = { [weak services] key in services?.locateTab(key)?.0.pinned ?? false }
-        agentState = { [weak services] key in services?.locateTab(key)?.0.agent?.state }
+        turnState = { [weak services] key in
+            guard let tabs = services?.madeAgentTabs, let (record, _) = tabs.lookup(tabs.resolve(key)) else { return nil }
+            return AgentTurnStateStore.shared.state(for: record)
+        }
         displace = { [weak services] key in services?.cache.presenter(of: key)?.surfaceWasDisplaced(key) }
         let cache = services.cache
         cache.presentationChanges.subscribe("agent-page-hibernation") { [weak self, weak cache] in
             guard let cache else { return }
             self?.sync { cache.isRendering($0) }
+        }
+        followTurns(AgentTurnStateStore.shared)
+    }
+
+    /// A turn that ends makes its hidden page due again (a busy page has no deadline).
+    func followTurns(_ turns: AgentTurnStateStore) {
+        turnObservation?.cancel()
+        turnObservation = Task { [weak self] in
+            for await _ in ObservationStream({ turns.states }) {
+                self?.replan()
+            }
         }
     }
 
@@ -68,10 +85,13 @@ final class AgentPageHibernation {
     }
 
     /// Compares every page with whether its tab draws now, and reports the ones that changed.
+    /// Whether the tab draws, not whether its view is still in a window: presentation changes
+    /// come before the pane swaps its content, so the outgoing page is still on screen then.
+    /// (A release checks the window again.)
     func sync(_ isRendering: (String) -> Bool) {
         guard let tabs = store() else { return }
-        for (key, view) in tabs.views {
-            let visible = isRendering(key) || Self.isOnScreen(view)
+        for key in tabs.views.keys {
+            let visible = isRendering(key)
             if visible != shown.contains(key) { pageVisibility(key, visible: visible) }
         }
     }
@@ -127,7 +147,7 @@ final class AgentPageHibernation {
         if !setting.isEnabled { return .disabled }
         guard let tabs = store(), Self.canRelease(key, in: tabs) else { return .unsupported }
         if isPinned(key), !setting.includesPinnedTabs { return .pinned }
-        if let state = agentState(key), state == .working || state == .blocked { return .agentBusy }
+        if let turn = turnState(key), turn == .working || turn == .needsInput { return .agentBusy }
         return nil
     }
 
@@ -154,11 +174,14 @@ final class AgentPageHibernation {
             let frame = await Self.frame(view)
             guard let self else { return }
             releasing.remove(key)
-            guard hiddenAt[key] != nil, tabs.existingView(key) === view, keepsPage(key) == nil else { return }
-            if let frame { await tabs.launchImages.hold(key, frame.image, size: frame.size) }
-            guard hiddenAt[key] != nil, tabs.existingView(key) === view else {
+            // The page may have shown, changed or got busy (a turn started) while it was asked
+            // for its frame or the frame was encoded: then it stays, and the next plan decides.
+            func stillDue() -> Bool { hiddenAt[key] != nil && tabs.existingView(key) === view && keepsPage(key) == nil }
+            guard stillDue() else { return replan() }
+            if let frame { await tabs.launchImages.hold(key, frame.image, size: frame.size, appearance: frame.appearance) }
+            guard stillDue() else {
                 tabs.launchImages.drop(key)
-                return
+                return replan()
             }
             displace(key)
             // The tab keeps its session and every other state: the next show builds the page again.
@@ -175,9 +198,10 @@ final class AgentPageHibernation {
 
     /// The page as last drawn; nil when it does not answer in time (it then shows its loading
     /// state when it comes back).
-    private static func frame(_ view: AgentPaneView) async -> (image: CGImage, size: NSSize)? {
+    private static func frame(_ view: AgentPaneView) async -> (image: CGImage, size: NSSize, appearance: NSAppearance.Name?)? {
+        let appearance = view.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua])
         let frame = try? await ControlDeadline.shared.run(method: "hibernation.agentSnapshot", deadline: .now + .seconds(2)) { @MainActor in
-            await view.pageImage().flatMap { image in image.cgImage(forProposedRect: nil, context: nil, hints: nil).map { ($0, image.size) } }
+            await view.pageImage().flatMap { image in image.cgImage(forProposedRect: nil, context: nil, hints: nil).map { ($0, image.size, appearance) } }
         }
         return frame.flatMap { $0 }
     }
