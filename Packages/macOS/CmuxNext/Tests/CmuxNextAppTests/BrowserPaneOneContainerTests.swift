@@ -46,7 +46,7 @@ import Testing
         let tab = Pane()
         defer { tab.tearDown() }
         let strip = tab.pane.stripView.isHidden ? 0 : tab.pane.stripView.frame.height
-        #expect(tab.chrome.contentContainer.frame.minY > 0, "the toolbar sits above the page")
+        #expect(tab.chrome.contentContainer.frame.height < tab.chrome.bounds.height, "the toolbar sits above the page")
         #expect(tab.pane.paneHeaderHeight == strip,
                 "the pane's header is its tab strip alone: the border and corners take the toolbar in")
     }

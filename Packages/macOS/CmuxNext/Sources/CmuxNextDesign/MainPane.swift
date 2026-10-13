@@ -14,7 +14,7 @@ nonisolated extension ChromeTunables {
         default: true, code: "ChromeTunables.mainPaneCurved")
     public static let mainPaneCornerRadius = Tunable<CGFloat>.number(
         "chrome.mainPane.cornerRadius", .sidebar, "Main pane corner radius",
-        help: "Corner radius of the curved main pane.", default: 8, range: 0...24, step: 0.5, unit: .points,
+        help: "Corner radius of the curved main pane. Unset: the window's corner radius less the gutter (8 in fullscreen).", default: 8, range: 0...24, step: 0.5, unit: .points,
         code: "ChromeTunables.mainPaneCornerRadius")
     public static let mainPaneGutter = Tunable<CGFloat>.number(
         "chrome.mainPane.gutter", .sidebar, "Main pane gutter",
@@ -43,6 +43,17 @@ extension Metrics {
     public static var mainPaneGutter: CGFloat { mainPaneCurved ? scale(ChromeTunables.mainPaneGutter.value) : 0 }
     /// Corner radius of the main pane; 0 when it is edge to edge.
     public static var mainPaneCornerRadius: CGFloat { mainPaneCurved ? scale(ChromeTunables.mainPaneCornerRadius.value) : 0 }
+    /// Corner radius of the main pane in a window whose own corners have
+    /// `windowCornerRadius`: concentric with them (the window radius less
+    /// the gutter), so the gutter keeps one width around each window corner.
+    /// A Debug Settings override wins; without window corners (fullscreen)
+    /// it is `mainPaneCornerRadius`.
+    public static func mainPaneCornerRadius(windowCornerRadius: CGFloat) -> CGFloat {
+        guard mainPaneCurved, ChromeTunables.mainPaneCornerRadius.override == nil, windowCornerRadius > 0 else {
+            return mainPaneCornerRadius
+        }
+        return max(0, windowCornerRadius - mainPaneGutter)
+    }
     /// Black's alpha over the chrome around the main pane; 0 when it is
     /// edge to edge.
     public static func mainPaneChromeShade(isDark: Bool) -> CGFloat {

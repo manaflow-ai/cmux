@@ -1,10 +1,10 @@
-import AppKit
+public import AppKit
 
 /// The shape a Chromium page is limited to. The page is a child window, so
 /// neither the pane's rounded clip nor the parent window's rounded corners
 /// reach it; the fork masks it to this path (`-cmuxClipPath`, fork commit
 /// "clip the embedded page to an embedder shape").
-nonisolated enum CEFClipShape {
+public nonisolated enum CEFClipShape {
     /// A rounded rect in the host view's coordinates.
     struct RoundedRect: Hashable, Sendable {
         var rect: CGRect
@@ -48,7 +48,7 @@ nonisolated enum CEFClipShape {
     /// (`_cornerRadius`, private, read only when present), else the macOS 26
     /// titled-window default. Zero in fullscreen and for borderless windows.
     @MainActor
-    static func windowCornerRadius(_ window: NSWindow) -> CGFloat {
+    public static func windowCornerRadius(_ window: NSWindow) -> CGFloat {
         if window.styleMask.contains(.fullScreen) || !window.styleMask.contains(.titled) { return 0 }
         let selector = NSSelectorFromString("_cornerRadius")
         if window.responds(to: selector), let value = window.value(forKey: "_cornerRadius") as? NSNumber {

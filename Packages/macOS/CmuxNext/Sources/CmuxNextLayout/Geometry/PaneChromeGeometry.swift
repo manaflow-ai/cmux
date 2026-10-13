@@ -3,8 +3,8 @@ public import CoreGraphics
 /// Pane padding composed with the rest of the layout. A pane's frame (its
 /// cell) is what split and column geometry compute; its tab strip and
 /// content sit in the cell inset by `panePadding`. The border and rounded
-/// corners trace only the content area below the header (tab strip, browser
-/// toolbar) when the hosted view reports one (`PaneContentChrome`).
+/// corners trace only the content area below the header (the tab strip)
+/// when the hosted view reports one (`PaneContentChrome`).
 extension LayoutStyle {
     /// Gap the column strip leaves between and around columns. Each pane
     /// already brings `panePadding` on every side, so the strip adds only
@@ -52,8 +52,8 @@ public nonisolated enum PaneChromeGeometry {
     }
 
     /// The rounded content area of a padded pane rect (`contentRect(forCell:)`)
-    /// whose hosted view has a `headerHeight`-point header (tab strip,
-    /// browser toolbar) on top and a `footerHeight`-point footer (a tab
+    /// whose hosted view has a `headerHeight`-point header (the tab strip)
+    /// on top and a `footerHeight`-point footer (a tab
     /// strip at the bottom, R109) below: the border, ring and rounding leave
     /// both out. Flipped coordinates (y grows down).
     public static func roundedRect(inPadded padded: CGRect, headerHeight: CGFloat, footerHeight: CGFloat = 0) -> CGRect {
