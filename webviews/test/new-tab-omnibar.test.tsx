@@ -152,3 +152,42 @@ test("a prompt's top row asks the agent, with a web search under it", async () =
   // On the model the chip names (cx-sljrg).
   expect(calls).toEqual([["ask", "claude", "why is the reddit scraper slow", undefined, "claude-opus-5-5"]]);
 });
+
+// Leo 10-13: after typing, a click outside the composer left the suggestions open. A press outside
+// and Escape close them and keep the typed text; a second Escape leaves the field.
+function pressOutside() {
+  const target = window.document.body;
+  const Pointer = (window as unknown as { PointerEvent?: typeof window.MouseEvent }).PointerEvent ?? window.MouseEvent;
+  for (const type of ["pointerdown", "mousedown", "pointerup", "mouseup", "click"]) {
+    const event = type.startsWith("pointer")
+      ? new Pointer(type, { bubbles: true, cancelable: true, button: 0 })
+      : new window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0 });
+    target.dispatchEvent(event);
+  }
+}
+
+test("a press outside closes the suggestions and keeps the text; pressing the field opens them again", async () => {
+  await render([]);
+  const field = await type("reddit");
+  field.focus();
+  expect(rows().length).toBeGreaterThan(0);
+  await act(async () => pressOutside());
+  expect(rows()).toHaveLength(0);
+  expect(field.value).toBe("reddit");
+  await act(async () => field.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  expect(rows().length).toBeGreaterThan(0);
+});
+
+test("Escape closes the suggestions and keeps the text; a second Escape leaves the field", async () => {
+  await render([]);
+  const field = await type("reddit");
+  field.focus();
+  const escape = () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  await act(async () => escape());
+  expect(rows()).toHaveLength(0);
+  expect(field.value).toBe("reddit");
+  expect(window.document.activeElement).toBe(field);
+  await act(async () => escape());
+  expect(field.value).toBe("reddit");
+  expect(window.document.activeElement).not.toBe(field);
+});
