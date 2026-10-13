@@ -44,6 +44,7 @@ final class HiddenHistoryStore {
         body(&document)
         guard loaded else {
             savesAfterLoad = true
+            load() // a failed load would otherwise hold the hide until the next reconnect
             return
         }
         save()
