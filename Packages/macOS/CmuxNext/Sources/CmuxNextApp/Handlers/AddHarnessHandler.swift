@@ -13,7 +13,7 @@ enum AddHarnessHandler {
             // A focused New Tab page shows the page in place, as its own button does (cx-9fqw).
             if let pane = context.scope(invocation).pane, let key = pane.currentTabKey, context.services.agentTabs.isNewTabPage(key),
                let view = context.services.agentTabs.existingView(key) {
-                if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: nil) }
+                // No tab opens: a chat the page then starts records its own kind.
                 return AgentPaneHarnessesPage(view).show()
             }
             // The same pane path as New Agent Chat: from Home or a settling workspace it makes the

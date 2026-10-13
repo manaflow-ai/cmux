@@ -8,8 +8,10 @@ public struct AgentPaneHarnessesPage {
         self.pane = pane
     }
 
-    /// Shows the Harnesses page in `pane`'s page.
+    /// Shows the Harnesses page in `pane`'s page, with the keyboard there (as Switch Model does).
     @MainActor public func show() {
+        let webView = pane.webView
+        if webView.window?.firstResponder !== webView { webView.window?.makeFirstResponder(webView) }
         pane.deliver([.command("showHarnesses")], scripts: ["window.cmuxAcpmuxBridge?.command?.(\"showHarnesses\");"])
     }
 }
