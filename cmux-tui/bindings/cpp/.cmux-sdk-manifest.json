@@ -12,7 +12,7 @@
     },
     {
       "path": "include/cmux/raw/generated/models.hpp",
-      "sha256": "fc9b54efc853436255c4b07ef3b7551da4cd420819f300b4d2c76eb7afc0fe08",
+      "sha256": "e0f14aec12703fd896e7d3481e83c72682def914fce841c7fbb938a2cf8dc45b",
       "size": 276234
     },
     {
@@ -22,7 +22,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "562dc6e86c76109b68bb679b5177e4a56fb01207957c95fc302553e855285d4a",
+  "ir_sha256": "af1996aebfc46ba3499df03d7cf0899fe1832984aaade42fcac9dc6d73fd7e52",
   "language": "cpp",
   "mux_protocol": 12,
   "schema_version": 2

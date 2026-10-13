@@ -21370,7 +21370,7 @@
    },
    "stream": null,
    "constraints": [
-    "The verified cmux app connection only. Returns credential and expires_in: a pairing-store credential for the app's own page. See spec/commands.md."
+    "The verified cmux app connection only. Returns credential and expires_in: a single-use pairing-store credential (2 min, its own bound) for the app's own page. See spec/commands.md."
    ]
   },
   "cloud-session-status": {

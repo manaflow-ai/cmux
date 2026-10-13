@@ -30,8 +30,11 @@ pub(crate) struct PageListener {
 #[derive(Default)]
 struct State {
     listener: Option<Listener>,
-    /// The listener's minted credential, to write its file again if it went missing.
+    /// The listener's minted credential, to write its file again if it went missing
+    /// (none: a configured credential, which has no file to share).
     token: Option<String>,
+    /// The extra page origins the listener admits (fixed when it binds).
+    origins: Vec<String>,
     /// Shutdown took the listener; nothing opens another.
     closed: bool,
 }
@@ -45,12 +48,13 @@ impl PageListener {
         startup: Option<Listener>,
         minted: Option<String>,
     ) -> Arc<Self> {
-        let token = startup.as_ref().and_then(|(_, file)| file.as_ref()).and(minted);
+        let token = startup.as_ref().and(minted);
+        let origins = access.origins.clone();
         let listener = Arc::new(Self {
             mux: Arc::downgrade(mux),
             socket,
             access,
-            state: Mutex::new(State { listener: startup, token, closed: false }),
+            state: Mutex::new(State { listener: startup, token, origins, closed: false }),
         });
         let opener = listener.clone();
         mux.set_page_listener(Some(Arc::new(move |origin| opener.open(origin))));
@@ -69,15 +73,21 @@ impl PageListener {
         anyhow::ensure!(!state.closed, "the daemon is shutting down");
         let state = &mut *state;
         if let Some((server, file)) = &mut state.listener {
-            anyhow::ensure!(
-                file.is_some(),
-                "this daemon's WebSocket listener uses a configured credential (--ws-token or server.ws_token), so it has no credential file to share"
-            );
-            let addr = server.local_addr();
-            // Someone removed the file: the app reads only the file, so write it again.
-            if let Some(token) = &state.token
-                && !websocket_credential::path_for(&self.socket).exists()
+            let Some(token) = &state.token else {
+                anyhow::bail!(
+                    "this daemon's WebSocket listener uses a configured credential (--ws-token or server.ws_token), so it has no credential file to share"
+                );
+            };
+            if let Some(origin) = &origin
+                && !state.origins.contains(origin)
             {
+                anyhow::bail!(
+                    "this daemon's page listener does not admit the origin {origin}; restart the daemon to admit it"
+                );
+            }
+            let addr = server.local_addr();
+            // The startup write failed, or someone removed the file: the app reads only the file.
+            if file.is_none() || !websocket_credential::path_for(&self.socket).exists() {
                 *file = Some(websocket_credential::write(&self.socket, addr, token)?);
             }
             return Ok(endpoint(addr, false));
@@ -109,6 +119,7 @@ impl PageListener {
         );
         state.listener = Some((server, Some(file)));
         state.token = Some(token);
+        state.origins = access.origins;
         Ok(endpoint(addr, true))
     }
 }

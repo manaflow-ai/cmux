@@ -87,7 +87,8 @@ export class CloudHome {
    * connection (and after an inbox reset); later reads use the entries the events keep current. */
   async inbox(capable: boolean): Promise<HomeConversation[]> {
     if (!capable) return [];
-    if (!this.listed) {
+    // A reset during a list (a sign-in) makes that list stale: list again, at most twice more.
+    for (let attempt = 0; !this.listed && attempt < 3; attempt++) {
       this.listing ??= this.list().finally(() => (this.listing = null));
       await this.listing;
     }

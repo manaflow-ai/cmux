@@ -54,13 +54,27 @@ final class DaemonCredentialPageProvider: PageProvider {
         // daemon has them: only that one carries the person's Cloud lease (the file token is any
         // same-user process's). An older daemon keeps the file token: local conversations only.
         guard daemon.supports(DaemonCapabilities.shared.pageCredential), case .object(var fields) = file else { return file }
-        // A single-use credential for this connect (every reconnect asks again). A failure (the
-        // daemon is restarting) retries, never falls back to the file token.
-        guard let connection = daemon.connection, let page = try? await connection.request(PageCredentialRequest()) else {
+        // A single-use credential for this connect (every reconnect asks again). A lost connection
+        // retries. A refusal (a daemon this app did not start, so the app is not verified there)
+        // keeps the file token: local conversations only, never a dead end.
+        guard let connection = daemon.connection else { throw PageError.unavailable("the local cmux daemon is restarting") }
+        do {
+            let page = try await connection.request(PageCredentialRequest())
+            fields["token"] = .string(page.credential)
+            return .object(fields)
+        } catch let error as DaemonError where Self.isTransport(error) {
             throw PageError.unavailable("the local cmux daemon is restarting")
+        } catch {
+            return file
         }
-        fields["token"] = .string(page.credential)
-        return .object(fields)
+    }
+
+    /// A lost or restarting connection (retry), as opposed to the daemon's own refusal.
+    nonisolated static func isTransport(_ error: DaemonError) -> Bool {
+        switch error {
+        case .notConnected, .connectionClosed, .daemonShutdown, .connectFailed, .timedOut: true
+        default: false
+        }
     }
 
     /// The credential file; when it is missing (an owner the CLI or an agent started, or an older
@@ -74,11 +88,16 @@ final class DaemonCredentialPageProvider: PageProvider {
         let outcome: DaemonService.PageListenerOutcome
         do {
             outcome = try await daemon.ensurePageListener()
-        } catch DaemonError.notConnected {
-            throw PageError.unavailable("the local cmux daemon is not running")
+        } catch let error as DaemonError where Self.isTransport(error) {
+            throw PageError.unavailable("the local cmux daemon is restarting")
+        } catch DaemonError.command(_, let message, _, _, _) where message.contains("shutting down") {
+            throw PageError.unavailable("the local cmux daemon is restarting")
+        } catch DaemonError.command(_, let message, _, _, _) {
+            // The daemon refused (a configured credential, an origin its listener does not admit):
+            // final, the page says why.
+            throw PageError(code: "cmux.daemon.page_listener", message: message, retryable: false)
         } catch {
-            // The daemon refused (a listener with a configured credential): final, the page says why.
-            throw PageError(code: "cmux.daemon.page_listener", message: String(describing: error), retryable: false)
+            throw PageError.unavailable(String(describing: error))
         }
         switch outcome {
         case .ready:

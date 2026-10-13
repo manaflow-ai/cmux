@@ -6549,9 +6549,11 @@ connection with the static or file token gets no `cloud-*` command or event.
 
 `page-credential` (no fields) returns `object{credential, expires_in}` to the
 verified cmux app connection (the `frontend` actor) only; every other
-connection is refused. The credential is a pairing-store credential: the same
-store, 8 h lifetime and bound as an approved pairing, kept in memory only. The
-app hands it to its own page (host verb `cmux.host.credential.load`), and a
+connection is refused. The credential is a single-use pairing-store
+credential: it authenticates one WebSocket handshake within 2 minutes
+(`expires_in`), lives in memory only, and has its own bound (16), so it never
+evicts an approved pairing. The app asks for one on every connect and hands it
+to its own page (host verb `cmux.host.credential.load`), and a
 WebSocket connection that presents it is the person's own client
 (`ws-cloud-conversations-v1`). The file token next to the socket stays the
 listener's endpoint credential for local clients and never carries the
@@ -6573,7 +6575,9 @@ and serves the page files on the same listener. `allow_origin`
 (`scheme://host[:port]`, never `null`) is one page origin the listener admits
 besides its own. Returns `object{url, pages, opened}`: `opened` is false when
 the listener already existed (from `server ensure --ws-loopback` or an
-earlier `ws-listen`; `allow_origin` then does not change it). The credential
+earlier `ws-listen`). An `allow_origin` the existing listener does not admit is
+refused with an error that says so: the admitted origins are fixed when the
+listener binds. The credential
 is never in the reply. Trusted local (Unix) connections only; a WebSocket
 connection is refused. A daemon whose listener uses a configured credential
 (`--ws-token`, `server.ws_token`) refuses, because it has no credential file

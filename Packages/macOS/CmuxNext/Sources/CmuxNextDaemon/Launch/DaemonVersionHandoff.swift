@@ -132,11 +132,15 @@ extension DaemonLauncher {
     /// dev daemon whose build is unknown, so `handOffIfStale` kept it): hand it off to the bundled
     /// build the same way, once per daemon. Terminals keep running and the next `ensure` starts
     /// the bundled build with this launcher's arguments. False for an external binary (it would
-    /// start as itself again) and when the daemon refused.
+    /// start as itself again) and when the daemon refused. True while that daemon is still
+    /// exiting for this handoff (a page retry during the exit), so the caller keeps waiting.
     public func handOffForCapability(_ capability: String, identity: DaemonIdentity,
                                      using connection: DaemonConnection) async -> Bool {
-        guard configuration.binaryIsBundled, !identity.supports(capability),
-              handoff.begin(bundled: "\(capability)@\(identity.pid)", pid: identity.pid) else { return false }
+        guard configuration.binaryIsBundled, !identity.supports(capability) else { return false }
+        if handoff.exiting == identity.pid { return true }
+        // Once per launcher: the bundled build serves the capability, so a second owner without it
+        // is not ours to restart again (no loop).
+        guard handoff.begin(bundled: "capability:\(capability)", pid: identity.pid) else { return false }
         do {
             let reply = try await connection.request(
                 ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation))
