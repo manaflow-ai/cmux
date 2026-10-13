@@ -53,13 +53,13 @@ enum SidebarContextMenus {
         }
     }
 
+    /// The most top-level rows a right-click menu shows (ActionSurfaceParityTests).
+    static let topLevelLimit = 12
+
     /// A machine header's menu: its own (an SSH or Cloud machine's; this
     /// Mac's and a paired server's are the sidebar's), with what every
     /// machine offers (`machineSection`: its icon) after the first group,
     /// or at the end of its Options folder when the top level is full.
-    /// The most top-level rows a right-click menu shows (ActionSurfaceParityTests).
-    static let topLevelLimit = 12
-
     static func machineMenu(_ machine: String, services: AppServices) -> NSMenu {
         let registry = services.registry, machines = services.machines
         let target = ActionTargetRef(kind: .machine, id: machine)
