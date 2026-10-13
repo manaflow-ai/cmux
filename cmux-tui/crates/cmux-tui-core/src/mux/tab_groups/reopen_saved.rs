@@ -96,7 +96,11 @@ impl Mux {
             .context("reopened group missing")?;
         let link = saved_id.to_string();
         let room = saved.room;
-        let icon = saved.icon;
+        // A saved icon whose asset is gone (swept by an older daemon) is dropped rather than
+        // failing the link after the group exists.
+        let icon = saved.icon.filter(|icon| {
+            self.with_icon_registry(|registry| registry.require_icon_asset(icon)).is_ok()
+        });
         let linked = group.clone();
         self.commit_tab_strip_change(
             StripRequest::local(actor, "tab.group.save"),

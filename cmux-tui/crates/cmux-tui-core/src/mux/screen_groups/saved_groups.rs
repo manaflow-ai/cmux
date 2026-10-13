@@ -150,10 +150,15 @@ impl Mux {
             .as_ref()
             .map(|group| group.id.clone())
             .context("screen group disappeared")?;
+        // A saved icon whose asset is gone (swept by an older daemon) is dropped rather than
+        // failing the link after the group exists.
+        let icon = record.icon.filter(|icon| {
+            self.with_icon_registry(|registry| registry.require_icon_asset(icon)).is_ok()
+        });
         self.commit_screen_metadata(actor, |_, screens| {
             if let Some(live) = screens.groups.get_mut(&group) {
                 live.saved_id = Some(saved.to_string());
-                live.icon = record.icon;
+                live.icon = icon;
             }
             Ok(())
         })?;
