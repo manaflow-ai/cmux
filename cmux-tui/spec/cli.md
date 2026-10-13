@@ -511,6 +511,11 @@ terminal <selector> viewport scroll
 
 browser open <url> | --url <url> [OPTIONS]
 browser list
+browser profile list
+browser profile create --name <name> [--profile <id>] [--color <value>] [--icon <value>] [--index <n>]
+browser profile move --profile <id-or-name> --index <n>
+browser profile delete --profile <id-or-name>
+browser profile open <url> --engine webkit|cef --profile <id-or-name> [--pane <selector>] [--title <value>] [--background]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>
