@@ -92,6 +92,13 @@ def main() -> int:
         if "CMUX_AGENT_LAUNCH_KIND" in result["real"]["env"]:
             raise AssertionError(f"management command unexpectedly captured launch metadata: {result}")
 
+    with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-mic-serve-") as directory:
+        result = run_case(Path(directory), ("mic-serve",))
+        if result["calls"]:
+            raise AssertionError(f"mic-serve unexpectedly installed hooks: {result}")
+        if "CMUX_AGENT_LAUNCH_KIND" in result["real"]["env"]:
+            raise AssertionError(f"mic-serve unexpectedly captured launch metadata: {result}")
+
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-prompt-") as directory:
         result = run_case(Path(directory), ("-i", "models"))
         if len(result["calls"]) != 2 or "CMUX_AGENT_LAUNCH_KIND" not in result["real"]["env"]:

@@ -84,7 +84,7 @@ agy_passthrough_option_flag() {
 agy_builtin_command_name() {
     case "$1" in
         agent|agents|changelog|help|install|mcp|models|plugin|plugins|\
-        remote-control|update)
+        mic-serve|remote-control|update)
             return 0
             ;;
     esac
