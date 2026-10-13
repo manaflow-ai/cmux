@@ -29,7 +29,8 @@ struct DeleteProfileDerivedStoresTests {
         let base = "Profile-" + record.engineProfile.rawValue.uuidString
         let own = [base, base + "-m-0123456789abcdef", base + "-m-fedcba9876543210"].map { root.appending(path: $0) }
         let other = root.appending(path: "Profile-\(UUID().uuidString)-m-0123456789abcdef")
-        defer { try? FileManager.default.removeItem(at: other) }
+        // Only this test's fresh UUIDs, also when it fails (the root can be cmux NEXT's own).
+        defer { for directory in own + [other] { try? FileManager.default.removeItem(at: directory) } }
         for directory in own + [other] {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
             try Data("x".utf8).write(to: directory.appending(path: "Cookies"))
@@ -39,6 +40,8 @@ struct DeleteProfileDerivedStoresTests {
         #expect(services.registry.perform("browserProfile.delete", invocation: ActionInvocation(target: target).confirmed()))
         try await Self.until { own.allSatisfy { !FileManager.default.fileExists(atPath: $0.path) } }
         #expect(FileManager.default.fileExists(atPath: other.path), "deleting a profile removed another profile's derived store")
+        // The cleanup's last write (the book) lands before the temp book is removed.
+        try await Self.until { services.browserProfiles.book.pendingCleanup.isEmpty }
     }
 
     static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(20)) async throws {

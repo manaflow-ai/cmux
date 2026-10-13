@@ -251,7 +251,9 @@ ports, counters, the last 32 proxy outcomes and the store plan of each
 remote tab.
 
 Deleting a browser profile deletes its derived stores with its own store
-(`BrowserProfileStorageCleanup`, `DeleteProfileDerivedStoresTests`).
+(`BrowserProfileStorageCleanup`, `DeleteProfileDerivedStoresTests`): at
+once when Chromium has not opened any of them in this process, else at the
+next launch.
 
 Verification harness: `RemoteLocalhostLiveTests` (skipped unless
 `CMUX_RL_LIVE_SOCKET` names a cmux-tui socket) runs a node script through the
