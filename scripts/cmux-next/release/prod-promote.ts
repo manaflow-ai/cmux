@@ -232,14 +232,15 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     // G4 (Postgres) runs inside deploy-worker.sh (migrate.ts --verify), before the deploy.
     console.log(`prod-promote: PROMOTE ${cand.sha} (staging green at ${new Date(cand.at).toISOString()}; ${backendCommits(prodSha, cand.sha)} backend commits after production ${prodSha.slice(0, 12)}; new DO tags: ${g3.added.join(", ") || "none"})`)
     const out = opt("--github-output")
-    if (out) appendFileSync(out, `candidate=${cand.sha}\n`)
+    if (out && /^[0-9a-f]{40}$/.test(cand.sha)) appendFileSync(out, `candidate=${cand.sha}\n`)
     return 0
   }
   if (cmd === "recheck") {
     const hold = (why: string) => (console.log(`prod-promote recheck: HOLD ${why}`), 3)
     if (process.env.CMUX_NEXT_PRODUCTION_HOLD !== HOLD_RELEASED) return hold(`hold switch: ${holdText(process.env.CMUX_NEXT_PRODUCTION_HOLD)}`)
     const cand = opt("--candidate")
-    if (!cand || !/^[0-9a-f]{40}$/.test(cand)) return hold("--candidate must be a 40-hex SHA")
+    // Exactly 40 lowercase hex, nothing else (the value came through a workflow output).
+    if (cand === undefined || !/^[0-9a-f]{40}$/.test(cand)) return hold("--candidate must be exactly 40 lowercase hex")
     const prod = await serving(PRODUCTION)
     if (!prod.sourceTag) return hold(`production version ${prod.version} has no source tag`)
     if (prod.codeDeployedAt && Date.now() - prod.codeDeployedAt < SPACING_HOURS * 3600_000) return hold(`production code changed less than ${SPACING_HOURS} h ago`)

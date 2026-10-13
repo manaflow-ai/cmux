@@ -510,7 +510,11 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CMUX_NEXT_PRODUCTION_HOLD: ${{ vars.CMUX_NEXT_PRODUCTION_HOLD }}
-        run: bun scripts/cmux-next/release/prod-promote.ts recheck --candidate "${{ needs.promote-gates.outputs.candidate }}"
+          CANDIDATE: ${{ needs.promote-gates.outputs.candidate }}
+        # The candidate reaches the shell only through the environment, and only as 40 lowercase hex.
+        run: |
+          [[ "$CANDIDATE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::candidate is not a 40-hex SHA"; exit 1; }
+          bun scripts/cmux-next/release/prod-promote.ts recheck --candidate "$CANDIDATE"
       # No secrets are sent: production keeps JWT_PRIVATE_JWK and the rest (CMUX_DEPLOY_NO_SECRETS with
       # CMUX_RELEASE_PROMOTE). deploy-worker.sh runs migrate.ts --verify (G4) and the config gate first.
       - name: Deploy the staging-proven commit (records the rollback target)
