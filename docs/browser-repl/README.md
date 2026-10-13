@@ -447,7 +447,11 @@ rest. Measurements: [performance.md](performance.md).
   tab it opened that the user can see then (the selected tab of its pane,
   in the selected workspace of a visible, not minimized window), which
   becomes the user's tab; its hidden tabs close. A reset closes every tab
-  the session opened and did not keep.
+  the session opened and did not keep. A tab a secret or a sign-in sheet
+  value was typed into is never kept: `page.keep()` throws for it, and it
+  closes when the session ends, kept or seen, since the domain policy that
+  keeps the page from sending the value off its domains ends with the
+  session.
 - `cmux browser repl mcp [--session NAME]` serves a session as an MCP
   server on stdio, with the tools `eval`, `snapshot`, `screenshot`, `tabs`
   and `reset`, for agents that load tools over MCP. Without `--session` each

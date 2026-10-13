@@ -70,6 +70,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     /// Tabs this session opened (`tabs.open` and page popups). They close
     /// when the session ends unless `tab.keep` released them.
     private var openedTargetIDs: [UUID] = []
+    /// Tabs `tab.keep` released. One that holds a value a session or the
+    /// sign-in sheet typed closes when the session ends all the same: its
+    /// domain policy's content rules, which keep the page from sending the
+    /// value off its domains, end with the session.
+    private var keptTargetIDs: [UUID] = []
     /// `session.name` label, shown before the title of tabs this session opened.
     private var sessionLabel: String?
     /// Tabs that carry the label, including kept ones; cleared at session end.
@@ -1493,9 +1498,11 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func keepTab(_ params: [String: Any]) throws -> Any? {
         let panel = try existingPanel(params)
-        openedTargetIDs.removeAll { $0 == panel.id }
-        return nil
-    }
+        // The page still holds the typed value, and once the session ends
+        // no domain policy keeps it from sending the value elsewhere.
+        if BrowserReplTabAttachments.typedSecrets.holdsValues(inTab: panel.id.uuidString) {
+            throw Self.error("invalid", "page.keep(): this tab holds a secret or sign-in value that was typed into it, so it closes when the session ends (its domain policy, which keeps the page from sending the value off its domains, ends then too)")
+        }
 
     /// `session.name`: labels the tabs this session opened, now and later,
     /// as `<name> · <page title>`. A title the user set still wins, and the
@@ -3084,7 +3091,9 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
     @MainActor
     private func closeOpenedTabs(ending: BrowserReplSessionEnd) {
         let opened = openedTargetIDs
+        let kept = keptTargetIDs
         openedTargetIDs.removeAll()
+        keptTargetIDs.removeAll()
         // Each tab is closed in the workspace that holds it now, of any
         // window: one the user moved out of the session's workspace (or a
         // tab of a workspace that closed meanwhile) closes too, unless
@@ -3092,10 +3101,14 @@ final class WebKitBrowserReplDriver: BrowserReplDriver, @unchecked Sendable {
         // while the user can see the tab (it stays, as the user's). The
         // panel's own close forgets what is kept for it
         // (`BrowserPanel.close()`), only once it really closes.
+        // A tab that holds a typed secret or sign-in value closes whatever
+        // the ending and `page.keep()`: the session's domain policy, which
+        // kept the page from sending the value off its domains, ends here.
         let entries = Self.browserPanelEntries()
-        for id in opened {
+        for id in opened + kept {
             guard let entry = entries.first(where: { $0.panel.id == id }) else { continue }
-            guard ending.closesOpenedTab(visibleToUser: Self.isVisibleToUser(entry.panel, in: entry.workspace)) else { continue }
+            let holdsTypedValue = BrowserReplTabAttachments.typedSecrets.holdsValues(inTab: id.uuidString)
+            guard holdsTypedValue || (!kept.contains(id) && ending.closesOpenedTab(visibleToUser: Self.isVisibleToUser(entry.panel, in: entry.workspace))) else { continue }
             _ = entry.workspace.closePanel(id, force: true)
         }
     }
