@@ -48,7 +48,9 @@ public struct ControlPeerClient {
         defer { close(descriptor) }
         var timeout = timeval(tv_sec: timeoutMilliseconds / 1_000,
                               tv_usec: Int32(clamping: (timeoutMilliseconds % 1_000) * 1_000))
-        guard setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0,
+        var noSigPipe: Int32 = 1 // a peer that hangs up fails the write with EPIPE instead of signalling
+        guard setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)) == 0,
+              setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0,
               setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else {
             throw Failure.socket(String(cString: strerror(errno)))
         }

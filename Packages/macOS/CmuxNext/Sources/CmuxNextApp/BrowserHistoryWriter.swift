@@ -28,9 +28,13 @@ final class BrowserHistoryWriter {
     private var pending: Task<Void, Never>?
     private var leaving: Task<Void, Never>?
     private var resignObserver: (any NSObjectProtocol)?
+    /// Where it hears that the app resigned active (tests post to their own).
+    private let center: NotificationCenter
 
-    init(page: Page, recorded: FrontendBrowserHistory?, delay: Duration, sleep: @escaping BrowserRecordWriter.Sleep, send: @escaping Send) {
+    init(page: Page, recorded: FrontendBrowserHistory?, delay: Duration, sleep: @escaping BrowserRecordWriter.Sleep,
+         center: NotificationCenter = .default, send: @escaping Send) {
         self.page = page
+        self.center = center
         self.recorded = recorded
         self.delay = delay
         self.sleep = sleep
@@ -40,8 +44,8 @@ final class BrowserHistoryWriter {
                 self?.pageDidChange(state)
             }
         }
-        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
-                                                                object: nil, queue: .main) { [weak self] _ in
+        resignObserver = center.addObserver(forName: NSApplication.didResignActiveNotification,
+                                             object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.appDidResignActive() } // main-proof: observer on queue: .main
         }
     }
@@ -76,7 +80,7 @@ final class BrowserHistoryWriter {
         observation = nil
         pending = nil
         leaving = nil
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        if let resignObserver { center.removeObserver(resignObserver) }
         resignObserver = nil
     }
 
