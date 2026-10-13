@@ -41,6 +41,14 @@ impl Hub {
     pub async fn harness_health(self: &Arc<Self>, params: &Value) -> Result<Value, RpcError> {
         let flag = |key: &str| params.get(key).and_then(Value::as_bool).unwrap_or(false);
         let check_latest = flag("checkLatest");
+        // `rescan`: look for harnesses again (profiles and PATH) first, after an
+        // install from the Harnesses page. A daemon without a config file
+        // refuses the reload; the check still runs.
+        if flag("rescan")
+            && let Err(e) = self.reload_catalog().await
+        {
+            tracing::debug!("harness health rescan: {}", e.message);
+        }
         let mut update = flag("refresh") || check_latest;
         if let Some(choice) = params.get("autoUpdate") {
             let id = choice.get("id").and_then(Value::as_str).unwrap_or("");
