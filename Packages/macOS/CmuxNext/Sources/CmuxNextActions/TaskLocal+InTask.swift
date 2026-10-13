@@ -14,6 +14,11 @@ extension TaskLocal {
     public func withValueInTask<R>(_ value: Value, operation body: () -> R) -> R {
         // The only sanctioned synchronous bindings (check-concurrency: task-local bindings).
         if withUnsafeCurrentTask(body: { $0 != nil }) { return withValue(value, operation: body) }
+        // Task.immediate is macOS 26; below it no API starts a task synchronously. Below 15.4 the
+        // back-deploy shim runs an isolated deinit inline with no marker, so the plain binding is
+        // safe there. 15.4 to 15.x have the runtime marker path: UNVERIFIED until the macOS 15 VM
+        // smoke runs home.show, tab.search and tab.setIcon (plans/cmux-next/macos-floor.md).
+        guard #available(macOS 26, *) else { return withValue(value, operation: body) }
         return withoutActuallyEscaping(body) { body in
             let run = ImmediateRun { self.withValue(value, operation: body) }
             // task-owner: runs to its end before `finish` returns; `body` never suspends

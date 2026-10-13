@@ -26,6 +26,8 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "install-key-stdin",
     // `server ensure`: private app contract, restore progress lines on stdout.
     "restore-progress",
+    // `server ensure`: private app contract, the owner's loopback WebSocket.
+    "ws-loopback",
     "confirm-close",
     "complete",
     "clear-name",

@@ -119,22 +119,14 @@ extension AgentPaneModel {
         }
     }
 
-    /// New side chat: `fork` must be a session this pane made (its fork's reply put it in the
-    /// pane's scope), never the chat itself. It is tagged `side` with the chat's session, which
-    /// keeps it off the lists, then opened in a split beside the chat.
+    /// New side chat's view part: opens `fork` in a split beside the chat. acpmux already tagged it
+    /// the chat's side chat (`_acpmux/side`, sent by the page, cx-jlzsf). `fork` must be a session
+    /// this pane made (its fork's reply put it in the pane's scope), never the chat itself.
     private func openSideChat(_ fork: String) async -> [String: Any] {
         guard let sessionId, newTab == nil, fork != sessionId, transport.sessions.contains(fork), let header else {
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.sideChat")
         }
-        do {
-            try await transport.tagSession(fork, [Self.sideTag: sessionId], [])
-        } catch {
-            return AgentPaneReply.failure(code: "failed", message: "\(error)")
-        }
         header.openSide(fork)
         return AgentPaneReply.success()
     }
-
-    /// The tag that marks a side chat, valued with its chat's session (sessionList.ts `SIDE_TAG`).
-    static let sideTag = "side"
 }

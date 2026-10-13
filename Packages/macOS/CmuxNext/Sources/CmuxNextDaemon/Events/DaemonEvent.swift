@@ -93,7 +93,8 @@ extension DaemonEvent {
         // Transient questions to this connection; a snapshot never holds them.
         case .terminalClipboardRead, .terminalClipboardReadCancelled: true
         // The app supervisor's events (apps-v1): scene batches, changes and provider calls.
-        case .unknown(let name, _): DaemonSideEvents.isAppsEvent(name)
+        // And browser pairings (cx-hnmbt.2): a dropped request would never show its Approve dialog.
+        case .unknown(let name, _): DaemonSideEvents.isAppsEvent(name) || name.hasPrefix("pairing-")
         default: false
         }
     }

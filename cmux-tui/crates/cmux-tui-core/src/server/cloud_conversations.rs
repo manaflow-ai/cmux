@@ -23,6 +23,17 @@ pub(super) use crate::cloud_conversations::CLOUD_CONVERSATIONS_CAPABILITY as CAP
 /// (home-cloud-proxy.md section 3, cmux#13742).
 pub(super) const APP_ONLY_LEASE_CAPABILITY: &str = "cloud-lease-app-only-v1";
 
+/// A WebSocket client that authenticated with a pairing-store credential (a
+/// human-approved pairing, or the page credential the verified app asked for
+/// with `page-credential`) is the person: it uses the human's lease that the
+/// verified app set (reads, subscribes, sends with `origin: "user"`, the
+/// lease's cloud events). The static or file token never is (any same-user
+/// process can read the file; the lease stays the app's, cmux#13742). It
+/// never sets or clears a lease, and never uses a lease another connection
+/// set (a headless brain's chief token).
+/// (cx-hnmbt, ARCHITECTURE.md section 14.)
+pub(super) const WS_CLOUD_CAPABILITY: &str = "ws-cloud-conversations-v1";
+
 /// Whether `client` is the verified cmux app (the `frontend` actor: a
 /// role-main Unix connection whose code signature or install key was
 /// proved in `client-hello`), the same check the feed handoff uses.
@@ -30,15 +41,29 @@ fn is_app(mux: &Mux, client: u64) -> bool {
     matches!(super::origin_gate::connection_actor(mux, client), crate::Actor::Frontend { .. })
 }
 
-/// `origin: "user"` says the human acted in the app; any other connection
-/// is refused, never silently re-tagged.
+/// Whether `client` is a WebSocket connection that authenticated with a
+/// pairing-store credential (`ws-cloud-conversations-v1`), never a Unix one.
+fn is_websocket_person(mux: &Mux, client: u64) -> bool {
+    mux.control_clients.is_websocket_person(client)
+}
+
+/// Whether `client` acts as the person with the app's lease: the verified
+/// app, or an authenticated WebSocket client (`ws-cloud-conversations-v1`).
+fn is_person(mux: &Mux, client: u64) -> bool {
+    is_app(mux, client) || is_websocket_person(mux, client)
+}
+
+/// `origin: "user"` says the human acted (in the app, or in a page that is
+/// the person's own authenticated client); any other connection is
+/// refused, never silently re-tagged.
 fn check_origin(mux: &Mux, client: u64, origin: Option<&str>) -> anyhow::Result<()> {
-    if origin != Some("user") || is_app(mux, client) {
+    if origin != Some("user") || is_person(mux, client) {
         return Ok(());
     }
     Err(CloudError::Rejected {
         code: "forbidden".into(),
-        message: "origin \"user\" requires the verified cmux app connection".into(),
+        message: "origin \"user\" requires the verified cmux app connection or the person's authenticated page"
+            .into(),
         retryable: false,
     }
     .into())
@@ -148,8 +173,8 @@ pub(super) fn error_retryable(error: &anyhow::Error) -> Option<bool> {
 
 fn service(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
     anyhow::ensure!(
-        mux.control_clients.is_unix(client),
-        "cloud conversations require a trusted local connection"
+        mux.control_clients.is_unix(client) || is_websocket_person(mux, client),
+        "cloud conversations require a trusted local connection or a paired page"
     );
     // The lease is the human's cloud authority. A connection that bound
     // itself to a conversation agent acts as that agent, never as the human.
@@ -167,6 +192,14 @@ fn service(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
 /// unsubscribes use no lease and stay open.
 fn lease_user(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
     let service = service(mux, client)?;
+    // A page uses only the human's lease (the app's), never another one.
+    if is_websocket_person(mux, client) {
+        return if service.app_holds_lease() {
+            Ok(service)
+        } else {
+            Err(CloudError::SignedOut.into())
+        };
+    }
     let app = is_app(mux, client);
     // The app never uses a lease another connection set (P2-2): it is signed
     // out until it leases its own session.
@@ -186,6 +219,15 @@ fn lease_user(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
     Ok(service)
 }
 
+/// Setting or clearing a lease stays on the Unix socket (local admin).
+fn lease_holder(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
+    anyhow::ensure!(
+        mux.control_clients.is_unix(client),
+        "cloud-session-set and cloud-session-clear require a trusted local connection"
+    );
+    service(mux, client)
+}
+
 pub(super) fn session_set(
     mux: &Mux,
     client: u64,
@@ -193,19 +235,38 @@ pub(super) fn session_set(
 ) -> anyhow::Result<Value> {
     let SessionSetParams { api_base_url, access_token, expires_at, client_version } = params;
     let lease = SessionParams { api_base_url, access_token, expires_at, client_version };
-    Ok(service(mux, client)?.set_session_by(lease, is_app(mux, client))?)
+    Ok(lease_holder(mux, client)?.set_session_by(lease, is_app(mux, client))?)
 }
 
 pub(super) fn session_clear(mux: &Mux, client: u64) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.clear_session_by(is_app(mux, client))?)
+    Ok(lease_holder(mux, client)?.clear_session_by(is_app(mux, client))?)
 }
 
+/// `cloud-session-status`. For the person's own clients (the app, a page)
+/// with the app's lease it also names `participant`: the person's Worker
+/// user id (backend `userIdFor`: `user_` and the first 20 hex digits of
+/// sha256("stack:<project>:<stack user id>")), so a page knows which
+/// participant of a cloud conversation is the person. Never the token.
 pub(super) fn session_status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
     let service = service(mux, client)?;
-    if is_app(mux, client) && !service.app_holds_lease() {
+    let person = is_person(mux, client);
+    if person && !service.app_holds_lease() {
         return Ok(json!({"state": "signed_out"}));
     }
-    Ok(service.session_status())
+    let mut status = service.session_status();
+    if person && let Some((account, project)) = service.lease_person() {
+        status["participant"] = json!(worker_user_id(&project, &account));
+    }
+    Ok(status)
+}
+
+/// The Worker's user id for a Stack user of a Stack project (backend
+/// domains/user.ts `userIdFor`).
+fn worker_user_id(project: &str, account: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(format!("stack:{project}:{account}").as_bytes());
+    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    format!("user_{}", &hex[..20])
 }
 
 pub(super) fn inbox_list(mux: &Mux, client: u64, params: InboxListParams) -> anyhow::Result<Value> {
@@ -270,10 +331,17 @@ pub(super) fn mux_ack(mux: &Mux, client: u64, params: MuxAckParams) -> anyhow::R
 }
 
 /// Whether `client`'s event stream carries cloud events (P2-1 of the
-/// cmux#13742 review): only the verified cmux app's while the app holds the
-/// lease.
+/// cmux#13742 review): while the app holds the lease, only the person's
+/// own clients' (the app, an authenticated page); a page never gets the
+/// events of another connection's lease.
 pub(super) fn delivers(mux: &Mux, client: u64) -> bool {
-    mux.cloud_conversations().is_some_and(|service| service.delivers_to(is_app(mux, client)))
+    mux.cloud_conversations().is_some_and(|service| {
+        if mux.control_clients.is_unix(client) {
+            service.delivers_to(is_app(mux, client))
+        } else {
+            is_websocket_person(mux, client) && service.app_holds_lease()
+        }
+    })
 }
 
 /// Whether `cmd` calls the cloud and should leave the request loop.

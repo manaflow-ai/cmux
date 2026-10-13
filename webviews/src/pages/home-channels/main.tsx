@@ -1,8 +1,12 @@
-// Boots the channels Home page (cmux-page://cmux.home-channels/). With `?daemon=ws://host:port` the
-// page is a client of that cmux instance's daemon over its WebSocket (DaemonGate, daemonHome.ts):
-// real conversations and instance control, the same in any browser or host. In the app today the
-// host installs the `cmuxPage` bridge (HomeChannelsPageProvider.swift, removed by slice 2); in the
-// gallery and dev loop (`?mock`) the in-memory mock provider stands in.
+// Boots the channels Home page. The page is always a client of its cmux instance's daemon over the
+// daemon WebSocket (DaemonGate, daemonHome.ts): real conversations and instance control, the same
+// in every host. Where the daemon comes from:
+// - the daemon serves this page itself (http://127.0.0.1:<port>/pages/home-channels/): its own
+//   listener, same origin (spec transports.md "App listener and page files");
+// - `?daemon=ws://host:port`: any other server of the page bundle (the gallery live server);
+// - in the app (cmux-page://cmux.home-channels/): the host verb `cmux.host.credential.load` hands
+//   the endpoint and the daemon's credential. No Swift serves Home data.
+// In the gallery and dev loop (`?mock`) the in-memory mock provider stands in.
 import "../shared/desktop";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -14,7 +18,7 @@ import { HomeChannelsPage } from "./HomeChannelsPage";
 import table from "./generated/strings.json";
 import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore } from "./store";
-import { DaemonGate, InstanceBar } from "./DaemonGate";
+import { DaemonGate, InstanceBar, type DaemonSource, type HostCredential } from "./DaemonGate";
 import { DaemonHomeClient } from "./daemonHome";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
@@ -43,15 +47,19 @@ function defaultClient(): PageClient | null {
 }
 
 /** The page on a cmux instance's daemon: connect (credential or pairing), then the real Home. */
-export function mountDaemonHomeChannelsPage(root: HTMLElement, url: string): void {
+export function mountDaemonHomeChannelsPage(
+  root: HTMLElement,
+  source: DaemonSource,
+  client: PageClient | null = null,
+): void {
   const strings = createStrings(table);
   document.title = strings.t("page.title");
   createRoot(root).render(
-    <UiProvider container={root} popupHost={appPopupHost(null)} dir={languageDirection(strings.language)}>
-      <DaemonGate url={url} strings={strings}>
-        {(daemon) => (
+    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
+      <DaemonGate source={source} strings={strings}>
+        {(daemon, pages) => (
           <div className="hc-daemon">
-            <InstanceBar daemon={daemon} strings={strings} />
+            <InstanceBar daemon={daemon} strings={strings} pageUrl={pages ? `${pages}home-channels/` : undefined} />
             <DaemonHome daemon={daemon} strings={strings} />
           </div>
         )}
@@ -78,9 +86,22 @@ function daemonEndpoint(): string | null {
   }
 }
 
+/** Served by the daemon's own listener: its WebSocket is this page's origin. */
+function servedByDaemon(): string | null {
+  if (location.protocol !== "http:" && location.protocol !== "https:") return null;
+  if (!location.pathname.startsWith("/pages/home-channels/")) return null;
+  return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/`;
+}
+
 const root = document.getElementById("root");
 if (root && document.documentElement.dataset.cmuxPage === "home-channels") {
-  const endpoint = daemonEndpoint();
-  if (endpoint) mountDaemonHomeChannelsPage(root, endpoint);
-  else mountHomeChannelsPage(root);
+  const query = new URLSearchParams(location.search);
+  const endpoint = daemonEndpoint() ?? (query.has("mock") ? null : servedByDaemon());
+  const bridge = query.has("mock") ? null : createPageClient();
+  if (endpoint) mountDaemonHomeChannelsPage(root, { kind: "url", url: endpoint });
+  else if (bridge) {
+    // In the app: the host hands the endpoint and its daemon's credential on every (re)connect.
+    const load = () => bridge.call<HostCredential>("cmux.host.credential.load", {});
+    mountDaemonHomeChannelsPage(root, { kind: "host", load }, bridge);
+  } else mountHomeChannelsPage(root);
 }

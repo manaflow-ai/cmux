@@ -116,6 +116,7 @@ final class AgentTurnStateFeed {
         switch message {
         case .page(let states, let lastMessages, let muted, let titles):
             backoff.reset()
+            if !turns.watching { turns.watching = true }
             if turns.states != states { turns.states = states }
             if turns.lastMessages != lastMessages { turns.lastMessages = lastMessages }
             if turns.muted != muted { turns.muted = muted }
@@ -136,6 +137,7 @@ final class AgentTurnStateFeed {
         guard subscription === connection else { return }
         subscription = nil
         // A closed watch knows nothing: no stale working dots until it reconnects.
+        turns.watching = false
         turns.states.clear()
         turns.lastMessages = [:]
         turns.muted = []

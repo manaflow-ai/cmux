@@ -107,9 +107,9 @@ public final class PageRouter {
         }
     }
 
-    /// Whether a real key or mouse event reached the page's view just now (PageWKWebView); nil in
-    /// tests without a view.
-    public var hasUserGesture: (@MainActor () -> Bool)?
+    /// When a real key or mouse event reached the page's view just now (PageWKWebView, its
+    /// `systemUptime`), else nil; nil in tests without a view.
+    public var userGestureEvent: (@MainActor () -> TimeInterval?)?
 
     /// The window's title bar action (DESKTOP-FEEL): a double-click on a title bar the page draws.
     public var titleBarDoubleClick: (@MainActor () -> Void)?
@@ -131,8 +131,9 @@ public final class PageRouter {
             return popup?(op, fields) ?? .object(["shown": .bool(false)])
         }
         let (provider, params) = try admit(op, params: params)
+        let gesture = userGestureEvent?() ?? nil
         return try await provider.call(op, params: params, context: PageCallContext(page: descriptor.id, opid: opid,
-                                                                                     userGesture: hasUserGesture?() ?? false))
+                                                                                     userGesture: gesture != nil, gestureEvent: gesture))
     }
 
     /// Runs `work` as page call `id`, answering `cmux.op.cancelled` at once when the call is

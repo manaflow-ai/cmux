@@ -52,7 +52,16 @@ pub(super) fn subscribe_command(
     // Conversation events go to the person's own clients: the Unix socket
     // and authenticated WebSocket connections (`ws-conversations-v1`).
     let conversation_client = mux.control_clients.is_owner_client(client);
-    let pending_pairings = if trusted_pairing_client { mux.pending_pairings() } else { Vec::new() };
+    // A page relay hears only its page's events (page-router.json `events`;
+    // client_hello admits its `subscribe` only when there are some).
+    let page_events = super::origin_gate::page_relay_events(mux, client);
+    // Its events are never tree deltas: render none only to drop them.
+    let tree_deltas = tree_deltas && page_events.is_none();
+    let pending_pairings = if trusted_pairing_client && page_events.is_none() {
+        mux.pending_pairings()
+    } else {
+        Vec::new()
+    };
     let writer = writer.clone();
     let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
     std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
@@ -112,7 +121,9 @@ pub(super) fn subscribe_command(
                 MuxEvent::Conversation(_) if !conversation_client => {
                     continue;
                 }
-                MuxEvent::CloudConversation(_) if !trusted_pairing_client => {
+                // The person's own clients: Unix, or an authenticated page
+                // (`ws-cloud-conversations-v1`); `delivers` narrows it to the lease's.
+                MuxEvent::CloudConversation(_) if !conversation_client => {
                     continue;
                 }
                 MuxEvent::CloudConversation(_)
@@ -151,6 +162,11 @@ pub(super) fn subscribe_command(
                 }
                 _ => subscribed_event_json(&event),
             };
+            if let Some(events) = page_events
+                && !value["event"].as_str().is_some_and(|name| events.iter().any(|e| e == name))
+            {
+                continue;
+            }
             if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                 transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
                 break;

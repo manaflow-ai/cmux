@@ -37,12 +37,13 @@ public nonisolated struct PageTunables {
         "history.surface", section, "History page", help: "Shows cmux://history as the React page. New tabs use it.",
         default: .native, code: "PageTunables.history")
 
-    /// The App Store tab as the React page (react-pages.md A1-A3). Its data comes from the app
-    /// supervisor's `cmux.apps.*` ops; until the daemon serves them the page shows its
-    /// disconnected state.
+    /// The App Store tab as the React page (react-pages.md A1-A3), the default since its catalog and
+    /// its install through the native sheet reached parity with the Swift store (hq-6d decision
+    /// 2026-10-13, .cmux-scratch parity table). Its data comes from the daemon's routed `apps.*`
+    /// ops (page-router-v1). `native` keeps the Swift store reachable until hq-6d deletes it.
     public static let appStore = Tunable<PageImplementation>.choice(
         "apps.store.surface", section, "App Store page", help: "Shows the App Store tab as the React page. New tabs use it.",
-        default: .native, code: "PageTunables.appStore")
+        default: .web, code: "PageTunables.appStore")
 
     /// The CodeRouter app opens as the React CodeRouter page (cmux.coderouter) instead of its
     /// scene pane.
