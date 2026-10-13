@@ -138,7 +138,7 @@ extension WindowRootView {
     /// The main pane's corner radius in this window: concentric with the
     /// window's own corners, which change with fullscreen.
     var mainPaneCornerRadius: CGFloat {
-        Metrics.mainPaneCornerRadius(windowCornerRadius: window.map { CEFClipShape.windowCornerRadius($0) } ?? 0)
+        Metrics.mainPaneCornerRadius(windowCornerRadius: window?.frameCornerRadius ?? 0)
     }
 
     /// The content host's edge constraints: top and bottom, and the
