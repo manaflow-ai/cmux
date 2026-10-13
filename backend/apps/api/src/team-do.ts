@@ -59,9 +59,8 @@ export class TeamDO extends OwnerDO<TeamState> {
     return this.boundEngine?.rows
   }
 
-  protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult {
-    return teamRead(state, op, params, principal, this.rows)
-  }
+  protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult { return teamRead(state, op, params, principal, this.rows) }
+  async aiUserLimit(entity: string): Promise<number | null> { return this.isBound(entity) ? (this.bind(entity).currentState.ai_user_monthly_limit_usd ?? null) : null } // RPC from code runs: the per-member AI limit only (team-ai-limit.ts)
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { const r = await super.readOp(entity, principal, op, params); return (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r }
 
   /** Backoff after a failed push to ConnectionDO (in memory: a restart retries at once). */

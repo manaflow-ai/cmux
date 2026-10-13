@@ -6801,41 +6801,47 @@
         "cap_usd": {
           "required": true,
           "type": {
-            "kind": "union",
-            "variants": [
-              {
-                "kind": "primitive",
-                "name": "float64"
-              },
-              {
-                "kind": "enum",
-                "values": [
-                  "Infinity",
-                  "-Infinity",
-                  "NaN"
-                ]
-              }
-            ]
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
           }
         },
         "ceiling_usd": {
           "required": true,
           "type": {
-            "kind": "union",
-            "variants": [
-              {
-                "kind": "primitive",
-                "name": "float64"
-              },
-              {
-                "kind": "enum",
-                "values": [
-                  "Infinity",
-                  "-Infinity",
-                  "NaN"
-                ]
-              }
-            ]
+            "kind": "nullable",
+            "inner": {
+              "kind": "union",
+              "variants": [
+                {
+                  "kind": "primitive",
+                  "name": "float64"
+                },
+                {
+                  "kind": "enum",
+                  "values": [
+                    "Infinity",
+                    "-Infinity",
+                    "NaN"
+                  ]
+                }
+              ]
+            }
           }
         },
         "team_cap_usd": {
@@ -51087,7 +51093,7 @@
         "expose": "never",
         "group": "team"
       },
-      "docs": "Set the monthly AI spending limit for each member of the team (USD per person per UTC month; null = the default of 200). Owners, admins and billing members, in a person's session only. Recorded in the billing audit.",
+      "docs": "Set the monthly AI spending limit for each member of the team (USD per person per UTC month; null = the default of 200). The limit can be lowered; raising it above the default of 200 is not available yet. Owners, admins and billing members, in a person's session only. Recorded in the billing audit.",
       "since": "cloud-1",
       "input_json_schema": {
         "type": "object",
@@ -58056,30 +58062,44 @@
               "cap_usd": {
                 "anyOf": [
                   {
-                    "type": "number"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
                   },
                   {
-                    "type": "string",
-                    "enum": [
-                      "Infinity",
-                      "-Infinity",
-                      "NaN"
-                    ]
+                    "type": "null"
                   }
                 ]
               },
               "ceiling_usd": {
                 "anyOf": [
                   {
-                    "type": "number"
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Infinity",
+                          "-Infinity",
+                          "NaN"
+                        ]
+                      }
+                    ]
                   },
                   {
-                    "type": "string",
-                    "enum": [
-                      "Infinity",
-                      "-Infinity",
-                      "NaN"
-                    ]
+                    "type": "null"
                   }
                 ]
               },

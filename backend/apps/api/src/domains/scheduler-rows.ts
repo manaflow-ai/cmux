@@ -105,7 +105,7 @@ export const openRuns = (s: Pick<SchedulerState, "open_runs">, rows: RowReader |
 
 /** The public shape of a run (no dispatch fields, no body). */
 export const publicRun = (r: RunRecord | RunRow): Run => {
-  const { dispatched: _d, deadline_at: _dl, wall_clock_seconds: _w, ...run } = r as RunRecord & { body_hash?: string }
+  const { dispatched: _d, deadline_at: _dl, wall_clock_seconds: _w, charged_user: _c, ...run } = r as RunRecord & { body_hash?: string }
   const { body: _b, body_hash: _h, ...pub } = run as typeof run & { body_hash?: string }
   return pub
 }

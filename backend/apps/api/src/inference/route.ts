@@ -3,6 +3,10 @@ import { personalTeamIdFor } from "../domains/user.ts"
 import { isMachineInstallKind } from "../machine-installs.ts"
 import { authenticate } from "../auth.ts"
 import { principalForOwner, selectTeam, TEAM_HEADER } from "../team-select.ts"
+import { roleHas } from "../domains/team-roles.ts"
+
+/** Grant classes that may spend (any mutation or money class). */
+const SPEND_CLASSES: ReadonlySet<string> = new Set(["mutate-own", "mutate-shared", "money"])
 import { nextMonthStart, userLimitMicros } from "../usage-user.ts"
 import type { Env } from "../env.ts"
 import { cardCost, MODELS, modelById, type ModelEntry, type ProviderId } from "./catalog.ts"
@@ -67,6 +71,14 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
   if ("refused" in granted) return err(403, "auth.forbidden", granted.refused)
   const p = { ...granted, user: authed.user, team: selected.principal.team }
   if (p.kind === "install" && isMachineInstallKind(p.install_kind) && !switchOn(env.INFERENCE_MACHINES_ENABLED)) return err(403, "auth.forbidden", "machine installs cannot use the model router yet")
+  // Spending money is a mutation: an install whose grant is read-only uses no AI (review P3).
+  if (p.kind === "install" && !(p.grant_classes ?? []).some((c) => SPEND_CLASSES.has(c))) return err(403, "auth.forbidden", "this install's grant cannot spend on AI models")
+  // A machine install acts in its bound team without team selection's lookup: check the member's role there now (review P2).
+  if (p.kind === "install" && isMachineInstallKind(p.install_kind) && p.team !== personalTeamIdFor(p.user)) {
+    const role = await (env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)) as unknown as { memberRole(entity: string, user: string): Promise<string | null> }).memberRole(p.team, p.user).catch(() => undefined)
+    if (role === undefined) return err(503, "owner.unreachable", "team membership could not be checked; retry", { retryable: true })
+    if (!roleHas(role ?? undefined, "team.resources")) return err(403, "team.not_member", "not a member of this team")
+  }
   const allowed = (env.INFERENCE_ALLOWED_TEAMS ?? "").split(",").map((t) => t.trim()).filter(Boolean)
   if (allowed.length > 0 && !allowed.includes(p.team)) return err(403, "auth.forbidden", "this team cannot use the model router on this deployment yet")
   // Paid plans only (cx-ds09i): a personal team pays through its owner's personal plan, a shared

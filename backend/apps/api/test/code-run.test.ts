@@ -209,6 +209,23 @@ describe("Tier 1 code runs (workerd)", () => {
     expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.steps").quantity).toBe(0)
   })
 
+  it("charges a manual run to the member who started it, not to the automation's creator (cx-ds09i review P2)", async () => {
+    const bundle = `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      export default class extends WorkflowEntrypoint { async run(event, step) { await step.do("x", async () => 1); } }`
+    const { team, run } = await runOnce("code-run-13", sha(13), bundle)
+    expect(run.state).toBe("succeeded")
+    const meter = (env as unknown as { USAGE_METER_DO: DurableObjectNamespace }).USAGE_METER_DO.get((env as unknown as { USAGE_METER_DO: DurableObjectNamespace }).USAGE_METER_DO.idFromName(team))
+    let users: Array<string> = []
+    await inDO(meter, async (m) => {
+      users = m.ctx.storage.sql.exec(`SELECT user FROM user_month WHERE usd_micros > 0`).toArray().map((r: { user: string }) => r.user)
+    })
+    // runOnce creates the automation as user_cccc... and starts the run with the token of the "code-run-13" user.
+    expect(users.length).toBe(1)
+    expect(users[0]).not.toBe("user_cccccccccccccccccccc")
+    expect(users[0]).toMatch(/^user_[0-9a-f]{20}$/)
+  })
+
   it("fails with code.not_found when the bundle is missing, and the tenant has no network", async () => {
     const missing = await runOnce("code-run-4", sha(4), "", async () => {
       testBundles.delete(`${sha(4)}:automations/digest`)

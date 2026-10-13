@@ -13,13 +13,14 @@ import type { StackServer } from "../stack-server.ts"
  *   the owner's Stack user (UserDO.stackUserOf of the authenticated user) and calls this only
  *   for that user's own personal team id.
  *
- * A Stack failure keeps a copy up to PLAN_STALE_MS; with no usable copy the answer is
+ * A Stack failure keeps a copy up to PLAN_STALE_MS (2 h); with no usable copy the answer is
  * "unavailable" (503, retryable), never "unpaid", so an outage does not lock out a paying team.
  */
 export const PLAN_FRESH_MS = 10 * 60_000
 /** An unpaid answer is asked again sooner: a person who just bought a plan has no webhook for it. */
 export const UNPAID_FRESH_MS = 60_000
-export const PLAN_STALE_MS = 24 * 60 * 60_000
+/** During a Stack failure a stored copy answers at most this long after it was read (review P3). */
+export const PLAN_STALE_MS = 2 * 60 * 60_000
 /** After a failed Stack read, the stale copy answers without a new read for this long. */
 export const FAILURE_BACKOFF_MS = 60_000
 

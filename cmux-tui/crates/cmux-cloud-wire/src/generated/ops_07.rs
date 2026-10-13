@@ -612,7 +612,7 @@ wire_errors! {
 }
 
 wire_op! {
-    /// Set the monthly AI spending limit for each member of the team (USD per person per UTC month; null = the default of 200). Owners, admins and billing members, in a person's session only. Recorded in the billing audit.
+    /// Set the monthly AI spending limit for each member of the team (USD per person per UTC month; null = the default of 200). The limit can be lowered; raising it above the default of 200 is not available yet. Owners, admins and billing members, in a person's session only. Recorded in the billing audit.
     TeamAiLimitSetOp {
         name: "team.ai_limit.set",
         class: Mutation,

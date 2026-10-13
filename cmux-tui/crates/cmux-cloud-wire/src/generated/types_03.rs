@@ -486,8 +486,8 @@ pub struct UsageSummary {
     pub month: String,
     pub meters: Vec<UsageMeterLine>,
     pub total_usd: WireNumber,
-    pub cap_usd: WireNumber,
-    pub ceiling_usd: WireNumber,
+    pub cap_usd: Option<WireNumber>,
+    pub ceiling_usd: Option<WireNumber>,
     pub team_cap_usd: Option<WireNumber>,
     pub stopped: Option<UsageStopReason>,
 }

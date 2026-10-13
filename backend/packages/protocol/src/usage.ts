@@ -68,9 +68,11 @@ export const UsageSummary = Schema.Struct({
   meters: Schema.Array(UsageMeterLine),
   total_usd: Schema.Number,
   /** The cap in force: the team's own cap, never above the deployment ceiling. */
-  cap_usd: Schema.Number,
+  /** The cap in force; null = none (no team cap and no deployment ceiling). */
+  cap_usd: Schema.NullOr(Schema.Number),
   /** The deployment's ceiling per team per month (staff-set; 0 = automations off). */
-  ceiling_usd: Schema.Number,
+  /** The deployment's emergency ceiling; null = unset. */
+  ceiling_usd: Schema.NullOr(Schema.Number),
   /** The team's own lower cap, when set. */
   team_cap_usd: Schema.NullOr(Schema.Number),
   stopped: Schema.NullOr(UsageStopReason)

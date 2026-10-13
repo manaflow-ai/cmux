@@ -82,7 +82,8 @@ export const summarize = (state: UsageState, month: string, counters: ReadonlyMa
   const cap = effectiveCap(state, ceiling)
   const stopped: UsageStopReason | null = Number.isFinite(cap) && totalMicros >= Math.round(cap * 1_000_000) ? "cap.reached" : null
   const total = usd(totalMicros)
-  return { owner: state.owner, month, meters: meters.map(({ micros: _m, ...line }) => line), total_usd: total, cap_usd: cap, ceiling_usd: ceiling, team_cap_usd: state.team_cap_usd, stopped }
+  // JSON has no Infinity: an absent cap or ceiling is null on the wire (review item 9).
+  return { owner: state.owner, month, meters: meters.map(({ micros: _m, ...line }) => line), total_usd: total, cap_usd: Number.isFinite(cap) ? cap : null, ceiling_usd: Number.isFinite(ceiling) ? ceiling : null, team_cap_usd: state.team_cap_usd, stopped }
 }
 
 export const usageDomain: Domain<UsageState> = {
