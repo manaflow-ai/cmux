@@ -95,8 +95,11 @@ import Testing
         #expect(ComposerBarGeometry.showsRecordGlyph(iOS27: true, sentAudio: false))
     }
 
+    /// Messages 27.0 tints its disabled plus with tertiaryLabel's hue; on
+    /// its glass the stroke reads 188 over 252 light and 96 over 59 dark,
+    /// where ours (the label at 30 %) read 176 and 112.
     @Test func disabledPlusInk() {
-        #expect(ComposerBarGeometry.disabledPlusAlpha(iOS27: false) == 0.24)
-        #expect(ComposerBarGeometry.disabledPlusAlpha(iOS27: true) == 0.3)
+        #expect(ComposerBarGeometry.disabledPlusInk(iOS27: false) == .label(alpha: 0.24))
+        #expect(ComposerBarGeometry.disabledPlusInk(iOS27: true) == .tertiaryHue(lightAlpha: 0.335, darkAlpha: 0.21))
     }
 }
