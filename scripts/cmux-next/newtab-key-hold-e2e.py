@@ -12,7 +12,7 @@ Checks, through the debug socket as a person's keys (`debug.key`, `debug.new_tab
 1. Cmd-T then typing in the same main-actor turn: the text lands in the New Tab field and the hold ends.
 2. Cmd-T, back to the terminal, then typing, all in one turn (the page is left before it could report
    ready): the hold ends, the text reaches the terminal, and Cmd-T opens a New Tab page again.
-It holds `tabs.newTabKind` at "page" and restores it. It never launches or quits the app.
+It never launches or quits the app.
 
 Usage: newtab-key-hold-e2e.py --socket /tmp/cmux-debug-<tag>.sock
 Exit status 0 when every check passes.
@@ -146,15 +146,7 @@ def checks():
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
-    kind = (rpc("settings.get", {"path": "tabs.newTabKind"}) or {}).get("value")
-    print("settings.set tabs.newTabKind page:", rpc("settings.set", {"path": "tabs.newTabKind", "value": "page"}), flush=True)
-    try:
-        checks()
-    finally:
-        if kind is None:
-            rpc("settings.unset", {"path": "tabs.newTabKind"})
-        else:
-            rpc("settings.set", {"path": "tabs.newTabKind", "value": kind})
+    checks()
 
 
 main()

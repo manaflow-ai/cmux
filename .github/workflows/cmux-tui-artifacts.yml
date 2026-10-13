@@ -327,10 +327,13 @@ jobs:
             [[ "$complete" == true ]]
           }
           tree_ready=false
+          published_key=""
           if tree_complete "$key"; then
             tree_ready=true
+            published_key="$key"
           elif [[ "$legacy_key" != "$key" ]] && tree_complete "$legacy_key"; then
             tree_ready=true
+            published_key="$legacy_key"
             echo "Tree $key is published under its v1 key $legacy_key; fetch reads it there (CMUX-TUI-TREE-KEY-V2)."
           fi
           if [[ "$tree_ready" == true ]]; then
@@ -430,11 +433,25 @@ jobs:
           echo "owner_run_id=$owner_run_id" >> "$GITHUB_OUTPUT"
           echo "tree_ready=$tree_ready" >> "$GITHUB_OUTPUT"
 
+          # A cmux-tui-pin-* push also repairs a tree's Windows daemon and
+          # publishes its commit's own binaries for cmux-tui.pin
+          # (pin-cmux-tui.sh), so it skips only a true duplicate: 222 pin
+          # builds took 25,215 minutes on 2026-10-12 (cx-urd.26).
+          pin_duplicate=false
+          if [[ "$tree_ready" == true && "$REF" == refs/heads/cmux-tui-pin-* ]] &&
+              curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 -o /dev/null \
+                "https://files.cmux.com/cmux-tui/tree/$published_key/completion-windows.json?preflight=$RUN_ID" 2>/dev/null &&
+              curl --head --fail --silent --show-error --connect-timeout 5 --max-time 15 -o /dev/null \
+                "https://files.cmux.com/cmux-tui/$SHA/manifest.json?preflight=$RUN_ID" 2>/dev/null; then
+            pin_duplicate=true
+            echo "Tree $published_key, its Windows daemon and commit $SHA's binaries are published; this pin push builds nothing (dispatch to republish)."
+          fi
+
           # Main still needs commit-addressed artifacts and latest/ updates.
           # Other trusted refs only spend macOS time for a new tree.
           if [[ "$tree_ready" == true && "$REF" != refs/heads/main &&
                 "$EVENT_NAME" != workflow_dispatch &&
-                "$REF" != refs/heads/cmux-tui-pin-* ]]; then
+                ( "$REF" != refs/heads/cmux-tui-pin-* || "$pin_duplicate" == true ) ]]; then
             run_macos=false
           fi
           echo "run_macos=$run_macos" >> "$GITHUB_OUTPUT"
@@ -445,7 +462,7 @@ jobs:
     if: needs.tree-preflight.result == 'success' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
     needs: tree-preflight
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 60
+    timeout-minutes: 10
     outputs:
       takeover: ${{ steps.wait.outputs.takeover }}
     permissions:
@@ -506,60 +523,82 @@ jobs:
           PY
           }
           poll=0
+          deferred=false
           if [[ -n "$OWNER_RUN_ID" ]]; then
-            # An owner still running is waited for, up to the cap: taking over
-            # from a live owner builds the key twice (and, for the same commit,
-            # hits the write-once commit objects). The owner took 21.5 min
-            # unloaded (run 38124282410).
-            deadline=$(( $(date +%s) + 3300 ))
-            while (( $(date +%s) < deadline )); do
-              poll=$((poll + 1))
-              if tree_ready; then
-                echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
+            # One look, no waiting (cx-urd.26). Polling a live owner for up to
+            # 55 minutes held 21,801 runner minutes on 2026-10-12, and 221 of
+            # 765 waits built the key anyway after a chain of failed owners.
+            # A run that defers leaves a cmux-tui-tree-deferred-<key> artifact;
+            # an owner that ends without publishing re-runs one deferred run
+            # (notify-unpublished-tree), which then wins the claim and builds.
+            # Taking over from a live owner would build the key twice and hit
+            # the write-once commit objects.
+            poll=$((poll + 1))
+            owner_state="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
+              -u "x-access-token:$GH_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" \
+              | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("status", "unknown"), d.get("conclusion", ""))' \
+              2>/dev/null || echo unknown)"
+            owner_ended=false
+            [[ "$owner_state" == completed* ]] && owner_ended=true
+            if tree_ready; then
+              echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
+              takeover=false
+            elif [[ "$owner_state" == in_progress* || "$owner_state" == queued* || "$owner_state" == waiting* || "$owner_state" == pending* ]]; then
+              # A live owner builds; the claim is not asked, since an owner the
+              # run-list fallback elected holds no claim to refuse a second one.
+              echo "Owner run $OWNER_RUN_ID ($owner_state) owns tree $KEY; this run builds nothing, and is re-run if that owner ends unpublished."
+              takeover=false
+              deferred=true
+            # The owner ended, or its status could not be read: the claim
+            # decides. It is granted only after the key's owner run completed,
+            # so two runs that see the owner end together cannot both build.
+            elif claim="$(scripts/ci/cmux-tui-tree-claim.sh "$KEY")"; then
+              next_owner="${claim#owner=}"; next_owner="${next_owner%% *}"
+              if [[ "$claim" != *"granted=true" && "$owner_ended" == true && "$next_owner" == "$OWNER_RUN_ID" ]]; then
+                # The authority may not have seen the owner end yet: ask once more.
+                sleep 20
+                claim="$(scripts/ci/cmux-tui-tree-claim.sh "$KEY")" || claim="owner=$OWNER_RUN_ID granted=false"
+                next_owner="${claim#owner=}"; next_owner="${next_owner%% *}"
+              fi
+              if [[ "$claim" == *"granted=true" ]]; then
+                echo "Owner run $OWNER_RUN_ID ($owner_state) left tree $KEY unpublished; this run won the claim and takes over."
+              elif [[ "$owner_ended" == true && "$next_owner" == "$OWNER_RUN_ID" ]]; then
+                echo "Owner run $OWNER_RUN_ID ended, and the claim still names it; taking over tree $KEY."
+              else
+                echo "Run $next_owner owns tree $KEY ($owner_state); this run builds nothing, and is re-run if that owner ends unpublished."
                 takeover=false
-                break
+                deferred=true
               fi
-              owner_state="$(curl --fail --silent --show-error --connect-timeout 5 --max-time 15 \
-                -u "x-access-token:$GH_TOKEN" \
-                -H 'Accept: application/vnd.github+json' \
-                "$API_URL/repos/$REPOSITORY/actions/runs/$OWNER_RUN_ID" \
-                | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("status", "unknown"), d.get("conclusion", ""))' \
-                2>/dev/null || echo unknown)"
-              if [[ "$owner_state" == completed* || "$owner_state" == cancelled* || "$owner_state" == failure* ]]; then
-                # It may have published between the two reads.
-                poll=$((poll + 1))
-                if tree_ready; then
-                  echo "Tree $KEY was published by run $OWNER_RUN_ID; skipping duplicate build."
-                  takeover=false
-                  break
-                fi
-                # Take over only by winning the key's claim: two waiters that
-                # see the owner end together cannot both build. Another winner
-                # becomes the owner to wait for; no authority keeps the old rule.
-                if claim="$(scripts/ci/cmux-tui-tree-claim.sh "$KEY")"; then
-                  if [[ "$claim" == *"granted=true" ]]; then
-                    echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; this run won the claim and takes over."
-                    break
-                  fi
-                  next_owner="${claim#owner=}"; next_owner="${next_owner%% *}"
-                  echo "Owner run $OWNER_RUN_ID ended; run $next_owner won the claim for tree $KEY; waiting for it."
-                  OWNER_RUN_ID="$next_owner"
-                  sleep 60
-                  continue
-                fi
-                echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; taking over."
-                break
-              fi
-              echo "Waiting for owner run $OWNER_RUN_ID to publish tree $KEY."
-              sleep 60
-            done
-            if [[ "$takeover" == true && $(date +%s) -ge "$deadline" ]]; then
-              echo "::warning::owner wait expired for tree $KEY; taking over publication"
+            elif [[ "$owner_ended" == true ]]; then
+              echo "Owner run $OWNER_RUN_ID ended before publishing tree $KEY; taking over."
+            else
+              echo "Owner run $OWNER_RUN_ID ($owner_state) owns tree $KEY; this run builds nothing, and is re-run if that owner ends unpublished."
+              takeover=false
+              deferred=true
             fi
           else
             echo "This run owns tree $KEY; building and publishing it."
           fi
+          echo "deferred=$deferred" >> "$GITHUB_OUTPUT"
           echo "takeover=$takeover" >> "$GITHUB_OUTPUT"
+
+      # The marker the key's owner reads if it ends without publishing.
+      - name: Mark this run as deferred to the key's owner
+        if: steps.wait.outputs.deferred == 'true'
+        continue-on-error: true
+        run: printf '%s\n' "$KEY" > "$RUNNER_TEMP/deferred-key"
+        env:
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+      - if: steps.wait.outputs.deferred == 'true'
+        continue-on-error: true
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: cmux-tui-tree-deferred-${{ needs.tree-preflight.outputs.key }}
+          path: ${{ runner.temp }}/deferred-key
+          retention-days: 1
+          overwrite: true
 
   build:
     if: >-
@@ -904,8 +943,9 @@ jobs:
           merge-multiple: true
 
       # The Windows build artifact (cmux-tui-x86_64-pc-windows-gnu) carries
-      # the hook and both relays too. Only the daemon is published, and in
-      # its own prefix (see the build job).
+      # the hook and both relays too. Only the daemon and its per-terminal
+      # host (cmux-tui-host, cx-1vlzr: the daemon spawns it beside itself)
+      # are published, and in their own prefix (see the build job).
       - name: Move the Windows daemon to its own prefix
         id: windows
         run: |
@@ -918,6 +958,13 @@ jobs:
           echo "present=true" >> "$GITHUB_OUTPUT"
           mkdir -p assets/cmux-tui-windows
           mv assets/cmux-tui/cmux-tui-x86_64-pc-windows-gnu.exe assets/cmux-tui-windows/
+          # The same build always makes the host: a daemon without it falls
+          # back to the slow re-exec of itself (cx-1vlzr), so require it.
+          if [[ ! -f assets/cmux-tui/cmux-tui-host-x86_64-pc-windows-gnu.exe ]]; then
+            echo "::error title=no Windows terminal host::the Windows build made cmux-tui-x86_64-pc-windows-gnu.exe but no cmux-tui-host-x86_64-pc-windows-gnu.exe"
+            exit 1
+          fi
+          mv assets/cmux-tui/cmux-tui-host-x86_64-pc-windows-gnu.exe assets/cmux-tui-windows/
           # The rest of the Windows build: the hook and both relays.
           rm -f assets/cmux-tui/*-x86_64-pc-windows-gnu.exe
           ls assets/cmux-tui assets/cmux-tui-windows
@@ -1174,6 +1221,7 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
             --artifact-directory assets/cmux-tui
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1181,6 +1229,7 @@ jobs:
               --expected-commit "$GITHUB_SHA" \
               --require-provenance \
               --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --require-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
               --artifact-directory assets/cmux-tui-windows
           fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1388,6 +1437,7 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1395,6 +1445,7 @@ jobs:
               --expected-commit "$GITHUB_SHA" \
               --require-provenance \
               --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --require-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
           fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1485,6 +1536,7 @@ jobs:
             --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1492,6 +1544,7 @@ jobs:
               --expected-commit "$GITHUB_SHA" \
               --require-provenance \
               --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
+              --require-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
           fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1528,6 +1581,7 @@ jobs:
               --require-artifact cmux-tui-browser-host-x86_64-apple-darwin \
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
+              --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
               --artifact-base-url "https://files.cmux.com/cmux-tui/latest"
             python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/cmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
@@ -1806,6 +1860,11 @@ jobs:
               echo "::warning title=no Windows daemon::this run built no $asset; the tree keeps an earlier Windows build or none"
             fi
           done
+          for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
+            if [[ -f "assets/windows/$asset" ]]; then
+              cp "assets/windows/$asset" "assets/tree/$asset"
+            fi
+          done
           rm -rf assets/windows
 
       - name: Publish the complete tree with the trusted helper
@@ -1905,6 +1964,13 @@ jobs:
             for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
               fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
             done
+            # Optional (cx-1vlzr host): only when that commit's manifest
+            # attests it; a Windows build from before it has none.
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-optional-companions); do
+              if python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("binaries", {}).get(sys.argv[2]) else 1)' tree/windows-manifest.json "$asset"; then
+                fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
+              fi
+            done
             windows_args=(--windows-manifest-file tree/windows-manifest.json --windows-source-commit "$windows_commit")
           else
             echo "::warning title=tree without Windows::tree $KEY is published without the Windows daemon (the optional Windows build made none); a later republication adds it"
@@ -1974,11 +2040,14 @@ jobs:
   # commit whose own run here was replaced by a newer push is not lost.
   request-nightly-next:
     name: request nightly-next promotion
-    # A run that waited for the tree's owner (tree-owner-wait takeover
-    # false) promotes too: the owner may be another branch's run of the
-    # same commit, which never promotes.
+    # A feat-cmux-next run whose tree another run owns (tree-owner-wait
+    # takeover false) asks too, in case that owner already published. Since
+    # such a run no longer waits for the owner (cx-urd.26), a publishing run
+    # on any other branch also asks, for the newest recent feat-cmux-next
+    # commit that shares its key: the owner of a feat-cmux-next commit's key
+    # is often the branch run of the same tree.
     needs: [tree-preflight, tree-owner-wait, publish-tree]
-    if: ${{ !cancelled() && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.tree-preflight.result == 'success' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.takeover == 'false' || needs.publish-tree.result == 'success') && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    if: ${{ !cancelled() && github.event_name == 'push' && needs.tree-preflight.result == 'success' && ((github.ref == 'refs/heads/feat-cmux-next' && (needs.tree-preflight.outputs.tree_ready == 'true' || needs.tree-owner-wait.outputs.takeover == 'false' || needs.publish-tree.result == 'success')) || (github.ref != 'refs/heads/feat-cmux-next' && needs.publish-tree.result == 'success')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     # One fetch of the branch's recent history plus a jobs lookup per candidate.
     timeout-minutes: 15
@@ -1988,17 +2057,39 @@ jobs:
       actions: write
       contents: read
     steps:
+      # Another branch's run asks from feat-cmux-next's own checkout and
+      # scripts, at the commit it may promote.
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          ref: ${{ github.sha }}
-          fetch-depth: 1
+          ref: ${{ github.ref == 'refs/heads/feat-cmux-next' && github.sha || 'refs/heads/feat-cmux-next' }}
+          fetch-depth: ${{ github.ref == 'refs/heads/feat-cmux-next' && 1 || 40 }}
 
       - name: Request nightly-next promotion on main
         env:
           GH_TOKEN: ${{ github.token }}
-          SHA: ${{ github.sha }}
-        run: scripts/cmux-next/request-nightly-next.sh --tree-ready "$SHA" --repo "$GITHUB_REPOSITORY"
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+        run: |
+          set -euo pipefail
+          sha="$(git rev-parse HEAD)"
+          if [[ "$GITHUB_REF" != refs/heads/feat-cmux-next ]]; then
+            # The head may have moved past the commits with this key while
+            # this run built it.
+            found=""
+            while read -r commit; do
+              if [[ "$(python3 scripts/ci/cmux_tui_tree_key.py --version v2 "$commit" 2>/dev/null)" == "$KEY" ]]; then
+                found="$commit"
+                break
+              fi
+            done < <(git rev-list --first-parent -n 40 HEAD)
+            if [[ -z "$found" ]]; then
+              echo "No recent feat-cmux-next commit has tree $KEY; their own runs ask for their promotion."
+              exit 0
+            fi
+            git checkout -q --detach "$found"
+            sha="$found"
+          fi
+          scripts/cmux-next/request-nightly-next.sh --tree-ready "$sha" --repo "$GITHUB_REPOSITORY"
 
   # A same-repository pull request is built by the trusted pull_request_target
   # workflow above. The build job has no R2 credentials; this job receives only
@@ -2148,7 +2239,9 @@ jobs:
   # cmux-tui-pin-* push) still starts their tree jobs.
   notify-unpublished-tree:
     name: report an unpublished cmux-tui tree to cmux-next
-    needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree]
+    # The macOS cross jobs keep the run in progress; waiting for them makes this the run's last
+    # job, so a run re-run below finds this owner ended (cx-urd.26).
+    needs: [tree-preflight, tree-owner-wait, build, cmux-next-daemon-tests, publish, publish-tree, publish-pr-tree, macos-cross-shadow, macos-cross-runtime-x86_64]
     if: ${{ always() && needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.tree_ready != 'true' && needs.tree-preflight.outputs.run_macos == 'true' && needs.tree-owner-wait.outputs.takeover == 'true' && needs.publish-tree.result != 'success' && needs.publish-pr-tree.result != 'success' && (github.event_name == 'pull_request_target' || github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
     timeout-minutes: 5
@@ -2172,3 +2265,31 @@ jobs:
         run: |
           python3 scripts/ci/cmux_next_tree_notify.py --repo "$GITHUB_REPOSITORY" --key "$KEY" --state failed \
             --reason "the cmux-tui artifacts run $RUN_URL ended without publishing tree $KEY (build, daemon tests or publish failed); re-run it, and its publish starts the tree jobs"
+
+      # Runs of this key that deferred to this one (tree-owner-wait) left a
+      # cmux-tui-tree-deferred-<key> artifact and ended. Re-run one, a
+      # feat-cmux-next push first, so it wins the claim and builds the key.
+      # Each marker is used once, so failing owners cannot re-run each other
+      # forever.
+      - name: Hand the key to a run that deferred to this one
+        if: github.event_name == 'push'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEY: ${{ needs.tree-preflight.outputs.key }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          candidates="$(gh api "repos/$GITHUB_REPOSITORY/actions/artifacts?name=cmux-tui-tree-deferred-$KEY&per_page=100" \
+            --jq '.artifacts[] | select(.expired | not) | [.id, .workflow_run.id, .workflow_run.head_branch] | @tsv' \
+            | awk -F '\t' -v self="$RUN_ID" '$2 != self { print ($3 == "feat-cmux-next" ? 1 : 0) "\t" $0 }' \
+            | sort -t "$(printf '\t')" -k1,1nr -k3,3nr | cut -f2-)"
+          [[ -n "$candidates" ]] || { echo "No run of tree $KEY deferred to this one."; exit 0; }
+          while IFS=$'\t' read -r artifact run branch; do
+            if gh run rerun "$run" --repo "$GITHUB_REPOSITORY"; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$artifact" >/dev/null || true
+              echo "Re-ran run $run ($branch), which deferred to this one, to build tree $KEY."
+              exit 0
+            fi
+          done <<<"$candidates"
+          echo "::warning::no run that deferred tree $KEY to this one could be re-run"

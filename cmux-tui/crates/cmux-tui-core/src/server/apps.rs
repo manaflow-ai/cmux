@@ -187,22 +187,8 @@ pub(super) fn user_origin_allowed(mux: &Mux, client: u64) -> bool {
 
 /// What the daemon knows about `client` for the hosting-app check.
 fn claim_for(mux: &Mux, client: u64) -> crate::apps::ProviderClaim {
-    // Proved, never declared: the install-key hello or the app's code
-    // signature (P8, server/app_trust.rs). `set-client-info kind` and a
-    // page relay never count.
-    let verified_app = {
-        let state =
-            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.clients.get(&client).is_some_and(|record| {
-            record.origin.derive() == crate::request_origin::RequestOrigin::User
-        })
-    };
-    crate::apps::ProviderClaim {
-        // An agent's conversation binding; switches to the identity lane's
-        // terminal/acp_session actor with `agent` once it lands.
-        agent: mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER,
-        verified_app,
-    }
+    let facts = super::origin_gate::app_connection(mux, client);
+    crate::apps::ProviderClaim { agent: facts.agent, verified_app: facts.verified_app }
 }
 
 #[derive(Deserialize)]

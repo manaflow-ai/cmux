@@ -6,7 +6,11 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     public var buildCommit: String?
     public var ghosttyCommit: String?
     public var protocolVersion: Int
-    public var capabilities: [String]
+    public var capabilities: [String] { didSet { capabilitySet = Self.lookup(capabilities) } }
+    /// `capabilities` for ``supports(_:)``, as native strings: the app asks per
+    /// tab per snapshot, and a linear scan of decoded (bridged) strings held
+    /// the main thread in CoreFoundation and allocator locks (cx-6so.21).
+    private var capabilitySet: Set<String>
     public var session: String
     public var pid: Int32
     public var registryID: String?
@@ -19,7 +23,11 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
     /// next launch before it connects (`LaunchSnapshot`).
     public var launchSnapshotPath: String?
 
-    public func supports(_ capability: String) -> Bool { capabilities.contains(capability) }
+    public func supports(_ capability: String) -> Bool { capabilitySet.contains(capability) }
+
+    private static func lookup(_ capabilities: [String]) -> Set<String> {
+        Set(capabilities.map { var native = $0; native.makeContiguousUTF8(); return native })
+    }
 
     /// The session's stable identity: `registry_id`, the UUID its SQLite
     /// registry records once. It survives daemon restarts, in-place upgrades
@@ -49,6 +57,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         self.ghosttyCommit = ghosttyCommit
         self.protocolVersion = protocolVersion
         self.capabilities = capabilities
+        capabilitySet = Self.lookup(capabilities)
         self.session = session
         self.pid = pid
         self.registryID = registryID
@@ -78,6 +87,7 @@ public struct DaemonIdentity: Sendable, Hashable, Decodable {
         ghosttyCommit = try c.decodeIfPresent(String.self, forKey: .ghosttyCommit)
         protocolVersion = try c.decode(Int.self, forKey: .protocolVersion)
         capabilities = try c.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+        capabilitySet = Self.lookup(capabilities)
         session = try c.decodeIfPresent(String.self, forKey: .session) ?? ""
         pid = try c.decodeIfPresent(Int32.self, forKey: .pid) ?? 0
         registryID = try c.decodeIfPresent(String.self, forKey: .registryID)

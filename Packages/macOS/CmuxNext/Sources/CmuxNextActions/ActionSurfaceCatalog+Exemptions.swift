@@ -149,6 +149,7 @@ nonisolated extension ActionSurfaceCatalog {
             "palette.openFilesPane",
         ],
         .guiOnly: [
+            "agentHistory.show",
             "notifications.dismissHighlight", "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
             "closeAllWindows", "zoomWindow", "selectNextWindow", "selectPreviousWindow",
             "palette.openTaskManager", "palette.sleepyMode", "about",

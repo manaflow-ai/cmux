@@ -102,16 +102,13 @@ extension NewTabPage {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the
             // terminal is made follow it in order (NewTabTypeAhead).
-            services.newTabKinds.record(.terminal, folder: cwd)
             let typeAhead = services.newTabTypeAhead
             if typeAhead.latest(key).isEmpty, !request.text.isEmpty { typeAhead.update(key, text: request.text) }
             pane.newTerminalTab(cwd: cwd, typingAhead: key, then: closePage)
         case .terminal:
             guard let command = command(request.text) else { return }
-            services.newTabKinds.record(.terminal, folder: cwd)
             pane.newTerminalTab(cwd: cwd, typing: command, then: closePage)
         case .browser:
-            services.newTabKinds.record(.browser(engine: nil), folder: cwd)
             let resolver = services.cache.suggestionEngine.resolver
             let text = request.text.trimmingCharacters(in: .whitespacesAndNewlines)
             let url = request.search

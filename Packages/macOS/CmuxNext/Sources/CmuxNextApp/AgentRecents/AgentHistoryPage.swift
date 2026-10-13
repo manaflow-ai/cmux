@@ -1,11 +1,10 @@
 import CmuxNextAgentPane
 import Foundation
 
-/// Agent history (cx-zlnl, Leo 2026-10-10): the sidebar's History dot opens every coding agent
-/// chat on this device, newest first, like a browser's history page. It is the New Tab page's
-/// own All chats list (cx-n0i9) on a page of its own, so it pages the same chat index
-/// (`chats.page`) and opens through the same Open Chat path; Bring into Active Sessions opens
-/// each picked chat in a new workspace of the current space.
+/// Agent history (cx-zlnl; Show Agent History on the palette and Window menu, cx-qno.24): every
+/// coding agent chat on this device, newest first. It is the New Tab page's All chats list
+/// (cx-n0i9) on a page of its own: the same chat index (`chats.page`) and Open Chat path;
+/// Bring into Active Sessions opens each picked chat in a new workspace of the current space.
 enum AgentHistoryPage {
     /// The History page in `pane`: the one it shows already stays, else a new tab beside it.
     static func open(in pane: PaneController) {

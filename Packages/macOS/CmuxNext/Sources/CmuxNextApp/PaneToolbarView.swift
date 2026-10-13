@@ -1,33 +1,25 @@
 import AppKit
-import CmuxNextActions
 import CmuxNextDesign
 
-/// One button of a pane's toolbar: an action's symbol, its title and key in the tooltip.
-struct PaneToolbarItem: Equatable {
-    let id: ActionID
-    let title: String
-    let symbol: String
-    let shortcut: String?
-    /// On: the zoom button of a zoomed pane.
-    var lit = false
-}
-
-/// The pane's buttons at the tab bar's trailing end (``PaneToolbar``, cx-kk7lm): a few action
-/// symbols and "…" for the rest. A button's right-click offers Hide <title> Button, the row's and
-/// "…"'s right-click Show for each hidden one (the HideableChrome rule, webviews/src/ui).
+/// The pane's one control at the tab bar's trailing end (``PaneToolbar``; Leo 2026-10-12): "…",
+/// which fades in while the pointer is over the pane's top-right corner (`HoverReveal`, like the
+/// strip's plus; the corner reaches ``cornerReach`` left of "…" over the tab bar) and while its menu
+/// is open, and stays shown and lit while the pane is zoomed.
+/// Its menu opens on press (press-drag-release) and lists what opens in the pane, then the shown
+/// tab's own actions.
 final class PaneToolbarView: NSView {
-    /// Runs a button's action, or a "…" menu's.
-    var onPerform: ((ActionID) -> Void)?
-    /// Hide (false) or Show (true) for a button.
-    var onSetShown: ((ActionID, Bool) -> Void)?
-    /// "…": the menu of the actions without a button.
+    /// "…"'s menu; nil or empty offers nothing.
     var moreMenu: (() -> NSMenu?)?
 
-    private(set) var shown: [PaneToolbarItem] = []
-    private(set) var hiddenItems: [PaneToolbarItem] = []
     private(set) var hasMore = false
-    private(set) var buttons: [TitlebarBandButton] = []
+    private(set) var lit = false
     let moreButton = TitlebarBandButton(symbol: "ellipsis")
+    /// The corner's own tracking area (``refreshCorner()``) reports the pointer.
+    private(set) lazy var reveal = HoverReveal(region: self, tracksPointer: false)
+    /// How far left of "…" the corner reaches over the tab bar.
+    static let cornerReach: CGFloat = 96
+    private var corner: NSTrackingArea?
+    private weak var cornerHost: NSView?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -36,8 +28,17 @@ final class PaneToolbarView: NSView {
         moreButton.longPressOpensMenu = false
         moreButton.setAccessibilityLabel(PaneToolbarStrings.more)
         moreButton.themedToolTip = PaneToolbarStrings.more
-        moreButton.menuProvider = { [weak self] in self?.showMenu() }
+        moreButton.pressMenu = { [weak self] in self?.moreMenu?() }
+        // "…" stays shown while its menu is up: the pointer leaves the corner for the menu.
+        let present = moreButton.presentMenu
+        moreButton.presentMenu = { [weak self] menu, button in
+            let hold = self?.reveal.hold()
+            present(menu, button)
+            hold?.release()
+        }
+        moreButton.isHidden = true
         addSubview(moreButton)
+        _ = reveal.add(moreButton)
     }
 
     @available(*, unavailable)
@@ -46,113 +47,109 @@ final class PaneToolbarView: NSView {
     override var isFlipped: Bool { true }
     override var mouseDownCanMoveWindow: Bool { false }
 
-    /// The buttons to show, whether "…" shows, and the hidden ones Show brings back.
-    func show(_ shown: [PaneToolbarItem], more: Bool, hidden: [PaneToolbarItem]) {
-        hiddenItems = hidden
-        guard shown != self.shown || more != hasMore else { return }
-        self.shown = shown
+    /// Whether "…" has a menu, and whether it is lit (the pane is zoomed: shown without hover).
+    func show(more: Bool, lit: Bool) {
+        guard more != hasMore || lit != self.lit else { return }
         hasMore = more
-        buttons.forEach { $0.removeFromSuperview() }
-        buttons = shown.enumerated().map { index, item in
-            let button = TitlebarBandButton(symbol: item.symbol)
-            button.tag = index
-            button.target = self
-            button.action = #selector(press(_:))
-            button.longPressOpensMenu = false
-            button.setAccessibilityLabel(item.title)
-            button.themedToolTip = item.title
-            button.themedToolTipShortcut = item.shortcut
-            // The lit zoom button says the pane is zoomed: nothing to hide.
-            button.menuProvider = item.lit ? nil : { [weak self] in self?.hideMenu(item) }
-            button.state = item.lit ? .on : .off
-            if item.lit { button.contentTintColor = performWithTheme { Palette.accent } }
-            addSubview(button)
-            return button
-        }
+        self.lit = lit
         moreButton.isHidden = !more
+        moreButton.state = lit ? .on : .off
+        applyTint()
+        reveal.isEnabled = !lit
         invalidateIntrinsicContentSize()
         needsLayout = true
         superview?.needsLayout = true // the strip gives up this width (PaneContentView+Toolbar)
+        refreshCorner()
     }
 
-    /// Nothing shown: no width, so the strip keeps the whole bar.
+    /// Nothing to offer: no width, so the strip keeps the whole bar.
     override var intrinsicContentSize: NSSize {
-        let count = buttons.count + (hasMore ? 1 : 0)
-        guard count > 0 else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
-        let side = TitlebarBandButton.side
-        return NSSize(width: CGFloat(count) * side + CGFloat(count - 1) * Metrics.space1 / 2 + Metrics.space2, height: NSView.noIntrinsicMetric)
+        guard hasMore else { return NSSize(width: 0, height: NSView.noIntrinsicMetric) }
+        return NSSize(width: TitlebarBandButton.side + Metrics.space2, height: NSView.noIntrinsicMetric)
     }
 
     override func layout() {
         super.layout()
         let side = TitlebarBandButton.side
-        var x: CGFloat = 0
-        for button in buttons + (hasMore ? [moreButton] : []) {
-            button.frame = NSRect(x: x, y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
-            x += side + Metrics.space1 / 2
+        moreButton.frame = NSRect(x: 0, y: ((bounds.height - side) / 2).rounded(), width: side, height: side)
+        applyTint()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applyTint()
+    }
+
+    /// Lit: the accent; else the chrome's secondary text. Runs again on a theme change.
+    private func applyTint() {
+        moreButton.contentTintColor = performWithTheme { lit ? Palette.accent : Palette.textSecondary }
+    }
+
+    // MARK: The corner
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        applyTint()
+        refreshCorner()
+    }
+
+    override func setFrameOrigin(_ newOrigin: NSPoint) {
+        super.setFrameOrigin(newOrigin)
+        refreshCorner()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        refreshCorner()
+    }
+
+    override func viewDidHide() {
+        super.viewDidHide()
+        refreshCorner()
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        refreshCorner()
+    }
+
+    /// Tracks the pane's top-right corner in the superview: this view's frame and ``cornerReach``
+    /// to its left, so the tab bar's end reveals "…" too. Reads the pointer once, so a corner that
+    /// moves under a still pointer is right before the next move.
+    private func refreshCorner() {
+        if let corner { cornerHost?.removeTrackingArea(corner) }
+        corner = nil
+        guard let host = superview, let window, hasMore, !isHiddenOrHasHiddenAncestor else {
+            reveal.setPointerInside(false)
+            return
         }
+        var rect = frame
+        rect.origin.x -= Self.cornerReach
+        rect.size.width += Self.cornerReach
+        let area = NSTrackingArea(rect: rect, options: [.mouseEnteredAndExited, .activeAlways], owner: self, userInfo: nil)
+        host.addTrackingArea(area)
+        corner = area
+        cornerHost = host
+        reveal.setPointerInside(rect.contains(host.convert(window.mouseLocationOutsideOfEventStream, from: nil)))
     }
 
-    override func rightMouseDown(with event: NSEvent) {
-        guard let menu = showMenu() else { return super.rightMouseDown(with: event) }
-        NSMenu.popUpContextMenu(menu, with: event, for: self)
-    }
+    // The corner is this view's only tracking area (the reveal's probe and "…"'s hover own theirs).
+    override func mouseEntered(with event: NSEvent) { reveal.setPointerInside(true) }
+    override func mouseExited(with event: NSEvent) { reveal.setPointerInside(false) }
 
-    @objc private func press(_ sender: TitlebarBandButton) {
-        guard shown.indices.contains(sender.tag) else { return }
-        onPerform?(shown[sender.tag].id)
-    }
-
+    /// A keyboard or VoiceOver press; a pointer press opens the menu on mouse-down.
     @objc private func openMore() {
         guard let menu = moreMenu?(), !menu.items.isEmpty else { return }
-        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: moreButton, gap: Metrics.space1), in: moreButton)
-    }
-
-    /// A button's right-click: Hide <title> Button.
-    func hideMenu(_ item: PaneToolbarItem) -> NSMenu {
-        let menu = NSMenu()
-        menu.addItem(menuItem(PaneToolbarStrings.hide(item.title), item, shown: false))
-        return menu
-    }
-
-    /// The row's right-click: Show <title> Button for each hidden one; none with nothing hidden.
-    func showMenu() -> NSMenu? {
-        guard !hiddenItems.isEmpty else { return nil }
-        let menu = NSMenu()
-        hiddenItems.forEach { menu.addItem(menuItem(PaneToolbarStrings.show($0.title), $0, shown: true)) }
-        return menu
-    }
-
-    private func menuItem(_ title: String, _ item: PaneToolbarItem, shown: Bool) -> NSMenuItem {
-        let row = NSMenuItem(title: title, action: #selector(setShown(_:)), keyEquivalent: "")
-        row.target = self
-        row.representedObject = PaneToolbarToggle(id: item.id, shown: shown)
-        row.image = NSImage(systemSymbolName: item.symbol, accessibilityDescription: nil)
-        return row
-    }
-
-    @objc private func setShown(_ sender: NSMenuItem) {
-        guard let toggle = sender.representedObject as? PaneToolbarToggle else { return }
-        onSetShown?(toggle.id, toggle.shown)
-    }
-}
-
-/// A Hide or Show row's payload.
-private final class PaneToolbarToggle: NSObject {
-    let id: ActionID
-    let shown: Bool
-    init(id: ActionID, shown: Bool) {
-        self.id = id
-        self.shown = shown
+        moreButton.presentMenu(menu, moreButton)
     }
 }
 
 // Like the strip's empty space (TabStripView+TitlebarDrag): in the window's top row, a press
-// between or around the buttons moves the window; a button never does.
+// around "…" moves the window; "…" never does.
 extension PaneToolbarView: TitlebarPressDeciding {
     func titlebarPress(atWindowPoint windowPoint: CGPoint) -> TitlebarPress {
         let point = convert(windowPoint, from: nil)
-        let onButton = (buttons + [moreButton]).contains { !$0.isHidden && $0.frame.contains(point) }
+        let onButton = !moreButton.isHidden && moreButton.frame.contains(point)
         return !onButton && WindowTitlebar.isInTopRow(self) ? .movesWindow : .staysPut
     }
 }

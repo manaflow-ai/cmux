@@ -397,19 +397,21 @@ pub(super) fn run(mut global: GlobalArgs, plan: ServerPlan) -> i32 {
     }
 }
 
-/// Reads the install key straight from descriptor 0 (no buffered stdin
-/// copy outlives it; the parsed key is zeroized on drop).
+/// Reads the install key straight from standard input (descriptor 0, or
+/// the stdin handle on Windows): no buffered stdin copy outlives it; the
+/// parsed key is zeroized on drop.
 fn read_install_key_from_stdin() -> std::io::Result<cmux_tui_core::server::FrontendKey> {
     #[cfg(unix)]
-    {
+    let stdin = {
         use std::os::fd::AsFd;
-        let stdin = std::fs::File::from(std::io::stdin().as_fd().try_clone_to_owned()?);
-        cmux_tui_core::server::read_frontend_key(stdin)
-    }
-    #[cfg(not(unix))]
-    {
-        cmux_tui_core::server::read_frontend_key(std::io::stdin().lock())
-    }
+        std::fs::File::from(std::io::stdin().as_fd().try_clone_to_owned()?)
+    };
+    #[cfg(windows)]
+    let stdin = {
+        use std::os::windows::io::AsHandle;
+        std::fs::File::from(std::io::stdin().as_handle().try_clone_to_owned()?)
+    };
+    cmux_tui_core::server::read_frontend_key(stdin)
 }
 
 /// `server ensure`: connect to a ready owner, spawning a detached one when

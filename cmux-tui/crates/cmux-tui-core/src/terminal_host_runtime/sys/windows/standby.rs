@@ -287,6 +287,31 @@ pub(crate) fn host_bootstrap_streams(
 
 const PIPE_PREFIX: &str = r"\\.\pipe\cmux-th-boot-";
 
+/// The executable and arguments that start a per-terminal host (cx-1vlzr).
+///
+/// The host is the dedicated `cmux-tui-host.exe`, a small binary that links
+/// only the terminal-host runtime. Windows Defender's behavior monitor scans
+/// the creating process's on-disk image when it spawns its first child, and
+/// the cost scales with the image size; a per-terminal host built from the
+/// 49 MB `cmux-tui.exe` paid ~2.6 s on every terminal. The small host keeps
+/// that scan cheap.
+///
+/// The binary is resolved only next to the running executable, never from
+/// `PATH`: a `cmux-tui-host.exe` planted elsewhere on `PATH` must never be
+/// able to serve a terminal. When the sibling is absent (an older install, or
+/// a dev build that did not produce it) the host falls back to re-exec'ing the
+/// running `cmux-tui.exe` as `__terminal-host`, which is correct but pays the
+/// large-image scan per terminal.
+fn terminal_host_command() -> io::Result<(std::path::PathBuf, Vec<&'static str>)> {
+    let current = std::env::current_exe()?;
+    if let Some(sibling) = current.parent().map(|dir| dir.join("cmux-tui-host.exe")) {
+        if sibling.is_file() {
+            return Ok((sibling, vec!["--bootstrap-stdio"]));
+        }
+    }
+    Ok((current, vec!["__terminal-host", "--bootstrap-stdio"]))
+}
+
 fn valid_base_name(base: &str) -> bool {
     base.strip_prefix(PIPE_PREFIX)
         .is_some_and(|hex| hex.len() == 32 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
@@ -584,12 +609,15 @@ impl std::fmt::Display for HostProcessStartFailed {
 impl std::error::Error for HostProcessStartFailed {}
 
 impl StandbyTerminalHost {
-    /// Start this executable as `__terminal-host --bootstrap-stdio <pipes>`.
+    /// Start the per-terminal host process on its bootstrap pipes. On Windows
+    /// the host is the small sibling binary [`terminal_host_command`], so the
+    /// creator image Defender scans on the shell's first `CreateProcessW`
+    /// stays a few MB per terminal instead of the 49 MB `cmux-tui.exe`
+    /// (cx-1vlzr).
     pub(crate) fn spawn() -> anyhow::Result<Self> {
         let start = || -> Result<Self, String> {
-            let exe = std::env::current_exe().map_err(|error| error.to_string())?;
-            let mut host = spawn_host_process(&exe, &["__terminal-host", "--bootstrap-stdio"])
-                .map_err(|error| error.to_string())?;
+            let (exe, args) = terminal_host_command().map_err(|error| error.to_string())?;
+            let mut host = spawn_host_process(&exe, &args).map_err(|error| error.to_string())?;
             let (Some(stdin), Some(stdout)) = (host.stdin.take(), host.stdout.take()) else {
                 return Err("no bootstrap pipes".into());
             };
