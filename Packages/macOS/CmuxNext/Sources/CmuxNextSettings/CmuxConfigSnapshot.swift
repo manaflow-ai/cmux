@@ -54,7 +54,6 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var remoteLocalhost: RemoteLocalhostSetting = .fallback
     /// `ui.animationSpeed`; "fast" when unset or invalid.
     public var animationSpeed: MotionSpeed = AnimationSpeedSetting.fallback
-    /// `ui.animations.*`: the kinds turned off and the bounce of structural springs.
     public var animationKinds = AnimationKindsSetting()
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
     public var centerFocusedColumn: CenterFocusedColumn = CenterFocusedColumnSetting.fallback

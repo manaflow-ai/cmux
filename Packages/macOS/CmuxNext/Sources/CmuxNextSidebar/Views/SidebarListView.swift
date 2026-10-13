@@ -201,18 +201,14 @@ final class SidebarListView: NSView {
         var targets: [(SidebarRowView, NSRect)] = []
         var appearing: [(SidebarRowView, NSRect)] = []
         var keep = Set<SidebarRowKey>()
-        // A new workspace row (Cmd-N) opens at its final index and the rows below slide on the same
-        // spring; `ui.animations.newWorkspace` off applies the whole change in one step instead.
-        let addsSelected = selectedRowKey.map { old.row(for: $0) == nil } == true
-        let animate = animated && !old.rows.isEmpty && (!addsSelected || Motion.animates(.newWorkspace))
+        let animate = animated && !old.rows.isEmpty && (selectedRowKey.map { old.row(for: $0) != nil } != false || Motion.animates(.newWorkspace)) // Cmd-N's row opens at its index, rows below slide (hq-1d)
         // New rows open from their run's top, so only the rows below move; a row still opening
         // that the next update moves (appended, then placed below) opens again there, in a new view:
         // the old one's retargeted spring would carry its stale open on through the rows (cx-ai79).
         let now = CACurrentMediaTime()
         openingRows = openingRows.filter { now - $0.value < Motion.spring(.move).settlingTime() }
         let reopened = animate ? Set(layout.rows.filter { openingRows[$0.key] != nil && old.row(for: $0.key)?.y != $0.y }.map(\.key)) : []
-        // Only an animated apply opens rows: a row added in one step never opens later when it scrolls in.
-        for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now }
+        for row in layout.rows where animate && (old.row(for: row.key) == nil || reopened.contains(row.key)) { openingRows[row.key] = now } // only animated applies open rows (hq-1d)
         let insertRuns = SidebarRowTransition.runTops(of: layout, missingFrom: old, reopened: reopened)
         for row in layout.rows {
             let target = frame(for: row)
