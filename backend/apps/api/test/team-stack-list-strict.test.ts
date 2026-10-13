@@ -6,8 +6,9 @@ import { inDO } from "./team-ssh-support.ts"
 
 /**
  * A team event mirrors Stack's member list and removes every member Stack no longer lists
- * (cx-3bi.43). So a member list we cannot read must fail the delivery (503, Svix retries) and
- * change nothing: a 200 without an items array, or with a malformed item, never empties the team.
+ * (cx-3bi.43). So a member list we cannot read must change nothing: a 200 without an items array, or
+ * with a malformed item, never empties the team. The delivery is kept (200 `queued`) and the team syncs
+ * again later from TeamDO's alarm (cx-f5tk4).
  */
 describe("Stack member list answers are read strictly", { timeout: 60_000 }, () => {
   const realStack = (stackTeam: string, members: unknown, permissions: unknown = { is_paginated: false, items: [] }) =>
@@ -25,14 +26,15 @@ describe("Stack member list answers are read strictly", { timeout: 60_000 }, () 
     ["items not an array", { items: "nope" }],
     ["an item without user_id", { items: [{ display_name: "Ghost" }] }]
   ] as const) {
-    it(`a 200 with ${name} answers 503 and leaves every member`, async () => {
+    it(`a 200 with ${name} is kept for a later sync and leaves every member`, async () => {
       const t = await mirroredTeam()
       const before = await teamState(t.team)
       await inDO(teamStub(t.team), async (instance) => {
         instance.stack = realStack(t.stackTeam, body)
       })
       const r = await deliver("team.updated", { id: t.stackTeam, display_name: "Acme", profile_image_url: null, created_at_millis: 0 })
-      expect(r.status).toBe(503)
+      expect(r.status).toBe(200)
+      expect(r.body.outcome).toBe("queued")
       expect(await memberRow(t.team, t.user)).toMatchObject({ user: t.user, role: "member" })
       expect((await teamState(t.team)).member_count).toBe(before.member_count)
     })
