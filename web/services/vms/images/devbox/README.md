@@ -148,9 +148,9 @@ Ported from the retired Blaxel `sandbox/cmux-devbox` image, the same stack
 on every provider: TigerVNC serving an openbox session with the tint2 dock
 (Chrome, Files, Ghostty), Thunar, the CC0 mountain-lake wallpaper, the
 accessibility bus for computer-use, TigerVNC's clipboard helper, and noVNC
-on 6901. The contract (`web/services/vms/images/desktop.ts`;
-`vm-devbox-desktop.test.ts` pins it, the Mac app's Displays row, the CLI's
-`cloudVMDesktopPort` and the Freestyle driver's `openPort` depend on it):
+on 6901. The image contract lives in `web/services/vms/images/desktop.ts` and
+`vm-devbox-desktop.test.ts`; the Cloud API advertises the noVNC port to clients,
+while legacy clients retain a 6901 fallback:
 
 - `start-vnc.sh` runs as the work user `cmux` with `HOME=/home/cmux`
   and `DISPLAY=:1`, so the desktop session is the same account terminals
