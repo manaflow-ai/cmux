@@ -45,7 +45,19 @@ public final class TitleFade {
         textLayer.frame = rest
         guard geometry.isTruncated else {
             if isMarqueeActive { stopMarquee(animated: false) }
-            textLayer.mask = nil
+            guard animated, textLayer.mask === mask else {
+                textLayer.mask = nil
+                return
+            }
+            // The end comes back as the buttons over it fade out: the stops
+            // ease open, then the mask goes.
+            let (x, width) = geometry.maskFrame
+            mask.frame = CGRect(x: x, y: 0, width: width, height: frame.height)
+            let open = [0, geometry.leadingPadding / max(1, width), 1, 1, 1].map { NSNumber(value: Double($0)) }
+            CATransaction.begin()
+            CATransaction.setCompletionBlock { [weak self] in MainActor.assumeIsolated { self?.dropOpenMask() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+            Motion.set(mask, "locations", to: open, fade: .hover)
+            CATransaction.commit()
             return
         }
         let (x, width) = geometry.maskFrame
@@ -110,6 +122,12 @@ public final class TitleFade {
         Motion.set(textLayer, Self.keyPath, to: CGFloat(0), spring: .disappear, from: shown)
         Motion.set(mask, Self.keyPath, to: CGFloat(0), spring: .disappear, from: -shown)
         CATransaction.commit()
+    }
+
+    /// Drops the mask an unclipped title eased open, unless it clips again.
+    private func dropOpenMask() {
+        guard geometry?.isTruncated == false, textLayer.mask === mask else { return }
+        textLayer.mask = nil
     }
 
     private func restoreWidth() {
