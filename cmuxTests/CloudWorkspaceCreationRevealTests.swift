@@ -268,7 +268,15 @@ struct CloudWorkspaceCreationRevealTests {
                 ? app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager)
                 : app.performNewCloudWorkspaceOnCurrentMachineAction(tabManager: manager, vmID: "a"))
             for await _ in entered.stream { break }
-            #expect(SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals.reveal(for: manager) != nil)
+            let reveals = SurfaceCatalog.shared.cloudWorkspaceCreationCoordinator.reveals
+            let firstReveal = try #require(reveals.reveal(for: manager))
+            #expect(!firstReveal.isWithdrawn)
+            let duplicateStarted = entryPoint == "resolved"
+                ? app.performNewCloudWorkspaceOnResolvedMachineAction(tabManager: manager)
+                : app.performNewCloudWorkspaceOnCurrentMachineAction(tabManager: manager, vmID: "a")
+            #expect(!duplicateStarted)
+            let duplicateReveal = try #require(reveals.reveal(for: manager))
+            #expect(duplicateReveal == firstReveal, "A rejected duplicate keeps the in-flight reveal")
             #expect(app.commitMainWindowClose(window))
         }
         #expect(closed == nil, "A create in flight must not keep a closed window's manager alive")

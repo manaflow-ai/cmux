@@ -91,6 +91,15 @@ final class CloudWorkspaceOperationController {
         return true
     }
 
+    /// Starts a keyed operation whose setup must happen only when the key is
+    /// admitted. This keeps a rejected duplicate from mutating state owned by
+    /// the operation already in flight.
+    @discardableResult
+    func start(key: String, makeOperation: @escaping @MainActor () -> Operation) -> Bool {
+        guard isAvailable(), keyedTasks[key] == nil else { return false }
+        return start(key: key, makeOperation())
+    }
+
     func cancelAll() {
         for task in tasks.values { task.cancel() }
         for task in keyedTasks.values { task.cancel() }
