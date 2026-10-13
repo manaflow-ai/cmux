@@ -589,10 +589,21 @@ impl Hub {
         }
         if session.status() != SessionStatus::Closed {
             let alive = child.is_alive().await;
+            // A subagent or background shell still waiting on the person
+            // keeps the chat waiting after its turn (cx-jo8yo). The lock is
+            // held across the write, so an answer in between cannot leave it
+            // waiting on nothing.
+            let state = session.permissions.lock().unwrap_or_else(|e| e.into_inner());
+            let asking = !state.pending.is_empty() || self.secrets.waiting_in(&session.id);
             self.set_status(
                 session,
-                if alive { SessionStatus::Ready } else { SessionStatus::Disconnected },
+                match (alive, asking) {
+                    (false, _) => SessionStatus::Disconnected,
+                    (true, true) => SessionStatus::Waiting,
+                    (true, false) => SessionStatus::Ready,
+                },
             );
+            drop(state);
         }
         self.save_meta(session);
         result
