@@ -16,8 +16,15 @@ export default defineConfig({
           ENVIRONMENT: "test",
           STACK_TEST_JWKS: JSON.stringify({ keys: [stackPublic] }),
           STACK_TEST_PRIVATE_JWK: JSON.stringify(stackPrivate),
-          // userId -> teams; alice and bob share team-a, mallory is only in team-m.
-          STACK_TEST_TEAMS: JSON.stringify({ alice: ["team-a"], bob: ["team-a"], mallory: ["team-m"] })
+          // userId -> teams (dev project); alice and bob share team-a, mallory is only in team-m.
+          // "<prod project>:<userId>" -> teams (prod project): prod alice and pat share team-p.
+          STACK_TEST_TEAMS: JSON.stringify({
+            alice: ["team-a"],
+            bob: ["team-a"],
+            mallory: ["team-m"],
+            "9790718f-14cd-4f7e-824d-eaf527a82b82:alice": ["team-p"],
+            "9790718f-14cd-4f7e-824d-eaf527a82b82:pat": ["team-p"]
+          })
         }
       }
     })

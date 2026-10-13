@@ -2,14 +2,19 @@ import { env, exports } from "cloudflare:workers"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { expect } from "vitest"
 
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string }
+const testEnv = env as unknown as { STACK_PROJECTS: string; STACK_TEST_PRIVATE_JWK: string }
+const projects = JSON.parse(testEnv.STACK_PROJECTS) as Array<{ id: string; label: string }>
+/** The configured Stack projects (wrangler.jsonc top level): dev is primary, prod the second. */
+export const DEV_PROJECT = projects.find((p) => p.label === "dev")!.id
+export const PROD_PROJECT = projects.find((p) => p.label === "prod")!.id
 export const worker = (exports as unknown as { default: Fetcher }).default
 
-export const token = async (sub: string, opts: { audience?: string; anonymous?: boolean } = {}) =>
+/** A Stack access token signed by the test key; `project` picks the issuer (default the dev project). */
+export const token = async (sub: string, opts: { audience?: string; anonymous?: boolean; project?: string } = {}) =>
   new SignJWT({ ...(opts.anonymous ? { is_anonymous: true } : {}) })
     .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
-    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
-    .setAudience(opts.audience ?? testEnv.STACK_PROJECT_ID)
+    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${opts.project ?? DEV_PROJECT}`)
+    .setAudience(opts.audience ?? opts.project ?? DEV_PROJECT)
     .setSubject(sub)
     .setIssuedAt()
     .setExpirationTime("10m")
