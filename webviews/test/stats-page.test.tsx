@@ -1,6 +1,7 @@
 // The Stats page (hq#1920) over its host op (`cmux.stats.summary`, the mock host): the tiles show the
 // summary in the person's units, the heatmap lines weekdays up in rows, a range click asks again,
-// a reply for a range already left is dropped, and a missing host says so instead of loading forever.
+// a reply for a range already left is dropped, the grid follows the summary it draws, a refresh
+// mid-load starts no second scan, and a missing host says so instead of loading forever.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -114,6 +115,11 @@ test("the page shows the summary, switches range and drops a stale reply", async
   await act(async () => button("Week").click());
   await act(async () => button("Month").click());
   expect(asked.map((ask) => ask.days)).toEqual([84, 7, 30]);
+  // While Month loads, the 12-week summary keeps its own 84-day grid.
+  expect(host.querySelectorAll(".stats-heat:not(.is-padding)").length).toBe(84);
+  // Coming back to the tab mid-load does not start another scan of every log.
+  await act(() => store.refresh());
+  expect(asked.length).toBe(3);
   await act(async () => pending.shift()!(mockSummary("busy", 7, 120, NOON)));
   expect(store.getSnapshot().range).toBe(30);
   expect(store.getSnapshot().summary).toBe(summary);

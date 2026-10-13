@@ -116,14 +116,20 @@ pub struct Streak {
 pub fn summarize(store: &dyn Store, options: &StatsOptions) -> Result<StatsSummary> {
     let mut fold = Fold::new(*options);
     for meta in store.list()? {
-        if meta.updated_at < options.since {
+        // The streak looks back the longest range whatever range was asked.
+        if meta.updated_at < fold.streak_since() {
             continue;
         }
         let mut session = SessionFold::new(options);
-        store.scan(&meta.id, 0, &mut |record| {
+        let scanned = store.scan(&meta.id, 0, &mut |record| {
             session.record(&record);
             true
-        })?;
+        });
+        // One torn or vanished log costs that session, not the answer.
+        if let Err(error) = scanned {
+            tracing::warn!(session = %meta.id, "stats: skipping an unreadable log: {error:#}");
+            continue;
+        }
         session.finish(&meta);
         fold.add(&meta, session);
     }
@@ -147,6 +153,9 @@ struct SessionFold {
     status: Option<SessionStatus>,
     waiting_since: Option<u64>,
     waiting_ms: u64,
+    /// When the record before the current one was written: where a turn or
+    /// a wait the daemon never closed (it died) really stopped.
+    last_at: Option<u64>,
 }
 
 struct Turn {
@@ -178,6 +187,7 @@ impl SessionFold {
             status: None,
             waiting_since: None,
             waiting_ms: 0,
+            last_at: None,
         }
     }
 
@@ -187,6 +197,7 @@ impl SessionFold {
 
     fn record(&mut self, record: &EventRecord) {
         let at = record.at;
+        let last = self.last_at.replace(at).unwrap_or(at);
         match record.kind.as_str() {
             "user_message" => {
                 let steer = record.msg.get("steer").and_then(Value::as_bool) == Some(true);
@@ -197,14 +208,16 @@ impl SessionFold {
                 } else {
                     self.awaiting_result = false;
                     // A prompt while a turn is open (an older log without its
-                    // end) closes that turn where the new one starts.
+                    // end, or a daemon that died mid-turn) closes that turn at
+                    // its last record, and so any wait it left open.
                     if let Some(start) = self.open.take() {
                         self.turns.push(Turn {
                             start: Some(start),
-                            end: at,
+                            end: last.max(start),
                             status: TurnStatus::Completed,
                         });
                     }
+                    self.end_wait(last);
                     self.open = Some(at);
                     if self.in_range(at) {
                         self.prompts += 1;
@@ -222,7 +235,15 @@ impl SessionFold {
                     Some("failed") => TurnStatus::Failed,
                     _ => TurnStatus::Completed,
                 };
-                self.close(at, status);
+                // A restarted daemon marks the turn it lost (`mark_unknown_outcomes`):
+                // the turn and its wait stopped at the last record before it.
+                if record.msg.get("detail").and_then(Value::as_str) == Some("outcome_unknown") {
+                    self.end_wait(last);
+                    let end = self.open.map_or(last, |start| last.max(start));
+                    self.close(end, status);
+                } else {
+                    self.close(at, status);
+                }
             }
             "turn_end" | "turn_error" if record.dir == "mux" => {
                 // Older logs end a turn here; current ones follow with a
@@ -292,6 +313,14 @@ impl SessionFold {
         self.awaiting_result = false;
     }
 
+    /// Ends an open wait at `at`; the next status record starts afresh.
+    fn end_wait(&mut self, at: u64) {
+        if let Some(since) = self.waiting_since.take() {
+            self.waiting_ms += clipped(since, at.max(since), &self.options);
+            self.status = None;
+        }
+    }
+
     fn set_status(&mut self, status: SessionStatus, at: u64) {
         if self.status == Some(status) {
             return;
@@ -334,6 +363,7 @@ struct Fold {
     harnesses: BTreeMap<String, HarnessStats>,
     days: BTreeMap<i64, DayStats>,
     hours: [u64; 24],
+    /// Local days with a finished turn, over the longest range.
     turn_days: BTreeSet<i64>,
     /// (time, +1 start / -1 end) of every working interval.
     edges: Vec<(u64, i8)>,
@@ -355,6 +385,10 @@ impl Fold {
             turn_days: BTreeSet::new(),
             edges: Vec::new(),
         }
+    }
+
+    fn streak_since(&self) -> u64 {
+        self.options.until.saturating_sub(MAX_RANGE_DAYS * DAY_MS).min(self.options.since)
     }
 
     fn offset_ms(&self) -> i64 {
@@ -383,6 +417,14 @@ impl Fold {
         let mut turns = 0;
         let mut working = 0;
         for turn in &session.turns {
+            if turn.status != TurnStatus::Running
+                && turn.status != TurnStatus::Failed
+                && turn.end >= self.streak_since()
+                && turn.end <= self.options.until
+            {
+                let day = self.local_day(turn.end);
+                self.turn_days.insert(day);
+            }
             if turn.end < self.options.since || turn.end > self.options.until {
                 // A turn counts on the day it ended; its working time may
                 // still reach into the range.
@@ -401,9 +443,6 @@ impl Fold {
             if turn.status != TurnStatus::Running {
                 let day = self.local_day(turn.end);
                 self.day(day).turns += 1;
-                if turn.status != TurnStatus::Failed {
-                    self.turn_days.insert(day);
-                }
             }
             if let Some(start) = turn.start {
                 working += self.work(start, turn.end);
