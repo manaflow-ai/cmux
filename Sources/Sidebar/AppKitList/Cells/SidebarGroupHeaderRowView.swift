@@ -213,19 +213,25 @@ final class SidebarGroupHeaderTableCellView: NSTableCellView {
 
         // In compact status mode unread folds into the glyph (blue), so the
         // count badge stays off even when no member state rolls up.
-        statusGlyphView.isHidden = model.statusGlyph == nil
-        if let glyph = model.statusGlyph {
+        // The cmux and Mono styles keep the count badge and drop the hue.
+        let style = model.compactStatusStyle
+        let headerGlyph = model.statusGlyph?.drawn(in: style)
+        statusGlyphView.isHidden = headerGlyph == nil
+        if let glyph = headerGlyph {
             statusGlyphView.configure(
                 glyph,
                 pointSize: GlobalFontMagnification.scaledSize(metrics.iconFontSize, percent: percent),
                 color: glyph.color(
                     isActive: false,
                     selected: .labelColor,
-                    secondary: colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme)
+                    secondary: colorResolver.resolvedColor(.secondaryLabelColor, for: colorScheme),
+                    primary: colorResolver.resolvedColor(.labelColor, for: colorScheme),
+                    style: style
                 )
             )
         }
-        let showsBadge = model.statusGlyph == nil && !model.compactsAgentStatus && model.anchorUnreadCount > 0
+        let badgeFolded = model.compactsAgentStatus && style.foldsActivityIntoGlyph
+        let showsBadge = headerGlyph == nil && !badgeFolded && model.anchorUnreadCount > 0
         unreadBadgeView.isHidden = !showsBadge
         if showsBadge {
             unreadBadgeFont = .systemFont(

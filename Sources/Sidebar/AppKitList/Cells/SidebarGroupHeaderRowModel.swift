@@ -37,6 +37,8 @@ struct SidebarGroupHeaderRowModel: Equatable, Hashable {
     /// as the glyph, so the numeric badge never returns, not even when no
     /// member state is loud enough to roll up.
     var compactsAgentStatus = false
+    /// `sidebarCompactStatusStyle`; only the colored style replaces the count badge.
+    var compactStatusStyle: SidebarCompactStatusGlyph.Style = .color
     /// Resolved modifier-hold hint (for example "⌘3"); nil hides the pill.
     let shortcutHintText: String?
     let shortcutHintXOffset: Double

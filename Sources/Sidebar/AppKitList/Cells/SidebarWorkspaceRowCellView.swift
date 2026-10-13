@@ -37,6 +37,10 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
     private let statusGlyphButton = SidebarRowTaskStatusGlyphButton()
     /// `sidebar.compactAgentStatus` leading status glyph.
     private let compactStatusGlyphView = SidebarCompactStatusGlyphImageView()
+    /// Compact rows in the cmux style: "Needs input" at the trailing edge,
+    /// where the close button appears on hover.
+    private let trailingStatusLabel = NSTextField(labelWithString: "")
+    private var showsTrailingStatusWord = false
     private let titleView = SidebarRowTextView(lines: 1)
     private let cloudImageView = NSImageView()
     private let trailingBadge = SidebarRowUnreadBadgeView()
@@ -333,6 +337,9 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         }
         // The glyph view sets its own scaling mode, shared with the SwiftUI list.
         contentContainer.addSubview(compactStatusGlyphView)
+        trailingStatusLabel.isHidden = true
+        trailingStatusLabel.lineBreakMode = .byClipping
+        contentContainer.addSubview(trailingStatusLabel)
         statusGlyphButton.isHidden = true
         statusGlyphButton.onClick = { [weak self] in self?.toggleStatusPopover() }
         contentContainer.addSubview(statusGlyphButton)
@@ -629,10 +636,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         titleView.alphaValue = snapshot.isMuted ? 0.6 : 1
 
         // Badges / spinner / close
-        // Compact status draws running and unread as its one glyph instead.
-        let compacts = snapshot.compactStatusGlyph != nil
-        let showsSpinner = !compacts && model.showsAgentActivity && snapshot.activeCodingAgentCount > 0
-        let badgeVisible = !compacts && model.unreadCount > 0
+        // The colored compact style draws running and unread as its one glyph
+        // instead; the cmux and Mono styles keep the spinner and the badge.
+        let foldsIntoGlyph = snapshot.compactStatusGlyph != nil
+            && settings.compactStatusStyle.foldsActivityIntoGlyph
+        let showsSpinner = !foldsIntoGlyph && model.showsAgentActivity && snapshot.activeCodingAgentCount > 0
+        let badgeVisible = !foldsIntoGlyph && model.unreadCount > 0
         configureStatusSlot(
             model: model,
             palette: palette,
@@ -874,12 +883,22 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let revealed = showsCloseNow
         closeButton.setRevealed(revealed)
         closeButton.setAccessibilityElement(revealed)
+        trailingStatusLabel.isHidden = !showsTrailingStatusWord || revealed
     }
 
     private func configureCompactStatusGlyph(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
-        let glyph = model.snapshot.compactStatusGlyph?.applyingUnread(
-            model.unreadCount,
-            latestNotificationText: model.latestNotificationText
+        let style = model.settings.compactStatusStyle
+        let resolved = style.foldsActivityIntoGlyph
+            ? model.snapshot.compactStatusGlyph?.applyingUnread(
+                model.unreadCount,
+                latestNotificationText: model.latestNotificationText
+            )
+            : model.snapshot.compactStatusGlyph
+        let glyph = resolved?.drawn(in: style)
+        configureTrailingStatusWord(
+            needsInput: style == .cmux && resolved?.kind == .needsInput,
+            model: model,
+            palette: palette
         )
         compactStatusGlyphView.isPresentationActive = isPresentationActive
         compactStatusGlyphView.isHidden = glyph?.isDrawn != true
@@ -890,9 +909,20 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
             color: glyph.color(
                 isActive: model.isActive,
                 selected: palette.selectedForeground(0.95),
-                secondary: palette.secondary(0.8)
+                secondary: palette.secondary(0.8),
+                primary: palette.primaryText,
+                style: style
             )
         )
+    }
+
+    private func configureTrailingStatusWord(needsInput: Bool, model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
+        showsTrailingStatusWord = needsInput
+        trailingStatusLabel.isHidden = !needsInput || showsCloseNow
+        guard needsInput else { return }
+        trailingStatusLabel.stringValue = String(localized: "sidebar.compactStatus.needsInput", defaultValue: "Needs input")
+        trailingStatusLabel.font = .systemFont(ofSize: model.scaled(11), weight: .medium)
+        trailingStatusLabel.textColor = model.isActive ? palette.selectedForeground(0.95) : palette.primaryText
     }
 
     private func configureMetadata(model: SidebarWorkspaceRowModel, palette: SidebarRowPalette) {
@@ -1325,7 +1355,11 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
         let closeHit = max(16, 16 * model.fontScale)
         let closeWidth = max(16, closeHit)
         let trailingSlotActive = !trailingBadge.isHidden || (trailingSpinner?.isHidden == false) || model.canCloseWorkspace
-        let titleMaxX = trailingSlotActive ? (trailing - closeWidth - titleRowSpacing) : trailing
+        // The trailing word keeps its width while the close button covers it on
+        // hover, so the title never shifts under the pointer.
+        let statusWordSize = showsTrailingStatusWord ? trailingStatusLabel.intrinsicContentSize : .zero
+        let trailingReserve = max(trailingSlotActive ? closeWidth : 0, ceil(statusWordSize.width))
+        let titleMaxX = trailingReserve > 0 ? (trailing - trailingReserve - titleRowSpacing) : trailing
         let titleWidth = max(10, titleMaxX - x)
         let renameField = renameSession?.field
         let titleHeight = renameField.map { ceil($0.intrinsicContentSize.height) }
@@ -1355,6 +1389,12 @@ final class SidebarWorkspaceRowTableCellView: NSTableCellView {
                     )
                 }
             }
+        }
+        if apply, showsTrailingStatusWord {
+            trailingStatusLabel.frame = NSRect(
+                x: trailing - ceil(statusWordSize.width), y: firstLineCenter - statusWordSize.height / 2,
+                width: ceil(statusWordSize.width), height: statusWordSize.height
+            )
         }
         y += max(titleHeight, leadingSlotActive ? badgeSide : 0)
 

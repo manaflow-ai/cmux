@@ -12,6 +12,10 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
     let compactsAgentStatus: Bool
     /// `sidebar.compactStatusIcons`, keeping only known states and non-empty names.
     let compactStatusIcons: [String: String]
+    /// `sidebarCompactStatusStyle`: how compact rows draw agent status. Read
+    /// straight from defaults while the variations are compared in the lab;
+    /// moves into `SidebarCatalogSection` if it ships as a setting.
+    let compactStatusStyle: SidebarCompactStatusGlyph.Style
     let showsWorkspaceDescription: Bool
     let workspaceDescriptionColorHex: String?
     let sidebarShortcutHintXOffset: Double
@@ -74,6 +78,8 @@ struct SidebarTabItemSettingsSnapshot: Equatable {
         wrapsWorkspaceTitles = settings.value(for: sidebar.wrapWorkspaceTitles)
         compactsAgentStatus = settings.value(for: sidebar.compactAgentStatus)
         compactStatusIcons = SidebarCompactStatusGlyph.validIconOverrides(settings.value(for: sidebar.compactStatusIcons))
+        compactStatusStyle = defaults.string(forKey: "sidebarCompactStatusStyle")
+            .flatMap(SidebarCompactStatusGlyph.Style.init(rawValue:)) ?? .color
         let detailVisibility = SidebarWorkspaceDetailVisibility(
             showWorkspaceDescription: settings.value(for: sidebar.showWorkspaceDescription),
             showNotificationMessage: settings.value(for: sidebar.showNotificationMessage),
