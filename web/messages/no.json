@@ -35,6 +35,11 @@
       "message": "Denne maskinen svarte ikke i tide, så forespørselen kunne ikke fullføres.",
       "action": "Sett maskinen på pause, gjenoppta den, og prøv igjen. I Mac-appen velger du Sett maskin på pause og deretter Gjenoppta maskin. I en terminal kjører du cmux vm pause '<machine>' og deretter cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Fortsatt i gang",
+      "message": "Skyleverandøren har ikke fullført denne endringen ennå. Den kan fortsatt bli fullført.",
+      "action": "Sjekk maskinens status med cmux vm ls eller i maskinlisten før du prøver igjen."
+    },
     "providerTimeout": {
       "title": "Skyleverandøren er treg",
       "message": "Skyleverandøren svarte ikke i tide.",

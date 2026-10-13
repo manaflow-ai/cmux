@@ -35,6 +35,11 @@
       "message": "Maskinen svarede ikke i tide, så anmodningen kunne ikke gennemføres.",
       "action": "Sæt maskinen på pause, genoptag den, og prøv igen. I Mac-appen skal du vælge Sæt maskine på pause og derefter Genoptag maskine. I en terminal skal du køre cmux vm pause '<machine>' og derefter cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Stadig i gang",
+      "message": "Cloududbyderen har ikke afsluttet denne ændring endnu. Den kan stadig blive gennemført.",
+      "action": "Tjek maskinens status med cmux vm ls eller på listen over maskiner, før du prøver igen."
+    },
     "providerTimeout": {
       "title": "Cloududbyderen er langsom",
       "message": "Cloududbyderen svarede ikke i tide.",
