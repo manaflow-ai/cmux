@@ -130,6 +130,13 @@ final class SidebarRowSprings: MotionAnimating {
             if entry.size != nil { view.layer?.mask = nil }
             entry.done?()
         }
+        if MotionTrace.isEnabled {
+            // The points the rows have left to travel (origin and visible height), for debug.motion.
+            MotionTrace.sample("sidebar.travel", Double(entries.values.reduce(CGFloat(0)) { sum, entry in
+                let f = entry.frame
+                return sum + abs(f.x.target - f.x.value) + abs(f.y.target - f.y.value) + abs(f.height.target - f.height.value)
+            }))
+        }
         if entries.isEmpty { finish() }
         return !entries.isEmpty
     }

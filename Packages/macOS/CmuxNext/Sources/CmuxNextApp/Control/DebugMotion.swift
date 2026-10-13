@@ -15,7 +15,7 @@ import CmuxNextWakeups
 /// in memory the same way. The report lists the display links alive
 /// (`display_links`: 0 once every spring rests, so the window idles).
 /// Spans carry `at_ms` (from `start`); `samples` lists per-frame values
-/// (`clock.dt_ms`, and `tabs.travel`, `layout.travel`, `sidebar.open`: the
+/// (`clock.dt_ms`, and `tabs.travel`, `layout.travel`, `sidebar.travel`: the
 /// points an animator has left to move), so a bench reads each spring's path.
 /// `trajectory` returns this port's motion parity corpus (the resolved
 /// chrome springs and their frame paths), the same document cmux-motion's
