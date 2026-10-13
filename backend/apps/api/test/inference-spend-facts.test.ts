@@ -123,6 +123,17 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
     expect(c.facts[0]!.quantity).toBeCloseTo(c.member_usd, 6)
   })
 
+  it("a billable fact outlives the 35-day dedupe window (S2: nothing deletes a bill's input)", async () => {
+    const { t, team, user } = await paidPerson("spend-facts-kept")
+    fakeProvider(() => Response.json({ id: "x", choices: [{ index: 0, message: { role: "assistant", content: "kept" } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.000004 } }))
+    expect((await chat(t)).status).toBe(200)
+    // The alarm 40 days later prunes old dedupe keys; the call's money fact stays.
+    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => m.onWake(Date.now() + 40 * 86_400_000))
+    const c = await counters(t, team, user)
+    expect(c.facts).toHaveLength(1)
+    expect(c.facts[0]).toMatchObject({ user, quantity: 0.000004, source: "coderouter" })
+  })
+
   it("a reservation that expires is charged in full, and a late settle is a correction fact on both counters", async () => {
     const { t, team, user } = await paidPerson("spend-facts-late")
     const held = heldProvider(() => Response.json({ id: "x", choices: [{ index: 0, message: { role: "assistant", content: "late" } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.000003 } }))
