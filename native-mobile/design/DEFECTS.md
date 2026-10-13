@@ -55,6 +55,8 @@ owner-handoff (written up for the owning agent).
 | 46 | Feed | Codex's idle input line ("› Ask Codex to do anything") and Claude Code's unsent draft were quoted as the user's prompt. | S2 | fixed: `FeedTextParser` skips the input box (last prompt row with only footer rows after it); tests |
 | 47 | Feed | After a resize the tree's column count lagged the grid the text was laid out at (53 vs 54), so a soft-wrapped reply was cut ("…upload it" → "…uplo"). | S3 | fixed: unwrap uses the widest row when within 4 columns of the reported width; test |
 | 48 | Feed | Error posts looked like any other post. | S3 | fixed: red "Error" badge |
+| 49 | Workspace names | Rename and New Workspace fields auto-capitalized ("qa-renamed" became "Qa-renamed" on the Mac). | S3 | fixed: no autocapitalization or autocorrection; rename verified on the daemon (`workspace list`) both ways over the control connection |
+| 50 | Feed | The post menu had no timestamp and offered "Mark as Read" on read posts. | S3 | improved: timestamp section header (ChatGPT), Copy Prompt, Mark as Read only when unread |
 
 ## Open (owner handoff or needs a device run)
 

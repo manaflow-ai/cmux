@@ -239,9 +239,21 @@ struct FeedPostView: View {
         .contentShape(.rect)
         .onTapGesture { onOpen() }
         .contextMenu {
-            Button { UIPasteboard.general.string = item.body } label: { Label(String(localized: "Copy"), systemImage: "doc.on.doc") }
-            Button { store.markRead(item) } label: { Label(String(localized: "Mark as Read"), systemImage: "checkmark.circle") }
-            Button(action: onOpen) { Label(String(localized: "Open Terminal"), systemImage: "terminal") }
+            // Timestamp header, like ChatGPT's message menu.
+            Section(item.createdAt.formatted(date: .abbreviated, time: .shortened)) {
+                Button { UIPasteboard.general.string = item.body.isEmpty ? item.title : item.body } label: {
+                    Label(String(localized: "Copy"), systemImage: "doc.on.doc")
+                }
+                if let quote = item.quote, !quote.isEmpty {
+                    Button { UIPasteboard.general.string = quote } label: {
+                        Label(String(localized: "Copy Prompt"), systemImage: "text.quote")
+                    }
+                }
+                if !item.read {
+                    Button { store.markRead(item) } label: { Label(String(localized: "Mark as Read"), systemImage: "checkmark.circle") }
+                }
+                Button(action: onOpen) { Label(String(localized: "Open Terminal"), systemImage: "terminal") }
+            }
         }
         .animation(.smooth(duration: 0.25), value: replying)
         .animation(.smooth(duration: 0.25), value: expanded)

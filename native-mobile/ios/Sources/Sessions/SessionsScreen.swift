@@ -293,6 +293,9 @@ private struct RenameWorkspaceAlert: ViewModifier {
                 presenting: workspace
             ) { target in
                 TextField(String(localized: "Name"), text: $name)
+                    // Workspace names are usually lowercase ("qa", "api-fix").
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                 Button(String(localized: "Cancel"), role: .cancel) {}
                 Button(String(localized: "Rename")) {
                     let newName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -416,6 +419,8 @@ struct NewWorkspaceSheet: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 12) {
                 TextField(String(localized: "Workspace name"), text: $name)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
                     .focused($focused)
                     .padding(.horizontal, 16).frame(minHeight: 52)
                     .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Theme.elevated))
