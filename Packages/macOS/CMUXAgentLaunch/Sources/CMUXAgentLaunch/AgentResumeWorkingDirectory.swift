@@ -62,8 +62,35 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
         case .cwdInFile:
             return runtime ?? launch
         case .byDirectory:
+            if kind == "claude",
+               let transcriptProject = transcriptProjectDirectoryName(transcriptPath),
+               let transcriptCwd = [launch, runtime].first(where: {
+                   encodedProjectDirectoryName(forPath: $0) == transcriptProject
+               }) {
+                return transcriptCwd
+            }
             return launch ?? runtime
         }
+    }
+
+    /// Returns the Claude project-directory component from a transcript path.
+    /// Claude stores transcripts below `<config>/projects/<encoded-cwd>/`; the
+    /// session file may be either directly in that directory or nested below it.
+    private func transcriptProjectDirectoryName(_ transcriptPath: String?) -> String? {
+        guard let rawPath = normalized(transcriptPath) else { return nil }
+        let components = (rawPath as NSString).expandingTildeInPath
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        guard let projectsIndex = components.firstIndex(of: "projects"),
+              projectsIndex + 1 < components.count else {
+            return nil
+        }
+        return components[projectsIndex + 1]
+    }
+
+    private func encodedProjectDirectoryName(forPath path: String) -> String {
+        path.replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ".", with: "-")
     }
 
     private func normalized(_ value: String?) -> String? {

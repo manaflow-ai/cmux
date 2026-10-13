@@ -31289,6 +31289,7 @@ struct CMUXCLI {
                     sessionId: acceptedSessionId,
                     cwd: hookCwd,
                     launchCommand: launchCommand,
+                    transcriptPath: hookTranscriptPath,
                     observedPermissionMode: observedHookPermissionMode
                 )
                 emitAgentJournalEvent(
@@ -31506,6 +31507,7 @@ struct CMUXCLI {
                         sessionId: sessionId,
                         cwd: hookCwd ?? mappedSession?.cwd,
                         launchCommand: mappedSession?.launchCommand,
+                        transcriptPath: hookTranscriptPath,
                         observedPermissionMode: observedHookPermissionMode
                             ?? mappedSession?.lastPermissionMode
                     )
@@ -31718,6 +31720,7 @@ struct CMUXCLI {
                     sessionId: sessionId,
                     cwd: hookCwd ?? mappedSession?.cwd,
                     launchCommand: mappedSession?.launchCommand ?? firstSightingLaunchCommand,
+                    transcriptPath: hookTranscriptPath,
                     observedPermissionMode: observedHookPermissionMode
                         ?? mappedSession?.lastPermissionMode
                 )
