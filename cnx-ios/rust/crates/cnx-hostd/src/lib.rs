@@ -7,6 +7,7 @@
 
 pub mod auth;
 pub mod config;
+pub mod control;
 pub mod host;
 pub mod policy;
 pub mod services;

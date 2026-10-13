@@ -136,6 +136,11 @@ export class MockSettingsProvider {
       "cmux.settings.sound.play": () => ({}),
       "cmux.settings.host.lists": () => this.host,
       "cmux.settings.accounts.state": () => this.accounts,
+      "cmux.settings.iphone.set": (params) => {
+        const iphone = this.host.iphone;
+        if (iphone) this.setHost({ ...this.host, iphone: { ...iphone, allowed: params.allowed === true } });
+        return {};
+      },
       "cmux.settings.agents.state": () => this.agents.state,
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       "cmux.settings.theme.set": (params) => {

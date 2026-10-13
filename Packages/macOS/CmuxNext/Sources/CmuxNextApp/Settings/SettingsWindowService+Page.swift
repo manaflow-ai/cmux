@@ -44,6 +44,8 @@ extension SettingsWindowService {
             "ghostty_diagnostics": GhosttyDiagnosticsModel.shared.diagnostics.map { .array($0.map(GhosttyDiagnosticsControl.json)) } ?? .null,
             // Computer Use Setup (Agents): the helper's grants, the same state as the palette action.
             "computer_use": services.onboarding.computerUseSetup.pageJSON,
+            // Accounts > iPhone: the cnx phone host's toggle, status and connected phones.
+            "iphone": services.iphone.pageJSON,
             "settings_file": services.settings.map { .string($0.file.url.path(percentEncoded: false)) } ?? .null,
             // Art carries its picker collection (Dark Art, Museum Icons, Calm, Doré) and the
             // person's own images theirs ("Your images"); the page groups the grid by it.

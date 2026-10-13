@@ -101,6 +101,8 @@ export type HostLists = {
   settings_file?: string | null;
   /** Computer Use Setup (Agents): the helper's grants; null while unknown (off, starting). */
   computer_use?: ComputerUseState | null;
+  /** The iPhone host (Accounts): the toggle, its status and the connected phones; every text localized by the host. */
+  iphone?: IPhoneHostState | null;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Art carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`) and its localized title.
@@ -108,6 +110,25 @@ export type HostLists = {
   backdrops?: Array<{ id: string; title: string; attribution: string; collection?: string; collection_title?: string }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
+};
+
+/** The iPhone card (Accounts): the app runs the cnx phone host while `allowed` and signed in. */
+export type IPhoneHostState = {
+  title: string;
+  allowed: boolean;
+  /** False while the toggle cannot change (nobody signed in, or no host in this build). */
+  enabled: boolean;
+  allow_title: string;
+  allow_help: string;
+  status_title: string;
+  status: string;
+  /** `off`, `unavailable`, `connecting`, `online` or `waiting`. */
+  phase: string;
+  how_title: string;
+  how: string;
+  phones_title: string;
+  phones_empty: string;
+  phones: Array<{ id: string; title: string; subtitle: string }>;
 };
 
 /** `ComputerUseSetup.Phase` in the app. */
@@ -287,6 +308,8 @@ export type SettingsOps = {
   "cmux.settings.reset_all": [Mutation<object>, MutationResult];
   /** Native: spaces, machines and browser profiles from the app's live stores. */
   "cmux.settings.host.lists": [Record<string, never>, HostLists];
+  /** Native: turn the iPhone host on or off (Accounts > iPhone); the person's gesture only. */
+  "cmux.settings.iphone.set": [{ allowed: boolean }, Record<string, never>];
   /** Native: the Accounts part (providers, linked accounts, forms). */
   "cmux.settings.accounts.state": [Record<string, never>, AccountsState];
   /** Native: one Accounts gesture; a failed Keychain save answers its message. */

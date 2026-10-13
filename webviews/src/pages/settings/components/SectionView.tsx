@@ -8,6 +8,7 @@ import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
 import { HarnessesCard } from "./HarnessesCard";
+import { IPhoneCard } from "./IPhoneCard";
 import { AdvancedInfo, BACKDROP_ROWS, Backdrops, TerminalInfo, useBackdropsShown } from "./HostCards";
 import { BrowserProfiles, MachinesSection, SpacesSection } from "./HostSections";
 import { PlaceholderSection } from "./PlaceholderSection";
@@ -27,7 +28,12 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   spaces: () => <SpacesSection />,
   browserProfiles: () => <BrowserProfiles />,
   machines: () => <MachinesSection title={machinesTitle()} />,
-  accounts: () => <AccountsSection />,
+  accounts: () => (
+    <>
+      <AccountsSection />
+      <IPhoneCard />
+    </>
+  ),
   agentHarnesses: (focus) => <AgentHarnesses focus={focus} />,
   advancedInfo: () => <AdvancedInfo />,
   advancedActions: () => <PlaceholderSection section="advanced" />,

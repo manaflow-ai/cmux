@@ -36,6 +36,7 @@ extension AppServices {
     func startCloud() -> Task<Void, Never> {
         cloud.confirmWindow = { [weak self] in self?.windows.active?.window }
         cloud.start()
+        wireIPhoneHost()
         let cloud = cloud, machines = machines
         return Task { [weak self] in
             var account: String?
@@ -43,6 +44,8 @@ extension AppServices {
             for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
                 guard let self else { return }
                 self.cloudContextDidChange()
+                // The cnx iPhone host follows the account too (it stops itself while signed out).
+                self.iphone.accountChanged(self.iphoneAccount)
                 // The local model relay follows the signed-in user (ModelRouterLease).
                 let user = state.0 ? state.2 : nil
                 if routerUser != .some(user) {

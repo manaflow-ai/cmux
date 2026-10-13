@@ -89,6 +89,7 @@ async fn fixture(fake: FakeOptions) -> Fixture {
     let services = ServiceConfig {
         tui_socket_dir: sockets.path().to_path_buf(),
         default_session: "main".into(),
+        default_socket: None,
         file_roots: vec![root.path().to_path_buf()],
         acpmux: AcpmuxTarget::Fixed { url: fake_acpmux().await, token: Some("acp-token".into()) },
     };

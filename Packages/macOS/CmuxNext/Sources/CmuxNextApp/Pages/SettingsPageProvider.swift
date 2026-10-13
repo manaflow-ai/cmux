@@ -53,6 +53,8 @@ final class SettingsPageProvider: PageProvider {
     /// The registry's buttons for a section (`SettingsSchema.actions(in:)`): id, localized title,
     /// and whether it can run now.
     var sectionActions: (@MainActor (SettingsSection) -> JSONValue)?
+    /// Accounts > iPhone's switch (`cmux.settings.iphone.set`); nil in tests without an app.
+    var setIPhoneAllowed: (@MainActor (Bool) -> Void)?
     /// Results of recent writes by idempotency key (a retried key replays its first answer).
     private var replies: [(key: String, value: JSONValue)] = []
     private static let replayLimit = 64
@@ -185,6 +187,15 @@ final class SettingsPageProvider: PageProvider {
             return ["previewing": .string(descriptor.id)]
         case "cmux.settings.preview.end":
             settings.endPreview()
+            return .object([:])
+        case "cmux.settings.iphone.set":
+            guard let setIPhoneAllowed else { throw PageError(code: "cmux.page.unavailable", message: "no iPhone host") }
+            guard let allowed = params["allowed"]?.boolValue else { throw PageError.invalidParams("allowed is required") }
+            // Letting a phone in is the person's own choice, never an agent's or a script's.
+            guard Self.writer(context) == .user else {
+                throw PageError(code: "cmux.settings.user_only", message: "only you can change iPhone connections")
+            }
+            setIPhoneAllowed(allowed)
             return .object([:])
         case "cmux.settings.sound.play":
             guard let name = params["name"]?.stringValue else { throw PageError.invalidParams("name is required") }

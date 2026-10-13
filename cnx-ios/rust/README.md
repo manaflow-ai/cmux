@@ -136,10 +136,37 @@ target/release/cnx-hostd
 | `CNX_DEVICE_NAME` | Default the host name. |
 | `CNX_OWNER_USER_ID` | Admitted Stack user; default the access token's `sub`. |
 | `CNX_TUI_SOCKET_DIR`, `CNX_TUI_SESSION` | cmux-tui sockets, default `$TMPDIR/cmux-tui-<uid>` and `main`. |
+| `CNX_TUI_SOCKET` | The default session's socket when it is not `<dir>/<session>.sock` (the cmux-next app passes its own daemon's socket). |
+| `CNX_CONTROL=stdio` | Supervised mode (below): tokens and the acpmux endpoint come from stdin, events go to stdout. |
 | `CNX_FILE_ROOTS` | Colon-separated workspace roots for the `file` service. Unset denies every read. |
 | `ACPMUX_HOME` | acpmux state dir (default `~/.acpmux`); hostd reads `websocket.listen` and `websocket.token` from its `config.json` at every `acpmux` open. `CNX_ACPMUX_URL` / `CNX_ACPMUX_TOKEN` override. |
 | `CNX_INCLUDE_LOOPBACK=1` | Offer loopback candidates (same-host testing). |
 | `CNX_LOG` | tracing filter, default `info`. |
+
+Logs go to stderr.
+
+### Supervised by the cmux-next app (`CNX_CONTROL=stdio`)
+
+The cmux-next Mac app bundles cnx-hostd (`Contents/Resources/bin/cnx-hostd`,
+built by `scripts/cmux-next/build-cnx-hostd.sh`) and runs it while Settings >
+Accounts > iPhone > Allow iPhone Connections is on and an account is signed in
+(`CnxHostSupervisor` in `Packages/macOS/CmuxNext/Sources/CmuxNextMobile/CnxHost`).
+The app keeps the Stack session; hostd never sees a refresh token.
+
+- stdin, one JSON object per line: `{"type":"token","token":…}` (sent at
+  start and whenever hostd asks) and `{"type":"acpmux","url":"ws://127.0.0.1:<port>/","token":…}`.
+  End of stdin exits hostd, so it never outlives the app.
+- stdout, one JSON event per line: `connecting`, `online {device_id, team_id}`,
+  `waiting {reason, retry_in_seconds}`, `need_token` (no token yet, under a
+  minute left, or refused), `need_acpmux` (an `acpmux` open failed; hostd
+  waits 15 s for a new endpoint and retries once), `phone_up {session_id,
+  phone_device_id, transport, path}`, `phone_path {session_id, path}`,
+  `phone_down {session_id, reason}`.
+- The app sets `CNX_TUI_SOCKET` to its own daemon socket, `CNX_DEVICE_ID` to a
+  UUID kept in its Application Support folder, `CNX_DEVICE_NAME` to the
+  computer name, `CNX_TEAM_ID` to the selected team or `personal-<userId>`,
+  and `CNX_FILE_ROOTS` to the chat roots. The service is the dev Worker
+  (`CMUX_NEXT_CNX_API_URL` overrides it in a Debug build).
 
 Startup: refresh the access token, `POST /v1/devices {kind:"mac"}`, open the
 signaling socket, answer. On any failure it reconnects with backoff (1 s to
