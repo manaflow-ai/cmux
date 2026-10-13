@@ -24469,6 +24469,60 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "bookmark set-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "bookmark"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "bookmark.setIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Set Bookmark Folder Icon…",
+      "title_key" : "action.bookmark.setIcon",
+      "title_table" : "BookmarkActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "bookmark clear-icon",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "bookmark"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "bookmark.clearIcon",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Remove Bookmark Folder Icon",
+      "title_key" : "action.bookmark.clearIcon",
+      "title_table" : "BookmarkActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "bookmark move",
       "context_menu" : "dragGesture",
       "context_menus" : [
@@ -27317,13 +27371,24 @@
           }
         },
         {
-          "kind" : "separator",
-          "order" : 10
+          "enabled_when" : "can_perform",
+          "id" : "bookmark.setIcon",
+          "kind" : "action",
+          "label" : "Set Icon…",
+          "order" : 10,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "bookmark.copyLink",
+          "id" : "bookmark.clearIcon",
           "kind" : "action",
+          "label" : "Remove Icon",
           "order" : 11,
           "visible_when" : {
             "debug_only" : false,
@@ -27339,9 +27404,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "bookmark.toggleBar",
+          "id" : "bookmark.copyLink",
           "kind" : "action",
           "order" : 13,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 14
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "bookmark.toggleBar",
+          "kind" : "action",
+          "order" : 15,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -27354,7 +27436,7 @@
           "enabled_when" : "can_perform",
           "id" : "bookmark.manager",
           "kind" : "action",
-          "order" : 14,
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -27365,13 +27447,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 15
+          "order" : 17
         },
         {
           "enabled_when" : "can_perform",
           "id" : "bookmark.remove",
           "kind" : "action",
-          "order" : 16,
+          "order" : 18,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
