@@ -1,0 +1,103 @@
+import AppKit
+import CmuxNextActions
+@testable import CmuxNextApp
+import CmuxNextDaemon
+@testable import CmuxNextTerminal
+import Foundation
+import Testing
+
+/// Keys typed right after Ctrl-1…9 (Select Tab by Number) selects a terminal tab this window
+/// never showed reach that tab's terminal (hq#1925 item 3, cx-wb5.76). Such a tab has no surface
+/// yet: the pane empties at once and makes the surface on a later frame, 100-350 ms on a busy Mac,
+/// and until then the window itself was the first responder, so those keys went nowhere.
+/// Judged by the input journal's byte counts per terminal, on the real daemon.
+@MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
+struct SwitchToColdTabTypeAheadTests {
+    private static func wait(within limit: Duration, until done: () -> Bool) async {
+        let deadline = ContinuousClock.now + limit
+        while !done(), ContinuousClock.now < deadline, !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
+    /// Input bytes the journal saw per terminal surface since `after` (a journal sequence number).
+    private static func inputBytes(after: UInt64) -> [String: Int] {
+        var bytes: [String: Int] = [:]
+        for entry in InputJournal.shared.entries() where entry.seq > after {
+            if case .attach(let attach) = entry.kind, attach.event == "input" { bytes[attach.surface, default: 0] += attach.bytes }
+        }
+        return bytes
+    }
+
+    private static func lastSeq() -> UInt64 { InputJournal.shared.entries(last: 1).last?.seq ?? 0 }
+
+    /// A plain key-down, delivered as `CmuxApplication.sendEvent` delivers it.
+    private static func type(_ text: String, in window: NSWindow, router: KeyRouter) {
+        let codes: [Character: UInt16] = ["h": 4, "e": 14, "l": 37, "o": 31, "x": 7]
+        for character in text {
+            guard let event = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, characters: String(character),
+                                               charactersIgnoringModifiers: String(character), isARepeat: false,
+                                               keyCode: codes[character] ?? 0) else { continue }
+            if !router.interceptKeyDown(event, in: window) { window.sendEvent(event) }
+        }
+    }
+
+    @Test func keysTypedRightAfterSelectingAColdTabReachItsTerminal() async throws {
+        let binary = try #require(SameTreeDaemonBinary.url)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("cn-coldtab-\(UUID().uuidString.prefix(8))")
+        let session = "cn-coldtab-\(UUID().uuidString.prefix(8).lowercased())"
+        // The journal's attach observer is chosen when a terminal attaches: on before launch.
+        InputJournal.shared.configure(InputJournalPolicy(enabled: true, recordsCharacters: false))
+        let launcher = DaemonLauncher(
+            configuration: .init(binary: binary, session: session, stateDirectory: root.appendingPathComponent("state")),
+            environment: { ["HOME": NSHomeDirectory(), "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "TERM": "xterm-256color"] })
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        services.daemon.start {
+            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
+        }
+        services.windows.restoreWhenLoaded()
+        defer {
+            if let connection = services.daemon.connection, let identity = services.daemon.identity {
+                Task { _ = try? await connection.request(ShutdownDaemonRequest(pid: identity.pid, generation: identity.generation, endTerminals: true),
+                                                         timeout: .seconds(10)) }
+            }
+            for controller in services.windows.controllers { controller.window?.close() }
+            try? FileManager.default.removeItem(at: root)
+        }
+
+        // The launch window shows a terminal that has the keyboard.
+        await Self.wait(within: .seconds(90)) { services.windows.active?.window?.firstResponder is TerminalSurfaceView }
+        let controller = try #require(services.windows.active)
+        let window = try #require(controller.window)
+        let pane = try #require(controller.focusedPane)
+        try #require(window.firstResponder is TerminalSurfaceView, "the launch terminal never took the keyboard")
+        let router = services.keyRouter
+        // Its terminal, by one key typed there.
+        var seq = Self.lastSeq()
+        Self.type("x", in: window, router: router)
+        await Self.wait(within: .seconds(10)) { !Self.inputBytes(after: seq).isEmpty }
+        let shown = try #require(Self.inputBytes(after: seq).keys.first, "the shown terminal got no input")
+
+        // A second terminal tab made by a script: the window does not show it, so it has no surface.
+        _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .cli))
+        await Self.wait(within: .seconds(30)) { pane.orderedIDs.count >= 2 }
+        let cold = try #require(pane.orderedIDs.last?.rawValue)
+        #expect(pane.currentTabKey != cold, "the script's tab was shown")
+        #expect(!services.cache.hasContent(for: cold), "the script's tab already has a surface")
+
+        // Ctrl-2, then typing at once.
+        seq = Self.lastSeq()
+        _ = services.registry.perform("selectSurfaceByNumber", invocation: ActionInvocation(arguments: ["index": .int(2)]))
+        Self.type("hello", in: window, router: router)
+        await Self.wait(within: .seconds(15)) { Self.inputBytes(after: seq).values.reduce(0, +) >= 5 }
+        try? await Task.sleep(for: .milliseconds(300))  // a stray key would show by now
+        let after = Self.inputBytes(after: seq)
+
+        #expect(pane.currentTabKey == cold)
+        #expect(after[shown] == nil, "keys typed after Ctrl-2 went to the tab it left: \(after)")
+        #expect(after.count == 1 && after.values.first == 5, "the selected tab's terminal got \(after) of 5 typed bytes")
+    }
+}
