@@ -18,8 +18,9 @@
 /* The shared popup surface (ui/popupSurface.css) takes the pane's ink; every popup, nested submenus included, is the solid popup surface (--surface-popup, the host's --cmux-popup-surface, else the pane's menu color). */
 .acpmux-shell,.ui-positioner{--surface-popup:var(--cmux-popup-surface,var(--acpmux-menu-bg))}
 .ui-positioner{--ui-popup-fg:var(--agent-text)}
-/* One elevation for every menu and popover in the pane (Leo 10-13, coherence pass): the composer's hairline edge over the shared popup shadow (ui/popupSurface.css), no border of their own. */
-.acpmux-shell,.ui-positioner{--acpmux-popup-elevation:inset 0 0 0 .5px var(--acpmux-composer-edge),var(--ui-popup-shadow)}
+/* One elevation for every menu and popover in the pane (Leo 10-13, coherence pass): the composer's hairline edge over the shared popup shadow (ui/popupSurface.css), no border of their own. A popup portaled straight to the body (ui/ContextMenu.tsx) has no composer edge, so it takes the shared hairline. A Base UI popup with no surface class of its own still gets it. */
+:root,.acpmux-shell,.ui-positioner{--acpmux-popup-elevation:inset 0 0 0 .5px var(--acpmux-composer-edge,color-mix(in srgb,currentColor 12%,transparent)),var(--ui-popup-shadow)}
+:where(.ui-positioner)>.ui-popup{border-radius:var(--ui-popup-radius);box-shadow:var(--acpmux-popup-elevation)}
 /* The point-anchored context menu (ui/ContextMenu.tsx; New Tab All chats rows, cx-j4sd): the pane does not load ui.css, so it draws the menu in its own menu look. */
 .ui-popup.ui-context-menu{box-sizing:border-box;padding:var(--ui-popup-padding);border-radius:var(--ui-popup-radius);background:var(--surface-popup);box-shadow:var(--acpmux-popup-elevation);color:var(--agent-text);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;font-size:var(--text-control);line-height:18px;outline:none}
 .ui-context-menu .ui-menu-item{display:flex;align-items:center;gap:8px;width:100%;height:var(--ui-row-height);padding:0 var(--ui-row-padding-inline);border:0;border-radius:var(--ui-row-radius);background:transparent;color:inherit;font:inherit;text-align:start;white-space:nowrap;cursor:default}
@@ -513,8 +514,10 @@ fieldset.acpmux-question{display:flex;flex-direction:column;gap:10px;margin:0;mi
 .acpmux-slash-menu,
 .acpmux-mp {
   border: 0;
+  border-radius: var(--ui-popup-radius);
   background-color: var(--surface-popup);
   box-shadow: var(--acpmux-popup-elevation);
+  color: var(--agent-text);
 }
 
 .acpmux-menu,
