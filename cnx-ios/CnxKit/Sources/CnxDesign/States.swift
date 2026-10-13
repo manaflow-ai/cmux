@@ -264,32 +264,45 @@ extension View {
 
     /// Shows a toast under the top safe area for 3 s. One at a time; newest replaces.
     public func cnxToast(_ toast: Binding<CnxToast?>) -> some View {
-        overlay(alignment: .top) {
-            ZStack {
-                if let value = toast.wrappedValue {
-                    HStack(spacing: 8) {
-                        if let symbol = value.symbol { Image(systemName: symbol) }
-                        Text(value.text)
-                    }
-                    .font(theme.type.meta.weight(.semibold))
-                    .foregroundStyle(theme.colors.label)
-                    .padding(.horizontal, 14)
-                    .frame(height: 36)
-                    .glassEffect(.regular, in: .capsule)
-                    .padding(.top, 8)
-                    .transition(.opacity.combined(with: .offset(y: -12)))
-                    .id(value.id)
-                    .task(id: value.id) {
-                        try? await Task.sleep(for: .seconds(3))
-                        if toast.wrappedValue?.id == value.id { toast.wrappedValue = nil }
-                    }
-                    .gesture(DragGesture(minimumDistance: 8).onEnded { drag in
-                        if drag.translation.height < 0 { toast.wrappedValue = nil }
-                    })
+        overlay(alignment: .top) { ToastHost(toast: toast) }
+    }
+}
+
+/// The toast overlay. It is a fileprivate type on purpose: SwiftUI's
+/// `.task(id:)` is `@export(implementation)` with an availability-conditional
+/// opaque return type, and with -O the default cross-module optimization
+/// would serialize a public modifier that calls it into client modules, which
+/// then reference the opaque type descriptor without emitting it (an
+/// undefined symbol at link time). Code that references a fileprivate type
+/// is never serialized, so the descriptor stays inside CnxDesign.
+private struct ToastHost: View {
+    @Binding var toast: CnxToast?
+
+    var body: some View {
+        ZStack {
+            if let value = toast {
+                HStack(spacing: 8) {
+                    if let symbol = value.symbol { Image(systemName: symbol) }
+                    Text(value.text)
                 }
+                .font(theme.type.meta.weight(.semibold))
+                .foregroundStyle(theme.colors.label)
+                .padding(.horizontal, 14)
+                .frame(height: 36)
+                .glassEffect(.regular, in: .capsule)
+                .padding(.top, 8)
+                .transition(.opacity.combined(with: .offset(y: -12)))
+                .id(value.id)
+                .task(id: value.id) {
+                    try? await Task.sleep(for: .seconds(3))
+                    if toast?.id == value.id { toast = nil }
+                }
+                .gesture(DragGesture(minimumDistance: 8).onEnded { drag in
+                    if drag.translation.height < 0 { toast = nil }
+                })
             }
-            .animation(theme.motion.snappy.animation, value: toast.wrappedValue)
         }
+        .animation(theme.motion.snappy.animation, value: toast)
     }
 }
 

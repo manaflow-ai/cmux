@@ -19,7 +19,7 @@ settings:
   configs:
     Demo:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CNX_DEMO
-      SWIFT_OPTIMIZATION_LEVEL: -Osize
+      SWIFT_OPTIMIZATION_LEVEL: -O
 packages:
   CnxKit:
     path: CnxKit
