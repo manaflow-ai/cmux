@@ -43,6 +43,8 @@ struct PasswordImportConflictTests {
 
     @Test func aReplaceToastPushedOutByOtherToastsStillOffersTheTrash() async throws {
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
+        // ARC owns it: close() releasing it too freed it under the toast center's closing work.
+        window.isReleasedWhenClosed = false
         defer { window.close() }
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("conflict-\(UUID().uuidString).csv")
         try Data(Self.csv.utf8).write(to: file)
