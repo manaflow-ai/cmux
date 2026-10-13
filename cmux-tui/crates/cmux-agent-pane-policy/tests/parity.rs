@@ -1,7 +1,6 @@
-//! The shared case files (`tests/cases/*.json`) against this crate. The Swift
-//! host runs the same files against AcpmuxPaneMethods.swift
-//! (CmuxNextAgentPaneTests/AgentPanePolicyParityTests.swift), so a case that
-//! passes here and fails there is a difference between the two hosts.
+//! The shared case files (`tests/cases/*.json`) against this crate, which
+//! mirrors AcpmuxPaneMethods.swift. The Swift test that ran the same files was
+//! deleted with the CmuxNext unit suites (36f2381bf1a6).
 
 use cmux_agent_pane_policy::check::{
     Checked, FrameState, PaneScope, check_frame as full_check, closes_connection,
