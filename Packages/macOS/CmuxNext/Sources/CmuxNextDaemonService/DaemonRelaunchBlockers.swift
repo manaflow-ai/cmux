@@ -1,6 +1,6 @@
 import CoreGraphics
 import CmuxNextBridge
-import CmuxUpdater
+public import CmuxUpdater
 
 /// Computes the safe-to-relaunch snapshot for an app update beside ``DaemonService`` so the
 /// large CmuxNextApp target does not grow for updater work.
@@ -27,8 +27,8 @@ public extension DaemonService {
                 switch report.source {
                 case .agent where report.state.isWorking:
                     busyAgents.insert(tab.id)
-                case .command, .run, .program, .terminalProgress
-                    where report.state.isLoading || report.state.isWorking:
+                case .command, .run, .program, .terminalProgress:
+                    guard report.state.isLoading || report.state.isWorking else { continue }
                     runningCommands.insert(tab.id)
                 default:
                     break
