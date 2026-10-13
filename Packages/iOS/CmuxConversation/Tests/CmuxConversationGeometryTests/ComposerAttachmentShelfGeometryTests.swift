@@ -97,3 +97,28 @@ import Testing
         #expect(abs(PhotoDrawerGeometry.height(keyboardHeight: 60) - 321.7) < 0.1)
     }
 }
+
+/// Messages' Photos drawer is a sheet: pulled down it follows the finger
+/// (the composer riding on its top) and, let go, it closes when the drag
+/// plus its projected glide passes half the sheet, else it springs back.
+/// iOS 27.0 17 Pro: a 120 pt pull held still springs back (sheet 315 pt).
+@Suite struct PhotoDrawerDragTests {
+    @Test func followsTheFingerDownAndResistsUp() {
+        #expect(PhotoDrawerGeometry.dragOffset(translation: 80) == 80)
+        let up = PhotoDrawerGeometry.dragOffset(translation: -100)
+        #expect(up < 0 && up > -30)
+    }
+
+    @Test func aSlowShortPullSpringsBack() {
+        #expect(!PhotoDrawerGeometry.shouldClose(offset: 120, velocity: 0, height: 315))
+    }
+
+    @Test func aLongPullCloses() {
+        #expect(PhotoDrawerGeometry.shouldClose(offset: 170, velocity: 0, height: 315))
+    }
+
+    @Test func aFlickCloses() {
+        #expect(PhotoDrawerGeometry.shouldClose(offset: 30, velocity: 900, height: 315))
+        #expect(!PhotoDrawerGeometry.shouldClose(offset: 100, velocity: -400, height: 315))
+    }
+}
