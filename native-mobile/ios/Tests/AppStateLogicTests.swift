@@ -149,3 +149,19 @@ struct AutoSwitchHostTests {
         #expect(fresh.autoSwitch(selectedID: nil, currentID: "b", currentConnected: false) == nil)
     }
 }
+
+struct PinnedTerminalOrderTests {
+    private func tab(_ surface: Int, pinned: Bool?, kind: String? = "pty") -> DaemonTab {
+        DaemonTab(surface: surface, kind: kind, name: nil, title: nil, size: nil, dead: nil, pinned: pinned, cwd: nil, gitBranch: nil)
+    }
+
+    @Test func pinnedTerminalsComeFirstInTheirOrder() {
+        let tabs = [tab(1, pinned: nil), tab(2, pinned: true), tab(3, pinned: false), tab(4, pinned: true)]
+        #expect(DaemonTab.terminalsPinnedFirst(tabs).map(\.surface) == [2, 4, 1, 3])
+    }
+
+    @Test func browserTabsAreLeftOut() {
+        let tabs = [tab(1, pinned: true, kind: "browser"), tab(2, pinned: nil)]
+        #expect(DaemonTab.terminalsPinnedFirst(tabs).map(\.surface) == [2])
+    }
+}
