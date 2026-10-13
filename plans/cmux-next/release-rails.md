@@ -245,6 +245,31 @@ smoke (`--expect-capabilities <bake json>` checks the fresh clone's handshake), 
 - Bad deploy: automatic (`wrangler rollback`). By hand: `wrangler rollback <version> --name <worker>`; the version is in the deploy log line "previous version of ...".
 - Bad migration: roll the code back first, then the file's own `-- Rollback` section (the apply receipt lists it, newest first). Expand migrations normally stay in place.
 - Bad image: `bun images/cmux-vm/promote.ts --channel <c> [--var TEAM_VM_SNAPSHOT] --rollback`, then deploy that env; after the deploy `wrangler rollback <version> --name cmux-api-<env>` undoes it at once.
+- A deploy that adds, renames or deletes a Durable Object class cannot be rolled back across (Cloudflare refuses the rollback). Fix forward only; say so in the landing note.
+
+## Production settings changes (no code)
+
+A settings-only change to a production Worker (the script-settings API: observability, logpush,
+tail consumers; no new version, no code) is allowed outside deploy-worker.sh only when all of these
+hold (Lawrence through the chief, 2026-10-12):
+
+1. Who: a named lane lead (or a worker the lead names) acts on a recorded decision by Lawrence or
+   the chief, written on the bead before the change.
+2. Record on the bead, before and after: the full settings object read back from the API (GET,
+   then the PATCH answer), the version id that serves 100% (it must not change), the UTC time of the
+   change. Change only the named fields; every other field stays as read.
+3. Proof after: a count query on Workers Logs or Axiom over a window after the change, and the
+   health route (200). Never print a header value or a token.
+4. Rollback: the same API call with the before object, written on the bead with the change.
+
+Worked example (cx-dgsp, 2026-10-12T02:21:25Z): `PATCH
+/accounts/<account>/workers/scripts/cmux-api/script-settings` with the read `observability`
+object and `logs.invocation_logs: false` (stops header logging; legacy wire clients sent their
+token in Sec-WebSocket-Protocol). Serving version 954a23d0 unchanged, no new version. Proof: the
+hour before had 128 invocation-log events and 122 with `bearer.`; the 14.3 minutes after had 0
+and 0, health 200. Rollback: the same PATCH with `invocation_logs: true`. The repo's
+wrangler.jsonc must say the same (production `invocation_logs: false`), so the next code deploy
+keeps the setting.
 
 ## cmux-old compatibility (production steps)
 
