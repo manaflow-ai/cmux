@@ -24,17 +24,8 @@ final class CloudService {
     @ObservationIgnored let installIdentity: MacInstallIdentity
     @ObservationIgnored private let machines: MachineRegistry
     @ObservationIgnored private let binary: URL?
-    /// This Mac's `cmux link` for the app server path (cx-rtipa S3); nil on
-    /// the legacy path and in an untagged DEBUG build.
-    @ObservationIgnored private let linkLauncher: CloudLinkLauncher?
-    /// The running ensure (one at a time; ``ensureLinkReport()``).
-    @ObservationIgnored private var linkTask: Task<JSONValue, Never>?
-    /// Bumped when a session ends: an ensure of an older one does nothing.
-    @ObservationIgnored private var linkGeneration: UInt64 = 0
-    /// The Stack user the link was last started for.
-    @ObservationIgnored private var linkUser: String?
-    /// Set while a session ends (sign-out, session end): no ensure runs.
-    @ObservationIgnored private var linkEnding = false
+    /// This Mac's `cmux link` across the session (cx-rtipa S3).
+    @ObservationIgnored private var link: CloudLinkLifecycle!
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
@@ -110,13 +101,17 @@ final class CloudService {
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
         move.cli = binary
         move.ledger = .standard
-        linkLauncher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(tag: LaunchIdentity.current().tag) : nil
         if let binary {
             hub = CloudTunnelHub(api: api, paths: paths, binary: binary, deviceName: Self.deviceName)
         }
         movedChats.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }
         CloudMovedChats.app = movedChats
+        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(tag: LaunchIdentity.current().tag) : nil
+        link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
+                                  isAvailable: { [weak self] in self.map { $0.mayCallCloud && !$0.policyDisabled && $0.auth.isSignedIn } ?? false },
+                                  isSignedIn: { [weak self] in self?.auth.isSignedIn ?? false },
+                                  connection: { [machines] in machines.local.connection })
     }
 
     /// `cmux-<host>`, as the old app named its link device. Reads the kernel
@@ -180,12 +175,7 @@ final class CloudService {
                 if signedIn {
                     // Sign-out revoked the WireGuard peer and parked the hub.
                     await self.hub?.resume()
-                    // Another person's link never keeps running for this one.
-                    let user = self.auth.user?.id
-                    if let previous = self.linkUser, previous != user { await self.endLink(final: true) }
-                    // A new session: ensures may run again.
-                    self.linkEnding = false
-                    self.linkUser = user
+                    await self.link.sessionBegan(user: self.auth.user?.id)
                     // The install first: the app server path's first list goes
                     // through the credential relay, which sends the install token.
                     await self.installSignedIn()
@@ -195,7 +185,7 @@ final class CloudService {
                     self.dropAllMachines()
                     // The session ended (signed out here or elsewhere, or
                     // expired): no link keeps running for it.
-                    await self.endLink(final: true)
+                    await self.link.endLink(final: true)
                     await self.installIdentity.unbind()
                 }
             }
@@ -225,16 +215,8 @@ final class CloudService {
             // The local tunnel hub stops too; nothing is revoked remotely.
             // task-owner: one teardown hop; hub.stop() is idempotent
             if let hub { Task { await hub.stop() } }
-            // So does this Mac's link: no ensure of before the policy runs on,
-            // and the link stops (the session stays, so nothing is archived).
-            linkGeneration &+= 1
-            let running = linkTask
-            linkTask = nil
-            // task-owner: one teardown hop; stopLink() is idempotent
-            Task { [weak self] in
-                _ = await running?.value
-                await self?.stopLink()
-            }
+            // So does this Mac's link (the session stays).
+            link.policyTurnedOff()
         } else {
             dropAllMachines()
             // task-owner: one list fetch after the policy lifted
@@ -404,9 +386,9 @@ final class CloudService {
     func signOut() async {
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
-        linkEnding = true
+        link.beginEnding()
         dropAllMachines()
-        await endLink(final: false)
+        await link.endLink(final: false)
         if let hub { await hub.revoke() }
         // Revoke the install while the Stack session still exists.
         if let stackUser = auth.user?.id {
@@ -414,95 +396,15 @@ final class CloudService {
             await installIdentity.signOut(stackUser: stackUser, session: { try await auth.tokens().access })
         }
         // An ensure that slipped in during the revoke: stop that link too.
-        await stopLink()
+        await link.stopLink()
         await auth.signOut()
     }
 
-    /// Starts this Mac's `cmux link` unless one of this build runs, as the
-    /// signed-in install, and tells the daemon when it started, so the Cloud
-    /// server sees it before the connect (cx-rtipa S3). A failure is logged;
-    /// the connect then answers that the helper is not running.
-    func ensureLink() async { _ = await ensureLinkReport() }
+    /// Starts this Mac's `cmux link` (``CloudLinkLifecycle/ensureLink()``).
+    func ensureLink() async { await link.ensureLink() }
 
-    /// ``ensureLink()`` with what happened, for `debug.cloud.link_ensure` on
-    /// the debug socket (DEBUG builds): the ensure status and pid, and when the link started,
-    /// how many app servers `apps-link-changed` told (or its refusal).
-    func ensureLinkReport() async -> JSONValue {
-        guard let linkLauncher else { return .object(["error": .string("not the app server link path")]) }
-        guard mayCallCloud, !policyDisabled, auth.isSignedIn else { return .object(["error": .string("Cloud is not available")]) }
-        guard !linkEnding else { return .object(["error": .string("the Cloud session is ending")]) }
-        // One link task: an ensure waits for the one before it.
-        let previous = linkTask
-        let generation = linkGeneration
-        let task = Task { [weak self] () -> JSONValue in
-            _ = await previous?.value
-            guard let self else { return .null }
-            return await self.runEnsure(linkLauncher, generation: generation)
-        }
-        linkTask = task
-        return await task.value
-    }
-
-    /// One ensure. Nothing once a sign-out or a session end started
-    /// (`linkGeneration` moved); a link that started meanwhile is stopped.
-    private func runEnsure(_ linkLauncher: CloudLinkLauncher, generation: UInt64) async -> JSONValue {
-        guard generation == linkGeneration, auth.isSignedIn else { return .object(["error": .string("signed out")]) }
-        guard let install = await installIdentity.installID() else { return .object(["error": .string("no install")]) }
-        do {
-            let ensured = try await linkLauncher.ensure(install: install)
-            if generation != linkGeneration {
-                await linkLauncher.stop()
-                return .object(["error": .string("signed out during the ensure")])
-            }
-            var report: [String: JSONValue] = ["status": .string(ensured.status), "pid": ensured.pid.map { .number(Double($0)) } ?? .null]
-            if ensured.status != "running" { report["link_changed"] = await notifyLinkChanged() }
-            return .object(report)
-        } catch {
-            logger.error("cloud link ensure failed: \(String(describing: error), privacy: .public)")
-            return .object(["error": .string(String(describing: error))])
-        }
-    }
-
-    /// The session ends (sign-out, or the session ended elsewhere): no new
-    /// ensure starts, the running one is waited for, the link stops, and the
-    /// install's key and peers go into the archive.
-    /// `final`: the session's last call (the signed-out branch); only it
-    /// lets ensures run again.
-    private func endLink(final: Bool) async {
-        linkEnding = true
-        linkGeneration &+= 1
-        let running = linkTask
-        linkTask = nil
-        _ = await running?.value
-        let install = await installIdentity.installID()
-        await stopLink(install: install)
-        await linkLauncher?.archive(install: install)
-        linkUser = nil
-        if final { linkEnding = false }
-    }
-
-    /// Stops this Mac's `cmux link` and tells the daemon. `install` only
-    /// names the link in a failure log.
-    private func stopLink(install: String? = nil) async {
-        guard let linkLauncher else { return }
-        await linkLauncher.stop(install: install)
-        await notifyLinkChanged()
-    }
-
-    /// Sends `apps-link-changed` on the app's verified daemon connection;
-    /// the daemon's answer (`{servers}`) or the refusal.
-    @discardableResult
-    private func notifyLinkChanged() async -> JSONValue {
-        guard let connection = machines.local.connection else { return .object(["error": .string("not connected")]) }
-        do {
-            let answer = try await connection.request(AppsLinkChangedRequest())
-            logger.info("apps-link-changed: \(String(describing: answer), privacy: .public)")
-            return answer
-        } catch {
-            logger.error("apps-link-changed failed: \(String(describing: error), privacy: .public)")
-            return .object(["error": .string(String(describing: error))])
-        }
-    }
+    /// ``CloudLinkLifecycle/ensureLinkReport()``, for the DEBUG socket method.
+    func ensureLinkReport() async -> JSONValue { await link.ensureLinkReport() }
 
     /// Registers (or reuses) this Mac's install for the signed-in user and
     /// mints one token. A failure is logged: the relay mints again when it
