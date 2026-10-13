@@ -76,8 +76,8 @@ struct WorkspacesScreen: View {
                     WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs)
                 }
                 .toolbar {
+                    // The title is WorkspacesList's Mac filter (a title menu).
                     SidebarToolbarItem(sidebar: shell.sidebar)
-                    ScreenTitle(title: "Workspaces")
                 }
                 .cnxBanner(shell.banner)
         }
