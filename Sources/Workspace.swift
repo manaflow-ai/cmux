@@ -9187,7 +9187,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         initialDividerPosition: CGFloat? = nil,
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
-        allowTextBoxFocusDefault: Bool = true
+        allowTextBoxFocusDefault: Bool = true,
+        inheritStartupWork: Bool = true
     ) -> TerminalPanel? {
         return newTerminalSplitOutcome(
             from: panelId,
@@ -9201,7 +9202,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             initialDividerPosition: initialDividerPosition,
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
-            allowTextBoxFocusDefault: allowTextBoxFocusDefault
+            allowTextBoxFocusDefault: allowTextBoxFocusDefault,
+            inheritStartupWork: inheritStartupWork
         ).panel
     }
 
@@ -9222,7 +9224,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remotePTYSessionID: String? = nil,
         suppressWorkspaceRemoteStartupCommand: Bool = false,
         allowTextBoxFocusDefault: Bool = true, autoLayout: Bool = false,
-        honorsGhosttySplitInheritance: Bool = false
+        honorsGhosttySplitInheritance: Bool = false,
+        inheritStartupWork: Bool = true
     ) -> TerminalPanelCreationOutcome {
         guard !isRetiredFromOwningTabManager else { return .failed }
         // In a remote tmux mirror workspace a split means "split the mirrored
@@ -9278,7 +9281,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             remotePTYSessionID: remotePTYSessionID,
             suppressWorkspaceRemoteStartupCommand: suppressWorkspaceRemoteStartupCommand,
             allowTextBoxFocusDefault: allowTextBoxFocusDefault, autoLayout: autoLayout,
-            honorsGhosttySplitInheritance: honorsGhosttySplitInheritance
+            honorsGhosttySplitInheritance: honorsGhosttySplitInheritance,
+            inheritStartupWork: inheritStartupWork
         ) else { return .failed }
         return .created(panel)
     }
@@ -9296,7 +9300,8 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
         remotePTYSessionID: String?,
         suppressWorkspaceRemoteStartupCommand: Bool,
         allowTextBoxFocusDefault: Bool, autoLayout: Bool,
-        honorsGhosttySplitInheritance: Bool
+        honorsGhosttySplitInheritance: Bool,
+        inheritStartupWork: Bool
     ) -> TerminalPanel? {
 #if DEBUG
         let splitTimingStart = ProcessInfo.processInfo.systemUptime
@@ -9319,6 +9324,9 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
 
         guard let paneId = sourcePaneId else { return nil }
         var inheritedConfig = inheritedTerminalConfig(preferredPanelId: panelId, inPane: paneId)
+        if !inheritStartupWork {
+            inheritedConfig = inheritedConfig?.withoutStartupWork()
+        }
         let requestedInitialCommand = initialCommand?.trimmingCharacters(in: .whitespacesAndNewlines)
         let explicitInitialCommand = (requestedInitialCommand?.isEmpty == false) ? requestedInitialCommand : nil
         let remoteTerminalStartupCommand = suppressWorkspaceRemoteStartupCommand ? nil : remoteTerminalStartupCommand()

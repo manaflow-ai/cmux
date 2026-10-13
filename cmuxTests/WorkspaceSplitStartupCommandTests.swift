@@ -393,5 +393,16 @@ final class WorkspaceSplitStartupCommandTests: XCTestCase {
             created.surface.hasDeferredStartupWorkForBackgroundStart(),
             "A control-created tab must not replay the source command before its first send"
         )
+
+        let split = try XCTUnwrap(workspace.newTerminalSplit(
+            from: source.id,
+            orientation: .horizontal,
+            focus: false,
+            inheritStartupWork: false
+        ))
+        XCTAssertFalse(
+            split.surface.hasDeferredStartupWorkForBackgroundStart(),
+            "A control-created split must not replay the source command before its first send"
+        )
     }
 }

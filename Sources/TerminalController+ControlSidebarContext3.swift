@@ -211,7 +211,8 @@ extension TerminalController {
             orientation: orientation,
             insertFirst: insertFirst,
             focus: focus,
-            allowTextBoxFocusDefault: false
+            allowTextBoxFocusDefault: false,
+            inheritStartupWork: false
         ) {
         case .created(let panel):
             return .created(panel.id)

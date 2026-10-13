@@ -361,7 +361,8 @@ extension TerminalController: ControlPaneContext {
                 tmuxStartCommand: inputs.tmuxStartCommand,
                 startupEnvironment: inputs.startupEnvironment,
                 initialDividerPosition: initialDividerPosition.map { CGFloat($0) },
-                allowTextBoxFocusDefault: false
+                allowTextBoxFocusDefault: false,
+                inheritStartupWork: false
             ) {
             case .created(let panel):
                 newPanelId = panel.id
