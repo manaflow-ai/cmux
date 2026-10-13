@@ -104,6 +104,26 @@ struct CloudMoveTests {
         }
     }
 
+    /// A moved chat stays where the move put it across a quit and relaunch: the relaunched app shows
+    /// its tab on the machine, still bound to the moved session through the machine's store (so it
+    /// attaches through that machine), offers Bring Back Local for it, and has no Retry left.
+    @Test func aMovedChatStaysAttachedToTheMachineChatAfterARelaunch() async throws {
+        try await Self.withMove("moves") { move in
+            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
+            _ = try await move.read()
+            try await move.relaunchAfterTheTabClosed()
+            let moved = try await move.read()
+            let tab = try #require(moved.machineTab, "the relaunched app shows no chat tab on the machine")
+            #expect(tab.agentSession?.session == "chat-on-vm")
+            #expect(tab.agentSession?.host == "registry:" + moved.machineStore)
+            #expect(moved.attachesThroughMachine, "after the relaunch the moved chat does not attach through the machine")
+            let record = try #require(tab.agentSession)
+            #expect(!CloudBringBack.hiddenMenuItems(record, movedChats: move.services.cloud.movedChats).contains(CloudBringBack.action),
+                    "after the relaunch the machine tab has no Bring Back Local row")
+            #expect(move.services.cloud.moveRetries[move.key] == nil)
+        }
+    }
+
     /// A quit or an update relaunch after a move committed but its machine tab didn't open keeps
     /// the move's Retry: the relaunched app (same daemons, same defaults) only opens the moved
     /// chat's tab on its machine, without syncing or moving the chat again.
@@ -240,6 +260,20 @@ struct CloudMoveTests {
             }
             try #require(services.locateTab(tabID) != nil, "the relaunched app does not show this Mac's chat tab")
             #expect(services.locateTab(tabID)?.0.id == key, "the relaunched app keys this Mac's chat tab differently")
+        }
+
+        /// ``relaunch()`` after a move closed this Mac's tab: waits only for the machine's link.
+        func relaunchAfterTheTabClosed() async throws {
+            let build = try #require(relaunched)
+            services.daemon.shutdownConnection()
+            machine.daemon.shutdownConnection()
+            for controller in services.windows.controllers { controller.window?.close() }
+            (services, machine) = try await build()
+            let deadline = ContinuousClock.now + .seconds(60)
+            while machine.daemon.connection == nil || AgentTabStore.registryHost(of: machine.daemon) == nil, ContinuousClock.now < deadline {
+                try? await Task.sleep(for: .milliseconds(50))
+            }
+            try #require(machine.daemon.connection != nil, "the relaunched app did not reconnect to the machine")
         }
 
         /// `cmux cloud move` on the chat tab, without waiting for it.
