@@ -1,5 +1,5 @@
 import AppKit
-import Foundation
+public import Foundation
 
 /// The "Did you know" card (BOTTOM-LEFT-CARDS K1): one tip a day for a
 /// feature the user has not used, picked only at launch and when cmux
