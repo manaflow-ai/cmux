@@ -63,6 +63,29 @@ final class BrowserHistoryStarts {
             outcomes[tabID] = "navigated"
             return false
         }
+        let files = BrowserHistoryWriter.keepsFileAccess(saved?.entries.compactMap { URL(string: $0.url) } ?? [], shown: entry.url)
+        if let state = BrowserHistoryWriter.restoreState(saved, at: entry.url, engine: .webkit), files {
+            guard entry.url.isFileURL else { return restore(page, state, saved: saved, at: entry.url, tabID: tabID) }
+            // A local page first loads with read access to its folder, which its restored entries
+            // (all in that folder) then share; restored without it, WebKit would read them with
+            // access to every file. The restore waits for that load to commit, so it replaces the
+            // load's entry instead of the load committing after it as one more entry, and comes
+            // before the page's scripts run (Back pressed then would find no entries).
+            page.load(entry.url)
+            outcomes[tabID] = "engine-waiting-file"
+            Task { [weak self, weak page] in
+                // The load's phase, not its address: WebKit reports the address as the load is
+                // asked for, before it starts.
+                for await done in ObservationStream({ [weak page] in page.map { Self.committed($0.state.phase) } ?? true }) where done { break }
+                // A page the person sent elsewhere meanwhile keeps where they went.
+                guard let self, let page, page.state.url?.absoluteString == entry.url.absoluteString else {
+                    self?.outcomes[tabID] = "navigated"
+                    return
+                }
+                self.restore(page, state, saved: saved, at: entry.url, tabID: tabID)
+            }
+            return true
+        }
         outcomes[tabID] = saved == nil ? "address" : saved?.engineState == nil ? "address-no-state" : "address-file-access"
         page.load(entry.url)
         return false
