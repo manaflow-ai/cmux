@@ -1,0 +1,49 @@
+import Foundation
+import Observation
+
+/// DEBUG demo driver plumbing (launch argument `-CnxDemo chat-feed`). A script
+/// posts commands; the screen that owns the target performs them through its
+/// normal code paths (scroll positions, the question reducer, the composer),
+/// so the recording shows real behavior. Release builds never post commands.
+@MainActor
+@Observable
+public final class DemoDirector {
+    public static let shared = DemoDirector()
+
+    public enum Command: Hashable, Sendable {
+        case feedScroll(toEvent: String)
+        case feedScrollTop
+        case feedExpand(event: String)
+        /// Picks option ids per item (in item order), then submits.
+        case answerQuestion(id: String, picks: [[String]])
+        case feedReply(event: String, text: String)
+        case feedOpen(event: String)
+        case chatSend(String)
+        case chatScroll(toTop: Bool)
+        case chatPermission(optionKind: String)
+        case chatOpenChanges
+        case chatOpenFirstFile
+        case diffSetSplit(Bool)
+        case diffExpandFirst
+        case diffMarkViewed
+        case navigateBack
+    }
+
+    public private(set) var command: Command?
+    public private(set) var serial = 0
+    public private(set) var isActive = false
+
+    public init() {}
+
+    public func post(_ command: Command) {
+        isActive = true
+        self.command = command
+        serial &+= 1
+    }
+
+    /// Returns the current command when it matches, so a view handles each command once.
+    public func take<T>(_ match: (Command) -> T?) -> T? {
+        guard let command else { return nil }
+        return match(command)
+    }
+}

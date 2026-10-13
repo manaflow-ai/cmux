@@ -1,5 +1,6 @@
 #if os(iOS)
 import CnxDesign
+import CnxFeed
 import CnxModel
 import SwiftUI
 
@@ -42,6 +43,9 @@ public struct RootView: View {
         .background(Color(uiColor: .systemGroupedBackground))
         .environment(store)
         .sensoryFeedback(.impact(weight: .light), trigger: sidebar.isOpen)
+        #if DEBUG
+        .task { await DebugLaunch.run(selectTab: { selectedTab = $0 }) }
+        #endif
     }
 
     private var tabs: some View {
@@ -53,9 +57,9 @@ public struct RootView: View {
                 WorkspacesScreen(openSidebar: openSidebar)
             }
             Tab("Feed", systemImage: "bolt.horizontal", value: RootTab.feed) {
-                FeedScreen(openSidebar: openSidebar)
+                FeedScreen { SidebarToolbarItem(openSidebar: openSidebar) }
             }
-            .badge(store.feed.filter { !$0.isResolved }.count)
+            .badge(FeedStore.shared.needsYouCount)
             Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {
                 SettingsScreen()
             }
@@ -84,4 +88,22 @@ public struct RootView: View {
 enum RootTab: Hashable {
     case home, workspaces, feed, settings
 }
+
+#if DEBUG
+/// DEBUG launch arguments: `-CnxDemo chat-feed` runs the Feed + agent chat demo driver.
+struct DebugLaunch {
+    @MainActor
+    static func run(selectTab: (RootTab) -> Void) async {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: "-CnxDemo"), arguments.indices.contains(index + 1) else { return }
+        switch arguments[index + 1] {
+        case "chat-feed":
+            selectTab(.feed)
+            await FeedDemoScript().run()
+        default:
+            break
+        }
+    }
+}
+#endif
 #endif

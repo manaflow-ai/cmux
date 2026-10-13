@@ -12,6 +12,13 @@ let package = Package(
         .library(name: "CnxModel", targets: ["CnxModel"]),
         .library(name: "CnxDesign", targets: ["CnxDesign"]),
         .library(name: "CnxTransport", targets: ["CnxTransport"]),
+        .library(name: "CnxMarkdown", targets: ["CnxMarkdown"]),
+        .library(name: "CnxDiff", targets: ["CnxDiff"]),
+        .library(name: "CnxAgentChat", targets: ["CnxAgentChat"]),
+        .library(name: "CnxFeed", targets: ["CnxFeed"]),
+    ],
+    dependencies: [
+        .package(path: "../../Packages/Shared/CmuxAgentQuestion"),
     ],
     targets: [
         .target(name: "CnxDesign"),
@@ -26,9 +33,23 @@ let package = Package(
             linkerSettings: [.linkedFramework("Security"), .linkedFramework("SystemConfiguration")]
         ),
         .target(name: "CnxTransport", dependencies: [.target(name: "CnxFFI", condition: .when(platforms: [.iOS]))]),
-        .target(name: "CnxShell", dependencies: ["CnxDesign", "CnxModel", "CnxTransport"]),
+        // Markdown: native block renderer for transcripts, WKWebView renderer (pooled) for the Feed and math.
+        .target(name: "CnxMarkdown", dependencies: ["CnxDesign"], resources: [.copy("Resources/web")]),
+        // Diff model (line + word diff, unified parser) and the GitHub-mobile-style viewer.
+        .target(name: "CnxDiff", dependencies: ["CnxDesign"]),
+        // ACP agent session model, AgentSessionSource (mock now, acpmux over the link later), chat screen.
+        .target(name: "CnxAgentChat", dependencies: [
+            "CnxDesign", "CnxModel", "CnxMarkdown", "CnxDiff",
+            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+        ]),
+        .target(name: "CnxFeed", dependencies: [
+            "CnxDesign", "CnxModel", "CnxMarkdown", "CnxAgentChat",
+            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+        ]),
+        .target(name: "CnxShell", dependencies: ["CnxDesign", "CnxModel", "CnxAgentChat", "CnxFeed", "CnxTransport"]),
         .testTarget(name: "CnxModelTests", dependencies: ["CnxModel"]),
         .testTarget(name: "CnxTransportTests", dependencies: ["CnxTransport"]),
+        .testTarget(name: "CnxAgentChatTests", dependencies: ["CnxAgentChat", "CnxDiff", "CnxMarkdown"]),
     ],
     swiftLanguageModes: [.v6]
 )
