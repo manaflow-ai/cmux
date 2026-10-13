@@ -2604,6 +2604,32 @@ export const hexclavePendingRevocations = pgTable("hexclave_pending_revocations"
   index("hexclave_pending_revocations_user_idx").on(table.userId),
 ]);
 
+/**
+ * A Stack session that must be revoked because the Cloud access grant it
+ * enrolled was revoked. Written in the same transaction that revokes the
+ * grant, so no crash can lose it. The row is deleted once Stack accepts the
+ * revocation; until then the vm-reconcile cron claims due rows (lease in
+ * `claimed_until`, `FOR UPDATE SKIP LOCKED`) and retries with bounded
+ * backoff. After the attempt cap or 24 hours it stops (`gave_up_at`) and is
+ * reported.
+ */
+export const stackSessionRevocations = pgTable("stack_session_revocations", {
+  stackSessionId: text("stack_session_id").primaryKey(),
+  userId: text("user_id").notNull(),
+  accessGrantId: uuid("access_grant_id"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  gaveUpAt: timestamp("gave_up_at", { withTimezone: true }),
+}, (table) => [
+  index("stack_session_revocations_due_idx")
+    .on(table.nextAttemptAt)
+    .where(sql`${table.gaveUpAt} is null`),
+  index("stack_session_revocations_user_idx").on(table.userId),
+]);
+
 export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "failed";
 
 /**
