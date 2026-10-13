@@ -2217,7 +2217,11 @@ impl Terminal {
     /// callers must publish the returned bytes to every attached parser before
     /// resuming the live stream.
     pub fn discard_unreplayable_replay(&mut self) -> Option<Vec<u8>> {
-        if self.vt_replay_resumes_stream() {
+        // The generic VT boundary can still retain a complete replay for an
+        // APC while the Kitty-specific tracker has already overflowed its
+        // smaller upload budget. In that case the generic result is not a
+        // usable replay, so CAN recovery is still required.
+        if self.vt_replay_resumes_stream() && !self.kitty_inflight.has_unreplayable_command() {
             return None;
         }
         let normalized = self.vt_write_with_normalized(b"\x18").into_owned();
