@@ -30,6 +30,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::session_journal::{JournalAppend, append_journal_record};
+use super::personal_browser_profiles::resolve_browser_profile_id_in;
 use super::{
     JournalClass, JournalProducer, JournalReplayPolicy, JournalSensitivity, JournalSubject,
     WorkspaceRegistry, new_uuid_v4, unix_epoch_ms,
@@ -1179,24 +1180,9 @@ impl WorkspaceRegistry {
             record.favicon_url = favicon_url.map(str::to_string);
         }
         if let Some(profile_id) = profile_id {
-            record.profile_id = match profile_id {
-                Some(profile_id) => {
-                    let mut statement = tx.prepare(
-                        "SELECT browser_profile_id FROM browser_profiles
-                         WHERE browser_profile_id = ?1 OR name = ?1
-                         ORDER BY browser_profile_id ASC",
-                    )?;
-                    let ids = statement
-                        .query_map([profile_id], |row| row.get::<_, String>(0))?
-                        .collect::<Result<Vec<_>, _>>()?;
-                    match ids.as_slice() {
-                        [id] => Some(id.clone()),
-                        [] => anyhow::bail!("unknown browser profile {profile_id}"),
-                        _ => anyhow::bail!("browser profile name is ambiguous: {profile_id}"),
-                    }
-                }
-                None => None,
-            };
+            record.profile_id = profile_id
+                .map(|profile_id| resolve_browser_profile_id_in(&tx, profile_id))
+                .transpose()?;
         }
         record.validate()?;
         if record == before {

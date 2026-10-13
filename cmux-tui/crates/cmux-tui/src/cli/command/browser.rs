@@ -208,6 +208,11 @@ fn parse_browser_profile_open(
     words: &[String],
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
+    if words.len() > 3 {
+        return Err(UsageError::new(
+            "browser profile open accepts one positional URL",
+        ));
+    }
     let positional_url = words.get(2).cloned();
     let flagged_url = flags.take("url");
     let url = match (positional_url, flagged_url) {

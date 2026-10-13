@@ -134,6 +134,13 @@ impl WorkspaceRegistry {
     /// either form.
     pub fn resolve_browser_profile_id(&self, value: &str) -> anyhow::Result<String> {
         let connection = self.connection.get();
+        resolve_browser_profile_id_in(&connection, value)
+    }
+
+    pub(crate) fn resolve_browser_profile_id_in(
+        connection: &Connection,
+        value: &str,
+    ) -> anyhow::Result<String> {
         let mut statement = connection.prepare(
             "SELECT browser_profile_id FROM browser_profiles
              WHERE browser_profile_id = ?1 OR name = ?1
