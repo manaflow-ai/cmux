@@ -162,6 +162,8 @@ export class StackTeamSync {
     // reconcile scheduled bumps gen). A merged delivery's row runs again at once, as a full sync.
     const changed = deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ? AND gen = ?`, k, row.gen).rowsWritten === 0
     if (changed) deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ? WHERE k = ? AND merged = 1 AND type = 'sync'`, at(), k)
+    // A confirmed delete is final: a team.deleted that merged meanwhile has nothing left to do (review P3).
+    if (changed && out === "team_deleted") deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ? AND type = 'team.deleted'`, k)
     return out
   }
 

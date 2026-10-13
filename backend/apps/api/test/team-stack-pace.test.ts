@@ -165,7 +165,7 @@ describe("Stack webhook: queued syncs under the shared pace (cx-f5tk4)", { timeo
     expect((await pending(stackTeam)).length).toBe(1)
   })
 
-  it("memberships merged while a read runs are all synced: one full team sync covers the second member", async () => {
+  it("a membership merged while another membership's narrow read runs is synced by the merged row's full rerun", async () => {
     const s = stackHttp(1000)
     const p = pace(1000)
     const stackTeam = crypto.randomUUID()
@@ -173,37 +173,43 @@ describe("Stack webhook: queued syncs under the shared pace (cx-f5tk4)", { timeo
     const u2 = crypto.randomUUID()
     s.teams.set(stackTeam, u1)
     await wire([stackTeam], s, p)
-    // Both are members in Stack; the faked member list answers both.
-    const both = s.http
     let release: (() => void) | undefined
     const gate = new Promise<void>((r) => (release = r))
     let held = false
     let onHeld: (() => void) | undefined
     const heldNow = new Promise<void>((r) => (onHeld = r))
+    const members = [u1, u2]
     const client = stackServer({ ...testEnv, STACK_SECRET_SERVER_KEY: "test-server-key", STACK_PROJECT_ID: PROJECT } as Env, async (req) => {
       const url = new URL(req.url)
-      if (!held && url.pathname.startsWith("/api/v1/teams/")) {
-        held = true
-        onHeld!()
-        await gate
+      if (url.pathname.startsWith("/api/v1/teams/")) {
+        if (!held) {
+          held = true
+          onHeld!()
+          await gate
+        }
+        return Response.json({ id: stackTeam, display_name: "T" })
       }
-      if (url.pathname === "/api/v1/team-member-profiles") return Response.json({ is_paginated: false, items: [u1, u2].map((u) => ({ team_id: stackTeam, user_id: u, display_name: "Member" })) })
-      if (url.pathname === "/api/v1/team-permissions") return Response.json({ is_paginated: false, items: [u1, u2].map((u) => ({ id: "team_member", user_id: u, team_id: stackTeam })) })
-      return both(req)
+      // D0's narrow read: u1's own membership and permissions only.
+      if (url.pathname.startsWith("/api/v1/team-member-profiles/")) return Response.json({ display_name: "Member" })
+      if (url.pathname === "/api/v1/team-member-profiles") return Response.json({ is_paginated: false, items: members.map((u) => ({ team_id: stackTeam, user_id: u, display_name: "Member" })) })
+      if (url.pathname === "/api/v1/team-permissions") {
+        const only = url.searchParams.get("user_id")
+        return Response.json({ is_paginated: false, items: members.filter((u) => !only || u === only).map((u) => ({ id: "team_member", user_id: u, team_id: stackTeam })) })
+      }
+      return new Response("{}", { status: 404 })
     }, async () => undefined)!
     await inDO(teamStub(teamIdOf(stackTeam)), async (instance) => {
       instance.stack = client
     })
-    // D0 (a team event) holds its read; D1 and D2 (memberships) arrive and merge into the team's row.
-    const d0 = deliver("team.created", { id: stackTeam, display_name: "T", profile_image_url: null, created_at_millis: 0 })
+    // D0 (membership u1) holds its read; D2 (membership u2) merges into the team's row meanwhile.
+    const d0 = deliver("team_membership.created", { team_id: stackTeam, user_id: u1 })
     await heldNow
-    // D1 and D2 wait behind D0's read; past their deadline they answer 200 `queued` (their row stays).
-    const d1 = await deliver("team_membership.created", { team_id: stackTeam, user_id: u1 })
+    // D2 waits behind D0's read; past its deadline it answers 200 `queued` (its row stays, merged).
     const d2 = await deliver("team_membership.created", { team_id: stackTeam, user_id: u2 })
-    expect([d1.status, d2.status]).toEqual([200, 200])
+    expect(d2).toMatchObject({ status: 200, body: { outcome: "queued" } })
     release!()
-    await d0
-    // The merged row runs again at once (inline or from the alarm): both members end up there.
+    expect((await d0).body.outcome).toBe("member_present")
+    // D0 read only u1: u2 arrives only through the merged row's full rerun (inline, or from the alarm).
     for (let i = 0; i < 5 && (await pending(stackTeam)).length > 0; i++) await step([stackTeam], s, p, Date.now() + 10 * 60_000)
     expect(await pending(stackTeam)).toEqual([])
     for (const u of [u1, u2]) expect(await memberRow(teamIdOf(stackTeam), userIdFor(PROJECT, u))).toMatchObject({ role: "member" })
