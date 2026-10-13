@@ -811,8 +811,13 @@ jobs:
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/ratchet-debt"
-          if ! scripts/cmux-next/check-no-godfiles.sh --only swift ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-swift.log"; then
+          # Exit 1 is a god file (warn-only); any other code is a broken check and fails.
+          rc=0
+          scripts/cmux-next/check-no-godfiles.sh --only swift ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-swift.log" || rc=$?
+          if (( rc == 1 )); then
             echo "::warning title=god files (swift)::over the hard ceiling; warn-only (Lawrence 2026-10-10), see this step's log"
+          elif (( rc != 0 )); then
+            exit "$rc"
           fi
 
       - name: God files (cmux-tui Rust)
@@ -829,8 +834,13 @@ jobs:
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/ratchet-debt"
-          if ! scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-rust.log"; then
+          # Exit 1 is a god file (warn-only); any other code is a broken check and fails.
+          rc=0
+          scripts/cmux-next/check-no-godfiles.sh --only rust ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext" | tee "$RUNNER_TEMP/ratchet-debt/godfiles-rust.log" || rc=$?
+          if (( rc == 1 )); then
             echo "::warning title=god files (rust)::over the hard ceiling; warn-only (Lawrence 2026-10-10), see this step's log"
+          elif (( rc != 0 )); then
+            exit "$rc"
           fi
 
       # Every CmuxNextApp edit re-emits the whole module; the target may only
