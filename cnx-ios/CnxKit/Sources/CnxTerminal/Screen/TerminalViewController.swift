@@ -16,10 +16,32 @@ import UIKit
 ///   whose bottom is constrained to the composer's top and whose top is the
 ///   toolbar's bottom: the grid keeps its rows, follows the keyboard exactly and
 ///   is clipped at the top while the keyboard is up. Hard top edge.
+///
+/// Two chromes share this layout:
+///
+/// - `.standalone` (`TerminalScreen`): a navigation bar above, the safe area
+///   below. The stack rests 8 pt above the home indicator.
+/// - `.embedded` (a workspace tab inside CmuxTabsKit): TabsKit owns the
+///   status bar and the floating toolbar; the controller is told how much of
+///   the page they cover (`setEmbeddedInsets`). The stack then rests where
+///   TabsKit puts a tab accessory (8 pt above the toolbar capsule) and rides
+///   the keyboard from there. The stack stays in this controller (not in
+///   TabsKit's SwiftUI accessory row) so the TUI clip, the scroll insets and
+///   the stack are solved by one Auto Layout pass inside the keyboard's own
+///   animation: the TUI frame cannot drift from the composer.
 @MainActor
 final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     let model: TerminalModel
+    let chrome: TerminalChrome
     let surface = TerminalSurfaceView(frame: .zero)
+    /// Embedded: what TabsKit's status bar area (top) and toolbar (bottom,
+    /// up to 8 pt above the capsule) cover.
+    private var embeddedInsets = UIEdgeInsets.zero
+    /// Stack bottom <= the chrome's resting line (safe area or toolbar).
+    private var stackRestingLimit: NSLayoutConstraint!
+    private var tuiTop: NSLayoutConstraint!
+    /// Embedded: the status bar strip, registered as the top scroll edge container.
+    private let topShelf = UIView()
 
     private let scrollView = TerminalScrollView()
     private let tuiClip = UIView()
@@ -58,11 +80,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// Viewports requested before the current one (frames for them may still arrive).
     private var recentTops: [Int] = []
     private var following = true
+    /// Back from the alternate screen: until the user scrolls, Ghostty's
+    /// latest viewport report places the surface. Frames on screen then
+    /// have no earlier primary-screen frame to be matched against, and the
+    /// first report after the switch can still describe the alternate screen.
+    private var placesFromReport = false
     private var started = false
     private var fling: FlingAnimator?
 
-    init(model: TerminalModel) {
+    init(model: TerminalModel, chrome: TerminalChrome = .standalone) {
         self.model = model
+        self.chrome = chrome
         super.init(nibName: nil, bundle: nil)
         model.controller = self
     }
@@ -145,6 +173,21 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             return constraint
         }
         tuiHeight = tuiHost.heightAnchor.constraint(equalToConstant: 0)
+        switch chrome {
+        case .standalone:
+            stackRestingLimit = bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor)
+            tuiTop = tuiClip.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor)
+        case .embedded:
+            stackRestingLimit = bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor)
+            tuiTop = tuiClip.topAnchor.constraint(equalTo: view.topAnchor)
+            topShelf.isUserInteractionEnabled = false
+            topShelf.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(topShelf)
+            let topEdge = UIScrollEdgeElementContainerInteraction()
+            topEdge.scrollView = scrollView
+            topEdge.edge = .top
+            topShelf.addInteraction(topEdge)
+        }
         let guide = view.keyboardLayoutGuide
         guide.followsUndockedKeyboard = false
         guide.usesBottomSafeArea = false
@@ -157,7 +200,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             bottomStack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomStack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: guide.topAnchor),
-            bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: view.safeAreaLayoutGuide.bottomAnchor),
+            stackRestingLimit,
             prioritized(bottomStack.bottomAnchor.constraint(equalTo: guide.topAnchor), .defaultHigh),
             composer.view.topAnchor.constraint(equalTo: bottomStack.topAnchor),
             composer.view.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
@@ -179,7 +222,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             keyBarClip.heightAnchor.constraint(lessThanOrEqualTo: guide.heightAnchor),
             prioritized(keyBarClip.heightAnchor.constraint(equalToConstant: 44), .defaultHigh - 1),
 
-            tuiClip.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            tuiTop,
             tuiClip.bottomAnchor.constraint(equalTo: bottomStack.topAnchor),
             tuiClip.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tuiClip.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -193,6 +236,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollToBottomButton.widthAnchor.constraint(equalToConstant: 40),
             scrollToBottomButton.heightAnchor.constraint(equalToConstant: 40),
         ])
+        if chrome == .embedded {
+            NSLayoutConstraint.activate([
+                topShelf.topAnchor.constraint(equalTo: view.topAnchor),
+                topShelf.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                topShelf.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                topShelf.bottomAnchor.constraint(equalTo: tuiClip.topAnchor),
+            ])
+        }
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
         scrollView.addGestureRecognizer(tap)
@@ -230,6 +281,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// controller's content scroll view; SwiftUI's hosting controller is that
     /// controller, so it is told about this scroll view.
     private func registerEdgeEffectScrollView() {
+        // Embedded: TabsKit's page is not a navigation controller's content;
+        // the edge containers above are registered on the scroll view directly.
+        guard chrome == .standalone else { return }
         var candidate: UIViewController? = self
         while let current = candidate {
             current.setContentScrollView(scrollView, for: .top)
@@ -237,6 +291,48 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             if current.parent is UINavigationController { break }
             candidate = current.parent
         }
+    }
+
+    /// Embedded: the chrome over the page changed (rotation, first layout).
+    func setEmbeddedInsets(_ insets: UIEdgeInsets) {
+        guard chrome == .embedded, insets != embeddedInsets else { return }
+        embeddedInsets = insets
+        tuiTop.constant = insets.top
+        // The composer rests 8 pt above the toolbar capsule, like a tab
+        // accessory; the 8 pt below the (hidden) key bar are inside the stack.
+        stackRestingLimit.constant = -(insets.bottom - 8)
+        view.setNeedsLayout()
+    }
+
+    /// Top of the content area (under the navigation bar or the status bar).
+    private var chromeTop: CGFloat {
+        chrome == .embedded ? embeddedInsets.top : view.safeAreaInsets.top
+    }
+
+    /// The composer's bottom with the keyboard down.
+    private var restingComposerBottom: CGFloat {
+        switch chrome {
+        case .standalone: view.bounds.height - view.safeAreaInsets.bottom - 8
+        case .embedded: view.bounds.height - embeddedInsets.bottom
+        }
+    }
+
+    /// A still of the page for the tab grid (the render server's copy of
+    /// what is on screen, so the Metal surface is included). Cheap: no
+    /// second Ghostty surface; taken when the grid opens or the page leaves.
+    func snapshot() -> UIImage? {
+        guard view.window != nil, view.bounds.width > 0 else { return nil }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        format.opaque = true
+        return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
+            view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+        }
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        if chrome == .embedded, let image = snapshot() { model.snapshot = image }
     }
 
     override func viewDidLayoutSubviews() {
@@ -275,6 +371,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         case .scrollbar(let total, let offset, let visible):
             scrollbar = (total, offset, visible)
             updateDocument()
+            if placesFromReport, !model.isTUI { place(atRow: offset) }
         case .cellSize:
             view.setNeedsLayout()
         case .bell:
@@ -314,8 +411,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
         // TUI rows: toolbar bottom to composer top with the keyboard down.
         let composerHeight = composerHost.view.bounds.height > 0 ? composerHost.view.bounds.height : 64
-        let keyboardDownComposerTop = bounds.height - view.safeAreaInsets.bottom - composerHeight
-        let available = keyboardDownComposerTop - view.safeAreaInsets.top
+        let keyboardDownComposerTop = restingComposerBottom - composerHeight
+        let available = keyboardDownComposerTop - chromeTop
         let newTUIRows = max(1, Int(floor(available / cellHeight)))
         let columns = cell.width > 0 ? max(1, Int(floor(bounds.width / cell.width))) : 0
         if newTUIRows != tuiRows || columns != gridColumns {
@@ -326,7 +423,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         }
 
         // Insets: content starts under the toolbar and ends above the composer.
-        let top = view.safeAreaInsets.top
+        let top = chromeTop
         let bottom = max(0, bounds.height - bottomStack.frame.minY) + 4
         let insets = UIEdgeInsets(top: top, left: 0, bottom: bottom, right: 0)
         if scrollView.contentInset != insets {
@@ -453,6 +550,10 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             presentLog.append(String(format: "%.4f wall=%.4f top=%d prev=%d sb=%d req=%d off=%.1f", CACurrentMediaTime(), Date().timeIntervalSince1970, top, presentedTop, scrollbar.offset, viewportTop, scrollView.contentOffset.y) + " " + presentDebug)
         }
         #endif
+        place(atRow: placesFromReport ? scrollbar.offset : top)
+    }
+
+    private func place(atRow top: Int) {
         presentedTop = top
         let origin = CGPoint(x: 0, y: CGFloat(presentedTop) * cell.height)
         if surface.frame.origin != origin {
@@ -485,6 +586,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         if tui {
             scrollView.isScrollEnabled = false
             scrollView.topEdgeEffect.style = .hard
+            placesFromReport = false
             tuiClip.isHidden = false
             tuiHost.addSubview(surface)
             surface.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: CGFloat(surfaceRows) * cell.height)
@@ -497,6 +599,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.addSubview(surface)
             viewportTop = -1
             following = true
+            placesFromReport = true
             documentRows = 0
             updateDocument()
             scrollView.contentOffset.y = maxOffsetY
@@ -516,6 +619,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        placesFromReport = false
         fling?.stop()
         fling = nil
     }
@@ -534,6 +638,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// DEBUG demo: a decelerating fling with UIScrollView's normal rate, driven
     /// per display frame through the same delegate path as a finger fling.
     func fling(velocity: CGFloat) {
+        placesFromReport = false
         fling?.stop()
         let animator = FlingAnimator(scrollView: scrollView, velocity: velocity, minY: -scrollView.contentInset.top, maxY: maxOffsetY)
         animator.onEnd = { [weak self] in self?.fling = nil }
@@ -579,6 +684,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 }
 
 /// The scroll view; touches on the surface scroll it.
+/// Who owns the chrome around the terminal (see `TerminalViewController`).
+public enum TerminalChrome: Sendable {
+    /// `TerminalScreen` in a navigation stack: its own toolbar and the safe area.
+    case standalone
+    /// A workspace tab: CmuxTabsKit's status bar area and floating toolbar.
+    case embedded
+}
+
 final class TerminalScrollView: UIScrollView {
     override func touchesShouldCancel(in view: UIView) -> Bool { true }
 }

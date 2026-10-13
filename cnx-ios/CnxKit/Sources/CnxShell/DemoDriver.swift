@@ -2,6 +2,7 @@
 import CnxChief
 import CnxDesign
 import CnxModel
+import CnxTerminal
 import CnxWorkspaces
 import QuartzCore
 import SwiftUI
@@ -27,6 +28,7 @@ struct DemoDriver {
         case "workspaces": await workspaces()
         case "workspaces-reopen": await workspacesReopen()
         case "chief": await chief()
+        case "ws-terminal": await workspaceTerminal()
         default: break
         }
     }
@@ -201,6 +203,106 @@ struct DemoDriver {
         await pause(1.8)
         if !shell.homePath.isEmpty { shell.homePath.removeLast() }
         await pause(2.5)
+    }
+
+    /// Appends a wall-clock mark to `Documents/terminal-demo-timeline.txt`
+    /// (the terminal verification scripts line these up with the recording).
+    private func mark(_ label: String) {
+        if label != "state", let model = shell.terminalTabs.model(forTabID: "t-zsh") { mark("state", model.debugState) }
+        mark(label, nil)
+    }
+
+    private func mark(_ label: String, _ detail: String?) {
+        let label = detail.map { "\(label) \($0)" } ?? label
+        let line = String(format: "%.3f %@\n", Date().timeIntervalSince1970, label)
+        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let url = documents.appendingPathComponent("terminal-demo-timeline.txt")
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            try? handle.close()
+        } else {
+            try? Data(line.utf8).write(to: url)
+        }
+    }
+
+    /// The terminal tab inside a workspace (embedded chrome): composer and
+    /// key bar riding the keyboard above TabsKit's toolbar, TUI mode pinned
+    /// to the composer, the grid card snapshot, a tab switch away and back
+    /// (scrollback kept), Files and Links from the page menu, and leaving.
+    private func workspaceTerminal() async {
+        let store = shell.store
+        let tabs = WorkspaceDemoDirector.shared
+        store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+        shell.tab = .workspaces
+        await pause(1.2)
+        guard let ws = store.workspace(id: "ws-cmux") else { return }
+        mark("open workspace")
+        shell.workspacesPath = [ws]
+        await pause(3.0)
+        guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+        mark("keyboard show (composer)")
+        model.toggleKeyboard()
+        await pause(1.8)
+        mark("type")
+        for character in "ls -la" {
+            model.composerText.append(character)
+            await pause(0.07)
+        }
+        await pause(0.5)
+        mark("send")
+        model.send()
+        await pause(1.2)
+        mark("keyboard hide")
+        model.toggleKeyboard()
+        await pause(1.8)
+        mark("keyboard show")
+        model.toggleKeyboard()
+        await pause(1.8)
+        mark("keyboard hide")
+        model.toggleKeyboard()
+        await pause(1.5)
+        mark("run htop")
+        model.composerText = "htop"
+        model.send()
+        await pause(2.5)
+        mark("keyboard show (direct)")
+        model.toggleKeyboard()
+        await pause(2.2)
+        mark("keyboard hide")
+        model.toggleKeyboard()
+        await pause(2.2)
+        mark("keyboard show")
+        model.toggleKeyboard()
+        await pause(2.0)
+        mark("keyboard hide")
+        model.toggleKeyboard()
+        await pause(1.8)
+        mark("quit htop")
+        model.composerText = "q"
+        model.sendWithoutReturn()
+        await pause(1.8)
+        mark("grid")
+        tabs.post(.showGrid(true))
+        await pause(2.4)
+        mark("agent tab")
+        tabs.post(.activate("t-claude"))
+        await pause(2.4)
+        mark("grid")
+        tabs.post(.showGrid(true))
+        await pause(2.0)
+        mark("terminal tab again")
+        tabs.post(.activate("t-zsh"))
+        await pause(2.4)
+        mark("files and links")
+        model.showFilesAndLinks()
+        await pause(2.6)
+        model.showArtifacts = false
+        await pause(1.6)
+        mark("exit")
+        tabs.post(.exit)
+        await pause(1.8)
+        mark("end")
     }
 
     private func editor() async {
