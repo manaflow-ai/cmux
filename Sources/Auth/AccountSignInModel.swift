@@ -48,6 +48,7 @@ final class AccountSignInModel {
     private(set) var hasRequestedSignIn = false
     private(set) var signInURL: URL?
     private(set) var linkCopyState: LinkCopyState = .idle
+    private(set) var failureDetailCopyState: LinkCopyState = .idle
     private(set) var browserOpenState: BrowserOpenState = .idle
     private(set) var isStartingSignIn = false
 
@@ -100,6 +101,12 @@ final class AccountSignInModel {
         signInURL != nil
     }
 
+    /// Detail line shown under a failure so the user can report what failed.
+    var failureDetail: String? {
+        guard case .failed = phase else { return nil }
+        return flow?.lastSignInFailureDetail
+    }
+
     /// Starts the initial attempt once when an automatically presented pane appears.
     func startSignInIfNeeded() {
         guard !hasRequestedSignIn else { return }
@@ -111,6 +118,7 @@ final class AccountSignInModel {
         guard let flow, flow.currentIdentity == nil else { return }
         hasRequestedSignIn = true
         linkCopyState = .idle
+        failureDetailCopyState = .idle
         browserOpenState = .idle
         if flow.isPresentingSignIn || flow.isSwitchingAccount {
             // Another surface already has the shared attempt up. Adopt it —
@@ -146,5 +154,13 @@ final class AccountSignInModel {
             return
         }
         linkCopyState = flow?.copySignInURL(signInURL) == true ? .copied : .failed
+    }
+
+    func copyFailureDetail() {
+        guard let failureDetail else {
+            failureDetailCopyState = .failed
+            return
+        }
+        failureDetailCopyState = flow?.copyFailureDetail(failureDetail) == true ? .copied : .failed
     }
 }

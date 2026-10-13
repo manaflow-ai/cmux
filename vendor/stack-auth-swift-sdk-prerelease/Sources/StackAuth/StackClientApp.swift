@@ -500,11 +500,11 @@ public actor StackClientApp {
         request.httpMethod = "POST"
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
-        request.setValue("client", forHTTPHeaderField: "x-stack-access-type")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
+        request.setValue("client", forHTTPHeaderField: "x-hexclave-access-type")
         
         let publishableKey = client.publishableClientKey
-        request.setValue(publishableKey, forHTTPHeaderField: "x-stack-publishable-client-key")
+        request.setValue(publishableKey, forHTTPHeaderField: "x-hexclave-publishable-client-key")
         
         let body = ["id_token": identityToken]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -574,7 +574,7 @@ public actor StackClientApp {
         request.httpMethod = "POST"
         request.timeoutInterval = 30 // fail fast instead of hanging ~60s when offline mid-flow
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        request.setValue(projectId, forHTTPHeaderField: "x-stack-project-id")
+        request.setValue(projectId, forHTTPHeaderField: "x-hexclave-project-id")
         
         let publishableKey = client.publishableClientKey
         let body = [
