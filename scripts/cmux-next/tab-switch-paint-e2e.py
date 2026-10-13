@@ -7,7 +7,7 @@ On a running tagged build, read frame after frame (`debug.new_tab` frame_strip) 
            the New Tab page, twice round (the second round is every tab seen before);
   sidebar  `nextSidebarTab` through the window's sidebar items (workspaces), twice round;
   close    `closeTab` on the selected tab: the tab it reveals;
-  newtab   Command-T: the New Tab page.
+  newtab   Command-T from a terminal tab: the New Tab page (first, in the launch workspace).
 
 Each step reports `settled_ms` (the key or action to the first frame that stays the final one, in the
 content area), `blank` (flat frames that are neither tab) and `content_intermediate` (frames that are
@@ -128,6 +128,15 @@ def main():
     url = serve()
     steps = []
 
+    if "newtab" in phases:
+        # A workspace of its own: the launch window may show Home, where Command-T opens no tab.
+        run("workspace new", {"name": "newtab"})
+        wait(lambda: any(t.get("kind") == "terminal" for t in focused_pane_tabs()), 30)
+        for index in range(3):
+            run("tab new-terminal")  # from a terminal: the New Tab page replaces its content
+            time.sleep(1.0)  # test harness: the terminal draws its prompt
+            steps.append(strip(f"newtab-{index}", key="t"))
+
     if "pane" in phases or "close" in phases:
         # One pane: a terminal, a WebKit page, a Chromium page, the New Tab page (from launch, or Command-T).
         run("tab new-terminal")
@@ -155,12 +164,6 @@ def main():
             for index in range(items):
                 steps.append(strip(f"sidebar-lap{lap}-{index}", perform="nextSidebarTab", region="workspace"))
 
-    if "newtab" in phases:
-        for index in range(3):
-            run("tab new-terminal")  # from a terminal: the New Tab page replaces its content
-            time.sleep(1.0)  # test harness: the terminal draws its prompt
-            steps.append(strip(f"newtab-{index}", key="t"))
-
     failures = []
     for step in steps:
         if "error" in step:
@@ -169,6 +172,8 @@ def main():
         settled = step["settled_ms"]
         if settled is None or settled > opts.settle_ms:
             failures.append(f"{step['label']}: settled {settled} ms > {opts.settle_ms:.0f} ms")
+        if step["label"].startswith("newtab") and step["first_change_ms"] is None:
+            failures.append(f"{step['label']}: Command-T changed nothing on screen")
         if step["blank"]:
             failures.append(f"{step['label']}: {step['blank']} blank frames")
         if step["content_intermediate"]:

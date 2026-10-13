@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextWakeups
@@ -12,6 +13,12 @@ protocol PaneFirstPaintGated: AnyObject {
     var awaitsFirstPaint: Bool { get }
     /// Runs `body` once the content has painted (now if it has).
     func whenFirstPainted(_ body: @escaping () -> Void)
+    /// The longest the outgoing view stays for it.
+    var paintHoldLimit: Duration { get }
+}
+
+extension PaneFirstPaintGated {
+    var paintHoldLimit: Duration { PanePaintHold.limit }
 }
 
 /// One that painted and is shown again waits for its frame at the size it
@@ -36,6 +43,20 @@ extension InternalPageView: PaneFirstPaintGated {
     func whenFirstPainted(_ body: @escaping () -> Void) {
         guard let page = content as? PageWebView else { return body() }
         page.whenPainted(body)
+    }
+}
+
+/// A WebKit page parked hidden in the pane (`PaneContentView+Parking`):
+/// WebKit stopped rendering it, and shown again it draws its toolbar over an
+/// empty page for a frame or two. The pane keeps the outgoing tab until it
+/// renders, briefly: a busy page shows as it is sooner than an agent page.
+extension BrowserChromeView: PaneFirstPaintGated {
+    var awaitsFirstPaint: Bool { isHidden && tab is WebKitTab }
+    var paintHoldLimit: Duration { .milliseconds(150) }
+
+    func whenFirstPainted(_ body: @escaping () -> Void) {
+        guard let page = tab as? WebKitTab else { return body() }
+        WebKitRenderProbe.afterNextRender(page.webView, body)
     }
 }
 
@@ -87,7 +108,7 @@ final class PanePaintHold {
         incoming.alphaValue = 0
         gated.whenFirstPainted { [weak self] in self?.end(token) }
         // A later hold replaces this deadline; the token keeps it to its own hold.
-        deadline.schedule(after: Self.limit) { @MainActor [weak self] in
+        deadline.schedule(after: gated.paintHoldLimit) { @MainActor [weak self] in
             self?.end(token)
         }
     }
@@ -137,7 +158,9 @@ final class PanePaintHold {
 extension PaneContentView {
     /// Whether `view` replacing `hosted` waits for its first frame.
     func holdsForFirstPaint(_ view: NSView?, replacing hosted: NSView?) -> Bool {
-        PanePaintHold.holds(view, replacing: hosted)
+        // A browser whose header band the strip joins shows at once: the strip moves with it.
+        if view is any PaneHeaderBandHosting, barOrder == .belowToolbar, barPosition == .top { return false }
+        return PanePaintHold.holds(view, replacing: hosted)
     }
 
     /// `incoming` stays invisible until it paints; `outgoing` stays shown until then.
@@ -156,11 +179,24 @@ extension PaneContentView {
             (outgoing as? PaneContentChrome)?.onPaneHeaderHeightChange = nil
         }, ended: { [weak self] in
             // The strip, ring and corners change with the swap, in its transaction.
-            guard let self, holdKeepsStrip else { return }
+            guard let self else { return }
+            if holdDefersStrip {
+                holdDefersStrip = false
+                if stripView.window != nil { stripView.sync(fromModel: true) }
+            }
+            guard holdKeepsStrip else { return }
             holdKeepsStrip = false
             needsLayout = true
             layoutSubtreeIfNeeded()
         })
+    }
+
+    /// Shows the strip's selection with the content: now, or at the swap of
+    /// a hold that keeps the outgoing tab (no frame with the new highlight
+    /// over the old tab).
+    func syncStripWithContent() {
+        guard stripView.window != nil else { return }
+        if paintHold.kept != nil { holdDefersStrip = true } else { stripView.sync(fromModel: true) }
     }
 
     /// The strip's drawn height: while a hold keeps it after it hid, its

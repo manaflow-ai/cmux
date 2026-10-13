@@ -61,6 +61,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     let paintHold = PanePaintHold(owner: "pane.paint-hold")
     /// The strip the hold's outgoing view showed under, kept until the swap.
     var holdKeepsStrip = false
+    /// The strip's selection waits for the hold's swap: highlight and content change in one frame.
+    var holdDefersStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
     /// Runs once when the launch image goes (`clearLaunchImage`).

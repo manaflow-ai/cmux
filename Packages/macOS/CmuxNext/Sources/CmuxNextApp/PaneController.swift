@@ -285,8 +285,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let content = key.flatMap(content(for:))
         currentTabKey = key
         if let key, content != nil { services.cache.present(key, by: self, presence: presence) }
-        if view.stripView.window != nil { view.stripView.sync(fromModel: true) } // strip + content: one transaction (L4)
         view.show(content?.view)
+        view.syncStripWithContent() // strip + content: one transaction, or one swap (L4)
         // Terminals come in on their first frame (`LaunchSettle`); other
         // content (a page, an agent) is ready once shown.
         if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }
