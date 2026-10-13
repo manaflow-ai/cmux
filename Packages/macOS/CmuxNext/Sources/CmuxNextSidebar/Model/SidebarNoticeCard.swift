@@ -47,10 +47,16 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
     /// With items, the x opens this menu (the tip's Hide / Mute / Never)
     /// instead of dismissing; an item sends `noticeAction` with its id.
     public var dismissMenu: [Action]
+    /// An action the card sends once while it is on screen (a hint marks
+    /// itself seen); nil sends none.
+    public var shownAction: String?
+    /// After `shownAction` was sent: the action sent when this notice leaves
+    /// the card (another card took the slot); nil sends none.
+    public var hiddenAction: String?
 
     public init(id: String, symbol: String? = nil, eyebrow: String? = nil, title: String, detail: String? = nil,
                 lines: [String] = [], progress: Progress? = nil, actions: [Action] = [], shortcut: String? = nil, dismissLabel: String? = nil,
-                dismissMenu: [Action] = []) {
+                dismissMenu: [Action] = [], shownAction: String? = nil, hiddenAction: String? = nil) {
         self.id = id
         self.symbol = symbol
         self.eyebrow = eyebrow
@@ -62,5 +68,7 @@ public nonisolated struct SidebarNoticeCard: Hashable, Sendable {
         self.shortcut = shortcut
         self.dismissLabel = dismissLabel
         self.dismissMenu = dismissMenu
+        self.shownAction = shownAction
+        self.hiddenAction = hiddenAction
     }
 }

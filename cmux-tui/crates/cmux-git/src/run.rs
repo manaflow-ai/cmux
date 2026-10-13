@@ -1,4 +1,4 @@
-//! Runs git for the git reads. The daemon's own environment never redirects
+//! Runs git for the git reads. The caller's own environment never redirects
 //! git (every `GIT_*` variable is dropped), repository config never runs a
 //! program (no fsmonitor here; callers add `--no-ext-diff`, `--no-textconv`
 //! and blank filter drivers through `overrides`), pathspecs are literal, and
@@ -12,17 +12,18 @@ use std::time::Duration;
 
 use wait_timeout::ChildExt;
 
-const DEADLINE: Duration = Duration::from_secs(20);
+/// The longest one run may take.
+pub const DEADLINE: Duration = Duration::from_secs(20);
 const MAX_STDERR_BYTES: usize = 16 * 1024;
 
-pub(super) struct GitOutput {
+pub struct GitOutput {
     pub stdout: Vec<u8>,
     /// Output past the caller's limit was read and dropped.
     pub truncated: bool,
 }
 
 #[derive(Debug)]
-pub(super) enum GitFailure {
+pub enum GitFailure {
     /// git ran and exited unsuccessfully; its stderr, trimmed.
     Exit(String),
     /// git could not be started or waited for.
@@ -31,7 +32,7 @@ pub(super) enum GitFailure {
 }
 
 impl GitFailure {
-    pub(super) fn reason(&self) -> String {
+    pub fn reason(&self) -> String {
         match self {
             Self::Exit(stderr) if stderr.is_empty() => "git exited unsuccessfully".to_string(),
             Self::Exit(stderr) => stderr.clone(),
@@ -41,14 +42,37 @@ impl GitFailure {
     }
 }
 
+impl std::fmt::Display for GitFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.reason())
+    }
+}
+
+impl std::error::Error for GitFailure {}
+
 /// Runs `git -c <override>... <arguments>` in `directory`; `overrides` are
 /// `key=value` config settings that win over every config file.
-pub(super) fn run_git(
+pub fn run_git(
     directory: &Path,
     overrides: &[String],
     arguments: &[&str],
     max_stdout: usize,
 ) -> Result<GitOutput, GitFailure> {
+    run_git_within(directory, overrides, arguments, max_stdout, DEADLINE)
+}
+
+/// [`run_git`] that stops git after `deadline` (at most [`DEADLINE`]).
+pub fn run_git_within(
+    directory: &Path,
+    overrides: &[String],
+    arguments: &[&str],
+    max_stdout: usize,
+    deadline: Duration,
+) -> Result<GitOutput, GitFailure> {
+    let deadline = deadline.min(DEADLINE);
+    if deadline.is_zero() {
+        return Err(GitFailure::TimedOut);
+    }
     let mut command = Command::new("git");
     for (name, _) in std::env::vars_os() {
         if name.as_encoded_bytes().starts_with(b"GIT_") {
@@ -80,11 +104,14 @@ pub(super) fn run_git(
         command.process_group(0);
     }
     let mut child = command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
-    let stdout = child.stdout.take().expect("git stdout is piped");
-    let stderr = child.stderr.take().expect("git stderr is piped");
+    // Both are piped above; a missing one is a spawn failure, not a panic.
+    let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
+        stop(&mut child);
+        return Err(GitFailure::Unavailable("git output pipes are missing".to_string()));
+    };
     let stdout = thread::spawn(move || drain(stdout, max_stdout));
     let stderr = thread::spawn(move || drain(stderr, MAX_STDERR_BYTES));
-    let status = match child.wait_timeout(DEADLINE) {
+    let status = match child.wait_timeout(deadline) {
         Ok(Some(status)) => status,
         Ok(None) => {
             stop(&mut child);

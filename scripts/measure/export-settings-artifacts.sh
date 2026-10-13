@@ -12,17 +12,6 @@ if [ -z "${DEVELOPER_DIR:-}" ]; then
   export DEVELOPER_DIR
 fi
 echo "Xcode: $DEVELOPER_DIR"
-export CMUX_UPDATE_MDM_SCHEMA=1
-export CMUX_UPDATE_ACTION_SURFACES=1
-swift test --package-path Packages/macOS/CmuxNext --filter ManagedPreferencesManifestTests
-swift test --package-path Packages/macOS/CmuxNext --filter SettingsSchemaExportTests
-for file in \
-  docs/mdm/com.manaflow.cmux.json \
-  docs/mdm/com.manaflow.cmux.plist \
-  docs/mdm/managed-preferences.md \
-  schemas/settings/settings-schema.json; do
-  echo "BEGIN_ARTIFACT:$file"
-  base64 < "$file" | tr -d '\n'
-  echo
-  echo "END_ARTIFACT:$file"
-done
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export CMUX_CI_REQUIRED_MACOS_SDK_MAJOR=export-settings
+exec "$script_dir/../ci/run-swift-testing-suites.sh" Packages/macOS/CmuxNext

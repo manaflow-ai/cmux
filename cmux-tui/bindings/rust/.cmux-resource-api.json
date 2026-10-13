@@ -1,5 +1,5 @@
 {
-  "catalog_sha256": "e8dd785f6c4e20ba15271a5589b84db57ce3d9c470e2c339efd387d2b645c592",
+  "catalog_sha256": "0d5628df6488577ead97bb69bd51139bcbc42d12ecf5544786f09414716f904e",
   "operations": {
     "agent.list": {
       "class": "read"
@@ -28,6 +28,15 @@
     "browser.close": {
       "class": "mutation"
     },
+    "browser.devices.add_custom": {
+      "class": "mutation"
+    },
+    "browser.devices.list": {
+      "class": "read"
+    },
+    "browser.devices.remove_custom": {
+      "class": "mutation"
+    },
     "browser.forward": {
       "class": "mutation"
     },
@@ -53,6 +62,12 @@
       "class": "mutation"
     },
     "browser.reload": {
+      "class": "mutation"
+    },
+    "browser.tab.emulate": {
+      "class": "mutation"
+    },
+    "browser.tab.emulate.clear": {
       "class": "mutation"
     },
     "browser.viewer.release": {
@@ -141,6 +156,9 @@
     },
     "frontend_projection.put": {
       "class": "mutation"
+    },
+    "git.branches": {
+      "class": "read"
     },
     "git.checkpoint.create": {
       "class": "mutation"
