@@ -7,6 +7,11 @@ script writes the copies the app's Swift modules compile in. Sources so far:
 
 - schemas/settings/retired-keys.json: cmux.json keys cmux no longer reads, with why
   (Swift: SettingsSchema+RetiredKeys.generated.swift, `SettingsSchema.retiredKeys`).
+- schemas/settings/source/<section>.json: the rows of one settings section. Swift gets the
+  descriptors AND the parser constants (paths, defaults, ranges, choice enums, legacy aliases), so
+  a value has one definition. SECTIONS below maps each file to its Swift type names (the only
+  Swift-specific data; the JSON stays language-neutral). schemas/settings/settings-schema.json is
+  still exported from Swift (SettingsSchemaExportTests); moving a section must not change it.
 
     python3 scripts/cmux-next/gen-settings-sources.py           # write the copies
     python3 scripts/cmux-next/gen-settings-sources.py --check   # exit 1 when a copy drifted
@@ -70,9 +75,247 @@ extension SettingsSchema {{
 """.format(header=HEADER.format(c="//", src=RETIRED_SOURCE), rows="\n".join(rows))
 
 
+# Swift names per section source: the schema type, each list's static var and the parser struct
+# that owns its constants, and the enum type of each choice row.
+SECTIONS = [
+    {
+        "source": "schemas/settings/source/updates.json",
+        "swift": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Schema/SettingsSchema+Updates.generated.swift",
+        "type": "UpdateSettingsSchema",
+        "lists": {"updates": ("descriptors", "UpdatesSettings"),
+                  "announcements": ("announcements", "AnnouncementsSettings")},
+        "enums": {"updates.meteredNetwork": "UpdatesMeteredSetting", "updates.notify": "UpdatesNotifySetting"},
+    },
+]
+SECTION_IDS = {"general", "appearance", "terminal", "browser", "home", "notifications", "agents",
+               "accounts", "rooms", "machines", "advanced"}
+UNITS = {"points", "seconds", "minutes", "days", "count", "fraction"}
+ROW_FIELDS = {"key", "name", "note", "title", "help", "summary", "kind", "choices", "range", "default",
+              "default_label", "aliases", "keywords"}
+IDENT = __import__("re").compile(r"^[a-z][A-Za-z0-9]*$")
+
+
+def fail(src, message):
+    raise SystemExit("%s: %s" % (src, message))
+
+
+def check_text(src, where, text, optional=False):
+    if text is None and optional:
+        return
+    if not isinstance(text, dict) or set(text) != {"key", "text"} or not text["key"] or not text["text"]:
+        fail(src, "%s needs {key, text}: %r" % (where, text))
+    for value in text.values():
+        if any(ord(ch) < 0x20 for ch in value) or "\\(" in value:
+            fail(src, "%s has a control character or an interpolation: %r" % (where, value))
+
+
+SWIFT_KEYWORDS = {"associatedtype", "class", "deinit", "enum", "extension", "fileprivate", "func", "import", "init",
+                  "inout", "internal", "let", "open", "operator", "private", "protocol", "public", "rethrows",
+                  "static", "struct", "subscript", "typealias", "var", "break", "case", "continue", "default",
+                  "defer", "do", "else", "fallthrough", "for", "guard", "if", "in", "repeat", "return", "switch",
+                  "where", "while", "as", "any", "catch", "false", "is", "nil", "super", "self", "Self", "throw",
+                  "throws", "true", "try"}
+
+
+def check_note(src, where, note):
+    if note is not None and (not isinstance(note, str) or any(ord(ch) < 0x20 for ch in note)):
+        fail(src, "%s: note is one line of text" % where)
+
+
+def camel(value):
+    parts = value.split("-")
+    name = parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
+    if not IDENT.match(name) or name in SWIFT_KEYWORDS:
+        raise SystemExit("choice value %r gives no Swift case name" % value)
+    return name
+
+
+def number_literal(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise SystemExit("not a number: %r" % value)
+    if float(value).is_integer():
+        whole = int(value)
+        return "{:_}".format(whole) if abs(whole) >= 10000 else str(whole)
+    return repr(float(value))
+
+
+def load_section(section, seen_keys):
+    src = section["source"]
+    with open(os.path.join(ROOT, src), encoding="utf-8") as handle:
+        data = json.load(handle)
+    if set(data) - {"$comment", "lists"}:
+        fail(src, "unknown top-level fields %s" % sorted(set(data) - {"$comment", "lists"}))
+    names = [entry["name"] for entry in data["lists"]]
+    if sorted(names) != sorted(section["lists"]):
+        fail(src, "lists %s do not match the generator's SECTIONS %s" % (names, sorted(section["lists"])))
+    for entry in data["lists"]:
+        if entry["section"] not in SECTION_IDS:
+            fail(src, "unknown section %r" % entry["section"])
+        check_text(src, entry["name"] + ".group", entry["group"])
+        check_note(src, entry["name"], entry.get("note"))
+        idents = set()
+        for row in entry["rows"]:
+            key = row.get("key", "")
+            if set(row) - ROW_FIELDS:
+                fail(src, "%s: unknown fields %s" % (key, sorted(set(row) - ROW_FIELDS)))
+            if not key or any(not part for part in key.split(".")) or key in seen_keys:
+                fail(src, "bad or duplicate key %r" % key)
+            seen_keys.add(key)
+            name = row.get("name", key.split(".")[-1])
+            if not IDENT.match(name) or name in idents:
+                fail(src, "%s: bad or duplicate name %r" % (key, name))
+            idents.add(name)
+            row["_name"] = name
+            check_note(src, key, row.get("note"))
+            check_text(src, key + ".title", row.get("title"))
+            for field in ("help", "summary", "default_label"):
+                check_text(src, key + "." + field, row.get(field), optional=True)
+            kind, default = row.get("kind"), row.get("default")
+            if kind == "toggle":
+                if not isinstance(default, bool) or "choices" in row or "range" in row:
+                    fail(src, "%s: a toggle has a bool default and no choices or range" % key)
+            elif kind == "number":
+                rng = row.get("range") or {}
+                if set(rng) - {"min", "max", "step", "unit", "placeholder"} or rng.get("unit") not in UNITS:
+                    fail(src, "%s: range needs min, max, step, unit (one of %s)" % (key, sorted(UNITS)))
+                if not rng["min"] <= default <= rng["max"]:
+                    fail(src, "%s: default %r is outside the range" % (key, default))
+            elif kind == "choice":
+                values = [choice["value"] for choice in row.get("choices", [])]
+                if not values or len(set(values)) != len(values) or default not in values:
+                    fail(src, "%s: choices need unique values that include the default" % key)
+                if key not in section["enums"]:
+                    fail(src, "%s: add its Swift enum name to SECTIONS" % key)
+                for choice in row["choices"]:
+                    check_text(src, key + " choice " + choice["value"], choice["title"])
+                for old, new in row.get("aliases", {}).items():
+                    if new not in values or old in values:
+                        fail(src, "%s: alias %r -> %r must map an old value to a choice" % (key, old, new))
+            else:
+                fail(src, "%s: kind %r is not supported by the generator yet" % (key, kind))
+            if "aliases" in row and kind != "choice":
+                fail(src, "%s: only choice rows have aliases" % key)
+            if not isinstance(row.get("keywords", []), list):
+                fail(src, "%s: keywords is a list" % key)
+    return data
+
+
+def keyed(text):
+    return "SettingsText.keyed(%s, %s)" % (swift_string(text["key"]), swift_string(text["text"]))
+
+
+def doc(text, indent):
+    return "%s/// %s\n" % (indent, text) if text else ""
+
+
+def choices_swift(section, data):
+    """{path: text} of the choice enum files, at most 3 enums per file (check-no-godfiles.sh)."""
+    rows = [row for entry in data["lists"] for row in entry["rows"] if row["kind"] == "choice"]
+    files = {}
+    for index in range(0, len(rows), 3):
+        suffix = "Choices" if index == 0 else "Choices%d" % (index // 3 + 1)
+        path = section["swift"].replace(".generated.swift", suffix + ".generated.swift")
+        files[path] = enums_swift(section, rows[index:index + 3])
+    return files
+
+
+def enums_swift(section, rows):
+    out = ["// " + HEADER.format(c="//", src=section["source"]), ""]
+    for row in rows:
+        if True:
+            enum = section["enums"][row["key"]]
+            out.append(doc(row.get("note"), "").rstrip("\n") or "/// The values of `%s`." % row["key"])
+            out.append("public nonisolated enum %s: String, Sendable, Hashable, CaseIterable {" % enum)
+            for choice in row["choices"]:
+                case = camel(choice["value"])
+                out.append("    case %s%s" % (case, "" if case == choice["value"] else " = " + swift_string(choice["value"])))
+            if row.get("aliases"):
+                out.append("")
+                out.append("    /// Values older files may hold, read as their replacement without a")
+                out.append("    /// diagnostic.")
+                pairs = ", ".join("%s: .%s" % (swift_string(old), camel(new)) for old, new in sorted(row["aliases"].items()))
+                out.append("    static let legacyValues: [String: Self] = [%s]" % pairs)
+            out.append("}")
+            out.append("")
+    return "\n".join(out[:-1]) + "\n"
+
+
+def section_swift(section, data):
+    out = ["// " + HEADER.format(c="//", src=section["source"]), ""]
+    # Parser constants.
+    for entry in data["lists"]:
+        _, owner = section["lists"][entry["name"]]
+        out.append("extension %s {" % owner)
+        for row in entry["rows"]:
+            name, kind = row["_name"], row["kind"]
+            out.append("    /// `%s`%s" % (row["key"], (": " + row["note"]) if row.get("note") else "."))
+            out.append("    public static let %sPath = [%s]" % (name, ", ".join(swift_string(p) for p in row["key"].split("."))))
+            if kind == "toggle":
+                out.append("    public static let %sDefault = %s" % (name, "true" if row["default"] else "false"))
+            elif kind == "number":
+                rng = row["range"]
+                out.append("    public static let %sDefault: Double = %s" % (name, number_literal(row["default"])))
+                out.append("    public static let %sRange: ClosedRange<Double> = %s...%s"
+                           % (name, number_literal(rng["min"]), number_literal(rng["max"])))
+            else:
+                enum = section["enums"][row["key"]]
+                out.append("    public static let %sDefault: %s = .%s" % (name, enum, camel(row["default"])))
+        out.append("}")
+        out.append("")
+    # Descriptors.
+    out.append("/// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).")
+    out.append("nonisolated enum %s {" % section["type"])
+    for index, entry in enumerate(data["lists"]):
+        var, owner = section["lists"][entry["name"]]
+        if index:
+            out.append("")
+        if entry.get("note"):
+            out.append("    /// " + entry["note"])
+        out.append("    static var %s: [SettingDescriptor] {" % var)
+        out.append("        let group = %s" % keyed(entry["group"]))
+        out.append("        return [")
+        for row in entry["rows"]:
+            name, kind = row["_name"], row["kind"]
+            args = ["%s.%sPath" % (owner, name), "section: .%s" % entry["section"], "group: group",
+                    "title: " + keyed(row["title"])]
+            if row.get("help"):
+                args.append("help: " + keyed(row["help"]))
+            if row.get("summary"):
+                args.append("summary: " + keyed(row["summary"]))
+            if kind == "toggle":
+                args += ["kind: .toggle", "default: .bool(%s.%sDefault)" % (owner, name)]
+            elif kind == "number":
+                rng = row["range"]
+                extra = (", placeholder: " + number_literal(rng["placeholder"])) if "placeholder" in rng else ""
+                args += ["kind: .number(SettingNumber(%s.%sRange, step: %s, unit: .%s%s))"
+                         % (owner, name, number_literal(rng["step"]), rng["unit"], extra),
+                         "default: .number(%s.%sDefault)" % (owner, name)]
+            else:
+                enum = section["enums"][row["key"]]
+                choices = "".join("\n                    SettingChoice(%s.%s.rawValue, %s)," % (enum, camel(c["value"]), keyed(c["title"]))
+                                  for c in row["choices"])
+                args += ["kind: .choice([%s\n                ])" % choices,
+                         "default: .string(%s.%sDefault.rawValue)" % (owner, name)]
+            if row.get("default_label"):
+                args.append("defaultLabel: " + keyed(row["default_label"]))
+            args.append("keywords: [%s]" % ", ".join(swift_string(k) for k in row.get("keywords", [])))
+            out.append("            SettingDescriptor(")
+            out.append("                " + ",\n                ".join(args))
+            out.append("            ),")
+        out.append("        ]")
+        out.append("    }")
+    out.append("}")
+    return "\n".join(out) + "\n"
+
+
 def main():
     check = "--check" in sys.argv[1:]
     outputs = {RETIRED_SWIFT: retired_swift(load_retired())}
+    seen_keys = {entry["key"] for entry in load_retired()}
+    for section in SECTIONS:
+        data = load_section(section, seen_keys)
+        outputs[section["swift"]] = section_swift(section, data)
+        outputs.update(choices_swift(section, data))
     drifted = []
     for path, text in outputs.items():
         full = os.path.join(ROOT, path)

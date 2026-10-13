@@ -25,12 +25,12 @@ public nonisolated enum SidebarSectionsSetting {
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Hints"),
+                          title: SettingsText.keyed("settings.sidebar.cards.tips", "Show Tips"),
                           help: SettingsText.keyed("settings.sidebar.cards.tips.help",
-                                                   "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once."),
-                          summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily hint about a feature you haven't used"),
+                                                   "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."),
+                          summary: SettingsText.keyed("settings.sidebar.cards.tips.summary", "A daily tip about a feature you haven't used"),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showsTips),
-                          keywords: ["sidebar", "tips", "hints", "did you know", "cards", "learn", "features"])
+                          keywords: ["sidebar", "tips", "did you know", "cards", "learn", "features"])
     }
 
     static func minimalDescriptor(group: SettingText) -> SettingDescriptor {
