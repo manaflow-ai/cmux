@@ -175,6 +175,21 @@ final class HostConnection {
         }
     }
 
+    /// Whether the control channel answers a `ping` within `timeout`.
+    func probe(timeout: Duration) async -> Bool {
+        guard let control, await !control.closed else { return false }
+        return await withTaskGroup(of: Bool.self) { group in
+            group.addTask { (try? await control.request("ping")) != nil }
+            group.addTask {
+                try? await Task.sleep(for: timeout)
+                return false
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+    }
+
     /// Coalesces tree refetches (the daemon sends `tree-changed` bursts).
     private func scheduleRefresh() {
         refreshTask?.cancel()
@@ -248,6 +263,13 @@ final class HostConnection {
         let surface = try await control.newTab(pane: pane.id)
         await refresh()
         return surface
+    }
+
+    /// Renames a workspace on the Mac over the control connection.
+    func renameWorkspace(_ workspace: DaemonWorkspace, to name: String) async throws {
+        guard let control else { throw DaemonClient.Failure(message: "Not connected.") }
+        try await control.request("rename-workspace", ["workspace": .number(Double(workspace.id)), "name": .string(name)])
+        await refresh()
     }
 
     func close(surface: Int) async {

@@ -18,6 +18,9 @@ final class AppModel {
     private(set) var user: APIClient.User?
     private(set) var hosts: [APIClient.Host] = []
     private(set) var hostsLoaded = false
+    /// The last Mac list load failed (offline, server error). With no cached
+    /// list the UI shows a load error with Retry, never "Connect your Mac".
+    private(set) var hostsError: String?
     private(set) var connection: HostConnection?
     let feed = FeedStore()
 
@@ -98,23 +101,54 @@ final class AppModel {
         phase = .signedOut
     }
 
+    /// What the Mac list shows: loading, a load failure, no Mac yet, or Macs.
+    var macList: MacListState {
+        MacListState(loaded: hostsLoaded, hostCount: hosts.count, error: hostsError)
+    }
+
+    /// Loads the Macs. A failure retries a few times on its own (backing
+    /// off); after that Retry, pull-to-refresh or the next foreground does.
     func reloadHosts() async {
-        do {
-            hosts = try await api.hosts()
-            hostsLoaded = true
-            UserDefaults.standard.set(try? JSONEncoder().encode(hosts), forKey: "cachedHosts")
-            if connection == nil, let host = hosts.first(where: { $0.id == selectedHostID }) ?? hosts.first {
-                connect(host)
+        for attempt in 0..<3 {
+            do {
+                let loaded = try await api.hosts()
+                hosts = loaded
+                hostsLoaded = true
+                hostsError = nil
+                UserDefaults.standard.set(try? JSONEncoder().encode(loaded), forKey: "cachedHosts")
+                if connection == nil, let host = loaded.first(where: { $0.id == selectedHostID }) ?? loaded.first {
+                    connect(host)
+                }
+                return
+            } catch let error as APIClient.APIError where error.status == 401 {
+                hostsError = error.localizedDescription
+                return
+            } catch {
+                Self.log.error("hosts failed: \(String(describing: error), privacy: .public)")
+                hostsError = error.localizedDescription
+                guard attempt < 2, phase == .ready, connection == nil else { return }
+                try? await Task.sleep(for: .seconds(2 << attempt))
             }
-        } catch {
-            Self.log.error("hosts failed: \(String(describing: error), privacy: .public)")
-            hostsLoaded = true
-            // Retry while nothing is connected (lifecycle: the next foreground
-            // or pull-to-refresh also retries).
-            if connection == nil {
-                try? await Task.sleep(for: .seconds(3))
-                if connection == nil, phase == .ready { await reloadHosts() }
-            }
+        }
+    }
+
+    /// The app came back to the foreground: a link that went quiet in the
+    /// background is replaced right away instead of waiting for ICE restart
+    /// timers, and the tree, agents and feed catch up on what happened.
+    func becameActive() async {
+        guard phase == .ready else { return }
+        if hostsError != nil || !hostsLoaded { Task { await reloadHosts() } }
+        guard let connection else { return }
+        let healthy = connection.phase == .connected ? await connection.probe(timeout: .seconds(2)) : false
+        switch ForegroundRecovery.action(phase: connection.phase, probeSucceeded: healthy) {
+        case .refresh:
+            await connection.refresh()
+            await feed.backfill()
+        case .reconnect:
+            Self.log.info("foreground: reconnecting (phase \(String(describing: connection.phase), privacy: .public))")
+            reconnect()
+        case .wait:
+            break
         }
     }
 
@@ -162,5 +196,38 @@ final class AppModel {
         self.connection = connection
         feed.attach(connection)
         connection.start()
+    }
+}
+
+/// What the Mac list (Home, sidebar) shows.
+enum MacListState: Equatable {
+    case loading
+    case failed(String)
+    case noMac
+    case macs
+
+    init(loaded: Bool, hostCount: Int, error: String?) {
+        if hostCount > 0 { self = .macs }
+        else if let error { self = .failed(error) }
+        else if loaded { self = .noMac }
+        else { self = .loading }
+    }
+}
+
+/// What to do with the link when the app returns to the foreground.
+enum ForegroundRecovery: Equatable {
+    /// The link answered: refresh tree, agents and feed.
+    case refresh
+    /// The link is down or silent: replace it now.
+    case reconnect
+    /// The first connect is still underway.
+    case wait
+
+    static func action(phase: HostConnection.Phase, probeSucceeded: Bool) -> ForegroundRecovery {
+        switch phase {
+        case .connected: probeSucceeded ? .refresh : .reconnect
+        case .connecting: .wait
+        case .reconnecting, .offline: .reconnect
+        }
     }
 }

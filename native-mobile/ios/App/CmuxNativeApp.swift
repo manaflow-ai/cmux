@@ -5,6 +5,8 @@ struct CmuxNativeApp: App {
     @State private var app = AppModel()
     @UIApplicationDelegateAdaptor(PushAppDelegate.self) private var pushDelegate
     @AppStorage("appearance") private var appearance = "system"
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var wasInBackground = false
 
     var body: some Scene {
         WindowGroup {
@@ -14,6 +16,16 @@ struct CmuxNativeApp: App {
                 .appLock()
                 .pushNotifications(app: app)
                 .task { await app.launch() }
+                .onChange(of: scenePhase) { _, phase in
+                    // Back from the background (not a Control Center pull):
+                    // check the link at once and catch up.
+                    if phase == .background {
+                        wasInBackground = true
+                    } else if phase == .active, wasInBackground {
+                        wasInBackground = false
+                        Task { await app.becameActive() }
+                    }
+                }
         }
     }
 }

@@ -216,7 +216,18 @@ struct SidebarPanel: View {
             ForEach(groups) { workspace in
                 workspaceSection(workspace, connection: connection)
             }
-        } else if !app.hosts.isEmpty || !app.hostsLoaded {
+        } else if case .failed = app.macList {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(String(localized: "Couldn't load your Macs"))
+                    .font(.subheadline.weight(.medium))
+                Button(String(localized: "Retry")) { Task { await app.reloadHosts() } }
+                    .buttonStyle(.primaryCapsule)
+                    .controlSize(.small)
+                    .accessibilityIdentifier("sidebar.hosts.retry")
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+        } else if app.macList != .noMac {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(0..<3, id: \.self) { _ in SkeletonRow(leading: 8) }
             }

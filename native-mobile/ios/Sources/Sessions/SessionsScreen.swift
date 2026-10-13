@@ -45,7 +45,7 @@ struct SessionsScreen: View {
     }
 
     /// No Mac yet: the first-run state stands alone (no search, no new workspace).
-    private var hasMac: Bool { !(app.hostsLoaded && app.hosts.isEmpty) }
+    private var hasMac: Bool { app.macList == .macs || app.macList == .loading }
 
     private func consumeSearchRequest() {
         guard navigator.searchRequested else { return }
@@ -59,8 +59,12 @@ struct SessionsScreen: View {
 
     @ViewBuilder
     private var content: some View {
-        if app.hostsLoaded && app.hosts.isEmpty {
+        if app.macList == .noMac {
             ConnectMacEmptyState { navigator.startPairing($0) }
+        } else if case .failed(let message) = app.macList {
+            LoadFailedView(title: String(localized: "Couldn't load your Macs"), message: message) {
+                Task { await app.reloadHosts() }
+            }
         } else if let connection = app.connection {
             switch connection.phase {
             case .connecting where connection.workspaces.isEmpty:
@@ -297,17 +301,6 @@ private struct RenameWorkspaceAlert: ViewModifier {
                 }
             }
             .onChange(of: workspace) { _, value in name = value?.displayName ?? "" }
-    }
-}
-
-extension HostConnection {
-    /// `rename-workspace` over a short-lived daemon channel (the control
-    /// client is private to HostConnection).
-    func renameWorkspace(_ workspace: DaemonWorkspace, to name: String) async throws {
-        let client = try await openTerminalClient()
-        defer { Task { await client.close() } }
-        _ = try await client.request("rename-workspace", ["workspace": .number(Double(workspace.id)), "name": .string(name)])
-        await refresh()
     }
 }
 
