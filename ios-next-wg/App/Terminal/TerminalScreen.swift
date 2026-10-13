@@ -108,6 +108,15 @@ final class TerminalSession {
         guard let view else { return }
         switch event {
         case .vtState(let data, let cols, let rows), .resized(let cols, let rows, let data):
+            #if DEBUG
+            // Simulator checks: `-typeOnOpen <text>` types through the same
+            // input path the keyboard uses, once the first screen arrives.
+            if generation == 0, let index = CommandLine.arguments.firstIndex(of: "-typeOnOpen"),
+               index + 1 < CommandLine.arguments.count {
+                let text = CommandLine.arguments[index + 1] + "\r"
+                view.onInput?(Data(text.utf8))
+            }
+            #endif
             generation += 1
             let generation = generation
             view.enqueueOutput { surface in
