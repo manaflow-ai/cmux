@@ -15,4 +15,21 @@ nonisolated enum AppsAppStrings {
         String(localized: "apps.set.noRecord", defaultValue: "cmux-tui answered without the app's state", table: "Handlers", bundle: .module)
     }
     static var run: String { String(localized: "apps.commands.run", defaultValue: "Run", table: "Handlers", bundle: .module) }
+
+    /// The React App Store page's sheet titles for `cmux.apps.set` (AppsPageConfirmations).
+    static func sandboxOff(_ app: String) -> String {
+        String(format: String(localized: "apps.confirm.sandboxOff", defaultValue: "Turn off the sandbox for “%@”?", table: "Handlers", bundle: .module), app)
+    }
+    static func sandboxOn(_ app: String) -> String {
+        String(format: String(localized: "apps.confirm.sandboxOn", defaultValue: "Turn on the sandbox for “%@”?", table: "Handlers", bundle: .module), app)
+    }
+    static func enable(_ app: String) -> String {
+        String(format: String(localized: "apps.confirm.enable", defaultValue: "Turn on “%@”?", table: "Handlers", bundle: .module), app)
+    }
+    static func disable(_ app: String) -> String {
+        String(format: String(localized: "apps.confirm.disable", defaultValue: "Turn off “%@”?", table: "Handlers", bundle: .module), app)
+    }
+    static func change(_ app: String) -> String {
+        String(format: String(localized: "apps.confirm.change", defaultValue: "Change “%@”?", table: "Handlers", bundle: .module), app)
+    }
 }
