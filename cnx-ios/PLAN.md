@@ -1,0 +1,44 @@
+# cnx-ios: native iOS app for cmux-next
+
+Independent effort on branch `feat-cnx-ios`. Native, mainstream-AI-app feel
+(ChatGPT / Claude / Grok); cmux-next theme only where it is free.
+
+## Layout
+
+| Path | What |
+| --- | --- |
+| `cnx-ios/project.yml` | XcodeGen app project (`CnxApp`), iOS 26.0+, bundle `dev.cmux.cnx` (+ `.<tag>`). |
+| `cnx-ios/CnxKit/` | SwiftPM package with all app modules (below). |
+| `cnx-ios/rust/` | Rust crates: `cnx-link` (transport-agnostic framed channel mux, WebRTC + WireGuard dialers), `cnx-ffi` (uniffi), `cnx-hostd` (Mac bridge). |
+| `cnx-ios/backend/` | Cloudflare Worker `cnx-ios-api` (DOs: `TeamHub` signaling + presence, `DeviceRegistry`) + PlanetScale Postgres via Hyperdrive. |
+| `cnx-ios/verify/` | Recording / frame-split / comparison scripts and the evidence index. |
+
+## CnxKit modules
+
+- `CnxDesign`: tokens (true-black dark, glass chrome, cmux accent derived minimally), team colors, motion springs.
+- `CnxModel`: Team, Mac, Workspace, Tab (terminal / browser / agent / chief), FeedEvent, AgentQuestion, Artifact, Diff.
+- `CnxTransport`: `MacLink` protocol (open channel, request/reply, event stream), `TransportKind {webrtc, wireguard}` switch, mock link for UI work. Backed by `cnx-ffi`.
+- `CnxAuth`: wraps `CmuxAuthRuntime` (Stack Auth: Apple, Google, GitHub, email code).
+- Feature modules: `CnxOnboarding`, `CnxShell` (TabView + team sidebar), `CnxHome` (Chief via `CmuxConversation`), `CnxWorkspaces` (`CmuxTabsKit`), `CnxFeed` (WKWebView markdown cards, inline answers, quote bubbles), `CnxTerminal` (Ghostty, composer, key bar, joystick), `CnxAgentChat`, `CnxArtifacts`, `CnxDiff`, `CnxSettings`.
+
+## Mac side
+
+`cnx-hostd` runs beside the cmux-next daemon on the Mac (embedded into CmuxNext
+later). It registers the Mac with `cnx-ios-api`, answers WebRTC offers and
+WireGuard handshakes, and splices link channels to the cmux-tui socket
+(protocol v12 JSON lines), acpmux, and terminal byte streams.
+
+## Milestones
+
+1. Shell: launch, onboarding, sign in, tabs, team sidebar, settings, mock data. Recorded and compared.
+2. Backend + Rust link: signaling, presence, TURN credentials; WebRTC and WireGuard dial from simulator to `mini-cmuxs-mac-mini-2`.
+3. Terminal: Ghostty render, smooth scroll, keyboard-pinned composer, attachments, key bar, TUI mode.
+4. Workspaces (TabsKit, last tab), agent chat (ACP parity), Chief (CmuxConversation adapter).
+5. Feed, artifacts browser + previews, diff viewer.
+6. Polish passes: frame-by-frame comparisons against references, performance traces.
+
+## Verification bar
+
+Every screen: simulator recording on iOS 26 and 27, frame split, side-by-side
+with the matching reference capture, Instruments hitch check for scrolling and
+transitions. Evidence goes in `cnx-ios/verify/evidence/<date>/`.
