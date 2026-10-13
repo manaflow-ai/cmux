@@ -333,6 +333,17 @@ public struct SSHConnectionSharingOptions: Sendable {
         return "\(Self.routeSensitiveMarkerKey)=\(routeIdentifier)"
     }
 
+    /// Drops the private route marker from serialized SSH options.
+    ///
+    /// The marker is cmux's own note and not an OpenSSH option, so a caller
+    /// that hands options to `ssh` or `scp` without merging defaults first has
+    /// to remove it; OpenSSH refuses an option it does not know. Every other
+    /// option is returned as given.
+    public static func removingRouteSensitiveMarker(from options: [String]) -> [String] {
+        let resolver = SSHAgentSocketResolver(environment: [:])
+        return options.filter { resolver.optionKey($0) != routeSensitiveMarkerKey }
+    }
+
     /// Reads the opaque route marker from serialized SSH options.
     public func routeSensitiveIdentifier(in options: [String]) -> String? {
         let resolver = SSHAgentSocketResolver(environment: [:])

@@ -1,4 +1,5 @@
 import Foundation
+internal import CmuxFoundation
 
 extension WorkspaceRemoteConfiguration {
     /// The workspace's SSH options as `ssh`, `scp` and `sftp` accept them.
@@ -8,7 +9,7 @@ extension WorkspaceRemoteConfiguration {
     /// not an OpenSSH option, and OpenSSH refuses an option it does not know,
     /// so anything that writes these out as `-o` arguments reads them here.
     public var openSSHOptions: [String] {
-        sshOptions
+        SSHConnectionSharingOptions.removingRouteSensitiveMarker(from: sshOptions)
     }
 
     /// The SSH `-o` options for copying a file to this workspace's endpoint:

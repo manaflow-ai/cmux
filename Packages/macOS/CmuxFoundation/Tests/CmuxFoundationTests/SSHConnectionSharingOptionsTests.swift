@@ -640,4 +640,22 @@ struct SSHConnectionSharingOptionsTests {
         #expect(function.contains("ssh -p 2222 -G -- '\(destination)' 2>/dev/null"))
         #expect(function.contains("-O check -- '\(destination)' >/dev/null"))
     }
+
+    @Test func removingRouteSensitiveMarkerDropsOnlyTheMarker() {
+        let digest = String(repeating: "a1", count: 32)
+        let options = [
+            "ControlMaster=auto",
+            "__cmux_route_sensitive=\(digest)",
+            "IgnoreUnknown=__cmux_*",
+            "__CMUX_ROUTE_SENSITIVE true",
+            "SetEnv=NOTE=__cmux_route_sensitive",
+        ]
+
+        #expect(SSHConnectionSharingOptions.removingRouteSensitiveMarker(from: options) == [
+            "ControlMaster=auto",
+            "IgnoreUnknown=__cmux_*",
+            "SetEnv=NOTE=__cmux_route_sensitive",
+        ])
+        #expect(SSHConnectionSharingOptions.removingRouteSensitiveMarker(from: []).isEmpty)
+    }
 }
