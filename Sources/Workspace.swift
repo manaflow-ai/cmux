@@ -4273,6 +4273,18 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
             configuration: config,
             tabDragTransferRegistry: tabDragTransferRegistry
         )
+        self.bonsplitController.onTabBarRenderDiagnostic = { diagnostic in
+            sentryBreadcrumb(
+                "tabbar.render.stall",
+                category: "performance",
+                data: [
+                    "elapsedMs": Int((diagnostic.elapsed * 1_000).rounded()),
+                    "renderCount": diagnostic.renderCount,
+                    "tabCount": diagnostic.tabCount,
+                    "paneCount": diagnostic.paneCount
+                ]
+            )
+        }
         self.bonsplitController.tabMiddleClickCapture = { onMiddleClick in
             AnyView(MiddleClickCapture(onMiddleClick: onMiddleClick))
         }
