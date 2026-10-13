@@ -11,7 +11,7 @@ host calls MessagesWindowView.setRenderScale (HostView.viewDidChangeBackingPrope
 ChatController.displayScaleChanged), and the rows must snap again: read right after the move (no other move
 of the transcript, so only setRenderScale can have re-snapped them), then again with the transcript on half a
 point (half a device pixel at 1x): every text row's anchored side and top must be on whole points. The window then
-moves back (2x) and the rows must be on whole device pixels again. Snapshots at each scale.
+moves to screen 0 (2x) and the rows must be on whole device pixels again. Snapshots at each scale.
 Socket only, no system input. Runs on cmux-lawrence-2 (nx-remote --needs gui); ends with the DEBUG quit fixture,
 the tag's `acpmux daemon shutdown`, and the virtual display's own process (its pid, started here).
 
@@ -133,7 +133,6 @@ try:
     if r2.get("scale") == 2:
         rows_on_grid("2x, half a pixel", r2, 2)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "scale-2x.png")})
-    home_frame = (rpc("debug.window_frame", {}) or {}).get("frame")
 
     # A 1x virtual display, and the window onto it.
     vdbin = os.path.join(opts.out, "vdisplay")
@@ -167,8 +166,10 @@ try:
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "scale-1x.png")})
 
     # Back to the 2x display.
-    if home_frame:
-        rpc("debug.window_frame", {"frame": home_frame})
+    # Screen 0 (the menu-bar screen, 2x on the GUI host): the frame from before can lie inside the virtual display's
+    # area of the desktop (gate run on 024e48d: the window stayed at 1x after a move to its old frame).
+    back = rpc("debug.window_frame", {"screen": 0}) or {}
+    check("the window moves back off the virtual display", bool(back.get("screen")) and back.get("screen") != "MessagesLab Rig", back)
     rb = poll(lambda: (r := rows_report()) and r.get("scale") == 2 and r, timeout=10) or rows_report()
     check("the window's backing scale is 2 again", rb.get("scale") == 2, {k: rb.get(k) for k in ("scale", "error")})
     time.sleep(0.3)  # test harness: display frames after the move
