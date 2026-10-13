@@ -7,6 +7,8 @@ import type { Env } from "./env.ts"
 export interface AutomationTailProps {
   readonly team: string
   readonly commit: string
+  /** The member the run's cost counts against (code-run.ts; cx-ds09i). Absent on tails from before. */
+  readonly user?: string
 }
 
 /** Longest log message forwarded, and log lines per invocation (logs are diagnostics, not data). */
@@ -68,7 +70,7 @@ export class AutomationTail extends WorkerEntrypoint<Env, AutomationTailProps> {
       if (marker) {
         const key = `${marker.run}:${marker.invocation}`
         const cpu = Math.max(0, Math.round((ev as TraceItem & { cpuTime?: number }).cpuTime ?? 0))
-        const base = { source: "tail" as const, observed_at: ev.eventTimestamp ?? Date.now(), commit: p.commit, run: marker.run, automation: marker.automation }
+        const base = { source: "tail" as const, observed_at: ev.eventTimestamp ?? Date.now(), commit: p.commit, run: marker.run, automation: marker.automation, ...(p.user ? { user: p.user } : {}) }
         records.push({ key: `inv:${key}`, meter: "automation.invocations", quantity: 1, ...base }, { key: `cpu:${key}`, meter: "automation.cpu_ms", quantity: cpu, ...base })
       } else {
         lines.push(JSON.stringify({ ...tag, level: "warn", msg: "invocation without a harness marker: not metered" }))

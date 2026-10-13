@@ -750,6 +750,11 @@ def snapshot(label):
     focus = topo.get("focus", {})
     items["focus.workspace"] = ws_by_id.get(focus.get("workspace"), {}).get("name")
     items["focus.window"] = next((names.get(w.get("key")) for w in rj_windows if w.get("id") == focus.get("window")), focus.get("window"))
+    # The most recent window is the focused one (cx-ppw2w): a window opened
+    # behind, never key, must not lead the recency the next launch restores.
+    front = items["windows.recency"][0] if items["windows.recency"] else None
+    RESULTS.append((f"{label}: windows.recency front is focus.window", front == items["focus.window"],
+                    f"recency front {json.dumps(front)}, focus {json.dumps(items['focus.window'])}", "windows"))
     terms = {}
     for ws in topo.get("workspaces", []):
         name = ws.get("name")
