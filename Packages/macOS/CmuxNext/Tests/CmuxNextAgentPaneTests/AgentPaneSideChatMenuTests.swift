@@ -4,21 +4,22 @@ import Testing
 
 /// cx-a7r at the menu boundary (the page's right-click report into the native menu): a message in
 /// a turn that forks offers Open in Side Chat after Fork from Here when the page reports that the
-/// chat opens a side chat, and choosing it opens one through that turn.
+/// chat opens a side chat, and choosing it runs the page's side chat action (`chat.side`, the chat
+/// menu's New side chat) through that turn.
 @Suite
 @MainActor
 struct AgentPaneSideChatMenuTests {
-    static func menu(report: [String: Any], sideChat: @escaping (Int) -> Void = { _ in }) -> NSMenu {
+    static func menu(report: [String: Any], page: @escaping (String, [String: String]) -> Void = { _, _ in }) -> NSMenu {
         let menu = NSMenu()
         AgentPaneContextMenu.rebuild(menu, target: AgentPaneMessageTarget(report: report), devTools: false,
-                                     actions: .init(copy: { _ in }, fork: { _ in }, sideChat: sideChat))
+                                     actions: .init(copy: { _ in }, fork: { _ in }, page: page))
         return menu
     }
 
     @Test func anEarlierTurnsReplyOpensASideChatThroughThatTurn() throws {
-        var opened: [Int] = []
+        var ran: [(name: String, params: [String: String])] = []
         let menu = Self.menu(report: ["text": "Done.", "markdown": "Done.", "forkSeq": 3, "sideChat": true]) {
-            opened.append($0)
+            ran.append(($0, $1))
         }
         let titles = menu.items.map(\.title)
         let fork = try #require(titles.firstIndex(of: AgentPaneMenuStrings.forkFromHere), "\(titles)")
@@ -26,7 +27,8 @@ struct AgentPaneSideChatMenuTests {
         #expect(side == fork + 1)
         let item = menu.items[side]
         _ = (item.target as? NSObject)?.perform(item.action)
-        #expect(opened == [3])
+        #expect(ran.map(\.name) == ["chat.side"])
+        #expect(ran.first?.params == ["throughSeq": "3"])
     }
 
     @Test func aChatThatOpensNoSideChatOnlyForks() {
