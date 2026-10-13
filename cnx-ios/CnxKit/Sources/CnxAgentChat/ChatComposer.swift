@@ -1,4 +1,5 @@
 #if os(iOS)
+import CnxArtifacts
 import CnxDesign
 import PhotosUI
 import SwiftUI
@@ -40,6 +41,9 @@ struct ChatComposer: View {
             }
             if !slashMatches.isEmpty {
                 slashSuggestions
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            } else if let mention = ComposerMention(text: text), !mentionMatches(mention).isEmpty {
+                mentionSuggestions(mention)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
             card
@@ -142,6 +146,10 @@ struct ChatComposer: View {
                 }
                 Button("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
                 Button("Files", systemImage: "paperclip") { showFiles = true }
+                Button("Mention a file", systemImage: "at") {
+                    text += text.isEmpty || text.last?.isWhitespace == true ? "@" : " @"
+                    expand()
+                }
             }
             Section {
                 Toggle("Plan mode", systemImage: "checklist", isOn: Binding(
@@ -190,18 +198,20 @@ struct ChatComposer: View {
 
     private var modelPill: some View {
         Menu {
+            // Checkmark buttons rather than inline pickers: an inline picker
+            // inside a menu section drops the section's header.
             Section("Model") {
-                Picker("Model", selection: Binding(get: { store.currentModelID ?? "" }, set: { store.setModel($0) })) {
-                    ForEach(store.models) { Text($0.name).tag($0.id) }
+                ForEach(store.models) { model in
+                    checkButton(model.name, checked: model.id == store.currentModelID) { store.setModel(model.id) }
                 }
-                .pickerStyle(.inline)
             }
             if let effort = store.effortOption {
-                Section("Effort") {
-                    Picker("Effort", selection: Binding(get: { effort.currentValue ?? "" }, set: { store.setConfig(effort.id, value: $0) })) {
-                        ForEach(effort.options, id: \.value) { Text($0.name ?? $0.value).tag($0.value) }
+                Section(effort.name ?? "Effort") {
+                    ForEach(effort.options, id: \.value) { option in
+                        checkButton(option.name ?? option.value, checked: option.value == effort.currentValue) {
+                            store.setConfig(effort.id, value: option.value)
+                        }
                     }
-                    .pickerStyle(.inline)
                 }
             }
         } label: {
@@ -219,6 +229,16 @@ struct ChatComposer: View {
             .background(Color.cnxFill, in: .capsule)
         }
         .accessibilityLabel("Model")
+    }
+
+    private func checkButton(_ title: String, checked: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            if checked {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
     }
 
     private enum PrimaryState { case empty, send, stop, queue }
@@ -335,6 +355,39 @@ struct ChatComposer: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
+            }
+        }
+        .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))
+        .padding(.horizontal, 12)
+    }
+
+    private func mentionMatches(_ mention: ComposerMention) -> [TerminalArtifact] {
+        let collected = SessionArtifacts.collect(turns: store.turns, subagents: store.subagents, cwd: store.summary.cwd)
+        return ComposerMention.candidates(mention.query, in: collected.artifacts)
+    }
+
+    /// `@` file picker (acpmux `MentionMenu`): files this session referenced.
+    private func mentionSuggestions(_ mention: ComposerMention) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ForEach(mentionMatches(mention)) { artifact in
+                Button {
+                    text = mention.inserting(artifact.reference, into: text)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: artifact.kind == .directory ? "folder" : "doc.text")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 18)
+                        Text(artifact.name).font(.body.monospaced()).lineLimit(1).layoutPriority(1)
+                        Text((artifact.reference as NSString).deletingLastPathComponent).font(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.head)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 16)
+                    .frame(height: 44)
+                    .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(Text("Mention \(artifact.reference)"))
             }
         }
         .glassEffect(.regular, in: .rect(cornerRadius: 20, style: .continuous))

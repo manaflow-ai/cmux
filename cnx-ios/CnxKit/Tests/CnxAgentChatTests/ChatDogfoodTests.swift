@@ -1,4 +1,5 @@
 @testable import CnxAgentChat
+import CnxArtifacts
 import Foundation
 import Testing
 
@@ -61,5 +62,55 @@ import Testing
         }
         for _ in 0..<200 where store.queue.isEmpty { await Task.yield() }
         #expect(store.queue.map(\.text) == ["Run only the dialer tests instead"])
+    }
+}
+
+@Suite struct ComposerMentionTests {
+    @Test func findsTheMentionBeingTyped() {
+        #expect(ComposerMention(text: "look at @Link")?.query == "Link")
+        #expect(ComposerMention(text: "@")?.query == "")
+        #expect(ComposerMention(text: "mail me@host") == nil)
+        #expect(ComposerMention(text: "@done and more") == nil)
+        #expect(ComposerMention(text: "code `x @y") == nil)
+    }
+
+    @Test func insertsThePathLikeTheMacComposer() throws {
+        let mention = try #require(ComposerMention(text: "fix @dia"))
+        #expect(mention.inserting("Sources/LinkDialer.swift", into: "fix @dia") == "fix @Sources/LinkDialer.swift ")
+        #expect(ComposerMention.text(for: "My Docs/a.md") == "@\"My Docs/a.md\" ")
+    }
+
+    @Test func ranksNamePrefixFirstAndSkipsLinksAndAttachments() {
+        let artifacts = [
+            TerminalArtifact(reference: "Sources/Transport/LinkDialer.swift", kind: .code, order: 0),
+            TerminalArtifact(reference: "docs/dialer-notes.md", kind: .markdown, order: 1),
+            TerminalArtifact(reference: "dialer/README.md", kind: .markdown, order: 2),
+            TerminalArtifact(reference: "https://dialer.example.com", kind: .link, order: 3),
+            TerminalArtifact(reference: "Attachments/dialer.png", kind: .image, order: 4),
+        ]
+        #expect(ComposerMention.candidates("dial", in: artifacts).map(\.reference) == [
+            "docs/dialer-notes.md", "Sources/Transport/LinkDialer.swift", "dialer/README.md",
+        ])
+        #expect(ComposerMention.candidates("", in: artifacts).count == 3)
+    }
+}
+
+@Suite struct MenuTimestampTests {
+    @Test func relativeDays() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let locale = Locale(identifier: "en_US")
+        let now = calendar.date(from: DateComponents(year: 2026, month: 10, day: 13, hour: 16))!
+        func at(_ day: Int, _ hour: Int, month: Int = 10, year: Int = 2026) -> Date {
+            calendar.date(from: DateComponents(year: year, month: month, day: day, hour: hour, minute: 3))!
+        }
+        func stamp(_ date: Date) -> String {
+            AgentTurn.menuTimestamp(date, now: now, calendar: calendar, locale: locale).replacingOccurrences(of: "\u{202F}", with: " ")
+        }
+        #expect(stamp(at(13, 15)) == "Today, 3:03 PM")
+        #expect(stamp(at(12, 9)) == "Yesterday, 9:03 AM")
+        #expect(stamp(at(9, 9)) == "Friday, 9:03 AM")
+        #expect(stamp(at(2, 9)) == "Oct 2, 9:03 AM")
+        #expect(stamp(at(2, 9, year: 2025)) == "Oct 2, 2025, 9:03 AM")
     }
 }

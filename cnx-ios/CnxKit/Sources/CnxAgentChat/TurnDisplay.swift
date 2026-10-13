@@ -199,3 +199,32 @@ extension Array where Element == TurnRow {
         }
     }
 }
+
+extension AgentTurn {
+    /// Header of a message's context menu (SPEC 4.4, ChatGPT "Today, 11:51 AM"):
+    /// "Today, 3:03 PM", "Yesterday, 9:12 AM", the weekday within a week,
+    /// else the date.
+    public static func menuTimestamp(_ date: Date, now: Date = Date(), calendar: Calendar = .current, locale: Locale = .current) -> String {
+        var time = Date.FormatStyle.dateTime.hour().minute()
+        time.calendar = calendar
+        time.timeZone = calendar.timeZone
+        time.locale = locale
+        let clock = date.formatted(time)
+        if calendar.isDate(date, inSameDayAs: now) { return "Today, \(clock)" }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return "Yesterday, \(clock)"
+        }
+        var day: Date.FormatStyle
+        if let weekAgo = calendar.date(byAdding: .day, value: -6, to: calendar.startOfDay(for: now)), date >= weekAgo, date <= now {
+            day = Date.FormatStyle.dateTime.weekday(.wide)
+        } else if calendar.isDate(date, equalTo: now, toGranularity: .year) {
+            day = Date.FormatStyle.dateTime.month(.abbreviated).day()
+        } else {
+            day = Date.FormatStyle.dateTime.month(.abbreviated).day().year()
+        }
+        day.calendar = calendar
+        day.timeZone = calendar.timeZone
+        day.locale = locale
+        return "\(date.formatted(day)), \(clock)"
+    }
+}

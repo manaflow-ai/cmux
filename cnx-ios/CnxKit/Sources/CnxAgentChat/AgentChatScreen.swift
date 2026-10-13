@@ -595,7 +595,7 @@ struct UserBubble: View {
                 .background(Color.cnxBubble, in: .rect(cornerRadius: 20, style: .continuous))
                 .contentShape(.contextMenuPreview, .rect(cornerRadius: 20, style: .continuous))
                 .contextMenu {
-                    Section(turn.promptAt.formatted(.dateTime.weekday(.wide).hour().minute())) {
+                    Section(AgentTurn.menuTimestamp(turn.promptAt)) {
                         Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = turn.prompt }
                         Button("Select text", systemImage: "selection.pin.in.out") { selecting = true }
                         if isLast {
@@ -650,7 +650,7 @@ struct AnswerActionRow: View {
                 IconAction("arrow.clockwise", label: "Retry", action: retry)
             }
             Menu {
-                Section(turn.promptAt.formatted(.dateTime.weekday(.wide).hour().minute())) {
+                Section(AgentTurn.menuTimestamp(turn.endedAt ?? turn.promptAt)) {
                     Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
                     Button("Retry", systemImage: "arrow.clockwise", action: retry)
                 }

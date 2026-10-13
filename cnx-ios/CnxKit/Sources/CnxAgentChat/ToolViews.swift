@@ -332,6 +332,8 @@ struct EditedFilesCard: View {
                         Text(file.directory).font(.footnote).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head)
                         Spacer(minLength: 4)
                         DiffCounts(additions: file.additions, deletions: file.deletions)
+                            .fixedSize()
+                            .layoutPriority(2)
                     }
                     .padding(.horizontal, 16)
                     .frame(height: 40)
