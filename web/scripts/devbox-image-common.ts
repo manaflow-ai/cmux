@@ -383,6 +383,14 @@ export const DEVBOX_SOURCE_SCHEMA = 2;
 export const bakeScriptPath = path.join(webRoot, "scripts/build-devbox-freestyle.ts");
 
 /**
+ * The first cmux-tui build that can keep checkpoint maintenance moving when a
+ * long-lived terminal's replay buffer is malformed. A default image older
+ * than this commit can reproduce the Cloud outage from #19827 even when the
+ * checked-in app source has the repair.
+ */
+export const CMUX_TUI_CHECKPOINT_REPLAY_FIX_COMMIT = "c9ed688a077c31312ab6fa7f14250b24683adae0";
+
+/**
  * A Dockerfile reduced to its instructions, by the Dockerfile grammar: a line
  * whose first non-blank character is `#` is a comment (also inside a
  * continued instruction) unless it is a parser directive (`# key=value`
@@ -1546,6 +1554,41 @@ export function devboxSourceDriftProblems(
     digests.set(key, current);
     if (source.digest !== current) {
       problems.push(`${entry.version}: baked from devbox sources ${source.digest.slice(0, 12)}… (schema ${schema}), this checkout's ${source.layers} sources are ${current.slice(0, 12)}…; promote a new bake or revert the sources with the manifest`);
+    }
+  }
+  return problems;
+}
+
+/**
+ * A promoted default must carry a cmux-tui build that includes the checkpoint
+ * replay repair. This is checked from git ancestry rather than commit dates so
+ * a maintenance branch or a cherry-pick is accepted when it contains the fix.
+ */
+export function devboxCmuxTuiPinProblems(
+  manifest: DevboxImageManifest,
+  provider: DevboxProvider = "freestyle",
+): string[] {
+  const problems: string[] = [];
+  for (const entry of manifest.images) {
+    if (entry.provider !== provider || !entry.defaultForKind) continue;
+    const commit = entry.cmuxTuiCommit;
+    if (!commit) {
+      problems.push(`${entry.version}: default image has no cmuxTuiCommit; rebake it after the checkpoint replay fix`);
+      continue;
+    }
+    if (!/^[0-9a-f]{40}$/i.test(commit)) {
+      problems.push(`${entry.version}: cmuxTuiCommit ${JSON.stringify(commit)} is not a full commit`);
+      continue;
+    }
+    try {
+      execFileSync("git", ["merge-base", "--is-ancestor", CMUX_TUI_CHECKPOINT_REPLAY_FIX_COMMIT, commit], {
+        cwd: repoRoot,
+        stdio: "ignore",
+      });
+    } catch {
+      problems.push(
+        `${entry.version}: cmux-tui ${commit.slice(0, 12)} predates checkpoint replay fix ${CMUX_TUI_CHECKPOINT_REPLAY_FIX_COMMIT.slice(0, 12)}; promote a newer image`,
+      );
     }
   }
   return problems;

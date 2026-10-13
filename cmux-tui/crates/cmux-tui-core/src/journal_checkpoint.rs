@@ -46,11 +46,38 @@ impl std::fmt::Display for ReplayBufferExhausted {
 impl std::error::Error for ReplayBufferExhausted {}
 
 fn replay_capture_error_is_quarantinable(error: &anyhow::Error) -> bool {
-    // The checkpoint still treats this as fatal until the capture policy is
-    // updated. Keeping the classification separate makes the regression test
-    // describe the precise error that must become terminal-local.
-    let _ = error;
-    false
+    error.chain().any(|cause| cause.downcast_ref::<ReplayBufferExhausted>().is_some())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkippedTerminalReplay {
+    pub(crate) terminal_id: String,
+    pub(crate) reason: &'static str,
+}
+
+/// Capture each terminal independently. A malformed replay state can belong to
+/// one long-lived terminal host, so it must not prevent the session checkpoint
+/// from advancing for every other terminal.
+fn collect_terminal_replays<T>(
+    terminal_ids: impl IntoIterator<Item = TerminalPublicId>,
+    mut capture: impl FnMut(&TerminalPublicId) -> Option<anyhow::Result<T>>,
+) -> anyhow::Result<(Vec<T>, Vec<SkippedTerminalReplay>)> {
+    let mut captured = Vec::new();
+    let mut skipped = Vec::new();
+    for terminal_id in terminal_ids {
+        let Some(result) = capture(&terminal_id) else { continue };
+        match result {
+            Ok(value) => captured.push(value),
+            Err(error) if replay_capture_error_is_quarantinable(&error) => {
+                skipped.push(SkippedTerminalReplay {
+                    terminal_id: terminal_id.as_str().into(),
+                    reason: "replay_buffer_exhausted",
+                });
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok((captured, skipped))
 }
 
 #[derive(Debug)]
@@ -95,11 +122,14 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         "checkpoint contains more than {MAX_CHECKPOINT_TERMINALS} terminals"
     );
 
+    let (captured_blobs, skipped_terminal_replays) =
+        collect_terminal_replays(terminal_ids, |terminal_id| {
+            mux.terminal_resource_surface(terminal_id)
+                .map(|surface| terminal_replay_blob(&surface, terminal_id))
+        })?;
     let mut total_bytes = 0_u64;
-    let mut blobs = Vec::new();
-    for terminal_id in terminal_ids {
-        let Some(surface) = mux.terminal_resource_surface(&terminal_id) else { continue };
-        let blob = terminal_replay_blob(&surface, &terminal_id)?;
+    let mut blobs = Vec::with_capacity(captured_blobs.len());
+    for blob in captured_blobs {
         total_bytes = total_bytes
             .checked_add(blob.reference.uncompressed_bytes)
             .context("checkpoint content byte count overflow")?;
@@ -128,6 +158,10 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
             "journal_extensions":{
                 "producers":producers,
                 "hooks":hooks,
+                "terminal_replay_quarantines":skipped_terminal_replays.iter().map(|skip| json!({
+                    "terminal_id":skip.terminal_id,
+                    "reason":skip.reason,
+                })).collect::<Vec<_>>(),
             },
         }),
         blobs,
@@ -162,7 +196,6 @@ pub(crate) fn terminal_replay_blob(
         "terminal journal ingress is unsettled during replay capture"
     );
     let (cols, rows, replay) = {
-        let mut last_error = None;
         let mut captured = None;
         for budget in CHECKPOINT_REPLAY_RETRY_BUDGETS {
             let result = surface
@@ -177,9 +210,7 @@ pub(crate) fn terminal_replay_blob(
                     captured = Some(value);
                     break;
                 }
-                Err(ghostty_vt::Error::OutOfSpace) => {
-                    last_error = Some(anyhow::Error::new(ghostty_vt::Error::OutOfSpace));
-                }
+                Err(ghostty_vt::Error::OutOfSpace) => continue,
                 Err(error) => {
                     return Err(anyhow::anyhow!(
                         "terminal {terminal_id} replay capture failed: {error}"
@@ -188,12 +219,9 @@ pub(crate) fn terminal_replay_blob(
             }
         }
         captured.ok_or_else(|| {
-            anyhow::anyhow!(
-                "terminal {terminal_id} replay capture failed after retrying larger buffers: {}",
-                last_error
-                    .map(|error| error.to_string())
-                    .unwrap_or_else(|| "buffer too small".into())
-            )
+            anyhow::Error::new(ReplayBufferExhausted).context(format!(
+                "terminal {terminal_id} replay capture failed after retrying larger buffers"
+            ))
         })?
     };
     let epoch_after = surface
@@ -819,6 +847,45 @@ mod tests {
     fn an_exhausted_replay_buffer_is_a_terminal_local_failure() {
         let error = anyhow::Error::new(ReplayBufferExhausted);
         assert!(replay_capture_error_is_quarantinable(&error));
+    }
+
+    #[test]
+    fn checkpoint_capture_keeps_healthy_terminals_when_one_replay_is_quarantined() {
+        let skipped =
+            TerminalPublicId::parse("term_00000000000000000000000000000001").unwrap();
+        let healthy =
+            TerminalPublicId::parse("term_00000000000000000000000000000002").unwrap();
+        let (captured, quarantined) = collect_terminal_replays(
+            [skipped.clone(), healthy.clone()],
+            |terminal_id| {
+                Some(if terminal_id == &skipped {
+                    Err(anyhow::Error::new(ReplayBufferExhausted))
+                } else {
+                    Ok(terminal_id.as_str().to_string())
+                })
+            },
+        )
+        .unwrap();
+
+        assert_eq!(captured, vec![healthy.as_str().to_string()]);
+        assert_eq!(
+            quarantined,
+            vec![SkippedTerminalReplay {
+                terminal_id: skipped.as_str().into(),
+                reason: "replay_buffer_exhausted",
+            }]
+        );
+    }
+
+    #[test]
+    fn checkpoint_capture_still_fails_for_other_replay_errors() {
+        let terminal_id =
+            TerminalPublicId::parse("term_00000000000000000000000000000003").unwrap();
+        let error = collect_terminal_replays::<()>([terminal_id], |_| {
+            Some(Err(anyhow::anyhow!("terminal changed during replay capture")))
+        })
+        .unwrap_err();
+        assert_eq!(error.to_string(), "terminal changed during replay capture");
     }
 
     fn terminal_replay_checkpoint() -> JournalCheckpoint {

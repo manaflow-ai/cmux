@@ -70,6 +70,7 @@ import {
   argValue,
   bakeMetadata,
   bakePreflight,
+  devboxCmuxTuiPinProblems,
   defaultBakeTag,
   devboxSourceDriftProblems,
   hasFlag,
@@ -140,7 +141,11 @@ function commitManifest(label: string, manifest: DevboxImageManifest, next: Devb
   // is refused here rather than caught by CI after the PR is open. Only the
   // new rows are judged so historical entries remain available for rollback;
   // CI checks every active default against the current sources.
-  const problems = [...imageManifestProblems(next), ...(drift ? devboxSourceDriftProblems({ ...next, images: added }) : [])];
+  const problems = [
+    ...imageManifestProblems(next),
+    ...(drift ? devboxSourceDriftProblems({ ...next, images: added }) : []),
+    ...devboxCmuxTuiPinProblems(next),
+  ];
   if (problems.length > 0) {
     throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);
   }
@@ -165,7 +170,11 @@ if (hasFlag("--upgrade-source-schema")) {
       console.log("no default entry to upgrade");
       return;
     }
-    const problems = [...imageManifestProblems(result.manifest), ...devboxSourceDriftProblems(result.manifest)];
+    const problems = [
+      ...imageManifestProblems(result.manifest),
+      ...devboxSourceDriftProblems(result.manifest),
+      ...devboxCmuxTuiPinProblems(result.manifest),
+    ];
     if (problems.length > 0) throw new Error(`refusing to write an inconsistent manifest:\n  ${problems.join("\n  ")}`);
     console.log(`upgraded to source schema ${result.upgraded.length} entries:\n  ${result.upgraded.join("\n  ")}`);
     if (dryRun) {

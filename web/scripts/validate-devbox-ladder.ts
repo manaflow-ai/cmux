@@ -7,6 +7,7 @@
  */
 import {
   devboxImageLadderProblems,
+  devboxCmuxTuiPinProblems,
   devboxSourceDriftProblems,
   imageManifestProblems,
   readImageManifest,
@@ -17,6 +18,7 @@ const problems = [
   ...imageManifestProblems(manifest),
   ...devboxImageLadderProblems(manifest),
   ...devboxSourceDriftProblems(manifest),
+  ...devboxCmuxTuiPinProblems(manifest),
 ];
 if (problems.length > 0) {
   console.error(`devbox image manifest is invalid:\n  ${problems.join("\n  ")}`);

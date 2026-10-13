@@ -11,6 +11,7 @@ import {
   upgradeDevboxSourceRecords,
   devboxImageEpoch,
   devboxImageLadderProblems,
+  devboxCmuxTuiPinProblems,
   devboxUnifiedSnapshotProblems,
   devboxSourceDigest,
   devboxSourceDriftProblems,
@@ -72,6 +73,40 @@ describe("checked-in image manifest", () => {
     // pin or template change lands together with its promotion, and a
     // rollback reverts the promotion commit whole (sources included).
     expect(devboxSourceDriftProblems(readImageManifest())).toEqual([]);
+  });
+
+  test("every default carries a cmux-tui build with checkpoint replay quarantine", () => {
+    expect(devboxCmuxTuiPinProblems(readImageManifest())).toEqual([]);
+  });
+});
+
+describe("devboxCmuxTuiPinProblems", () => {
+  test("rejects a pre-fix default and accepts a descendant", () => {
+    const manifest = readImageManifest();
+    const current = manifest.images.find((entry) => entry.defaultForKind)!;
+    const stale = {
+      ...manifest,
+      images: manifest.images.map((entry) => entry === current
+        ? { ...entry, cmuxTuiCommit: "fbbbc77a660f289d14cf0e9e22c4c5634e3f2fdf" }
+        : entry),
+    };
+    const problems = devboxCmuxTuiPinProblems(stale);
+    expect(problems.some((problem) => problem.includes("predates checkpoint replay fix"))).toBe(true);
+    expect(devboxCmuxTuiPinProblems(manifest)).toEqual([]);
+  });
+
+  test("requires a pin on every active default", () => {
+    const manifest = readImageManifest();
+    const current = manifest.images.find((entry) => entry.defaultForKind)!;
+    const missing = {
+      ...manifest,
+      images: manifest.images.map((entry) => entry === current
+        ? { ...entry, cmuxTuiCommit: undefined }
+        : entry),
+    };
+    expect(devboxCmuxTuiPinProblems(missing)).toContain(
+      `${current.version}: default image has no cmuxTuiCommit; rebake it after the checkpoint replay fix`,
+    );
   });
 });
 
