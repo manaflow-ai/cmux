@@ -83,8 +83,8 @@ public nonisolated struct CLIPathInstaller: Sendable {
     /// - Parameter privileged: Runs a shell command as administrator when a direct write is refused;
     ///   tests pass a stand-in.
     public init(destination: URL = Name.cmux.destination,
-         source: URL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux"),
-         privileged: @escaping Privileged = CLIPathInstaller.runAsAdministrator) {
+                source: URL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux"),
+                privileged: @escaping Privileged = CLIPathInstaller.runAsAdministrator) {
         self.destination = destination
         self.source = source.standardizedFileURL
         self.privileged = privileged
