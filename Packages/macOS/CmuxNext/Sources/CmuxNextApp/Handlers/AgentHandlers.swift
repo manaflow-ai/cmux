@@ -295,7 +295,6 @@ enum AgentHandlers {
             return true
         }
         let folder = pane.selectedTab?.cwd
-        services.newTabKinds.record(.agent, folder: folder)
         let source = pane.agentSeedFromSelectedTab()
         let daemon = pane.daemon
         context.registry.track(Task { @MainActor in
@@ -315,7 +314,6 @@ enum AgentHandlers {
     }
 
     private static func openNewAgentChat(in pane: PaneController, invocation: ActionInvocation, context: AppActionContext) {
-        if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: pane.selectedTab?.cwd) }
         pane.newAgentTab()
     }
 

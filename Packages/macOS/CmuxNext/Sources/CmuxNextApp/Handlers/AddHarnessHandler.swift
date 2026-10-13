@@ -19,7 +19,6 @@ enum AddHarnessHandler {
             // The same pane path as New Agent Chat: from Home or a settling workspace it makes the
             // first pane, then opens the chat there.
             AgentHandlers.withAgentPane(invocation, context: context) { pane in
-                if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: nil) }
                 pane.openAgentTab(seed: AgentPaneSeedSource(seed))
             }
         })
