@@ -57,31 +57,44 @@ impl Launch {
             .collect()
     }
 
+    /// The next journal event a hook appends. A message-delivery event
+    /// (UserPromptSubmit, Stop) first asks for queued agent messages; the
+    /// session answers that it has none.
     fn event(&self) -> serde_json::Value {
-        let deadline = Instant::now() + Duration::from_secs(5);
-        let mut stream = loop {
-            match self.listener.accept() {
-                Ok((stream, _)) => break stream,
-                Err(error)
-                    if error.kind() == std::io::ErrorKind::WouldBlock
-                        && Instant::now() < deadline =>
-                {
-                    std::thread::sleep(Duration::from_millis(10));
+        loop {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut stream = loop {
+                match self.listener.accept() {
+                    Ok((stream, _)) => break stream,
+                    Err(error)
+                        if error.kind() == std::io::ErrorKind::WouldBlock
+                            && Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    result => panic!("hook must reach this session: {result:?}"),
                 }
-                result => panic!("hook must reach this session: {result:?}"),
+            };
+            stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+            let mut line = String::new();
+            BufReader::new(&stream).read_line(&mut line).unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            if request["operation"] == "agent.message.list" {
+                let response = serde_json::json!({
+                    "protocol":"cmux.protocol/2", "type":"response", "id":request["id"],
+                    "ok":true, "result":[]
+                });
+                writeln!(stream, "{response}").unwrap();
+                continue;
             }
-        };
-        stream.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
-        let mut line = String::new();
-        BufReader::new(&stream).read_line(&mut line).unwrap();
-        let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-        assert_eq!(request["operation"], "session.journal.append");
-        let response = serde_json::json!({
-            "protocol":"cmux.protocol/2", "type":"response", "id":request["id"],
-            "ok":true, "result":{"value":{"sequence":"1"}}
-        });
-        writeln!(stream, "{response}").unwrap();
-        request["params"]["event"].clone()
+            assert_eq!(request["operation"], "session.journal.append");
+            let response = serde_json::json!({
+                "protocol":"cmux.protocol/2", "type":"response", "id":request["id"],
+                "ok":true, "result":{"value":{"sequence":"1"}}
+            });
+            writeln!(stream, "{response}").unwrap();
+            return request["params"]["event"].clone();
+        }
     }
 }
 
