@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # cmux-tui's Rust checks on a macOS fleet host, as a cmux-ci step:
 #   cmux-ci run --class isolated --script scripts/ci/cmux-tui-rust-check.sh --ref SHA --key KEY \
-#     --arg MODE [--arg TEST_FILTER]
+#     --arg MODE [--arg=-p --arg CRATE]... [--arg TEST_FILTER]
 # MODE: fmt (cargo fmt --check), clippy (-D warnings), test [FILTER], or all [FILTER];
+# -p CRATE (repeatable; fmt, clippy, test and all only) limits those modes to the
+# named workspace crates (cargo -p) instead of the whole workspace: a lane gates
+# the crates its change reaches (hq scripts/cmux-next-affected.py --gate-steps).
+# Pass it as `--arg=-p` so cmux-ci does not read -p as its own option.
 # optchat-chief [FILTER]: tests, clippy -D warnings and fmt --check of
 # Native/OptChat/optchat-chief (its own workspace and lockfile), tests first so
 # a red run still reports them; without --locked, so a new dependency resolves
@@ -29,9 +33,27 @@ cmux-tui-rust-check.sh runs cargo and runs only as a fleet step:
 MSG
   exit 2
 fi
+usage="usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief [-p CRATE]... [TEST_FILTER]"
 mode="${1:-}"
-filter="${2:-}"
-case "$mode" in fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief) ;; *) echo "usage: cmux-tui-rust-check.sh fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief [TEST_FILTER]" >&2; exit 2 ;; esac
+[[ $# -gt 0 ]] && shift
+case "$mode" in fmt|clippy|test|all|rd-host|rb-testhost|optchat-chief) ;; *) echo "$usage" >&2; exit 2 ;; esac
+crates=()
+while [[ "${1:-}" == -p ]]; do
+  if [[ ! "${2:-}" =~ ^[A-Za-z0-9_-]{1,100}$ ]]; then
+    echo "error: -p needs a crate name (letters, digits, _ -), got '${2:-}'" >&2
+    exit 2
+  fi
+  crates+=(-p "$2")
+  shift 2
+done
+filter="${1:-}"
+if [[ $# -gt 1 ]]; then echo "$usage" >&2; exit 2; fi
+case "$mode" in
+  rd-host|rb-testhost|optchat-chief)
+    if [[ ${#crates[@]} -gt 0 ]]; then echo "error: -p applies to fmt, clippy, test and all only" >&2; exit 2; fi ;;
+esac
+# The cargo package selection: the named crates, else the whole workspace.
+if [[ ${#crates[@]} -gt 0 ]]; then packages=("${crates[@]}"); else packages=(--workspace); fi
 if [[ -n "$filter" && ! "$filter" =~ ^[A-Za-z0-9_:.-]{1,200}$ ]]; then
   echo "error: TEST_FILTER must be one Rust test-name substring (letters, digits, _ : . -)" >&2
   exit 2
@@ -129,11 +151,11 @@ if [[ "$mode" == optchat-chief ]]; then
   exit 0
 fi
 if [[ "$mode" == fmt || "$mode" == all ]]; then
-  cargo fmt --all --check
+  if [[ ${#crates[@]} -gt 0 ]]; then cargo fmt "${crates[@]}" --check; else cargo fmt --all --check; fi
 fi
 if [[ "$mode" == clippy || "$mode" == all ]]; then
-  cargo clippy --workspace --all-targets --locked -- -D warnings
+  cargo clippy "${packages[@]}" --all-targets --locked -- -D warnings
 fi
 if [[ "$mode" == test || "$mode" == all ]]; then
-  cargo test --workspace --locked ${filter:+"$filter"}
+  cargo test "${packages[@]}" --locked ${filter:+"$filter"}
 fi
