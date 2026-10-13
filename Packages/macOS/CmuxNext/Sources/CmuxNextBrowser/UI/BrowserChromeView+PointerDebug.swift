@@ -38,6 +38,18 @@ public struct BrowserPointerDebug: Sendable, Equatable {
 }
 
 extension BrowserChromeView {
+    /// `debug.omnibar`'s `pointer` object as Foundation values (JSON-ready):
+    /// `probeX`,`probeY` are a window point from the top left, as `debug.mouse` takes.
+    public func debugPointerObject(probeX: Double?, probeY: Double?) -> [String: Any] {
+        let report = debugPointer(probe: probeX.flatMap { x in probeY.map { CGPoint(x: x, y: $0) } })
+        var object: [String: Any] = ["bar_hovering": report.barHovering, "hovered_buttons": report.hoveredButtons]
+        object["probe_region"] = report.probeRegion ?? NSNull()
+        object["probe_cursor"] = report.probeCursor ?? NSNull()
+        object["installed_text_cursor"] = report.installedTextCursor ?? NSNull()
+        object["frames"] = report.frames.mapValues { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) }
+        return object
+    }
+
     /// The pointer report; `probe` is a window point from the top left.
     public func debugPointer(probe: CGPoint?) -> BrowserPointerDebug {
         var hovered: [String] = []
