@@ -57,6 +57,7 @@ owner-handoff (written up for the owning agent).
 | 48 | Feed | Error posts looked like any other post. | S3 | fixed: red "Error" badge |
 | 49 | Workspace names | Rename and New Workspace fields auto-capitalized ("qa-renamed" became "Qa-renamed" on the Mac). | S3 | fixed: no autocapitalization or autocorrection; rename verified on the daemon (`workspace list`) both ways over the control connection |
 | 50 | Feed | The post menu had no timestamp and offered "Mark as Read" on read posts. | S3 | improved: timestamp section header (ChatGPT), Copy Prompt, Mark as Read only when unread |
+| 51 | VoiceOver / Feed | Feed posts read "terminal"/"asterisk" (avatar symbols), "dot logs", and never said a post was unread. | S3 | fixed: avatar hidden, "in logs", "<author>, unread" |
 
 ## Open (owner handoff or needs a device run)
 

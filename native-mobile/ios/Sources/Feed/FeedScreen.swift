@@ -217,6 +217,7 @@ struct FeedPostView: View {
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
             AgentAvatar(agent: item.agent, unread: !item.read)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 8) {
                 header
                 if let quote = item.quote, !quote.isEmpty {
@@ -262,9 +263,13 @@ struct FeedPostView: View {
 
     private var header: some View {
         HStack(spacing: 4) {
-            Text(item.agent.map(FeedStore.displayName) ?? String(localized: "cmux")).font(.subheadline.weight(.semibold))
+            let author = item.agent.map(FeedStore.displayName) ?? String(localized: "cmux")
+            Text(author).font(.subheadline.weight(.semibold))
+                // The unread dot sits on the (hidden) avatar.
+                .accessibilityLabel(item.read ? author : String(localized: "\(author), unread"))
             if let workspace = item.workspace {
                 Text("· \(workspace)").font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    .accessibilityLabel(String(localized: "in \(workspace)"))
             }
             Spacer(minLength: 4)
             if item.needsAttention {
