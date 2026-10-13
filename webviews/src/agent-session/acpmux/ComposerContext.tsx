@@ -89,12 +89,12 @@ export function ComposerContext({
   const summaryFolder = summary?.cwd && computerId(summary) === selectedComputer ? summary.cwd : undefined;
   // A chat in its private agent-home folder has no project yet: the row offers a folder instead.
   const currentFolder = summaryFolder
-        ? isAgentHome(summaryFolder)
-          ? undefined
-          : normalizeCwd(summaryFolder)
-        : projectChoices
-          ? undefined
-          : folders[0]?.id;
+    ? isAgentHome(summaryFolder)
+      ? undefined
+      : normalizeCwd(summaryFolder)
+    : projectChoices
+      ? undefined
+      : folders[0]?.id;
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;
@@ -111,7 +111,9 @@ export function ComposerContext({
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <div className="acpmux-location-leading">
-        {readOnly && !newChats && !currentFolder ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
+        {readOnly && !newChats && !currentFolder ? null : !readOnly &&
+          selectedComputer === "local" &&
+          projectChoices ? (
           <FolderMenu
             label={t(CONTEXT_LABELS.folder)}
             menu="Location"
@@ -136,7 +138,13 @@ export function ComposerContext({
             onBrowse={newChats ? browseNewChat : undefined}
             extras={
               newChats && currentFolder
-                ? [{ id: "newChatHere", label: t(CONTEXT_LABELS.newChatHere), onSelect: () => onNewChat?.(currentFolder) }]
+                ? [
+                    {
+                      id: "newChatHere",
+                      label: t(CONTEXT_LABELS.newChatHere),
+                      onSelect: () => onNewChat?.(currentFolder),
+                    },
+                  ]
                 : undefined
             }
             onPick={(cwd) => {
