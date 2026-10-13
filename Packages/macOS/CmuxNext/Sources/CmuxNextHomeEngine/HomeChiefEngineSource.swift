@@ -31,16 +31,22 @@ public nonisolated struct HomeChiefLocalEngine: HomeChiefEngineSource {
         self.connection = connection
     }
 
-    public func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot { files.snapshot() }
+    /// The files, with the brain's offered models and efforts when its
+    /// daemon answers.
+    public func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
+        let snapshot = files.snapshot()
+        guard let connection = await connection(),
+              let report = try? await ChiefControlClient(connection).chiefEngine() else { return snapshot }
+        return snapshot.offering(report)
+    }
 
     public func set(_ key: String, _ value: String?) async throws(HomeChiefEngineError) -> HomeChiefSnapshot {
         guard let connection = await connection() else { throw .localUnreachable }
         do {
-            try await HomeChiefEngineSet.send(key, value, on: connection)
+            return files.snapshot().offering(try await HomeChiefEngineSet.send(key, value, on: connection))
         } catch .unreachable {
             throw .localUnreachable
         }
-        return files.snapshot()
     }
 }
 
@@ -98,7 +104,7 @@ public nonisolated struct HomeChiefRemoteEngine: HomeChiefEngineSource {
     private func snapshot(_ report: ChiefEngineReport) -> HomeChiefSnapshot {
         HomeChiefSnapshot(harness: report.choice.harness, model: report.choice.model, effort: report.choice.effort,
                           avatar: files.avatar(), routeConfigured: false,
-                          turns: report.recent.map(HomeEngineTurn.init(report:)))
+                          turns: report.recent.map(HomeEngineTurn.init(report:))).offering(report)
     }
 }
 
