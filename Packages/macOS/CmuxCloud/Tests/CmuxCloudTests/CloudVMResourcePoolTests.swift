@@ -12,12 +12,21 @@ struct CloudVMResourcePoolTests {
         "poolMemoryMb": 40960,
         "usedVcpus": 16,
         "usedMemoryMb": 32768,
+        "minimumVcpus": 2,
+        "minimumMemoryMb": 4096,
     ]
 
     @Test
     func decodesThePoolFromListLimits() throws {
         let pool = try #require(CloudVMResourcePool(limits: Self.proLimits))
-        #expect(pool == CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40960, usedVcpus: 16, usedMemoryMb: 32768))
+        #expect(pool == CloudVMResourcePool(
+            poolVcpus: 20,
+            poolMemoryMb: 40960,
+            usedVcpus: 16,
+            usedMemoryMb: 32768,
+            minimumVcpus: 2,
+            minimumMemoryMb: 4096
+        ))
         #expect(pool.freeVcpus == 4)
         #expect(pool.freeMemoryMb == 8192)
         #expect(!pool.isExhausted)
@@ -109,61 +118,56 @@ struct CloudVMResourcePoolTests {
     }
 
     @Test
-    func validatorUsesPlanSpecificFallbackCeilings() throws {
-        let validator = CloudVMResizePlanValidator()
-        let go = try validator.plan(from: ["planId": "go"])
-        let pro = try validator.plan(from: ["planId": "pro"])
-        let max = try validator.plan(from: ["planId": "max"])
+    func validatorUsesServerAdvertisedCeilingsRegardlessOfPlanName() throws {
+        let plan = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "future-plan",
+            "memoryOptionsMb": [4096, 8192],
+            "maxMemoryMb": 96 * 1_024,
+            "maxVcpus": 48,
+            "maxDiskMb": 512 * 1_024,
+        ])
 
-        #expect(go.limits.maxDiskMb == 16 * 1024)
-        #expect(go.limits.maxMemoryMb == 4 * 1024)
-        #expect(go.limits.maxVcpus == 2)
-        #expect(pro.limits.maxDiskMb == 128 * 1024)
-        #expect(pro.limits.maxMemoryMb == 16 * 1024)
-        #expect(pro.limits.maxVcpus == 8)
-        #expect(max.limits.maxDiskMb == 256 * 1024)
-        #expect(max.limits.maxMemoryMb == 64 * 1024)
-        #expect(max.limits.maxVcpus == 32)
+        #expect(plan.id == "future-plan")
+        #expect(plan.limits.maxMemoryMb == 96 * 1_024)
+        #expect(plan.limits.maxVcpus == 48)
+        #expect(plan.limits.maxDiskMb == 512 * 1_024)
     }
 
     @Test
-    func validatorUsesFreeFallbackForMissingOrUnknownPlan() throws {
+    func serverPaidClassificationWinsOverLegacyPlanIDMirror() throws {
+        let serverPaidUnknownPlan = try #require(MachineSnapshotBuilder.planSnapshot(
+            activeCount: 0,
+            limits: VMPlanLimits(
+                planId: "future-plan",
+                freeAccessWindowDays: 0,
+                isPaidPlan: true
+            )
+        ))
+        #expect(serverPaidUnknownPlan.isPaidPlan)
+
+        let serverFreeKnownPlan = try #require(MachineSnapshotBuilder.planSnapshot(
+            activeCount: 0,
+            limits: VMPlanLimits(
+                planId: "pro",
+                freeAccessWindowDays: 0,
+                isPaidPlan: false
+            )
+        ))
+        #expect(!serverFreeKnownPlan.isPaidPlan)
+    }
+
+    @Test
+    func validatorRejectsMissingServerCapabilityCeilings() {
         let validator = CloudVMResizePlanValidator()
         for rawLimits in [
             [:] as [String: Any],
-            ["planId": "unrecognized"] as [String: Any],
+            ["planId": "pro", "memoryOptionsMb": [4096, 8192]] as [String: Any],
+            ["planId": "pro", "maxMemoryMb": 16 * 1_024, "maxVcpus": 8] as [String: Any],
         ] {
-            let plan = try validator.plan(from: rawLimits)
-            #expect(plan.limits.maxMemoryMb == 8 * 1_024)
-            #expect(plan.limits.maxVcpus == 4)
-            #expect(plan.limits.maxDiskMb == 128 * 1_024)
+            #expect(throws: CloudVMResizePlanError.incompleteCapacityData) {
+                try validator.plan(from: rawLimits)
+            }
         }
-    }
-
-    @Test
-    func validatorCapsLegacyLadderAtTheCurrentPlanCeiling() throws {
-        let limits: [String: Any] = [
-            "planId": "pro",
-            "memoryOptionsMb": [4096, 8192, 16384, 24576, 32768, 65536],
-            "maxVcpus": 32,
-        ]
-        let plan = try CloudVMResizePlanValidator().plan(from: limits)
-        #expect(plan.limits.maxMemoryMb == 16 * 1024)
-        #expect(plan.limits.maxVcpus == 8)
-    }
-
-    @Test
-    func validatorCapsAdvertisedDiskAtTheCurrentPlanCeiling() throws {
-        let pro = try CloudVMResizePlanValidator().plan(from: [
-            "planId": "pro",
-            "maxDiskMb": 256 * 1_024,
-        ])
-        let go = try CloudVMResizePlanValidator().plan(from: [
-            "planId": "go",
-            "maxDiskMb": 128 * 1_024,
-        ])
-        #expect(pro.limits.maxDiskMb == 128 * 1_024)
-        #expect(go.limits.maxDiskMb == 16 * 1_024)
     }
 
     @Test
@@ -176,6 +180,58 @@ struct CloudVMResourcePoolTests {
                 "usedVcpus": 16,
             ])
         }
+    }
+
+    @Test
+    func validatorRejectsMissingOrPartialServerMinimumShape() {
+        let validator = CloudVMResizePlanValidator()
+        for limits in [
+            [
+                "planId": "pro",
+                "maxMemoryMb": 16 * 1_024,
+                "maxVcpus": 8,
+                "maxDiskMb": 128 * 1_024,
+                "poolVcpus": 20,
+                "poolMemoryMb": 40 * 1_024,
+                "usedVcpus": 16,
+                "usedMemoryMb": 32 * 1_024,
+                "minimumVcpus": 2,
+            ] as [String: Any],
+            [
+                "planId": "pro",
+                "maxMemoryMb": 16 * 1_024,
+                "maxVcpus": 8,
+                "maxDiskMb": 128 * 1_024,
+                "poolVcpus": 20,
+                "poolMemoryMb": 40 * 1_024,
+                "usedVcpus": 16,
+                "usedMemoryMb": 32 * 1_024,
+                "minimumVcpus": 2,
+                "minimumMemoryMb": 0,
+            ] as [String: Any],
+        ] {
+            #expect(throws: CloudVMResizePlanError.incompleteCapacityData) {
+                try validator.plan(from: limits)
+            }
+        }
+    }
+
+    @Test
+    func missingServerMinimumShapeDoesNotRecreateHistoricalExhaustionRule() throws {
+        let limits: [String: Any] = [
+            "planId": "future-plan",
+            "maxMemoryMb": 96 * 1_024,
+            "maxVcpus": 48,
+            "maxDiskMb": 512 * 1_024,
+            "poolVcpus": 2,
+            "poolMemoryMb": 4 * 1_024,
+            "usedVcpus": 2,
+            "usedMemoryMb": 4 * 1_024,
+        ]
+        let plan = try CloudVMResizePlanValidator().plan(from: limits)
+        #expect(plan.limits.resourcePool?.minimumVcpus == nil)
+        #expect(plan.limits.resourcePool?.minimumMemoryMb == nil)
+        #expect(plan.limits.resourcePool?.isExhausted == false)
     }
 
     @Test
@@ -195,6 +251,9 @@ struct CloudVMResourcePoolTests {
     func validatorAcceptsZeroPoolUsage() throws {
         let plan = try CloudVMResizePlanValidator().plan(from: [
             "planId": "pro",
+            "maxMemoryMb": 16 * 1_024,
+            "maxVcpus": 8,
+            "maxDiskMb": 128 * 1_024,
             "poolVcpus": 20,
             "poolMemoryMb": 40 * 1_024,
             "usedVcpus": 0,
@@ -211,6 +270,21 @@ struct CloudVMResourcePoolTests {
         // A pool without usage is incomplete, so the client must not make
         // resize decisions from an invented empty usage readout.
         #expect(CloudVMResourcePool(limits: ["poolVcpus": 80, "poolMemoryMb": 163840]) == nil)
+    }
+
+    @Test
+    func validatorAcceptsExplicitNoPoolUsageCounters() throws {
+        let plan = try CloudVMResizePlanValidator().plan(from: [
+            "planId": "go",
+            "maxMemoryMb": 4 * 1_024,
+            "maxVcpus": 2,
+            "maxDiskMb": 16 * 1_024,
+            "poolVcpus": NSNull(),
+            "poolMemoryMb": NSNull(),
+            "usedVcpus": 0,
+            "usedMemoryMb": 0,
+        ])
+        #expect(plan.limits.resourcePool == nil)
     }
 
     @Test
@@ -401,7 +475,14 @@ struct CloudVMResourcePoolTests {
         let vcpuBound = CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40960, usedVcpus: 18, usedMemoryMb: 8192)
         #expect(vcpuBound.shortfall(vcpus: 4, memoryMb: 8192) == .vcpus(requested: 4, free: 2, pool: 20))
         #expect(vcpuBound.isExhausted == false)
-        #expect(CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40960, usedVcpus: 20, usedMemoryMb: 40960).isExhausted)
+        #expect(CloudVMResourcePool(
+            poolVcpus: 20,
+            poolMemoryMb: 40960,
+            usedVcpus: 20,
+            usedMemoryMb: 40960,
+            minimumVcpus: 2,
+            minimumMemoryMb: 4096
+        ).isExhausted)
     }
 
     @Test
@@ -431,7 +512,14 @@ struct CloudVMResourcePoolTests {
             activeCount: 2,
             maxActiveVms: 5,
             isPaidPlan: true,
-            resourcePool: CloudVMResourcePool(poolVcpus: 20, poolMemoryMb: 40960, usedVcpus: 20, usedMemoryMb: 40960)
+            resourcePool: CloudVMResourcePool(
+                poolVcpus: 20,
+                poolMemoryMb: 40960,
+                usedVcpus: 20,
+                usedMemoryMb: 40960,
+                minimumVcpus: 2,
+                minimumMemoryMb: 4096
+            )
         )
         #expect(!full.isAtLimit)
         #expect(CloudTreeGroupCount(usage: full).isWarning)

@@ -1,4 +1,5 @@
 import CmuxCloud
+import CmuxSurfaceCatalogModel
 import Foundation
 import Testing
 
@@ -7,6 +8,19 @@ import Testing
 #elseif canImport(cmux)
 @testable import cmux
 #endif
+
+@Suite("Cloud image-kind compatibility")
+struct CloudImageKindCompatibilityTests {
+    @Test func explicitKindAlwaysWinsOverAnImageName() {
+        #expect(VMMachineKind.resolved(kind: "base", image: "xfce-vnc-image") == .base)
+        #expect(VMMachineKind.resolved(kind: "desktop", image: "shell-image") == .desktop)
+    }
+
+    @Test func imageNameInferenceIsOnlyTheLegacyVNCBoundary() {
+        #expect(VMMachineKind.resolved(kind: nil, image: "legacy-xfce-vnc") == .desktop)
+        #expect(VMMachineKind.resolved(kind: nil, image: "legacy-devbox") == .base)
+    }
+}
 
 /// `/api/vm` publishes who made each machine. The sidebar's whole complaint is
 /// that a team's fleet reads as a pile of generated three-word names with no

@@ -7,6 +7,7 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         activeCount: Int,
         maxActiveVms: Int? = nil,
         planId: String,
+        isPaidPlan: Bool? = nil,
         freeAccessWindowDays: Int = 0,
         freeAccessExpiresAt: Date? = nil,
         freeAccessBanner: FreeAccessBanner = .none,
@@ -15,6 +16,7 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
         self.activeCount = activeCount
         self.maxActiveVms = maxActiveVms
         self.planId = planId
+        self.serverIsPaidPlan = isPaidPlan
         self.freeAccessWindowDays = freeAccessWindowDays
         self.freeAccessExpiresAt = freeAccessExpiresAt
         self.freeAccessBanner = freeAccessBanner
@@ -25,6 +27,9 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     /// Active-machine ceiling; nil when the plan has no cap (every paid plan).
     public let maxActiveVms: Int?
     public let planId: String
+    /// Server-authoritative paid entitlement classification, when available.
+    /// Older control planes fall back to the stable billing plan IDs below.
+    public let serverIsPaidPlan: Bool?
     /// Days the plan keeps a machine reachable after creation; 0 = no window.
     public var freeAccessWindowDays: Int = 0
     /// Earliest free-access expiry across the fleet (server value when present).
@@ -43,11 +48,13 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     /// Only plans the backend accepts for provisioning are paid. Unknown plan
     /// ids fail closed here too, so a stale metadata value cannot hide the
     /// upgrade affordance after the server returns `vm_requires_pro`.
-    public var isPaidPlan: Bool { Self.isPaidPlanID(planId) }
+    public var isPaidPlan: Bool { serverIsPaidPlan ?? Self.isPaidPlanID(planId) }
 
     /// Whether a plan with more machines exists to upgrade to. Max, Team and
-    /// Founders are the top of the ladder; everything else (free, Go, Pro, an
-    /// unknown id) can move up.
+    /// Founders are the top of the public billing ladder; everything else
+    /// (free, Go, Pro, an unknown id) can move up. This is a checkout/catalog
+    /// compatibility contract, never a resource ceiling; resize limits come
+    /// from the server capability fields.
     public var hasHigherPlan: Bool {
         switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "max", "team", "founders": return false
@@ -56,6 +63,9 @@ public struct MachinePlanSnapshot: Equatable, Sendable {
     }
 
     public static func isPaidPlanID(_ planId: String) -> Bool {
+        // Migration compatibility for list responses predating `isPaidPlan`.
+        // These identifiers are stable billing/product contracts, not resize
+        // or resource policy; modern responses take the server boolean above.
         switch planId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "go", "pro", "max", "team", "founders":
             return true
