@@ -24,6 +24,8 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     /// takes its place so the finger that long-pressed lands on it.
     private let sendButtonFrame: CGRect
     private let reduceMotion: Bool
+    /// What the backdrop blurs: the conversation, in another window.
+    private weak var backdropSource: UIView?
 
     /// Messages' backdrop (`EffectPickerBackdrop`): the conversation behind,
     /// tinted and blurred at radius 64, under a black (light: white) wash.
@@ -49,10 +51,11 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
 
     static let previewLineLimit = 3
 
-    init(text: NSAttributedString, sendButtonFrame: CGRect, reduceMotion: Bool) {
+    init(text: NSAttributedString, sendButtonFrame: CGRect, reduceMotion: Bool, backdropSource: UIView) {
         self.text = text
         self.sendButtonFrame = sendButtonFrame
         self.reduceMotion = reduceMotion
+        self.backdropSource = backdropSource
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .overFullScreen
         modalTransitionStyle = .crossDissolve
@@ -169,7 +172,9 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        becomeFirstResponder()
+        // Over a focused field the picker leaves first responder alone, so
+        // the keyboard stays (ConversationKeyboardFocusPolicy).
+        if ConversationKeyboardFocusPolicy.effectPickerTakesFocus { becomeFirstResponder() }
         UIAccessibility.post(notification: .screenChanged, argument: titleLabel)
     }
 
@@ -394,7 +399,7 @@ final class MessageEffectPickerViewController: UIViewController, UIScrollViewDel
     /// material reaches. Reduce Transparency keeps the system material.
     private func renderBackdrop(afterScreenUpdates: Bool) {
         if !UIAccessibility.isReduceTransparencyEnabled,
-           let source = presentingViewController?.view,
+           let source = backdropSource,
            let image = Self.blurredSnapshot(of: source, afterScreenUpdates: afterScreenUpdates) {
             backdrop.image = image
             backdropMaterial?.removeFromSuperview()

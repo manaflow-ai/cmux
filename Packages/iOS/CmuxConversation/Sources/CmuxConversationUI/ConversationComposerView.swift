@@ -63,6 +63,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     let placeholder = UILabel()
     let sendButton = UIButton(type: .custom)
     let micButton = UIButton(type: .system)
+    /// While set the draft takes no edits (Send with effect shows it).
+    var holdsDraft = false
     /// Queued photos above the text row (Messages' photo shelf).
     let attachmentShelf = ComposerAttachmentShelf()
     private(set) var attachments: [ComposerAttachment] = []

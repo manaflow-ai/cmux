@@ -43,4 +43,8 @@ public enum ConversationKeyboardFocusPolicy {
             && state.sceneIsForegroundActive
             && !state.isTransitioningSize
     }
+
+    /// Send with effect leaves the field focused: Messages shows the picker
+    /// in a window over the keyboard, which never moves.
+    public static let effectPickerTakesFocus = false
 }
