@@ -11,9 +11,9 @@ public enum WebKitRenderProbe {
         last &+= 1
         let id = last
         waiting[id] = body
-        // WebKit answers on the main thread; the handler carries only the id.
+        // The handler (on the main actor) carries only the id.
         webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: world) { _ in
-            MainActor.assumeIsolated { waiting.removeValue(forKey: id)?() }
+            waiting.removeValue(forKey: id)?()
         }
     }
 

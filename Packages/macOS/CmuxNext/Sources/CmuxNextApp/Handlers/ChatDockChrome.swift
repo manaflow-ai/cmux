@@ -31,10 +31,12 @@ extension ChatDockChrome {
         // first send never drops the strip and moves the page up (cx-ncc.58). A page set to a
         // terminal or browser keeps the strip its replacement tab shows.
         let agentTabs = controller.services.agentTabs
+        // A tab closing now is gone already: the strip hides with the close, not a snapshot later.
+        let tabs = controller.pane.tabs.filter { !controller.pendingClosed.contains($0.id) }
         let lone = columns.first { $0.root.contains(pane) }?.root.panes.count == 1
-            && controller.pane.tabs.count == 1
-            && (ChatColumnPlacement.isChat(controller.pane.tabs[0], services: controller.services)
-                || agentTabs.isAgentNewTabPage(controller.pane.tabs[0].id))
+            && tabs.count == 1
+            && (ChatColumnPlacement.isChat(tabs[0], services: controller.services)
+                || agentTabs.isAgentNewTabPage(tabs[0].id))
         return hidesStrip(pane: pane, columns: columns, tabCount: tabCount, isLoneChat: lone)
     }
 }

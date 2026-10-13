@@ -45,14 +45,18 @@ public final class AgentPageRedraw {
         probing = true
         generation &+= 1
         let generation = generation
-        // One animation frame, then a task: it runs after that frame was rendered (PagePaintProbe).
+        // One animation frame, then a task, then the presentation update that puts that frame on
+        // screen: a hold that ended at the task showed the old size for a few frames (close reveal).
         webView.callAsyncJavaScript(
             "await new Promise((done) => requestAnimationFrame(() => setTimeout(done, 0)));",
             arguments: [:], in: nil, in: .defaultClient
         ) { [weak self] _ in
             guard let self, self.generation == generation else { return }
-            self.probing = false
-            self.finish()
+            afterPresentationUpdate { [weak self] in
+                guard let self, self.generation == generation else { return }
+                self.probing = false
+                self.finish()
+            }
         }
     }
 
