@@ -86,7 +86,7 @@ pub fn type_ahead(request: &TypeAheadRequest) -> TypeAheadResponse {
     let mut pending = false;
     match &request.op {
         TypeAheadOp::Append { characters, surface, now_ns } => {
-            queue.append(characters, surface, *now_ns)
+            queue.append(characters, surface, *now_ns);
         }
         TypeAheadOp::DeleteBackward { surface } => queue.delete_backward(surface),
         TypeAheadOp::Take { surface, now_ns } => text = queue.take(surface, *now_ns),
