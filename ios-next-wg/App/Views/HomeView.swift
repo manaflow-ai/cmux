@@ -7,6 +7,7 @@ struct HomeView: View {
     @State private var path: [Int] = []
     @State private var showingSettings = false
     @State private var creating = false
+    @State private var scanning = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -25,15 +26,29 @@ struct HomeView: View {
                     .accessibilityLabel("Settings")
                 }
                 ToolbarItem(placement: .principal) {
-                    HostMenu()
+                    HostMenu(pairAnother: { scanning = true }, openSettings: { showingSettings = true })
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+            }
+            .safeAreaInset(edge: .bottom) {
+                HStack {
                     Button { newTerminal() } label: {
-                        if creating { ProgressView() } else { Image(systemName: "plus") }
+                        HStack(spacing: 8) {
+                            if creating { ProgressView().tint(.black) } else { Image(systemName: "plus") }
+                            Text("New terminal")
+                        }
+                        .font(.headline)
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 22)
+                        .padding(.vertical, 14)
+                        .background(Capsule().fill(.white))
                     }
+                    .buttonStyle(.plain)
                     .disabled(model.selected?.phase != .connected || creating)
-                    .accessibilityLabel("New terminal")
+                    .opacity(model.selected?.phase == .connected ? 1 : 0.4)
+                    Spacer()
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 6)
             }
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: Int.self) { surface in
@@ -44,6 +59,12 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showingSettings) {
             SettingsView()
+        }
+        .fullScreenCover(isPresented: $scanning) {
+            ScannerView { link in
+                scanning = false
+                model.pair(link: link)
+            }
         }
     }
 
@@ -59,38 +80,55 @@ struct HomeView: View {
     }
 }
 
-/// The title: the Mac's name with a status dot; a menu switches Macs.
+/// The title: the Mac's name with a status dot. Its menu switches Macs and
+/// holds the manage actions.
 struct HostMenu: View {
     @Environment(AppModel.self) private var model
+    let pairAnother: () -> Void
+    let openSettings: () -> Void
 
     var body: some View {
         Menu {
-            ForEach(model.connections) { connection in
-                Button {
-                    model.selectedHostID = connection.id
-                    connection.connect()
-                } label: {
-                    if connection.id == model.selected?.id {
-                        Label(connection.host.hostName, systemImage: "checkmark")
-                    } else {
-                        Text(connection.host.hostName)
-                    }
-                }
+            Section {
+                macs
+            }
+            Section("Manage") {
+                Button(action: pairAnother) { Label("Pair another Mac", systemImage: "qrcode.viewfinder") }
+                Button(action: openSettings) { Label("Settings", systemImage: "gearshape") }
             }
         } label: {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(model.selected?.phase.dotColor ?? .gray)
-                    .frame(width: 7, height: 7)
-                Text(model.selected?.host.hostName ?? "")
-                    .font(.headline)
-                    .lineLimit(1)
-                Image(systemName: "chevron.down")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .foregroundStyle(.primary)
+            label
         }
+    }
+
+    @ViewBuilder private var macs: some View {
+        ForEach(model.connections) { connection in
+            Button {
+                model.selectedHostID = connection.id
+                connection.connect()
+            } label: {
+                if connection.id == model.selected?.id {
+                    Label(connection.host.hostName, systemImage: "checkmark")
+                } else {
+                    Text(connection.host.hostName)
+                }
+            }
+        }
+    }
+
+    private var label: some View {
+        HStack(spacing: 6) {
+            Circle()
+                .fill(model.selected?.phase.dotColor ?? .gray)
+                .frame(width: 7, height: 7)
+            Text(model.selected?.host.hostName ?? "")
+                .font(.headline)
+                .lineLimit(1)
+            Image(systemName: "chevron.down")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+        }
+        .foregroundStyle(.primary)
     }
 }
 
@@ -116,7 +154,8 @@ struct TerminalList: View {
                 StatusRow(icon: nil, title: "Connecting to \(connection.host.hostName)…",
                           detail: "WireGuard handshake in progress")
             case .failed(let message):
-                StatusRow(icon: "wifi.exclamationmark", title: "Can't reach \(connection.host.hostName)", detail: message,
+                StatusRow(icon: "wifi.exclamationmark", title: "Can't reach \(connection.host.hostName)",
+                          detail: message + "\n" + String(localized: "If this iPhone was unpaired on the Mac, pair it again from the title menu."),
                           action: ("Retry", { connection.connect() }))
             case .idle:
                 StatusRow(icon: "bolt.horizontal.circle", title: "Not connected", detail: nil,
@@ -132,9 +171,18 @@ struct TerminalList: View {
                                 TerminalRow(terminal: terminal)
                             }
                             .buttonStyle(.plain)
+                            .listRowBackground(Color.black)
+                            .listRowSeparator(.hidden)
                             .swipeActions {
                                 Button("Close", role: .destructive) {
                                     Task { await connection.close(terminal) }
+                                }
+                            }
+                            .contextMenu {
+                                Button(role: .destructive) {
+                                    Task { await connection.close(terminal) }
+                                } label: {
+                                    Label("Close terminal", systemImage: "xmark")
                                 }
                             }
                         }
@@ -144,10 +192,10 @@ struct TerminalList: View {
                 }
             }
             if connection.phase == .connected, connection.terminals.isEmpty {
-                StatusRow(icon: "terminal", title: "No terminals", detail: "Tap + to open one on your Mac.")
+                StatusRow(icon: "terminal", title: "No terminals", detail: "Tap New terminal to open one on your Mac.")
             }
         }
-        .listStyle(.insetGrouped)
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(Color.black)
         .refreshable { await connection.refresh() }
