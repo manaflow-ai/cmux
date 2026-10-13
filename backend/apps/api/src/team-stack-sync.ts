@@ -65,7 +65,7 @@ export const SYNC_MAX_FAILS = 50
 export const syncBackoffMs = (fails: number, random: () => number = Math.random) =>
   Math.round(Math.min(SYNC_BACKOFF_MS.max, SYNC_BACKOFF_MS.first * 2 ** Math.max(0, fails - 1)) * (0.8 + 0.4 * random()))
 
-interface QueueRow { k: string; type: string; stack_team: string; stack_user: string | null; attempts: number; fails: number }
+type QueueRow = { k: string; type: string; stack_team: string; stack_user: string | null; attempts: number; fails: number }
 
 const hash = (v: unknown) => createHash("sha256").update(JSON.stringify(v)).digest("hex").slice(0, 16)
 
