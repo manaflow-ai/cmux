@@ -42,40 +42,73 @@ button {
 nav {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: 10px;
+  min-height: 40px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--activity-line);
 }
 
 nav strong {
-  font-size: 14px;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
 }
 
 nav input {
   flex: 1;
-  max-width: 280px;
-  border: 1px solid var(--activity-control-line);
+  max-width: 260px;
+  height: 24px;
+  border: 1px solid var(--activity-line);
   border-radius: 6px;
-  padding: 5px 8px;
-  background: transparent;
+  padding: 0 8px;
+  background: var(--activity-well);
+  font-size: var(--text-control);
+  outline: none;
 }
 
-.layouts {
-  display: flex;
-  gap: 4px;
-  margin-left: auto;
+nav input:focus {
+  border-color: var(--activity-control-line);
 }
 
-.layouts button {
-  border: 0;
+/* The layout picker: native radios drawn as segments, as Settings draws them. */
+.segmented {
+  display: inline-flex;
+  gap: 1px;
+  margin: 0 0 0 auto;
+  padding: 1px;
+  min-width: 0;
+  border: 1px solid var(--activity-line);
+  border-radius: 7px;
+}
+
+.segment {
+  position: relative;
+  padding: 1px 10px;
   border-radius: 5px;
-  padding: 4px 7px;
-  background: transparent;
-  cursor: pointer;
+  font-size: var(--text-control);
+  line-height: var(--text-control--line-height);
+  cursor: default;
 }
 
-.layouts .active {
+.segment input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+}
+
+.segment:hover {
+  background: var(--activity-well);
+}
+
+.segment[data-checked] {
   background: var(--activity-selected);
+  font-weight: 500;
+}
+
+.segment:focus-within {
+  outline: 2px solid var(--activity-control-line);
+  outline-offset: -1px;
 }
 
 .split {
@@ -91,17 +124,18 @@ aside {
 }
 
 section h3 {
-  display: flex;
-  justify-content: space-between;
-  margin: 12px 12px 5px;
-  font-size: 11px;
+  margin: 10px 12px 2px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
   color: var(--activity-text-2);
-  text-transform: uppercase;
 }
 
-section h3 small {
-  font-weight: normal;
-  text-transform: none;
+.connection {
+  margin: 0 12px 6px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  color: var(--activity-text-2);
 }
 
 .session {
@@ -112,8 +146,8 @@ section h3 small {
   align-items: center;
   gap: 8px;
   text-align: left;
-  padding: 8px 12px;
-  cursor: pointer;
+  padding: 4px 12px;
+  cursor: default;
 }
 
 .session.selected {
@@ -140,16 +174,19 @@ section h3 small {
 }
 
 .session-text b {
-  font-size: 12px;
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  font-weight: 500;
 }
 
 .session-text small {
-  font-size: 10px;
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
   color: var(--activity-text-2);
 }
 
 .status {
-  font-size: 10px;
+  font-size: var(--text-caption);
   color: var(--activity-text-2);
 }
 
@@ -178,11 +215,13 @@ section h3 small {
 }
 
 .actions button {
+  height: 22px;
   border: 1px solid var(--activity-control-line);
   border-radius: 5px;
-  padding: 3px 7px;
+  padding: 0 8px;
   background: transparent;
-  cursor: pointer;
+  font-size: var(--text-control);
+  cursor: default;
 }
 
 .preview {
@@ -196,7 +235,7 @@ section h3 small {
 .frame {
   border: 0;
   background: transparent;
-  cursor: pointer;
+  cursor: default;
   padding: 4px;
   min-width: 24px;
   min-height: 24px;
@@ -224,7 +263,7 @@ section h3 small {
 .scrub button {
   border:0;
   background:transparent;
-  cursor:pointer;
+  cursor: default;
   padding:3px 8px;
 }
 
@@ -237,8 +276,9 @@ section h3 small {
 .event {
   display: flex;
   justify-content: space-between;
-  padding: 6px 14px;
-  font-size: 11px;
+  padding: 4px 14px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
 
 .event.bad {
@@ -295,7 +335,7 @@ section h3 small {
   border-radius: 8px;
   background: transparent;
   padding: 8px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .tile .frame {
@@ -313,13 +353,22 @@ section h3 small {
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 8px;
+  gap: 4px;
   flex: 1;
+  padding: 24px;
+  text-align: center;
   color: var(--activity-text-2);
 }
 
 .empty b {
-  color: inherit;
+  font-size: var(--text-title);
+  line-height: var(--text-title--line-height);
+  font-weight: 600;
+  color: var(--cmux-text, CanvasText);
+}
+
+.empty span {
+  max-width: 320px;
 }
 
 .error {
