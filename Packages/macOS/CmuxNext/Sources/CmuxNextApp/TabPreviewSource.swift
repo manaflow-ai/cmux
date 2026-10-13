@@ -15,8 +15,15 @@ final class TabPreviewSource: TabPreviewProvider {
     }
 
     func previewImage(for tab: TabID, maxPixelSize: CGSize) async -> CGImage? {
-        if let page = cache.browsers[tab.rawValue]?.tab, BrowserNewTabPage.isNewTabPage(page.state.url) { return nil }
-        guard let image = await cache.previewImage(for: tab.rawValue, maxPixelSize: maxPixelSize) else { return nil }
+        await Self.shown(cache.previewImage(for: tab.rawValue, maxPixelSize: maxPixelSize), key: tab.rawValue, cache: cache)
+    }
+
+    /// What a tab or screen card or a drag ghost pictures of `key`'s `image`: a page's,
+    /// unless it is on the New Tab or blank page or the capture is flat; a terminal's as it is.
+    static func shown(_ image: CGImage?, key: String, cache: TabContentCache) async -> CGImage? {
+        let page = cache.browsers[key]?.tab
+        if let page, BrowserNewTabPage.isNewTabPage(page.state.url) { return nil }
+        guard let image, page != nil || cache.pageThumbnails.image(for: key) != nil else { return image }
         return await ThumbnailStats.measure(image)?.isBlank == true ? nil : image
     }
 }

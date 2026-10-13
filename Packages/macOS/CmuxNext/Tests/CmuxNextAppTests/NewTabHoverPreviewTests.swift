@@ -48,6 +48,10 @@ import Testing
         page.load(try #require(URL(string: BrowserNewTabPage.blankURL)))
         try await Self.until { BrowserNewTabPage.isNewTabPage(page.state.url) }
         #expect(await previews.previewImage(for: TabID(key), maxPixelSize: size) == nil, "the New Tab page had a preview")
+
+        // A terminal's picture is never a page capture: a mostly empty dark screen still shows.
+        services.cache.previews.insert(try Self.flat(), for: "terminal")
+        #expect(await previews.previewImage(for: TabID("terminal"), maxPixelSize: size) != nil, "a terminal's dark preview was dropped")
     }
 
     private static func until(_ condition: () -> Bool) async throws {
