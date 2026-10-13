@@ -2,7 +2,7 @@
 // Agent Activity (cmux://agent-activity): the page's view over fixture states, with no host bridge
 // (screenshots stay placeholders). Empty on a Mac where computer use never ran, and three agents
 // across two machines in each layout.
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { componentEntry } from "../gallery/format";
 import {
   initialActivityState,
@@ -85,6 +85,8 @@ const busy: ActivityState = {
 
 function ActivityGallery({ state: initial }: Props) {
   const [state, setState] = useState(initial);
+  // A new variant replaces the state even when the stage keeps this component mounted.
+  useEffect(() => setState(initial), [initial]);
   return (
     <div style={{ height: "100%" }}>
       <ActivityView state={state} dispatch={(action) => setState((current) => reduceActivity(current, action))} />

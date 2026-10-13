@@ -1,7 +1,7 @@
 // The Agent Activity page's view: the header (title, filter, layout) over the split, timeline or
 // grid of computer-use sessions. Pure over `state`; `dispatch` carries every user action to the
 // page (main.tsx), which also tells the host. The gallery renders it over fixture states.
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import {
   connectionText,
   currentEvent,
@@ -14,7 +14,7 @@ import {
 } from "./model";
 import { native } from "./native";
 
-function Frame({ event, onClick }: { event?: ActivityEvent; onClick?: () => void }) {
+function Frame({ event, noFrame, onClick }: { event?: ActivityEvent; noFrame: string; onClick?: () => void }) {
   const frame = event && (event.afterFrame ?? event.beforeFrame);
   const [image, setImage] = useState<string>();
   useEffect(() => {
@@ -32,7 +32,7 @@ function Frame({ event, onClick }: { event?: ActivityEvent; onClick?: () => void
     };
   }, [frame]);
   return (
-    <button className="frame" onClick={onClick} disabled={!frame} title={frame ? `Frame ${event!.seq}` : "No frame"}>
+    <button className="frame" onClick={onClick} disabled={!frame} title={frame ? undefined : noFrame}>
       {image ? <img src={image} alt="" /> : frame ? <span>…</span> : <span>⌁</span>}
     </button>
   );
@@ -97,7 +97,6 @@ function Split({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
   const scrub = (index: number | undefined) => {
     const seq = index === undefined ? undefined : events[Math.max(0, Math.min(events.length - 1, index))]?.seq;
     dispatch({ type: "scrub", seq });
-    native.request("scrub", { seq: seq ?? null }).catch(() => undefined);
   };
   return (
     <div className="split">
@@ -139,7 +138,7 @@ function Split({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
               </span>
             </header>
             <div className="preview">
-              <Frame event={currentFrameEvent(state)} />
+              <Frame event={currentFrameEvent(state)} noFrame={state.strings.noFrame} />
             </div>
             <div className="scrub">
               <button onClick={() => scrub(0)}>⏮</button>
@@ -169,7 +168,12 @@ function Timeline({ state, dispatch }: { state: ActivityState; dispatch: (a: any
           <SessionRow session={session} state={state} dispatch={dispatch} />
           <div className="ticks">
             {(state.eventsBySession[session.id] ?? []).map((event) => (
-              <Frame key={event.seq} event={event} onClick={() => dispatch({ type: "scrub", seq: event.seq })} />
+              <Frame
+                key={event.seq}
+                event={event}
+                noFrame={state.strings.noFrame}
+                onClick={() => dispatch({ type: "scrub", seq: event.seq })}
+              />
             ))}
           </div>
         </div>
@@ -184,7 +188,7 @@ function Grid({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =>
         .flatMap((g) => g.sessions)
         .map((session) => (
           <button className="tile" key={session.id} onClick={() => dispatch({ type: "select", id: session.id })}>
-            <Frame event={(state.eventsBySession[session.id] ?? []).at(-1)} />
+            <Frame event={(state.eventsBySession[session.id] ?? []).at(-1)} noFrame={state.strings.noFrame} />
             <b>{session.agentName}</b>
             <small>{session.label}</small>
           </button>
@@ -210,6 +214,7 @@ export function ActivityView({
   dispatch: (a: any) => void;
   error?: string;
 }) {
+  const layoutName = useId();
   const body =
     state.layout === "timeline" ? (
       <Timeline state={state} dispatch={dispatch} />
@@ -240,7 +245,7 @@ export function ActivityView({
             <label key={layout} className="segment" data-checked={state.layout === layout ? "" : undefined}>
               <input
                 type="radio"
-                name="activity-layout"
+                name={layoutName}
                 value={layout}
                 aria-label={title}
                 checked={state.layout === layout}

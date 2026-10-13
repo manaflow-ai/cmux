@@ -55,6 +55,7 @@ nav strong {
 }
 
 nav input {
+  appearance: none;
   flex: 1;
   max-width: 260px;
   height: 24px;
