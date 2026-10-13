@@ -255,6 +255,8 @@ export interface Env {
   readonly INFERENCE_DAILY_CAP_USD_DEEPINFRA?: string
   /** Hard USD cap per UTC day for all free-tier requests together. Missing = 0 = refuse. */
   readonly INFERENCE_FREE_DAILY_CAP_USD?: string
+  /** Hard USD cap per UTC day for one team's model router spend (all providers together). Missing = 0 = refuse. */
+  readonly INFERENCE_TEAM_DAILY_CAP_USD?: string
   /** Open requests per team (default 4) and per free device (default 1). */
   readonly INFERENCE_MAX_CONCURRENT?: string
   readonly INFERENCE_FREE_MAX_CONCURRENT?: string

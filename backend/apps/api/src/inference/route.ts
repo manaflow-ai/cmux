@@ -1,3 +1,5 @@
+import { INFERENCE_ENTRY_PLAN } from "@cmux/protocol"
+import { personalTeamIdFor } from "../domains/user.ts"
 import { isMachineInstallKind } from "../machine-installs.ts"
 import { authenticate } from "../auth.ts"
 import type { Env } from "../env.ts"
@@ -55,6 +57,14 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
   if (p.kind === "install" && isMachineInstallKind(p.install_kind) && !switchOn(env.INFERENCE_MACHINES_ENABLED)) return err(403, "auth.forbidden", "machine installs cannot use the model router yet")
   const allowed = (env.INFERENCE_ALLOWED_TEAMS ?? "").split(",").map((t) => t.trim()).filter(Boolean)
   if (allowed.length > 0 && !allowed.includes(p.team)) return err(403, "auth.forbidden", "this team cannot use the model router on this deployment yet")
+  // Paid plans only (cx-ds09i): a personal team pays through its owner's personal plan, a shared
+  // team through its team plan (inference/plan.ts, protocol inference-plans.ts).
+  const personal = p.team === personalTeamIdFor(p.user)
+  const stackUser = personal ? (p.stack_user_id ?? (await env.USER_DO.get(env.USER_DO.idFromName(p.user)).stackUserOf(p.user)) ?? undefined) : undefined
+  if (personal && !stackUser) return err(402, "inference.plan_required", "AI models need a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN } })
+  const plan = await env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)).inferencePlan(p.team, stackUser)
+  if (!plan.ok) return err(503, "plan.unavailable", "the plan check is not available now; retry", { retryable: true })
+  if (!plan.paid) return err(402, "inference.plan_required", "AI models need a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN } })
   return { kind: "team", team: p.team, user: p.user }
 }
 
@@ -180,6 +190,11 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
       log(env, { id, model: model.id, caller: caller.kind, status: plan.code, line: plan.line ?? null, max_usd: maxUsd })
       if (last) return last
       if (plan.code === "concurrency.limit") return err(429, "concurrency.limit", "too many requests at once; wait for one to finish", { retryable: true })
+      if (plan.code === "team.daily_cap") {
+        const res = err(429, "team.daily_cap", "the team reached its daily model budget; it resets at 00:00 UTC", { retryable: true })
+        res.headers.set("retry-after", String(Math.max(1, Math.ceil((Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate() + 1) - Date.now()) / 1000))))
+        return res
+      }
       return plan.code === "budget.exhausted" ? err(429, "budget.exhausted", "the daily model budget is used up; try again later", { retryable: true }) : err(503, plan.code, "no provider can serve this model now")
     }
     tried.add(plan.provider)

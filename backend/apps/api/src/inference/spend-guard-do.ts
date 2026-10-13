@@ -15,6 +15,11 @@ import { BUDGET_LINES, type BudgetLine, type ProviderId } from "./catalog.ts"
  * - Settle replaces the reservation with the actual cost. A reservation that is never settled is
  *   charged at its full amount after one hour (the alarm).
  * - Alerts: one log line per line and UTC day at 50, 80 and 100 % (Axiom reads Worker logs).
+ * - Each team (owner `team:<id>`) also has its own line `team:<id>` with the hard cap
+ *   INFERENCE_TEAM_DAILY_CAP_USD per UTC day (all providers together; missing = 0 = refuse). The
+ *   team line is reserved and settled in the same transaction as the provider line, so one team
+ *   cannot pass its cap with requests in flight. Team lines raise no alerts and are dropped after
+ *   7 days.
  * - Health: consecutive failures put a provider in a short cooldown (15 s doubling to 5 min);
  *   time to first byte is an EWMA. A cooled provider is tried only when no other one is left.
  */
@@ -34,7 +39,18 @@ export const capUsd = (env: Env, line: BudgetLine): number => {
 
 export type PlanResult =
   | { readonly ok: true; readonly provider: ProviderId; readonly reservedMicros: number }
-  | { readonly ok: false; readonly code: "budget.exhausted" | "provider.unavailable" | "concurrency.limit"; readonly line?: BudgetLine }
+  | { readonly ok: false; readonly code: "budget.exhausted" | "provider.unavailable" | "concurrency.limit" | "team.daily_cap"; readonly line?: BudgetLine }
+
+/** A team's own daily line: its owner key (`team:<id>`). */
+type TeamLine = `team:${string}`
+type Line = BudgetLine | TeamLine
+const isTeamLine = (line: string): line is TeamLine => line.startsWith("team:")
+
+/** The per-team daily cap in USD; missing or invalid = 0 (refuse). */
+export const teamCapUsd = (env: Env): number => {
+  const n = Number(env.INFERENCE_TEAM_DAILY_CAP_USD)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
 
 /** Open requests one owner (a team, or a free device) may have at once; bounds one owner's share of a line and its overshoot of the team cap. */
 export const maxOpen = (env: Env, free: boolean) => {
@@ -70,7 +86,7 @@ export class SpendGuardDO extends DurableObject<Env> {
     sql.exec(`CREATE TABLE IF NOT EXISTS health (provider TEXT PRIMARY KEY, ttfb REAL, failures INTEGER NOT NULL, cooldown_until INTEGER NOT NULL, ok INTEGER NOT NULL, errors INTEGER NOT NULL)`)
   }
 
-  private used(day: string, line: BudgetLine): number {
+  private used(day: string, line: Line): number {
     const sql = this.ctx.storage.sql
     const spent = Number(sql.exec<{ m: number | null }>(`SELECT micros AS m FROM spend WHERE day = ? AND line = ?`, day, line).toArray()[0]?.m ?? 0)
     const open = Number(sql.exec<{ m: number | null }>(`SELECT SUM(micros) AS m FROM reservation WHERE day = ? AND line = ?`, day, line).toArray()[0]?.m ?? 0)
@@ -94,6 +110,8 @@ export class SpendGuardDO extends DurableObject<Env> {
     if (open >= maxOpen(this.env, free)) return { ok: false, code: "concurrency.limit" }
     const fits = (line: BudgetLine) => this.used(day, line) + maxMicros <= Math.round(capUsd(this.env, line) * MICROS)
     if (free && !fits("free")) return { ok: false, code: "budget.exhausted", line: "free" }
+    const teamLine = !free && isTeamLine(owner) ? owner : undefined
+    if (teamLine && this.used(day, teamLine) + maxMicros > Math.round(teamCapUsd(this.env) * MICROS)) return { ok: false, code: "team.daily_cap" }
     const ordered = [...candidates.filter((p) => !this.cooled(p, now)), ...candidates.filter((p) => this.cooled(p, now))]
     let exhausted: BudgetLine | undefined
     for (const provider of ordered) {
@@ -102,7 +120,7 @@ export class SpendGuardDO extends DurableObject<Env> {
         continue
       }
       this.ctx.storage.transactionSync(() => {
-        for (const line of free ? [provider, "free"] : [provider]) {
+        for (const line of free ? [provider, "free"] : teamLine ? [provider, teamLine] : [provider]) {
           this.ctx.storage.sql.exec(`INSERT OR REPLACE INTO reservation (id, line, day, micros, at, owner) VALUES (?, ?, ?, ?, ?, ?)`, id, line, day, maxMicros, now, owner)
         }
       })
@@ -126,10 +144,10 @@ export class SpendGuardDO extends DurableObject<Env> {
   async settle(id: string, provider: ProviderId, actualMicros: number, ttfbMs: number | null, now = Date.now()): Promise<void> {
     const rows = this.ctx.storage.sql.exec<{ line: string; day: string }>(`SELECT line, day FROM reservation WHERE id = ?`, id).toArray()
     this.ctx.storage.transactionSync(() => {
-      for (const r of rows) this.addSpend(r.day, r.line as BudgetLine, Math.max(0, Math.round(actualMicros)))
+      for (const r of rows) this.addSpend(r.day, r.line as Line, Math.max(0, Math.round(actualMicros)))
       this.ctx.storage.sql.exec(`DELETE FROM reservation WHERE id = ?`, id)
     })
-    for (const r of rows) this.alerts(r.day, r.line as BudgetLine)
+    for (const r of rows) this.alerts(r.day, r.line as Line)
     this.report(provider, ttfbMs !== null, ttfbMs, now)
   }
 
@@ -151,11 +169,12 @@ export class SpendGuardDO extends DurableObject<Env> {
     return { day, lines, health }
   }
 
-  private addSpend(day: string, line: BudgetLine, micros: number) {
+  private addSpend(day: string, line: Line, micros: number) {
     this.ctx.storage.sql.exec(`INSERT INTO spend (day, line, micros) VALUES (?, ?, ?) ON CONFLICT (day, line) DO UPDATE SET micros = micros + excluded.micros`, day, line, micros)
   }
 
-  private alerts(day: string, line: BudgetLine) {
+  private alerts(day: string, line: Line) {
+    if (isTeamLine(line)) return
     const cap = capUsd(this.env, line) * MICROS
     if (cap <= 0) return
     const spent = Number(this.ctx.storage.sql.exec<{ m: number | null }>(`SELECT micros AS m FROM spend WHERE day = ? AND line = ?`, day, line).toArray()[0]?.m ?? 0)
@@ -190,12 +209,13 @@ export class SpendGuardDO extends DurableObject<Env> {
     const sql = this.ctx.storage.sql
     const stale = sql.exec<{ id: string; line: string; day: string; micros: number }>(`SELECT id, line, day, micros FROM reservation WHERE at < ?`, now - RESERVATION_TTL_MS).toArray()
     this.ctx.storage.transactionSync(() => {
-      for (const r of stale) this.addSpend(r.day, r.line as BudgetLine, Number(r.micros))
+      for (const r of stale) this.addSpend(r.day, r.line as Line, Number(r.micros))
       sql.exec(`DELETE FROM reservation WHERE at < ?`, now - RESERVATION_TTL_MS)
       sql.exec(`DELETE FROM spend WHERE day < ?`, utcDay(now - 40 * 86_400_000))
       sql.exec(`DELETE FROM alert WHERE day < ?`, utcDay(now - 40 * 86_400_000))
+      sql.exec(`DELETE FROM spend WHERE line LIKE 'team:%' AND day < ?`, utcDay(now - 7 * 86_400_000))
     })
-    for (const r of stale) this.alerts(r.day, r.line as BudgetLine)
+    for (const r of stale) this.alerts(r.day, r.line as Line)
     if (stale.length) console.warn(JSON.stringify({ msg: "inference.reservation.expired", count: stale.length }))
     const next = sql.exec<{ at: number | null }>(`SELECT MIN(at) AS at FROM reservation`).toArray()[0]?.at
     if (next !== null && next !== undefined) await this.ctx.storage.setAlarm(Number(next) + RESERVATION_TTL_MS)
