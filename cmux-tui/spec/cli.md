@@ -21,6 +21,7 @@ cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <abs
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--handoff]
 cmux link stop --state-dir <dir>
 cmux link status --state-dir <dir>
+cmux link archive --state-dir <dir>
 cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
 cmux script run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]
 cmux script repl [--timeout MS]
@@ -105,6 +106,13 @@ registered socket, waits for that connection to end (the link removes its
 registration first) and then for the process to exit (an exit event), all
 within 10 s; a link that does not end is an error (`stop_timeout`) and is
 not reported stopped. It prints `{"ok":true,"stopped":true|false}`.
+`archive` is for the app after a sign-out: with the link of this state
+directory stopped (else `link_running`), it moves the install's WireGuard key
+and paired peers into the install's archive (`private.key.<install>`,
+`peers.<install>.json`) and removes the config, so no `ensure` without
+`--install` starts the link as that install again. It prints
+`{"ok":true,"archived":true|false,"install"?}`. An `ensure --install ID` on a
+state directory with no config gets `ID`'s archived key and peers back.
 `status` prints `{"running":false}` or the link's own `link.status` answer
 with `"running":true` (`pid`, `socket`, `state_dir`, `install`, `port`,
 `udp`, `build`, `session_socket`, `server_config: {path, sha256}`). The
@@ -514,6 +522,7 @@ notification ack --client <id> <notification-id>...
 git status [--path <path>|--workspace|--screen|--pane|--tab|--terminal <selector>]
 git diff [TARGET] [--scope uncommitted|unstaged|staged|committed|branch] [--patch]
   [--max-patch-bytes <n>] [--max-files <n>] [--context-lines <n>] [<path>...]
+git branches [TARGET] [--limit <n>]
 git files [TARGET] [--limit <n>] <query>...
 git list [TARGET] [--limit <n>]
 git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...] [--exclude <path,...>]
@@ -622,8 +631,8 @@ long-lived attachment connection. SDK attachment objects manage those
 connection controls; one-shot CLI paths do not advertise them. `raw operation`
 remains available for transport testing.
 
-`git status` and `git diff` are read-only git reads (`git.status`, `git.diff`)
-of the repository a path is in, or the working directory of the terminal a
+`git status`, `git diff` and `git branches` are read-only git reads (`git.status`,
+`git.diff`, `git.branches`) of the repository a path is in, or the working directory of the terminal a
 selector names (a workspace, screen, pane or tab names its current terminal). Without
 a target the CLI sends the current directory. The session host runs git with
 no ambient `GIT_*` environment, no fsmonitor, external diff or textconv,
@@ -638,6 +647,14 @@ one `git worktree create` recorded for the current branch
 (`branch.<branch>.cmuxBase`) while it still names a commit, else origin's
 default branch, else `origin/main`, `origin/master`, `main` or `master`. In a
 linked worktree `git status` adds `worktree.main_root`, its main checkout.
+`git branches` (`git.branches`, capability `git-branches-v1`) lists at most
+`--limit` (200, up to 1000) branches: local ones, then remote-tracking ones,
+each by newest tip commit. Each carries its full ref, commit and whether HEAD
+is on it; a local branch also carries its upstream and its ahead and behind
+counts. `suggested_bases` lists the bases a branch diff may compare with,
+best first: the base branch above (the recorded base, then the default
+branch), then the upstream of HEAD's branch when it is a different ref.
+`truncated` says more branches exist.
 `git files` (`git.files.search`) lists the files under the target folder whose
 path holds the query's characters in order, case-insensitively and ignoring
 spaces, best first: tracked files still in the working tree and untracked

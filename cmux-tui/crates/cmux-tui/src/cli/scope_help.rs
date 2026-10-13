@@ -1,5 +1,5 @@
-//! Help for the scopes `browser`, `notification`, `room`, `closed`, `git` and
-//! `conversation`,
+//! Help for the scopes `browser`, `notification`, `room`, `closed`, `git`,
+//! `status` and `conversation`,
 //! kept out of `cli.rs` for its line budget.
 
 pub(super) const BROWSER_HELP: &str = "\
@@ -45,6 +45,31 @@ session-level row. --title defaults to \"Notification\". --reply asks for a
 banner with a Reply field when the notification belongs to a terminal: its
 text is typed into that terminal, then Return. --desktop false posts no
 banner. --window and --id-format are accepted and ignored.
+";
+
+pub(super) const STATUS_HELP: &str = "\
+USAGE
+  cmux status set [KEY] (TEXT | --label <text>) [--target <ws_…>|current]
+    [--state busy|waiting|success|error|info] [--progress 0.4|40%]
+    [--style arc|native|dot|none] [--ttl 30s] [--pid <n>] [--keep | --owner none]
+  cmux status clear [KEY] [--target <ws_…>|current] [--all]
+  cmux status list [--target <ws_…>|current]
+  cmux status run [--label <text>] [--target <ws_…>|current] [--badge-ttl 8s] -- CMD …
+
+Loading indicators for scripts and agents, shown on the workspace's sidebar
+row. A shorthand for `cmux workspace [<ws>] status …`: the target is the
+caller's terminal (its workspace), else the current workspace.
+
+KEY defaults to cli:<terminal>, so repeated sets from one terminal replace each
+other. An entry set from a terminal belongs to that terminal and goes when it
+closes; --pid ties it to a process instead, --ttl ends it after that long, and
+--keep (or --owner none) keeps it until cleared. clear without KEY clears the
+default key; --all clears every entry of the workspace.
+
+run marks the entry busy and owned by this process (a killed CLI leaves no
+spinner), runs CMD with the terminal's input and output, then shows success or
+error with the exit code and duration for --badge-ttl, and exits with CMD's
+status (128 + signal when a signal ended it).
 ";
 
 pub(super) const ROOM_HELP: &str = "\
@@ -93,6 +118,7 @@ USAGE
   cmux git status [TARGET]
   cmux git diff [TARGET] [--scope <scope>] [--patch] [--max-patch-bytes <n>]
     [--max-files <n>] [--context-lines <n>] [<path>...]
+  cmux git branches [TARGET] [--limit <n>]
   cmux git files [TARGET] [--limit <n>] <query>...
   cmux git list [TARGET] [--limit <n>]
   cmux git checkpoint create [TARGET] [--untracked eligible | <untracked-path>...]
@@ -136,6 +162,13 @@ checkout. diff prints each changed file's status and line counts; --patch
 adds each file's patch from its first @@ line, cut at --max-patch-bytes
 (262144 by default). At most --max-files files (500) are listed; the rest are
 counted. Paths are relative to the repository root and taken literally.
+
+branches lists local branches, then remote-tracking ones, newest commit first:
+each one's ref and commit, and for a local branch its upstream and how far it
+is ahead and behind. At most --limit (200, up to 1000) are printed. It also
+suggests the bases a branch diff may compare with: the base a worktree create
+recorded for the branch, origin's default branch (else main or master), then
+the upstream of HEAD's branch.
 
 files lists the files under the target folder whose path contains the query's
 characters in order (case-insensitive, spaces ignored), best first: tracked

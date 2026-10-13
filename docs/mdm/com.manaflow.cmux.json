@@ -663,6 +663,16 @@
       "title" : "Saturation",
       "type" : "number"
     },
+    "appearance.sidebarSurface" : {
+      "default" : "same",
+      "description" : "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane.",
+      "enum" : [
+        "same",
+        "separate"
+      ],
+      "title" : "Sidebar Background",
+      "type" : "string"
+    },
     "appearance.statusIndicator.color" : {
       "description" : "appearance.statusIndicator.color",
       "title" : "Color",
@@ -1968,8 +1978,8 @@
     },
     "sidebar.cards.tips" : {
       "default" : true,
-      "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet.",
-      "title" : "Show Tips",
+      "description" : "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once.",
+      "title" : "Show Hints",
       "type" : "boolean"
     },
     "sidebar.cmd9" : {
@@ -2624,17 +2634,6 @@
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
-    },
-    "tabs.hiddenButtons" : {
-      "default" : [
-
-      ],
-      "description" : "Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again.",
-      "items" : {
-        "type" : "string"
-      },
-      "title" : "Hidden Tab Bar Buttons",
-      "type" : "array"
     },
     "tabs.newTabPosition" : {
       "default" : "end",

@@ -26,6 +26,7 @@ import {
   scrollLeadRanges,
   visibleLayoutRange,
   type AcpmuxPermission,
+  type AcpmuxSecretAsk,
   type AcpmuxRow,
   type AcpmuxSnapshot,
   type QueueEdit,
@@ -51,7 +52,13 @@ import { isAgentHome, projectLabel } from "./sessionList";
 import { ThreadMinimap } from "./threadMinimap/ThreadMinimap";
 import { composerDraft, notifyDraftActionsChanged } from "./composerDraft";
 import { paneContext } from "./paneContext";
-import { createPaneQueryClient, followHarnessChanges, useHarnessCatalog, type HarnessCatalogSource } from "./catalog";
+import {
+  createPaneQueryClient,
+  followHarnessChanges,
+  useHarnessCatalog,
+  useHarnessesListed,
+  type HarnessCatalogSource,
+} from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
@@ -76,6 +83,7 @@ import { HomeLists } from "./HomeLists";
 import { turnFiles, turnRows, type TurnFile } from "./diff";
 import type { TrustSource } from "./folderTrust";
 import { TrustAsk } from "./TrustAsk";
+import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
 import { useToolCards } from "./toolCards/toolCardStore";
@@ -176,7 +184,14 @@ import { HostError } from "./HostError";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW, type SubagentRows, childView, subagentRowsFrom } from "./subagents/subagentRows";
-import { SubagentGroupHeader, SubagentListRow, SubagentNavContext, SubagentOfRow } from "./subagents/SubagentGroup";
+import { knownMark } from "../shared/AgentMark";
+import {
+  SubagentGroupHeader,
+  SubagentHarnessContext,
+  SubagentListRow,
+  SubagentNavContext,
+  SubagentOfRow,
+} from "./subagents/SubagentGroup";
 import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
 import { MoveRow } from "./shell/MoveRow";
@@ -1784,6 +1799,10 @@ const replyToQuestion = (permission: AcpmuxPermission) => (sent: QuestionReply) 
     ...(sent.answers === undefined ? {} : { answers: sent.answers }),
   });
 
+/// Answers a secret card in the page (`chat.secret`): the value goes to acpmux only.
+const answerSecret = (ask: AcpmuxSecretAsk) => (value?: string) =>
+  void callNative("chat.secret", { secretId: ask.secretId, ...(value ? { value } : {}) }).catch(() => undefined);
+
 /// A permission ask: a question card when the request asks a question, else its option buttons.
 function PermissionAsk({ permission }: { permission: AcpmuxPermission }) {
   return permission.question ? (
@@ -2428,6 +2447,8 @@ function AcpmuxPane() {
   const pickerCatalog = pickerState.catalog;
   // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;
+  // acpmux answered with its harnesses: only then does an empty catalog mean none is installed.
+  const harnessesListed = useHarnessesListed();
   // Integrate a harness (cx-uj5g8): the Harnesses page, in place of what the pane shows.
   const [harnessesOpen, setHarnessesOpen] = useState(false);
   // Another chat in this pane (the sidebar, a link) shows that chat, not the page.
@@ -2744,6 +2765,8 @@ function AcpmuxPane() {
   const rowsRef = useRef<readonly AcpmuxRow[]>([]);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
+  /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
+  const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
   const directClient = useRef<AcpmuxDirectClient | undefined>(undefined);
   /// The composer's prompt, which dictation writes into.
@@ -3322,6 +3345,8 @@ function AcpmuxPane() {
           "chat.cancel": () => client.cancel(),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
+          "chat.secret": ({ secretId, value }) =>
+            client.secret(String(secretId), typeof value === "string" ? value : undefined),
           "chat.permission": ({ permissionId, optionId, answers }) =>
             client.permission(
               String(permissionId),
@@ -3538,7 +3563,7 @@ function AcpmuxPane() {
         };
         // The native context menu's Copy Message and Fork from Here act on the row under the pointer.
         setMessageMenuSource((rowId) =>
-          snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId) : undefined,
+          snapshotRef.current ? messageMenuTarget(snapshotRef.current, rowId, opensSideChat.current) : undefined,
         );
         // The harness switch runs on this client; one waiting on a connection runs now.
         switchPort = {
@@ -3769,6 +3794,7 @@ function AcpmuxPane() {
     (throughSeq) => ignoreFailure(callNative("chat.side", { throughSeq })),
     t,
   );
+  opensSideChat.current = sideChat !== undefined;
   const chatMenu = (): ChatMenuItem[] => {
     const link = snapshot.sessionId ? sessionLink(snapshot.sessionId) : undefined;
     const copy = copyRow({ link, rows: snapshot.rows }, (text) => ignoreFailure(copyText(text)), t);
@@ -4067,41 +4093,45 @@ function AcpmuxPane() {
               <SessionEditsContext.Provider value={editRows}>
                 <SessionCwdContext.Provider value={snapshot.summary?.cwd}>
                   <SubagentNavContext.Provider value={setSubagentView}>
-                    <ChatFindScope
-                      rows={childRows ?? sourceRows}
-                      shown={childRows ? undefined : transcriptRows}
-                      openFold={openFold}
-                      findRef={findRef}
+                    <SubagentHarnessContext.Provider
+                      value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
                     >
-                      {(find) => (
-                        <VirtualTranscript
-                          rows={transcriptRows}
-                          working={snapshot.isWorking}
-                          // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                          jumpButton={!quick}
-                          focusComposer={() => composerHandle.current?.focus()}
-                          find={quick ? undefined : find}
-                          sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
-                          canLoadOlder={!childRows && snapshot.canLoadOlder}
-                          openAt={
-                            !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                              ? scrollAnchor
-                              : undefined
-                          }
-                          onAnchor={
-                            quick || childRows || !shownSessionId
-                              ? undefined
-                              : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                          }
-                          expanded={expanded}
-                          registry={registry}
-                          githubRepository={githubRepository}
-                          // The Quick Composer has no room for the changes view; its file rows stay plain.
-                          onOpenDiff={quick ? undefined : openDiff}
-                          onToggleActivity={toggleActivity}
-                        />
-                      )}
-                    </ChatFindScope>
+                      <ChatFindScope
+                        rows={childRows ?? sourceRows}
+                        shown={childRows ? undefined : transcriptRows}
+                        openFold={openFold}
+                        findRef={findRef}
+                      >
+                        {(find) => (
+                          <VirtualTranscript
+                            rows={transcriptRows}
+                            working={snapshot.isWorking}
+                            // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                            jumpButton={!quick}
+                            focusComposer={() => composerHandle.current?.focus()}
+                            find={quick ? undefined : find}
+                            sessionId={childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId}
+                            canLoadOlder={!childRows && snapshot.canLoadOlder}
+                            openAt={
+                              !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                ? scrollAnchor
+                                : undefined
+                            }
+                            onAnchor={
+                              quick || childRows || !shownSessionId
+                                ? undefined
+                                : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                            }
+                            expanded={expanded}
+                            registry={registry}
+                            githubRepository={githubRepository}
+                            // The Quick Composer has no room for the changes view; its file rows stay plain.
+                            onOpenDiff={quick ? undefined : openDiff}
+                            onToggleActivity={toggleActivity}
+                          />
+                        )}
+                      </ChatFindScope>
+                    </SubagentHarnessContext.Provider>
                   </SubagentNavContext.Provider>
                 </SessionCwdContext.Provider>
               </SessionEditsContext.Provider>
@@ -4132,7 +4162,7 @@ function AcpmuxPane() {
           }}
         />
       )}
-      {(individualPermission || trustAsk.ask || toolCards.length > 0) && (
+      {(individualPermission || trustAsk.ask || snapshot.secret || toolCards.length > 0) && (
         <div className="acpmux-permission">
           <ToolCards
             cards={toolCards}
@@ -4153,6 +4183,14 @@ function AcpmuxPane() {
             />
           )}
           {individualPermission && <PermissionAsk permission={individualPermission} />}
+          {snapshot.secret && (
+            <SecretCard
+              key={snapshot.secret.secretId}
+              ask={snapshot.secret}
+              agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+              onAnswer={answerSecret(snapshot.secret)}
+            />
+          )}
         </div>
       )}
     </>
@@ -4580,6 +4618,8 @@ function AcpmuxPane() {
               inputToken={newTab.inputToken}
               {...(newTab.cwd ? { cwd: newTab.cwd } : {})}
               {...(startFolder ? { startCwd: startFolder } : {})}
+              harnessesListed={harnessesListed}
+              {...(newTab.harnessHintDismissed ? { harnessHintDismissed: true } : {})}
               projects={newTabProjects}
               onBrowseProject={() =>
                 callNative<{ cwd?: string }>("project.browse").then(

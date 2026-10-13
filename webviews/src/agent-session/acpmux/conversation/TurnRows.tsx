@@ -107,65 +107,69 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const kind = failed ? failureKind(row.error, route) : undefined;
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
   const authenticationFailed = kind === "subscription-login" || kind === "auth";
+  // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
+  // between Worked for and the time (Codex, Claude desktop).
   return (
-    <div className="cv-turn-actions">
-      {!row.folded && <span className="cv-turn-summary">{workedLabel(t, row)}</span>}
-      <span className="cv-turn-action-group">
-        {text && (
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={copied ? t("turn.copied") : t("turn.copy")}
-            title={copied ? t("turn.copied") : t("turn.copy")}
-            onClick={() =>
-              void copyText(text).then(
-                () => setCopied(true),
-                () => setCopied(false),
-              )
-            }
-          >
-            <Copy size={14} />
-          </button>
-        )}
-        {retry && prompt && (
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={t("turn.retry")}
-            title={t("turn.retryLabel")}
-            onClick={() => retry(row.retryRowId ?? "", prompt)}
-          >
-            <Retry size={14} />
-          </button>
-        )}
-        {retry && prompt && retryWith && retryWith.models.length > 1 && (
-          <RetryModelMenu
-            retryWith={retryWith}
-            onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
-          />
-        )}
-        {authenticationFailed && reauthenticate && (
-          <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
-            {t("turn.signInAgain")}
-          </button>
-        )}
-        {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
-          <button
-            type="button"
-            className="cv-iconbtn cv-iconbtn--compact"
-            aria-label={t("turn.fork")}
-            title={t("turn.fork")}
-            onClick={() => fork(seq)}
-          >
-            <TurnFork size={14} />
-          </button>
-        )}
-      </span>
+    <>
       {failed && <TurnFailure message={row.error} route={route} switchModel={switchModel} />}
-      <time className="cv-turn-time" dateTime={new Date(row.at).toISOString()}>
-        {clock.format(row.at)}
-      </time>
-    </div>
+      <div className="cv-turn-actions">
+        {!row.folded && <span className="cv-turn-summary">{workedLabel(t, row)}</span>}
+        <span className="cv-turn-action-group">
+          {text && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={copied ? t("turn.copied") : t("turn.copy")}
+              title={copied ? t("turn.copied") : t("turn.copy")}
+              onClick={() =>
+                void copyText(text).then(
+                  () => setCopied(true),
+                  () => setCopied(false),
+                )
+              }
+            >
+              <Copy size={14} />
+            </button>
+          )}
+          {retry && prompt && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("turn.retry")}
+              title={t("turn.retryLabel")}
+              onClick={() => retry(row.retryRowId ?? "", prompt)}
+            >
+              <Retry size={14} />
+            </button>
+          )}
+          {retry && prompt && retryWith && retryWith.models.length > 1 && (
+            <RetryModelMenu
+              retryWith={retryWith}
+              onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
+            />
+          )}
+          {authenticationFailed && reauthenticate && (
+            <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
+              {t("turn.signInAgain")}
+            </button>
+          )}
+          {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
+            <button
+              type="button"
+              className="cv-iconbtn cv-iconbtn--compact"
+              aria-label={t("turn.fork")}
+              title={t("turn.fork")}
+              onClick={() => fork(seq)}
+            >
+              <TurnFork size={14} />
+            </button>
+          )}
+        </span>
+        <time className="cv-turn-time" dateTime={new Date(row.at).toISOString()}>
+          {clock.format(row.at)}
+        </time>
+      </div>
+    </>
   );
 }
 
@@ -214,6 +218,7 @@ function TurnFailure({
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const kind = failureKind(message, route);
   const sentence = failureCopy(t, message, route);
   // A sign-in failure offers it too: the picker moves the chat to a route that is signed in (cx-gz0dz).
@@ -221,11 +226,20 @@ function TurnFailure({
     switchModel &&
     ["rate-limited", "unreachable", "invalid-key", "proxy-auth", "subscription-login", "auth"].includes(kind);
   return (
-    <span className="cv-turn-note" data-failure-kind={kind}>
+    <div className="cv-turn-note" data-failure-kind={kind}>
       <span className="text-fg">{sentence}</span>
       {message && sentence !== message && (
-        <details className="mt-0.5">
-          <summary className="cursor-pointer text-detail text-dim">{t("turn.failure.details")}</summary>
+        <details className="mt-0.5" onToggle={(event) => setDetailsOpen(event.currentTarget.open)}>
+          {/* The chat's chevron, as on Worked for, not the browser's triangle. */}
+          <summary className="cv-turn-note__summary">
+            {t("turn.failure.details")}
+            <ChevronRight
+              size={12}
+              strokeWidth={1.2}
+              aria-hidden="true"
+              className={`cv-rotor${detailsOpen ? " is-open" : ""}`}
+            />
+          </summary>
           <span className="mt-1 block font-mono text-detail whitespace-pre-wrap text-dim select-text">{message}</span>
         </details>
       )}
@@ -252,6 +266,6 @@ function TurnFailure({
           )}
         </span>
       )}
-    </span>
+    </div>
   );
 }

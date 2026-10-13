@@ -7474,7 +7474,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hide This Tip"
+            "value": "Hide This Hint"
           }
         },
         "ja": {
@@ -7486,37 +7486,37 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "إخفاء هذه النصيحة"
+            "value": "إخفاء هذا التلميح"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sakrij ovaj savjet"
+            "value": "Sakrij ovaj nagovještaj"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skjul dette tip"
+            "value": "Skjul dette hint"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diesen Tipp ausblenden"
+            "value": "Diesen Hinweis ausblenden"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ocultar este consejo"
+            "value": "Ocultar esta pista"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Masquer cette astuce"
+            "value": "Masquer cet indice"
           }
         },
         "it": {
@@ -7528,25 +7528,25 @@
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "លាក់គន្លឹះនេះ"
+            "value": "លាក់ការណែនាំនេះ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 팁 숨기기"
+            "value": "이 힌트 숨기기"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Skjul dette tipset"
+            "value": "Skjul dette hintet"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ukryj tę wskazówkę"
+            "value": "Ukryj tę podpowiedź"
           }
         },
         "pt-BR": {
@@ -7558,13 +7558,13 @@
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Скрыть этот совет"
+            "value": "Скрыть эту подсказку"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ซ่อนเคล็ดลับนี้"
+            "value": "ซ่อนคำแนะนำนี้"
           }
         },
         "tr": {
@@ -7576,13 +7576,13 @@
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Сховати цю пораду"
+            "value": "Сховати цю підказку"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ẩn mẹo này"
+            "value": "Ẩn gợi ý này"
           }
         },
         "zh-Hans": {
@@ -7595,6 +7595,530 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "隱藏此提示"
+          }
+        }
+      }
+    },
+    "updater.tip.muteDay": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mute Hints for 1 Day"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒントを1日ミュート"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كتم التلميحات ليوم واحد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utišaj nagovještaje na 1 dan"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå hints fra i 1 dag"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hinweise für 1 Tag stummschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Silenciar pistas durante 1 día"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Masquer les indices pendant 1 jour"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Silenzia i suggerimenti per 1 giorno"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទការណែនាំរយៈពេល 1 ថ្ងៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "1일 동안 힌트 끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demp hint i 1 dag"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wycisz podpowiedzi na 1 dzień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Silenciar Dicas por 1 Dia"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отключить подсказки на 1 день"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดคำแนะนำ 1 วัน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İpuçlarını 1 Gün Sessize Al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимкнути підказки на 1 день"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt gợi ý trong 1 ngày"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "静音提示 1 天"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "靜音提示 1 天"
+          }
+        }
+      }
+    },
+    "updater.tip.muteWeek": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mute Hints for 1 Week"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒントを1週間ミュート"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "كتم التلميحات لأسبوع واحد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utišaj nagovještaje na 1 sedmicu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Slå hints fra i 1 uge"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hinweise für 1 Woche stummschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Silenciar pistas durante 1 semana"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Masquer les indices pendant 1 semaine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Silenzia i suggerimenti per 1 settimana"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទការណែនាំរយៈពេល 1 សប្តាហ៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "1주 동안 힌트 끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Demp hint i 1 uke"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wycisz podpowiedzi na 1 tydzień"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Silenciar Dicas por 1 Semana"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Отключить подсказки на 1 неделю"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิดคำแนะนำ 1 สัปดาห์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İpuçlarını 1 Hafta Sessize Al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимкнути підказки на 1 тиждень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt gợi ý trong 1 tuần"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "静音提示 1 周"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "靜音提示 1 週"
+          }
+        }
+      }
+    },
+    "updater.tip.never": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Never Show Hints"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒントを表示しない"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عدم إظهار التلميحات أبدًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nikad ne prikazuj nagovještaje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis aldrig hints"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nie Hinweise anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No mostrar nunca pistas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ne jamais afficher d’indices"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non mostrare mai suggerimenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កុំបង្ហាញការណែនាំទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "힌트 다시 보지 않기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis aldri hint"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nigdy nie pokazuj podpowiedzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nunca Mostrar Dicas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Никогда не показывать подсказки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่ต้องแสดงคำแนะนำอีก"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İpuçlarını Hiç Gösterme"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ніколи не показувати підказки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không bao giờ hiện gợi ý"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不再显示提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "不再顯示提示"
+          }
+        }
+      }
+    },
+    "updater.tip.options": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hide or Mute Hints"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ヒントを非表示またはミュート"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إخفاء التلميحات أو كتمها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sakrij ili utišaj nagovještaje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul eller slå hints fra"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hinweise ausblenden oder stummschalten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar o silenciar pistas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Masquer ou couper les indices"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nascondi o silenzia i suggerimenti"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "លាក់ ឬបិទការណែនាំ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "힌트 숨기기 또는 끄기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Skjul eller demp hint"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ukryj lub wycisz podpowiedzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ocultar ou Silenciar Dicas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скрыть или отключить подсказки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ซ่อนหรือปิดคำแนะนำ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İpuçlarını Gizle veya Sessize Al"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сховати або вимкнути підказки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ẩn hoặc tắt gợi ý"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隐藏或静音提示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "隱藏或靜音提示"
           }
         }
       }

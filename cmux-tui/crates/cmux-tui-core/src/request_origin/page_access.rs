@@ -93,6 +93,7 @@ const fn access(operation: Op) -> Access {
         | Op::ClientDetach => Access::Denied(Denied::Attach),
         Op::TerminalRendererGrantCreate => Access::Denied(Denied::Renderer),
         Op::GitStatus
+        | Op::GitBranches
         | Op::GitDiff
         | Op::GitFilesList
         | Op::GitFilesSearch
@@ -248,6 +249,11 @@ const fn access(operation: Op) -> Access {
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
         | Op::SidebarLayoutUpdate
+        | Op::BrowserDevicesList
+        | Op::BrowserDevicesAddCustom
+        | Op::BrowserDevicesRemoveCustom
+        | Op::BrowserTabEmulate
+        | Op::BrowserTabEmulateClear
         | Op::PaletteUsageGet
         | Op::PaletteUsageRecord
         | Op::PaletteUsageImport

@@ -151,11 +151,14 @@
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
+        "CmuxNextComputerUse",
         "CmuxNextControl",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
+        "CmuxNextDaemonService",
         "CmuxNextDesign",
         "CmuxNextFeed",
+        "CmuxNextFocusUI",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
@@ -210,9 +213,12 @@
         "CmuxNextActions",
         "CmuxNextAgentCursor",
         "CmuxNextApp",
+        "CmuxNextComputerUse",
         "CmuxNextCopyMode",
         "CmuxNextCrashReporting",
         "CmuxNextDaemon",
+        "CmuxNextDaemonService",
+        "CmuxNextFocusUI",
         "CmuxNextHistory",
         "CmuxNextHome",
         "CmuxNextHomeEngine",
@@ -348,6 +354,16 @@
       "targets": [],
       "packages": []
     },
+    "CmuxNextComputerUse": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse",
+      "targets": [
+        "CmuxNextAgentActivity",
+        "CmuxNextCompat",
+        "CmuxNextSettings"
+      ],
+      "packages": []
+    },
     "CmuxNextControl": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextControl",
@@ -395,6 +411,21 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon",
       "targets": [
         "CmuxNextCompat",
+        "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextDaemonService": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextAgentPane",
+        "CmuxNextApps",
+        "CmuxNextCompat",
+        "CmuxNextControl",
+        "CmuxNextDaemon",
+        "CmuxNextLayout",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -449,6 +480,15 @@
         "CmuxNextDesign",
         "CmuxNextIcons",
         "CmuxNextWakeups"
+      ],
+      "packages": []
+    },
+    "CmuxNextFocusUI": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFocusUI",
+      "targets": [
+        "CmuxNextActions",
+        "CmuxNextDesign"
       ],
       "packages": []
     },

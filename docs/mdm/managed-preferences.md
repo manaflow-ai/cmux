@@ -29,7 +29,6 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `tabs.plusButton` | string | `"hover"` | `hover`, `always` | New Tab Button. On Hover shows each tab bar's + only while the pointer is over that tab bar. |
 | `tabs.barPosition` | string | `"top"` | `top`, `bottom` | Tab Bar Position. Where each pane's tab bar sits. Bottom also shows the standard title bar, so the window buttons never cover a pane. |
 | `tabs.barOrder` | string | `"aboveToolbar"` | `aboveToolbar`, `belowToolbar` | Tab Bar and Browser Toolbar. In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it. |
-| `tabs.hiddenButtons` | array | `[]` |  | Hidden Tab Bar Buttons. Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again. |
 | `newTerminal.opensWorkspace` | boolean | `false` |  | New Terminal Opens a Workspace. Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click. |
 | `tabs.cmdWClosesPinnedTabs` | boolean | `false` |  | Cmd-W Closes Pinned Tabs. When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu. |
 | `tabs.swapCmdTAndCmdN` | boolean | `false` |  | Swap Cmd-T and Cmd-N. When on, Cmd-T opens a workspace in the current group and Cmd-N opens a tab. When off, Cmd-T opens a tab, or a workspace when an agent chat or a pane without tabs is focused. |
@@ -161,6 +160,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `diff.expandUnchanged` | boolean | `false` |  | Expand Unchanged Lines |
 | `terminal.fontFamily` | string |  |  | Font Family. A monospaced font installed on this Mac. |
 | `terminal.fontSize` | real |  | 4 to 96 | Font Size |
+| `appearance.sidebarSurface` | string | `"same"` | `same`, `separate` | Sidebar Background. Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker than the main pane. |
 | `sidebar.border` | boolean | `false` |  | Border. A line on the sidebar's edge. Off, the edge shows a line only while you hover or drag it. |
 | `sidebar.borderWidth` | real |  | 0.5 to 4 | Border Width |
 | `sidebar.sectionLook` | string | `"quiet"` | `quiet`, `card`, `tray`, `lines`, `linesIcons` | Section Look. How the sections above and below the workspace list draw. |
@@ -176,7 +176,7 @@ Files: `com.manaflow.cmux.plist` (ProfileManifests: iMazing Profile Editor, Prof
 | `sidebar.minimal` | boolean | `false` |  | Minimal Mode. Workspace rows show only their icon, name and unread mark, and section titles become thin lines. |
 | `sidebar.density` | string | `"compact"` | `compact`, `expanded` | Sidebar Density. Expanded rows show each workspace's status or folder under its name, how long ago it changed, and its pull request and computer. |
 | `sidebar.minimalMode` | string | `"off"` | `off`, `bottom`, `top`, `both` | Hide Bands Until Hover. Hides the chosen sections until the pointer is over the sidebar. |
-| `sidebar.cards.tips` | boolean | `true` |  | Show Tips. A "Did you know" card above the account button shows one cmux feature a day that you have not used yet. |
+| `sidebar.cards.tips` | boolean | `true` |  | Show Hints. A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once. |
 | `sidebar.side` | string | `"left"` | `left`, `right` | Sidebar Side. The window edge the sidebar sits on. On the right, the window buttons sit over the tab bar. |
 | `sidebar.spacesPosition` | string | `"bottom"` | `top`, `bottom` | Spaces Position. Where the spaces dots sit in the sidebar: under the window buttons or above the Settings row. |
 | `sidebar.spacesVisibility` | string | `"hover"` | `hover`, `always` | Show Spaces. On Hover shows the spaces only while the pointer is over the sidebar, like its other buttons. |

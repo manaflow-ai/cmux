@@ -1,4 +1,4 @@
-import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import type { DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, FolderIcon, type NewTabHost } from "../NewTabPage";
@@ -17,11 +17,13 @@ import { useLastPick } from "../lastPick";
 import { useDeviceChats } from "./deviceChats";
 import { useRecentlyClosed } from "./recentlyClosed";
 import {
+  canonicalAddress,
   defaultSelection,
   isAddress,
   recentChatCards,
   screenRows,
   shellEntry,
+  shortHost,
   stepSelection,
   type ScreenRow,
 } from "./screenModel";
@@ -61,6 +63,12 @@ export type NewTabScreenActions = {
   onTouched?(): void;
   /// No agent to ask: opens the Harnesses page (cx-uj5g8).
   onAddHarness?(): void;
+  /// acpmux has answered with its harnesses (a fetch landed): only then can none be missing.
+  harnessesListed?: boolean;
+  /// Integrate a harness was dismissed for good (the app keeps it across relaunches).
+  harnessHintDismissed?: boolean;
+  /// Dismisses Integrate a harness for every later page (`newTab.remember` `harnessHint: "dismissed"`).
+  onDismissHarnessHint?(): void;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
 };
@@ -121,6 +129,11 @@ export function NewTabScreen(props: Props) {
   const [shell, setShell] = useState(false);
   /// Return asked with no agent to ask: the note under the field says so until the next edit.
   const [noAgent, setNoAgent] = useState(false);
+  // With no harness installed, the note offers one up front once acpmux has answered; with any
+  // installed, never, even one acpmux cannot run now (Leo 2026-10-12). The app keeps a dismissal.
+  const [hintDismissed, setHintDismissed] = useState(props.harnessHintDismissed === true);
+  const noneInstalled = props.harnessesListed === true && snapshot.catalog.length === 0;
+  const showNote = noAgent || (noneInstalled && !hintDismissed && props.onAddHarness !== undefined);
   const [project, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   const field = useRef<HTMLInputElement>(null);
   const wholeSelection = useRef(false);
@@ -161,14 +174,16 @@ export function NewTabScreen(props: Props) {
     const model = entry.models.find((option) => option.id === chipSnapshot.summary?.model)?.name;
     return { harness, agent: entry.name, ...(model ? { model } : {}) };
   }, [snapshot.catalog, harness, chipSnapshot.summary?.model]);
-  // A dismiss in the host (another app, a resize) hides the rows until the text changes; it stays.
+  // A dismiss (a press outside the composer, Escape, or the host's: another app, a resize) hides
+  // the rows until the text changes or the field is pressed; the text stays (Leo 10-13).
   const [dismissed, setDismissed] = useState<string>();
   const textRef = useRef(text);
   textRef.current = text;
-  const rows = useMemo(
-    () => (touched && !shell && text !== dismissed ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
-    [touched, shell, text, dismissed, omnibar, home, ask],
+  const suggested = useMemo(
+    () => (touched && !shell ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
+    [touched, shell, text, omnibar, home, ask],
   );
+  const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
   const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
   const t = useT();
@@ -216,6 +231,22 @@ export function NewTabScreen(props: Props) {
     shell: "parent",
     onDismiss: () => setDismissed(textRef.current),
   });
+  const suggesting = rows.length > 0;
+  useEffect(() => {
+    if (!suggesting || !box) return;
+    const document = box.ownerDocument;
+    const press = (event: Event) => {
+      const target = event.target as Element | null;
+      if (target && (box.contains(target) || target.closest?.(".nt-popover"))) return;
+      setDismissed(textRef.current);
+    };
+    document.addEventListener("pointerdown", press, true);
+    document.addEventListener("mousedown", press, true);
+    return () => {
+      document.removeEventListener("pointerdown", press, true);
+      document.removeEventListener("mousedown", press, true);
+    };
+  }, [suggesting, box]);
   // The box scrolls past its cap; the selected row stays in view. Only the box scrolls (not the
   // screen around it, as scrollIntoView would). A callback ref: it runs when a row becomes the
   // selected one.
@@ -277,7 +308,8 @@ export function NewTabScreen(props: Props) {
     setNoAgent(false);
   };
   const submit = () => {
-    const row = rows[current];
+    // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
+    const row = rows.length ? rows[current] : suggested[defaultSelection(suggested)];
     if (row) return activate(row);
     const prompt = text.trim();
     if (!prompt || isAddress(prompt, home)) return;
@@ -368,6 +400,16 @@ export function NewTabScreen(props: Props) {
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, []);
+  const focusFromRow = (event: React.MouseEvent<HTMLDivElement>) => {
+    const input = field.current;
+    if (!input || event.button !== 0 || event.target === input) return;
+    // Keep the press from moving focus to the row; a field that had no focus gets the caret at
+    // the end of its text, a focused one keeps its caret and selection.
+    event.preventDefault();
+    if (input.ownerDocument.activeElement === input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  };
   const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     touch();
     if (composing.current || event.nativeEvent.isComposing) return;
@@ -390,14 +432,18 @@ export function NewTabScreen(props: Props) {
     if (step && rows.length) {
       event.preventDefault();
       setSelected(stepSelection(current, step, rows.length));
+    } else if (step && dismissed !== undefined && text) {
+      // Down or Up on closed suggestions opens them again.
+      event.preventDefault();
+      setDismissed(undefined);
     } else if (event.key === "Enter") {
       event.preventDefault();
       submit();
-    } else if (event.key === "Escape" && text) {
+    } else if (event.key === "Escape") {
+      // The first Escape closes the suggestions, the next leaves the field; the text stays.
       event.preventDefault();
-      setText("");
-      setSelected(undefined);
-      setTouched(true);
+      if (rows.length) setDismissed(text);
+      else input.blur();
     }
   };
   const pickProject = (cwd: string) => {
@@ -424,7 +470,11 @@ export function NewTabScreen(props: Props) {
       {/* One box (board 008): the field on top, the folder and the agent's model chips on its bottom
           row, the Send button at the end. */}
       <div ref={setBox} className="nt-box">
-        <div className="nt-input">
+        {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
+            browser's address bar does; the text itself keeps its own press (caret, selection).
+            Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
+        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
+        <div className="nt-input" onMouseDown={focusFromRow}>
           {shell ? (
             <span className="nt-shell-glyph" aria-hidden="true">
               !
@@ -450,6 +500,7 @@ export function NewTabScreen(props: Props) {
             autoCorrect="off"
             onChange={(event) => edit(event.target.value)}
             onKeyDown={keyDown}
+            onMouseDown={() => setDismissed(undefined)}
             onCompositionStart={() => {
               composing.current = true;
             }}
@@ -491,7 +542,8 @@ export function NewTabScreen(props: Props) {
       {rows.length > 0 && box && (
         <Popover
           open
-          // The rows follow the field (Escape there clears it): the popover never closes itself.
+          // The rows follow the field (Escape there and a press outside close them): the popover
+          // never closes itself.
           onOpenChange={() => undefined}
           anchor={box}
           label={nt("suggestions")}
@@ -535,7 +587,7 @@ export function NewTabScreen(props: Props) {
         </Popover>
       )}
       {props.notice}
-      {noAgent && (
+      {showNote && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className="nt-no-agent" role="status">
           <span>{t("newtab.noAgent")}</span>
@@ -545,6 +597,24 @@ export function NewTabScreen(props: Props) {
                 <PlusIcon />
               </span>
               <span>{t("newtab.addHarness")}</span>
+            </button>
+          )}
+          {props.onAddHarness && (
+            <button
+              type="button"
+              className="nt-tool nt-hint-dismiss ui-ghost"
+              data-dismiss-hint
+              aria-label={t("newtab.addHarness.dismiss")}
+              title={t("newtab.addHarness.dismiss")}
+              onClick={() => {
+                props.onDismissHarnessHint?.();
+                setHintDismissed(true);
+                setNoAgent(false);
+              }}
+            >
+              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                <CrossIcon />
+              </span>
             </button>
           )}
         </div>
@@ -639,6 +709,23 @@ function ownsKeys(element: Element): boolean {
   return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
 }
 
+/// The 14 px cross in currentColor that dismisses Integrate a harness.
+function CrossIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    >
+      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+    </svg>
+  );
+}
+
 /// The 14 px plus in currentColor before "Integrate a harness".
 function PlusIcon() {
   return (
@@ -686,7 +773,7 @@ function rowTitle(nt: NewTabTranslate, row: ScreenRow): string {
     case "open":
       return row.text;
     case "history":
-      return row.title ?? row.url;
+      return row.title ?? canonicalAddress(row.url);
     case "tab":
     case "workspace":
       return row.title;
@@ -698,7 +785,7 @@ function rowDetail(row: ScreenRow): string | undefined {
     case "open":
       return row.url === row.text ? undefined : row.url;
     case "history":
-      return row.title ? row.url.replace(/^https?:\/\/(www\.)?/, "") : undefined;
+      return row.title ? shortHost(row.url) : undefined;
     case "tab":
     case "workspace":
       return row.detail;
