@@ -24,7 +24,7 @@ Usage:
   bench_memory.py --app BUNDLE [--socket PATH --app-pid PID]
       [--workspaces 1,10,30] [--mix terminal+chat,terminal+browser,terminal]
       [--settle 30] [--churn-minutes 0] [--sample-minutes 5]
-      [--url URL] [--top 15] [--config JSON] [--out FILE.json]
+      [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
 
 Prints a table per measurement (top processes by footprint, totals per
 kind) and writes every sample to --out.
@@ -194,7 +194,10 @@ class App:
         return out.returncode == 0
 
 
-def open_workspace(app: App, recipe: str, url: str, index: int):
+FAKE_AGENT_ID = "bench-memory-fake"
+
+
+def open_workspace(app: App, recipe: str, url: str, index: int, agent: str | None = None):
     """One workspace of `recipe` (kinds joined by +); returns its id or None."""
     made = app.run("workspace.newAtBottom")
     created = [item for item in made.get("created", []) if str(item).startswith("ws_")]
@@ -216,8 +219,9 @@ def open_workspace(app: App, recipe: str, url: str, index: int):
             response = app.run("openBrowser.chromium", url=url)
         elif kind == "chat":
             # A prompt opens an agent chat tab. Fleet minis carry no agent
-            # credentials, so the turn fails and the chat page stays.
-            response = app.run("newTab.submit", text=f"memory bench chat {index}")
+            # credentials: without --fake-agent the turn waits on a login.
+            extra = {"agent": agent} if agent else {}
+            response = app.run("newTab.submit", text=f"memory bench chat {index}", **extra)
         else:
             raise SystemExit(f"bench-memory: unknown kind {kind!r} in --mix")
         if response.get("error") or response.get("code"):
@@ -357,6 +361,9 @@ def main():
     parser.add_argument("--top", type=int, default=15)
     parser.add_argument("--config", default="{}",
                         help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
+    parser.add_argument("--fake-agent", metavar="SCRIPT",
+                        help="an ACP agent script (cmux-tui/crates/acpmux/tests/fake_agent.py) the chats use: "
+                             "its turns end, as a chat's do after its reply")
     parser.add_argument("--out")
     args = parser.parse_args()
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
@@ -374,6 +381,13 @@ def main():
         launched, socket_path, scratch = launch(bundle, json.loads(args.config))
         app_pid = launched
     app = App(bundle, socket_path)
+    agent = None
+    if args.fake_agent:
+        added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
+                        args=os.path.abspath(args.fake_agent), protocol="acp", replace="true")
+        if added.get("error") or added.get("code"):
+            raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
+        agent = FAKE_AGENT_ID
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [],
@@ -392,7 +406,7 @@ def main():
         for count in counts:
             # The launch workspace counts as the first one.
             while len(opened) + 1 < count:
-                workspace = open_workspace(app, recipes[len(opened) % len(recipes)], args.url, len(opened))
+                workspace = open_workspace(app, recipes[len(opened) % len(recipes)], args.url, len(opened), agent)
                 if workspace is None:
                     break
                 opened.append(workspace)
@@ -402,7 +416,7 @@ def main():
             next_sample = time.monotonic() + args.sample_minutes * 60
             cycles = 0
             while time.monotonic() < end:
-                workspace = open_workspace(app, recipes[cycles % len(recipes)], args.url, 1000 + cycles)
+                workspace = open_workspace(app, recipes[cycles % len(recipes)], args.url, 1000 + cycles, agent)
                 time.sleep(2)  # test script: let the new tabs load before closing them
                 if workspace:
                     close_workspace(app, workspace)
