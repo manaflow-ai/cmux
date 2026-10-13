@@ -2239,6 +2239,12 @@
               "enabled": "Gdy wybrano zdalny obszar roboczy tmux, „Nowy obszar roboczy” uruchamia sesję tmux na hoście tego obszaru."
             }
           }
+        },
+        "statusBar": {
+          "description": "Jednowierszowy pasek wzdłuż dolnej krawędzi każdego okna, wypełniany przez wybrany program.",
+          "command": "Polecenie powłoki zasilające pasek, uruchamiane raz na aplikację przez /bin/sh -c. Pasek pokazuje ostatni wypisany wiersz z kolorami ANSI i linkami OSC 8; link cmux-action:ID uruchamia wpis z actions o tym ID. Kliknięcie paska zapisuje znak nowego wiersza do stdin polecenia, aby poprosić o odświeżenie. Gdy polecenie się zakończy, cmux uruchamia je ponownie po 10 sekundach, więc polecenie, które wypisuje jeden wiersz i kończy działanie, odświeża się co 10 sekund. Puste ukrywa pasek.",
+          "fontSize": "Rozmiar czcionki tekstu paska, w punktach.",
+          "alignment": "Położenie wiersza w poziomie, gdy jest węższy niż okno."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

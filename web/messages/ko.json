@@ -2238,6 +2238,12 @@
               "enabled": "원격 tmux 작업 공간을 선택하면 새 작업 공간이 해당 작업 공간의 호스트에서 tmux 세션을 시작합니다."
             }
           }
+        },
+        "statusBar": {
+          "description": "모든 창 하단에 표시되는 한 줄 막대로, 직접 지정한 프로그램이 내용을 채웁니다.",
+          "command": "막대에 내용을 공급하는 셸 명령으로, 앱마다 한 번 /bin/sh -c로 실행됩니다. 막대에는 마지막으로 출력된 줄이 ANSI 색상과 OSC 8 링크와 함께 표시되며, cmux-action:ID 링크는 해당 ID의 actions 항목을 실행합니다. 막대를 클릭하면 새로 고침을 요청하기 위해 명령의 stdin에 줄바꿈을 씁니다. 명령이 종료되면 cmux가 10초 후에 다시 시작하므로, 한 줄을 출력하고 종료하는 명령은 10초마다 새로 고쳐집니다. 비워 두면 막대가 숨겨집니다.",
+          "fontSize": "막대 텍스트의 글꼴 크기(포인트).",
+          "alignment": "줄이 창보다 짧을 때의 가로 위치."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

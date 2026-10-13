@@ -2238,6 +2238,12 @@
               "enabled": "Uzak bir tmux çalışma alanı seçildiğinde “Yeni çalışma alanı”, o çalışma alanının ana bilgisayarında bir tmux oturumu başlatır."
             }
           }
+        },
+        "statusBar": {
+          "description": "Her pencerenin altında, seçtiğiniz bir programın doldurduğu tek satırlık çubuk.",
+          "command": "Çubuğu besleyen kabuk komutu; uygulama başına bir kez /bin/sh -c ile çalıştırılır. Çubuk, komutun yazdırdığı son satırı ANSI renkleri ve OSC 8 bağlantılarıyla gösterir; cmux-action:ID bağlantısı actions içindeki o ID'ye sahip girdiyi çalıştırır. Çubuğa tıklamak, yenileme istemek için komutun stdin akışına bir satır sonu yazar. Komut sonlanırsa cmux onu 10 saniye sonra yeniden başlatır; bu yüzden tek satır yazdırıp çıkan bir komut her 10 saniyede bir yenilenir. Boş bırakılırsa çubuk gizlenir.",
+          "fontSize": "Çubuk metninin punto cinsinden yazı tipi boyutu.",
+          "alignment": "Satır pencereden dar olduğunda yatay konumu."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

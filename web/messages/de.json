@@ -2238,6 +2238,12 @@
               "enabled": "Wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist, startet „Neuer Arbeitsbereich“ eine tmux-Sitzung auf dem Host dieses Arbeitsbereichs."
             }
           }
+        },
+        "statusBar": {
+          "description": "Eine einzeilige Leiste am unteren Rand jedes Fensters, gefüllt von einem Programm deiner Wahl.",
+          "command": "Shell-Befehl, der die Leiste füllt, einmal pro App mit /bin/sh -c ausgeführt. Die Leiste zeigt die letzte ausgegebene Zeile mit ANSI-Farben und OSC-8-Links; ein cmux-action:ID-Link führt den actions-Eintrag mit dieser ID aus. Ein Klick auf die Leiste schreibt einen Zeilenumbruch in stdin des Befehls, um eine Aktualisierung anzufordern. Beendet sich der Befehl, startet cmux ihn 10 Sekunden später neu, sodass ein Befehl, der eine Zeile ausgibt und sich beendet, alle 10 Sekunden aktualisiert. Leer blendet die Leiste aus.",
+          "fontSize": "Schriftgröße des Leistentexts in Punkt.",
+          "alignment": "Horizontale Position der Zeile, wenn sie schmaler als das Fenster ist."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

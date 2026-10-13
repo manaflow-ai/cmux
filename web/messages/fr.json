@@ -2238,6 +2238,12 @@
               "enabled": "Lorsqu’un espace de travail tmux distant est sélectionné, « Nouvel espace de travail » démarre une session tmux sur son hôte."
             }
           }
+        },
+        "statusBar": {
+          "description": "Une barre d’une ligne en bas de chaque fenêtre, remplie par le programme de votre choix.",
+          "command": "Commande shell qui alimente la barre, lancée une fois par app avec /bin/sh -c. La barre affiche la dernière ligne imprimée, avec couleurs ANSI et liens OSC 8 ; un lien cmux-action:ID exécute l’entrée de actions portant cet ID. Cliquer sur la barre écrit un saut de ligne sur le stdin de la commande pour demander une actualisation. Si elle se termine, cmux la relance 10 secondes plus tard : une commande qui imprime une ligne puis quitte s’actualise donc toutes les 10 secondes. Vide masque la barre.",
+          "fontSize": "Taille de police du texte de la barre, en points.",
+          "alignment": "Position horizontale de la ligne lorsqu’elle est plus étroite que la fenêtre."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

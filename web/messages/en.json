@@ -3484,6 +3484,12 @@
               "enabled": "With a remote tmux workspace selected, New Workspace starts a tmux session on that workspace’s host."
             }
           }
+        },
+        "statusBar": {
+          "description": "A one-line bar along the bottom of every window, filled by a program you choose.",
+          "command": "Shell command that feeds the bar, run once per app with /bin/sh -c. The bar shows the last line it printed, with ANSI colors and OSC 8 links; a cmux-action:ID link runs the actions entry with that ID. Clicking the bar writes a newline to the command's stdin to ask for a refresh. If it exits, cmux starts it again 10 seconds later, so a command that prints one line and quits refreshes every 10 seconds. Empty hides the bar.",
+          "fontSize": "Font size of the bar's text, in points.",
+          "alignment": "Horizontal placement of the line when it is narrower than the window."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

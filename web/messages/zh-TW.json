@@ -2238,6 +2238,12 @@
               "enabled": "選取遠端 tmux 工作區後，「新增工作區」會在該工作區的主機上啟動 tmux 工作階段。"
             }
           }
+        },
+        "statusBar": {
+          "description": "沿每個視窗底部顯示的單行列，內容由你指定的程式提供。",
+          "command": "為狀態列提供內容的 shell 指令，每個 App 透過 /bin/sh -c 執行一次。列中顯示它輸出的最後一行，保留 ANSI 色彩與 OSC 8 連結；cmux-action:ID 連結會執行 actions 中對應 ID 的項目。點按狀態列會向指令的 stdin 寫入一個換行字元以要求重新整理。指令結束後，cmux 會在 10 秒後重新啟動它，因此輸出一行就結束的指令每 10 秒更新一次。留空則隱藏狀態列。",
+          "fontSize": "狀態列文字的字級，單位為點。",
+          "alignment": "當該行比視窗窄時的水平位置。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

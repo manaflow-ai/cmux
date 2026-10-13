@@ -2400,26 +2400,30 @@ enum CmuxEmbeddedConfigSchema {
       "x-cmux-scopes": ["global"],
       "title": "statusBar",
       "description": "A one-line bar along the bottom of every window, filled by a program you choose.",
+      "descriptionKey": "schemaDescriptions.statusBar.description",
       "type": "object",
       "additionalProperties": false,
       "properties": {
         "command": {
           "type": "string",
           "default": "",
-          "description": "Shell command that feeds the bar, run once per app with /bin/sh -c. The bar shows the last line it printed, with ANSI colors and OSC 8 links; a cmux-action:<id> link runs that entry from actions. Clicking the bar writes a newline to the command's stdin to ask for a refresh. If it exits, cmux starts it again 10 seconds later, so a command that prints one line and quits refreshes every 10 seconds. Empty hides the bar."
+          "description": "Shell command that feeds the bar, run once per app with /bin/sh -c. The bar shows the last line it printed, with ANSI colors and OSC 8 links; a cmux-action:<id> link runs that entry from actions. Clicking the bar writes a newline to the command's stdin to ask for a refresh. If it exits, cmux starts it again 10 seconds later, so a command that prints one line and quits refreshes every 10 seconds. Empty hides the bar.",
+          "descriptionKey": "schemaDescriptions.statusBar.command"
         },
         "fontSize": {
           "type": "number",
           "minimum": 8,
           "maximum": 20,
           "default": 11,
-          "description": "Font size of the bar's text, in points."
+          "description": "Font size of the bar's text, in points.",
+          "descriptionKey": "schemaDescriptions.statusBar.fontSize"
         },
         "alignment": {
           "type": "string",
           "enum": ["left", "center", "right"],
           "default": "left",
-          "description": "Horizontal placement of the line when it is narrower than the window."
+          "description": "Horizontal placement of the line when it is narrower than the window.",
+          "descriptionKey": "schemaDescriptions.statusBar.alignment"
         }
       }
     },

@@ -2238,6 +2238,12 @@
               "enabled": "选择远程 tmux 工作区后，“新建工作区”会在该工作区的主机上启动 tmux 会话。"
             }
           }
+        },
+        "statusBar": {
+          "description": "沿每个窗口底部显示的单行栏，内容由你指定的程序提供。",
+          "command": "为状态栏提供内容的 shell 命令，每个应用通过 /bin/sh -c 运行一次。栏中显示它输出的最后一行，保留 ANSI 颜色和 OSC 8 链接；cmux-action:ID 链接会运行 actions 中对应 ID 的条目。点击状态栏会向命令的 stdin 写入一个换行符以请求刷新。命令退出后，cmux 会在 10 秒后重新启动它，因此输出一行就退出的命令每 10 秒刷新一次。留空则隐藏状态栏。",
+          "fontSize": "状态栏文字的字号，单位为磅。",
+          "alignment": "当该行比窗口窄时的水平位置。"
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

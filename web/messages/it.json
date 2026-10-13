@@ -2238,6 +2238,12 @@
               "enabled": "Quando è selezionato uno spazio di lavoro tmux remoto, «Nuovo spazio di lavoro» avvia una sessione tmux sull’host di quello spazio."
             }
           }
+        },
+        "statusBar": {
+          "description": "Una barra di una riga lungo il bordo inferiore di ogni finestra, riempita da un programma a tua scelta.",
+          "command": "Comando shell che alimenta la barra, eseguito una volta per app con /bin/sh -c. La barra mostra l’ultima riga stampata, con colori ANSI e link OSC 8; un link cmux-action:ID esegue la voce di actions con quell’ID. Fare clic sulla barra scrive un ritorno a capo nello stdin del comando per chiedere un aggiornamento. Se termina, cmux lo riavvia 10 secondi dopo, quindi un comando che stampa una riga ed esce si aggiorna ogni 10 secondi. Vuoto nasconde la barra.",
+          "fontSize": "Dimensione del carattere del testo della barra, in punti.",
+          "alignment": "Posizione orizzontale della riga quando è più stretta della finestra."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

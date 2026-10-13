@@ -2238,6 +2238,12 @@
               "enabled": "Kada je izabran udaljeni tmux radni prostor, „Novi radni prostor“ pokreće tmux sesiju na hostu tog radnog prostora."
             }
           }
+        },
+        "statusBar": {
+          "description": "Jednoredna traka duž dna svakog prozora, koju popunjava program po vašem izboru.",
+          "command": "Shell komanda koja puni traku, pokreće se jednom po aplikaciji sa /bin/sh -c. Traka prikazuje posljednji red koji je ispisala, sa ANSI bojama i OSC 8 linkovima; link cmux-action:ID pokreće stavku iz actions sa tim ID-om. Klik na traku upisuje novi red u stdin komande kao zahtjev za osvježavanje. Ako komanda završi, cmux je ponovo pokreće 10 sekundi kasnije, pa se komanda koja ispiše jedan red i završi osvježava svakih 10 sekundi. Prazno skriva traku.",
+          "fontSize": "Veličina fonta teksta trake, u tačkama.",
+          "alignment": "Horizontalni položaj reda kada je uži od prozora."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",

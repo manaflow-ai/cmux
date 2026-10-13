@@ -46,6 +46,7 @@ const sectionOrder = [
   "automation",
   "actions",
   "ui",
+  "statusBar",
   "commands",
   "agentChat",
   "browser",

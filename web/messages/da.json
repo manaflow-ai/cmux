@@ -2238,6 +2238,12 @@
               "enabled": "Når et eksternt tmux-arbejdsområde er valgt, starter “Nyt arbejdsområde” en tmux-session på arbejdsområdets vært."
             }
           }
+        },
+        "statusBar": {
+          "description": "En linje langs bunden af hvert vindue, udfyldt af et program, du vælger.",
+          "command": "Shell-kommando, der forsyner linjen, kørt én gang pr. app med /bin/sh -c. Linjen viser den sidste linje, kommandoen udskrev, med ANSI-farver og OSC 8-links; et cmux-action:ID-link kører den actions-post, der har det ID. Et klik på linjen skriver et linjeskift til kommandoens stdin for at bede om en opdatering. Hvis kommandoen afsluttes, starter cmux den igen 10 sekunder senere, så en kommando, der udskriver én linje og afslutter, opdateres hvert 10. sekund. Tom skjuler linjen.",
+          "fontSize": "Skriftstørrelse for linjens tekst, i punkter.",
+          "alignment": "Vandret placering af linjen, når den er smallere end vinduet."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
