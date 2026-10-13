@@ -176,10 +176,9 @@ final class AgentPageHibernation {
             releasing.remove(key)
             // The page may have shown, changed or got busy (a turn started) while it was asked
             // for its frame or the frame was encoded: then it stays, and the next plan decides.
-            func stillDue() -> Bool { hiddenAt[key] != nil && tabs.existingView(key) === view && keepsPage(key) == nil }
-            guard stillDue() else { return replan() }
+            guard isDue(key, view, in: tabs) else { return replan() }
             if let frame { await tabs.launchImages.hold(key, frame.image, size: frame.size, appearance: frame.appearance) }
-            guard stillDue() else {
+            guard isDue(key, view, in: tabs) else {
                 tabs.launchImages.drop(key)
                 return replan()
             }
@@ -194,6 +193,10 @@ final class AgentPageHibernation {
             releasedCount += 1
             logger.info("released agent page \(key, privacy: .public)")
         }
+    }
+
+    private func isDue(_ key: String, _ view: AgentPaneView, in tabs: AgentTabStore) -> Bool {
+        hiddenAt[key] != nil && tabs.existingView(key) === view && keepsPage(key) == nil
     }
 
     /// The page as last drawn; nil when it does not answer in time (it then shows its loading
