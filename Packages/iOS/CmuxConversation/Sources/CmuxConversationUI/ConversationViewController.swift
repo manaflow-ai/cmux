@@ -546,7 +546,28 @@ public final class ConversationViewController: UIViewController {
     public override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
         isTransitioningSize = true
-        coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.isTransitioningSize = false }
+        // Messages keeps the newest message on the composer through a
+        // rotation (iOS 27, iPhone 17 Pro Max); rows re-measure at the new
+        // width, so the old offset would land elsewhere in the history.
+        let followsNewest = isPinnedToBottom && hasPositionedInitially
+        let widthChanges = size.width != view.bounds.width
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            guard let self else { return }
+            // Visible cells were configured for the old width; the layout
+            // re-measures rows but never reconfigures a cell it keeps.
+            if widthChanges {
+                self.forgetAllMessageReuseIDs()
+                self.collectionView.reloadData()
+            }
+            guard followsNewest else { return }
+            self.view.layoutIfNeeded()
+            self.collectionView.layoutIfNeeded()
+            self.collectionView.setContentOffset(self.bottomOffset, animated: false)
+        }) { [weak self] _ in
+            guard let self else { return }
+            self.isTransitioningSize = false
+            if followsNewest { self.isPinnedToBottom = true }
+        }
     }
 
     /// Lays out inside the keyboard's animation, in an animation of our own.
