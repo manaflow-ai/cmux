@@ -23,7 +23,7 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "live"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "live", "workspace-new", "connect-mac"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
@@ -37,6 +37,8 @@ struct DemoDriver {
         case "workspaces-reopen": await workspacesReopen()
         case "chief": await chief()
         case "live": await live()
+        case "workspace-new": await workspaceNew()
+        case "connect-mac": await connectMac()
         default: break
         }
     }
@@ -174,6 +176,108 @@ struct DemoDriver {
         await pause(2.6)
         tabs.post(.exit)
         await pause(1.5)
+    }
+
+    /// New workspace: tap (instant create and push), hold (the menu of other
+    /// starts), pick one, then a refusal (the pushed screen pops, a toast).
+    /// Taps and holds go to the real toolbar control: `sendActions` for the
+    /// tap, the context menu interaction for the hold.
+    private func workspaceNew() async {
+        shell.tab = .workspaces
+        await pause(1.8)
+        step("tap")
+        tapNewWorkspace()
+        await pause(1.2)
+        step("pushed \(shell.workspacesPath.last?.title ?? "-")")
+        await pause(2.4)
+        WorkspaceDemoDirector.shared.post(.exit)
+        await pause(1.6)
+        step("hold")
+        let menu = holdNewWorkspace()
+        await pause(3.2)
+        menu?.dismissMenu()
+        await pause(0.5)
+        step("pick claude")
+        if let ws = shell.creator.create(start: .agent("claude")) { shell.workspacesPath.append(ws) }
+        await pause(3.2)
+        WorkspaceDemoDirector.shared.post(.exit)
+        await pause(1.4)
+        step("hold again")
+        let again = holdNewWorkspace()
+        await pause(2.4)
+        again?.dismissMenu()
+        await pause(0.5)
+        step("refused")
+        shell.mockCreation.failNext = "The Mac refused"
+        tapNewWorkspace()
+        await pause(3.5)
+    }
+
+    /// No Mac: the Connect your Mac state, then the Mac appears (presence).
+    private func connectMac() async {
+        shell.tab = .workspaces
+        guard let index = shell.store.teams.firstIndex(where: { $0.id == shell.store.activeTeamID }) else { return }
+        let macs = shell.store.teams[index].macs
+        shell.store.teams[index].macs = []
+        await pause(5.0)
+        step("mac appears")
+        shell.store.teams[index].macs = macs
+        await pause(2.5)
+    }
+
+    /// The toolbar's New Workspace bar button view: the visible navigation
+    /// bar's trailing item that has both a primary action and a menu.
+    private func newWorkspaceControl() -> UIView? {
+        func bars(_ view: UIView) -> [UINavigationBar] {
+            (view as? UINavigationBar).map { [$0] } ?? view.subviews.flatMap(bars)
+        }
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        for bar in windows.flatMap(bars) where bar.window != nil && !bar.isHidden {
+            let items = (bar.topItem?.trailingItemGroups.flatMap(\.barButtonItems) ?? []) + (bar.topItem?.rightBarButtonItems ?? [])
+            if let item = items.first(where: { $0.accessibilityLabel == "New Workspace" || $0.title == "New Workspace" })
+                ?? items.first(where: { $0.menu != nil && $0.primaryAction != nil }),
+               let view = item.value(forKey: "view") as? UIView {
+                return view
+            }
+        }
+        return nil
+    }
+
+    private func menuInteraction(_ view: UIView) -> UIContextMenuInteraction? {
+        if let found = view.interactions.lazy.compactMap({ $0 as? UIContextMenuInteraction }).first { return found }
+        for sub in view.subviews { if let found = menuInteraction(sub) { return found } }
+        return nil
+    }
+
+    private func tapNewWorkspace() {
+        let before = shell.workspacesPath.count
+        if let control = newWorkspaceControl() as? UIControl {
+            step("control \(type(of: control))")
+            control.sendActions(for: .primaryActionTriggered)
+            if shell.workspacesPath.count == before { control.sendActions(for: .touchUpInside) }
+        }
+        if shell.workspacesPath.count == before, let ws = shell.creator.create() {
+            step("tap fallback")
+            shell.workspacesPath.append(ws)
+        }
+    }
+
+    /// Presents the control's menu as a long press does (DEBUG only: the
+    /// interaction's private present-at-location entry point).
+    private func holdNewWorkspace() -> UIContextMenuInteraction? {
+        guard let control = newWorkspaceControl(), let interaction = menuInteraction(control) else {
+            step("hold: no menu interaction")
+            return nil
+        }
+        let selector = NSSelectorFromString("_presentMenuAtLocation:")
+        guard interaction.responds(to: selector) else {
+            step("hold: no present entry point")
+            return nil
+        }
+        typealias Present = @convention(c) (AnyObject, Selector, CGPoint) -> Void
+        let present = unsafeBitCast(interaction.method(for: selector), to: Present.self)
+        present(interaction, selector, CGPoint(x: control.bounds.midX, y: control.bounds.midY))
+        return interaction
     }
 
     /// Waits (polling each 0.25 s) for `condition`, up to `timeout` seconds.

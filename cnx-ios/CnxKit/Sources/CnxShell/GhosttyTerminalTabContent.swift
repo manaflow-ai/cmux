@@ -20,11 +20,28 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
-        AnyView(NavigationStack { TerminalScreen(model: model(for: tab)) })
+        AnyView(TerminalNavigationHost(root: TerminalScreen(model: model(for: tab))).ignoresSafeArea())
     }
 
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
-        AnyView(NavigationStack { TerminalScreen(model: model(for: tab)) }.allowsHitTesting(false))
+        AnyView(TerminalNavigationHost(root: TerminalScreen(model: model(for: tab))).ignoresSafeArea().allowsHitTesting(false))
+    }
+}
+/// TerminalScreen wants its own navigation bar. A SwiftUI NavigationStack
+/// nested in the pushed workspace joined the Workspaces stack's navigation
+/// state: after leaving a workspace that was on a terminal tab, the next push
+/// crashed in SwiftUI (`AnyNavigationPath.Error.comparisonTypeMismatch`, the
+/// typed `[Workspace]` path compared with the inner stack's path). A UIKit
+/// navigation controller gives the terminal its bar without that link.
+private struct TerminalNavigationHost<Root: View>: UIViewControllerRepresentable {
+    let root: Root
+
+    func makeUIViewController(context: Context) -> UINavigationController {
+        UINavigationController(rootViewController: UIHostingController(rootView: root))
+    }
+
+    func updateUIViewController(_ navigation: UINavigationController, context: Context) {
+        (navigation.viewControllers.first as? UIHostingController<Root>)?.rootView = root
     }
 }
 #endif

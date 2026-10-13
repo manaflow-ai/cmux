@@ -1047,8 +1047,11 @@ capsule) and `grok-03-composer-typed`; top chrome to `grok-06-scroll-edge-top`; 
 ### 11.1 Workspaces tab
 
 - Toolbar: leading drawer, principal "Workspaces", trailing capsule `square.and.pencil` (New
-  workspace: sheet with Mac picker, directory picker, agent/terminal choice) + `ellipsis` (Sort:
-  Recent / Name / By Mac; Show offline Macs).
+  workspace: a tap creates one at once on the preferred Mac with the Mac's default first tab and
+  pushes it, the row optimistic until the Mac confirms; a hold opens a menu of the starts the
+  backend supports: agent or browser first tab, recent directories, Mac picker) + `ellipsis`
+  (Sort: Recent / Name / By Mac; Show offline Macs). No Mac: "Connect your Mac" steps (sign in
+  as the account, allow iPhone connections) with a live status line; no pairing code.
 - `List` style `.plain` on `bg`, one section per Mac (iOS 26 plain headers): header row 44 h: `StatusDot` + Mac name (`subheadline` semibold) + `meta` "Online" /
   "Last seen 2h ago"; trailing `ellipsis` menu (Pair details, Unpair, Reconnect).
 - Workspace row 64 h: leading 36 pt rounded square with the workspace's glyph or color (from

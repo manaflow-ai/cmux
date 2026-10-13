@@ -53,7 +53,13 @@ struct WorkspacesScreen: View {
     var body: some View {
         @Bindable var shell = shell
         NavigationStack(path: $shell.workspacesPath) {
-            WorkspacesList(store: shell.store)
+            WorkspacesList(
+                store: shell.store, creator: shell.creator, accountEmail: shell.auth.user?.email,
+                reconnect: shell.live.map { live in
+                    { macID in live.link.target?.macID == macID ? live.foreground() : live.select(macID: macID) }
+                },
+                refresh: shell.live.map { live in { await live.workspaces.refresh() } }
+            ) { shell.workspacesPath.append($0) }
                 .background(theme.colors.bg.color.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: Workspace.self) { ws in

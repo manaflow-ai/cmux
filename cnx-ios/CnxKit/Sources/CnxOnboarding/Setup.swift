@@ -39,7 +39,7 @@ public struct SetupFlow: View {
     @ViewBuilder private func page(_ step: Step) -> some View {
         switch step {
         case .team: TeamStep(auth: auth, store: store, next: { advance(from: .team) })
-        case .pairMac: PairMacStep(next: { advance(from: .pairMac) })
+        case .pairMac: PairMacStep(email: auth.user?.email, store: store, next: { advance(from: .pairMac) })
         case .notifications: NotificationsStep(next: { advance(from: .notifications) })
         }
     }
@@ -178,20 +178,27 @@ private struct TeamStep: View {
     }
 }
 
-/// "Set up cmux on your Mac" (Codex setup pattern, `chatgpt-10`).
+/// "Connect your Mac": no pairing code. A Mac signed in to the same account
+/// and team with iPhone connections allowed appears by itself; the status
+/// line flips when presence reports it, and Continue appears.
 private struct PairMacStep: View {
+    let email: String?
+    let store: AppStore
     let next: () -> Void
 
+    private var onlineMac: String? {
+        store.activeTeam?.macs.first(where: \.isOnline)?.name
+    }
+
     var body: some View {
-        SetupPage(symbol: "desktopcomputer", title: "Set up cmux on your Mac") {
-            VStack(alignment: .leading, spacing: 4) {
-                ExplainerRow(symbol: "arrow.down.circle", text: "Install cmux on your Mac and sign in with this account.")
-                ExplainerRow(symbol: "dot.radiowaves.left.and.right", text: "Your Mac appears here when it's online.")
-            }
+        SetupPage(symbol: "desktopcomputer", title: "Connect your Mac") {
+            ConnectMacSteps(email: email, onlineMac: onlineMac)
         } actions: {
-            PrimaryCapsule("I'm signed in on my Mac", action: next)
-            SecondaryCapsule("Email me a download link", action: next)
-            TextCTA("Not now", action: next)
+            if onlineMac != nil {
+                PrimaryCapsule("Continue", action: next)
+            } else {
+                TextCTA("Not now", action: next)
+            }
         }
     }
 }
