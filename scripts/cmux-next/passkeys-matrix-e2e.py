@@ -11,7 +11,11 @@ CEF (a Release build). Both engines report the page's availability probe first (
 
 The script attaches to the app through its socket and never launches or quits it.
 
-Usage: passkeys-matrix-e2e.py --socket SOCK [--engines cef,webkit] [--only a,b] [--no-virtual-authenticator]
+`--k16` (cx-d0d.47, passkeys.md K16) runs instead: in a CEF tab, create-platform with the page
+uncovered, then with the command palette open over part of it. Chromium runs a ceremony only
+while the tab's WebContents is VISIBLE, so a partly covered tab must still complete it.
+
+Usage: passkeys-matrix-e2e.py --socket SOCK [--engines cef,webkit] [--only a,b] [--no-virtual-authenticator] [--k16]
 Writes passkeys.json to --out. Exit status 0 when every judged scenario passes.
 """
 import argparse, functools, http.server, json, os, socket, sys, threading, time
@@ -23,6 +27,7 @@ parser.add_argument("--only", default="", help="scenario names, comma separated"
 parser.add_argument("--no-virtual-authenticator", action="store_true", help="Release builds: no debug.cef.devtools")
 parser.add_argument("--rp", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../tests/passkeys/rp"))
 parser.add_argument("--out", default="/tmp")
+parser.add_argument("--k16", action="store_true", help="the partly-covered CEF tab check only")
 opts = parser.parse_args()
 SOCK = opts.socket
 NO_AUTHENTICATOR = ["client-capabilities", "user-id-too-long", "insecure-rp-id", "cross-origin-iframe-denied",
@@ -142,6 +147,27 @@ def scenario(engine, tab, name, spec):
     return status, note + str(result.get("detail"))
 
 
+def palette_open():
+    return (rpc("debug.focus") or {}).get("context", {}).get("palette_open")
+
+
+def k16(tab):
+    """K16: a partly covered CEF tab stays VISIBLE, so its ceremony completes."""
+    specs = js(tab, "JSON.stringify(window.PASSKEY_SCENARIOS['create-platform'].authenticator || {})")
+    spec = {"authenticator": json.loads(specs) if isinstance(specs, str) else {}}
+    status, detail = scenario("cef", tab, "create-platform", spec)
+    row("cef", "k16 uncovered", status, detail)
+    run("commandPalette")
+    if not wait(palette_open, 10):
+        row("cef", "k16 palette over the tab", "FAIL", f"the palette did not open: {rpc('debug.focus')}")
+        return
+    status, detail = scenario("cef", tab, "create-platform", spec)
+    still = palette_open()
+    row("cef", "k16 palette over the tab", status if still else "FAIL",
+        detail if still else f"the palette closed during the ceremony ({detail})")
+    run("commandPalette")
+
+
 def main():
     if not wait(lambda: "error" not in (rpc("system.identify") or {"error": 1}), 90):
         sys.exit("the app does not answer")
@@ -151,7 +177,7 @@ def main():
     url = f"http://localhost:{server.server_address[1]}/"
     print("RP", url, flush=True)
     only = [n for n in opts.only.split(",") if n]
-    for engine in opts.engines.split(","):
+    for engine in (["cef"] if opts.k16 else opts.engines.split(",")):
         # A first launch can keep the main thread busy past the socket's 2 s deadline (`not_run`).
         opened = wait(lambda: (lambda r: r if (r or {}).get("created") else None)(run("openBrowser", {"url": url, "engine": engine})), 90, 3)
         created = (opened or {}).get("created") or []
@@ -171,6 +197,9 @@ def main():
                 " ua: navigator.userAgent}; })()")
         probe = wait(lambda: js(tab, "window.__probe"), 10)
         row(engine, "probe (no authenticator)", "NOTE", json.dumps(probe))
+        if opts.k16:
+            k16(tab)
+            break
         specs = js(tab, "JSON.stringify(Object.fromEntries(Object.entries(window.PASSKEY_SCENARIOS)"
                         ".map(([k, v]) => [k, {authenticator: v.authenticator, frame: v.frame}])))")
         specs = json.loads(specs) if isinstance(specs, str) else {}
