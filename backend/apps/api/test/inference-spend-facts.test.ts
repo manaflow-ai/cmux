@@ -75,6 +75,23 @@ const counters = async (t: string, team: string, user: string) => {
   return { team_usd: model.usd as number, member_usd: spends[user] as number, facts }
 }
 
+/** The provider answers only when the test releases it; `asked` resolves when the request arrived. */
+const heldProvider = (reply: () => Response) => {
+  const real = globalThis.fetch
+  let release!: () => void
+  let arrived!: () => void
+  const gate = new Promise<void>((r) => (release = r))
+  const asked = new Promise<void>((r) => (arrived = r))
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input)
+    if (!url.startsWith("https://openrouter.ai/")) return real(input, init)
+    arrived()
+    await gate
+    return reply()
+  })
+  return { asked, release }
+}
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -104,5 +121,25 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
     // Before S1 the team counter stayed at 0 here: the member and the team disagreed.
     expect(c.team_usd).toBeCloseTo(c.member_usd, 6)
     expect(c.facts[0]!.quantity).toBeCloseTo(c.member_usd, 6)
+  })
+
+  it("a reservation that expires is charged in full, and a late settle is a correction fact on both counters", async () => {
+    const { t, team, user } = await paidPerson("spend-facts-late")
+    const held = heldProvider(() => Response.json({ id: "x", choices: [{ index: 0, message: { role: "assistant", content: "late" } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.000003 } }))
+    const call = chat(t)
+    await held.asked
+    // The alarm runs past the reservation TTL while the provider has not answered yet.
+    await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => m.onWake(Date.now() + 2 * 3600_000))
+    const expired = await counters(t, team, user)
+    expect(expired.facts.map((f) => f.source)).toEqual(["coderouter.expired"])
+    expect(expired.team_usd).toBeCloseTo(expired.member_usd, 9)
+    expect(expired.member_usd).toBeGreaterThan(0.000003)
+    held.release()
+    expect((await call).status).toBe(200)
+    const settled = await counters(t, team, user)
+    expect(settled.facts.map((f) => f.source).sort()).toEqual(["coderouter.expired", "coderouter.late"])
+    expect(settled.facts.every((f) => f.user === user)).toBe(true)
+    expect(settled.member_usd).toBeCloseTo(0.000003, 9)
+    expect(settled.team_usd).toBeCloseTo(0.000003, 9)
   })
 })

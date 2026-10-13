@@ -87,6 +87,11 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     settleCall(this.ctx.storage, id, actualMicros, Date.now())
   }
 
+  /** The pre-S1 name, kept for one release: a Worker isolate from before the deploy still calls it (review P3). */
+  async settleUser(entity: string, id: string, actualMicros: number | null): Promise<void> {
+    return this.settleCall(entity, id, actualMicros)
+  }
+
   /** team.ai_limit.get: this month's spend (USD, settled plus open) of the users named, and only those. */
   async userSpends(entity: string, users: ReadonlyArray<string>): Promise<Record<string, number>> {
     this.bind(entity)
