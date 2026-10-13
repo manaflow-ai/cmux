@@ -34,6 +34,7 @@ import {
   type VmCreateInProgressError,
   type VmResourcePoolExceededError,
   type VmModelPlaneError,
+  type VmOperationDeadlineError,
   type VmOperationUnsupportedError,
   type VmProviderOperationError,
   type VmSnapshotNotFoundError,
@@ -58,6 +59,7 @@ import {
   vmClientIdentityFromRequest,
   vmIdFromRequestPath,
   type VmRequestContext,
+  type VmRequestDbStats,
 } from "./requestContext";
 import {
   vmArtifactUnavailableCopy,
@@ -66,6 +68,7 @@ import {
   vmGuestInstallCopy,
   vmRecreateRequiredCopy,
   vmProviderTimeoutCopy,
+  vmRouteDeadlineCopy,
   vmGuestUnresponsiveCopy,
   vmNetworkRuleCapacityCopy,
   vmRequestLocale,
@@ -100,6 +103,18 @@ export type AuthedVmRouteContext = {
   routeStartedAtMs: number;
   setResponseFinalizer: (finalizer: ((response: Response) => void) | null) => void;
 };
+
+/** Route span attributes for a request's database pool timing (db/queryTiming.ts). */
+export function vmDbSpanAttributes(stats: VmRequestDbStats | undefined): Record<string, number> {
+  if (!stats) return { "cmux.db.query_count": 0, "cmux.db.acquire_wait_ms": 0 };
+  return {
+    "cmux.db.query_count": stats.queries,
+    "cmux.db.acquire_wait_ms": Math.round(stats.acquireWaitMsMax),
+    "cmux.db.acquire_wait_ms_total": Math.round(stats.acquireWaitMsTotal),
+    "cmux.db.query_ms_total": Math.round(stats.queryMsTotal),
+    "cmux.db.query_failed": stats.failed,
+  };
+}
 
 export async function withAuthedVmApiRoute(
   request: Request,
@@ -146,6 +161,9 @@ export async function withAuthedVmApiRoute(
         // Every VM response, every route: outcome + latency to the span and
         // PostHog, then a bounded span flush so an error-heavy instance cannot
         // lose the trace the PostHog row points at.
+        // Pool timing of this request's queries: a stall that waited for a
+        // connection shows a large acquire wait here.
+        setSpanAttributes(span, vmDbSpanAttributes(requestContext.dbStats));
         try {
           captureVmRequestOutcome({
             context: requestContext,
@@ -1191,6 +1209,7 @@ export const vmWorkflowErrorResponders = {
   VmCreateCreditsInsufficientError: () => null,
   // Only account deletion raises this, and that route owns the answer.
   VmAccountDeletionIdentityRevocationError: () => null,
+  VmOperationDeadlineError: (error, context) => vmOperationDeadlineResponse(error, context.locale),
 } as const satisfies VmWorkflowErrorResponders;
 
 /**
@@ -1213,6 +1232,28 @@ async function vmProviderTimeoutResponse(error: VmProviderOperationError, locale
     displayMessage: copy.message,
     details: { operation: error.operation, retryable: true },
     diagnostics: { provider: error.provider },
+  });
+}
+
+/**
+ * The route's answer deadline passed (routeDeadline.ts). A mutation may still
+ * complete at the provider, so the answer says it is in progress and asks for
+ * a status check before a retry; a read answers a retryable provider timeout.
+ * Neither is the generic retryable outage.
+ */
+async function vmOperationDeadlineResponse(error: VmOperationDeadlineError, locale: Locale): Promise<Response> {
+  const copy = await vmRouteDeadlineCopy(error.mutating ? "inProgress" : "providerTimeout", locale);
+  return vmErrorResponse({
+    error: error.mutating ? "vm_operation_in_progress" : "vm_provider_timeout",
+    status: error.mutating ? 503 : 504,
+    message: copy.message,
+    action: copy.action,
+    phase: vmPhaseForOperation(error.operation),
+    retryable: true,
+    retryAfterSeconds: error.mutating ? 15 : 5,
+    displayTitle: copy.title,
+    displayMessage: copy.message,
+    details: { operation: error.operation, retryable: true, inProgress: error.mutating, waitedMs: error.waitedMs },
   });
 }
 

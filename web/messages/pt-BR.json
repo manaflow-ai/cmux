@@ -35,6 +35,11 @@
       "message": "Esta máquina não respondeu a tempo, então a solicitação não pôde ser concluída.",
       "action": "Pause a máquina, depois retome-a e tente novamente. No app para Mac, escolha Pausar máquina e depois Retomar máquina. Em um terminal, execute cmux vm pause '<machine>' e depois cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Ainda em andamento",
+      "message": "O provedor de nuvem ainda não concluiu esta alteração. Ela ainda pode ser concluída.",
+      "action": "Verifique o status da máquina com cmux vm ls ou na lista de máquinas antes de tentar novamente."
+    },
     "providerTimeout": {
       "title": "O provedor de nuvem está lento",
       "message": "O provedor de nuvem não respondeu a tempo.",

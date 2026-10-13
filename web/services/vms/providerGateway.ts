@@ -31,6 +31,7 @@ import {
   type VMVolumeInventory,
   type VMVolumeListOptions,
   type VMStatus,
+  type VmPauseState,
   type VMStats,
   type VMResourceStatsResult,
   type VMResizeOptions,
@@ -42,6 +43,7 @@ import {
   type EnsureProviderNetworkOptions,
   vmCapabilitiesFor,
 } from "./drivers";
+import { VM_PROVIDER_CREATE_TIMEOUT_MS } from "./operationTimeouts";
 import { VmOperationUnsupportedError, VmProviderOperationError } from "./errors";
 import { VmProviderReadDeadline } from "./routeDeadline";
 import { ProviderReadDeadlineError, type ProviderReadOptions } from "./drivers/types";
@@ -60,6 +62,7 @@ export type VmProviderGatewayShape = {
     options?: VMVolumeListOptions,
   ) => Effect.Effect<VMVolumeInventory, VmProviderOperationError>;
   readonly getStatus?: (provider: ProviderId, vmId: string) => Effect.Effect<VMStatus, VmProviderOperationError>;
+  readonly getPauseState?: (provider: ProviderId, vmId: string) => Effect.Effect<VmPauseState | null, VmProviderOperationError>;
   readonly resume?: (provider: ProviderId, vmId: string) => Effect.Effect<VMHandle, VmProviderOperationError>;
   readonly pause?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly setRuntimeBudget?: (provider: ProviderId, vmId: string, remainingSeconds: number | null) => Effect.Effect<void, VmProviderOperationError>;
@@ -261,8 +264,20 @@ function providerEffect<A>(
 }
 
 export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
+  // Bounded by the provider create deadline even when the SDK polls past it,
+  // so a create answered "in progress" (routeDeadline.ts) reaches createVm's
+  // failure path (credit refund, row failed) inside the route's reserve.
   create: (provider, options) =>
-    providerEffect(provider, "create", () => getProvider(provider).create(options)),
+    providerEffect(provider, "create", () => getProvider(provider).create(options)).pipe(
+      Effect.timeoutFail({
+        duration: VM_PROVIDER_CREATE_TIMEOUT_MS,
+        onTimeout: () => new VmProviderOperationError({
+          provider,
+          operation: "create",
+          cause: new Error(`provider create did not answer within ${VM_PROVIDER_CREATE_TIMEOUT_MS / 60_000} minutes`),
+        }),
+      }),
+    ),
   destroy: (provider, vmId) =>
     providerEffect(provider, "destroy", () => getProvider(provider).destroy(vmId)),
   deleteHomeVolume: (provider, volumeName) =>
@@ -288,6 +303,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       const driver = getProvider(provider);
       if (!driver.getStatus) return "running" as const;
       return await driver.getStatus(vmId, options);
+    }),
+  getPauseState: (provider, vmId) =>
+    providerEffect(provider, "getPauseState", async () => {
+      const driver = getProvider(provider);
+      return driver.getPauseState ? await driver.getPauseState(vmId) : null;
     }),
   resume: (provider, vmId) =>
     providerEffect(provider, "resume", () => getProvider(provider).resume(vmId)),
