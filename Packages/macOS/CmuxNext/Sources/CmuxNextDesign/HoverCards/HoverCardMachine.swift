@@ -201,8 +201,9 @@ public nonisolated struct HoverCardMachine: Hashable, Sendable {
     }
 
     private mutating func arm(_ target: HoverTarget, moved: Bool) -> [HoverCardEffect] {
-        // No delay (the workspace card): a moving pointer's card shows on
-        // this hit; content moving under a still pointer waits a moment.
+        // A target with no delay: a moving pointer's card shows on this
+        // hit; content moving under a still pointer waits a moment. Targets
+        // with a delay (the workspace card's `motion.hoverCard.dwell`) wait it.
         if target.delay <= .zero, moved {
             let hadTimer = armedToken != nil
             phase = .shown(target)
