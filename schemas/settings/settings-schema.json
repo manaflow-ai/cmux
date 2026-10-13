@@ -9877,15 +9877,18 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "borders",
-      "default_label" : null,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.choice.default",
+        "text" : "Default"
+      },
       "group" : {
         "key" : "settings.group.panes",
         "text" : "Panes"
       },
       "help" : {
         "key" : "settings.layout.paneSeparation.help",
-        "text" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them."
+        "text" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.paneSeparation",
@@ -22777,7 +22780,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "e1accc7921a7410a1658c039cf80977708aff68a587e4f8215abf64386fcd662",
+  "schema_hash" : "811bbcf8076eb85701f52bba26e132b653388cda060b44d3faf2ec6cb623cfd2",
   "sections" : [
     {
       "id" : "general",
