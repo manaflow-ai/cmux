@@ -117,6 +117,10 @@ nonisolated enum RefusalStrings {
     static var personalStateLoading: String {
         text("handlers.refusal.personalStateLoading", "Spaces and workspace groups are still loading. Try again in a moment.")
     }
+    /// The home session registry has no record of this machine yet, so it has no icon to set.
+    static var machineIconNotRegistered: String {
+        text("handlers.refusal.machineIconNotRegistered", "This machine isn't registered yet. Try again in a moment.")
+    }
     /// A Cloud machine's own cmux is older than this app.
     static var updateCloudMachine: String { text("handlers.refusal.updateCloudMachineCmux", "Update cmux on this Cloud machine to use this.") }
     /// A feature this build has no implementation of; `feature` names it for
