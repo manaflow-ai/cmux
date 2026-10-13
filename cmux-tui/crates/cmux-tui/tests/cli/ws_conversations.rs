@@ -110,7 +110,11 @@ fn an_authenticated_websocket_client_reads_and_writes_the_persons_conversations(
 
     let list = page.request("conversation-list", json!({}));
     assert!(
-        list["conversations"].as_array().unwrap().iter().any(|summary| summary["id"] == conversation),
+        list["conversations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|summary| summary["id"] == conversation),
         "{list}"
     );
     let snapshot =
@@ -169,5 +173,7 @@ fn a_headless_daemon_starts_with_an_allowed_browser_origin() {
     server.wait_for_socket();
     let mut page = Ws::open(&ws_addr(&server));
     let identity = page.request("identify", json!({}));
-    assert!(identity["capabilities"].as_array().unwrap().iter().any(|v| v == "ws-conversations-v1"));
+    assert!(
+        identity["capabilities"].as_array().unwrap().iter().any(|v| v == "ws-conversations-v1")
+    );
 }

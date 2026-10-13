@@ -3683,9 +3683,6 @@ mod conversation_threads;
 #[path = "cli/explicit_socket.rs"]
 mod explicit_socket;
 #[cfg(unix)]
-#[path = "cli/ws_conversations.rs"]
-mod ws_conversations;
-#[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
 #[path = "cli/git_branches.rs"]
@@ -3717,6 +3714,9 @@ mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
+#[cfg(unix)]
+#[path = "cli/ws_conversations.rs"]
+mod ws_conversations;
 use state_helpers::*;
 
 #[cfg(unix)]
