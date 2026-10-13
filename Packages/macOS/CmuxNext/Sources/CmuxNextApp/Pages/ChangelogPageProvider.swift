@@ -39,8 +39,6 @@ final class ChangelogPageProvider: PageProvider {
                 throw PageError(code: "cmux.changelog.not_found", message: "No verified notes for this build", retryable: true)
             }
             if let media { notes = await media.inlined(notes) }
-            // Older notes carry only commit subjects: the page lists titles with their pull request.
-            notes.items = notes.changeItems
             notes.highlights = notes.highlights.map { highlight in
                 var highlight = highlight
                 if let action = highlight.action, !PageDescriptor.changelogTryItActions.contains(action.id) { highlight.action = nil }
