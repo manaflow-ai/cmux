@@ -136,6 +136,11 @@ final class SharedLiveAgentIndex {
     // restored terminal behind admission indefinitely.
     nonisolated static let defaultOwnershipRefreshTimeoutNanoseconds: UInt64 = 10_000_000_000
     private let ownershipRefreshTimeoutNanoseconds: UInt64
+    // A full scan may outlive the request that started it; the other waiters
+    // and later requests still need its result. This only bounds a loader that
+    // never returns, so a slow process census still publishes an index (#20186).
+    nonisolated static let defaultIndexLoaderTimeoutNanoseconds: UInt64 = 30_000_000_000
+    private let indexLoaderTimeoutNanoseconds: UInt64
 
     nonisolated private static func remainingOwnershipRefreshNanoseconds(
         until deadline: UInt64
@@ -175,7 +180,8 @@ final class SharedLiveAgentIndex {
                 pendingReservationCount: pendingReservationCount
             )
         },
-        ownershipRefreshTimeoutNanoseconds: UInt64 = SharedLiveAgentIndex.defaultOwnershipRefreshTimeoutNanoseconds
+        ownershipRefreshTimeoutNanoseconds: UInt64 = SharedLiveAgentIndex.defaultOwnershipRefreshTimeoutNanoseconds,
+        indexLoaderTimeoutNanoseconds: UInt64 = SharedLiveAgentIndex.defaultIndexLoaderTimeoutNanoseconds
     ) {
         self.indexLoader = indexLoader
         self.processSnapshotLoader = processSnapshotLoader
@@ -186,6 +192,10 @@ final class SharedLiveAgentIndex {
         self.dateProvider = dateProvider
         self.forkExecutableWatchSourceBudgetProvider = forkExecutableWatchSourceBudgetProvider
         self.ownershipRefreshTimeoutNanoseconds = ownershipRefreshTimeoutNanoseconds
+        self.indexLoaderTimeoutNanoseconds = max(
+            indexLoaderTimeoutNanoseconds,
+            ownershipRefreshTimeoutNanoseconds
+        )
     }
     func forkValidationExecutableFingerprint(
         snapshot: SessionRestorableAgentSnapshot,
@@ -510,11 +520,16 @@ final class SharedLiveAgentIndex {
     /// the other waiters and later requests coalesce onto it: cancelling it
     /// failed every concurrent restore, so after a relaunch with many agent
     /// panes some deadline always expired first and none was admitted (#20186).
-    func indexForOwnershipDecision() async -> SharedLiveAgentIndexRefreshOutcome {
+    ///
+    /// - Parameter timeoutNanoseconds: This request's deadline; `nil` uses the
+    ///   instance default.
+    func indexForOwnershipDecision(
+        timeoutNanoseconds: UInt64? = nil
+    ) async -> SharedLiveAgentIndexRefreshOutcome {
         ensureWatchingHookStoreDirectory()
         var requestedRefreshGeneration: UUID?
         let ownershipRefreshDeadline = DispatchTime.now().uptimeNanoseconds
-            &+ ownershipRefreshTimeoutNanoseconds
+            &+ (timeoutNanoseconds ?? ownershipRefreshTimeoutNanoseconds)
         while true {
             guard !Task.isCancelled else { return .cancelled }
             guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
@@ -531,8 +546,10 @@ final class SharedLiveAgentIndex {
                     )
                 ) else {
                     guard !Task.isCancelled else { return .cancelled }
-                    preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return .timedOut
+                    // A refresh that failed before this deadline leaves time
+                    // for another scan; the loop's deadline check ends it.
+                    requestedRefreshGeneration = nil
+                    continue
                 }
                 guard !Task.isCancelled else { return .cancelled }
                 if let index,
@@ -570,8 +587,7 @@ final class SharedLiveAgentIndex {
                     )
                 ) else {
                     guard !Task.isCancelled else { return .cancelled }
-                    preservePendingHookChangeAfterOwnershipRefreshFailure()
-                    return .timedOut
+                    continue
                 }
                 guard DispatchTime.now().uptimeNanoseconds < ownershipRefreshDeadline else {
                     preservePendingHookChangeAfterOwnershipRefreshFailure()
@@ -1502,7 +1518,7 @@ final class SharedLiveAgentIndex {
         guard let result = await awaitIndexLoaderResult(
             loader.task,
             generation: loader.generation,
-            timeoutNanoseconds: ownershipRefreshTimeoutNanoseconds
+            timeoutNanoseconds: indexLoaderTimeoutNanoseconds
         ) else {
             retireTimedOutIndexLoader(generation: loader.generation)
             removeOrMarkCancelledForkValidationRequests(

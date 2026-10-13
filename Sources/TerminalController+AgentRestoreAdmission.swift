@@ -28,6 +28,13 @@ private enum AgentRestoreAdmissionDecision: Sendable {
 }
 
 extension TerminalController {
+    /// How long one admission request waits for a scan that started after it.
+    /// A census over thousands of processes can take most of the default
+    /// budget, and a request that arrives mid-scan may need that scan plus its
+    /// own, so admission waits longer while staying inside the CLI's 30-second
+    /// response timeout (#20186).
+    nonisolated static let agentRestoreAdmissionIndexTimeoutNanoseconds: UInt64 = 20_000_000_000
+
     /// Validates current surface ownership, refreshes live process evidence off-main,
     /// and atomically claims a managed session immediately before the CLI execs it.
     #if compiler(>=6.2)
@@ -66,6 +73,7 @@ extension TerminalController {
         )
         let liveOwner: LiveAgentSessionOwner?
         let indexComplete: Bool
+        var indexTimedOut = false
         if inputs.kind == "codex", writer != nil {
             let evidence = await codexRestoreHookEvidence.load(sessionID: inputs.sessionID) { pid in
                 guard pid > 0, pid <= Int(Int32.max) else { return nil }
@@ -74,7 +82,9 @@ extension TerminalController {
             liveOwner = evidence.owner
             indexComplete = evidence.isComplete
         } else {
-            switch await SharedLiveAgentIndex.shared.indexForOwnershipDecision() {
+            switch await SharedLiveAgentIndex.shared.indexForOwnershipDecision(
+                timeoutNanoseconds: Self.agentRestoreAdmissionIndexTimeoutNanoseconds
+            ) {
             case .index(let index):
                 liveOwner = index.liveSessionOwner(
                     kind: inputs.kind, sessionID: inputs.sessionID, revalidateProcessEvidence: true,
@@ -101,6 +111,7 @@ extension TerminalController {
 #endif
                 liveOwner = nil
                 indexComplete = false
+                indexTimedOut = true
             }
         }
         guard !Task.isCancelled else {
@@ -157,8 +168,10 @@ extension TerminalController {
             return .admitted(claim)
         }
         // The CLI keeps the original restore operation alive. Each subsequent
-        // request is paced by kernel evidence or the bounded RPC deadline.
-        if inputs.waitForChange {
+        // request is paced by kernel evidence or the bounded RPC deadline. A
+        // request that already spent its budget waiting for the index answers
+        // now, so the CLI's response timeout cannot end the restore.
+        if inputs.waitForChange, !indexTimedOut {
             switch decision {
             case .recovering:
                 let kind = RestorableAgentKind(rawValue: inputs.kind)
