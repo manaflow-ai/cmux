@@ -10,7 +10,6 @@ use std::time::Duration;
 /// explicitly: a child forked but not yet exec'd shares the open file
 /// description, so closing this descriptor alone would leave the lock held
 /// after the daemon exits, and the next daemon would find it taken.
-#[cfg_attr(not(unix), allow(dead_code))]
 pub(super) struct DaemonLock(std::fs::File);
 
 #[cfg(unix)]
@@ -37,10 +36,27 @@ pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
     }
     Ok(DaemonLock(file))
 }
-/// Windows port: the daemon lock is `LockFileEx` there (a later landing).
-#[cfg(not(unix))]
-pub(super) fn acquire_lock(_path: &PathBuf) -> Result<DaemonLock> {
-    Err(crate::platform::unsupported("the acpmux daemon"))
+/// Windows: an exclusive `LockFileEx` lock (std's `File::try_lock`), held
+/// while the file stays open; the system releases it when the daemon exits
+/// (a child gets no copy: the daemon starts children with a handle list).
+#[cfg(windows)]
+pub(super) fn acquire_lock(path: &PathBuf) -> Result<DaemonLock> {
+    use anyhow::{Context, anyhow};
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(path)
+        .with_context(|| format!("open {}", path.display()))?;
+    match file.try_lock() {
+        Ok(()) => Ok(DaemonLock(file)),
+        Err(std::fs::TryLockError::WouldBlock) => {
+            Err(anyhow!("another acpmux daemon holds {}", path.display()))
+        }
+        Err(std::fs::TryLockError::Error(e)) => {
+            Err(anyhow::Error::new(e).context(format!("lock {}", path.display())))
+        }
+    }
 }
 
 /// Polls a non-blocking `flock`, so the deadline always ends the wait: a
@@ -68,10 +84,25 @@ pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bo
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
 }
-/// Windows port: no daemon runs there yet, so no lock is held.
-#[cfg(not(unix))]
-pub(super) async fn wait_for_lock_release(_lock: PathBuf, _budget: Duration) -> bool {
-    true
+/// Windows: polls a non-blocking `LockFileEx` (std's `File::try_lock`), as
+/// the Unix arm polls `flock`.
+#[cfg(windows)]
+pub(super) async fn wait_for_lock_release(lock: PathBuf, budget: Duration) -> bool {
+    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(&lock) else {
+        return true;
+    };
+    let deadline = tokio::time::Instant::now() + budget;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return true,
+            Err(std::fs::TryLockError::WouldBlock) => {}
+            Err(std::fs::TryLockError::Error(_)) => return false,
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 /// Debug builds only: `ACPMUX_TEST_FORK_HOLD_MS` forks a child that sleeps
