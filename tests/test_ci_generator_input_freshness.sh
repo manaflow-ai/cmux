@@ -58,6 +58,33 @@ fi
 grep -q "generator inputs are stale" "$repo/red.log"
 printf '%s\n' 'red: stale PR refused before generation'
 
+# Red again: a merge can resolve a generator-input conflict by keeping the PR
+# parent. The merge is still stale until the source is explicitly refreshed.
+git -C "$repo" branch merge-pr pr
+git -C "$repo" checkout -q merge-pr
+printf '{"rows":[{"key":"setting.prOnly","default":false}]}\n' > "$repo/schemas/settings/settings-schema.json"
+git -C "$repo" add schemas/settings/settings-schema.json
+git -C "$repo" commit -q -m 'pr edits the same generator input'
+if git -C "$repo" merge -q --no-edit base; then
+  echo "expected a generator-input merge conflict" >&2
+  exit 1
+fi
+git -C "$repo" checkout -q --ours schemas/settings/settings-schema.json
+git -C "$repo" add schemas/settings/settings-schema.json
+git -C "$repo" commit -q -m 'merge base but keep stale generator input'
+if (cd "$repo" && "$checker" --base-ref base) >"$repo/merge-red.log" 2>&1; then
+  cat "$repo/merge-red.log" >&2
+  echo "expected stale merge resolution to be rejected" >&2
+  exit 1
+fi
+grep -q "resolved away from the base parent" "$repo/merge-red.log"
+printf '%s\n' 'red: stale merge resolution refused'
+printf '{"rows":[{"key":"setting.baseOnly","default":true},{"key":"setting.prOnly","default":false}]}\n' > "$repo/schemas/settings/settings-schema.json"
+git -C "$repo" add schemas/settings/settings-schema.json
+git -C "$repo" commit -q -m 'refresh generator input after merge'
+(cd "$repo" && "$checker" --base-ref base)
+printf '%s\n' 'green: refreshed merge resolution allowed'
+
 # Green: once the PR incorporates base, the same head-only generator retains
 # the base default and the freshness gate allows the run.
 git -C "$repo" merge -q --no-edit base

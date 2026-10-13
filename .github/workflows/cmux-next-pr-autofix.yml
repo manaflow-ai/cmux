@@ -75,7 +75,9 @@ jobs:
       - name: Refuse stale generator inputs
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/autofix/scripts/cmux-next/check-generator-inputs.sh" --base-ref FETCH_HEAD
+          checker="$RUNNER_TEMP/autofix/scripts/cmux-next/check-generator-inputs.sh"
+          [[ -x "$checker" ]] || checker="$GITHUB_WORKSPACE/scripts/cmux-next/check-generator-inputs.sh"
+          "$checker" --base-ref FETCH_HEAD
 
       # The same paths as repair's Changed areas step (the files API, an
       # autofix head repairs nothing); only the actions key is used.
@@ -145,7 +147,9 @@ jobs:
       - name: Refuse stale generator inputs
         run: |
           set -euo pipefail
-          "$RUNNER_TEMP/autofix/scripts/cmux-next/check-generator-inputs.sh" --base-ref FETCH_HEAD
+          checker="$RUNNER_TEMP/autofix/scripts/cmux-next/check-generator-inputs.sh"
+          [[ -x "$checker" ]] || checker="$GITHUB_WORKSPACE/scripts/cmux-next/check-generator-inputs.sh"
+          "$checker" --base-ref FETCH_HEAD
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -248,7 +252,9 @@ jobs:
       - name: Refuse stale generator inputs
         run: |
           set -euo pipefail
-          "$AUTOFIX/check-generator-inputs.sh" --base-ref FETCH_HEAD
+          checker="$AUTOFIX/check-generator-inputs.sh"
+          [[ -x "$checker" ]] || checker="$GITHUB_WORKSPACE/scripts/cmux-next/check-generator-inputs.sh"
+          "$checker" --base-ref FETCH_HEAD
 
       - name: Changed areas
         id: areas

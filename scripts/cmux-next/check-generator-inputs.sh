@@ -45,9 +45,9 @@ for path in "${base_changed[@]}"; do
 done
 
 # A merge commit can hide the same stale tree: #20121 merged the current base
-# but resolved settings-schema.json by keeping the old first parent. Detect a
-# merge whose newer parent contains the base while its result keeps the older
-# parent for a generator input.
+# but resolved settings-schema.json away from the newer base parent. Any merge
+# resolution that changes a generator input from the base parent is ambiguous;
+# require an explicit follow-up source refresh before autofix runs.
 while IFS= read -r merge; do
   [[ -n "$merge" ]] || continue
   read -r _ first second < <(git rev-list --parents -n1 "$merge")
@@ -75,8 +75,9 @@ while IFS= read -r merge; do
   fi
   for path in "${paths[@]}"; do
     if ! git diff --quiet "$pr_parent" "$base_parent" -- "$path" && \
-       git diff --quiet "$pr_parent" "$merge" -- "$path"; then
-      stale+=("$path (merge $merge kept the pre-base parent)")
+       ! git diff --quiet "$base_parent" "$merge" -- "$path" && \
+       git diff --quiet "$merge" "$head_ref" -- "$path"; then
+      stale+=("$path (merge $merge resolved away from the base parent)")
     fi
   done
 done < <(git rev-list --merges "$merge_base..$head_ref")
