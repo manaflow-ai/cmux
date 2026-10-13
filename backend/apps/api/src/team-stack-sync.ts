@@ -329,7 +329,8 @@ const backoff = (deps: StackSyncDeps, row: QueueRow, now: number, why: "paced" |
   const fails = row.fails + 1
   if (fails > SYNC_MAX_FAILS) {
     deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ?`, row.k)
-    console.error(JSON.stringify({ msg: "stack team sync gave up; ended", team: deps.team, type: row.type, code: why, fails: row.fails }))
+    // A stable alert key (cx-f5tk4): Axiom cmux-api-prod-logs, body contains "stack team sync abandoned".
+    console.error(JSON.stringify({ msg: "stack team sync abandoned", team: deps.team, type: row.type, code: why, fails: row.fails }))
     return
   }
   deps.sql.exec(`INSERT OR REPLACE INTO stack_team_recheck (k, type, stack_team, stack_user, due_at, attempts, fails) VALUES (?, ?, ?, ?, ?, ?, ?)`, row.k, row.type, row.stack_team, row.stack_user, now + syncBackoffMs(fails), row.attempts, fails)
