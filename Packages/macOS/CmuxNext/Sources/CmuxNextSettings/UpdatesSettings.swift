@@ -1,5 +1,5 @@
 // The paths, defaults, ranges and the choice enums (UpdatesMeteredSetting, UpdatesNotifySetting)
-// are generated from schemas/settings/source/updates.json (Schema/SettingsSchema+Updates.generated.swift,
+// are generated from schemas/settings/source/updates.json (Schema/SettingsSchema+Updates*.generated.swift,
 // cx-d5b5d); this file only parses.
 
 /// `updates.*` in cmux.json (R114): automatic checks, downloads and

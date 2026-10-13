@@ -109,10 +109,23 @@ def check_text(src, where, text, optional=False):
             fail(src, "%s has a control character or an interpolation: %r" % (where, value))
 
 
+SWIFT_KEYWORDS = {"associatedtype", "class", "deinit", "enum", "extension", "fileprivate", "func", "import", "init",
+                  "inout", "internal", "let", "open", "operator", "private", "protocol", "public", "rethrows",
+                  "static", "struct", "subscript", "typealias", "var", "break", "case", "continue", "default",
+                  "defer", "do", "else", "fallthrough", "for", "guard", "if", "in", "repeat", "return", "switch",
+                  "where", "while", "as", "any", "catch", "false", "is", "nil", "super", "self", "Self", "throw",
+                  "throws", "true", "try"}
+
+
+def check_note(src, where, note):
+    if note is not None and (not isinstance(note, str) or any(ord(ch) < 0x20 for ch in note)):
+        fail(src, "%s: note is one line of text" % where)
+
+
 def camel(value):
     parts = value.split("-")
     name = parts[0] + "".join(part[:1].upper() + part[1:] for part in parts[1:])
-    if not IDENT.match(name):
+    if not IDENT.match(name) or name in SWIFT_KEYWORDS:
         raise SystemExit("choice value %r gives no Swift case name" % value)
     return name
 
@@ -139,6 +152,7 @@ def load_section(section, seen_keys):
         if entry["section"] not in SECTION_IDS:
             fail(src, "unknown section %r" % entry["section"])
         check_text(src, entry["name"] + ".group", entry["group"])
+        check_note(src, entry["name"], entry.get("note"))
         idents = set()
         for row in entry["rows"]:
             key = row.get("key", "")
@@ -152,6 +166,7 @@ def load_section(section, seen_keys):
                 fail(src, "%s: bad or duplicate name %r" % (key, name))
             idents.add(name)
             row["_name"] = name
+            check_note(src, key, row.get("note"))
             check_text(src, key + ".title", row.get("title"))
             for field in ("help", "summary", "default_label"):
                 check_text(src, key + "." + field, row.get(field), optional=True)
@@ -193,13 +208,21 @@ def doc(text, indent):
     return "%s/// %s\n" % (indent, text) if text else ""
 
 
-def section_swift(section, data):
+def choices_swift(section, data):
+    """{path: text} of the choice enum files, at most 3 enums per file (check-no-godfiles.sh)."""
+    rows = [row for entry in data["lists"] for row in entry["rows"] if row["kind"] == "choice"]
+    files = {}
+    for index in range(0, len(rows), 3):
+        suffix = "Choices" if index == 0 else "Choices%d" % (index // 3 + 1)
+        path = section["swift"].replace(".generated.swift", suffix + ".generated.swift")
+        files[path] = enums_swift(section, rows[index:index + 3])
+    return files
+
+
+def enums_swift(section, rows):
     out = ["// " + HEADER.format(c="//", src=section["source"]), ""]
-    # Choice enums.
-    for entry in data["lists"]:
-        for row in entry["rows"]:
-            if row["kind"] != "choice":
-                continue
+    for row in rows:
+        if True:
             enum = section["enums"][row["key"]]
             out.append(doc(row.get("note"), "").rstrip("\n") or "/// The values of `%s`." % row["key"])
             out.append("public nonisolated enum %s: String, Sendable, Hashable, CaseIterable {" % enum)
@@ -214,6 +237,11 @@ def section_swift(section, data):
                 out.append("    static let legacyValues: [String: Self] = [%s]" % pairs)
             out.append("}")
             out.append("")
+    return "\n".join(out[:-1]) + "\n"
+
+
+def section_swift(section, data):
+    out = ["// " + HEADER.format(c="//", src=section["source"]), ""]
     # Parser constants.
     for entry in data["lists"]:
         _, owner = section["lists"][entry["name"]]
@@ -285,7 +313,9 @@ def main():
     outputs = {RETIRED_SWIFT: retired_swift(load_retired())}
     seen_keys = {entry["key"] for entry in load_retired()}
     for section in SECTIONS:
-        outputs[section["swift"]] = section_swift(section, load_section(section, seen_keys))
+        data = load_section(section, seen_keys)
+        outputs[section["swift"]] = section_swift(section, data)
+        outputs.update(choices_swift(section, data))
     drifted = []
     for path, text in outputs.items():
         full = os.path.join(ROOT, path)
