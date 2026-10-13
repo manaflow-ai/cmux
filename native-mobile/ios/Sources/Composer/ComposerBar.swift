@@ -181,8 +181,29 @@ struct ComposerBar: View {
             }
             .accessibilityIdentifier("composer.cancel")
         } else if model.canSend {
-            circleButton(systemImage: "arrow.up", prominent: true, label: String(localized: "Send")) {
+            // Tap sends; a long press offers Type Without Return, to build a
+            // command over several sends (Messages keeps send options on the
+            // same long press). Menu(primaryAction:) is the system pattern;
+            // a context menu on the glass button never opened.
+            Menu {
+                Button {
+                    model.startSend(to: session, services: services, pressReturn: false)
+                } label: {
+                    Label(String(localized: "Type Without Return"), systemImage: "text.insert")
+                }
+            } label: {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(Color.black)
+                    .frame(width: 44, height: 44)
+            } primaryAction: {
                 model.startSend(to: session, services: services)
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.tint(.white).interactive(), in: .circle)
+            .accessibilityLabel(String(localized: "Send"))
+            .accessibilityAction(named: Text(String(localized: "Type Without Return"))) {
+                model.startSend(to: session, services: services, pressReturn: false)
             }
             .accessibilityIdentifier("composer.send")
         } else if agentWorking {

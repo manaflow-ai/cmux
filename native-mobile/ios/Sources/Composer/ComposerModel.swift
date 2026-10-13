@@ -82,10 +82,12 @@ final class ComposerModel {
     @ObservationIgnored private var sendTask: Task<Void, Never>?
 
     /// Starts a send the user can cancel while attachments upload.
-    func startSend(to session: TerminalSession, services: ServiceClient?) {
+    /// `pressReturn: false` types the message without submitting it, for
+    /// building a command over several sends.
+    func startSend(to session: TerminalSession, services: ServiceClient?, pressReturn: Bool? = nil) {
         guard canSend, sendTask == nil else { return }
         sendTask = Task {
-            await send(to: session, services: services)
+            await send(to: session, services: services, pressReturn: pressReturn)
             sendTask = nil
         }
     }
@@ -98,7 +100,7 @@ final class ComposerModel {
 
     /// Uploads, types and submits. Returns false (keeping the draft) on failure.
     @discardableResult
-    func send(to session: TerminalSession, services: ServiceClient?) async -> Bool {
+    func send(to session: TerminalSession, services: ServiceClient?, pressReturn: Bool? = nil) async -> Bool {
         guard canSend else { return false }
         // Input sent while the terminal (re)attaches is dropped; keep the
         // draft instead of clearing it as if it went through.
@@ -146,11 +148,11 @@ final class ComposerModel {
             }
         }
         var message = Self.plainPunctuation(text.trimmingCharacters(in: .newlines))
-        let submit = Self.submits(text: message, hasPaths: !paths.isEmpty, isTUI: session.isTUI)
-        if !paths.isEmpty {
-            message = Self.appendingPaths(paths, to: message)
-            if !submit { message += " " }
-        }
+        let submit = Self.submits(text: message, hasPaths: !paths.isEmpty, isTUI: session.isTUI, pressReturn: pressReturn)
+        if !paths.isEmpty { message = Self.appendingPaths(paths, to: message) }
+        // A line left open gets a space, so the next piece doesn't run into
+        // it ("git commit" then "-m wip").
+        if !submit, let last = message.last, !last.isWhitespace { message += " " }
         if message.contains("\n") {
             session.paste(message)
         } else {
@@ -171,6 +173,12 @@ final class ComposerModel {
     /// full-screen program) and any typed text submit.
     nonisolated static func submits(text: String, hasPaths: Bool, isTUI: Bool) -> Bool {
         isTUI || !hasPaths || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// `pressReturn`: the user's explicit choice ("Type Without Return"),
+    /// else the rule above.
+    nonisolated static func submits(text: String, hasPaths: Bool, isTUI: Bool, pressReturn: Bool?) -> Bool {
+        pressReturn ?? submits(text: text, hasPaths: hasPaths, isTUI: isTUI)
     }
 
     /// The message with the uploaded paths after it, one space between
