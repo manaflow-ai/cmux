@@ -70,9 +70,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
         }
         var handshake = AgentPaneHandshake.acpmux(.remote(route), sessionId: session)
-        // The chat exists on its machine: never a fallback to another one. A new one starts in its
-        // seed's folder, which the page asks the trust question about before the first send.
-        if session != nil { handshake.sessionMustExist = true } else { handshake.newSession = true }
+        // The chat exists on its machine: never a fallback to another one.
+        if session != nil { handshake.sessionMustExist = true }
         // The composer's machine chip names the chat's machine, not this Mac (cx-k21v).
         handshake.machineName = machine
         return handshake
