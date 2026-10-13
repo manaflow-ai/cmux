@@ -4963,7 +4963,10 @@
     "title": "cmux にサインインしました",
     "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
     "button": "cmux に戻る",
-    "switchAccountButton": "別のアカウントを使用"
+    "switchAccountButton": "別のアカウントを使用",
+    "rateLimitedTitle": "サインインが混み合っています",
+    "rateLimitedBody": "サインインサービスへのリクエストが集中しています。数秒待ってから続行してください。もう一度サインインする必要はありません。",
+    "retryButton": "サインインを続ける"
   },
   "billingSuccess": {
     "metaTitle": "cmux Pro が有効になりました",
@@ -7177,7 +7180,10 @@
     "switchFailed": "サインアウトできませんでした。もう一度お試しください。",
     "invalidTitle": "この招待はもう有効ではありません",
     "invalidBody": "期限切れ、取り消し済み、または使用済みです。チームの管理者に新しい招待を依頼してください。",
-    "goToTeams": "チーム一覧へ"
+    "goToTeams": "チーム一覧へ",
+    "unavailableTitle": "サインインを確認できませんでした",
+    "unavailableBody": "サインインサービスが混み合っています。数秒待ってから、もう一度招待を開いてください。もう一度サインインする必要はありません。",
+    "retry": "再試行"
   },
   "mobile": {
     "agentFeed": {
