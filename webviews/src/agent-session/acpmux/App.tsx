@@ -525,10 +525,25 @@ const DateRow = memo(
 );
 /// A running turn's status: "Thinking", then "Working for 42s" (turnView in conversation/turns.ts).
 const ThinkingRow = memo(
-  function ThinkingRow(_: RowProps) {
-    return <Thinking />;
+  function ThinkingRow({ row }: RowProps) {
+    const queued = row.queued;
+    return (
+      <Thinking
+        status={row.status}
+        onCancel={
+          queued
+            ? () => void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: queued })
+            : undefined
+        }
+      />
+    );
   },
-  (a, b) => a.row.id === b.row.id,
+  // The start status line (version 0) becomes "Thinking" (version 1) in place.
+  (a, b) =>
+    a.row.id === b.row.id &&
+    a.row.version === b.row.version &&
+    a.row.status === b.row.status &&
+    a.row.queued === b.row.queued,
 );
 const WorkingRow = memo(
   function WorkingRow({ row }: RowProps) {
