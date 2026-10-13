@@ -4,6 +4,72 @@
     "statusBar.error.noOutput": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Naredba statusne trake je završila bez ispisa reda"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statuslinjens kommando afsluttede uden at udskrive en linje"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il comando della barra di stato è terminato senza stampare una riga"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពាក្យបញ្ជារបារស្ថានភាពបានបញ្ចប់ដោយមិនបានបង្ហាញបន្ទាត់ណាមួយ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Statuslinjekommandoen avsluttet uten å skrive ut en linje"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Polecenie paska stanu zakończyło się bez wypisania wiersza"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O comando da barra de status terminou sem imprimir uma linha"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда строки состояния завершилась, не выведя ни одной строки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คำสั่งแถบสถานะจบการทำงานโดยไม่ได้พิมพ์บรรทัดใดออกมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durum çubuğu komutu bir satır yazdırmadan sonlandı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда рядка стану завершилася, не вивівши жодного рядка"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
@@ -63,6 +129,72 @@
     "statusBar.help.refresh": {
       "extractionState": "manual",
       "localizations": {
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknite za osvježavanje"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klik for at opdatere"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fai clic per aggiornare"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ចុចដើម្បីផ្ទុកឡើងវិញ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klikk for å oppdatere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kliknij, aby odświeżyć"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clique para atualizar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нажмите, чтобы обновить"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "คลิกเพื่อรีเฟรช"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Yenilemek için tıklayın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Натисніть, щоб оновити"
+          }
+        },
         "en": {
           "stringUnit": {
             "state": "translated",
