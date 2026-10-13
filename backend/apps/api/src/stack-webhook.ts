@@ -81,6 +81,12 @@ export const handleStackWebhook = async (request: Request, env: Env, nowMs: numb
   const stackUser = MEMBERSHIP_EVENTS.has(type) ? data.user_id : undefined
   if (typeof stackTeam !== "string" || !STACK_ID.test(stackTeam) || (MEMBERSHIP_EVENTS.has(type) && (typeof stackUser !== "string" || !STACK_ID.test(stackUser)))) return ignoredShape({ event_type, shape: "ids" })
   const team = stackTeamIdFor(env.STACK_PROJECT_ID, normalId(stackTeam))
+  // The shared pace of sign-in reads (cx-f5tk4): over it, a retryable 503 at once, no TeamDO wake and no
+  // read, so the sender's retries add no load on the sign-in service. Fails closed: a limiter error holds too.
+  if (env.STACK_READ_LIMIT) {
+    const paced = await env.STACK_READ_LIMIT.limit({ key: `stack-reads:${env.STACK_PROJECT_ID}` }).then((r) => !r.success, () => true)
+    if (paced) return finish(503, "paced", failure("webhook.paced", "too many sign-in reads now; retry", true), { svix_id, event_type, team })
+  }
   const stub = env.TEAM_DO.get(env.TEAM_DO.idFromName(team)) as unknown as TeamWebhookStub
   let reply: StackSyncReply
   try {
