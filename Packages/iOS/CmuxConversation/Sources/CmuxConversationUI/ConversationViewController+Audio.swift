@@ -96,7 +96,7 @@ final class ConversationAudioComposer {
     private func setShowsRecordButton() {
         guard !showsRecordButton, let button = controller?.composer.micButton else { return }
         showsRecordButton = true
-        button.setImage(UIImage(systemName: "waveform", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
+        controller?.composer.showRecordGlyph()
         button.isUserInteractionEnabled = true
         button.isAccessibilityElement = true
     }

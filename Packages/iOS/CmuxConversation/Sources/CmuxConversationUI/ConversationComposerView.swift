@@ -172,6 +172,10 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         plusGlass.contentView.addSubview(plusButton)
         plusButton.setImage(UIImage(systemName: "plus", withConfiguration: Self.plusSymbolConfiguration), for: .normal)
         plusButton.tintColor = .label
+        // Disabled (New Message before a recipient) Messages draws the plus
+        // at 30 % ink: 176 on the light glass (iOS 27.0), where UIKit's own
+        // disabled dimming read 137.
+        plusButton.setImage(UIImage(systemName: "plus", withConfiguration: Self.plusSymbolConfiguration)?.withTintColor(UIColor.label.withAlphaComponent(0.3), renderingMode: .alwaysOriginal), for: .disabled)
         plusButton.addAction(UIAction { [weak self] _ in
             guard let self else { return }
             self.delegate?.composerDidTapPlus(self)
@@ -266,6 +270,13 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         sendLaterChip.onEdit = { [weak self] in self?.onSendLaterEdit?() }
         sendLaterChip.onClose = { [weak self] in self?.onSendLaterClose?() }
         fieldGlass.contentView.addSubview(sendLaterChip)
+    }
+
+    /// Messages' record-audio waveform in place of the microphone: New
+    /// Message shows it from the start (iOS 26.5 and 27.0), a conversation
+    /// once you have sent audio in it.
+    func showRecordGlyph() {
+        micButton.setImage(UIImage(systemName: "waveform", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
     }
 
     /// Turns Send Later on (a date) or off (nil): the chip appears at the top

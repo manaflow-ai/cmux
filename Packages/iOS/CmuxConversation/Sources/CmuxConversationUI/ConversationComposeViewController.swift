@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import CmuxConversationCore
+import CmuxConversationGeometry
 import UIKit
 
 /// Messages' New Message sheet: "New Message" with a glass X, the To: field
@@ -137,6 +138,12 @@ public final class ConversationComposeViewController: UIViewController {
         // Messages' compose composer: no placeholder, apps disabled until a conversation exists.
         composer.placeholderText = ""
         composer.plusButton.isEnabled = false
+        // Messages' New Message field shows the record waveform, dimmed
+        // with the field until a recipient is in.
+        composer.showRecordGlyph()
+        // The keyboard is up for the whole of New Message: the bar keeps
+        // its keyboard side inset (16 pt), as Messages' does.
+        composer.keyboardProgress = 1
         composerContainer.addSubview(composer)
         let composerHeight = composer.heightAnchor.constraint(equalToConstant: composer.preferredHeight)
         self.composerHeight = composerHeight
@@ -161,7 +168,9 @@ public final class ConversationComposeViewController: UIViewController {
             suggestionsTable.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
             composerContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             composerContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            composerContainer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -4),
+            // Like the conversation's docked composer: the field 16 pt above
+            // the keyboard (Messages' New Message, iOS 27.0: 557 over 573).
+            composerContainer.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -4 + ConversationKeyboardPinGeometry.dockedDrop),
             composer.topAnchor.constraint(equalTo: composerContainer.topAnchor),
             composer.leadingAnchor.constraint(equalTo: composerContainer.leadingAnchor),
             composer.trailingAnchor.constraint(equalTo: composerContainer.trailingAnchor),
