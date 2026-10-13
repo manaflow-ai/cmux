@@ -104,3 +104,58 @@ test("the header shows Changes, Preview, Terminal and Browser; New tab, Files an
   root = undefined;
   configureQuickActions({});
 });
+
+test("a hidden Changes or Preview folds into the chat menu while it applies; the rows read the state as the menu opens", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ChatHeaderTools, HEADER_ACTIONS } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
+  const { setHeaderState } = await import("../src/agent-session/acpmux/header/headerState");
+  const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
+  const runs: string[] = [];
+  const render = (props: { hasChanges?: boolean; sideTabs?: boolean; tabTools?: boolean; refresh?: string[] }) => {
+    act(() => root?.unmount());
+    root = createRoot(doc.getElementById("root")!);
+    act(() =>
+      root!.render(
+        <ChatHeaderTools
+          onTerminal={() => {}}
+          onBrowser={() => {}}
+          hasChanges={props.hasChanges}
+          onChanges={(mode) => runs.push(`changes:${mode}`)}
+          onPreview={(url, mode) => runs.push(`preview:${url}:${mode}`)}
+          sideTabs={props.sideTabs}
+          onSideTabs={() => runs.push("newTab")}
+          tabTools={props.tabTools}
+          summary={null}
+          menu={() => [{ key: "rename", label: "Rename", icon: "folder", onSelect: () => runs.push("rename") }]}
+          // The App's tab state refresh as "..." opens (pane.tabState).
+          onMenuOpen={async () => props.refresh && setHeaderState({ lit: props.refresh })}
+        />,
+      ),
+    );
+  };
+  const open = async () => {
+    await act(async () => void openPicker("Chat actions"));
+    return labels();
+  };
+  act(() => configureQuickActions({ quickActions: ["terminal", "browser"] }));
+
+  // No edits, no page, no Files handler (a remote chat): only New tab folds.
+  render({});
+  expect(await open()).toEqual(["New tab", "Rename"]);
+  // Edits: Changes folds; with the side tabs shown, New tab reads Hide tabs.
+  render({ hasChanges: true, sideTabs: true });
+  expect(await open()).toEqual(["Changes", "Hide tabs", "Rename"]);
+  await act(async () => (doc.querySelector(".acpmux-chat-menu-popover .acpmux-chat-menu-item") as HTMLElement).click());
+  expect(runs).toEqual(["changes:toggle"]);
+  // The diff and the preview opened since this render: the refresh as "..." opens lists them.
+  render({ refresh: [HEADER_ACTIONS.changes, HEADER_ACTIONS.preview] });
+  expect(await open()).toEqual(["Changes", "Preview", "New tab", "Rename"]);
+  // Quick Chat has no tab tools: nothing folds.
+  act(() => setHeaderState({ lit: [] }));
+  render({ hasChanges: true, tabTools: false });
+  expect(await open()).toEqual(["Rename"]);
+  act(() => root?.unmount());
+  root = undefined;
+  configureQuickActions({});
+});
