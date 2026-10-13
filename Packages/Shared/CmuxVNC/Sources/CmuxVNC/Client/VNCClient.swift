@@ -44,8 +44,10 @@ public struct VNCSessionStats: Sendable, Equatable {
     public var rectanglesByEncoding: [Int32: Int] = [:]
     /// Time from the matching update request to the update's first byte.
     public var lastUpdateLatencyMs: Double?
-    /// Time spent decoding the last update.
+    /// Time from the last update's header to its last rectangle (receive and decode).
     public var lastDecodeMs: Double?
+    /// Pixels the last update covered (all its rectangles).
+    public var lastUpdatePixels = 0
 
     public init() {}
 }
@@ -243,6 +245,7 @@ public actor VNCClient {
         try await request(incremental: true)
         let started = ContinuousClock.now
         var resized = false
+        var covered = 0
         var index = 0
         var ended = false
         // A count of 0xFFFF means "until LastRect" when the server supports it.
@@ -253,6 +256,7 @@ public actor VNCClient {
                 encoding: try await reader.s32())
             index += 1
             statistics.rectangles += 1
+            if header.encoding >= 0 { covered += header.width * header.height }
             statistics.rectanglesByEncoding[header.encoding, default: 0] += 1
             switch try await decoder.decode(header, reader: reader, into: framebuffer) {
             case .drew:
@@ -271,6 +275,7 @@ public actor VNCClient {
             }
         }
         statistics.updates += 1
+        statistics.lastUpdatePixels = covered
         statistics.lastDecodeMs = Self.milliseconds(started.duration(to: .now))
         if resized {
             size = (framebuffer.width, framebuffer.height)
