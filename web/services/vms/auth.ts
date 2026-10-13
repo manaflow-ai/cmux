@@ -745,11 +745,19 @@ export async function verifyPolledReadRequest(
   const answer = await answerFromIdentitySnapshot(tokens, options);
   if (answer.kind === "user") return answer.user;
   if (answer.kind === "deleted") return null;
+  const fallback = {
+    requestedTeamId: options.requestedTeamId,
+    subrouterAuthorizationSignal: options.subrouterAuthorizationSignal,
+    listAllTeams: options.listAllTeams,
+    allowCookie: options.allowCookie,
+  };
+  // A token that does not verify locally can never be answered from a
+  // snapshot, so listing every team for one would only add Stack calls.
+  if (!answer.refreshable) return await verifyRequest(request, fallback);
   // Only a complete team list may be stored as a snapshot. The deadline-gated
   // path stores it when every team was listed; the plain path when forced.
   return await verifyRequest(request, {
-    requestedTeamId: options.requestedTeamId,
-    subrouterAuthorizationSignal: options.subrouterAuthorizationSignal,
+    ...fallback,
     ...(options.subrouterAuthorizationSignal
       ? { listAllTeams: true }
       : { forceCompleteTeamList: true }),
@@ -770,7 +778,8 @@ type SnapshotAnswerOptions = {
 type SnapshotAnswer =
   | { readonly kind: "user"; readonly user: AuthedUser }
   | { readonly kind: "deleted" }
-  | { readonly kind: "miss" };
+  /** `refreshable`: the token verified locally, so a refreshed snapshot can answer the next poll. */
+  | { readonly kind: "miss"; readonly refreshable: boolean };
 
 /**
  * Answer a native request from the shared identity snapshot without Stack.
@@ -787,17 +796,17 @@ async function answerFromIdentitySnapshot(
   const local = await locallyVerifiedAccessToken(tokens.accessToken, options);
   if (!local.identity) {
     recordAuthResolution({ source: "stack", providerCalled: true, localVerifyMiss: local.miss });
-    return { kind: "miss" };
+    return { kind: "miss", refreshable: false };
   }
   const userId = local.identity.userId;
   const snapshot = await readIdentitySnapshot(
     userId,
     options.maxSnapshotAgeMs ?? identitySnapshotTtlMs(),
   );
-  if (!snapshot) return { kind: "miss" };
+  if (!snapshot) return { kind: "miss", refreshable: true };
   const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
   if (requestedTeamId && requestedTeamId !== userId && !snapshot.user.teamIds.includes(requestedTeamId)) {
-    return { kind: "miss" };
+    return { kind: "miss", refreshable: true };
   }
   // Stack's deletion metadata is not in the token, so the tombstone is
   // read directly rather than behind the usual metadata short-circuit.
