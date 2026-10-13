@@ -377,11 +377,10 @@ fn status_set_refuses_a_forged_owner() {
 #[test]
 fn status_is_in_the_help_and_takes_the_positional_text_form() {
     // The `cmux` name (the app's bundled CLI) prints its own root help.
-    let dir = std::env::temp_dir().join(format!("cmux-status-help-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).unwrap();
+    let dir = unique_temp_dir("status-help");
+    fs::create_dir_all(&dir).unwrap();
     let cmux = dir.join("cmux");
-    let _ = std::fs::remove_file(&cmux);
-    std::os::unix::fs::symlink(bin(), &cmux).unwrap();
+    symlink(bin(), &cmux).unwrap();
     let run = |program: &std::path::Path, args: &[&str]| {
         let output = Command::new(program)
             .env("LC_ALL", "C")
@@ -406,7 +405,7 @@ fn status_is_in_the_help_and_takes_the_positional_text_form() {
             assert!(!text.contains("GLOBAL OPTIONS"), "{args:?} printed the root help:\n{text}");
         }
     }
-    let _ = std::fs::remove_dir_all(&dir);
+    let _ = fs::remove_dir_all(&dir);
 
     let server = HeadlessServer::start("status-positional-text");
     state_cli(&server, None, &["workspace", "create", "--name", "delta", "--empty"]);
