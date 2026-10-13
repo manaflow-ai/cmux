@@ -168,14 +168,29 @@ pub(crate) fn terminal_replay_blob(
                 }
             }
         }
-        captured.ok_or_else(|| {
-            anyhow::anyhow!(
-                "terminal {terminal_id} replay capture failed after retrying larger buffers: {}",
-                last_error
-                    .map(|error| error.to_string())
-                    .unwrap_or_else(|| "buffer too small".into())
-            )
-        })?
+        if captured.is_none() {
+            let result = surface
+                .try_with_terminal(|terminal| {
+                    if !terminal.discard_unreplayable_replay() {
+                        return Err(ghostty_vt::Error::OutOfSpace);
+                    }
+                    terminal
+                        .vt_replay_bounded(CHECKPOINT_REPLAY_RETRY_BUDGETS[0])
+                        .map(|replay| (terminal.cols(), terminal.rows(), replay))
+                })
+                .with_context(|| format!("terminal {terminal_id} replay recovery"))?;
+            if let Ok(value) = result {
+                captured = Some(value);
+            } else {
+                return Err(anyhow::anyhow!(
+                    "terminal {terminal_id} replay capture failed after retrying larger buffers: {}",
+                    last_error
+                        .map(|error| error.to_string())
+                        .unwrap_or_else(|| "buffer too small".into())
+                ));
+            }
+        }
+        captured.expect("replay recovery must either capture or return")
     };
     let epoch_after = surface
         .terminal_journal_capture_epoch()

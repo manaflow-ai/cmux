@@ -193,6 +193,13 @@ impl KittyInFlightTracker {
             && matches!(&self.scan, KittyStreamScan::Kitty(command) if !command.overflowed)
     }
 
+    pub(crate) fn discard_unreplayable(&mut self) {
+        self.scan = KittyStreamScan::Ground;
+        self.prefix.clear();
+        self.loading = false;
+        self.overflowed = false;
+    }
+
     /// The completed upload chunks and the partial command, separately, under
     /// the same budget as [`Self::replay_prefix_checked`].
     pub(crate) fn replay_prefix_and_partial_checked(
