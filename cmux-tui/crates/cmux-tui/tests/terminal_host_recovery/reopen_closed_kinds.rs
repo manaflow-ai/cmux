@@ -613,3 +613,150 @@ fn an_ungrouped_screen_group_reopens_whole() {
     assert_eq!(groups[0]["screen_ids"], serde_json::json!(members));
     assert_eq!(closed_list(&harness, "screen-ungroup-closed-3").len(), before);
 }
+
+/// Run the close `operation` with `params` (over the v2 socket, as the app
+/// does): it adds one closed-history group, which Cmd-Shift-T reopens.
+/// Returns the closed item and the reopen's result.
+fn close_records_and_reopens(
+    harness: &RecoveryHarness,
+    operation: &str,
+    params: serde_json::Value,
+    key: &str,
+) -> (serde_json::Value, serde_json::Value) {
+    let before = closed_list(harness, &format!("{key}-closed-1")).len();
+    let mut params = params;
+    params["machine"] = "current".into();
+    params["session"] = "current".into();
+    resource_request(&harness.socket, key, operation, params, Some(key));
+    let closed = closed_list(harness, &format!("{key}-closed-2"));
+    assert_eq!(closed.len(), before + 1, "{operation} was not recorded: {closed:?}");
+    let item = closed[0].clone();
+    let id = item["id"].as_str().expect("the closed item has an id");
+    let reopened = resource_request(
+        &harness.socket,
+        &format!("{key}-reopen"),
+        "closed.reopen",
+        serde_json::json!({"machine":"current","session":"current","closed":id}),
+        Some(&format!("{key}-reopen")),
+    );
+    assert_eq!(closed_list(harness, &format!("{key}-closed-3")).len(), before);
+    (item, reopened["value"].clone())
+}
+
+/// The workspace named `kinds` as the tree lists it.
+fn kinds_workspace(app: &mut AppConnection) -> serde_json::Value {
+    app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == "kinds")
+        .cloned()
+        .expect("the workspace exists")
+}
+
+// Every close path records first (cx-gzh.10 audit): screen.close,
+// pane.close, terminal.close and browser.close each add one group that
+// Cmd-Shift-T reopens.
+
+#[test]
+fn a_closed_screen_reopens() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, _) = start("reopen-path-screen");
+    let workspace = kinds_workspace(&mut app);
+    app.send(serde_json::json!({"cmd":"new-screen","workspace":workspace["id"],
+                                "cols":80,"rows":24}));
+    let screens = kinds_workspace(&mut app)["screens"].as_array().cloned().unwrap_or_default();
+    assert_eq!(screens.len(), 2, "{screens:?}");
+    let screen = screens[1]["resource_id"].as_str().expect("the screen has an id").to_string();
+    let (item, reopened) = close_records_and_reopens(
+        &harness,
+        "screen.close",
+        serde_json::json!({"screen":screen}),
+        "path-screen",
+    );
+    assert_eq!(item["kind"], "screen", "{item}");
+    assert_eq!(reopened["screen_ids"].as_array().map(Vec::len), Some(1), "{reopened}");
+    assert_eq!(kinds_workspace(&mut app)["screens"].as_array().map(Vec::len), Some(2));
+}
+
+#[test]
+fn a_closed_pane_reopens_its_tabs() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-path-pane");
+    app.send(serde_json::json!({"cmd":"split","pane":pane,"dir":"right","cols":80,"rows":24}));
+    let panes = kinds_workspace(&mut app)["screens"][0]["panes"].as_array().cloned().unwrap();
+    let split = panes
+        .iter()
+        .find(|candidate| candidate["id"].as_u64() != Some(pane))
+        .expect("the split made a pane");
+    let split_id = split["resource_id"].as_str().expect("the pane has an id").to_string();
+    let tab = split["tabs"][0]["tab_resource_id"].clone();
+    let (item, reopened) = close_records_and_reopens(
+        &harness,
+        "pane.close",
+        serde_json::json!({"pane":split_id}),
+        "path-pane",
+    );
+    assert_eq!(item["kind"], "tab", "{item}");
+    assert_eq!(item["member_count"], 1, "{item}");
+    let tabs = reopened["tab_ids"].as_array().cloned().unwrap_or_default();
+    assert_eq!(tabs.len(), 1, "{reopened}");
+    let back = app.tab_by_id(tabs[0].as_str().unwrap());
+    assert!(back["terminal_id"].is_string(), "{back} (closed tab {tab})");
+}
+
+#[test]
+fn a_closed_terminal_reopens_as_a_tab() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-path-terminal");
+    let surface =
+        app.send(serde_json::json!({"cmd":"new-tab","pane":pane}))["surface"].as_u64().unwrap();
+    let terminal = app.tab(surface)["terminal_id"].as_str().expect("a terminal").to_string();
+    let (item, reopened) = close_records_and_reopens(
+        &harness,
+        "terminal.close",
+        serde_json::json!({"terminal":terminal}),
+        "path-terminal",
+    );
+    assert_eq!(item["kind"], "tab", "{item}");
+    let tab = reopened["tab_ids"][0].as_str().expect("the reopen returned no tab").to_string();
+    assert!(app.tab_by_id(&tab)["terminal_id"].is_string());
+}
+
+#[test]
+fn a_closed_browser_reopens_on_its_url() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-path-browser");
+    let created = app.send(serde_json::json!({
+        "cmd":"new-frontend-browser-tab","pane":pane,"url":"https://example.com/path","engine":"webkit",
+    }));
+    let surface = created["surface"].as_u64().expect("no browser surface");
+    let tab = app.tab(surface)["tab_resource_id"].clone();
+    let browsers = resource_request(
+        &harness.socket,
+        "path-browser-list",
+        "browser.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let browser = browsers
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|browser| browser["tab_id"] == tab)
+        .and_then(|browser| browser["id"].as_str().map(str::to_string))
+        .unwrap_or_else(|| panic!("no browser for tab {tab}: {browsers}"));
+    let (item, reopened) = close_records_and_reopens(
+        &harness,
+        "browser.close",
+        serde_json::json!({"browser":browser}),
+        "path-browser",
+    );
+    assert_eq!(item["kind"], "tab", "{item}");
+    let tab = reopened["tab_ids"][0].as_str().expect("the reopen returned no tab").to_string();
+    let back = app.tab_by_id(&tab);
+    assert_eq!(
+        (back["kind"].as_str(), back["url"].as_str()),
+        (Some("browser"), Some("https://example.com/path"))
+    );
+}
