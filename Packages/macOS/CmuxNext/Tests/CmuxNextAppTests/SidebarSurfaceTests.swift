@@ -144,4 +144,21 @@ import Testing
         #expect(luminance(sidebarBackground(root)) > luminance(separateSidebar(root)))
         #expect(same(mainPaneBackground(root), pane))
     }
+
+    /// Cards (like dividers and none) draw no pane outline, and the sidebar's edge line is off by
+    /// default, so nothing parts the shared surface either: the faint step stays.
+    @Test func withoutPaneOutlinesTheSidebarKeepsAFaintStep() async {
+        defer { load(.object([:])) }
+        load(.object(["layout": .object(["paneSeparation": .string("cards")])]))
+        let (window, root) = openRoot()
+        defer { window.close() }
+        let pane = root.themeTokens.surfaceBackground.withAlpha(1)
+        await settle(root) {
+            let sidebar = sidebarBackground(root).relativeLuminance
+            return sidebar < pane.relativeLuminance && sidebar > separateSidebar(root).relativeLuminance
+        }
+        #expect(sidebarBackground(root).relativeLuminance < pane.relativeLuminance)
+        #expect(sidebarBackground(root).relativeLuminance > separateSidebar(root).relativeLuminance)
+        #expect(same(mainPaneBackground(root), pane))
+    }
 }
