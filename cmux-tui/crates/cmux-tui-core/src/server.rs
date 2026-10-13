@@ -3816,6 +3816,10 @@ mod session_identity_tests;
 mod personal_tests;
 
 #[cfg(test)]
+#[path = "server/group_icon_raw_tests.rs"]
+mod group_icon_raw_tests;
+
+#[cfg(test)]
 #[path = "server/device_kind_tests.rs"]
 mod device_kind_tests;
 #[cfg(test)]
