@@ -595,6 +595,24 @@ def main():
         params = msg.get("params") or {}
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+        # FAKE_PICKER=1: a harness with session/set_model and an "effort" option (no model
+        # option), as Claude Code and Codex are; FAKE_CALLS=<path> logs each model and
+        # effort set as one JSON line {method, params}.
+        if os.environ.get("FAKE_PICKER") == "1" and m in ("session/new", "session/set_model", "session/set_config_option"):
+            if os.environ.get("FAKE_CALLS") and m != "session/new":
+                with open(os.environ["FAKE_CALLS"], "a") as calls:
+                    calls.write(json.dumps({"method": m, "params": params}) + "\n")
+            effort = {"id": "effort", "name": "Reasoning", "category": "thought_level", "type": "select", "currentValue": "high",
+                      "options": [{"value": v, "name": v} for v in ("low", "medium", "high")]}
+            if m == "session/new":
+                sessions += 1
+                send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}", "configOptions": [effort]}})
+            elif m == "session/set_model":
+                send({"jsonrpc": "2.0", "id": rid, "result": {}})
+            else:
+                effort["currentValue"] = params.get("value")
+                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [effort]}})
+            continue
         # FAKE_SETSID_CHILD=<path>: on session/new (the session's harness, not a probe),
         # start a child that leaves this process group (setsid), as a harness that
         # daemonizes a helper does, and write its pid to that file.
