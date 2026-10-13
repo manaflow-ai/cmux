@@ -178,6 +178,13 @@ final class PromptBarView: NSView {
             alwaysCheck.isHidden = prompt.origin.isEmpty
             addButton(Strings.cancel, prominent: false, response: .cancel)
             addButton(Strings.externalAppOpen, prominent: true, response: nil)
+        case .savePassword(let username, let update):
+            let question = update ? Strings.passwordUpdatePrompt(prompt.origin) : Strings.passwordSavePrompt(prompt.origin)
+            messageLabel.stringValue = username.isEmpty ? question : "\(question)\n\(username)"
+            // An update is for a saved sign-in: Chromium's update bubble has no Never either.
+            if !update { addButton(Strings.passwordNever, prominent: false, response: .deny) }
+            addButton(Strings.passwordNotNow, prominent: false, response: .cancel)
+            addButton(update ? Strings.passwordUpdate : Strings.passwordSave, prominent: true, response: .accept)
         }
         if !inputField.isHidden {
             window?.makeFirstResponder(inputField)

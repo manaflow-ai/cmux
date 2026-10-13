@@ -122,6 +122,10 @@ export default passwordsPageEntry({
       {},
       { ...data, sections: { passwords: false, passkeys: true, exceptions: false, export: false } },
     ),
+    "export-off": variant(
+      { note: "Allow Password Export is off (the default): Export is disabled and says where to turn it on." },
+      { ...data, sections: { ...data.sections, exportOff: true } },
+    ),
     "all-unavailable": variant(
       {},
       { ...data, sections: { passwords: false, passkeys: false, exceptions: false, export: false } },
