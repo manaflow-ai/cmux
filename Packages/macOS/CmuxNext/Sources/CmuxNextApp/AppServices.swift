@@ -340,12 +340,7 @@ final class AppServices {
             // A click anywhere ends link hints and a waiting chord (it may move the keyboard).
             self?.linkHints.cancel()
             self?.windowHints.cancel()
-            self?.keyRouter.cancelChord()
-            // A click ends a creation's key hold into what was clicked (cx-wb5.76).
-            self?.keyRouter.creationInputCoordinator.mouseDown(in: event.window)
-        }
-        (NSApp as? CmuxApplication)?.mouseDownWillDispatch = { [weak self] _ in
-            self?.keyRouter.creationInputCoordinator.mouseDownWillDispatch()
+            self?.keyRouter.cancelChord(); self?.keyRouter.creationInputCoordinator.mouseDown(in: event.window) // and a key hold (cx-wb5.76)
         }
     }
     // MARK: Lookup

@@ -42,9 +42,6 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// Set once by `AppServices`: a mouse-down after AppKit dispatched it
     /// (focus has moved to the clicked pane), with its window.
     var mouseDownObserver: ((NSEvent) -> Void)?
-    /// Set once by `AppServices`: a mouse-down before AppKit dispatches it (a key hold notes the
-    /// click, so a creation the click itself starts, from a menu or a button, keeps its hold).
-    var mouseDownWillDispatch: ((NSEvent) -> Void)?
     /// The event in dispatch is the app's own synthetic input
     /// (`SyntheticInput`, `debug.mouse`), classified once per event: the
     /// no-activate guard and the browser host's user-input path both read it.
@@ -74,7 +71,8 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         }
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         let isMouseDown = event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown
-        if isMouseDown { mouseDownWillDispatch?(event) }
+        // A creation this click starts (a menu item, a button) keeps its key hold (cx-wb5.76).
+        if isMouseDown { CreationInputCoordinator.dispatchingClick = true }
         super.sendEvent(event)
         if isMouseDown { mouseDownObserver?(event) }
     }

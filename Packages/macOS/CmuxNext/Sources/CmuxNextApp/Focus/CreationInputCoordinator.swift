@@ -30,9 +30,9 @@ final class CreationInputCoordinator {
     private var buffers: [Int: CreationInputBuffer] = [:]
     /// Set while a held key runs again, so it is not held a second time.
     private var replaying = false
-    /// Set while AppKit dispatches a mouse-down: a creation it starts (a menu item, a button)
-    /// keeps its hold through that click.
-    private var dispatchingClick = false
+    /// Set by `CmuxApplication` while AppKit dispatches a mouse-down: a creation it starts (a menu
+    /// item, a button) keeps its hold through that click.
+    static var dispatchingClick = false
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.input")
     private var keyObserver: (any NSObjectProtocol)?
     #if DEBUG
@@ -63,7 +63,7 @@ final class CreationInputCoordinator {
         if buffers[window.windowNumber]?.isEnded == true { finish(in: window) }
         let buffer = buffers[window.windowNumber] ?? CreationInputBuffer(content: content)
         buffers[window.windowNumber] = buffer
-        return buffer.open(generation: generation, duringClick: dispatchingClick)
+        return buffer.open(generation: generation, duringClick: Self.dispatchingClick)
     }
 
     /// The creation behind `ticket` got its reply (`landed`: its focus was asked for), failed or
@@ -129,13 +129,10 @@ final class CreationInputCoordinator {
         scheduleFlush(in: window)
     }
 
-    /// A mouse-down is about to be dispatched.
-    func mouseDownWillDispatch() { dispatchingClick = true }
-
     /// A click in `window`, after AppKit moved focus to what was clicked: its hold ends there,
     /// unless the click itself started the hold's creation (a menu item, a button).
     func mouseDown(in window: NSWindow?) {
-        dispatchingClick = false
+        Self.dispatchingClick = false
         guard let window else { return }
         let shell = router?.focus(for: window).0?.window ?? window
         finishHolds(except: shell.windowNumber, reason: "window switch")
