@@ -143,7 +143,8 @@ describe("loadTeamDetail", () => {
       expect.objectContaining({ email: "new@example.com", role: "admin" }),
     ]);
     expect(adminView.links).toHaveLength(1);
-    expect(adminView.billing).toEqual({ planId: null, seats: null, memberLimit: null, memberCount: 2, hasActiveSubscription: true });
+    // Without Team plan metadata the roster cap applies.
+    expect(adminView.billing).toEqual({ planId: null, seats: null, memberLimit: 3, memberCount: 2, hasActiveSubscription: true });
     expect(adminView.members.find((member) => member.userId === ADMIN_ID)?.role).toBe("admin");
   });
 

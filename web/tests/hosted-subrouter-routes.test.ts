@@ -22,10 +22,15 @@ let authJson = {
 let authJsonError: Error | null = null;
 const getUser = mock(async () => currentUser);
 const getTeam = mock(async (id: string) => ({ id }));
+const updateCreatedTeam = mock(async (_data: { clientReadOnlyMetadata?: unknown }) => {});
+const deleteCreatedTeam = mock(async () => {});
 const createTeam = mock(async ({ displayName, creatorUserId }: { displayName: string; creatorUserId?: string }) => ({
   id: "team-created",
   displayName,
   creatorUserId,
+  clientReadOnlyMetadata: null,
+  update: updateCreatedTeam,
+  delete: deleteCreatedTeam,
 }));
 const updateUser = mock(async (_data: unknown) => {});
 const getAuthJson = mock(async () => {
@@ -109,6 +114,8 @@ beforeEach(() => {
   getUser.mockClear();
   getTeam.mockClear();
   createTeam.mockClear();
+  updateCreatedTeam.mockClear();
+  deleteCreatedTeam.mockClear();
   updateUser.mockClear();
   getAuthJson.mockClear();
   signOut.mockClear();
@@ -769,6 +776,8 @@ describe("hosted Subrouter account routes", () => {
       displayName: "Shared Cloud",
       creatorUserId: "user-1",
     });
+    // A created team needs its own plan for Cloud machines.
+    expect(updateCreatedTeam).toHaveBeenCalledWith({ clientReadOnlyMetadata: { cmuxTeamPlanRequired: true } });
     expect(updateUser).toHaveBeenCalledWith({ selectedTeamId: "team-created" });
 
     const invalid = await teamsRoute.POST(
@@ -778,6 +787,21 @@ describe("hosted Subrouter account routes", () => {
       }),
     );
     expect(invalid.status).toBe(400);
+  });
+
+  test("deletes a created team whose plan flag cannot be written", async () => {
+    updateCreatedTeam.mockImplementation(async () => {
+      throw new Error("metadata write failed");
+    });
+    await expect(teamsRoute.POST(
+      request("/api/subrouter/teams", {
+        method: "POST",
+        body: JSON.stringify({ displayName: "Shared Cloud" }),
+      }),
+    )).rejects.toThrow("metadata write failed");
+    expect(deleteCreatedTeam).toHaveBeenCalledTimes(1);
+    expect(updateUser).not.toHaveBeenCalledWith({ selectedTeamId: "team-created" });
+    updateCreatedTeam.mockImplementation(async () => {});
   });
 
   test("persists a selected member team in Stack Auth", async () => {
