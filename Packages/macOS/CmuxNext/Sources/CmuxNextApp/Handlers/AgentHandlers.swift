@@ -251,9 +251,10 @@ enum AgentHandlers {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
             return true
         }
-        let folder = pane.selectedTab?.cwd
-        let source = pane.agentSeedFromSelectedTab()
         let daemon = pane.daemon
+        // Another machine's focused tab without a folder: a folder of this workspace (cx-1bhjj).
+        let folder = pane.selectedTab?.cwd ?? (daemon.isLocal ? nil : daemon.store.workspace(containing: pane.pane.handle)?.firstTabFolder)
+        let source = pane.agentSeedFromSelectedTab()
         context.registry.track(Task { @MainActor in
             var seed = await source?.take() ?? AgentPaneSeed()
             seed.cwd = seed.cwd ?? folder

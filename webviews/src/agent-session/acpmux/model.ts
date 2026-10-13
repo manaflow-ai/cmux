@@ -199,6 +199,10 @@ export type AcpmuxSnapshot = {
   /// `remote` gets its Web rules (no Codex or opencode, remoteEditing.ts); `unknown` is an older
   /// acpmux that names none. Unset in a snapshot no client built (fixtures).
   origin?: "local" | "remote" | "peer" | "unknown";
+  /// The connection takes the person's folder trust answer although it is `remote`: the app's
+  /// wire to a chat on another machine lists `acp.trust.set` (cx-1bhjj); acpmux never lists it,
+  /// so a remote browser still cannot answer.
+  answersTrust?: boolean;
   sessionId?: string;
   isWorking: boolean;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
