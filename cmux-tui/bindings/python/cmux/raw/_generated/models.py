@@ -4338,6 +4338,7 @@ class UpdateScreenGroupRequest:
     group: str
     collapsed: Union[bool, None, MissingType] = field(default=MISSING)
     color: Union[str, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
     name: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4347,6 +4348,7 @@ class UpdateTabGroupRequest:
     group: str
     collapsed: Union[bool, None, MissingType] = field(default=MISSING)
     color: Union[str, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
     name: Union[str, None, MissingType] = field(default=MISSING)
 
 

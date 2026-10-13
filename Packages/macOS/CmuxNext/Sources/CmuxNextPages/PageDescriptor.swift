@@ -141,7 +141,8 @@ public extension PageDescriptor {
         nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite],
         actions: Set<String>(["palette.openCmuxSettingsFile", "openSettings", "browserProfile.new", "browserProfile.rename",
                   "browserProfile.setColor", "browserProfile.clearColor", "browserProfile.setIcon", "browserProfile.clearIcon",
-                  "browserProfile.manageExtensions", "browserProfile.delete", "reloadConfiguration",
+                  "browserProfile.manageExtensions", "browserProfile.delete", "browserProfile.clearBrowsingData",
+                  "reloadConfiguration",
                   // Agents > Computer Use card (ComputerUseSetup).
                   "palette.computerUse.setup", "palette.computerUse.accessibility", "palette.computerUse.screenRecording"])
             .union(settingsSectionActions),

@@ -61,6 +61,11 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "set-upstream",
     "no-set-upstream",
     "discard",
+    // `<scope> <selector> close`: one bulk close (layout.bulk).
+    "others",
+    "to-right",
+    "to-left",
+    "include-pinned",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no

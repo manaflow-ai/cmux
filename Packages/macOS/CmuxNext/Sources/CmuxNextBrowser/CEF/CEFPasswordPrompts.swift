@@ -27,6 +27,11 @@ struct CEFPasswordPrompts {
             Self.open.removeValue(forKey: promptID)?.respond(.cancel)
             return
         }
+        // Offer to Save Passwords off: Chromium's question goes unasked.
+        guard CEFPasswordPolicy.offerToSave else {
+            _ = runtime.shim?.passwordPromptAnswer(promptID, Action.dismiss.rawValue, nil)
+            return
+        }
         let update = kind == "update"
         // Chromium skips a tab with filling off; this holds even on a fork that does not.
         guard !tab.isAgentDriven else {

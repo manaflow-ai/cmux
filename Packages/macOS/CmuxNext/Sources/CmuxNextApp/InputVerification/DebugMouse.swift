@@ -26,9 +26,11 @@ import CmuxNextSettings
 /// number 2: a middle click on a sidebar workspace row closes it);
 /// `modifiers`: `cmd`, `shift`, `option`, `ctrl`. Every action also moves
 /// the synthesized pointer that layout hover reads (`LayoutRootView.
-/// setDebugPointer`); `leave` moves it out of the window.
+/// setDebugPointer`); `leave` moves it out of the window. `target: "page"`
+/// clicks Chromium's page view instead (`DebugMouse+Page`).
 enum DebugMouse {
     static func send(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+        if params["target"]?.stringValue == "page" { return clickPage(params, services: services) }
         let windowID = params["window"]?.stringValue
         guard let controller = services.windows.controllers.first(where: { windowID == nil || $0.state.id == windowID }),
               let window = controller.window else { return .object(["error": .string("no window")]) }

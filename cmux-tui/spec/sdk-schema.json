@@ -11254,6 +11254,20 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "screen-group-icon-v1",
+      "constraints": [
+       "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+      ]
      }
     },
     "additional_properties": false
@@ -16677,6 +16691,20 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "icon": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "tab-group-icon-v1",
+      "constraints": [
+       "The group's icon: one emoji, an SF Symbol name, or a stored image:sha256-<hex> or svg:sha256-<hex> asset; null clears it, absent keeps it."
+      ]
      }
     },
     "additional_properties": false
