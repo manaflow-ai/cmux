@@ -141,7 +141,7 @@ extension CmuxTuiSurfaceProvider {
                 )
             }
             manualMirrorSessions[created.panelID] = session
-            session.reconnect(socketPath: connected.socketPath)
+            session.reconnect(socketPath: connected.socketPath, handshake: reservation?.takeAttachHandshake())
             return CloudManualMirrorMaterialization(
                 workspaceID: created.workspaceID,
                 panelID: created.panelID,
@@ -152,6 +152,24 @@ extension CmuxTuiSurfaceProvider {
         } catch {
             session.stop()
             throw error
+        }
+    }
+
+    /// Registers a new pane's attach stream while the machine creates its
+    /// terminal, so the attachment needs only `attach-surface` once the
+    /// terminal exists. The link is the machine's existing one.
+    func beginAttachHandshake(for reservation: CloudTerminalPaneReservation) {
+        let handshake = CloudTuiManualMirrorHandshake(identity: CloudTuiManualMirrorSession.localSharingIdentity)
+        reservation.beginAttachHandshake(handshake)
+        let links = links
+        let machineID = machineID
+        // Only a link that is already up: connecting or resuming the machine
+        // stays with the create, which owns its diagnostics and backoff.
+        handshake.start {
+            guard let link = await links.link(machineID: machineID),
+                  await link.isConnected,
+                  let connected = await link.connected else { throw CancellationError() }
+            return connected.socketPath
         }
     }
 

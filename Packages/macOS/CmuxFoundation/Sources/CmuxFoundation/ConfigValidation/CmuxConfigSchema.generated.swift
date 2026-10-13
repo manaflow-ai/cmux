@@ -1057,8 +1057,8 @@ enum CmuxEmbeddedConfigSchema {
         },
         "showJumpToBottomButton": {
           "type": "boolean",
-          "default": true,
-          "description": "Show a Jump to Bottom button at the bottom center of a terminal while its viewport is scrolled up into scrollback. Clicking it scrolls to the bottom and focuses the terminal. A dot marks output that arrived below the viewport. Programs on the alternate screen (vim, less, full-screen agent modes) never get the button because they draw their own scrolling."
+          "deprecated": true,
+          "description": "Removed. cmux no longer shows a Jump to Bottom button in terminal panes, and ignores this key. It stays in the schema so existing configs still validate."
         },
         "predictiveLocalEcho": {
           "type": "boolean",
@@ -2595,8 +2595,6 @@ enum CmuxEmbeddedConfigSchema {
               "reopenClosedBrowserPanel",
               "newSurface",
               "toggleTerminalCopyMode",
-              "previousAgentTurn",
-              "nextAgentTurn",
               "focusTextBoxInput",
               "cycleTextBoxSubmitAction",
               "attachTextBoxFile",
