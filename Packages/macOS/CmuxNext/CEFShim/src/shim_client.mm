@@ -416,7 +416,11 @@ class Client : public CefClient,
   void OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType) override {
     if (frame->IsMain()) {
       ForgetCertificateState(browser->GetIdentifier());
-      Emit(CMUX_SHIM_LOAD_START, browser->GetIdentifier(), 0, 0, 0, frame->GetURL().ToString());
+      // a = 1 when the committed entry came from a POST (a form; a 303 after
+      // it is a GET entry): such a page never hibernates (BR-R1).
+      CefRefPtr<CefNavigationEntry> entry = browser->GetHost()->GetVisibleNavigationEntry();
+      int64_t from_post = entry && entry->IsValid() && entry->HasPostData() ? 1 : 0;
+      Emit(CMUX_SHIM_LOAD_START, browser->GetIdentifier(), 0, from_post, 0, frame->GetURL().ToString());
     }
   }
 

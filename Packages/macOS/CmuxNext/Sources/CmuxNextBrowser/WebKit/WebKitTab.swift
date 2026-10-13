@@ -42,6 +42,8 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// This tab's downloads (`WebKitDownloads`).
     @ObservationIgnored private(set) lazy var downloads = WebKitDownloads(tab: self)
     @ObservationIgnored lazy var restored = WebKitRestoredSessionHost.session(for: self)
+    /// Restored or reloaded form submissions ask first (WebKitTab+FormResubmission).
+    @ObservationIgnored var formResubmission = WebKitFormResubmission()
     /// Chrome's automatic-downloads rule for this page (WebKitTab+AutomaticDownloads).
     @ObservationIgnored public private(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
     /// The site of the page that started the current main-frame navigation.
