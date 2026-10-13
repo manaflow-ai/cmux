@@ -13,8 +13,10 @@ struct SidebarRoot: View {
             content: MainContent(app: app, navigator: navigator)
         )
         .ignoresSafeArea()
-        .pushDeepLinks(app: app, navigator: navigator)
         .sheet(isPresented: $navigator.showSettings) { SettingsScreen(app: app) }
+        #if DEBUG
+        .task { openDebugScreen() }
+        #endif
         .sheet(isPresented: $navigator.showPairing) { PairingFlow(app: app, entry: navigator.pairingEntry) }
         .confirmationDialog(String(localized: "Sign out of cmux?"), isPresented: $navigator.confirmSignOut, titleVisibility: .visible) {
             Button(String(localized: "Sign Out"), role: .destructive) {
@@ -26,6 +28,24 @@ struct SidebarRoot: View {
         }
     }
 }
+
+#if DEBUG
+extension SidebarRoot {
+    /// Agent screenshots when UI automation is unavailable:
+    /// CMUX_NATIVE_DEBUG_SCREEN=pair-intro|pair-scan|pair-manual|pair-setup|paired|settings|feed|sidebar.
+    fileprivate func openDebugScreen() {
+        switch ProcessInfo.processInfo.environment["CMUX_NATIVE_DEBUG_SCREEN"] {
+        case "pair-intro", "pair-scan", "paired": navigator.startPairing(.intro)
+        case "pair-manual": navigator.startPairing(.manual)
+        case "pair-setup": navigator.startPairing(.setup)
+        case "settings": navigator.showSettings = true
+        case "feed": navigator.select(.feed, hostID: app.connection?.host.id)
+        case "sidebar": navigator.openSidebar()
+        default: break
+        }
+    }
+}
+#endif
 
 /// The card's content: Home, the Feed, or one terminal, each in its own
 /// NavigationStack so pushes and swipe-back keep working.

@@ -92,7 +92,7 @@ struct SettingsScreen: View {
                     if name != nil, let email = app.user?.email {
                         Text(email).font(.footnote).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                     } else {
-                        Label(String(localized: "Signed in with Apple"), systemImage: "person")
+                        Label(String(localized: "Personal"), systemImage: "person")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }

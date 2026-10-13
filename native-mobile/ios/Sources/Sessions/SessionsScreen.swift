@@ -16,8 +16,8 @@ struct SessionsScreen: View {
             .navigationTitle(app.connection?.host.name ?? String(localized: "Home"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbarTitleMenu { hostMenuItems }
-            .toolbar { toolbar }
-            .searchable(text: $search, isPresented: $searchPresented, placement: .toolbar, prompt: String(localized: "Search terminals"))
+            .toolbar { if hasMac { toolbar } }
+            .modifier(TerminalSearch(enabled: hasMac, text: $search, isPresented: $searchPresented))
             .onAppear(perform: consumeSearchRequest)
             .onChange(of: navigator.searchRequested) { consumeSearchRequest() }
             .sheet(isPresented: $showNewWorkspace) {
@@ -43,6 +43,9 @@ struct SessionsScreen: View {
             }
             .renameWorkspaceAlert($renaming, connection: app.connection)
     }
+
+    /// No Mac yet: the first-run state stands alone (no search, no new workspace).
+    private var hasMac: Bool { !(app.hostsLoaded && app.hosts.isEmpty) }
 
     private func consumeSearchRequest() {
         guard navigator.searchRequested else { return }
@@ -205,6 +208,21 @@ struct SessionsScreen: View {
             Section(String(localized: "Connection")) {
                 Text(connection.path == "relay" ? String(localized: "Encrypted relay") : String(localized: "Direct, end-to-end encrypted"))
             }
+        }
+    }
+}
+
+/// The toolbar search field, only once there is something to search.
+private struct TerminalSearch: ViewModifier {
+    let enabled: Bool
+    @Binding var text: String
+    @Binding var isPresented: Bool
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content.searchable(text: $text, isPresented: $isPresented, placement: .toolbar, prompt: String(localized: "Search terminals"))
+        } else {
+            content
         }
     }
 }

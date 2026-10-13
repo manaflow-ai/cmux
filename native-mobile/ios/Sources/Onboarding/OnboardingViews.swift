@@ -260,7 +260,17 @@ struct PairingFlow: View {
         }
         .animation(.smooth(duration: 0.35), value: pairedName)
         .preferredColorScheme(.dark)
-        .onAppear { if entry == .manual { showManual = true } }
+        .onAppear {
+            if entry == .manual { showManual = true }
+            #if DEBUG
+            // Agent screenshots without UI automation: CMUX_NATIVE_DEBUG_SCREEN=pair-scan|paired.
+            switch ProcessInfo.processInfo.environment["CMUX_NATIVE_DEBUG_SCREEN"] {
+            case "pair-scan": path = [.scan]
+            case "paired": pairedName = app.connection?.host.name ?? "MacBook Pro"
+            default: break
+            }
+            #endif
+        }
     }
 
     @ViewBuilder
@@ -528,7 +538,12 @@ struct PairCodeSheet: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
-                Button(role: .close) { dismiss() }.buttonStyle(.glass)
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 30, height: 30)
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel(String(localized: "Close"))
                 Spacer()
                 PasteButton(payloadType: String.self) { strings in
                     guard let first = strings.first else { return }
@@ -608,7 +623,7 @@ struct PairCodeSheet: View {
                 Text(filled ? String(chars[index]) : "")
                     .font(.system(size: 22, weight: .semibold, design: .monospaced))
                     .frame(maxWidth: 38).frame(height: 50)
-                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Theme.elevated))
+                    .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Color.primary.opacity(filled ? 0.16 : 0.1)))
                     .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .strokeBorder(error != nil ? Theme.danger.opacity(0.7)
                                       : index == chars.count && focused ? Color.primary.opacity(0.6) : .clear, lineWidth: 1.5))
