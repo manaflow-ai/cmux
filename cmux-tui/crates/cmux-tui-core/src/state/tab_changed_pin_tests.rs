@@ -11,7 +11,6 @@ use serde_json::json;
 
 use super::tests::{mutate, tab_id, terminal_tabs};
 use crate::mux::*;
-use crate::state::prelude::*;
 use crate::surface::SurfaceOptions;
 
 #[test]

@@ -497,27 +497,33 @@ impl Mux {
     }
 
     /// Emit `tab-changed` for one tab, echoing the client transaction that
-    /// caused it.
+    /// caused it. The delta carries the presentation (pin, group, name) as of
+    /// the emit, not as of before the decorations' git lookups: a commit in
+    /// between is in it. The presentation lock is held through the emit (state
+    /// first, as commits take them), so a commit's reload waits until this
+    /// delta is out and its `tree-changed` comes after it.
     pub(crate) fn emit_tab_changed_for_transaction(
         &self,
         surface: SurfaceId,
         transaction: Option<Arc<str>>,
     ) {
-        let decorations = self.tree_decorations();
+        let mut decorations = self.tree_decorations();
         #[cfg(test)]
         if let Some(hook) =
             self.tab_changed_after_decorations.lock().unwrap_or_else(|e| e.into_inner()).clone()
         {
             hook();
         }
-        let delta = {
-            let state = self.state.lock().unwrap();
-            presentation::tab_changed_delta(&state, &decorations, surface)
-        };
+        let state = self.state.lock().unwrap();
+        let presentation = self.presentation.lock().unwrap_or_else(|e| e.into_inner());
+        decorations.presentation = Arc::clone(&presentation);
+        let delta = presentation::tab_changed_delta(&state, &decorations, surface);
+        drop(state);
         if let Some(mut delta) = delta {
             delta.transaction = transaction;
             self.emit(MuxEvent::TreeDelta(delta));
         }
+        drop(presentation);
     }
 }
 
