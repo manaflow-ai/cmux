@@ -44,4 +44,18 @@ import Testing
         // Overlapping sideways never rises.
         #expect(ConversationTapbackGeometry.rise(badge: badge.offsetBy(dx: -150, dy: 0), rowAbove: above, badgeTopsRow: true) == 0)
     }
+
+    /// The badge rides above its own row, over the row before it: in the
+    /// iOS 27 sim "looking" (row 488...563) hangs its badge at 282.67, 488
+    /// (37.49 x 43.44), while "rip" (465.33...512.5) owns y < 512.5. A tap on
+    /// the badge's upper half must still reach "looking" (Messages opens the
+    /// reactions from anywhere on the tapback).
+    @Test func tapOnABadgeOverTheRowAboveFindsTheBadgesRow() {
+        let badges: [CGRect?] = [nil, CGRect(x: 282.67, y: 488, width: 37.49, height: 43.44)]
+        #expect(ConversationTapbackGeometry.badgeOwner(at: CGPoint(x: 301, y: 500), badges: badges) == 1)
+        #expect(ConversationTapbackGeometry.badgeOwner(at: CGPoint(x: 301, y: 527), badges: badges) == 1)
+        // Slop of 6 pt around the badge, as the bubble's own check had.
+        #expect(ConversationTapbackGeometry.badgeOwner(at: CGPoint(x: 277, y: 485), badges: badges) == 1)
+        #expect(ConversationTapbackGeometry.badgeOwner(at: CGPoint(x: 200, y: 500), badges: badges) == nil)
+    }
 }
