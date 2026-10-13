@@ -195,6 +195,10 @@ public actor CloudMachineLinkManager {
     public func markTrustedCarrier(machineID: String) {
         guard paths.deviceFingerprint(for: machineID) == nil else { return }
         paths.saveDeviceFingerprint(CloudTuiClientPaths.carrierDeviceMarker, for: machineID)
+        // Create receipts can publish private addresses before this marker is
+        // installed. Re-run route selection so a legacy receipt without an
+        // advertised route still gets its explicit migration fallback.
+        setPrivateAddresses(privateAddressCandidates[machineID] ?? [], for: machineID)
     }
 
     /// Records the create receipt used by the first native link. The endpoint
@@ -328,7 +332,11 @@ public actor CloudMachineLinkManager {
             recordPreflightFailure(machineID: machineID, reason: "client_missing", correlationID: correlationID)
             throw ManagerError.clientMissing
         }
-        guard privateRoutes[machineID] != nil else {
+        let canPrepareRoute = Self.canPrepareFirstAttachRoute(
+            deviceFingerprint: paths.deviceFingerprint(for: machineID),
+            privateAddresses: privateAddresses(for: machineID)
+        )
+        guard privateRoutes[machineID] != nil || canPrepareRoute else {
             recordPreflightFailure(machineID: machineID, reason: "private_route_required", correlationID: correlationID)
             throw ManagerError.privateRouteRequired(machineID)
         }
@@ -491,9 +499,10 @@ public actor CloudMachineLinkManager {
         deviceFingerprint == nil
     }
 
-    /// A first browser carrier may discover its route through the one-time
-    /// trusted-listener attach. Existing carriers still need a persisted route.
-    public nonisolated static func browserProxyCanPrepareRoute(
+    /// A first native or browser carrier may discover its route through the
+    /// one-time trusted-listener attach. Existing carriers still need a
+    /// persisted route.
+    public nonisolated static func canPrepareFirstAttachRoute(
         deviceFingerprint: String?,
         privateAddresses: [String]
     ) -> Bool {
@@ -505,7 +514,7 @@ public actor CloudMachineLinkManager {
     public func browserProxy(machineID: String, remoteNetwork: Bool = false) async throws -> CloudBrowserProxyEndpoint {
         let key = BrowserProxyKey(machineID: machineID, remoteNetwork: remoteNetwork)
         try Task.checkCancellation()
-        let canPrepareRoute = Self.browserProxyCanPrepareRoute(
+        let canPrepareRoute = Self.canPrepareFirstAttachRoute(
             deviceFingerprint: paths.deviceFingerprint(for: machineID),
             privateAddresses: privateAddresses(for: machineID)
         )

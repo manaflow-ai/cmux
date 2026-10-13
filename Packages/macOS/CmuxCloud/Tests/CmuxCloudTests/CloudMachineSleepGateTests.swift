@@ -1,7 +1,7 @@
+import CmuxCloudTui
 import Foundation
 import Testing
 @testable import CmuxCloud
-import CmuxCloudTui
 
 @Suite("Cloud machine sleep gate")
 struct CloudMachineSleepGateTests {
