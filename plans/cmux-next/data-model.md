@@ -226,7 +226,9 @@ event with no body, refetch `list-personal`):
   pin), `unpin-workspace {session_id, workspace_key}`.
 - Sessions: `put-session {session_id, machine_name, session_name, transport}`,
   `forget-session {session_id}` (refused while a space pins its workspaces
-  unless `force`).
+  unless `force`), `set-session-icon {session_id, icon}` (`session-icon-v1`:
+  the machine's sidebar icon on the session's record, an icon value or null to
+  clear; `put-session` keeps it; stored in the additive `sessions.icon` column).
 - Groups and order: `create-personal-group`, `update-personal-group`,
   `delete-personal-group`, `move-personal-group`, `set-personal-workspace
   {session_id, workspace_key, position?, group?, browser_profile_id?,

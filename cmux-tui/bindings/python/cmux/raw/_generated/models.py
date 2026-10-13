@@ -3969,6 +3969,7 @@ class SetPersonalWorkspaceRequest:
     browser_profile_id: Union[str, None, MissingType] = field(default=MISSING)
     group: Union[str, None, MissingType] = field(default=MISSING)
     index: Union[int, None, MissingType] = field(default=MISSING)
+    remote_localhost: Union[bool, None, MissingType] = field(default=MISSING)
     theme: Union[str, None, MissingType] = field(default=MISSING)
 
 
@@ -4009,6 +4010,13 @@ class SetScreenPinnedRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-screen-pinned/request'
     screen: Id
     pinned: bool
+
+
+@dataclass(frozen=True)
+class SetSessionIconRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-session-icon/request'
+    icon: Union[str, None]
+    session_id: str
 
 
 @dataclass(frozen=True)
@@ -5698,6 +5706,7 @@ __all__ = [
     'SetRowHeightsRequest',
     'SetScreenMetadataRequest',
     'SetScreenPinnedRequest',
+    'SetSessionIconRequest',
     'SetSizeCountsRequest',
     'SetSizePolicyRequest',
     'SetSplitRatioRequest',

@@ -10,7 +10,8 @@
     "_acpmux/handoff_prepare", "_acpmux/handoff_get", "_acpmux/handoff_draft", "_acpmux/handoff_start",
     "_acpmux/handoff_discard",
     "_acpmux/permission_groups", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
-    "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable"
+    "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable",
+    "_acpmux/secret_submit"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -18,7 +19,8 @@
   "gesture_ticket_key": "cmuxGesture",
   "session_scoped": [
     "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-    "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke"
+    "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+    "_acpmux/secret_submit"
   ],
   "optionally_session_scoped": ["acp.trust.get", "acp.trust.set"],
   "source_scoped": [
@@ -33,7 +35,8 @@
     "acp.trust.set": "when_trusting",
     "_acpmux/harness_enable": "always",
     "_acpmux/permission_respond": "when_option_allows",
-    "_acpmux/permission_group_respond": "when_decision_allows"
+    "_acpmux/permission_group_respond": "when_decision_allows",
+    "_acpmux/secret_submit": "always"
   },
   "non_trusting_levels": ["untrusted", "unknown"],
   "setting_methods": ["session/set_mode", "session/set_config_option"],
@@ -68,6 +71,7 @@
     "_acpmux/permission_groups": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/permission_group_respond": {"params": ["sessionId", "groupId", "revision", "decisionKey", "decision"], "acpmux": []},
     "_acpmux/permission_chat_revoke": {"params": ["sessionId"], "acpmux": []},
+    "_acpmux/secret_submit": {"params": ["sessionId", "secretId", "value"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},

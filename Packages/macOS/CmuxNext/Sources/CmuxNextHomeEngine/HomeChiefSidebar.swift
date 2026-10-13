@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextActions
+import CmuxNextDaemon
 import CmuxNextDesign
 import Foundation
 import CmuxNextCompat
@@ -49,8 +50,6 @@ public final class HomeChiefSidebar: NSView {
     static func harnesses(routeConfigured: Bool) -> [String] {
         routeConfigured ? ["claude", "claude-cr", "codex"] : ["claude", "codex"]
     }
-    static let models = ["claude-opus-5-5", "claude-sonnet-5-5", "gpt-6-sol"]
-    static let efforts = ["low", "medium", "high", "xhigh"]
 
     public init(muxHome: URL, source: any HomeChiefEngineSource) {
         self.muxHome = muxHome
@@ -77,7 +76,7 @@ public final class HomeChiefSidebar: NSView {
             field.setAccessibilityLabel(label)
             field.placeholderString = label
             field.font = Typography.body
-            let box = ThemedFieldBox(field: field, height: Metrics.tabHeight)
+            let box = ThemedFieldBox(field: field, height: Metrics.controlHeight)
             stack.addArrangedSubview(caption)
             stack.addArrangedSubview(box)
             box.widthAnchor.constraint(equalToConstant: Self.width - 32).isActive = true
@@ -247,9 +246,11 @@ public final class HomeChiefSidebar: NSView {
     private func show(_ snapshot: HomeChiefSnapshot) {
         failure.isHidden = true
         for button in [harness, model, effort] { button.isEnabled = true }
-        fill(harness, Self.harnesses(routeConfigured: snapshot.routeConfigured), current: snapshot.harness)
-        fill(model, Self.models, current: snapshot.model)
-        fill(effort, Self.efforts, current: snapshot.effort)
+        fill(harness, Self.harnesses(routeConfigured: snapshot.routeConfigured).map { ($0, $0) }, current: snapshot.harness)
+        // The models acpmux offers for the engine's harness and the efforts the brain takes
+        // (cx-miuo); acpmux's own "default" is the picker's first item.
+        fill(model, snapshot.models.filter { $0.id != "default" }.map { ($0.id, $0.name) }, current: snapshot.model)
+        fill(effort, snapshot.efforts.map { ($0, $0) }, current: snapshot.effort)
         // A picture's file name is not avatar text; the field stays empty for it.
         if avatarField.currentEditor() == nil {
             shownAvatar = snapshot.avatar.flatMap { HomeChiefFiles.namesPicture($0) ? nil : $0 } ?? ""
@@ -261,19 +262,19 @@ public final class HomeChiefSidebar: NSView {
             : HomeEngineStrings.answeredBy + "\n" + snapshot.turns.map(HomeEngineStrings.reply).joined(separator: "\n")
     }
 
-    /// `values` with a "default" first and the current value kept even
-    /// when it is not one of them.
-    private func fill(_ button: NSPopUpButton, _ values: [String], current: String?) {
+    /// `values` (value, title) with a "default" first and the current value
+    /// kept even when it is not one of them.
+    private func fill(_ button: NSPopUpButton, _ values: [(value: String, title: String)], current: String?) {
         button.removeAllItems()
         button.addItem(withTitle: HomeEngineStrings.defaultValue)
         button.lastItem?.representedObject = nil
         var all = values
-        if let current, !all.contains(current) { all.append(current) }
-        for value in all {
-            button.addItem(withTitle: value)
-            button.lastItem?.representedObject = value
+        if let current, !all.contains(where: { $0.value == current }) { all.append((current, current)) }
+        for item in all {
+            button.addItem(withTitle: item.title)
+            button.lastItem?.representedObject = item.value
         }
-        if let current, let index = all.firstIndex(of: current) {
+        if let current, let index = all.firstIndex(where: { $0.value == current }) {
             button.selectItem(at: index + 1)
         } else {
             button.selectItem(at: 0)

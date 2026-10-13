@@ -34,6 +34,8 @@ use zeroize::Zeroizing;
 
 /// First token of the launcher pipe payload.
 const KEY_MAGIC: &str = "cmuxik1";
+/// Lowercase hex digits (`frontend_proof::hex`), for `to_payload`.
+const HEX_DIGITS: &[u8; 16] = b"0123456789abcdef";
 /// Upper bound on the launcher pipe payload.
 const MAX_KEY_PAYLOAD: u64 = 512;
 
@@ -73,11 +75,21 @@ impl FrontendKey {
 
     /// The pipe payload for this key (the launcher writes it).
     pub fn to_payload(&self) -> Zeroizing<String> {
-        Zeroizing::new(format!(
-            "{KEY_MAGIC} {} {}\n",
-            self.install_id,
-            frontend_proof::hex(self.key.as_slice())
-        ))
+        // Written into one zeroized buffer of its final size: no temporary
+        // hex string or regrown buffer keeps a copy of the key.
+        let mut payload = Zeroizing::new(String::with_capacity(
+            KEY_MAGIC.len() + self.install_id.len() + INSTALL_KEY_LEN * 2 + 3,
+        ));
+        payload.push_str(KEY_MAGIC);
+        payload.push(' ');
+        payload.push_str(&self.install_id);
+        payload.push(' ');
+        for byte in self.key.iter() {
+            payload.push(char::from(HEX_DIGITS[usize::from(byte >> 4)]));
+            payload.push(char::from(HEX_DIGITS[usize::from(byte & 0x0f)]));
+        }
+        payload.push('\n');
+        payload
     }
 
     pub fn install_id(&self) -> &str {
@@ -88,7 +100,9 @@ impl FrontendKey {
 /// Reads one key payload from `reader` (an inherited pipe) to end of file.
 /// The caller closes the descriptor right after.
 pub fn read_frontend_key(reader: impl Read) -> std::io::Result<FrontendKey> {
-    let mut payload = Zeroizing::new(String::new());
+    // Sized for the longest payload up front, so a regrown buffer never
+    // leaves a freed copy of the key behind.
+    let mut payload = Zeroizing::new(String::with_capacity(MAX_KEY_PAYLOAD as usize + 1));
     reader.take(MAX_KEY_PAYLOAD + 1).read_to_string(&mut payload)?;
     if payload.len() as u64 > MAX_KEY_PAYLOAD {
         return Err(std::io::Error::new(

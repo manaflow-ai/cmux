@@ -140,6 +140,11 @@ extension AgentPaneRequest {
                 let model = (params?["model"] as? String).flatMap { !$0.isEmpty && $0.count <= 256 ? $0 : nil }
                 let folder = (params?["folder"] as? String).flatMap { !$0.isEmpty && $0.count <= 4096 ? $0 : nil }
                 self = .rememberNewTab(AgentPaneRememberedPick(agent: agent, model: model, folder: folder))
+            } else if params?["harnessHint"] as? String == "dismissed" {
+                // Integrate a harness dismissed for good (a page choice like the agent pick).
+                var pick = AgentPaneRememberedPick(agent: "")
+                pick.dismissesHarnessHint = true
+                self = .rememberNewTab(pick)
             } else {
                 self = .unsupported(method)
             }
@@ -147,18 +152,6 @@ extension AgentPaneRequest {
             if let target = (params?["target"] as? String).flatMap(AgentPaneJumpTarget.init(rawValue:)),
                let id = params?["id"] as? String, !id.isEmpty, id.count <= 256 {
                 self = .jump(target, id: id)
-            } else {
-                self = .unsupported(method)
-            }
-        case "tab.setDefaultKind":
-            if let kind = params?["kind"] as? String, !kind.isEmpty, kind.count <= 32 {
-                self = .setDefaultKind(kind)
-            } else {
-                self = .unsupported(method)
-            }
-        case "newTab.setTemplate":
-            if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
-                self = .setNewTabTemplate(template)
             } else {
                 self = .unsupported(method)
             }

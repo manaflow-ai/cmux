@@ -303,3 +303,56 @@ fn identify_advertises_workspace_group_pins() {
             .any(|value| value == "workspace-group-pin-v1")
     );
 }
+
+/// cx-d0d.41 (`personal-remote-localhost-v1`): a workspace's own
+/// remote-localhost choice is personal state. `set-personal-workspace`
+/// takes `remote_localhost` (true or false; null clears back to the
+/// `browser.remoteLocalhost` setting), the row and `list-personal` carry it,
+/// and it leaves the row's other fields alone.
+#[test]
+fn a_personal_workspace_keeps_its_own_remote_localhost_choice() {
+    let mux = personal_mux();
+    let identity = run(&mux, json!({"cmd":"identify"})).unwrap();
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == "personal-remote-localhost-v1"),
+        "identify does not advertise personal-remote-localhost-v1"
+    );
+    let key = json!({"session_id":"remote-1","workspace_key":"build-box-ws"});
+    let set = |fields: Value| {
+        let mut request = json!({"cmd":"set-personal-workspace"});
+        for source in [&key, &fields] {
+            for (name, value) in source.as_object().unwrap() {
+                request[name] = value.clone();
+            }
+        }
+        run(&mux, request).unwrap()
+    };
+    let listed = |mux: &Arc<Mux>| {
+        run(mux, json!({"cmd":"list-personal"})).unwrap()["workspaces"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["workspace_key"] == "build-box-ws")
+            .cloned()
+            .unwrap()
+    };
+
+    let row = set(json!({"theme":"Nord"}));
+    assert!(row["workspace"]["remote_localhost"].is_null(), "a new row follows the setting");
+    let row = set(json!({"remote_localhost": false}));
+    assert_eq!(row["changed"], true);
+    assert_eq!(row["workspace"]["remote_localhost"], false);
+    assert_eq!(listed(&mux)["remote_localhost"], false);
+    assert_eq!(listed(&mux)["theme"], "Nord", "the choice changed another field");
+    let before = revision(&mux);
+    assert_eq!(set(json!({"remote_localhost": false}))["changed"], false);
+    assert_eq!(revision(&mux), before, "an unchanged choice committed a revision");
+    assert_eq!(set(json!({"remote_localhost": true}))["workspace"]["remote_localhost"], true);
+    let cleared = set(json!({"remote_localhost": null}));
+    assert!(cleared["workspace"]["remote_localhost"].is_null(), "null does not clear the choice");
+    assert_eq!(listed(&mux)["theme"], "Nord");
+}

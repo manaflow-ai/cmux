@@ -14,9 +14,13 @@ import Observation
 /// once the daemon's closed history records every tab of that gesture (its
 /// closed items of that pane), and its
 /// action reopens exactly those records at their own places, never "the
-/// newest". One gesture, one toast: "Closed “title”" for one tab, "Closed
-/// N tabs" for a group. One close toast per window: a newer close replaces
-/// it. Automation closes (CLI, agents) never announce, so they show no toast.
+/// newest". Only a costly close shows it (`CloseToastRule`: several real
+/// tabs, an agent at work or an unsent chat, a terminal running a program);
+/// Settings, New Tab, History and one idle tab close silently, and Cmd-Shift-T
+/// still reopens them. "Closed “title”" for one tab, "Closed N tabs" for
+/// several; closes made while a close toast shows join it, so one Undo
+/// reopens them all. Automation closes (CLI, agents) never announce, so they
+/// show no toast.
 @MainActor
 final class CloseUndoToasts {
     /// One announced gesture, waiting for its history records.
@@ -29,7 +33,24 @@ final class CloseUndoToasts {
         weak var window: NSWindow?
         var daemonItems: [String] = []
         var daemonTabs = 0
+        /// `CloseToastRule`'s answer; nil while the daemon says whether a
+        /// closing terminal runs a program.
+        var costly: Bool?
+        /// Matches the async program check to this gesture.
+        var serial = 0
+        /// Every history record arrived; the toast waits only for `costly`.
+        var recorded = false
     }
+
+    /// The close toast showing in a window, which a quick next close joins.
+    private struct Shown {
+        weak var handle: CmuxToastHandle?
+        weak var window: NSWindow?
+        var tabs: Int
+        var reopen: @MainActor () -> Void
+    }
+    private var shown: Shown?
+    private var nextSerial = 0
 
     private weak var services: AppServices?
     /// The presenter (tests replace it with a headless one).
@@ -102,11 +123,27 @@ final class CloseUndoToasts {
     /// An action run from automation (CLI, agents) closes without a toast.
     /// A terminal doing work asks once first (`TabCloseGuard`).
     static func close(in pane: PaneController, _ ids: [StripTabID]) {
+        // A tab already closing (a second close before the daemon answered the first) closes once.
+        let ids = ids.filter { !pane.pendingClosed.contains($0.rawValue) }
+        guard !ids.isEmpty else { return }
         let user = isUserClose
         TabCloseGuard.close(ids.compactMap(pane.tab), on: pane.daemon, services: pane.services, window: pane.view.window) { [weak pane] in
             guard let pane else { return }
-            if user { pane.services.closedTabs?.undoToasts.expectGroup(ids, in: pane) }
-            pane.close(ids)
+            guard user, let undo = pane.services.closedTabs?.undoToasts else { return pane.close(ids) }
+            // Whether a closing terminal runs a program is read before the
+            // close: a closed terminal ends, and could no longer say.
+            guard case .askTerminals(let terminals) = CloseToastRule(services: pane.services).decide(ids.compactMap(pane.tab)) else {
+                undo.expectGroup(ids, in: pane)
+                return pane.close(ids)
+            }
+            // task-owner: one bounded process-info read per terminal (1 s each, concurrent), then the close
+            Task { @MainActor [weak pane] in
+                guard let daemon = pane?.daemon else { return }
+                let programs = await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)
+                guard let pane else { return }
+                undo.expectGroup(ids, in: pane, costly: !programs.isEmpty)
+                pane.close(ids)
+            }
         }
     }
 
@@ -119,22 +156,49 @@ final class CloseUndoToasts {
     }
 
     /// The user is closing tabs `ids` of `pane` in one gesture.
-    func expectGroup(_ ids: [StripTabID], in pane: PaneController) {
-        expectGroup(tabs: ids.compactMap(pane.tab), in: pane.pane, daemon: pane.daemon, window: pane.view.window)
+    func expectGroup(_ ids: [StripTabID], in pane: PaneController, costly: Bool? = nil) {
+        expectGroup(tabs: ids.compactMap(pane.tab), in: pane.pane, daemon: pane.daemon, window: pane.view.window, costly: costly)
     }
 
     /// The user is closing `tabs` of `pane` in one gesture (a tab group
     /// that may not be shown; `window` is where the toast goes).
-    func expectGroup(tabs: [TabModel], in pane: PaneModel, daemon: DaemonService, window: NSWindow?) {
+    /// `costly` is the caller's answer to `CloseToastRule` when it already
+    /// read the closing terminals; nil asks the rule here.
+    func expectGroup(tabs: [TabModel], in pane: PaneModel, daemon: DaemonService, window: NSWindow?, costly: Bool? = nil) {
         let entries = tabs.compactMap { tab in
             pane.tabs.firstIndex { $0 === tab }.map { (id: tab.id, index: $0) }
         }
         announced += 1
         guard !entries.isEmpty else { announcedEmpty += 1; return }
+        // A second close of a tab whose close is still waiting (a repeated Cmd-W) is the same gesture.
+        let pending = Set(expected.flatMap { $0.tabs.map(\.id) })
+        guard !entries.contains(where: { pending.contains($0.id) }) else { return }
         let title = tabs.count == 1 ? Self.title(of: tabs[0], titles: services.map { TabTitleResolver(services: $0) } ?? TabTitleResolver()) : ""
-        expected.append(Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceID: pane.resourceID,
-                                 title: title, window: window))
+        nextSerial += 1
+        var close = Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceID: pane.resourceID,
+                             title: title, window: window, serial: nextSerial)
+        let decision: CloseToastRule.Decision = costly.map { $0 ? .show : .skip }
+            ?? services.map { CloseToastRule(services: $0).decide(tabs) } ?? .skip
+        switch decision {
+        case .show: close.costly = true
+        case .skip: close.costly = false
+        case .askTerminals(let terminals):
+            let serial = close.serial
+            // task-owner: one bounded process-info read per terminal (1 s each, concurrent)
+            Task { @MainActor [weak self] in
+                let programs = await DestructiveConfirmation.runningPrograms(of: terminals, on: daemon)
+                self?.decided(serial, costly: !programs.isEmpty)
+            }
+        }
+        expected.append(close)
         if expected.count > 16 { expected.removeFirst(expected.count - 16) }
+    }
+
+    /// The program check of gesture `serial` answered.
+    private func decided(_ serial: Int, costly: Bool) {
+        guard let position = expected.firstIndex(where: { $0.serial == serial }) else { return }
+        expected[position].costly = costly
+        finishIfReady(position)
     }
 
     /// A tab's name in its toast, as its strip and the sidebar name it
@@ -160,7 +224,7 @@ final class CloseUndoToasts {
         for id in added {
             let entry = DaemonClosedHistory.entry(id, in: services)
             let position = entry.flatMap { entry in
-                entry.item.kind == .tab ? expected.firstIndex { $0.paneResourceID != nil && $0.paneResourceID == entry.item.paneID } : nil
+                entry.item.kind == .tab ? expected.firstIndex { !$0.recorded && $0.paneResourceID != nil && $0.paneResourceID == entry.item.paneID } : nil
             }
             recentDaemonItems.append((id, entry?.item.paneID?.rawValue, entry?.item.tabs.count ?? 0, position != nil))
             if recentDaemonItems.count > 8 { recentDaemonItems.removeFirst(recentDaemonItems.count - 8) }
@@ -168,24 +232,41 @@ final class CloseUndoToasts {
             expected[position].daemonItems.append(id)
             expected[position].daemonTabs += max(entry.item.tabs.count, 1)
             guard expected[position].daemonTabs >= expected[position].tabs.count else { continue }
-            let close = expected.remove(at: position)
-            show(close) { [weak services] in
-                guard let services else { return }
-                // Each item holds the position it had when it closed: reopen the last closed first.
-                for id in close.daemonItems.reversed() {
-                    guard let entry = DaemonClosedHistory.entry(id, in: services) else { continue }
-                    DaemonClosedHistory.reopen(entry, services: services)
-                }
+            expected[position].recorded = true
+            finishIfReady(position)
+        }
+    }
+
+    /// Shows (or drops) gesture `position` once its records are in and the
+    /// rule has answered.
+    private func finishIfReady(_ position: Int) {
+        guard expected[position].recorded, let costly = expected[position].costly else { return }
+        let close = expected.remove(at: position)
+        guard costly else { return }
+        show(close) { [weak services] in
+            guard let services else { return }
+            // Each item holds the position it had when it closed: reopen the last closed first.
+            for id in close.daemonItems.reversed() {
+                guard let entry = DaemonClosedHistory.entry(id, in: services) else { continue }
+                DaemonClosedHistory.reopen(entry, services: services)
             }
         }
     }
 
     private func show(_ close: Expected, reopen: @escaping @MainActor () -> Void) {
         guard let window = close.window ?? services?.windows.active?.window else { return }
-        let message = close.tabs.count > 1 ? MiscHandlerStrings.tabsClosed(close.tabs.count)
+        var tabs = close.tabs.count, action = reopen
+        // A close made while this window's close toast shows joins it: one toast, one Undo for all.
+        if let previous = shown, let handle = previous.handle, !handle.isDismissed, previous.window === window {
+            tabs += previous.tabs
+            let earlier = previous.reopen
+            action = { reopen(); earlier() }
+        }
+        let message = tabs > 1 ? MiscHandlerStrings.tabsClosed(tabs)
             : MiscHandlerStrings.tabClosed(close.title.isEmpty ? MiscHandlerStrings.untitledTab : close.title)
         let handle = toasts.show(CmuxToast(id: Self.toastID, message: message, action: .undo()), in: window)
-        handle.onAction = reopen
+        handle.onAction = action
+        shown = Shown(handle: handle, window: window, tabs: tabs, reopen: action)
     }
 
     /// The gestures still waiting for their history records (`debug.filepages`).

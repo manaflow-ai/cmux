@@ -52,6 +52,9 @@ public final class UpdaterService {
     /// Opens the changelog page for the releases after `from` up to `to`
     /// (set by the App).
     @ObservationIgnored public var openChangelogSpan: ((_ from: String, _ to: String) -> Bool)?
+    /// Opens a web release notes page in a browser tab (set by the App;
+    /// "See all changes" when the staged build has no signed notes).
+    @ObservationIgnored public var openReleaseNotesURL: ((URL) -> Bool)?
     /// Runs an allow-listed action id (set by the App; an announcement's Try It).
     @ObservationIgnored public var runAllowListedAction: ((String) -> Void)?
     /// The announcement cards to show (filtered), newest feed order.
@@ -88,18 +91,25 @@ public final class UpdaterService {
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).
     public internal(set) var automaticUpdates = true
-    /// Writes `updates.downloadAutomatically` (set by the App).
-    @ObservationIgnored public var writeAutomaticUpdates: ((Bool) -> Void)?
+    /// Writes a setting the updater's cards change (set by the App).
+    @ObservationIgnored public var writeSetting: ((UpdaterSetting, Bool) -> Void)?
     /// BOTTOM-LEFT-CARDS K1: today's "Did you know" tip (nil: none, or
     /// `sidebar.cards.tips` off) and what the tips remember on this Mac.
     public internal(set) var tip: Tip?
     @ObservationIgnored var tipState = TipState()
-    /// `sidebar.cards.tips` (set by the App).
-    public var tipsEnabled = true { didSet { if oldValue != tipsEnabled { refreshTip() } } }
+    /// `sidebar.cards.tips` (set by the App once settings load; nil before,
+    /// and no tip shows until then); turning it on again ends a timed mute.
+    public var tipsEnabled: Bool? {
+        didSet {
+            guard oldValue != tipsEnabled else { return }
+            if oldValue == false, tipsEnabled == true { tipsTurnedOn() }
+            refreshTip()
+        }
+    }
     /// Runs a tip's action as the user's own (set by the App: the registry).
     @ObservationIgnored public var runTipAction: ((String) -> Void)?
-    /// Re-picks the tip when the app becomes active (set by the App).
-    @ObservationIgnored public var activationObservation: Task<Void, Never>?
+    /// Re-picks the tip when the app becomes active (``refreshTipOnActivation()``).
+    @ObservationIgnored var activationObservation: Task<Void, Never>?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public internal(set) var testFeedURL: String?
     /// The `updates.*` settings the gate reads (set by the App).
