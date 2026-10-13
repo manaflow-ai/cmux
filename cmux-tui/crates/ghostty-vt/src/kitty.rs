@@ -195,9 +195,14 @@ impl KittyInFlightTracker {
 
     pub(crate) fn discard_unreplayable(&mut self) {
         self.scan = KittyStreamScan::Ground;
-        self.prefix.clear();
-        self.loading = false;
         self.overflowed = false;
+        // CAN aborts only the command that is currently being parsed. Keep a
+        // completed m=1 prefix so checkpoint replay can still resume the
+        // native upload when a later m=0 chunk arrives. An overflowed first
+        // chunk has no prefix to preserve, so leave the tracker idle there.
+        if self.prefix.is_empty() {
+            self.loading = false;
+        }
     }
 
     /// The completed upload chunks and the partial command, separately, under

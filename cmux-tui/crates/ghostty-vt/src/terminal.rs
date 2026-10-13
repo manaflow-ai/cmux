@@ -2214,15 +2214,15 @@ impl Terminal {
     /// Checkpoint capture can continue from the rendered terminal state when
     /// a client leaves an unbounded control string (most often a Kitty upload)
     /// open forever. CAN has no screen effect and returns the parser to ground;
-    /// callers must use this only when they intentionally resume the stream at
-    /// the next byte instead of preserving the incomplete sequence.
-    pub fn discard_unreplayable_replay(&mut self) -> bool {
+    /// callers must publish the returned bytes to every attached parser before
+    /// resuming the live stream.
+    pub fn discard_unreplayable_replay(&mut self) -> Option<Vec<u8>> {
         if self.vt_replay_resumes_stream() {
-            return false;
+            return None;
         }
-        self.vt_write(b"\x18");
+        let normalized = self.vt_write_with_normalized(b"\x18").into_owned();
         self.kitty_inflight.discard_unreplayable();
-        self.vt_stream_is_ground()
+        self.vt_stream_is_ground().then_some(normalized)
     }
 
     /// How the replay reproduces the parser's incomplete sequence, if it can.

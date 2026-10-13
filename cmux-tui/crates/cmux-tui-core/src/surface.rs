@@ -5150,6 +5150,26 @@ impl Surface {
         Ok(f(&mut pty.term.lock().unwrap()))
     }
 
+    /// Abort an unreplayable parser sequence and run a capture while the
+    /// terminal/output fence is held. The synthetic CAN bytes are published to
+    /// byte attachments before the fence is released, so their parsers stay
+    /// synchronized with the authoritative terminal.
+    pub(crate) fn discard_unreplayable_replay_with<R>(
+        &self,
+        f: impl FnOnce(&mut Terminal) -> R,
+    ) -> anyhow::Result<Option<R>> {
+        let Some(pty) = self.as_pty() else {
+            anyhow::bail!("browser surface does not have a VT terminal");
+        };
+        let mut terminal = pty.term.lock().unwrap();
+        let Some(output) = terminal.discard_unreplayable_replay() else {
+            return Ok(None);
+        };
+        pty.broadcast_attach_output(&output);
+        pty.stream_progress.notify();
+        Ok(Some(f(&mut terminal)))
+    }
+
     pub fn scroll_delta(&self, delta: isize) -> anyhow::Result<()> {
         let _ = self.apply_scroll_delta(None, delta)?;
         Ok(())

@@ -170,16 +170,13 @@ pub(crate) fn terminal_replay_blob(
         }
         if captured.is_none() {
             let result = surface
-                .try_with_terminal(|terminal| {
-                    if !terminal.discard_unreplayable_replay() {
-                        return Err(ghostty_vt::Error::OutOfSpace);
-                    }
+                .discard_unreplayable_replay_with(|terminal| {
                     terminal
                         .vt_replay_bounded(CHECKPOINT_REPLAY_RETRY_BUDGETS[0])
                         .map(|replay| (terminal.cols(), terminal.rows(), replay))
                 })
                 .with_context(|| format!("terminal {terminal_id} replay recovery"))?;
-            if let Ok(value) = result {
+            if let Some(Ok(value)) = result {
                 captured = Some(value);
             } else {
                 return Err(anyhow::anyhow!(
@@ -1501,15 +1498,21 @@ mod tests {
         let replay_bytes = base64::engine::general_purpose::STANDARD
             .decode(replay["bytes_base64"].as_str().unwrap())
             .unwrap();
-        assert_eq!(replay_bytes.last(), Some(&0x18));
+        assert!(
+            replay_bytes.len() < upload.len(),
+            "checkpoint replay must drop the unreplayable upload payload"
+        );
 
         let mut attach_output = Vec::new();
         while let Ok(frame) = attach.stream.try_recv() {
             if let crate::surface::AttachFrame::Output(bytes) = frame {
-                attach_output.push(bytes);
+                attach_output.extend_from_slice(&bytes);
             }
         }
-        assert_eq!(attach_output.last(), Some(&vec![0x18]));
+        assert!(
+            attach_output.ends_with(b"\x18"),
+            "checkpoint recovery must publish CAN after the unreplayable PTY bytes"
+        );
 
         drop(surface);
         drop(mux);
