@@ -54,3 +54,31 @@ struct BottomStatusBarRunTests {
         #expect(BottomStatusBarRun.parse("\u{1b}]8;;https://x") == [])
     }
 }
+
+@MainActor
+@Suite("Status bar command feed")
+struct BottomStatusBarFeedTests {
+    /// Waits for the feed to show `expected`, up to `seconds`; returns what it shows then.
+    private func shownText(_ feed: BottomStatusBarFeed, expecting expected: String, seconds: Double = 5) async throws -> String {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if feed.runs.map(\.text).joined() == expected { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        return feed.runs.map(\.text).joined()
+    }
+
+    @Test func lastLineWithoutNewlineIsShownWhenTheCommandExits() async throws {
+        let feed = BottomStatusBarFeed()
+        defer { feed.run("") }
+        feed.run("printf 'first\\nlast'")
+        #expect(try await shownText(feed, expecting: "last") == "last")
+    }
+
+    @Test func oneShotCommandWithoutNewlineIsNotReportedAsSilent() async throws {
+        let feed = BottomStatusBarFeed()
+        defer { feed.run("") }
+        feed.run("printf only")
+        #expect(try await shownText(feed, expecting: "only") == "only")
+    }
+}
