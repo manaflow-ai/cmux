@@ -5,6 +5,34 @@ import Testing
 /// Header frames read from MobileSMS (iOS 26.5 and 27.0 simulators) and a
 /// dark-mode iPhone 17 Pro Max screenshot of real Messages (440 pt @3x).
 @Suite struct ConversationHeaderGeometryTests {
+    /// A group's three avatars on the header's 60 pt disc, from a real
+    /// iPhone 17 Pro Max (iOS 26.4, dark, "3 People"): first 28.33 pt at
+    /// (7.33, 7.33), second 21.67 at (34, 24.33), third 17.33 at
+    /// (17.17, 37.33). They never overlap (about 2 pt apart) and carry no
+    /// ring; ours overlapped 32/24/18 discs with 1.5 pt rings.
+    @Test func groupClusterMatchesMessages() {
+        let slots = ConversationHeaderGeometry.groupClusterSlots
+        let real: [CGRect] = [
+            CGRect(x: 7.33, y: 7.33, width: 28.33, height: 28.33),
+            CGRect(x: 34, y: 24.33, width: 21.67, height: 21.67),
+            CGRect(x: 17.17, y: 37.33, width: 17.33, height: 17.33),
+        ]
+        #expect(slots.count == 3)
+        for (slot, ref) in zip(slots, real) {
+            #expect(abs(slot.minX - ref.minX) <= 0.34 && abs(slot.minY - ref.minY) <= 0.34)
+            #expect(abs(slot.width - ref.width) <= 0.34 && slot.width == slot.height)
+        }
+        for i in 0..<slots.count {
+            for j in (i + 1)..<slots.count {
+                let a = slots[i], b = slots[j]
+                let gap = hypot(a.midX - b.midX, a.midY - b.midY) - (a.width + b.width) / 2
+                #expect(gap > 1.5 && gap < 2.5)
+            }
+            #expect(slots[i].minX >= 0 && slots[i].maxX <= 60 && slots[i].maxY <= 60)
+        }
+        #expect(ConversationHeaderGeometry.groupClusterRingWidth == 0)
+    }
+
     @Test func buttonsSitOnTheSystemLayoutMargin() {
         // iPhone 17 Pro (402 pt): BackButton at x 16; Pro Max (440 pt): x 20.
         #expect(ConversationHeaderGeometry.sideMargin(layoutMargin: 16) == 16)
