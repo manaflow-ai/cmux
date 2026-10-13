@@ -2,6 +2,8 @@ import { INFERENCE_ENTRY_PLAN } from "@cmux/protocol"
 import { personalTeamIdFor } from "../domains/user.ts"
 import { isMachineInstallKind } from "../machine-installs.ts"
 import { authenticate } from "../auth.ts"
+import { principalForOwner, selectTeam, TEAM_HEADER } from "../team-select.ts"
+import { nextMonthStart } from "../usage-user.ts"
 import type { Env } from "../env.ts"
 import { cardCost, MODELS, modelById, type ModelEntry, type ProviderId } from "./catalog.ts"
 import { providerTarget } from "./providers.ts"
@@ -20,7 +22,7 @@ import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
  */
 
 export type Caller =
-  | { readonly kind: "team"; readonly team: string; readonly user: string }
+  | { readonly kind: "team"; readonly team: string; readonly user: string; readonly limitMicros: number }
   | { readonly kind: "free"; readonly device: string }
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024
@@ -47,27 +49,42 @@ const bearer = (request: Request) => {
   return request.headers.get("x-api-key")?.trim() || undefined
 }
 
+/** The member's monthly limit in micro-dollars: the team's setting, else INFERENCE_USER_MONTHLY_DEFAULT_USD (default 200). */
+export const userLimitMicros = (env: Env, teamLimitUsd: number | null) => {
+  const fallback = Number(env.INFERENCE_USER_MONTHLY_DEFAULT_USD ?? "200")
+  const usd = teamLimitUsd ?? (Number.isFinite(fallback) && fallback >= 0 ? fallback : 200)
+  return Math.round(usd * 1_000_000)
+}
+
 export const resolveCaller = async (env: Env, request: Request): Promise<Caller | Response> => {
   const token = bearer(request)
   if (!token) return err(401, "auth.required", "sign in, or use the free model from the app")
   const free = await freeCaller(env, token)
   if (free) return free
-  const p = await authenticate(env, token)
-  if (!p?.user || !p.team) return err(401, "auth.invalid", "the token is not valid")
+  const authed = await authenticate(env, token)
+  if (!authed?.user || !authed.team) return err(401, "auth.invalid", "the token is not valid")
+  // Team selection (x-cmux-team, a session only), checked against the team's TeamDO now.
+  const selected = await selectTeam(env, { ...authed, user: authed.user, team: authed.team }, request.headers.get(TEAM_HEADER))
+  if (!selected.ok) return err(selected.code === "owner.unreachable" ? 503 : 403, selected.code, selected.message, selected.code === "owner.unreachable" ? { retryable: true } : {})
+  // The install as UserDO holds it now (a revoked install stops at once), and in a shared team a
+  // role with team.resources (guests and billing-only members use no AI).
+  const granted = await principalForOwner(env, "cloud:InferenceRouter", selected.principal).catch(() => null)
+  if (granted === null) return err(503, "owner.unreachable", "team membership could not be checked; retry", { retryable: true })
+  if (!granted) return err(401, "auth.invalid", "the token is not valid")
+  if ("refused" in granted) return err(403, "auth.forbidden", granted.refused)
+  const p = { ...granted, user: authed.user, team: selected.principal.team }
   if (p.kind === "install" && isMachineInstallKind(p.install_kind) && !switchOn(env.INFERENCE_MACHINES_ENABLED)) return err(403, "auth.forbidden", "machine installs cannot use the model router yet")
   const allowed = (env.INFERENCE_ALLOWED_TEAMS ?? "").split(",").map((t) => t.trim()).filter(Boolean)
   if (allowed.length > 0 && !allowed.includes(p.team)) return err(403, "auth.forbidden", "this team cannot use the model router on this deployment yet")
   // Paid plans only (cx-ds09i): a personal team pays through its owner's personal plan, a shared
-  // team through its team plan (inference/plan.ts, protocol inference-plans.ts). Today p.team is
-  // the personal team for every caller this route admits (no team selection here yet), so only
-  // personal plans open the router; the shared-team branch is ready for team selection.
+  // team through its team plan (inference/plan.ts, protocol inference-plans.ts).
   const personal = p.team === personalTeamIdFor(p.user)
   const stackUser = personal ? (p.stack_user_id ?? (await env.USER_DO.get(env.USER_DO.idFromName(p.user)).stackUserOf(p.user)) ?? undefined) : undefined
   if (personal && !stackUser) return err(402, "inference.plan_required", "AI models need a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN } })
   const plan = await env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)).inferencePlan(p.team, stackUser)
   if (!plan.ok) return err(503, "plan.unavailable", "the plan check is not available now; retry", { retryable: true })
   if (!plan.paid) return err(402, "inference.plan_required", "AI models need a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN } })
-  return { kind: "team", team: p.team, user: p.user }
+  return { kind: "team", team: p.team, user: p.user, limitMicros: userLimitMicros(env, plan.user_limit_usd) }
 }
 
 export const handleInferenceModels = (env: Env): Response => {
@@ -175,7 +192,14 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
     const check = await meter.check(caller.team)
     if (!check.allowed) return err(402, "team.cap_reached", "the team reached its monthly usage cap")
+    // The member's own monthly limit (usage-user.ts): reserved before the global lines, released at once if they refuse.
+    const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros)
+    if (!held.ok) {
+      return err(402, "usage.user_limit_reached", "You reached your monthly AI spending limit for this team. A team admin can raise it.", { details: { limit_usd: held.limit_usd, spent_usd: held.spent_usd, resets_at: nextMonthStart(Date.now()) } })
+    }
   }
+  /** The member's reservation ends: real cost, or null when no provider was billed. */
+  const settleMember = (micros: number | null) => (caller.kind === "team" ? env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team)).settleUser(caller.team, id, micros) : Promise.resolve())
 
   const upstreamBody: Record<string, unknown> = {}
   for (const k of PASS_FIELDS) if (body[k] !== undefined) upstreamBody[k] = body[k]
@@ -189,15 +213,11 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
     const plan = await guard(env).plan(id, caller.kind === "free" ? `device:${caller.device}` : `team:${caller.team}`, candidates, maxMicros, free)
     if (!plan.ok) {
       if (caller.kind === "free") await freeSettle(env, caller.device, id, 0)
+      // Nothing was billed: earlier attempts here failed before the first byte (a billed one returns above).
+      await settleMember(null)
       log(env, { id, model: model.id, caller: caller.kind, status: plan.code, line: plan.line ?? null, max_usd: maxUsd })
       if (last) return last
       if (plan.code === "concurrency.limit") return err(429, "concurrency.limit", "too many requests at once; wait for one to finish", { retryable: true })
-      if (plan.code === "team.cap_not_configured") return err(503, "inference.not_configured", "the model router is not available for teams on this deployment yet")
-      if (plan.code === "team.daily_cap") {
-        const res = err(429, "team.daily_cap", "the team reached its daily model budget; it resets at 00:00 UTC", { retryable: true })
-        res.headers.set("retry-after", String(Math.max(1, Math.ceil((Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate() + 1) - Date.now()) / 1000))))
-        return res
-      }
       return plan.code === "budget.exhausted" ? err(429, "budget.exhausted", "the daily model budget is used up; try again later", { retryable: true }) : err(503, plan.code, "no provider can serve this model now")
     }
     tried.add(plan.provider)
@@ -211,6 +231,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
         const usd = r.usage ? (r.usage.costUsd ?? cardCost(model, r.usage.input, r.usage.output)) : r.charged === "none" ? 0 : maxUsd
         if (usd > maxUsd * 1.0001) console.warn(JSON.stringify({ msg: "inference.cost_over_bound", id, model: model.id, provider: plan.provider, usd, max_usd: maxUsd }))
         await guard(env).settle(id, plan.provider, usd * 1_000_000, r.ttfbMs)
+        await settleMember(usd * 1_000_000)
         if (caller.kind === "free") await freeSettle(env, caller.device, id, r.usage ? r.usage.input + r.usage.output : r.charged === "none" ? 0 : Math.min(promptBound, model.context) + maxTokens)
         else if (usd > 0) {
           const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
@@ -224,6 +245,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
       // The provider may have billed (a timeout or a broken body after the request was sent): the
       // full reservation is spent and there is no fallback, so a client cannot repeat it for free.
       ctx.waitUntil(guard(env).settle(id, plan.provider, maxMicros, null))
+      ctx.waitUntil(settleMember(maxMicros))
       log(env, { id, model: model.id, provider: plan.provider, caller: caller.kind, status: "upstream.charged_failure", upstream_status: outcome.status, attempt, usd: maxUsd })
       return err(502, "upstream.failed", "the model provider failed; retry", { retryable: true })
     }
@@ -233,6 +255,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
     last = err(502, "upstream.failed", "the model provider failed; retry", { retryable: true })
   }
   if (caller.kind === "free") await freeSettle(env, caller.device, id, 0)
+  await settleMember(null)
   return last ?? err(503, "provider.unavailable", "no provider can serve this model now")
 }
 

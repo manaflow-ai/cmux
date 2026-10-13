@@ -23,7 +23,8 @@ export const PLAN_STALE_MS = 24 * 60 * 60_000
 /** After a failed Stack read, the stale copy answers without a new read for this long. */
 export const FAILURE_BACKOFF_MS = 60_000
 
-export type PlanAnswer = { readonly ok: true; readonly paid: boolean } | { readonly ok: false; readonly reason: "unavailable" }
+/** `user_limit_usd`: the team's per-user monthly AI limit (team-ai-limit.ts); null = the deployment default. */
+export type PlanAnswer = { readonly ok: true; readonly paid: boolean; readonly user_limit_usd: number | null } | { readonly ok: false; readonly reason: "unavailable" }
 
 const ensure = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS inference_plan (id INTEGER PRIMARY KEY CHECK (id = 1), plan TEXT, checked_at INTEGER NOT NULL, failed_at INTEGER)`)
@@ -68,7 +69,9 @@ export const personalPlanPaid = (plan: string | null) => plan !== null && INFERE
  * TeamDO.inferencePlan: the answer for `entity`. `stackUser` is set only for the caller's own
  * personal team (route.ts); a shared team needs its live mirrored Stack team.
  */
-export const inferencePlanOf = async (sql: SqlStorage, team: TeamState["team"], entity: string, stack: StackServer | undefined, stackUser: string | undefined, now = Date.now()): Promise<PlanAnswer> => {
+export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, now = Date.now()): Promise<PlanAnswer> => {
+  const team = state?.team ?? null
+  const limit = state?.ai_user_monthly_limit_usd ?? null
   const read = (fetch: (s: StackServer) => Promise<string | null>) =>
     readPlan(sql, now, async () => {
       if (!stack) throw new Error("stack server not configured")
@@ -76,15 +79,15 @@ export const inferencePlanOf = async (sql: SqlStorage, team: TeamState["team"], 
     })
   if (stackUser !== undefined) {
     // A personal team may not be mirrored here yet; the Worker checked the id is the caller's own.
-    if (team && (team.id !== entity || team.kind !== "personal")) return { ok: true, paid: false }
+    if (team && (team.id !== entity || team.kind !== "personal")) return { ok: true, paid: false, user_limit_usd: limit }
     const r = await read(async (s) => {
       const plan = await s.getUserPlan(stackUser)
       return plan === "user_gone" ? null : plan
     })
-    return r.ok ? { ok: true, paid: personalPlanPaid(r.plan) } : { ok: false, reason: "unavailable" }
+    return r.ok ? { ok: true, paid: personalPlanPaid(r.plan), user_limit_usd: limit } : { ok: false, reason: "unavailable" }
   }
-  if (!team || team.id !== entity || team.deleted_at !== undefined || team.kind !== "stack" || !team.stack_team) return { ok: true, paid: false }
+  if (!team || team.id !== entity || team.deleted_at !== undefined || team.kind !== "stack" || !team.stack_team) return { ok: true, paid: false, user_limit_usd: limit }
   const stackTeam = team.stack_team
   const r = await read(async (s) => (await s.getTeam(stackTeam))?.plan ?? null)
-  return r.ok ? { ok: true, paid: teamPlanPaid(r.plan) } : { ok: false, reason: "unavailable" }
+  return r.ok ? { ok: true, paid: teamPlanPaid(r.plan), user_limit_usd: limit } : { ok: false, reason: "unavailable" }
 }
