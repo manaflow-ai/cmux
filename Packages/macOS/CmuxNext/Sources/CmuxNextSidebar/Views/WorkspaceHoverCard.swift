@@ -107,9 +107,13 @@ final class WorkspaceHoverCardView: NSView {
     private static var iconSize: CGFloat { 13 }
 
     private let titleLabel = NSTextField(labelWithString: "")
-    private let kindIcon = NSImageView()
-    /// The workspace's status in the shared indicator, after its name.
+    /// The kind or host icon, leading the name on the card's icon column.
+    private let kindIcon = LineIconView()
+    /// The workspace's status in the shared indicator, on its own row under the name with its
+    /// word beside it (Leo 2026-10-13: an unlabeled mark under the name read as a smudge).
     private let activity: StatusIndicatorView = { let view = StatusIndicatorView(); view.tracksWindowOcclusion = true; return view }()
+    private let activityLabel = NSTextField(labelWithString: "")
+    private let activityRow = NSStackView()
     private let ageLabel = NSTextField(labelWithString: "")
     private let factsStack = NSStackView()
     private let resourceLabel = NSTextField(labelWithString: "")
@@ -129,19 +133,28 @@ final class WorkspaceHoverCardView: NSView {
         ageLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         ageLabel.setContentHuggingPriority(.required, for: .horizontal)
         kindIcon.setContentHuggingPriority(.required, for: .horizontal)
+        kindIcon.line = titleLabel
+        activityLabel.font = Typography.body
+        activityLabel.lineBreakMode = .byTruncatingTail
         resourceLabel.font = Typography.caption
         resourceLabel.lineBreakMode = .byTruncatingTail
 
-        let titleRow = NSStackView(views: [titleLabel, activity, kindIcon, ageLabel])
+        // Every icon sits on one column at the leading inset, its text beside it (the fact rows'
+        // grid), so the kind icon leads the name instead of floating after it.
+        let titleRow = NSStackView(views: [kindIcon, titleLabel, ageLabel])
         titleRow.orientation = .horizontal
         titleRow.alignment = .firstBaseline
         titleRow.spacing = Metrics.space2
-        titleRow.setCustomSpacing(Metrics.space4, after: kindIcon)
+        titleRow.setCustomSpacing(Metrics.space4, after: titleLabel)
+        activityRow.setViews([activity, activityLabel], in: .leading)
+        activityRow.orientation = .horizontal
+        activityRow.alignment = .centerY
+        activityRow.spacing = Metrics.space2
         factsStack.orientation = .vertical
         factsStack.alignment = .leading
         factsStack.spacing = Metrics.space2
 
-        let stack = NSStackView(views: [titleRow, factsStack, resourceLabel])
+        let stack = NSStackView(views: [titleRow, activityRow, factsStack, resourceLabel])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = Metrics.space3
@@ -170,6 +183,7 @@ final class WorkspaceHoverCardView: NSView {
     var lines: [String] {
         var lines = [[titleLabel.stringValue, ageLabel.isHidden ? "" : ageLabel.stringValue]
             .filter { !$0.isEmpty }.joined(separator: " ")]
+        if !activityRow.isHidden { lines.append(activityLabel.stringValue) }
         lines += factViews.filter { !$0.label.isHidden }.map(\.label.stringValue)
         if !resourceLabel.isHidden { lines.append(resourceLabel.stringValue) }
         return lines
@@ -181,11 +195,13 @@ final class WorkspaceHoverCardView: NSView {
         ageLabel.stringValue = content.age ?? ""
         ageLabel.isHidden = content.age == nil
         activity.configure(content.activity, style: content.activityStyle)
+        let word = Strings.activity(content.activity)
+        activityLabel.stringValue = word ?? ""
+        activityRow.isHidden = word == nil || !activity.showsGlyph
         // The width the title wraps at (the panel sizes the card in one
         // pass): the row less its icon and the age.
         let age = ageLabel.isHidden ? 0 : ageLabel.intrinsicContentSize.width + Metrics.space4
-        let indicator = activity.isHidden ? 0 : Self.iconSize + Metrics.space2
-        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 - age - indicator
+        titleLabel.preferredMaxLayoutWidth = Self.cardWidth - 2 * Self.padding - Self.iconSize - Metrics.space2 - age
         while factViews.count < content.facts.count { addFactRow() }
         for (index, row) in factViews.enumerated() {
             let fact = index < content.facts.count ? content.facts[index] : nil
@@ -247,6 +263,7 @@ extension WorkspaceHoverCardView {
         performWithTheme {
             titleLabel.textColor = Palette.textPrimary
             ageLabel.textColor = Palette.textSecondary
+            activityLabel.textColor = Palette.textPrimary
             kindIcon.contentTintColor = Palette.textSecondary
             for row in factViews {
                 row.label.textColor = Palette.textPrimary
@@ -254,5 +271,16 @@ extension WorkspaceHoverCardView {
             }
             resourceLabel.textColor = Palette.textSecondary
         }
+    }
+}
+
+/// An icon on a first-baseline row whose center sits on the middle of `line`'s first line (midway
+/// between its ascender and descender), so it stays with the name's first line when the name wraps.
+private final class LineIconView: NSImageView {
+    weak var line: NSTextField?
+
+    override var firstBaselineOffsetFromTop: CGFloat {
+        guard let font = line?.font else { return super.firstBaselineOffsetFromTop }
+        return bounds.height / 2 + (font.ascender + font.descender) / 2
     }
 }
