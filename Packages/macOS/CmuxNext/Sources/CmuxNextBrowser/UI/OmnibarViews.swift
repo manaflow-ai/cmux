@@ -167,7 +167,7 @@ final class OmnibarPillView: NSView {
 /// 6 pt past each side, rounded at the top only. The dropdown panel continues
 /// it below the bar, so bar and rows read as one card.
 final class OmnibarCardTopView: NSView {
-    private let card = CALayer()
+    let card = CALayer()
 
     override init(frame: NSRect) {
         super.init(frame: frame)
