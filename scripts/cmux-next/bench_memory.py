@@ -382,12 +382,6 @@ def main():
         app_pid = launched
     app = App(bundle, socket_path)
     agent = None
-    if args.fake_agent:
-        added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
-                        args=os.path.abspath(args.fake_agent), protocol="acp", replace="true")
-        if added.get("error") or added.get("code"):
-            raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
-        agent = FAKE_AGENT_ID
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [],
@@ -402,6 +396,12 @@ def main():
         return result
 
     try:
+        if args.fake_agent:
+            added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
+                            args=os.path.abspath(args.fake_agent), protocol="acp", replace="true")
+            if added.get("error") or added.get("code"):
+                raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
+            agent = FAKE_AGENT_ID
         settle_and_sample("idle-launch")
         for count in counts:
             # The launch workspace counts as the first one.
