@@ -302,14 +302,26 @@ extension ContentView {
 
     static func customSidebarDataContext(
         workspaces: [CustomSidebarWorkspaceSnapshot],
-        workspaceGroups _: [WorkspaceGroup],
+        workspaceGroups: [WorkspaceGroup],
         selectedWorkspaceId: UUID?,
         selectedWorkspaceTitle: String,
         totalUnreadCount: Int,
         now: Date
     ) -> [String: SwiftValue] {
+        let groups = workspaceGroups.map { group in
+            CustomSidebarGroupSnapshot(
+                id: group.id,
+                name: group.name,
+                isCollapsed: group.isCollapsed,
+                isPinned: group.isPinned,
+                anchorWorkspaceId: group.anchorWorkspaceId,
+                customColor: group.customColor,
+                iconSymbol: group.iconSymbol
+            )
+        }
         let snapshot = CustomSidebarContextSnapshot(
             workspaces: workspaces,
+            groups: groups,
             selectedWorkspaceId: selectedWorkspaceId,
             selectedWorkspaceTitle: selectedWorkspaceTitle,
             totalUnreadCount: totalUnreadCount,
