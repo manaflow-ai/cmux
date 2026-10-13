@@ -9,9 +9,9 @@ import os
 /// One layout leaf: the pane's tab strip on top (or at the bottom,
 /// `tabs.barPosition`, R109) and the selected tab's content beside it.
 /// Manual frame layout; heights come from live design tokens.
-/// The strip (plus a browser toolbar) is the pane's header, or with the
-/// strip at the bottom its footer: the layout's border and rounded corners
-/// trace only the content between them.
+/// The strip is the pane's header, or with the strip at the bottom its
+/// footer: the layout's border and rounded corners trace the content host
+/// between them, a browser's toolbar included.
 final class PaneContentView: NSView, PaneContentChrome {
     let stripView: TabStripView
     /// The strip's colors: its pane's scope, subtler while another pane
@@ -149,11 +149,12 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     // MARK: PaneContentChrome
 
-    /// The hosted content's own header (a browser toolbar), if it has one.
+    /// The hosted content's own header, if it reports one (a browser's
+    /// toolbar does not: it is inside the content area).
     private var innerChrome: PaneContentChrome? { hostsContent ? content as? PaneContentChrome : nil }
 
     var paneHeaderHeight: CGFloat {
-        // The band is inside the browser's header.
+        // The band is inside the browser, under its toolbar.
         (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
     }
 
@@ -178,20 +179,13 @@ final class PaneContentView: NSView, PaneContentChrome {
         applyCornerRadius()
     }
 
-    /// A browser rounds its page area below its toolbar; a terminal is
-    /// rounded here, by the content host.
+    /// The content host is the pane's one rounded container, for every kind
+    /// of content: a browser's toolbar sits inside it, as a terminal does.
     private func applyCornerRadius() {
-        let hostRadius: CGFloat
-        if let innerChrome {
-            innerChrome.setPaneContentCornerRadius(contentCornerRadius)
-            hostRadius = 0
-        } else {
-            hostRadius = contentCornerRadius
-        }
-        guard let layer = contentHost.layer, layer.cornerRadius != hostRadius else { return }
+        guard let layer = contentHost.layer, layer.cornerRadius != contentCornerRadius else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.cornerRadius = hostRadius
+        layer.cornerRadius = contentCornerRadius
         CATransaction.commit()
     }
 

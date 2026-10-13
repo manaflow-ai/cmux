@@ -1891,6 +1891,67 @@
     },
     {
       "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.hiddenButtons.help",
+        "text" : "Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.hiddenButtons",
+      "keywords" : [
+        "toolbar",
+        "split",
+        "buttons",
+        "hide"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : true,
+      "path" : [
+        "tabs",
+        "hiddenButtons"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.hiddenButtons",
+        "text" : "Hidden Tab Bar Buttons"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -9816,15 +9877,18 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "borders",
-      "default_label" : null,
+      "default" : null,
+      "default_label" : {
+        "key" : "settings.choice.default",
+        "text" : "Default"
+      },
       "group" : {
         "key" : "settings.group.panes",
         "text" : "Panes"
       },
       "help" : {
         "key" : "settings.layout.paneSeparation.help",
-        "text" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them."
+        "text" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.paneSeparation",
@@ -22716,7 +22780,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "f312815ba7560457325e76b02f8442caeb34a59332f37bcd188d49d6bd5768de",
+  "schema_hash" : "811bbcf8076eb85701f52bba26e132b653388cda060b44d3faf2ec6cb623cfd2",
   "sections" : [
     {
       "id" : "general",

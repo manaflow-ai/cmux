@@ -1510,8 +1510,7 @@
       "type" : "number"
     },
     "layout.paneSeparation" : {
-      "default" : "borders",
-      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.",
+      "description" : "How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise.",
       "enum" : [
         "none",
         "dividers",
@@ -2634,6 +2633,17 @@
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
+    },
+    "tabs.hiddenButtons" : {
+      "default" : [
+
+      ],
+      "description" : "Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again.",
+      "items" : {
+        "type" : "string"
+      },
+      "title" : "Hidden Tab Bar Buttons",
+      "type" : "array"
     },
     "tabs.newTabPosition" : {
       "default" : "end",

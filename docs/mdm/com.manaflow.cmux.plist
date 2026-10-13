@@ -260,6 +260,27 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Action ids of the buttons hidden from the tab bar. Right-click a button to hide it, the tab bar's buttons to show it again.</string>
+			<key>pfm_name</key>
+			<string>tabs.hiddenButtons</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Hidden Tab Bar Buttons</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
 			<string>Create a new workspace in the current space instead of a tab. Hold Option to reverse this for one click.</string>
@@ -1777,10 +1798,8 @@
 			<string>string</string>
 		</dict>
 		<dict>
-			<key>pfm_default</key>
-			<string>borders</string>
 			<key>pfm_description</key>
-			<string>How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.</string>
+			<string>How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise.</string>
 			<key>pfm_name</key>
 			<string>layout.paneSeparation</string>
 			<key>pfm_range_list</key>
