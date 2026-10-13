@@ -131,7 +131,7 @@ export function InstanceBar({ daemon, strings }: { daemon: DaemonSocket; strings
   }, [daemon]);
 
   return (
-    <div className="hc-instance" role="toolbar" aria-label={t("instance.label")}>
+    <div className="hc-instance">
       <span>{count === null ? t("instance.label") : format("instance.workspaces", String(count))}</span>
       <button
         type="button"
