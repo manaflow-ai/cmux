@@ -613,3 +613,80 @@ fn an_ungrouped_screen_group_reopens_whole() {
     assert_eq!(groups[0]["screen_ids"], serde_json::json!(members));
     assert_eq!(closed_list(&harness, "screen-ungroup-closed-3").len(), before);
 }
+
+/// The key of the workspace named `name`, once the tree lists it.
+fn workspace_key(app: &mut AppConnection, name: &str) -> Option<String> {
+    app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == name)
+        .and_then(|workspace| workspace["key"].as_str().map(str::to_string))
+}
+
+/// A closed workspace's agent-home folder (its chat files) follows it on
+/// Reopen Closed, and goes to the app's trash-pending folder (never deleted)
+/// when its closed group is deleted (cx-gzh.9.2).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_closed_workspaces_agent_home_follows_its_reopen_and_goes_to_trash_on_delete() {
+    let _exclusive = exclusive_process_test();
+    let data = std::env::temp_dir().join(format!("reopen-agent-home-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&data);
+    fs::create_dir_all(&data).unwrap();
+    let data_text = data.to_string_lossy().into_owned();
+    let harness =
+        RecoveryHarness::start_with_env("reopen-agent-home", &[("XDG_DATA_HOME", &data_text)]);
+    let mut app = AppConnection::open(&harness);
+    app.send(serde_json::json!({"cmd":"new-workspace","name":"ah"}));
+    let key = workspace_key(&mut app, "ah").expect("the workspace has a key");
+    let base = data.join("cmux").join("agent-home");
+    fs::create_dir_all(base.join(&key)).unwrap();
+    fs::write(base.join(&key).join("chat.jsonl"), "kept").unwrap();
+
+    app.send(serde_json::json!({"cmd":"close-workspace","key":key,"end_terminals":true}));
+    let closed = resource_request(
+        &harness.socket,
+        "ah-list",
+        "closed.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let id = closed[0]["id"].as_str().expect("the close is recorded").to_string();
+    resource_request(
+        &harness.socket,
+        "ah-reopen",
+        "closed.reopen",
+        serde_json::json!({"machine":"current","session":"current","closed":id}),
+        Some("ah-reopen"),
+    );
+    let reopened = workspace_key(&mut app, "ah").expect("the reopened workspace has a key");
+    assert_ne!(reopened, key, "a reopened workspace gets a new key");
+    assert_eq!(fs::read_to_string(base.join(&reopened).join("chat.jsonl")).unwrap(), "kept");
+    assert!(!base.join(&key).exists(), "the old folder moved");
+
+    app.send(serde_json::json!({"cmd":"close-workspace","key":reopened,"end_terminals":true}));
+    let closed = resource_request(
+        &harness.socket,
+        "ah-list-2",
+        "closed.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let id = closed[0]["id"].as_str().expect("the second close is recorded").to_string();
+    resource_request(
+        &harness.socket,
+        "ah-delete",
+        "closed.delete",
+        serde_json::json!({"machine":"current","session":"current","closed":id}),
+        Some("ah-delete"),
+    );
+    assert!(!base.join(&reopened).exists(), "the deleted workspace's folder left agent-home");
+    assert_eq!(
+        fs::read_to_string(base.join(".trash-pending").join(&reopened).join("chat.jsonl")).unwrap(),
+        "kept",
+        "it waits for the app's Trash, never deleted"
+    );
+    drop(harness);
+    let _ = fs::remove_dir_all(&data);
+}
