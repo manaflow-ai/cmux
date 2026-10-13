@@ -115,9 +115,7 @@ final class SettingsWindowService: InternalPageProvider {
     /// Whether a Settings tab in `window` would be seen: the window shows (or can leave its top
     /// page for) a workspace with a pane, and Home does not stand for that workspace.
     private static func holdsTab(_ window: WindowController, _ services: AppServices) -> Bool {
-        if window.shownTopPage == .page(.settings) { return false }
-        guard hasPane(window), let workspace = window.workspaceContent?.workspace else { return false }
-        return !(workspace.kind == "home" && SidebarBridge.hidesHome(services.sidebarLayout.document))
+        window.shownTopPage != .page(.settings) && window.holdsVisiblePageTab
     }
 
     /// Settings as `window`'s top page (one view per window, shown again on a repeat), on `route`.

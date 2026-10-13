@@ -32,8 +32,9 @@ export const stackWorld = () => {
     },
     getTeam: async (t: string) => {
       calls++
-      return teams.has(t) ? { display_name: teams.get(t)! } : null
+      return teams.has(t) ? { display_name: teams.get(t)!, plan: null } : null
     },
+    getUserPlan: async () => null,
     listTeamMembers: async (t: string) => {
       calls++
       if (!teams.has(t)) return "team_gone" as const

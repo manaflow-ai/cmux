@@ -1612,7 +1612,10 @@ fn normalize_remote_resource_args(raw_args: &mut Vec<String>) -> Result<(), Stri
     Ok(())
 }
 
-fn main() -> std::process::ExitCode {
+/// The whole cmux-tui program: the `cmux-tui` binary calls this, and on
+/// Windows with the `windows-thin-exe` feature the thin `cmux-tui.exe` calls
+/// it through [`cmux_tui_dll_main`] in `cmux_tui.dll`.
+pub fn main() -> std::process::ExitCode {
     // SAFETY: the first statement of main: no other thread runs yet (G4).
     unsafe { startup_env::take_link_token_from_env() };
     // `cmux` (CLI and mux) and `acpmux` (a symlink) are one binary, one version.
@@ -1635,6 +1638,23 @@ fn main() -> std::process::ExitCode {
     // so the last queued records reach the client log on every platform.
     client_log::flush_for_exit();
     std::process::ExitCode::SUCCESS
+}
+
+/// The `cmux_tui.dll` entry point (cx-w0uha) that the thin Windows
+/// `cmux-tui.exe` calls after it loads the DLL from its own folder. It runs
+/// [`main`] on the calling (main) thread and returns the process exit code.
+/// `std::env::args`, `current_exe` (the exe, not the DLL) and process exit
+/// behave as in the full binary. A panic is reported by the panic hook and
+/// returns 101, the code a panicking Rust `main` exits with.
+#[cfg(windows)]
+#[unsafe(no_mangle)]
+pub extern "C" fn cmux_tui_dll_main() -> i32 {
+    match std::panic::catch_unwind(main) {
+        Ok(code) => (0..=u8::MAX)
+            .find(|value| std::process::ExitCode::from(*value) == code)
+            .map_or(1, i32::from),
+        Err(_) => 101,
+    }
 }
 
 /// Cloud snapshot template settings, set by the Cloud VM boot supervisor for
