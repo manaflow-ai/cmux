@@ -858,46 +858,40 @@ fn record_present(spec: &SpawnSpec, nonce: &str) -> bool {
             .is_some_and(|hosts| names_this_host(&record_path(hosts, &spec.session_id), nonce))
 }
 
-/// Watches the directories that hold this host's record (FSEvents or
-/// inotify; no polling). When the record is gone (the daemon's home was
-/// deleted, or a daemon removed the record), no daemon can ever adopt this
-/// host: it ends like SIGTERM. Every event only triggers a stat; a record
-/// rewritten in place (write, then rename) is still present.
+/// Watches the directories that hold this host's record (kqueue on macOS,
+/// inotify on Linux; `record_watch.rs`; no polling). When the record is gone
+/// (the daemon's home was deleted, or a daemon removed the record), no daemon
+/// can ever adopt this host: it ends like SIGTERM. Every event only triggers a
+/// stat; a record rewritten in place (write, then rename) is still present.
 fn watch_record(
     spec: &SpawnSpec,
     nonce: &str,
     tx: mpsc::Sender<Event>,
-) -> Option<notify::RecommendedWatcher> {
-    use notify::Watcher as _;
+) -> Option<super::record_watch::DirWatch> {
     let watched = spec.clone();
     let own = nonce.to_owned();
     let term = tx.clone();
-    let mut watcher = notify::recommended_watcher(move |_event: notify::Result<notify::Event>| {
-        // The notify thread is not a runtime thread: a blocking send never
-        // drops the end when the event queue is full.
-        if !record_present(&watched, &own) {
-            let _ = term.blocking_send(Event::Term);
-        }
-    })
-    .map_err(|e| tracing::warn!("the host cannot watch its record: {e}"))
-    .ok()?;
     let mut dirs = vec![spec.hosts_dir.clone()];
     if spec.hosts_dir.file_name().and_then(|n| n.to_str()) == Some(POOL_DIR_NAME)
         && let Some(hosts) = spec.hosts_dir.parent()
     {
         dirs.push(hosts.to_path_buf());
     }
-    for dir in &dirs {
-        if let Err(e) = watcher.watch(dir, notify::RecursiveMode::NonRecursive) {
-            tracing::warn!("the host cannot watch {}: {e}", dir.display());
+    let watch = super::record_watch::DirWatch::start(&dirs, move || {
+        if record_present(&watched, &own) {
+            return false;
         }
-    }
+        // The watch thread is not a runtime thread: a blocking send never
+        // drops the end when the event queue is full.
+        let _ = term.blocking_send(Event::Term);
+        true
+    });
     // The record may have gone before the watch began (the home deleted
     // right after the start): check once now.
     if !record_present(spec, nonce) {
         let _ = tx.try_send(Event::Term);
     }
-    Some(watcher)
+    watch
 }
 
 #[cfg(test)]
