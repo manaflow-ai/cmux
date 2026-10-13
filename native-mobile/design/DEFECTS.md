@@ -123,7 +123,7 @@ owner-handoff (written up for the owning agent).
 | # | Idea | Why | Cost |
 | --- | --- | --- | --- |
 | I1 | Attachment chips show their own upload ring and a retry badge on failure (ChatGPT, Claude). Today one progress bar sits in the text box. Done in qa5: per-chip ring, red badge on the failed file, a retry skips files already on the Mac (verified with a 150 MB upload and a host kill on the mini). | Several attachments: which one is slow or failed. | done |
-| I2 | Context menu on Home and sidebar terminal rows: Rename, Pin, Close (red), like ChatGPT's Pin / Rename / Delete. Rename and a confirmed destructive Close exist (qa5 check); Pin remains. | Managing many agents from the phone. | S |
+| I2 | Context menu on Home and sidebar terminal rows: Rename, Pin, Close (red), like ChatGPT's Pin / Rename / Delete. Rename and a confirmed destructive Close exist (qa5 check). Pin/Unpin added in qa5 through the daemon's `set-tab-pinned` (shared with the Mac; pinned terminals list first with a pin glyph; code landed in f7dfc5cf3cc4 alongside the reconnect fix). Verified on the mini. | Managing many agents from the phone. | done |
 | I3 | Feed post "..." menu with a timestamp header, Copy, Open terminal, Mark unread (ChatGPT answer menu). | Parity with the answer menus in REFERENCES.md. | S |
 | I4 | Diff: show "Diff truncated on the Mac" note and a per-file "Open on Mac" fallback (O6). The truncation note exists (qa5 check). | A cut diff currently looks complete. | done |
 | I5 | Composer: send without Return (long-press the send arrow), for building a command over several sends. | Terminal users stage commands; chat apps don't need it. | S |
