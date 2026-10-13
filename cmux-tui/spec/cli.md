@@ -787,6 +787,7 @@ not a transported resource operation or cross-machine discovery API.
 ```text
 cmux tab group list|create|remove ...
 cmux tab group <group> update|add|move|split|column|new-workspace|ungroup|close|save|unsave ...
+cmux screen group <group> update [--icon <icon>|--clear-icon] ...
 cmux tab group saved list | saved <saved> delete|reopen --pane <id>
 cmux workspace group list [--room <room>]
 cmux workspace group create --name <name> [--color <c>] [--room <room>] [--index <n>] [--collapse]
@@ -799,6 +800,10 @@ Tab groups and saved tab groups are private protocol-v12 commands
 exactly one such request and send it like `raw command`, so they work against
 a headless daemon with no app running. Tab and pane arguments take the
 private protocol's ids or public `tab_...` and `pane_...` ids.
+`tab group <group> update --icon <icon>` and `screen group <group> update
+--icon <icon>` set the group's icon (the same icon string as a workspace
+group's) through `tab_group.update` and `screen_group.update`, and
+`--clear-icon` removes it (`tab-group-icon-v1`, `screen-group-icon-v1`).
 
 Workspace groups are personal state of the home session. `workspace group`
 uses the `workspace_group.*` resource operations, and `add`/`remove` use
@@ -807,7 +812,8 @@ workspace group commands are no longer used by the CLI. `workspace group <group>
 puts a group right before the personal workspace at placement index `<n>`;
 `--clear-top-index` puts it after every loose workspace
 (`personal-mixed-order-v1`). `workspace group <group> update --icon <icon>`
-sets the group's icon (one emoji or an SF Symbol name) and `--clear-icon`
+sets the group's icon (one emoji, an SF Symbol name, or a stored
+`image:sha256-<hex>` or `svg:sha256-<hex>` asset) and `--clear-icon`
 removes it (`workspace-group-icon-v1`); `--pinned true|false` pins (saves)
 or unpins it (`workspace-group-pin-v1`). `workspace list --order personal` lists the
 workspaces in the sidebar order. `workspace list` without `--order` (or with
