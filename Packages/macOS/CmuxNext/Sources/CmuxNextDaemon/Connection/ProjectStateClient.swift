@@ -34,10 +34,11 @@ public struct ProjectStateClient: Sendable {
     /// hidden ones and folders gone from disk (`state: missing`) left out;
     /// `query` filters by path or name, a leading `~` read as `home`. A reply
     /// without a project array throws, so the caller can fall back.
-    public func listPaths(query: String?, limit: Int, home: String = NSHomeDirectory()) async throws -> [String] {
+    public func listPaths(query: String?, limit: Int, home: String? = nil) async throws -> [String] {
         var params: [String: JSONValue] = ["limit": .number(Double(limit))]
         if let query, !query.isEmpty {
-            params["query"] = .string(query == "~" || query.hasPrefix("~/") ? home + query.dropFirst() : query)
+            let expanded = query == "~" || query.hasPrefix("~/") ? (home ?? NSHomeDirectory()) + query.dropFirst() : query
+            params["query"] = .string(expanded)
         }
         let fields = params
         let result = try await connection.resourceRequest({ id in
