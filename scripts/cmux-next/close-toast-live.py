@@ -150,9 +150,14 @@ try:
     def second_tab(name):
         """A workspace with two terminal tabs: closing the second closes only that tab."""
         made = cli("workspace", "create", "--name", name, "--json")
-        pane = ((json.loads(made).get("value") or {}) if made.startswith("{") else {}).get("pane_id")
+        first = (json.loads(made).get("value") or {}) if made.startswith("{") else {}
+        pane = first.get("pane_id")
         extra = cli("tab", "create", "terminal", "--pane", pane or "", "--json") if pane else ""
         value = (json.loads(extra).get("value") or {}) if extra.startswith("{") else {}
+        # Shown in the window, as a person's close is: a hidden workspace's tab closes without the strip.
+        shown = rpc("action.run", {"action": "tab.focus", "target": "tab:%s" % first.get("tab_id"), "focus": True, "wait": True})
+        print("reveal %s:" % name, json.dumps(shown)[:200], flush=True)
+        time.sleep(1)  # test harness: the pane controller is made
         return pane, value
 
     def pane_tabs(pane):
