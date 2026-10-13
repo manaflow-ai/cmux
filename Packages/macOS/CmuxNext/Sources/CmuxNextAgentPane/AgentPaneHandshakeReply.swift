@@ -49,6 +49,7 @@ enum AgentPaneHandshakeReply {
             // A chat its host already started (on another machine) gets no new-chat folder steps:
             // they read this Mac's folders and disk (cx-k21v).
             let started = handshake.connection?.remote != nil
+            if started { await model.startFolders.applyRemote(to: &handshake, model: model) }
             let filled = started ? false : await model.startFolders.apply(to: &handshake, ready: request == .ready, model: model)
             if !started { handshake.githubRepository = await AgentPaneGitHubRepository.read(at: handshake.cwd) }
             handshake.revealTurn = model.pendingRevealTurn

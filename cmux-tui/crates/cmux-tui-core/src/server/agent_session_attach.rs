@@ -375,6 +375,10 @@ pub(crate) enum Refusal {
     TeamVmBlocked,
     /// `agent-session-start`: a Cloud VM daemon that cannot tell its kind.
     HostUnverified,
+    /// `agent-session-trust`: a folder above the home folder.
+    AboveHome,
+    /// `agent-session-trust`: the home folder without the person's choice of it.
+    HomeUnconfirmed,
 }
 
 impl Refusal {
@@ -395,6 +399,8 @@ impl Refusal {
             Self::UntrustedFolder => "agent_session.untrusted_folder",
             Self::TeamVmBlocked => "agent_session.team_vm_blocked",
             Self::HostUnverified => "agent_session.host_unverified",
+            Self::AboveHome => "agent_session.above_home",
+            Self::HomeUnconfirmed => "agent_session.home_unconfirmed",
         }
     }
 
@@ -418,6 +424,10 @@ impl Refusal {
             Self::TeamVmBlocked => "agent chats cannot be started remotely on a team VM",
             Self::HostUnverified => {
                 "this machine cannot tell whether it is a team VM, so it starts no remote chat"
+            }
+            Self::AboveHome => "a folder above the home folder is never trusted from here",
+            Self::HomeUnconfirmed => {
+                "the home folder is trusted only after the person chose it as the chat's folder"
             }
         }
     }

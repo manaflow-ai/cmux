@@ -70,13 +70,14 @@ public actor AgentSessionAttachClient {
     /// `agent-session-trust` (`agent-session-trust-v1`): the trust of `cwd` on the daemon's machine
     /// (acpmux's `acp.trust.get` reply), or with `level` the person's answer recorded there
     /// (`acp.trust.set`). Only the person's own answer is ever sent (the pane's relay).
-    public func trust(cwd: String, level: String?) async throws -> Data {
+    public func trust(cwd: String, level: String?, homeConfirmed: Bool = false) async throws -> Data {
         _ = try await liveTransport()
         guard servesTrust else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session trust")
         }
         var params: [String: any Sendable] = ["cwd": cwd]
         if let level { params["level"] = level }
+        if homeConfirmed { params["home_confirmed"] = true }
         return try await call("agent-session-trust", params)
     }
 

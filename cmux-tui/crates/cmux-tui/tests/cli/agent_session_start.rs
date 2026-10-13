@@ -319,6 +319,19 @@ fn agent_session_trust_records_the_persons_answer_and_the_start_runs() {
     let other = daemon.rpc(json!({"id": 13, "cmd": "agent-session-trust", "surface": 999_999,
                                   "cwd": cwd, "level": "trusted"}));
     assert_eq!(other["error_code"], "agent_session.unknown_tab", "{other}");
+    // One click never trusts a whole home folder: `/` and the folders above the home folder
+    // never, the home folder only once the person chose it as the chat's folder.
+    let home = daemon.dir.join("home");
+    let above = daemon.rpc(json!({"id": 16, "cmd": "agent-session-trust", "surface": surface,
+                                  "cwd": "/", "level": "trusted"}));
+    assert_eq!(above["error_code"], "agent_session.above_home", "{above}");
+    let home_click = daemon.rpc(json!({"id": 17, "cmd": "agent-session-trust", "surface": surface,
+                                       "cwd": home, "level": "trusted"}));
+    assert_eq!(home_click["error_code"], "agent_session.home_unconfirmed", "{home_click}");
+    let home_chosen = daemon
+        .rpc(json!({"id": 18, "cmd": "agent-session-trust", "surface": surface,
+                                        "cwd": home, "level": "trusted", "home_confirmed": true}));
+    assert_eq!(home_chosen["ok"], true, "{home_chosen}");
     let set = trust(14, json!({"level": "trusted"}));
     assert_eq!(set["ok"], true, "{set}");
     let again = trust(15, json!({}));

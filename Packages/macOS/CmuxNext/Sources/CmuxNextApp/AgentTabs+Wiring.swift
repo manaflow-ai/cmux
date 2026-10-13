@@ -198,7 +198,7 @@ extension AgentTabStore {
                 guard started else { return nil }
                 return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
             }
-            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint)
+            var host = AgentTabRemoteHost(surface: tab.surface.rawValue, session: session, machine: machine, endpoint: endpoint, servesTrust: daemon.supports(DaemonCapabilities.shared.agentSessionTrust))
             if started {
                 // The tab may still be provisional here: each handshake reads its store surface.
                 host.existing = { [weak tabs] in

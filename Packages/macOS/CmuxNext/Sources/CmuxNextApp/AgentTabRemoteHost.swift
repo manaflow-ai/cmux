@@ -12,6 +12,8 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
     let session: String?
     let machine: String
     let endpoint: AgentSessionAttachClient.EndpointProvider
+    /// The machine's daemon answers the folder trust question (`agent-session-trust-v1`).
+    var servesTrust = false
     /// The keyed restart of the machine's acpmux (an SSH machine, or a paired server on the ssh
     /// route); nil where the app has no exec channel of its own (cx-0q7o).
     var approvals: AgentPaneRemoteApprovals?
@@ -39,10 +41,10 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         }
         let route: AgentPaneRemoteRoute
         // The folder trust question of this machine (cx-1bhjj), on the tab as its store lists it.
-        let trust: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint] cwd, level in
+        let trust: RemoteAcpmuxWire.Trust? = !servesTrust ? nil : { [existing, surface, endpoint] cwd, level, home in
             let client = AgentSessionAttachClient(surface: try await existing?()?.surface ?? surface, endpoint: endpoint)
             let answer: Result<Data, any Error>
-            do { answer = .success(try await AgentTabRemoteClient(client: client).mapped { try await client.trust(cwd: cwd, level: level) }) } catch { answer = .failure(error) }
+            do { answer = .success(try await AgentTabRemoteClient(client: client).mapped { try await client.trust(cwd: cwd, level: level, homeConfirmed: home) }) } catch { answer = .failure(error) }
             await client.close()
             return try answer.get()
         }
@@ -60,7 +62,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     do {
                         started = try await start(cwd, harness)
                     } catch let refusal as AgentRemoteStartRefusal {
-                        throw AgentSessionRemoteError(code: refusal.code, message: refusal.userMessage, folder: refusal.folder)
+                        throw AgentSessionRemoteError(code: refusal.code, message: servesTrust ? refusal.userMessage : refusal.withoutTrust.userMessage, folder: refusal.folder)
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client), started.session)

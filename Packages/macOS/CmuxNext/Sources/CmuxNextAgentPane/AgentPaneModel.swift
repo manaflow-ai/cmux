@@ -258,11 +258,11 @@ public final class AgentPaneModel {
         case .chooseFolder where remoteChat: return Self.unsupported("workspace.chooseFolder")
         case .chooseFolder: return await chooseFolder()
         case .chooseChatFolder: return await chooseChatFolder()
-        case .useFolder(let cwd, _) where remoteChat:
-            // A folder of that machine: its acpmux checks the folder and its trust at the start;
-            // this Mac's disk is never read for it (cx-k21v).
+        case .useFolder(let cwd, let confirm) where remoteChat:
+            // A folder of that machine: its store answers as this Mac's does (cx-1bhjj), its acpmux
+            // checks the folder and its trust at the start; this Mac's disk is never read (cx-k21v).
             guard cwd.hasPrefix("/") else { return Self.transportFailure(.pathInvalid) }
-            return AgentPaneReply.success(["status": "ok", "cwd": cwd])
+            return await startFolders.useRemote(cwd, confirm: confirm, transport: transport)
         case .useFolder(let cwd, let confirm): return await startFolders.use(cwd, confirm: confirm, transport: transport)
         case .browseProject where remoteChat: return Self.unsupported("project.browse")
         case .listProjects(let query) where remoteChat:
