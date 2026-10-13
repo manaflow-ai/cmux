@@ -200,6 +200,38 @@ struct ManagedPolicyCloudGateTests {
         #expect(listRequest.timeoutInterval == 15)
     }
 
+    @Test func scpAttachUsesServerAdvertisedPortAndUser() async throws {
+        let suiteName = "ManagedPolicyCloudGateTests.scp-contract.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let coordinator = makeRestoredSessionCoordinator(defaults: defaults)
+        coordinator.start()
+        await coordinator.awaitBootstrapped()
+        #expect(coordinator.isAuthenticated)
+
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [RecordingCloudURLProtocol.self]
+        RecordingCloudURLProtocol.recorder.reset()
+        RecordingCloudURLProtocol.recorder.configure(
+            statusCode: 200,
+            body: Data(#"{"host":"10.16.0.7","port":2200,"username":"ubuntu","hostPublicKey":"ssh-ed25519 AAAA","expiresAtUnix":123}"#.utf8)
+        )
+        defer { RecordingCloudURLProtocol.recorder.reset() }
+        let client = VMClient(
+            session: URLSession(configuration: configuration),
+            auth: coordinator,
+            resourceStats: VMResourceStatsStore(),
+            checkpointRenames: CloudRenameCoordinator(),
+            isDisabledByManagedPolicy: { false }
+        )
+
+        let endpoint = try await client.prepareSCP(id: "vm-1", publicKey: "ssh-ed25519 AAAA client")
+        #expect(endpoint.host == "10.16.0.7")
+        #expect(endpoint.port == 2200)
+        #expect(endpoint.username == "ubuntu")
+    }
+
     @Test func coderouterClaudeImportsAreSharedWithTheSelectedTeam() async throws {
         let suiteName = "ManagedPolicyCloudGateTests.coderouter.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suiteName))
