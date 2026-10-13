@@ -77,6 +77,7 @@ import Testing
         // Start from the opposite state, so the check holds on a host whose windows never report
         // visible (headless CI) as well as on one where they do.
         spinner.isWindowVisible = !visible
+        // global-notice-allow: scoped to this test's own window (object: window), posted on the main actor.
         NotificationCenter.default.post(name: NSWindow.didChangeOcclusionStateNotification, object: window)
         #expect(spinner.isWindowVisible == visible, "the spinner follows its window's occlusion (visible: \(visible))")
         if visible, StatusIndicatorAppearance.shared.config.animatesLoops {

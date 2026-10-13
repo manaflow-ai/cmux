@@ -23,6 +23,7 @@ struct BrowserScrollSaveTests {
                                           send: { history in sent.histories.append(history); return true })
         defer { writer.cancel() }
 
+        // global-notice-allow: AppKit's own resign-active, which the writer observes on .default; posted on the main actor, in a one-test suite.
         NotificationCenter.default.post(name: NSApplication.didResignActiveNotification, object: nil)
         let deadline = ContinuousClock.now + .seconds(5)
         while sent.histories.last?.entries.compactMap(\.scrollY).last != 640, ContinuousClock.now < deadline {
