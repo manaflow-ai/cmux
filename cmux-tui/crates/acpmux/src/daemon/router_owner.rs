@@ -64,7 +64,6 @@ pub(crate) fn router_owner_path() -> Option<PathBuf> {
     None
 }
 
-
 /// Ask the router's admin socket one line; the reply line as JSON.
 fn ask_router(line: &[u8]) -> std::io::Result<Value> {
     use std::io::{BufRead, BufReader, Write};
@@ -77,4 +76,3 @@ fn ask_router(line: &[u8]) -> std::io::Result<Value> {
     BufReader::new(stream).read_line(&mut answer)?;
     serde_json::from_str(&answer).map_err(std::io::Error::other)
 }
-
