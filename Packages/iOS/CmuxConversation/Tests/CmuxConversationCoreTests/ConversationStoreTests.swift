@@ -257,6 +257,27 @@ import Testing
         #expect(store.messages.suffix(2).map(\.id) == ["m6", "m7"])
     }
 
+    /// A message still being readied when the store stops never applies.
+    @Test func aMessageReadiedAfterStopIsDropped() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        let gate = PreparationGate()
+        var asked = false
+        store.prepareLiveMessage = { _ in
+            asked = true
+            return { await gate.wait() }
+        }
+        store.start()
+        backend.emit(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.emit(.message(backend.makeMessage(seq: 6, sender: "lc"), eventSeq: 10))
+        try await waitUntil { asked }
+        store.stop()
+        gate.open()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(store.message(id: "m6") == nil)
+    }
+
     @Test func typingStopWithoutAMessageStillClears() async throws {
         let backend = ScriptedBackend(total: 5)
         let store = ConversationStore(backend: backend, pageSize: 30, clock: ImmediateClock())
@@ -289,6 +310,31 @@ struct ImmediateClock: Clock {
     var minimumResolution: Duration { .zero }
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         await Task.yield()
+    }
+}
+
+/// Holds whoever waits until opened.
+final class PreparationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let resume = lock.withLock { () -> Bool in
+                if isOpen { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if resume { continuation.resume() }
+        }
+    }
+    func open() {
+        let waiting = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            isOpen = true
+            defer { waiters = [] }
+            return waiters
+        }
+        waiting.forEach { $0.resume() }
     }
 }
 
