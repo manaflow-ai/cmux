@@ -27,7 +27,6 @@
           {
             "key" : "settings.group.tabs",
             "rows" : [
-              "tabs.newTabKind",
               "tabs.newTabTemplate",
               "tabs.newTabPosition",
               "tabs.plusButton",
@@ -1518,104 +1517,6 @@
       "title" : {
         "key" : "settings.app.startAgentGlobalHotKey",
         "text" : "Start Agent from Any App"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
-        "same-kind",
-        "terminal",
-        "browser",
-        "agent",
-        "page",
-        "auto"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.newTabSameKind",
-            "text" : "Same Kind as Current Tab"
-          },
-          "value" : "same-kind"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabTerminal",
-            "text" : "Terminal"
-          },
-          "value" : "terminal"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabBrowser",
-            "text" : "Browser"
-          },
-          "value" : "browser"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabAgent",
-            "text" : "Agent"
-          },
-          "value" : "agent"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabPage",
-            "text" : "New Tab Page"
-          },
-          "value" : "page"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.newTabAuto",
-            "text" : "Auto"
-          },
-          "value" : "auto"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "page",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.tabs.newTabKind.help",
-        "text" : "What Cmd-T and the + button open. Auto picks the kind you last opened in that folder."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "tabs.newTabKind",
-      "keywords" : [
-        "new tab",
-        "cmd-t",
-        "terminal",
-        "browser",
-        "agent",
-        "kind",
-        "default"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "tabs",
-        "newTabKind"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.tabs.newTabKind",
-        "text" : "New Tab Opens"
       },
       "validation" : "portable"
     },
@@ -22876,7 +22777,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "1ccb51f8228c78b440c36f49ae4de2b5c685465b4ccca14d5ee947946b3b7a44",
+  "schema_hash" : "e1accc7921a7410a1658c039cf80977708aff68a587e4f8215abf64386fcd662",
   "sections" : [
     {
       "id" : "general",

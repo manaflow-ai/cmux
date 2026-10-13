@@ -426,6 +426,24 @@ Image promotion (TEAM_VM_SNAPSHOT / CLOUD_FREESTYLE_SNAPSHOT for production) use
 through promote.ts (dev-smoked id, fresh-clone smoke of the channel's own id, previous kept for
 `--rollback`, new VMs only); it is not needed now either.
 
+### cmux-api production deploy: after the deploy (cx-f5tk4)
+
+The production sign-in project's webhook endpoint for `https://cloud-api.cmux.dev/v1/hooks/stack`
+is paused (not deleted) until the backend deploy; the old production code had no such route.
+Before the deploy, set STACK_WEBHOOK_SECRET on cmux-api from its stored copy
+(`~/.secrets/cmux-next-api-production.env`); the config gate refuses the deploy without it. Right
+after the deploy:
+
+1. An unsigned POST to `/v1/hooks/stack` answers 401 (route live, secret set). Signal the
+   coordinator; the chief enables the endpoint again.
+2. Recover the failed messages since the endpoint's creation ("Recover failed messages"); a full
+   team and membership sync only if recovery is not offered. Replay is safe: each delivery only
+   names the team and user, TeamDO reads Stack as it is now (`team-stack-sync.ts`), a replayed
+   svix-id answers `duplicate`, and a team.deleted makes a tombstone only when Stack confirms
+   TEAM_NOT_FOUND, so order does not matter and the current state wins.
+3. Confirm one accepted delivery (200 in the endpoint's delivery log, Worker log `stack webhook`
+   status 200) and that a recovered team change shows in the API. Record it on the bead.
+
 ## Lessons from the first production attempts (2026-10-09)
 
 - **One owner, lock first.** Two sessions prepared the production cmux_vm apply at the same time; the single-owner decision reached one of them after its run had started. A production DB step takes the rails lock (`db-release.ts apply` holds it) and announces its one owner before any role or grant is made.
