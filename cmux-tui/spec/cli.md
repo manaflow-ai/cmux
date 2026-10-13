@@ -21,6 +21,7 @@ cmux link dial --host <install or host id> [--service daemon|ssh] [--socket <abs
 cmux link ensure --state-dir <dir> [--install ID] [--port PORT] [--session-socket PATH] [--server-config PATH] [--handoff]
 cmux link stop --state-dir <dir>
 cmux link status --state-dir <dir>
+cmux link archive --state-dir <dir>
 cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
 cmux script run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]
 cmux script repl [--timeout MS]
@@ -105,6 +106,13 @@ registered socket, waits for that connection to end (the link removes its
 registration first) and then for the process to exit (an exit event), all
 within 10 s; a link that does not end is an error (`stop_timeout`) and is
 not reported stopped. It prints `{"ok":true,"stopped":true|false}`.
+`archive` is for the app after a sign-out: with the link of this state
+directory stopped (else `link_running`), it moves the install's WireGuard key
+and paired peers into the install's archive (`private.key.<install>`,
+`peers.<install>.json`) and removes the config, so no `ensure` without
+`--install` starts the link as that install again. It prints
+`{"ok":true,"archived":true|false,"install"?}`. An `ensure --install ID` on a
+state directory with no config gets `ID`'s archived key and peers back.
 `status` prints `{"running":false}` or the link's own `link.status` answer
 with `"running":true` (`pid`, `socket`, `state_dir`, `install`, `port`,
 `udp`, `build`, `session_socket`, `server_config: {path, sha256}`). The

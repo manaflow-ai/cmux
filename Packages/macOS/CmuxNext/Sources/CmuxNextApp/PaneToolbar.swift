@@ -104,10 +104,7 @@ final class PaneToolbar {
     func tabActions() -> [ActionID] {
         guard let registry = registry(), let target, let kind else { return [] }
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target))
-        return Self.actions(kind).filter {
-            ActionTargetReasons.canPerform($0, invocation: invocation, in: registry)
-                && (kind != .newTab || ($0 != "splitRight" && $0 != "splitDown"))
-        }
+        return Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
     }
 
     /// "…": what opens in the pane, then the splits and the tab's own actions, with their keys.
