@@ -191,6 +191,15 @@ final class BottomStatusBarFeed: ObservableObject {
                 return
             case .endOfFile:
                 handle.readabilityHandler = nil
+                // Queued behind every chunk this handler dispatched, so the
+                // whole output is in before the bar decides it saw nothing.
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard let self, self.generation == launchGeneration else { return }
+                        if !self.pending.isEmpty { self.ingest(Data("\n".utf8)) }
+                        if !self.printedSinceLaunch { self.showFailure() }
+                    }
+                }
             }
         }
         proc.terminationHandler = { [weak self] _ in
@@ -199,7 +208,6 @@ final class BottomStatusBarFeed: ObservableObject {
                     guard let self, self.generation == launchGeneration else { return }
                     self.process = nil
                     self.input = nil
-                    if !self.printedSinceLaunch { self.showFailure() }
                     self.scheduleRelaunch()
                 }
             }
@@ -306,9 +314,7 @@ struct BottomStatusBar: View {
                 if let link = segment.link {
                     label
                         .onTapGesture { open(link) }
-                        .onHover { inside in
-                            if inside { NSCursor.pointingHand.push() } else { NSCursor.pop() }
-                        }
+                        .backport.pointerStyle(.link)
                 } else {
                     label
                 }
