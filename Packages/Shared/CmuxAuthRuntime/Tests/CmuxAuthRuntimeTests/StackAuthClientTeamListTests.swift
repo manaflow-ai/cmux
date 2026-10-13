@@ -8,9 +8,9 @@ import Testing
 /// coordinator would record an empty membership as loaded and never retry, so
 /// a paid account looks teamless until it signs in again (#20051).
 ///
-/// Which error surfaces depends on where Stack stops: no usable token raises
-/// its not-signed-in error, a failed request is mapped by `listTeams`. Any
-/// error is correct; an empty list is the bug.
+/// Stack raises its own not-signed-in error when no token resolves or the
+/// user request fails; `listTeams` adds its own only for an unreadable reply.
+/// Any error is correct; an empty list is the bug.
 @Suite(.serialized) struct StackAuthClientTeamListTests {
     @Test func listTeamsThrowsWhenStackHasNoSession() async {
         let client = Self.client(tokenStore: .memory)
