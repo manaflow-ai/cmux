@@ -111,7 +111,7 @@ struct CloudMoveTests {
         try await Self.withMove("moves") { move in
             if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
             _ = try await move.read()
-            try await move.relaunchAfterTheTabClosed()
+            try await move.relaunch(tabClosed: true)
             let moved = try await move.read()
             let tab = try #require(moved.machineTab, "the relaunched app shows no chat tab on the machine")
             #expect(tab.agentSession?.session == "chat-on-vm")
@@ -247,33 +247,24 @@ struct CloudMoveTests {
         }
 
         /// Quits this app as a quit keeping sessions does (its daemons and their chats keep
-        /// running) and opens the relaunched app, which shows this Mac's tab again.
-        func relaunch() async throws {
+        /// running) and opens the relaunched app, which shows this Mac's tab again unless a move
+        /// closed it (`tabClosed`). The quit app's work still running reaches no defaults, as a
+        /// process that ended.
+        func relaunch(tabClosed: Bool = false) async throws {
             let build = try #require(relaunched)
+            services.cloud.move.ledger = nil
             services.daemon.shutdownConnection()
             machine.daemon.shutdownConnection()
             for controller in services.windows.controllers { controller.window?.close() }
             (services, machine) = try await build()
             let deadline = ContinuousClock.now + .seconds(60)
-            while services.locateTab(tabID) == nil || machine.daemon.connection == nil, ContinuousClock.now < deadline {
-                try? await Task.sleep(for: .milliseconds(50))
+            func ready() -> Bool {
+                machine.daemon.connection != nil && AgentTabStore.registryHost(of: machine.daemon) != nil
+                    && (tabClosed || services.locateTab(tabID) != nil)
             }
-            try #require(services.locateTab(tabID) != nil, "the relaunched app does not show this Mac's chat tab")
-            #expect(services.locateTab(tabID)?.0.id == key, "the relaunched app keys this Mac's chat tab differently")
-        }
-
-        /// ``relaunch()`` after a move closed this Mac's tab: waits only for the machine's link.
-        func relaunchAfterTheTabClosed() async throws {
-            let build = try #require(relaunched)
-            services.daemon.shutdownConnection()
-            machine.daemon.shutdownConnection()
-            for controller in services.windows.controllers { controller.window?.close() }
-            (services, machine) = try await build()
-            let deadline = ContinuousClock.now + .seconds(60)
-            while machine.daemon.connection == nil || AgentTabStore.registryHost(of: machine.daemon) == nil, ContinuousClock.now < deadline {
-                try? await Task.sleep(for: .milliseconds(50))
-            }
-            try #require(machine.daemon.connection != nil, "the relaunched app did not reconnect to the machine")
+            while !ready(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+            try #require(ready(), "the relaunched app did not reconnect, or does not show this Mac's chat tab")
+            if !tabClosed { #expect(services.locateTab(tabID)?.0.id == key, "the relaunched app keys this Mac's chat tab differently") }
         }
 
         /// `cmux cloud move` on the chat tab, without waiting for it.

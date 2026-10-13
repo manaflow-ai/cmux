@@ -57,7 +57,12 @@ struct CloudMove {
     func start(_ invocation: ActionInvocation, context: AppActionContext) throws {
         guard let (tab, pane) = context.daemonTab(invocation) else { return }
         let retries = services.cloud.moveRetries
-        let left = retries[tab.id]
+        var left = retries[tab.id]
+        // Kept across launches: a pin to a machine that no longer exists would refuse every move of
+        // this tab, so it goes, and so does a retry kept for a tab that is no chat.
+        if case .move(let machineID) = left, services.cloud.hasLoadedMachines, services.machines.session(machineID) == nil { left = nil }
+        if tab.agentSession == nil { left = nil }
+        if left != retries[tab.id] { retries[tab.id] = left }
         if case .show(let shown) = left { return perform(tab: tab, invocation: invocation) { try await reshow(shown, tab: tab, invocation: invocation) } }
         guard let record = tab.agentSession else { throw ActionFailure(message: CloudMoveStrings.notAChat) }
         let tabs = services.agentTabs
@@ -158,6 +163,8 @@ struct CloudMove {
         // The move committed: from here Retry only opens the chat's tab on the machine.
         let shown = CloudMoveRetries.Shown(session: movedSession, harness: record.harness, machineID: machine.machineID, folder: remote.chat,
                                            name: workspace?.name, key: moved.transferID ?? movedSession)
+        // A quit or a crash before the tab opens leaves the relaunched app only opening it.
+        services.cloud.moveRetries[tab.id] = .show(shown)
         try await finish(shown, on: machine, tab: tab)
         return name
     }
