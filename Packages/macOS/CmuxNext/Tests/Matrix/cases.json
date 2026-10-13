@@ -1,6 +1,6 @@
 {
  "version": 1,
- "about": "Shared model-level case list for cmux NEXT (cx-gkyi1; HID side cx-hdyx4). One file, three runners: headless Swift (ModelMatrixTests: schema and entry resolution through the action catalog), headless core (cmux-tui-core mux::tests::matrix: each case's `core` steps on the real daemon core) and the real-HID / monkey runners in cmuxterm-hq tools/baseline. Failure messages start with \"MATRIX <case id>:\". `$new` names the object the case's action creates. A case with `steps` runs them in order; a step may repeat and may carry its own `expect`.",
+ "about": "Shared model-level case list for cmux NEXT (cx-gkyi1; HID side cx-hdyx4). One file, three runners: headless Swift (ModelMatrixTests: schema and entry resolution through the action catalog), headless core (cmux-tui-core mux::tests::matrix: each case's `core` steps on the real daemon core; the tier \"headless\" means both headless runners) and the real-HID / monkey runners in cmuxterm-hq tools/baseline. Failure messages start with \"MATRIX <case id>:\". `$new` names the object the case's action creates. A case with `steps` runs them in order; a step may repeat and may carry its own `expect`.",
  "invariants": {
   "no-crash": "The runner finished every step; nothing panicked or crashed.",
   "layout-valid": "Layout invariants hold after every step: no tab lost or placed twice, no empty pane, column or screen, each pane placed once (daemon check_state / validate_layout_transition).",
@@ -1257,17 +1257,11 @@
      "by": 1
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "group": "new"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Groups and pinning live in the app's sidebar layout, not the daemon core: no headless core run."
   },
   {
    "id": "workspace.create.inGroup.context-menu",
@@ -1309,17 +1303,11 @@
      "by": 1
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "group": "$g2"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Groups and pinning live in the app's sidebar layout, not the daemon core: no headless core run."
   },
   {
    "id": "workspace.create.sidebar-plus",
@@ -1363,18 +1351,11 @@
      "by": 1
     }
    ],
-   "core": [
-    {
-     "op": "new_workspace",
-     "group": "$g1",
-     "position": "endOfGroup"
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
-   ]
+   ],
+   "note": "Groups and pinning live in the app's sidebar layout, not the daemon core: no headless core run."
   },
   {
    "id": "workspace.create.fromPane.context-menu",
@@ -2446,19 +2427,11 @@
      ]
     }
    ],
-   "core": [
-    {
-     "op": "move_workspace",
-     "workspace": "$w2",
-     "index": 0
-    }
-   ],
    "tiers": [
-    "headless",
     "hid",
     "monkey"
    ],
-   "note": "A workspace never moves above a pinned one."
+   "note": "A workspace never moves above a pinned one. Groups and pinning live in the app's sidebar layout, not the daemon core: no headless core run."
   },
   {
    "id": "tab.reorder.left.palette",
