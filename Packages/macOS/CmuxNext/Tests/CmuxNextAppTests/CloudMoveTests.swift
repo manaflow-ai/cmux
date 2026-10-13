@@ -172,10 +172,14 @@ struct CloudMoveTests {
             #expect(Self.text(card, "text") == CloudMoveStrings.unfinishedMove)
             #expect(Self.actionIDs(card) == ["retry", "dismiss"], "\(Self.actionIDs(card))")
 
+            // The chat's folder, as this Mac's acpmux reports it for the chat's session (a person's
+            // Retry names no path; the CLI run before the quit did).
+            move.services.agentTabs.localSessionHost = SessionFolderHost(folder: move.project.path)
             _ = await move.answer(try #require(Self.text(card, "id")), "retry", gesture: true)
             let deadline = ContinuousClock.now + .seconds(20)
             while move.calls().count < 2, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
-            let again = try #require(move.calls().dropFirst().first, "Retry did not run the move again: \(move.calls())")
+            let after = await move.toolCards(waiting: false)?.first.flatMap { Self.text($0, "text") }
+            let again = try #require(move.calls().dropFirst().first, "Retry did not run the move again: \(move.calls()); card: \(after ?? "none")")
             #expect(Array(again.prefix(5)) == ["link", "sync", "push", "--socket", move.vmSocket], "Retry ran somewhere else: \(again)")
         }
     }
