@@ -454,11 +454,7 @@ def validate_npm_tree(
         # per-terminal host the daemon spawns instead of re-exec'ing the large
         # cmux-tui.exe (cx-1vlzr). Windows only; macOS/Linux re-exec cmux-tui.
         host_binaries = ("cmux-tui-host",) if target.os == "win32" else ()
-        host_files = (
-            {f"bin/cmux-tui-host{'.exe' if target.os == 'win32' else ''}"}
-            if target.os == "win32"
-            else set()
-        )
+        host_files = {"bin/cmux-tui-host.exe"} if target.os == "win32" else set()
         _validate_package_files(
             packages_dir / target.name,
             target,

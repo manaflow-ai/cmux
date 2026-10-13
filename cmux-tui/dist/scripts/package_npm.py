@@ -225,7 +225,7 @@ def package_platforms(
                 "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", SSH_MANIFEST, NOTICE_FILE],
+                "files": [f"bin/cmux-tui{ext}", f"bin/cmux-tui-hook{ext}", *host_files, SSH_MANIFEST, NOTICE_FILE],
             },
         )
 
