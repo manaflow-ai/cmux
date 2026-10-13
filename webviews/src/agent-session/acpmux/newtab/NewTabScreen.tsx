@@ -400,6 +400,16 @@ export function NewTabScreen(props: Props) {
     document.addEventListener("keydown", listener);
     return () => document.removeEventListener("keydown", listener);
   }, []);
+  const focusFromRow = (event: React.MouseEvent<HTMLDivElement>) => {
+    const input = field.current;
+    if (!input || event.button !== 0 || event.target === input) return;
+    // Keep the press from moving focus to the row; a field that had no focus gets the caret at
+    // the end of its text, a focused one keeps its caret and selection.
+    event.preventDefault();
+    if (input.ownerDocument.activeElement === input) return;
+    input.focus();
+    input.setSelectionRange(input.value.length, input.value.length);
+  };
   const keyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     touch();
     if (composing.current || event.nativeEvent.isComposing) return;
@@ -460,7 +470,11 @@ export function NewTabScreen(props: Props) {
       {/* One box (board 008): the field on top, the folder and the agent's model chips on its bottom
           row, the Send button at the end. */}
       <div ref={setBox} className="nt-box">
-        <div className="nt-input">
+        {/* A press anywhere on the field's row (its padding, the glyph) focuses the field, as a
+            browser's address bar does; the text itself keeps its own press (caret, selection).
+            Cursor rule (cx-d0d.80): the I-beam only over the text, the arrow elsewhere. */}
+        {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the input inside is the control and takes the keyboard itself. */}
+        <div className="nt-input" onMouseDown={focusFromRow}>
           {shell ? (
             <span className="nt-shell-glyph" aria-hidden="true">
               !

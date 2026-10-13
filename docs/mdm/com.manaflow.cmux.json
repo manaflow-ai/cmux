@@ -1978,8 +1978,8 @@
     },
     "sidebar.cards.tips" : {
       "default" : true,
-      "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet.",
-      "title" : "Show Tips",
+      "description" : "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once.",
+      "title" : "Show Hints",
       "type" : "boolean"
     },
     "sidebar.cmd9" : {
@@ -2582,7 +2582,7 @@
       "type" : "boolean"
     },
     "status.inferCommandBusy" : {
-      "default" : true,
+      "default" : false,
       "description" : "A shell command that runs a while shows as busy.",
       "title" : "Show Running Commands",
       "type" : "boolean"
