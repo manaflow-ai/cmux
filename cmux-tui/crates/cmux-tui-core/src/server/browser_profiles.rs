@@ -79,7 +79,7 @@ pub(super) fn move_to(mux: &Mux, params: MoveParams) -> anyhow::Result<Value> {
     let browser_profile = mux
         .workspace_registry
         .lock()
-        .unwrap()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .resolve_browser_profile_id(&params.browser_profile)?;
     let (profile, changed) = mux.personal_mutation(|registry| {
         registry.move_browser_profile(&browser_profile, params.index)
@@ -91,7 +91,7 @@ pub(super) fn delete(mux: &Mux, params: DeleteParams) -> anyhow::Result<Value> {
     let id = mux
         .workspace_registry
         .lock()
-        .unwrap()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
         .resolve_browser_profile_id(&params.browser_profile)?;
     let (deletion, _) =
         mux.personal_mutation(|registry| Ok((registry.delete_browser_profile(&id)?, true)))?;
