@@ -44,7 +44,7 @@ pub const MAX_PROFILE_BYTES: u64 = 64 * 1024;
 pub const MAX_ICON_BYTES: u64 = 256 * 1024;
 /// Built-in icon names a profile may use instead of a file.
 pub const BUILTIN_ICONS: &[&str] =
-    &["claude", "openai", "codex", "opencode", "pi", "gemini", "terminal", "generic"];
+    &["claude", "openai", "codex", "opencode", "pi", "gemini", "meta", "terminal", "generic"];
 /// Effort ids a profile may declare (the catalog's protocol ids).
 pub const EFFORT_IDS: &[&str] = &["none", "minimal", "low", "medium", "high", "xhigh", "max"];
 

@@ -3,7 +3,7 @@
 
 extension AgentBrandID {
     /// Every brand with a mark, in manifest order.
-    public static let allCases: [AgentBrandID] = [.claude, .anthropic, .openai, .opencode, .pi, .omp, .hermes, .deepseek, .gemini, .cursor, .amp, .copilot, .grok, .kiro, .antigravity, .factory, .qoder, .kimi, .codebuddy, .rovodev, .goose, .aider, .qwen, .mistral, .ollama, .openrouter, .lmstudio]
+    public static let allCases: [AgentBrandID] = [.claude, .anthropic, .openai, .opencode, .pi, .omp, .hermes, .deepseek, .gemini, .cursor, .amp, .copilot, .grok, .kiro, .antigravity, .factory, .qoder, .kimi, .meta, .codebuddy, .rovodev, .goose, .aider, .qwen, .mistral, .ollama, .openrouter, .lmstudio]
     public static let claude = AgentBrandID(rawValue: "claude")
     public static let anthropic = AgentBrandID(rawValue: "anthropic")
     public static let openai = AgentBrandID(rawValue: "openai")
@@ -22,6 +22,7 @@ extension AgentBrandID {
     public static let factory = AgentBrandID(rawValue: "factory")
     public static let qoder = AgentBrandID(rawValue: "qoder")
     public static let kimi = AgentBrandID(rawValue: "kimi")
+    public static let meta = AgentBrandID(rawValue: "meta")
     public static let codebuddy = AgentBrandID(rawValue: "codebuddy")
     public static let rovodev = AgentBrandID(rawValue: "rovodev")
     public static let goose = AgentBrandID(rawValue: "goose")
@@ -265,6 +266,18 @@ extension AgentBrandCatalog {
             tile: nil,
             overlays: []
         ),
+        .meta: AgentBrandSpec(
+            name: "Meta",
+            isWordmark: false,
+            viewBox: AgentBrandRect(x: 0, y: 0, width: 24, height: 24),
+            tone: AgentBrandTone(dark: 0x0081FB, light: 0x0081FB),
+            paths: [
+                AgentBrandPathSpec(d: "M6.915 4.03C4.947 4.03 3.232 5.31 2.044 7.143C0.704 9.208 0 11.883 0 14.449C0 15.155 0.07 15.818 0.21 16.422C0.279 16.714 0.367 17.002 0.475 17.282C0.578 17.545 0.702 17.8 0.846 18.043C1.542 19.202 2.664 19.97 4.439 19.97C5.936 19.97 7.072 19.299 8.404 17.526C9.164 16.514 9.548 15.9 11.067 13.206L11.823 11.867L12.009 11.542C12.07 11.642 12.13 11.738 12.192 11.842L14.344 15.437C15.068 16.647 16.009 17.993 16.814 18.751C17.86 19.738 18.806 19.971 19.874 19.971C20.949 19.971 21.75 19.616 22.329 19.128C22.652 18.852 22.926 18.523 23.139 18.155C23.681 17.216 24 16.028 24 14.41C24 11.69 23.319 9.053 21.916 6.96C20.634 5.048 18.959 4.03 17.2 4.03C16.153 4.03 15.112 4.497 14.147 5.338C13.495 5.908 12.89 6.628 12.327 7.388C11.637 6.513 10.992 5.841 10.369 5.332C9.187 4.366 8.054 4.029 6.915 4.029ZM17.075 6.083C18.222 6.083 19.263 6.841 20.067 8.082C21.199 9.83 21.714 12.277 21.714 14.482C21.714 16.03 21.346 17.382 19.875 17.382C19.295 17.382 18.848 17.152 18.211 16.378C17.715 15.777 16.868 14.5 15.379 12.02L14.762 10.992C14.361 10.321 13.942 9.661 13.507 9.012C13.577 8.903 13.648 8.788 13.718 8.685C14.838 7.018 15.836 6.083 17.076 6.083ZM6.874 6.636C8.139 6.636 8.932 7.427 9.549 8.082C9.856 8.409 10.286 8.953 10.783 9.661L9.763 11.227C9.006 12.39 7.881 14.244 6.926 15.565C5.735 17.214 5.116 17.382 4.44 17.382C3.916 17.382 3.402 17.145 3.057 16.588C2.794 16.162 2.593 15.458 2.593 14.542C2.593 12.321 3.223 10.007 4.253 8.454C4.707 7.767 5.217 7.228 5.786 6.921C6.119 6.736 6.493 6.638 6.874 6.636Z"),
+            ],
+            small: nil,
+            tile: nil,
+            overlays: []
+        ),
         .codebuddy: AgentBrandSpec(
             name: "CodeBuddy",
             isWordmark: false,
@@ -427,7 +440,10 @@ extension AgentBrandCatalog {
         "kiro": .kiro,
         "kiro-cli": .kiro,
         "lmstudio": .lmstudio,
+        "meta": .meta,
         "mistral": .mistral,
+        "muse": .meta,
+        "muse-code": .meta,
         "mux": nil,
         "oh-my-pi": .omp,
         "ollama": .ollama,
@@ -473,6 +489,7 @@ extension AgentBrandCatalog {
         AgentDescriptor(id: "factory", name: "Factory Droid", brand: .factory),
         AgentDescriptor(id: "qoder", name: "Qoder", brand: .qoder),
         AgentDescriptor(id: "kimi", name: "Kimi", brand: .kimi),
+        AgentDescriptor(id: "muse", name: "Muse Code", brand: .meta),
         AgentDescriptor(id: "codebuddy", name: "CodeBuddy", brand: .codebuddy),
         AgentDescriptor(id: "rovodev", name: "Rovo Dev", brand: .rovodev),
         AgentDescriptor(id: "goose", name: "goose", brand: .goose),
@@ -501,6 +518,8 @@ extension AgentBrandCatalog {
         ("gemini cli", .gemini),
         ("xai", .grok),
         ("github-copilot-cli", .copilot),
+        ("Muse Code", .meta),
+        ("acp:muse", .meta),
         ("grok-build", .grok),
         ("factory-droid", .factory),
         ("qwen-code", .qwen),

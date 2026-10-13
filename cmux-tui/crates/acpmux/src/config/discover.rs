@@ -259,6 +259,29 @@ pub fn discover_harnesses_from(
             },
         );
     }
+    // Muse Code (Meta's `muse`) has no ACP mode: it speaks its own session
+    // protocol (`muse serve`), which acpmux does not bridge yet. It is offered
+    // as a terminal harness (`cmux harness run muse`); its chats come from the
+    // chat index (`muse resume <id>`) and its status from its hooks.
+    if !agents.contains_key("muse")
+        && let Some(path) = which("muse")
+    {
+        agents.insert(
+            "muse".to_owned(),
+            HarnessProfile {
+                kind: HarnessKind::Terminal,
+                argv: vec![path],
+                env: BTreeMap::new(),
+                description: Some("Muse Code, found on PATH; runs in a terminal tab".into()),
+                fallback: None,
+                family: Some("muse".into()),
+                models: vec![],
+                model: None,
+                effort: None,
+                policy: None,
+            },
+        );
+    }
     // Codex speaks ACP only through its adapter. Without a codex-acp on PATH (or an ~/.acpx
     // entry), an installed codex still gets a harness through the pinned adapter package.
     if !agents.contains_key("codex")
