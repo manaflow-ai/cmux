@@ -59,8 +59,12 @@ final class CreationInputCoordinator {
     func begin(in window: NSWindow?, generation: UInt64?) -> CreationInputBuffer.Ticket? {
         guard let window, let generation, ActionRunScope.viewChangeAllowed(), let router,
               let content = router.focus(for: window).0?.content else { return nil }
-        // An ended hold still waiting for a view gives its keys up first: the new hold starts clean.
-        if buffers[window.windowNumber]?.isEnded == true { finish(in: window) }
+        // An ended hold still waiting for a view hands its keys to the new hold, in order.
+        if let ended = buffers[window.windowNumber], ended.isEnded {
+            let carried = CreationInputBuffer(content: content)
+            carried.prepend(ended.take()[...])
+            buffers[window.windowNumber] = carried
+        }
         let buffer = buffers[window.windowNumber] ?? CreationInputBuffer(content: content)
         buffers[window.windowNumber] = buffer
         return buffer.open(generation: generation, duringClick: Self.dispatchingClick)
@@ -138,8 +142,11 @@ final class CreationInputCoordinator {
         finishHolds(except: shell.windowNumber, reason: "window switch")
         guard let buffer = buffers[shell.windowNumber] else { return }
         if buffer.takeOpenedDuringClick() { return }
+        if buffer.isEnded { return finish(in: shell) }
+        // The clicked pane may take focus after this dispatch: check in a new turn, and again on
+        // each focus settle, until its terminal's view has the keyboard.
         buffer.end(reason: "click")
-        finish(in: shell)
+        scheduleFlush(in: shell)
     }
 
     /// The window shows another workspace than when the hold began.
@@ -151,27 +158,35 @@ final class CreationInputCoordinator {
     /// can come from inside a focus effect).
     private func windowBecameKey(_ number: Int?) {
         for held in Array(buffers.keys) where held != number {
-            buffers[held]?.end(reason: "window switch")
             guard let window = NSApp.window(withWindowNumber: held) else {
                 dropHeld(held, reason: "window closed")
                 continue
             }
-            // task-owner: one final flush of an ended hold in a fresh main-actor turn
-            Task.detached { @MainActor [weak self, weak window] in
-                guard let self, let window else { return }
-                finish(in: window)
+            guard buffers[held]?.isEnded == false else {
+                // task-owner: one final check of a hold that already ended once, in a fresh main-actor turn
+                Task.detached { @MainActor [weak self, weak window] in
+                    guard let self, let window else { return }
+                    finish(in: window)
+                }
+                continue
             }
+            buffers[held]?.end(reason: "window switch")
+            scheduleFlush(in: window)
         }
     }
 
     private func finishHolds(except number: Int, reason: String) {
         for held in Array(buffers.keys) where held != number {
-            buffers[held]?.end(reason: reason)
             guard let window = NSApp.window(withWindowNumber: held) else {
                 dropHeld(held, reason: "window closed")
                 continue
             }
-            finish(in: window)
+            guard let buffer = buffers[held], !buffer.isEnded else {
+                finish(in: window)
+                continue
+            }
+            buffer.end(reason: reason)
+            flush(in: window)
         }
     }
 
@@ -203,9 +218,9 @@ final class CreationInputCoordinator {
         }
     }
 
-    /// The final end of an ended hold (a click, a window switch, a new hold): the keys go to the
-    /// terminal that has focus in the window now, or to the terminal view that is first responder
-    /// when focus is still settling; with neither, they are dropped (count logged).
+    /// The final end of a hold that already ended once and still waits (a second click or switch):
+    /// the keys go to the terminal that has focus in the window now, or to the terminal view that is
+    /// first responder when focus is still settling; with neither, they are dropped (count logged).
     private func finish(in window: NSWindow) {
         guard let buffer = buffers[window.windowNumber] else { return }
         buffer.end(reason: "ended")
@@ -288,16 +303,11 @@ extension CreationInputCoordinator {
         return responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view) ? .ready : .waiting
     }
 
-    /// False while focus names a shown terminal whose view does not have the keyboard and the
-    /// window's first responder is another terminal or the window itself (a remounted view):
-    /// a key now would land in the wrong terminal or nowhere. Anything else takes the keys.
+    /// False while focus names a shown terminal whose view is not the first responder yet (a
+    /// remount, or focus applied a turn later): a key now would reach another view and be lost.
+    /// Focus on anything else (a page, a field, a terminal not attached) takes the keys.
     static func responderTakesKeys(_ controller: WindowController, window: NSWindow) -> Bool {
-        guard case .terminal(let pane, let tab) = controller.focus.state.resolved,
-              let paneController = controller.content?.paneController(key: pane), paneController.currentTabKey == tab,
-              case .terminal(let entry)? = paneController.currentContent else { return true }
-        guard let responder = window.firstResponder as? NSView else { return false }
-        if responder === entry.session.surfaceView || responder.isDescendant(of: entry.session.view) { return true }
-        return !(responder is TerminalSurfaceView)
+        focusedTerminal(controller, window: window) != .waiting
     }
 }
 
