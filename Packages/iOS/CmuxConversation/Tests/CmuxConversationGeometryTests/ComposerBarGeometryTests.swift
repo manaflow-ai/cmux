@@ -99,7 +99,9 @@ import Testing
     /// its glass the stroke reads 188 over 252 light and 96 over 59 dark,
     /// where ours (the label at 30 %) read 176 and 112.
     @Test func disabledPlusInk() {
-        #expect(ComposerBarGeometry.disabledPlusInk(iOS27: false) == .label(alpha: 0.24))
+        // 26.5 too tints it tertiaryLabel: 190 over 253 light, 60 over 26
+        // dark (ours, the label at 24 %, read 192 and 81).
+        #expect(ComposerBarGeometry.disabledPlusInk(iOS27: false) == .tertiaryHue(lightAlpha: 0.326, darkAlpha: 0.163))
         #expect(ComposerBarGeometry.disabledPlusInk(iOS27: true) == .tertiaryHue(lightAlpha: 0.335, darkAlpha: 0.21))
     }
 }
