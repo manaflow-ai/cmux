@@ -30,8 +30,24 @@ struct AgentTabSessionTopologyTests {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
         }
         services.windows.restoreWhenLoaded()
-        defer { for controller in services.windows.controllers { controller.window?.close() } }
+        // Always end the daemon, so a failed expectation never leaves one running.
+        let result: Result<Void, any Error>
+        do {
+            try await Self.pickAChat(services)
+            result = .success(())
+        } catch {
+            result = .failure(error)
+        }
+        if let connection = services.daemon.connection {
+            services.daemon.shutdownConnection()
+            await connection.close()
+            _ = try? await connection.shutdownDaemon(endTerminals: true)
+        }
+        for controller in services.windows.controllers { controller.window?.close() }
+        try result.get()
+    }
 
+    private static func pickAChat(_ services: AppServices) async throws {
         let deadline = ContinuousClock.now + .seconds(60)
         func until(_ done: () -> Bool) async {
             while !done(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
@@ -59,9 +75,5 @@ struct AgentTabSessionTopologyTests {
         }
         await until { shown() == "chat-picked" }
         #expect(shown() == "chat-picked", "the control snapshot still names the chat the tab first showed")
-
-        services.daemon.shutdownConnection()
-        await connection.close()
-        _ = try? await connection.shutdownDaemon(endTerminals: true)
     }
 }
