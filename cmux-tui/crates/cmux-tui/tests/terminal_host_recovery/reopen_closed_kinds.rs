@@ -663,11 +663,17 @@ fn a_closed_screen_reopens() {
     let _exclusive = exclusive_process_test();
     let (harness, mut app, _) = start("reopen-path-screen");
     let workspace = kinds_workspace(&mut app);
+    let first = workspace["screens"][0]["resource_id"].clone();
     app.send(serde_json::json!({"cmd":"new-screen","workspace":workspace["id"],
                                 "cols":80,"rows":24}));
     let screens = kinds_workspace(&mut app)["screens"].as_array().cloned().unwrap_or_default();
     assert_eq!(screens.len(), 2, "{screens:?}");
-    let screen = screens[1]["resource_id"].as_str().expect("the screen has an id").to_string();
+    let screen = screens
+        .iter()
+        .find(|screen| screen["resource_id"] != first)
+        .and_then(|screen| screen["resource_id"].as_str())
+        .expect("the new screen has an id")
+        .to_string();
     let (item, reopened) = close_records_and_reopens(
         &harness,
         "screen.close",
@@ -676,7 +682,14 @@ fn a_closed_screen_reopens() {
     );
     assert_eq!(item["kind"], "screen", "{item}");
     assert_eq!(reopened["screen_ids"].as_array().map(Vec::len), Some(1), "{reopened}");
-    assert_eq!(kinds_workspace(&mut app)["screens"].as_array().map(Vec::len), Some(2));
+    let screens = kinds_workspace(&mut app)["screens"].as_array().cloned().unwrap_or_default();
+    assert_eq!(screens.len(), 2, "{screens:?}");
+    let back = screens
+        .iter()
+        .find(|screen| screen["resource_id"] == reopened["screen_ids"][0])
+        .unwrap_or_else(|| panic!("the reopened screen is not listed: {screens:?}"));
+    let tab = &back["panes"][0]["tabs"][0];
+    assert!(tab["terminal_id"].is_string(), "the reopened screen has its terminal: {back}");
 }
 
 #[test]
@@ -703,6 +716,19 @@ fn a_closed_pane_reopens_its_tabs() {
     assert_eq!(tabs.len(), 1, "{reopened}");
     let back = app.tab_by_id(tabs[0].as_str().unwrap());
     assert!(back["terminal_id"].is_string(), "{back} (closed tab {tab})");
+    // The pane comes back beside the one that stayed, holding the tab.
+    let panes = kinds_workspace(&mut app)["screens"][0]["panes"].as_array().cloned().unwrap();
+    assert_eq!(panes.len(), 2, "{panes:?}");
+    let home = panes
+        .iter()
+        .find(|candidate| candidate["id"].as_u64() == Some(pane))
+        .expect("the pane that stayed");
+    assert!(
+        home["tabs"].as_array().is_some_and(|tabs| tabs
+            .iter()
+            .all(|t| t["tab_resource_id"] != back["tab_resource_id"])),
+        "the reopened tab went into the pane that stayed: {panes:?}"
+    );
 }
 
 #[test]
