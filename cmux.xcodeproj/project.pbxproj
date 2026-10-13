@@ -1130,6 +1130,7 @@
 		3B7661AE47EE36CB4BEBEEED /* CloudWelcomeDebugMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 883EC42C240445DBCE78E8A7 /* CloudWelcomeDebugMenu.swift */; };
 		22D165EB062C603B0C3A0A82 /* CloudWelcomeHero.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3CA8C3407967FE40B15A41A3 /* CloudWelcomeHero.swift */; };
 		6CDA457FF93E33F097EB4F7C /* CloudWelcomeMedia.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66CDAC0E0F1B791CA9260310 /* CloudWelcomeMedia.swift */; };
+		8C04C58CA7FA77072602DAAA /* CloudWelcomePresentationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 220FD07E397B72CAE8025EC7 /* CloudWelcomePresentationTests.swift */; };
 		22EABB05BDD5DD6B52A4320C /* CloudWelcomeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6E6A733B8AA5EAFC5C30907F /* CloudWelcomeTests.swift */; };
 		C0F314FC0BDC236EF220A9E3 /* CloudWelcomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C632B1DEF42152DBA995A37 /* CloudWelcomeView.swift */; };
 		D0158861231945076F7C049D /* CloudWelcomeWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = E09A9B78125D188EEE10DEC4 /* CloudWelcomeWindowController.swift */; };
@@ -5818,6 +5819,7 @@
 		883EC42C240445DBCE78E8A7 /* CloudWelcomeDebugMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Debug/CloudWelcomeDebugMenu.swift; sourceTree = "<group>"; };
 		3CA8C3407967FE40B15A41A3 /* CloudWelcomeHero.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeHero.swift; sourceTree = "<group>"; };
 		66CDAC0E0F1B791CA9260310 /* CloudWelcomeMedia.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeMedia.swift; sourceTree = "<group>"; };
+		220FD07E397B72CAE8025EC7 /* CloudWelcomePresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWelcomePresentationTests.swift"; sourceTree = "<group>"; };
 		6E6A733B8AA5EAFC5C30907F /* CloudWelcomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CloudWelcomeTests.swift"; sourceTree = "<group>"; };
 		6C632B1DEF42152DBA995A37 /* CloudWelcomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeView.swift; sourceTree = "<group>"; };
 		E09A9B78125D188EEE10DEC4 /* CloudWelcomeWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudWelcomeWindowController.swift; sourceTree = "<group>"; };
@@ -13853,6 +13855,7 @@
 				FA4CD7C689E9A08DB5112238 /* MuseVaultRegistrationTests.swift */,
 				6363F4EA9220ADE6FA369B16 /* CLIMuseHookInstallTests.swift */,
 				DB2534FB1BD7FDBD3A7474EE /* CloudManualMirrorHandshakeTests.swift */,
+				220FD07E397B72CAE8025EC7 /* CloudWelcomePresentationTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -18175,6 +18178,7 @@
 				2D7F228001C24ABD865AFD66 /* CloudVMStateSnapshotComparisonTests.swift in Sources */,
 				C12093000000000000000002 /* CloudVPNExplicitActivationTests.swift in Sources */,
 				5189C042A99401477E4DE49A /* CloudVPNSetupTests.swift in Sources */,
+				8C04C58CA7FA77072602DAAA /* CloudWelcomePresentationTests.swift in Sources */,
 				22EABB05BDD5DD6B52A4320C /* CloudWelcomeTests.swift in Sources */,
 				62AABF1720674956200EC388 /* CloudWireGuardHubTests.swift in Sources */,
 				D12439010000000000000001 /* CloudWorkspaceBindingRegressionTests.swift in Sources */,

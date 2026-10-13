@@ -15,6 +15,13 @@ import Testing
 struct CloudCmdYActivationRoutingTests {
     @Test("Cloud activation-off opens the Cloud welcome")
     func commandShiftYOpensCloudWelcomeBeforeProvisioning() {
+        let seenKey = CloudWelcomeWindowController.seenVersionDefaultsKey
+        let previousSeen = UserDefaults.standard.object(forKey: seenKey)
+        UserDefaults.standard.removeObject(forKey: seenKey)
+        defer {
+            if let previousSeen { UserDefaults.standard.set(previousSeen, forKey: seenKey) }
+            else { UserDefaults.standard.removeObject(forKey: seenKey) }
+        }
         let key = RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey
         let previousMarker = UserDefaults.standard.object(forKey: key)
         let previousDelegate = AppDelegate.shared
