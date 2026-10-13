@@ -300,7 +300,7 @@ extension AgentPaneTransport {
             } else {
                 // The start's credit is spent by the first prompt, whatever grants it.
                 let credit = takeRemoteStartCredit(facts, connection: id)
-                granted = !facts.needsGesture || gestures.consume() || credit
+                granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures) && gestures.consume()) || credit
             }
             if !granted {
                 Self.logger.info("agent pane transport gesture refused method=\(facts.method ?? "-", privacy: .public) \(self.gestures.debugDescription, privacy: .public)")

@@ -267,6 +267,13 @@ nonisolated enum AcpmuxPaneMethods {
         // _acpmux/permission_chat_revoke revokes: no gesture.
     ]
 
+    /// Whether a granting frame of `method` may use the current gesture: a permission allow needs
+    /// the person's fresh click or permission shortcut, never a typing gesture (cx-ocdz).
+    @MainActor static func answerAllowed(_ method: String?, _ gestures: AgentPaneUserGestures) -> Bool {
+        let answers = method == "_acpmux/permission_respond" || method == "_acpmux/permission_group_respond"
+        return !answers || gestures.hasFreshAnswerGesture
+    }
+
     /// Whether `text` (a page frame the allowlist passed) grants and needs a gesture.
     /// Parsed every time: a substring test would miss an escaped method name.
     public static func needsGesture(_ text: String, options: AcpmuxPermissionOptions) -> Bool {

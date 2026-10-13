@@ -247,13 +247,13 @@ import CmuxNextCompat
     public func reserveGesture(_ intent: AgentPaneGestureIntent) -> String? {
         guard socket != nil else { return nil }
         // cx-0q7o: a permission answer's ticket only for a prompt of this pane's session that the
-        // pane was shown, and only for an option that prompt offers as an allow. Page script can
-        // still turn a click into an allow of such a prompt (cx-ocdz: a native person-input gate
-        // for the permission card is the fix).
+        // pane was shown, only for an option that prompt offers as an allow, and only right after
+        // the person's own click (cx-ocdz: a posted click or a keystroke's gesture never answers).
         if intent.method == "_acpmux/permission_respond" {
             guard case .string(let session)? = intent.params["sessionId"], case .string(let permission)? = intent.params["permissionId"],
                   case .string(let option)? = intent.params["optionId"], sessions.contains(session),
-                  permissionOptions.isKnownAllow(permissionId: permission, optionId: option) else { return nil }
+                  permissionOptions.isKnownAllow(permissionId: permission, optionId: option),
+                  gestures.hasFreshAnswerGesture else { return nil }
         }
         return gestures.reserve(connection: current, intent: intent)
     }
