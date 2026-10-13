@@ -11,8 +11,8 @@ import os
 import CmuxNextCompat
 
 /// `debug.timings`: main-thread spans of the paths the stall bench measures
-/// (scripts/cmux-next/bench-stalls.py): launch phases, each palette open,
-/// each terminal surface creation. `clear` drops the per-event lists (the
+/// (scripts/cmux-next/bench-stalls.py): launch phases, each palette and icon
+/// picker open, each terminal surface creation. `clear` drops the per-event lists (the
 /// launch marks stay). Each span is also an Instruments signpost interval
 /// (subsystem com.cmuxterm.app.next, category "stalls").
 @MainActor
@@ -22,7 +22,12 @@ enum DebugTimings {
     /// Launch marks from any thread (the daemon start path runs off main).
     private nonisolated static let launchMarks = Mutex<[(name: String, ms: Double)]>([])
     private static var paletteOpens: [PaletteOpenTiming] = []
+    private static var iconPickerOpens: [IconPickerOpenTiming] = []
     private static var surfaces: [Double] = []
+    /// Main-actor time of each Chats feed drain (`ChatsFeed.apply`, observers included) and
+    /// each turn-state drain (`AgentTurnStateFeed`): cx-9c8m.6 measures the per-change cost.
+    private static var chatsFeedApplies: [(lines: Int, ms: Double)] = []
+    private static var turnStateApplies: [(lines: Int, ms: Double)] = []
     private static let capacity = 256
 
     private static func milliseconds(_ duration: Duration) -> Double {
@@ -78,11 +83,26 @@ enum DebugTimings {
         if paletteOpens.count < capacity { paletteOpens.append(timing) }
     }
 
+    static func iconPickerOpened(_ timing: IconPickerOpenTiming) {
+        if iconPickerOpens.count < capacity { iconPickerOpens.append(timing) }
+    }
+
+    static func chatsFeedApplied(lines: Int, _ duration: Duration) {
+        if chatsFeedApplies.count < capacity { chatsFeedApplies.append((lines, milliseconds(duration))) }
+    }
+
+    static func turnStatesApplied(lines: Int, _ duration: Duration) {
+        if turnStateApplies.count < capacity { turnStateApplies.append((lines, milliseconds(duration))) }
+    }
+
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
         let report = self.report
         if params["clear"]?.boolValue == true {
             paletteOpens.removeAll()
+            iconPickerOpens.removeAll()
             surfaces.removeAll()
+            chatsFeedApplies.removeAll()
+            turnStateApplies.removeAll()
         }
         return report
     }
@@ -98,7 +118,14 @@ enum DebugTimings {
                  "panel_ms": round(milliseconds(open.panel)), "present_ms": round(milliseconds(open.present)),
                  "commit_ms": round(milliseconds(open.commit)), "created_panel": .bool(open.createdPanel)]
             }),
+            "icon_picker_opens": .array(iconPickerOpens.map { open in
+                ["ms": round(milliseconds(open.total)), "catalog_ms": round(milliseconds(open.catalog)),
+                 "page_ms": round(milliseconds(open.page)), "present_ms": round(milliseconds(open.present)),
+                 "created_page": .bool(open.createdPage)]
+            }),
             "terminal_surfaces_ms": .array(surfaces.map(round)),
+            "chats_feed_applies": .array(chatsFeedApplies.map { ["lines": .number(Double($0.lines)), "ms": .number(($0.ms * 1000).rounded() / 1000)] }),
+            "turn_state_applies": .array(turnStateApplies.map { ["lines": .number(Double($0.lines)), "ms": .number(($0.ms * 1000).rounded() / 1000)] }),
             "ghostty_runtime_ms": .object(Dictionary(TerminalTimings.runtimePhases.map { ($0.name, round(milliseconds($0.duration))) },
                                                      uniquingKeysWith: { first, _ in first })),
         ]

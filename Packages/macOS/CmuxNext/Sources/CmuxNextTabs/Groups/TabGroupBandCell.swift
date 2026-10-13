@@ -7,10 +7,10 @@ import QuartzCore
 final class TabGroupBandCell {
     let washLayer = CALayer()
     let lineLayer = CALayer()
-    var color: GroupColor { didSet { if oldValue != color { updateColors() } } }
+    var color: GroupTint { didSet { if oldValue != color { updateColors() } } }
     var themeScope: ThemeScope = .app { didSet { updateColors() } }
 
-    init(color: GroupColor) {
+    init(color: GroupTint) {
         self.color = color
         let none: [String: any CAAction] = ["bounds": NSNull(), "position": NSNull(), "opacity": NSNull(), "backgroundColor": NSNull()]
         washLayer.actions = none
@@ -46,7 +46,7 @@ final class TabGroupBandCell {
 
     private func updateColors() {
         themeScope.perform {
-            // The theme's palette color, as the sidebar's groups draw it (GroupColor.headerFill).
+            // The theme's palette color or the custom one, as the sidebar's groups draw it (GroupTint.headerFill).
             washLayer.backgroundColor = color.headerFill.withAlphaComponent(0.09).cgColor
             lineLayer.backgroundColor = color.headerFill.cgColor
         }

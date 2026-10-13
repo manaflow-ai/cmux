@@ -39,17 +39,29 @@ final class AppOnboardingServices: OnboardingServices {
                                      keys: keys)
         // Passwords only from profiles the user agreed to on the consent screen (the plan carries no others).
         var passwords: PasswordImporter?
+        // Sign-ins saved with another password are held for the toast's Replace when this fork can replace them (API 20).
+        var hold: PasswordConflictHold?
         if plan.items.contains(where: { $0.kinds.contains(.passwords) }), await cef.canImportPasswords() {
-            passwords = PasswordImporter(keys: keys, destination: AppPasswordDestination(available: true) { rows, profile in
+            hold = cef.canReplacePasswords ? PasswordConflictHold { rows, profile in try await cef.replacePasswords(rows, in: profile) } : nil
+            passwords = PasswordImporter(keys: keys, destination: AppPasswordDestination(available: true, hold: hold) { rows, profile in
                 try await cef.importPasswords(rows, into: profile)
             }, primaryPassword: { profile in await FirefoxPrimaryPassword.prompt(profile) })
         }
         let importer = BrowserImporter(provisioning: AppBrowserProfileProvisioning(profiles: services.browserProfiles), store: owner.importStore,
                                        cookies: cookies, passwords: passwords)
-        let summary = try await importer.run(plan, into: destination) { step in
-            Task { @MainActor in progress(step) }
+        let summary: ImportSummary
+        do {
+            summary = try await importer.run(plan, into: destination) { step in
+                Task { @MainActor in progress(step) }
+            }
+        } catch {
+            hold?.release()
+            throw error
         }
         owner.browserImportOffer.importFinished(summary)
+        // The app window, not the tool window: closing that with Done would take the offer with it.
+        let windows = services.windows
+        if let hold { BrowserImportConflictOffer.offer(hold) { windows.active?.window ?? NSApp.mainWindow } }
         return summary
     }
 
@@ -72,6 +84,10 @@ final class AppOnboardingServices: OnboardingServices {
 
     func openExternal(_ url: URL) {
         NSWorkspace.shared.openInBackground(url)
+    }
+
+    func importFromFiles(into profile: String?) {
+        BrowserFileImport(services: services).run(profile: profile ?? BrowserProfileRecord.defaultID)
     }
 
     /// Computer Use Setup's grants (`ComputerUseSetup`, the same state the

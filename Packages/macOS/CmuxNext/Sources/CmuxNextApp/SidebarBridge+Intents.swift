@@ -55,7 +55,7 @@ extension SidebarBridge {
         case .reorder(let ids, let position):
             let before = model.sections
             model.apply(intent)
-            reorder(ids, to: position, in: before)
+            SidebarDaemonReorder.reorder(ids, to: position, in: before, bridge: self)
         case .rename(let id, let name):
             model.apply(intent)
             guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }
@@ -99,8 +99,6 @@ extension SidebarBridge {
             services.windows.switchProfile(ProfileID(rawValue: profile.rawValue), in: state)
         case .newProfile:
             services.registry.perform("space.new", invocation: ActionInvocation())
-        case .openHistory:
-            if let pane = services.windows.controller(for: state.id)?.focusedPane { AgentHistoryPage.open(in: pane) }
         case .reorderProfile(let profile, let index):
             model.apply(intent)
             let id = ProfileID(rawValue: profile.rawValue)
@@ -152,45 +150,6 @@ extension SidebarBridge {
         return (daemon, pairs.map(\.1))
     }
 
-    func reorder(_ ids: [SidebarWorkspaceID], to position: DropPosition, in sections: [SidebarRowSection]) {
-        guard case .machine(let machine) = position.section, let target = services.machines.daemon(machine: machine.rawValue),
-              let (daemon, _) = sameMachine(ids), daemon === target
-        else { return resync() }
-        // Groups are personal: the machine's own order is one flat list.
-        let entries = daemon.store.workspaces.map { WorkspaceMovePlan.Entry(id: $0.id, group: nil) }
-        guard let commands = WorkspaceMovePlan.commands(for: position, moving: ids, window: sections, daemon: entries, groups: false)
-        else { return resync() }
-        run(commands, on: daemon)
-    }
-
-    /// Sends reorder commands one after another in one task: each index
-    /// assumes the previous command applied. A rejection re-syncs.
-    private func run(_ commands: [WorkspaceMovePlan.Command], on daemon: DaemonService) {
-        let keys = Dictionary(daemon.store.workspaces.compactMap { model in model.key.map { (model.id, $0) } },
-                              uniquingKeysWith: { first, _ in first })
-        // [services] pins the app's services while the commands run, so a
-        // re-sync after a rejection never reads a freed owner (cx-6so P1b).
-        Task { [weak self, services] in
-            for command in commands {
-                let ok: Bool
-                switch command {
-                case .move(let id, let index):
-                    guard let key = keys[id] else { continue }
-                    ok = await daemon.intend("move-workspace", .moveWorkspace(key: key, index: index)) { c in
-                        _ = try await c.moveWorkspace(key, to: index)
-                    }
-                case .place:
-                    // Never planned without groups (`groups: false`).
-                    ok = false
-                }
-                if !ok {
-                    withExtendedLifetime(services) { self?.resync() }
-                    return
-                }
-            }
-        }
-    }
-
     /// Refuses an organization intent that personal state cannot take.
     func refuseOrganization() {
         services.registry.refuse(services.machines.local.personalStateUnavailableReason)
@@ -203,11 +162,11 @@ extension SidebarBridge {
         model.ungroupedFirst = !usesMixedOrder
         var sections = Self.sections(services.machines, members: services.windows.registry.members(of: state.id), profile: state.profileID,
                                      hidesHome: Self.hidesHome(services.sidebarLayout.document), selection: state.selection,
-                                     newTabPages: services.agentTabs.pageTabs.ids, muted: services.notifications.preferences.mutedWorkspaces)
+                                     newTabPages: Self.newTabPages(services.agentTabs, in: services.machines.local.store), muted: services.notifications.preferences.mutedWorkspaces)
         // A connecting SSH machine keeps its pending row through a resync (cx-gaq9).
         if !model.groupsByComputer { sections = SSHConnectingRows.adding(services.machines, to: sections) }
         rows.show(sections)
-        model.profiles = Self.profiles(services.machines.local.store)
+        model.profiles = SidebarSpaceBar.profiles(services.machines.local)
         groupFlow.openPendingEditor()
     }
 

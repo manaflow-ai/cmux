@@ -122,6 +122,14 @@ fn commit_reopen(
     // A deleted personal workspace group (Ungroup, Delete Group) has no
     // member: its reopen forms the group again around its open workspaces.
     let group = record.get("group").filter(|group| group.is_object()).cloned();
+    // A closed window (`window` group) reopens no workspace: the app shows
+    // that window again, with the workspaces it kept.
+    let window = (kind == "window").then(|| record["window_record"].clone());
+    // An ungrouped tab or screen group has no member: its reopen formed it
+    // again.
+    let tab_group = ["tab_group", "screen_group"]
+        .iter()
+        .any(|field| record.get(*field).is_some_and(Value::is_object));
     let change = if keep.is_empty() {
         remove_closed(transaction, closed_id)?;
         state_delete("closed", closed_id)
@@ -136,7 +144,9 @@ fn commit_reopen(
         .first()
         .cloned()
         .or_else(|| {
-            active_workspace.filter(|_| room.is_some() || group.is_some()).map(str::to_string)
+            active_workspace
+                .filter(|_| room.is_some() || group.is_some() || window.is_some() || tab_group)
+                .map(str::to_string)
         })
         .context("reopened item has no workspace")?;
     let mut changes = vec![change];
@@ -185,6 +195,7 @@ fn commit_reopen(
             "screen_ids": reopened.screens,
             "tab_ids": reopened.tabs,
             "remaining": remaining,
+            "window": window,
         }),
         changes,
     ))
@@ -261,6 +272,12 @@ impl Mux {
         for member in &restore {
             self.reopen_member(&mutation.actor, &closed_id, member, &mut reopened)?;
         }
+        if let Some(group) = record.get("tab_group").filter(|group| group.is_object()) {
+            self.reopen_tab_group(&mutation.actor, group, &mut reopened)?;
+        }
+        if let Some(group) = record.get("screen_group").filter(|group| group.is_object()) {
+            self.reopen_screen_group(&mutation.actor, group, &mut reopened)?;
+        }
         let active = self.with_state(|state| {
             state
                 .workspaces
@@ -294,6 +311,154 @@ impl Mux {
                 anyhow::bail!("closed item {closed_id} has a member of unknown kind {other:?}")
             }
         }
+    }
+
+    /// Form an ungrouped tab group again (`archive`, from
+    /// `record_ungrouped_tab_group`) with its id, name and color around
+    /// those of its tabs still open, unpinned and in no other group, in one
+    /// pane, in their order: its own pane when it holds any, else the pane
+    /// of the first. A group formed since keeps its tabs.
+    /// None still open forms nothing; a live group of that id (a retried
+    /// reopen) is left as it is.
+    fn reopen_tab_group(
+        self: &Arc<Self>,
+        actor: &Actor,
+        archive: &Value,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
+        let Some(id) = archive["id"].as_str().map(str::to_string) else { return Ok(()) };
+        let presentation = self.presentation_snapshot();
+        if !presentation.tab_groups.groups.contains_key(&id) {
+            let wanted = archive["tab_ids"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|tab| {
+                    !presentation.pinned_tabs.contains(*tab)
+                        && !presentation.tab_groups.members.contains_key(*tab)
+                })
+                .map(str::to_string)
+                .collect::<Vec<_>>();
+            let home = archive["pane_id"].as_str().map(str::to_string);
+            let members = self.with_state(|state| {
+                let open = wanted
+                    .iter()
+                    .filter_map(|tab| {
+                        state
+                            .resource_indexes
+                            .tab_ids
+                            .iter()
+                            .find_map(|(surface, id)| (id.as_str() == tab).then_some(*surface))
+                    })
+                    .collect::<Vec<_>>();
+                let pane = home
+                    .as_deref()
+                    .and_then(|pane| pane_by_public_id(state, pane))
+                    .filter(|pane| {
+                        open.iter().any(|surface| state.pane_of(*surface) == Some(*pane))
+                    })
+                    .or_else(|| open.first().and_then(|surface| state.pane_of(*surface)));
+                open.into_iter()
+                    .filter(|surface| pane.is_some() && state.pane_of(*surface) == pane)
+                    .collect::<Vec<_>>()
+            });
+            if members.is_empty() {
+                return Ok(());
+            }
+            self.tab_group_create(
+                StripRequest::local(actor, "closed.reopen"),
+                move |_| Ok(members),
+                archive["name"].as_str().map(str::to_string),
+                archive["color"].as_str().map(str::to_string),
+                id.clone(),
+                archive["icon"].as_str().map(str::to_string),
+            )?;
+        }
+        let outcome = self.tab_group_outcome(&id);
+        for surface in &outcome.members {
+            reopened.tabs.push(self.public_tab_of(*surface)?);
+        }
+        if let Some(pane) = outcome.pane {
+            let (workspace, _) = self.public_screen_of_pane(pane)?;
+            reopened.note_workspace(workspace);
+        }
+        Ok(())
+    }
+
+    /// Form an ungrouped screen group again (`archive`, from
+    /// `record_ungrouped_group`) with its id, name and color around those of
+    /// its screens still open, unpinned and in no other group, in their
+    /// order, in the workspace of the first. A group formed since keeps its
+    /// screens. None still open forms nothing; a live group of that id (a
+    /// retried reopen) is left as it is.
+    fn reopen_screen_group(
+        self: &Arc<Self>,
+        actor: &Actor,
+        archive: &Value,
+        reopened: &mut Reopened,
+    ) -> anyhow::Result<()> {
+        let Some(id) = archive["id"].as_str().map(str::to_string) else { return Ok(()) };
+        let presentation = self.presentation_snapshot();
+        if !presentation.screens.groups.contains_key(&id) {
+            let wanted = archive["screen_ids"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .filter(|screen| {
+                    !presentation.screens.is_pinned(screen)
+                        && !presentation.screens.members.contains_key(*screen)
+                })
+                .filter_map(|screen| self.screen_id_of(screen))
+                .collect::<Vec<_>>();
+            let members = self.with_state(|state| {
+                let workspace = |screen: ScreenId| {
+                    state.workspaces.iter().position(|workspace| {
+                        workspace.screens.iter().any(|candidate| candidate.id == screen)
+                    })
+                };
+                let first = wanted.first().and_then(|screen| workspace(*screen));
+                wanted
+                    .iter()
+                    .copied()
+                    .filter(|screen| first.is_some() && workspace(*screen) == first)
+                    .collect::<Vec<_>>()
+            });
+            if members.is_empty() {
+                return Ok(());
+            }
+            self.create_screen_group_with_id(
+                StripRequest::local_screens(actor, "closed.reopen"),
+                &members,
+                archive["name"].as_str().map(str::to_string),
+                archive["color"].as_str().map(str::to_string),
+                id.clone(),
+            )?;
+        }
+        let outcome = self.screen_group_outcome_public(&id);
+        let screens = self.with_state(|state| {
+            let workspace = outcome
+                .workspace
+                .and_then(|workspace| state.workspace_index(workspace))
+                .map(|index| &state.workspaces[index]);
+            workspace.map(|workspace| {
+                let screens = outcome
+                    .members
+                    .iter()
+                    .filter_map(|member| {
+                        workspace.screens.iter().find(|screen| screen.id == *member)
+                    })
+                    .map(|screen| screen.public_id.to_string())
+                    .collect::<Vec<_>>();
+                (workspace.public_id.to_string(), screens)
+            })
+        });
+        if let Some((workspace, screens)) = screens {
+            reopened.screens.extend(screens);
+            reopened.note_workspace(workspace);
+        }
+        Ok(())
     }
 
     fn public_tab_of(&self, surface: SurfaceId) -> anyhow::Result<String> {
@@ -337,21 +502,35 @@ impl Mux {
                 let url = tab["url"].as_str().unwrap_or("about:blank").to_string();
                 match tab["engine"].as_str() {
                     Some(engine) => {
-                        self.new_frontend_browser_tab_as(
-                            actor,
-                            Some(pane),
-                            crate::workspace_registry::FrontendBrowserRecord {
-                                engine: engine.to_string(),
-                                url,
-                                title: None,
-                                favicon_url: None,
-                                profile_id: tab["browser_profile_id"].as_str().map(str::to_string),
-                                // The app that shows the reopened tab claims it.
-                                owner: None,
-                            },
-                            None,
-                        )?
-                        .id
+                        let surface = self
+                            .new_frontend_browser_tab_as(
+                                actor,
+                                Some(pane),
+                                crate::workspace_registry::FrontendBrowserRecord {
+                                    engine: engine.to_string(),
+                                    url,
+                                    title: None,
+                                    favicon_url: None,
+                                    profile_id: tab["browser_profile_id"]
+                                        .as_str()
+                                        .map(str::to_string),
+                                    // The app that shows the reopened tab claims it.
+                                    owner: None,
+                                },
+                                None,
+                            )?
+                            .id;
+                        // The page restores its back/forward entries and
+                        // scroll from here, as at relaunch (cx-d0d.11).
+                        if let Some(history) = tab["browser_history"].as_str()
+                            && let Err(error) =
+                                self.set_frontend_browser_history(surface, Some(history.into()))
+                        {
+                            eprintln!(
+                                "cmux-tui: reopened browser tab lost its session history: {error}"
+                            );
+                        }
+                        surface
                     }
                     None => self.new_browser_tab_as(actor, url, Some(pane), None)?.id,
                 }

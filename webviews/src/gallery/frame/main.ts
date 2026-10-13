@@ -150,7 +150,13 @@ function markReadyWhenStill(): void {
   const started = performance.now();
   const done = () => {
     observer.disconnect();
-    void playThenReady();
+    // A play or experiment that throws (a module that fails to load mid-run) is the stage's error,
+    // not a stage that never reports ready.
+    playThenReady().catch((error: unknown) =>
+      fail(
+        `${entry.id}#${variantName} failed to play:\n${error instanceof Error ? (error.stack ?? error.message) : String(error)}`,
+      ),
+    );
   };
   const arm = () => {
     clearTimeout(timer);

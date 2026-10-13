@@ -4,7 +4,7 @@
 // DESKTOP-FEEL (R139): the shared desktop layer loads first.
 import "../shared/desktop";
 import { createRoot } from "react-dom/client";
-import { applyDiffViewerAppearance, resolveDiffViewerAppearance } from "../../appearance";
+import { applyDiffViewerAppearance, followHostTerminalTheme, resolveDiffViewerAppearance } from "../../appearance";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings, type Strings } from "../shared/i18n";
 import { subscribePageStreams } from "../shared/pageStreams";
@@ -30,6 +30,7 @@ import "../shared/pageBase.css";
 import "../../ui/ui.css";
 import "./styles.css";
 import "../../viewer-empty/styles.css";
+import { appPopupHost } from "../shared/pagePopupHost";
 
 const LABELS: Record<EditorLabel, string> = {
   frontmatter: L.frontmatter,
@@ -176,6 +177,10 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
   });
   // The look (settings, theme.css, terminal appearance) applies in place whenever the host sends
   // one: CSS variables, the user stylesheet, the code font and the code theme. Never a reload.
+  // Code colors follow the terminal theme in place, through the page's syntax variables.
+  followHostTerminalTheme(() =>
+    applyDiffViewerAppearance(resolveDiffViewerAppearance(store.getState().look?.appearance)),
+  );
   bindMarkdownLook(store, {
     appearance: (appearance) => applyDiffViewerAppearance(resolveDiffViewerAppearance(appearance)),
     codeTheme: (names, appearance) =>
@@ -186,7 +191,7 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     ? () => <MarkdownEmptyState client={client} strings={emptyStrings} open={(path) => store.openFile(path)} />
     : undefined;
   createRoot(root).render(
-    <UiProvider container={root} dir={languageDirection(strings.language)}>
+    <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <MarkdownPage
         store={store}
         strings={strings}

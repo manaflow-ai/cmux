@@ -50,6 +50,7 @@ class App : public CefApp, public CefBrowserProcessHandler {
     InstallForkObserver();
     InstallWindowRequestHandler();
     InstallExtensionUIHandlers();
+    InstallPasswordPromptHandler();
     InstallPageSchemes();
     Emit(CMUX_SHIM_CONTEXT_INITIALIZED, 0);
   }
@@ -168,6 +169,33 @@ class Client : public CefClient,
                                                                  CefRefPtr<CefRequest> request, bool, bool,
                                                                  const CefString&, bool&) override {
     return WebStoreRequestHandler(request->GetURL().ToString());
+  }
+
+  // MARK: Certificate errors
+
+  // The host shows its own certificate warning page: a main-frame
+  // certificate error fails the load (the cert error code reaches
+  // OnLoadError) unless the host asked to proceed on this tab's host
+  // (cmux_shim_certificate_proceed): then Chromium continues, and remembers
+  // the choice in its profile, or decides itself with its own interstitial
+  // (named hosts, where only Chromium knows whether HSTS forbids it).
+  bool OnCertificateError(CefRefPtr<CefBrowser> browser, cef_errorcode_t cert_error, const CefString& request_url,
+                          CefRefPtr<CefSSLInfo>, CefRefPtr<CefCallback> callback) override {
+    CefURLParts parts;
+    const std::string host = CefParseURL(request_url, parts) ? CefString(&parts.host).ToString() : std::string();
+    switch (TakeCertificateProceed(browser->GetIdentifier(), host, cert_error)) {
+      case CertificateProceed::kContinue:
+        callback->Continue();
+        return true;
+      case CertificateProceed::kChromium:
+        NoteCertificateError(browser->GetIdentifier(), cert_error, true);
+        return false;
+      case CertificateProceed::kNone:
+        NoteCertificateError(browser->GetIdentifier(), cert_error, false);
+        callback->Cancel();
+        return true;
+    }
+    return false;
   }
 
   // MARK: Renderer process failures
@@ -341,6 +369,7 @@ class Client : public CefClient,
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
     ForgetNavigationGuard(id);
+    ForgetCertificateState(id);
     registrations_.erase(id);
     ForgetDevToolsProtocol(id);
     browsers().erase(id);
@@ -386,6 +415,7 @@ class Client : public CefClient,
 
   void OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, TransitionType) override {
     if (frame->IsMain()) {
+      ForgetCertificateState(browser->GetIdentifier());
       Emit(CMUX_SHIM_LOAD_START, browser->GetIdentifier(), 0, 0, 0, frame->GetURL().ToString());
     }
   }
@@ -399,7 +429,11 @@ class Client : public CefClient,
   void OnLoadError(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame, ErrorCode code,
                    const CefString& text, const CefString& url) override {
     if (frame->IsMain()) {
-      Emit(CMUX_SHIM_LOAD_ERROR, browser->GetIdentifier(), 0, code, 0, text.ToString(), url.ToString());
+      std::string error_text = text.ToString();
+      bool chromium_interstitial = false;
+      const int error = CertificateLoadError(browser->GetIdentifier(), code, &error_text, &chromium_interstitial);
+      Emit(CMUX_SHIM_LOAD_ERROR, browser->GetIdentifier(), 0, error, chromium_interstitial ? 1 : 0, error_text,
+           url.ToString());
     }
   }
 

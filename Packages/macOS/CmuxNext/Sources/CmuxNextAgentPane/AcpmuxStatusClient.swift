@@ -36,6 +36,14 @@ nonisolated enum AcpmuxStatusClient {
         return AcpmuxChatOpenPlan(result: result)
     }
 
+    /// `_acpmux/chat_transcript`: the past turns of one device-wide chat, read from its own
+    /// transcript (cx-khns1). The page's handshake waits on it, so the deadline is `chat_open`'s.
+    @concurrent static func chatTranscript(socketPath: String, key: String,
+                                           deadline: Duration = .seconds(2)) async throws -> [AgentPanePastTurn] {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/chat_transcript", params: ["key": key], deadline: deadline)
+        return AgentPanePastTurn.turns(result: result)
+    }
+
     /// `_acpmux/shutdown`: the daemon stops; agents under agent hosts keep
     /// running for the next daemon. With `endAgents` (Quit Everything) they
     /// end, except the agents of `keepSessions`.
@@ -57,6 +65,11 @@ nonisolated enum AcpmuxStatusClient {
                            params: ["sessionId": sessionId, "set": set, "remove": remove], deadline: deadline)
     }
 
+    /// `_acpmux/markUnread {sessionId}`: marks a session unread until it is shown again.
+    @concurrent static func markUnread(socketPath: String, sessionId: String, deadline: Duration = .seconds(2)) async throws {
+        _ = try await call(socketPath: socketPath, method: "_acpmux/markUnread", params: ["sessionId": sessionId], deadline: deadline)
+    }
+
     /// `_acpmux/web_modes {sessionId?, configId?, value?}` (read-only, unix socket only): the
     /// daemon's Web mode fields, its free config ids and, for a known session with a string value,
     /// whether that value keeps the session asking (the guard's own `config_value_asks`). Nil when
@@ -74,30 +87,44 @@ nonisolated enum AcpmuxStatusClient {
     }
 
     /// `_acpmux/harness_enable {folder, id}` without sha256 (unix socket): the Enable harness
-    /// prompt. Writes nothing. Nil when the daemon refuses (no trusted answer, an invalid file, no
-    /// such profile) or cannot answer.
+    /// prompt. Writes nothing. Throws the daemon's refusal (``AcpmuxRPCError``: no trusted answer,
+    /// an invalid file, no such profile), or ``Failure`` when it cannot answer or the prompt is
+    /// incomplete.
     @concurrent static func harnessEnablePrompt(socketPath: String, folder: String, id: String,
-                                                deadline: Duration = .seconds(5)) async -> AgentPaneHarnessEnablePrompt? {
-        guard let result = try? await call(socketPath: socketPath, method: "_acpmux/harness_enable",
-                                           params: ["folder": folder, "id": id], deadline: deadline) else { return nil }
-        return AgentPaneHarnessEnablePrompt(result: result)
+                                                deadline: Duration = .seconds(5)) async throws -> AgentPaneHarnessEnablePrompt {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/harness_enable",
+                                    params: ["folder": folder, "id": id], deadline: deadline, detailed: true)
+        guard let prompt = AgentPaneHarnessEnablePrompt(result: result) else { throw Failure.closed }
+        return prompt
     }
 
     /// `initialize`, then `method`, on a fresh connection to `socketPath`. `detailed` replies
     /// with ``AcpmuxRPCError`` (the JSON-RPC code and data) instead of `.rpc(message)`.
     static func call(socketPath: String, method: String, params: [String: any Sendable] = [:],
-                     deadline: Duration, detailed: Bool = false) async throws -> [String: Any] {
+                     deadline: Duration, detailed: Bool = false, limit: Int = 1 << 20) async throws -> [String: Any] {
         let connection = NWConnection(to: .unix(path: socketPath), using: .tcp)
         defer { connection.cancel() }
         let box = try await withAgentPaneDeadline(deadline, label: "acpmux \(method)", onTimeout: { connection.cancel() }) {
-            ResultBox(try await exchange(method, params: params, on: connection, detailed: detailed))
+            ResultBox(try await exchange(method, params: params, on: connection, detailed: detailed, limit: limit))
         }
         return box.value
     }
 
+    /// The folder of the daemon's session `sessionId` from its session list
+    /// (`_acpmux/watch`, whose reply carries `sessions` with `hostKind` and
+    /// `peer`; the subscription ends with this one-shot connection), nil when the daemon has no such session or names
+    /// no folder. The agent pane's commits and pushes run here, never in a
+    /// folder the page names.
+    @concurrent static func sessionFolder(socketPath: String, sessionId: String,
+                                          deadline: Duration = .seconds(5)) async throws -> AgentPaneSessionFolder? {
+        let result = try await call(socketPath: socketPath, method: "_acpmux/watch", params: ["enabled": true],
+                                    deadline: deadline, limit: 16 << 20)
+        return AgentPaneSessionFolder(sessionId: sessionId, in: result["sessions"])
+    }
+
     /// `initialize`, then `method`; returns its result.
     private static func exchange(_ method: String, params: [String: any Sendable], on connection: NWConnection,
-                                 detailed: Bool) async throws -> [String: Any] {
+                                 detailed: Bool, limit: Int) async throws -> [String: Any] {
         try await start(connection)
         let initialize: [String: Any] = [
             "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -121,7 +148,7 @@ nonisolated enum AcpmuxStatusClient {
                 let parsed = detailed ? try detailedReply(to: 2, in: Data(line)) : try reply(to: 2, in: Data(line))
                 if let parsed { return parsed }
             }
-            if buffer.count > 1 << 20 { throw Failure.rpc("status reply too large") }
+            if buffer.count > limit { throw Failure.rpc("\(method) reply too large") }
         }
     }
 

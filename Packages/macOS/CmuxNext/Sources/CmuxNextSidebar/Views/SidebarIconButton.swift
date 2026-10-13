@@ -10,7 +10,7 @@ final class SidebarIconButton: NSButton {
     var onPress: (() -> Void)?
     /// A fixed glyph color for a button on a colored surface (the group
     /// header's ink); nil uses the secondary text color, primary on hover.
-    var tintOverride: NSColor? { didSet { needsDisplay = true } }
+    var tintOverride: NSColor? { didSet { if tintOverride != oldValue { needsDisplay = true } } }
 
     /// Replacing the icon or label redraws the button (a disclosure's chevron).
     var icon: IconName { didSet { if icon != oldValue { renderedSize = 0; renderIcon() } } }
@@ -18,7 +18,7 @@ final class SidebarIconButton: NSButton {
         didSet {
             guard label != oldValue else { return }
             setAccessibilityLabel(label)
-            toolTip = label
+            themedToolTip = label
             renderedSize = 0
             renderIcon()
         }
@@ -39,7 +39,7 @@ final class SidebarIconButton: NSButton {
         imagePosition = .imageOnly
         isBordered = false
         setAccessibilityLabel(label)
-        toolTip = label
+        themedToolTip = label
         wantsLayer = true
         target = self
         action = #selector(pressed)

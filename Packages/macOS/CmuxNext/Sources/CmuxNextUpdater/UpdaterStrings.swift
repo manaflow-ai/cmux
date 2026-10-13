@@ -19,6 +19,16 @@ nonisolated enum UpdaterStrings {
     static func needsNewerMacOS(_ version: String) -> String { format("updater.title.needsNewerMacOS", "Update Needs macOS %@", version) }
     static var checkFailed: String { text("updater.title.checkFailed", "Couldn't Check for Updates") }
     static var updateFailed: String { text("updater.title.updateFailed", "Update Failed") }
+    static var downloadManually: String { text("updater.button.downloadManually", "Download Manually") }
+    static func preflightFolder(_ folder: String) -> String {
+        format("updater.preflight.folder", "cmux can't replace itself in %@. Move cmux to Applications, or download the update manually.", folder)
+    }
+    static var preflightMissing: String {
+        text("updater.preflight.missing", "The downloaded update is no longer there. Check for updates again, or download the update manually.")
+    }
+    static var preflightSpace: String {
+        text("updater.preflight.space", "There isn't enough free disk space to install the update. Free some space, or download the update manually.")
+    }
     static var managed: String { text("updater.title.managed", "Updates Are Managed") }
     static func managedChannel(_ channel: String) -> String {
         format("updater.managed.channel", "Your organization keeps this Mac on the %@ channel.", channel)

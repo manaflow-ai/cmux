@@ -108,8 +108,8 @@ class GeneratedClientMixin:
     def close_terminal(self, terminal_id: str, *, expected_generation: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, terminal_incarnation: Union[str, None, MissingType] = MISSING) -> CloseTerminalResult:
         return self._invoke_command('close-terminal', CloseTerminalRequest(terminal_id=terminal_id, expected_generation=expected_generation, expected_revision=expected_revision, mutation_id=mutation_id, origin=origin, terminal_incarnation=terminal_incarnation))
 
-    def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING) -> WorkspaceMutationResult:
-        return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, end_terminals=end_terminals))
+    def close_workspace(self, workspace: Union[Id, None, MissingType] = MISSING, *, key: Union[str, None, MissingType] = MISSING, expected_revision: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, end_terminals: Union[bool, MissingType] = MISSING, reason: Union[CloseReason, None, MissingType] = MISSING) -> WorkspaceMutationResult:
+        return self._invoke_command('close-workspace', CloseWorkspaceRequest(workspace=workspace, key=key, expected_revision=expected_revision, expected_generation=expected_generation, origin=origin, mutation_id=mutation_id, end_terminals=end_terminals, reason=reason))
 
     def cloud_conversation_history(self, before_seq: int, conversation: str, limit: int) -> JsonValue:
         return self._invoke_command('cloud-conversation-history', CloudConversationHistoryRequest(before_seq=before_seq, conversation=conversation, limit=limit))
@@ -122,6 +122,9 @@ class GeneratedClientMixin:
 
     def cloud_conversation_subscribe(self, conversation: str) -> JsonValue:
         return self._invoke_command('cloud-conversation-subscribe', CloudConversationSubscribeRequest(conversation=conversation))
+
+    def cloud_conversation_thread(self, conversation: str, root: str, *, after_seq: Union[int, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('cloud-conversation-thread', CloudConversationThreadRequest(conversation=conversation, root=root, after_seq=after_seq, limit=limit))
 
     def cloud_conversation_unsubscribe(self, conversation: str) -> JsonValue:
         return self._invoke_command('cloud-conversation-unsubscribe', CloudConversationUnsubscribeRequest(conversation=conversation))
@@ -189,6 +192,9 @@ class GeneratedClientMixin:
     def conversation_snapshot(self, conversation: str, tail: int) -> ConversationSnapshotResult:
         return self._invoke_command('conversation-snapshot', ConversationSnapshotRequest(conversation=conversation, tail=tail))
 
+    def conversation_thread(self, conversation: str, root: str, *, after_seq: Union[int, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> ConversationThreadResult:
+        return self._invoke_command('conversation-thread', ConversationThreadRequest(conversation=conversation, root=root, after_seq=after_seq, limit=limit))
+
     def conversation_typing(self, conversation: str, on: bool, *, actor: Union[str, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('conversation-typing', ConversationTypingRequest(conversation=conversation, on=on, actor=actor))
 
@@ -242,6 +248,9 @@ class GeneratedClientMixin:
 
     def delete_saved_tab_group(self, saved: str) -> DeleteSavedTabGroupResult:
         return self._invoke_command('delete-saved-tab-group', DeleteSavedTabGroupRequest(saved=saved))
+
+    def delete_terminal_commands(self, *, all: Union[bool, MissingType] = MISSING, ids: Union[List[str], None, MissingType] = MISSING, started_since_ms: Union[str, None, MissingType] = MISSING) -> TerminalCommandDeleteResult:
+        return self._invoke_command('delete-terminal-commands', DeleteTerminalCommandsRequest(all=all, ids=ids, started_since_ms=started_since_ms))
 
     def delete_workspace_group(self, group: str) -> JsonValue:
         return self._invoke_command('delete-workspace-group', DeleteWorkspaceGroupRequest(group=group))
@@ -339,6 +348,9 @@ class GeneratedClientMixin:
     def list_tab_groups(self) -> ListTabGroupsResult:
         return self._invoke_command('list-tab-groups', ListTabGroupsRequest())
 
+    def list_terminal_commands(self, *, after_id: Union[str, None, MissingType] = MISSING, limit: Union[int, None, MissingType] = MISSING) -> TerminalCommandList:
+        return self._invoke_command('list-terminal-commands', ListTerminalCommandsRequest(after_id=after_id, limit=limit))
+
     def list_terminals(self) -> ListTerminalsResult:
         return self._invoke_command('list-terminals', ListTerminalsRequest())
 
@@ -423,8 +435,8 @@ class GeneratedClientMixin:
     def new_browser_tab(self, url: str, *, pane: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> SurfaceResult:
         return self._invoke_command('new-browser-tab', NewBrowserTabRequest(url=url, pane=pane, cols=cols, rows=rows))
 
-    def new_conversation_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, workspace: Union[Id, None, MissingType] = MISSING, agent_session: Union[AgentSessionSource, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, conversation: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> NewConversationTabResult:
-        return self._invoke_command('new-conversation-tab', NewConversationTabRequest(pane=pane, workspace=workspace, agent_session=agent_session, cols=cols, conversation=conversation, mutation_id=mutation_id, origin=origin, owner=owner, page=page, rows=rows, transaction=transaction))
+    def new_conversation_tab(self, pane: Union[Id, None, MissingType] = MISSING, *, workspace: Union[Id, None, MissingType] = MISSING, agent_session: Union[AgentSessionSource, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, conversation: Union[str, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, route: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, transaction: Union[str, None, MissingType] = MISSING) -> NewConversationTabResult:
+        return self._invoke_command('new-conversation-tab', NewConversationTabRequest(pane=pane, workspace=workspace, agent_session=agent_session, cols=cols, conversation=conversation, mutation_id=mutation_id, origin=origin, owner=owner, page=page, route=route, rows=rows, transaction=transaction))
 
     def new_frontend_browser_tab(self, engine: str, url: str, *, pane: Union[Id, None, MissingType] = MISSING, activate: Union[bool, MissingType] = MISSING, after: Union[Id, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, favicon_url: Union[str, None, MissingType] = MISSING, idempotency_key: Union[str, None, MissingType] = MISSING, owner: Union[str, None, MissingType] = MISSING, profile_id: Union[str, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('new-frontend-browser-tab', NewFrontendBrowserTabRequest(engine=engine, url=url, pane=pane, activate=activate, after=after, cols=cols, favicon_url=favicon_url, idempotency_key=idempotency_key, owner=owner, profile_id=profile_id, rows=rows, title=title))
@@ -633,8 +645,8 @@ class GeneratedClientMixin:
     def set_tab_pinned(self, surface: Id, pinned: bool) -> JsonValue:
         return self._invoke_command('set-tab-pinned', SetTabPinnedRequest(surface=surface, pinned=pinned))
 
-    def set_terminal_command_history(self, enabled: bool) -> TerminalCommandHistoryResult:
-        return self._invoke_command('set-terminal-command-history', SetTerminalCommandHistoryRequest(enabled=enabled))
+    def set_terminal_command_history(self, enabled: bool, *, retention_days: Union[int, None, MissingType] = MISSING) -> TerminalCommandHistoryResult:
+        return self._invoke_command('set-terminal-command-history', SetTerminalCommandHistoryRequest(enabled=enabled, retention_days=retention_days))
 
     def set_terminal_idle_policy(self, surface: Union[Id, None, MissingType] = MISSING, *, terminal_id: Union[str, None, MissingType] = MISSING, idle_close_seconds: Union[int, None, MissingType] = MISSING) -> SetTerminalIdlePolicyResult:
         return self._invoke_command('set-terminal-idle-policy', SetTerminalIdlePolicyRequest(surface=surface, terminal_id=terminal_id, idle_close_seconds=idle_close_seconds))
@@ -711,8 +723,8 @@ class GeneratedClientMixin:
     def unsave_tab_group(self, group: str) -> UnsaveTabGroupResult:
         return self._invoke_command('unsave-tab-group', UnsaveTabGroupRequest(group=group))
 
-    def update_bookmark(self, bookmark: str, *, favicon_key: Union[str, None, MissingType] = MISSING, last_used_ms: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> BookmarkChangeResult:
-        return self._invoke_command('update-bookmark', UpdateBookmarkRequest(bookmark=bookmark, favicon_key=favicon_key, last_used_ms=last_used_ms, mutation_id=mutation_id, origin=origin, title=title, url=url))
+    def update_bookmark(self, bookmark: str, *, favicon_key: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, last_used_ms: Union[int, None, MissingType] = MISSING, mutation_id: Union[str, None, MissingType] = MISSING, origin: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING, url: Union[str, None, MissingType] = MISSING) -> BookmarkChangeResult:
+        return self._invoke_command('update-bookmark', UpdateBookmarkRequest(bookmark=bookmark, favicon_key=favicon_key, icon=icon, last_used_ms=last_used_ms, mutation_id=mutation_id, origin=origin, title=title, url=url))
 
     def update_browser_profile(self, browser_profile: str, *, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-browser-profile', UpdateBrowserProfileRequest(browser_profile=browser_profile, color=color, icon=icon, name=name))
@@ -729,11 +741,11 @@ class GeneratedClientMixin:
     def update_remote_terminal_tab(self, surface: Id, *, session_name: Union[str, None, MissingType] = MISSING, snapshot: Union[str, None, MissingType] = MISSING, title: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-remote-terminal-tab', UpdateRemoteTerminalTabRequest(surface=surface, session_name=session_name, snapshot=snapshot, title=title))
 
-    def update_screen_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('update-screen-group', UpdateScreenGroupRequest(group=group, collapsed=collapsed, color=color, name=name))
+    def update_screen_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('update-screen-group', UpdateScreenGroupRequest(group=group, collapsed=collapsed, color=color, icon=icon, name=name))
 
-    def update_tab_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> TabGroupOutcome:
-        return self._invoke_command('update-tab-group', UpdateTabGroupRequest(group=group, collapsed=collapsed, color=color, name=name))
+    def update_tab_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, icon: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> TabGroupOutcome:
+        return self._invoke_command('update-tab-group', UpdateTabGroupRequest(group=group, collapsed=collapsed, color=color, icon=icon, name=name))
 
     def update_workspace_group(self, group: str, *, collapsed: Union[bool, None, MissingType] = MISSING, color: Union[str, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('update-workspace-group', UpdateWorkspaceGroupRequest(group=group, collapsed=collapsed, color=color, name=name))
@@ -797,6 +809,7 @@ GeneratedClientMixin.cloud_conversation_history.__cmux_command__ = COMMANDS['clo
 GeneratedClientMixin.cloud_conversation_op.__cmux_command__ = COMMANDS['cloud-conversation-op']
 GeneratedClientMixin.cloud_conversation_snapshot.__cmux_command__ = COMMANDS['cloud-conversation-snapshot']
 GeneratedClientMixin.cloud_conversation_subscribe.__cmux_command__ = COMMANDS['cloud-conversation-subscribe']
+GeneratedClientMixin.cloud_conversation_thread.__cmux_command__ = COMMANDS['cloud-conversation-thread']
 GeneratedClientMixin.cloud_conversation_unsubscribe.__cmux_command__ = COMMANDS['cloud-conversation-unsubscribe']
 GeneratedClientMixin.cloud_inbox_list.__cmux_command__ = COMMANDS['cloud-inbox-list']
 GeneratedClientMixin.cloud_inbox_subscribe.__cmux_command__ = COMMANDS['cloud-inbox-subscribe']
@@ -819,6 +832,7 @@ GeneratedClientMixin.conversation_list.__cmux_command__ = COMMANDS['conversation
 GeneratedClientMixin.conversation_op.__cmux_command__ = COMMANDS['conversation-op']
 GeneratedClientMixin.conversation_search.__cmux_command__ = COMMANDS['conversation-search']
 GeneratedClientMixin.conversation_snapshot.__cmux_command__ = COMMANDS['conversation-snapshot']
+GeneratedClientMixin.conversation_thread.__cmux_command__ = COMMANDS['conversation-thread']
 GeneratedClientMixin.conversation_typing.__cmux_command__ = COMMANDS['conversation-typing']
 GeneratedClientMixin.copy.__cmux_command__ = COMMANDS['copy']
 GeneratedClientMixin.create_bookmark.__cmux_command__ = COMMANDS['create-bookmark']
@@ -837,6 +851,7 @@ GeneratedClientMixin.delete_personal_group.__cmux_command__ = COMMANDS['delete-p
 GeneratedClientMixin.delete_profile.__cmux_command__ = COMMANDS['delete-profile']
 GeneratedClientMixin.delete_saved_screen_group.__cmux_command__ = COMMANDS['delete-saved-screen-group']
 GeneratedClientMixin.delete_saved_tab_group.__cmux_command__ = COMMANDS['delete-saved-tab-group']
+GeneratedClientMixin.delete_terminal_commands.__cmux_command__ = COMMANDS['delete-terminal-commands']
 GeneratedClientMixin.delete_workspace_group.__cmux_command__ = COMMANDS['delete-workspace-group']
 GeneratedClientMixin.detach_attached_view.__cmux_command__ = COMMANDS['detach-attached-view']
 GeneratedClientMixin.detach_client.__cmux_command__ = COMMANDS['detach-client']
@@ -869,6 +884,7 @@ GeneratedClientMixin.list_personal.__cmux_command__ = COMMANDS['list-personal']
 GeneratedClientMixin.list_saved_screen_groups.__cmux_command__ = COMMANDS['list-saved-screen-groups']
 GeneratedClientMixin.list_saved_tab_groups.__cmux_command__ = COMMANDS['list-saved-tab-groups']
 GeneratedClientMixin.list_tab_groups.__cmux_command__ = COMMANDS['list-tab-groups']
+GeneratedClientMixin.list_terminal_commands.__cmux_command__ = COMMANDS['list-terminal-commands']
 GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals']
 GeneratedClientMixin.list_workspace_groups.__cmux_command__ = COMMANDS['list-workspace-groups']
 GeneratedClientMixin.list_workspaces.__cmux_command__ = COMMANDS['list-workspaces']

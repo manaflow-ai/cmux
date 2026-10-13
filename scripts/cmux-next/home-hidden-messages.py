@@ -13,7 +13,11 @@ Cases:
 - few: a conversation with 2 messages, opened in Home for the first time (its
   transcript page loads after the view is made), then a live message.
 - thread: the thread proof's order (before, root, 2 replies), opened, a plain
-  message right away, then a live thread reply.
+  message right away, then a live thread reply (its root's text preview shows
+  above it). Then the transcript moves by half a device pixel: the text rows
+  under the preview rest on whole device pixels with no partial pixels on their
+  straight edges where the app draws them (MessagesLab c1457e5 row-snap, 2281879
+  balloon; home_pixels.check_rows).
 
 Reads and writes only through the debug socket; no system input. Runs on
 cmux-lawrence-2 (GUI host), never on the laptop. Ends with quitEndSessions and
@@ -23,6 +27,9 @@ Usage: home-hidden-messages.py --tag <tag> [--out DIR] [--no-launch]
 Exit 0 when every check passes, 1 otherwise.
 """
 import argparse, json, os, socket, subprocess, sys, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from home_pixels import SKIPPED, check_rows  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -118,6 +125,8 @@ def open_in_home(conversation):
     # The first run after launch can come before the window's Home page takes it: ask again until it shows.
     def opened():
         if shown() != conversation:
+            # Home first (a window still starting can take the conversation and stay on its new tab), then the conversation.
+            rpc("action.run", {"id": "home.show", "focus": True})
             last_open["reply"] = rpc("action.run", {"id": "home.openConversation", "arguments": {"conversation": conversation},
                                                     "focus": True})
             time.sleep(1)  # test harness: one request per second while Home starts, not app code
@@ -140,8 +149,12 @@ def compare(name, conversation, expected, shot):
     hidden = [e for e in expected if e not in (view or [])]
     check(f"{name}: the Home view shows every message in order", bool(view) and [x for x in view if x in expected] == expected,
           {"hidden": hidden, "view": view, "store": store})
+    time.sleep(1.0)  # test harness: let the newest row's arrival settle before the screenshot
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, shot)})
 
+
+# A root longer than one line: the live reply's root preview wraps it (MessagesLab a4a0edb).
+ROOT = "Q4 plan: who takes the migration, the backfill and the cleanup of the old tables after next week's cutover?"
 
 pid = None
 if not opts.no_launch:
@@ -179,19 +192,45 @@ try:
     thread = new_group(f"thread-{stamp}")
     if check("thread: a local channel", bool(thread)):
         send(thread, "Before the thread")
-        send(thread, "Q4 plan: who takes the migration?")
-        root = poll(lambda: message_id(thread, "Q4 plan: who takes the migration?"))
+        send(thread, ROOT)
+        root = poll(lambda: message_id(thread, ROOT))
         send(thread, "I can take the schema part.", root)
         send(thread, "I will do the backfill after it.", root)
         poll(lambda: len(owner_texts(thread)) >= 4)
         check("thread: Home shows the channel", bool(open_in_home(thread)), rpc("debug.home"))
         send(thread, "After the thread")
-        compare("thread, after", thread, ["Before the thread", "Q4 plan: who takes the migration?", "I can take the schema part.",
+        compare("thread, after", thread, ["Before the thread", ROOT, "I can take the schema part.",
                                           "I will do the backfill after it.", "After the thread"], "thread-after.png")
         send(thread, "Third reply, arriving live.", root)
-        compare("thread, live reply", thread, ["Before the thread", "Q4 plan: who takes the migration?", "I can take the schema part.",
+        compare("thread, live reply", thread, ["Before the thread", ROOT, "I can take the schema part.",
                                                "I will do the backfill after it.", "After the thread", "Third reply, arriving live."],
                 "thread-live.png")
+        # The live reply's root preview (ROOT wraps to several lines: a 100.5 pt row on the pixel grid since
+        # MessagesLab c1457e5, measured at d5f924a; 100.65 pt of parts before) sits above the reply. With the transcript on half a device pixel
+        # (both axes), the text rows under the preview rest on whole device pixels with crisp straight edges.
+        rows = (rpc("debug.home.drive", {"action": "rows"}) or {}).get("rows") or []
+        kinds = [r["kind"] for r in rows]
+        has_preview = "preview" in kinds and "text" in kinds[kinds.index("preview") + 1:]
+        check("thread, live reply: a thread preview shows above a text row", has_preview, kinds)
+        rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})
+        # The pane's right edge on half a device pixel too (82ccac1: my rows, here the live reply, snap their right edge).
+        rpc("debug.home.drive", {"action": "resize", "trims": [0.5]})
+        time.sleep(0.2)  # test harness: one display frame for the move to show
+        half = rpc("debug.home.drive", {"action": "rows"}) or {}
+        half_shot = os.path.join(opts.out, "thread-half-pixel.png")
+        rpc("debug.window_snapshot", {"path": half_shot})
+        check("thread, half pixel: the transcript sits on half a device pixel (both axes)", bool(half.get("ok"))
+              and all(abs(((half.get(k, 0) * 2) % 1) - 0.5) < 0.01 for k in ("hostX", "hostY")),
+              {k: half.get(k) for k in ("hostX", "hostY", "error")})
+        check("thread, half pixel: the transcript's right edge sits on half a device pixel",
+              abs(((half.get("hostRight", 0) * 2) % 1) - 0.5) < 0.01, {k: half.get(k) for k in ("hostRight", "trim")})
+        if has_preview and half.get("ok") and os.path.exists(half_shot):
+            hk = [r["kind"] for r in half["rows"]]
+            below = {r["key"] for r in half["rows"][hk.index("preview") + 1:]} if "preview" in hk else set()
+            preview = next((r for r in half["rows"] if r["kind"] == "preview"), None)
+            if preview:
+                print(f"     thread preview row: {preview['height']} pt", flush=True)
+            check_rows(check, "thread, half pixel, under the preview", half, half_shot, keys=below, min_rows=1)
 finally:
     if pid:
         reply = rpc("debug.quit", {"fixture_quit": "end-sessions"}, timeout=10)
@@ -203,4 +242,6 @@ finally:
                        env=dict(os.environ, ACPMUX_HOME=acp, ACPMUX_SOCKET=f"{acp}/acpmux.sock"))
 
 print(f"{len(failures)} failed: {failures}" if failures else "all checks passed", flush=True)
+if SKIPPED:
+    print(f"{len(SKIPPED)} proof(s) skipped (not passed): {SKIPPED}", flush=True)
 sys.exit(1 if failures else 0)

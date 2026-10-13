@@ -57,6 +57,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let stop: @convention(c) (Int32) -> Void
     let setFocus: @convention(c) (Int32, Int32) -> Void
     let setZoomLevel: @convention(c) (Int32, Double) -> Void
+    /// Chromium's print preview over the page; 0 when the browser is gone.
+    let printPage: @convention(c) (Int32) -> Int32
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
     let stopFinding: @convention(c) (Int32, Int32) -> Void
     let close: @convention(c) (Int32) -> Void
@@ -132,11 +134,16 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let downloadFavicon: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32) -> Int32
     /// Browser import: cookies into a profile's request context.
     let importCookies: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafePointer<CChar>?) -> Int32
+    let clearCookies: @convention(c) (UnsafePointer<CChar>?, Int32, Int64) -> Int32
     /// Browser import: saved passwords into a profile's password store
     /// (entries as raw `cmux_shim_password_entry` rows, see CEFRuntime+PasswordImport).
     let importPasswords: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafeRawPointer?, Int32) -> Int32
     let passwordEntrySize: @convention(c) () -> Int32
     let passwordImportAvailable: @convention(c) () -> Int32
+    let replacePasswords: @convention(c) (UnsafePointer<CChar>?, Int32, UnsafeRawPointer?, Int32) -> Int32
+    let passwordReplaceAvailable: @convention(c) () -> Int32
+    let passwordPromptAnswer: @convention(c) (Int32, Int32, UnsafePointer<CChar>?) -> Int32
+    let setPasswordGenerationEnabled: @convention(c) (Int32) -> Int32
     /// Password filling on or off in one tab (off while an agent drives it).
     let setPasswordFill: @convention(c) (Int32, Int32) -> Int32
     /// Profile (Touch ID) passkeys, metadata only (fork API 18; see CEFRuntime+Passkeys).
@@ -156,6 +163,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let sslStatus: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     /// Clears the profile's certificate error decisions and connections.
     let clearCertificateExceptions: @convention(c) (Int32, Int32) -> Int32
+    /// Answers the browser's next certificate error `code` on `host`:
+    /// continue (0), or let Chromium's own interstitial decide (1); 0 when
+    /// the browser is gone.
+    let certificateProceed: @convention(c) (Int32, UnsafePointer<CChar>?, Int32, Int32) -> Int32
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32
@@ -256,6 +267,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         stop = try r("cmux_shim_stop")
         setFocus = try r("cmux_shim_set_focus")
         setZoomLevel = try r("cmux_shim_set_zoom_level")
+        printPage = try r("cmux_shim_print")
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
         close = try r("cmux_shim_close")
@@ -305,9 +317,14 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         deleteCookies = try r("cmux_shim_delete_cookies")
         downloadFavicon = try r("cmux_shim_download_favicon")
         importCookies = try r("cmux_shim_import_cookies")
+        clearCookies = try r("cmux_shim_clear_cookies")
         importPasswords = try r("cmux_shim_import_passwords")
         passwordEntrySize = try r("cmux_shim_password_entry_size")
         passwordImportAvailable = try r("cmux_shim_password_import_available")
+        replacePasswords = try r("cmux_shim_replace_passwords")
+        passwordReplaceAvailable = try r("cmux_shim_password_replace_available")
+        passwordPromptAnswer = try r("cmux_shim_password_prompt_answer")
+        setPasswordGenerationEnabled = try r("cmux_shim_set_password_generation_enabled")
         setPasswordFill = try r("cmux_shim_set_password_fill")
         passkeysAvailable = try r("cmux_shim_passkeys_available")
         passkeysList = try r("cmux_shim_passkeys_list")
@@ -321,6 +338,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         passwordExport = try r("cmux_shim_password_export")
         sslStatus = try r("cmux_shim_ssl_status")
         clearCertificateExceptions = try r("cmux_shim_clear_certificate_exceptions")
+        certificateProceed = try r("cmux_shim_certificate_proceed")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
         setContextProxy = try r("cmux_shim_set_context_proxy")

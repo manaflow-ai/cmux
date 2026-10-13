@@ -4,9 +4,11 @@ import CmuxNextControl
 import CmuxNextSettings
 import Foundation
 
-// `debug.browser.external_opens` and `debug.browser.prompts` (DEBUG builds), for
-// scripts/cmux-next/external-schemes-live.py: the links a recording build sent to
-// other apps (`BrowserExternalApps`), and a browser tab's pending prompts.
+// `debug.browser.external_opens`, `debug.browser.prompts` and `debug.browser.page_status`
+// (DEBUG builds), for the scripts/cmux-next live checks: the links a recording build sent
+// to other apps (`BrowserExternalApps`), a browser tab's pending prompts, and the cmux
+// pages over a tab's page (error page, certificate warning, sad tab, Page unresponsive;
+// `press` presses Proceed, Wait or Exit page).
 enum DebugBrowserExternal {
     static func register(on router: ControlRouter?, services: AppServices) {
         #if DEBUG
@@ -15,6 +17,13 @@ enum DebugBrowserExternal {
             .mainActor("debug.browser.prompts") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(prompts(call.params, services: services))
+            },
+            .mainActor("debug.browser.page_status") { [weak services] call in
+                guard let services else { return .value(.null) }
+                guard let chrome = entry(call.params, services: services)?.chrome else {
+                    return .value(.object(["error": .string("no browser tab")]))
+                }
+                return .value(.object(PageStatusDebug(chrome, press: call.params["press"]?.stringValue).fields.mapValues { .string($0) }))
             },
         ])
         #endif
@@ -36,15 +45,7 @@ extension DebugBrowserExternal {
     /// prompts, the one the prompt bar shows first; `respond` (`allow`, `allowOnce`,
     /// `accept`, `cancel`, `deny`) answers that one, as its button does.
     static func prompts(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
-        let entry: BrowserEntry?
-        if let id = params["tab"]?.stringValue {
-            entry = services.cache.existingBrowser(id)
-        } else if case .browser(let focused)? = ActionScope(services: services, invocation: ActionInvocation()).pane?.currentContent {
-            entry = focused
-        } else {
-            entry = nil
-        }
-        guard let tab = entry?.tab else { return .object(["error": .string("no browser tab")]) }
+        guard let tab = entry(params, services: services)?.tab else { return .object(["error": .string("no browser tab")]) }
         var result: [String: JSONValue] = [:]
         if let answer = params["respond"]?.stringValue {
             let response: BrowserPromptResponse? = switch answer {
@@ -63,6 +64,15 @@ extension DebugBrowserExternal {
             .object(["kind": .string(String(describing: prompt.kind)), "origin": .string(prompt.origin)])
         })
         return .object(result)
+    }
+
+    /// The `tab` param's browser (a layout tab id), else the focused one.
+    static func entry(_ params: [String: JSONValue], services: AppServices) -> BrowserEntry? {
+        if let id = params["tab"]?.stringValue { return services.cache.existingBrowser(id) }
+        guard case .browser(let focused)? = ActionScope(services: services, invocation: ActionInvocation()).pane?.currentContent else {
+            return nil
+        }
+        return focused
     }
 }
 #endif

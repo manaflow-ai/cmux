@@ -5,6 +5,7 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod adoption;
+mod aside;
 mod catalog_reload;
 mod cursor_ext;
 mod fork;
@@ -12,6 +13,7 @@ mod fork_at;
 mod handoff;
 mod harness_view;
 mod harness_watch;
+mod health_view;
 mod idle;
 mod launch_roots;
 mod launchers;
@@ -33,6 +35,8 @@ mod resolve;
 mod route_switch;
 pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub(crate) use route_switch::route_error;
+mod secrets;
+mod seen;
 mod session;
 pub use session::{Session, live_tags};
 pub(super) use session::{prompt_text, short_text};
@@ -57,6 +61,10 @@ mod remote_sandbox;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
 mod transfer;
+mod transfer_guard;
+mod transfer_in;
+mod transfer_out;
+mod transfer_watch;
 mod turns;
 mod warm;
 mod xai;
@@ -261,10 +269,16 @@ pub struct Hub {
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
+    /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
+    pub health: Arc<crate::harness_health::HealthService>,
     /// The token the web listener checks now (`web_token.rs`).
     pub web_token: WebToken,
     /// This launch's person key (`person.rs`): who may allow and grant.
     pub person: person::PersonGate,
+    /// How long a move may go without its client (`transfer_watch.rs`).
+    pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
+    pub(super) secrets: secrets::Secrets,
 }
 
 impl Hub {
@@ -312,8 +326,11 @@ impl Hub {
             chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
+            health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
+            transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            secrets: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -322,6 +339,7 @@ impl Hub {
         if tokio::runtime::Handle::try_current().is_ok() {
             let h = hub.clone();
             tokio::spawn(async move { h.peer_notice_loop().await });
+            hub.watch_transfers();
             for (name, pc) in peers_cfg {
                 hub.start_peer(&name, &pc);
             }
@@ -430,6 +448,13 @@ impl Hub {
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
         tracing::info!("startup complete; agents may spawn");
+        // Probes of earlier runs left transcripts in the unattended folder: remove them.
+        let _ = tokio::task::spawn_blocking(|| {
+            crate::probe_cleanup::remove_probe_transcripts(
+                &crate::protected_folders::unattended_cwd(),
+            )
+        })
+        .await;
         // A catalog reload already started fresh probes.
         if !reloaded {
             self.probe_models().await;
@@ -532,6 +557,7 @@ impl Hub {
             queued: AtomicU64::new(0),
             queue: StdMutex::new(Vec::new()),
             queue_moved: Notify::new(),
+            moving: StdMutex::new(None),
             restored: StdMutex::new(Vec::new()),
             stream: StdMutex::new(StreamState::default()),
             permissions: StdMutex::new(permission_groups::PermissionState::default()),
@@ -546,6 +572,7 @@ impl Hub {
             purged: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
+            hidden: std::sync::atomic::AtomicUsize::new(0),
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
@@ -690,35 +717,6 @@ impl Hub {
         (record, stored)
     }
 
-    /// A client attached or detached. Attaching clears the unread bit.
-    pub fn attach_count(&self, session: &Session, delta: i32) {
-        // A client letting go starts the idle period; one arriving resets it.
-        self.touch(session);
-        use std::sync::atomic::AtomicUsize;
-        let _ = AtomicUsize::new(0);
-        if delta > 0 {
-            session.attached.fetch_add(delta as usize, Ordering::SeqCst);
-            let was_unread = {
-                let mut m = session.meta.lock().unwrap();
-                std::mem::replace(&mut m.unread, false)
-            };
-            if was_unread {
-                self.save_meta(session);
-                self.append(
-                    session,
-                    "mux",
-                    "status",
-                    json!({"status": session.status().to_string(), "read": true}),
-                );
-            }
-        } else {
-            let d = (-delta) as usize;
-            let _ = session
-                .attached
-                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |v| Some(v.saturating_sub(d)));
-        }
-    }
-
     /// Orchestrator tags with optional expiry.
     pub fn set_tags(
         &self,
@@ -769,6 +767,9 @@ impl Hub {
                 "composer draft exceeds {} characters",
                 Self::MAX_COMPOSER_DRAFT_CHARS
             ));
+        }
+        if session.moving().is_some() {
+            return Err(queue::moving_error().message);
         }
         let draft = (!text.trim().is_empty()).then(|| text.to_owned());
         {
@@ -932,5 +933,13 @@ impl Hub {
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
+    }
+}
+
+/// The unsent draft went out as `text`, from whichever client sent it: it is no longer the
+/// chat's draft. Any other prompt leaves the draft as it is.
+fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
+    if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
+        meta.composer_draft = None;
     }
 }

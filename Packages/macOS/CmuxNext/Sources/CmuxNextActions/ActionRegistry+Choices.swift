@@ -20,7 +20,13 @@ extension ActionRegistry {
         for choice in cases {
             let item = NSMenuItem(title: choice.title, action: #selector(ActionMenuTarget.performAction(_:)), keyEquivalent: "")
             item.target = menuTarget
-            item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: [argument.name: .string(choice.value)])
+            // A listed object (Move to Group > Frontend) goes as a target, as the palette passes it.
+            let value: ActionValue = if case .target(let kind) = argument.kind {
+                .target(ActionTargetRef(kind: kind, id: choice.value))
+            } else {
+                .string(choice.value)
+            }
+            item.representedObject = ActionMenuPayload(id: descriptor.id, target: target, arguments: [argument.name: value])
             item.state = choice.value == current ? .on : .off
             submenu.addItem(item)
         }

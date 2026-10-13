@@ -150,14 +150,46 @@ pub enum ResourceOperation {
     ConversationDraft,
     #[serde(rename = "conversation.events")]
     ConversationEvents,
+    #[serde(rename = "git.commit")]
+    GitCommit,
     #[serde(rename = "git.diff")]
     GitDiff,
     #[serde(rename = "git.files.list")]
     GitFilesList,
     #[serde(rename = "git.files.search")]
     GitFilesSearch,
+    #[serde(rename = "git.push")]
+    GitPush,
     #[serde(rename = "git.status")]
     GitStatus,
+    #[serde(rename = "git.worktree.create")]
+    GitWorktreeCreate,
+    #[serde(rename = "git.worktree.apply")]
+    GitWorktreeApply,
+    #[serde(rename = "git.worktree.remove")]
+    GitWorktreeRemove,
+    #[serde(rename = "history.entries.list")]
+    HistoryEntriesList,
+    #[serde(rename = "history.entries.remove")]
+    HistoryEntriesRemove,
+    #[serde(rename = "history.site.remove")]
+    HistorySiteRemove,
+    #[serde(rename = "history.clear")]
+    HistoryClear,
+    #[serde(rename = "history.restore")]
+    HistoryRestore,
+    #[serde(rename = "history.backups.purge")]
+    HistoryBackupsPurge,
+    #[serde(rename = "history.visit.record")]
+    HistoryVisitRecord,
+    #[serde(rename = "history.visit.title")]
+    HistoryVisitTitle,
+    #[serde(rename = "history.visit.remove")]
+    HistoryVisitRemove,
+    #[serde(rename = "history.visit.summaries")]
+    HistoryVisitSummaries,
+    #[serde(rename = "history.visit.import")]
+    HistoryVisitImport,
     #[serde(rename = "workspace.list")]
     WorkspaceList,
     #[serde(rename = "workspace.get")]
@@ -372,6 +404,14 @@ pub enum ResourceOperation {
     SettingsReset,
     #[serde(rename = "settings.reset_all")]
     SettingsResetAll,
+    #[serde(rename = "keybindings.get")]
+    KeybindingsGet,
+    #[serde(rename = "keybindings.set")]
+    KeybindingsSet,
+    #[serde(rename = "keybindings.remove")]
+    KeybindingsRemove,
+    #[serde(rename = "keybindings.reset")]
+    KeybindingsReset,
     #[serde(rename = "window_record.list")]
     WindowRecordList,
     #[serde(rename = "window_record.put")]
@@ -456,6 +496,8 @@ pub enum ResourceOperation {
     TabGroupAddTabs,
     #[serde(rename = "tab_group.close")]
     TabGroupClose,
+    #[serde(rename = "layout.bulk")]
+    LayoutBulk,
     #[serde(rename = "tab_group.create")]
     TabGroupCreate,
     #[serde(rename = "tab_group.get")]
@@ -540,125 +582,7 @@ impl LocalOperation {
     }
 }
 
-impl ResourceOperation {
-    pub const fn class(self) -> OperationClass {
-        if matches!(
-            self,
-            Self::SessionEvents
-                | Self::SessionJournalSubscribe
-                | Self::ConversationEvents
-                | Self::TerminalAttach
-                | Self::BrowserAttach
-                | Self::SidebarViewAttach
-        ) {
-            OperationClass::StreamOpen
-        } else if matches!(
-            self,
-            Self::RequestCancel
-                | Self::StreamCancel
-                | Self::OriginConfirmationIssue
-                | Self::ClientMetadataUpdate
-                | Self::ClientSizingSet
-                | Self::ClientSizingRelease
-                | Self::ClientCellPixelsSet
-                | Self::ClientDetach
-                | Self::TerminalRendererGrantCreate
-                | Self::TerminalViewerResize
-                | Self::TerminalViewerRelease
-                | Self::BrowserViewerResize
-                | Self::BrowserViewerRelease
-        ) {
-            OperationClass::ConnectionControl
-        } else if matches!(
-            self,
-            Self::MachineList
-                | Self::MachineGet
-                | Self::SessionList
-                | Self::SessionGet
-                | Self::SessionSnapshot
-                | Self::SessionCreationResolve
-                | Self::SessionPing
-                | Self::SessionJournalProducerList
-                | Self::SessionJournalHookList
-                | Self::SessionJournalCheckpointList
-                | Self::SessionJournalRestorePreview
-                | Self::SessionJournalSegmentList
-                | Self::ClientList
-                | Self::ClientGet
-                | Self::PairingRequestList
-                | Self::FrontendProjectionGet
-                | Self::ChiefEngineGet
-                | Self::CredentialVerify
-                | Self::CredentialMint
-                | Self::ConversationList
-                | Self::ConversationGet
-                | Self::ConversationHistory
-                | Self::ConversationSearch
-                | Self::GitCheckpointDiff
-                | Self::GitCheckpointGet
-                | Self::GitCheckpointList
-                | Self::GitDiff
-                | Self::GitFilesList
-                | Self::GitFilesSearch
-                | Self::GitStatus
-                | Self::WorkspaceList
-                | Self::WorkspaceGet
-                | Self::ScreenList
-                | Self::ScreenGet
-                | Self::ScreenLayoutExport
-                | Self::PaneList
-                | Self::PaneGet
-                | Self::PaneNeighborGet
-                | Self::TabList
-                | Self::TabGet
-                | Self::TerminalList
-                | Self::TerminalGet
-                | Self::TerminalScreenRead
-                | Self::TerminalStateRead
-                | Self::TerminalHistoryRead
-                | Self::TerminalOutputRead
-                | Self::TerminalWait
-                | Self::TerminalWaitExit
-                | Self::TerminalCopy
-                | Self::TerminalProcessGet
-                | Self::BrowserList
-                | Self::BrowserGet
-                | Self::NotificationList
-                | Self::AgentList
-                | Self::AgentMessageList
-                | Self::SidebarViewGet
-                | Self::ClosedList
-                | Self::WindowRecordList
-                | Self::SettingsSchema
-                | Self::SettingsList
-                | Self::SettingsGet
-                | Self::SettingsSnapshot
-                | Self::SidebarLayoutGet
-                | Self::ProjectList
-                | Self::PaletteUsageGet
-                | Self::RoomList
-                | Self::SavedTabGroupList
-                | Self::ScreenGroupGet
-                | Self::ScreenGroupList
-                | Self::TabGroupGet
-                | Self::TabGroupList
-                | Self::WorkspacePlacementList
-                | Self::WorkspaceGroupList
-                | Self::WorkspaceLogList
-                | Self::WorkspaceStatusList
-                | Self::WorkspaceAgentStartGet
-        ) {
-            OperationClass::Read
-        } else {
-            OperationClass::Mutation
-        }
-    }
-
-    pub const fn is_mutation(self) -> bool {
-        matches!(self.class(), OperationClass::Mutation)
-    }
-}
-
+mod class;
 mod envelope;
 mod hex;
 mod journal;

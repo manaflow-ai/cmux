@@ -233,7 +233,7 @@ cmux screen <selector> pane ...
 cmux screen group list [--workspace <selector>]
 cmux screen group create --screens <screen_id,...> [--name <value>] [--color <color>]
 cmux screen group <group> show|ungroup
-cmux screen group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
+cmux screen group <group> update [--name <value>] [--color <color>] [--icon <icon>|--clear-icon] [--collapse|--expand]
 cmux screen group <group> add --screens <screen_id,...>
 cmux screen group remove --screens <screen_id,...>
 ```
@@ -278,7 +278,7 @@ cmux tab <selector> update --icon <value>|--clear-icon
 cmux tab group list [--pane <pane_id>]
 cmux tab group create --tabs <tab_id,...> [--name <value>] [--color <color>]
 cmux tab group <group> show|ungroup|close
-cmux tab group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
+cmux tab group <group> update [--name <value>] [--color <color>] [--icon <icon>|--clear-icon] [--collapse|--expand]
 cmux tab group <group> add --tabs <tab_id,...> [--index <n>]
 cmux tab group remove --tabs <tab_id,...>
 cmux tab group <group> move [--pane <pane_id>] [--index <n>]
@@ -409,7 +409,7 @@ pinned to at most one room, so `unpin` names only the workspace.
 cmux closed list
 cmux closed <closed_id> reopen
 cmux closed <closed_id> delete [--members 0,2]
-cmux closed clear [--since-ms <unix ms>]
+cmux closed clear [--since-ms <unix ms>] [--before-ms <unix ms>] [--keep-newest <n>]
 ```
 
 The session keeps recently closed tabs, screens and workspaces. A tab reopens in
@@ -417,7 +417,9 @@ its pane (else the focused pane of its workspace), a screen in its workspace, a
 workspace as a new workspace. `delete` and `clear` remove groups for good (and
 their terminal archives; the journals keep what they already recorded). `delete
 --members` removes only those members; `clear --since-ms` removes only the
-groups closed at or after that time.
+groups closed at or after that time, `--before-ms` only those closed before it,
+and `--keep-newest` every group but the newest n (retention by age and by
+count; the app is to apply its closed-history limits through these).
 
 ### Other daemon scopes
 

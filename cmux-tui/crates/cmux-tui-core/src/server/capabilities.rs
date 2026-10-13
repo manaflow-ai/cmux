@@ -4,7 +4,7 @@
 use super::*;
 
 /// `identify`'s capabilities: the static set plus `cloud-conversations-v1`
-/// when the binary installed a cloud transport, `history-search-v1` when it
+/// and `cloud-lease-app-only-v1` when the binary installed a cloud transport, `history-search-v1` when it
 /// installed the search index,
 /// `terminal-reaper-active-v1` while the unplaced-terminal reaper runs, and
 /// `daemon-build-v1` when the binary installed its build identity.
@@ -13,6 +13,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     capabilities.push(activity::CAPABILITY);
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
+        capabilities.push(cloud_conversations::APP_ONLY_LEASE_CAPABILITY);
     }
     if mux.history_search().is_some() {
         capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);
@@ -26,6 +27,14 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_start() {
         capabilities.push(AGENT_SESSION_START_CAPABILITY);
+    }
+    #[cfg(unix)]
+    if mux.serves_agent_transfer() {
+        capabilities.push(agent_transfer::AGENT_TRANSFER_CAPABILITY);
+    }
+    #[cfg(unix)]
+    if mux.on_cloud_host() {
+        capabilities.push(agent_transfer::access_requests::ACCESS_REQUEST_CAPABILITY);
     }
     if mux.terminal_reaper_running() {
         capabilities.push(TERMINAL_REAPER_ACTIVE_CAPABILITY);
@@ -58,7 +67,7 @@ pub(super) fn advertised_capabilities(
         LAYOUT_UNDO_CAPABILITY,
         TAB_WORKSPACE_MOVE_CAPABILITY,
         CLEAR_HISTORY_CAPABILITY,
-        TERMINAL_COMMAND_JOURNAL_CAPABILITY,
+        TERMINAL_COMMAND_HISTORY_CAPABILITY,
         SURFACE_SUBSCRIBE_FILTER_CAPABILITY,
         SESSION_JOURNAL_CAPABILITY,
         FRONTEND_JOURNAL_CAPABILITY,
@@ -110,7 +119,9 @@ pub(super) fn advertised_capabilities(
         PERSONAL_TERMINALS_CAPABILITY,
         BROWSER_PROFILES_CAPABILITY,
         BOOKMARKS_CAPABILITY,
+        BOOKMARK_ICON_CAPABILITY,
         crate::mux::settings::SETTINGS_CAPABILITY,
+        crate::mux::keybindings::KEYBINDINGS_CAPABILITY,
         crate::mux::feed_local::FEED_LOCAL_OWNER_CAPABILITY,
         icon_assets::ICON_ASSETS_CAPABILITY,
         conversations::LOCAL_CONVERSATIONS_CAPABILITY,
@@ -118,10 +129,14 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_DRAFT_CAPABILITY,
         conversations::CONVERSATION_DRAFT_EVENTS_CAPABILITY,
         conversations::CONVERSATION_THREADS_CAPABILITY,
+        conversations::CONVERSATION_THREAD_READ_CAPABILITY,
+        conversations::LINK_PREVIEW_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
         NOTIFICATION_SOURCE_CAPABILITY,
+        crate::NOTIFICATION_DESKTOP_CAPABILITY,
+        crate::NOTIFICATION_REPLY_CAPABILITY,
         TERMINAL_SHELL_ARGS_CAPABILITY,
         TERMINAL_FRONTEND_SHELL_INTEGRATION_CAPABILITY,
         SCREEN_TERMINAL_ENV_CAPABILITY,
@@ -139,19 +154,29 @@ pub(super) fn advertised_capabilities(
         crate::state::personal_order::PERSONAL_MIXED_ORDER_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_ICON_CAPABILITY,
         crate::state::personal::WORKSPACE_GROUP_PIN_CAPABILITY,
+        crate::state::screens::SCREEN_GROUP_ICON_CAPABILITY,
+        crate::state::tabs::TAB_GROUP_ICON_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,
         crate::state::projects_store::CAPABILITY,
         crate::state::palette_usage_store::CAPABILITY,
+        crate::state::layout_bulk::CAPABILITY,
         crate::state::conversation_tabs_store::CONVERSATION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::AGENT_SESSION_TABS_CAPABILITY,
         crate::state::conversation_tabs_store::PAGE_TABS_CAPABILITY,
+        crate::state::conversation_tabs_store::PAGE_TAB_ROUTE_CAPABILITY,
         crate::state::remote_terminal_tabs_store::REMOTE_TERMINAL_TABS_CAPABILITY,
         detached_terminals::DETACHED_TERMINALS_CAPABILITY,
         close_tabs_command::CLOSE_REASON_CAPABILITY,
         conversation_tabs_wire::CONVERSATION_TAB_TRANSACTION_CAPABILITY,
         crate::git_ops::CHECKPOINTS_CAPABILITY,
         crate::git_ops::FILES_SEARCH_CAPABILITY,
+        crate::history_ops::CAPABILITY,
         crate::git_ops::FILES_LIST_CAPABILITY,
+        crate::git_ops::COMMIT_CAPABILITY,
+        crate::git_ops::PUSH_CAPABILITY,
+        crate::git_ops::WORKTREE_CAPABILITY,
+        crate::git_ops::WORKTREE_APPLY_CAPABILITY,
+        crate::git_ops::WORKTREE_REMOVE_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,

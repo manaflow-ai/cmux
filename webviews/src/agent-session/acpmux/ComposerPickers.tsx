@@ -1,4 +1,4 @@
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { sessionModels } from "./modelCatalog";
 import {
   isDefaultChoice,
@@ -11,14 +11,21 @@ import type { AcpmuxSnapshot } from "./model";
 import { EffortPicker, type SpeedSection } from "./EffortPicker";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker } from "./ModelPicker";
-import type { CatalogRefreshState, ModelCombo } from "./modelPickerLayout";
+import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
+import { topModelsFor } from "./topModels";
+import { rememberPick } from "./lastPick";
+import { defaultModel } from "./harnessSwitch";
+import { harnessProfiles } from "./harnessProfiles";
 import type { PickerCatalog } from "./modelCatalogData";
 import { Popover } from "../../ui/Popover";
 import { ContextMenu } from "../../ui/ContextMenu";
-import { setComposerSettings, useComposerSettings } from "./composerSettings";
+import { HideableChrome } from "../../ui/HideableChrome";
+import { useComposerChrome } from "./composerChrome";
 import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../ui/Menu";
 import { registerPicker } from "./pickerOpeners";
-import { useUiAnchor } from "../../ui/anchor";
+import { UI_ANCHOR_GAP, useUiAnchor } from "../../ui/anchor";
+import { useEscapingPopup } from "../../ui/popupHost";
+import { usePopupHost } from "../../ui/UiProvider";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 
 /// Picker copy. English defaults until the host passes localized labels, as the rest of the pane does today.
@@ -75,7 +82,15 @@ export function rememberCombo(recents: Combo[], combo: Combo): Combo[] {
   return next;
 }
 
-export type Choice = { id: string; name: string; description?: string; icon?: React.ReactNode; hint?: string };
+export type Choice = {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: React.ReactNode;
+  hint?: string;
+  /// The level the model recommends (its catalog default): the effort slider marks it.
+  recommended?: boolean;
+};
 
 /// Runs `run` after `ms` unless the returned cancel runs first.
 export type SettleTimer = (run: () => void, ms: number) => () => void;
@@ -94,8 +109,12 @@ type Props = {
   settleMs?: number;
   /// Schedules the settle check and returns its cancel; tests run it by hand.
   settleTimer?: SettleTimer;
-  /// Starts a new chat in another harness (the model picker offers it).
-  onHarness?(harness: string): void;
+  /// Starts a new chat in another harness (the model picker offers it), on `model` when a model
+  /// row of that harness was picked: the switch carries it, so the new chat starts on that model
+  /// and draws it at once, also before it opens (a New Tab's deferred switch).
+  onHarness?(harness: string, model?: string): void;
+  /// The folder a pick is remembered for (lastPick.ts), when the chat has none yet (a New Tab's).
+  folder?: string;
   /// The pointer or keyboard rests on a harness row (undefined: it left them), for a prewarm hint.
   onHarnessHint?(harness: string | undefined): void;
   /// Enables the chat folder's profile `id` (see ModelPickerProps.onHarnessEnable).
@@ -113,8 +132,6 @@ type Props = {
   catalogRefresh?: CatalogRefreshState;
   /** Joined host catalog supplied by the app root; direct tests keep using the daemon catalog. */
   pickerCatalog?: PickerCatalog;
-  /// Writes `agentPane.showContextUsage` (the ring's Hide and the footer's Show Context Usage).
-  onShowContextUsage?(show: boolean): void;
 };
 
 /// The composer bar's controls: the
@@ -131,6 +148,7 @@ export function ComposerPickers({
   onHarnessHint,
   onHarnessEnable,
   onAddAgent,
+  folder,
   settleMs = RECENT_SETTLE_MS,
   settleTimer = browserSettleTimer,
   measurePickerRoom,
@@ -138,25 +156,29 @@ export function ComposerPickers({
   onCompact,
   catalogRefresh,
   pickerCatalog,
-  onShowContextUsage,
 }: Props) {
   const t = useT();
-  const { showContextUsage } = useComposerSettings();
-  // The ring goes or comes back at once; the host's write then pushes the same value.
-  const showUsage = (show: boolean) => {
-    setComposerSettings({ showContextUsage: show });
-    onShowContextUsage?.(show);
-  };
+  // The ring hides from its right-click; the composer's button row shows it again (composerChrome.tsx).
+  const chrome = useComposerChrome();
   const summary = snapshot.summary;
-  const pickerEntries: AcpmuxSnapshot["catalog"] = pickerCatalog
+  // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
+  // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
+  // probe alone (a timeout) keeps it.
+  const pickerEntries: ModelPickerProps["catalog"] = pickerCatalog
     ? [
-        ...pickerCatalog.harnesses.map((entry) => ({
-          id: entry.acpmuxHarness ?? entry.id,
-          name: entry.name,
-          models: entry.models,
-          ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
-          pickable: entry.pickable && entry.acpmuxHarness !== null,
-        })),
+        ...pickerCatalog.harnesses
+          .filter(
+            (entry) =>
+              !entry.unavailable || entry.probeFailed || (entry.acpmuxHarness ?? entry.id) === summary?.harness,
+          )
+          .map((entry) => ({
+            id: entry.acpmuxHarness ?? entry.id,
+            name: entry.name,
+            models: entry.models,
+            ...(entry.unavailable ? { unavailable: entry.unavailable } : {}),
+            pickable: entry.pickable && entry.acpmuxHarness !== null,
+            ...(topModelsFor(entry.id) ? { top: topModelsFor(entry.id) } : {}),
+          })),
         // The chat folder's own profiles are acpmux's alone; the model catalog never lists them.
         ...snapshot.catalog.filter((entry) => entry.folder),
       ]
@@ -253,9 +275,12 @@ export function ComposerPickers({
   }, [summary?.sessionId, current, currentEffort, effortId, effortValues, onEffort]);
   // One pick of a model and effort: the model first, then the effort once the agent reports
   // that model offering it (the effect above); the same model only changes the effort.
+  // A pick in a chat on another machine names that machine's models: this one's new chats keep theirs.
+  const remembers = !summary?.host && summary?.hostKind !== "cloud";
   const land = (pickedModel: string, pickedEffort?: string) => {
     // Any new pick replaces a combo still waiting on its effort.
     pending.current = undefined;
+    if (harness && remembers) rememberPick({ harness, model: pickedModel }, folder ?? summary?.cwd);
     if (pickedModel !== shown) {
       pending.current = pickedEffort
         ? { sessionId: summary?.sessionId, from: current, model: pickedModel, effort: pickedEffort }
@@ -281,7 +306,8 @@ export function ComposerPickers({
     if (picked.harness !== harness) {
       if (!onHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
-      onHarness(picked.harness);
+      if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
+      onHarness(picked.harness, picked.model);
       return;
     }
     land(picked.model, picked.effort);
@@ -301,7 +327,14 @@ export function ComposerPickers({
     }
     if (switching || !summary?.sessionId || summary.sessionId === wanted.from || harness !== wanted.harness) return;
     crossing.current = undefined;
-    land(wanted.model, wanted.effort);
+    // The switch already sent the model: only its effort remains, now when the agent runs that
+    // model (its default, or it reported the switch first), else once it reports it.
+    pending.current = undefined;
+    if (wanted.effort && current === wanted.model) {
+      if (effort && wanted.effort !== currentEffort && efforts.some((choice) => choice.id === wanted.effort))
+        onEffort(effort.id, wanted.effort);
+    } else if (wanted.effort)
+      pending.current = { sessionId: summary.sessionId, from: current, model: wanted.model, effort: wanted.effort };
     if (wanted.fast) fastWanted.current = { sessionId: summary.sessionId, model: wanted.model };
   });
   const fastValue = fastMode?.currentValue;
@@ -318,17 +351,62 @@ export function ComposerPickers({
   });
   // A default model draws as the model it resolves to: the running session's, else the one this
   // harness's default last resolved to, else the model placeholder.
+  // The model a New Tab starts a chat on `agent` with (newTabStart, newTabChipSnapshot): the last
+  // pick here, else its profile's, else its first listed model, else the catalog's default.
+  const startingModel = (agent: string) => {
+    const entry = pickerCatalog?.harnesses.find((candidate) => (candidate.acpmuxHarness ?? candidate.id) === agent);
+    const asked = defaultModel(agent, snapshot.catalog, harnessProfiles, folder ?? summary?.cwd);
+    const id = asked && !isDefaultChoice({ id: asked }) ? asked : entry?.defaultModel;
+    if (!id || isDefaultChoice({ id })) return undefined;
+    return (
+      entry?.models.find((choice) => choice.id === id)?.name ??
+      models.find((choice) => choice.id === id)?.name ??
+      modelIdName(id)
+    );
+  };
   const defaulted = shown !== undefined && isDefaultChoice(model ?? { id: shown });
   // A harness still starting draws its last session's options, which name no model this chat runs.
   const resolvedNow = switching ? undefined : resolvedModel(summary);
   useEffect(() => {
     if (harness && resolvedNow) rememberResolvedDefault(harness, resolvedNow);
   }, [harness, resolvedNow]);
-  const resolvedId = defaulted ? (resolvedNow ?? (harness ? loadResolvedDefaults()[harness] : undefined)) : undefined;
+  // A new chat draws its chips for the harness its first prompt starts: the one named, else the
+  // catalog's first, as the model picker's face does.
+  const chipHarness = harness ?? pickerEntries[0]?.id;
+  const unreported = shown === undefined && chipHarness !== undefined && (!summary?.sessionId || switching);
+  // Before the session reports, the default this harness last resolved to, else the model catalog's
+  // default for it, else the first model it lists (defaultModel: its last session's).
+  const predictedId = unreported
+    ? (loadResolvedDefaults()[chipHarness] ??
+      pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness)?.defaultModel ??
+      defaultModel(chipHarness, snapshot.catalog))
+    : undefined;
+  const resolvedId = unreported
+    ? predictedId
+    : defaulted
+      ? (resolvedNow ?? (harness ? loadResolvedDefaults()[harness] : undefined))
+      : undefined;
   const resolvedName =
     resolvedId &&
-    (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
-  const modelName = defaulted ? (resolvedName ?? t(PICKER_LABELS.model)) : (model?.name ?? summary?.model);
+    (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
+      snapshot.catalog
+        .find((entry) => entry.id === chipHarness)
+        ?.models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
+      modelIdName(resolvedId));
+  // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
+  // started it on (cx-e2aa, cx-21jvw). A resumed or remote chat may run another: it waits.
+  const fresh = (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
+  const starting = shown === undefined && harness && fresh && !switching ? startingModel(harness) : undefined;
+  // Before the session reports, the predicted model's name holds the chip's width (cx-ncc.58).
+  const modelName =
+    defaulted || unreported
+      ? (starting ?? resolvedName ?? t(PICKER_LABELS.model))
+      : (model?.name ?? summary?.model ?? starting);
+  // Until the session reports its options (a new chat, an agent still starting), the ring, the
+  // effort and the access controls hold their places as quiet skeletons: controls never appear one
+  // by one beside the model (cx-ncc.58).
+  const awaiting =
+    chipHarness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
@@ -365,11 +443,8 @@ export function ComposerPickers({
         />
       )}
       {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
-      {showContextUsage && (usage || summary?.sessionId) && (
-        <ContextMenu
-          className="acpmux-context-usage-menu"
-          items={[{ id: "hide", label: t("context.hide"), onSelect: () => showUsage(false) }]}
-        >
+      {(usage || summary?.sessionId || awaiting) && (
+        <HideableChrome className="acpmux-context-usage-menu" item={chrome.contextUsage}>
           <ContextRing
             used={usage?.used}
             size={usage?.size}
@@ -377,7 +452,7 @@ export function ComposerPickers({
             onCompact={compact}
             working={snapshot.isWorking}
           />
-        </ContextMenu>
+        </HideableChrome>
       )}
       {/* Reasoning is its own stable control, separate from the model and harness picker. A model
           whose only level is the agent's default has nothing to pick, so it shows no control. */}
@@ -402,7 +477,9 @@ export function ComposerPickers({
           }}
         />
       )}
+      {!(effort && efforts.length > 1) && awaiting && <ChipSkeleton kind="effort" />}
       <span className="acpmux-chips-spacer" />
+      {modes.length === 0 && awaiting && <ChipSkeleton kind="mode" />}
       {modes.length > 0 && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
@@ -441,16 +518,18 @@ export function ComposerPickers({
       )}
     </div>
   );
-  // Hidden, the ring's way back is a right-click anywhere on the footer's controls.
-  return showContextUsage ? (
-    chips
-  ) : (
-    <ContextMenu
-      className="acpmux-context-usage-menu"
-      items={[{ id: "show", label: t("context.show"), onSelect: () => showUsage(true) }]}
-    >
-      {chips}
-    </ContextMenu>
+  return chips;
+}
+
+/// A control's place while the session has not reported it yet: the chip's own box, inert and
+/// unlabeled, so the real control takes the same place when it arrives (cx-ncc.58).
+function ChipSkeleton({ kind }: { kind: "effort" | "mode" }) {
+  return (
+    <span className={`acpmux-picker acpmux-${kind} acpmux-chip-skeleton`} aria-hidden="true">
+      <span className="acpmux-picker-button acpmux-chip-skeleton-face">
+        <span className="acpmux-chip-skeleton-bar" />
+      </span>
+    </span>
   );
 }
 
@@ -484,6 +563,11 @@ function AccessMenu({
   const optimisticMode = optimistic?.sessionId === sessionId ? optimistic?.modeId : undefined;
   const value = optimisticMode ?? current ?? modes[0]?.id ?? "";
   const currentMode = modes.find((choice) => choice.id === value);
+  const pick = (next: string) => {
+    setOptimistic({ sessionId, modeId: next });
+    onMode(next);
+    setOpen(false);
+  };
   return (
     <span className={`acpmux-mode acpmux-access${unrestricted(value) ? " acpmux-unrestricted" : ""}`}>
       <Menu open={open} onOpenChange={setOpen}>
@@ -492,19 +576,26 @@ function AccessMenu({
           <span className="acpmux-mode-text">{currentMode?.name ?? label}</span>
           <ChevronIcon />
         </MenuButton>
-        <MenuPopup side="top" align="start" className="acpmux-access-menu">
-          <MenuRadioGroup
-            value={value}
-            onValueChange={(next) => {
-              setOptimistic({ sessionId, modeId: next });
-              onMode(next);
-              setOpen(false);
-            }}
-          >
-            {modes.map((choice) => (
+        <MenuPopup
+          side="top"
+          align="start"
+          className="acpmux-access-menu"
+          // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
+          onKeyDown={(event) => {
+            if (event.metaKey || event.ctrlKey || event.altKey || !/^[1-9]$/.test(event.key)) return;
+            const choice = modes[Number(event.key) - 1];
+            if (!choice) return;
+            event.preventDefault();
+            if (choice.id === value) setOpen(false);
+            else pick(choice.id);
+          }}
+        >
+          <MenuRadioGroup value={value} onValueChange={pick}>
+            {modes.map((choice, index) => (
               <MenuRadioItem
                 key={choice.id}
                 value={choice.id}
+                shortcut={index < 9 ? String(index + 1) : undefined}
                 className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}`}
               >
                 <span className="acpmux-access-item-icon" aria-hidden="true">
@@ -705,9 +796,26 @@ export function Picker({
   const [active, setActive] = useState(0);
   const root = useRef<HTMLSpanElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const menu = useRef<HTMLDivElement>(null);
+  const menu = useRef<HTMLDivElement | null>(null);
   const menuId = useId();
   const menuStyle = useUiAnchor(trigger, menu, open, { side: "above", align: "start" });
+  // No room above or below its button in the pane: past the window's edge (popupHost.ts).
+  const host = usePopupHost();
+  const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  const attach = useCallback(
+    (node: HTMLDivElement | null) => {
+      menu.current = node;
+      if (host) setShown(node);
+    },
+    [host],
+  );
+  useEscapingPopup(host, shown, () => trigger.current, {
+    side: "top",
+    align,
+    gap: UI_ANCHOR_GAP,
+    kind: "list",
+    active: ".acpmux-menu-active",
+  });
   const rows = sections.flatMap((section, s) => section.choices.map((choice) => ({ section: s, choice })));
   // A live update can shrink the list under the highlight.
   const selected = Math.min(active, Math.max(rows.length - 1, 0));
@@ -820,7 +928,7 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div ref={menu} style={menuStyle} className={`ui-popup acpmux-menu acpmux-menu-${align}`} data-side="above">
+        <div ref={attach} style={menuStyle} className={`ui-popup acpmux-menu acpmux-menu-${align}`} data-side="above">
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (
@@ -989,6 +1097,13 @@ export const MicIcon = () => (
     <path d="M3 7.5a5 5 0 0 0 10 0M8 12.5V15" />
   </Icon>
 );
+/// The context usage ring, as its Hide and Show menu items draw it.
+export const RingIcon = () => (
+  <Icon>
+    <circle cx="8" cy="8" r="5.5" opacity="0.35" />
+    <path d="M8 2.5a5.5 5.5 0 0 1 5.5 5.5" />
+  </Icon>
+);
 export const SlashIcon = () => (
   <Icon>
     <path d="M10.5 2.5 5.5 13.5" />
@@ -1029,6 +1144,7 @@ export function reasoningChoices(
     const key = LEVEL_KEYS[option.value];
     const base: Choice = { id: option.value, name: key ? t(key) : option.name || option.value };
     if (option.value === "ultracode") base.description = t("effort.ultracodeDetail");
+    if (option.value === model?.defaultEffort) base.recommended = true;
     return base;
   });
 }

@@ -37,8 +37,12 @@ export const canFork = (snapshot: AcpmuxSnapshot) =>
   snapshot.connection !== "disconnected" &&
   !snapshot.connection.startsWith("connecting");
 
-/// The one turn a fork can go through: the latest completed turn's summary event. acpmux forks a
-/// chat at its end (`acp.session.fork` refuses an earlier turn), so no earlier turn offers it.
+/// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
+/// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
+export const forksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
+
+/// The latest completed turn's summary event: the one turn a fork goes through unless the chat
+/// `forksAnyTurn` (`acp.session.fork` refuses another agent's earlier turn).
 export function latestForkSeq(rows: readonly { kind: string; seq?: number }[]): number | undefined {
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index]!;
@@ -56,7 +60,10 @@ export function messageMenuTarget(snapshot: AcpmuxSnapshot, rowId: string): Mess
   const turnSeq = canFork(snapshot)
     ? turnRows(snapshot.rows, id).find((candidate) => candidate.kind === "turnSummary")?.seq
     : undefined;
-  const forkSeq = turnSeq !== undefined && turnSeq === latestForkSeq(snapshot.rows) ? turnSeq : undefined;
+  const forkSeq =
+    turnSeq !== undefined && (forksAnyTurn(snapshot.summary?.family) || turnSeq === latestForkSeq(snapshot.rows))
+      ? turnSeq
+      : undefined;
   const target: MessageMenuTarget =
     row.kind === "user" ? { text: row.text } : { text: plainText(row.text), markdown: row.text };
   if (forkSeq !== undefined) target.forkSeq = forkSeq;

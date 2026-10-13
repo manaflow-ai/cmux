@@ -22,6 +22,7 @@ enum Strings {
     static var sectionEmpty: String { String(localized: "sidebar.section.empty", defaultValue: "No workspaces", bundle: .module) }
     static var statusConnected: String { String(localized: "sidebar.machine.connected", defaultValue: "Connected", bundle: .module) }
     static var statusConnecting: String { String(localized: "sidebar.machine.connecting", defaultValue: "Connecting…", bundle: .module) }
+    static var statusReconnecting: String { String(localized: "sidebar.machine.reconnecting", defaultValue: "Reconnecting…", bundle: .module) }
     static var statusOffline: String { String(localized: "sidebar.machine.offline", defaultValue: "Offline", bundle: .module) }
     static var statusUpdateAvailable: String { String(localized: "sidebar.machine.updateAvailable", defaultValue: "Update available", bundle: .module) }
     static var statusUpdateRequired: String { String(localized: "sidebar.machine.updateRequired", defaultValue: "Update needed", bundle: .module) }
@@ -36,6 +37,7 @@ enum Strings {
         switch status {
         case .authFailed: statusAuthFailed
         case .unreachable: statusUnreachable
+        case .reconnecting: statusReconnecting
         case .installRequired: statusInstallRequired
         case .updateRequired: statusUpdateRequired
         case .failed: statusFailed
@@ -47,6 +49,8 @@ enum Strings {
     static var showTabs: String { String(localized: "sidebar.workspace.showTabs", defaultValue: "Show Tabs", bundle: .module) }
     static var hideTabs: String { String(localized: "sidebar.workspace.hideTabs", defaultValue: "Hide Tabs", bundle: .module) }
     static func tabCount(_ value: Int) -> String { String(localized: "sidebar.a11y.tabCount", defaultValue: "Tabs: \(value)", bundle: .module) }
+    /// Status entries a row folds past its limit.
+    static func statusMore(_ value: Int) -> String { String(localized: "sidebar.status.more", defaultValue: "\(value) more", bundle: .module) }
     static var unreadDot: String { String(localized: "sidebar.a11y.unreadDot", defaultValue: "Unread", bundle: .module) }
     static var muted: String { String(localized: "sidebar.a11y.muted", defaultValue: "Muted", bundle: .module) }
     static var activityRunning: String { String(localized: "sidebar.a11y.running", defaultValue: "Agent running", bundle: .module) }
@@ -70,13 +74,14 @@ enum Strings {
         }
     }
     static var closeButton: String { String(localized: "sidebar.a11y.closeWorkspace", defaultValue: "Close workspace", bundle: .module) }
+    static var pinWorkspace: String { String(localized: "sidebar.a11y.pinWorkspace", defaultValue: "Pin workspace", bundle: .module) }
+    static var unpinWorkspace: String { String(localized: "sidebar.a11y.unpinWorkspace", defaultValue: "Unpin workspace", bundle: .module) }
     /// The workspace row's more button (cx-a9h6): its menu.
     static var workspaceMenu: String { String(localized: "sidebar.a11y.workspaceMenu", defaultValue: "Workspace options", bundle: .module) }
     static func groupCount(_ value: Int) -> String { String(localized: "sidebar.a11y.groupCount", defaultValue: "\(value) workspaces", bundle: .module) }
     static var sidebarLabel: String { String(localized: "sidebar.a11y.sidebar", defaultValue: "Workspaces", bundle: .module) }
     static var newProfileName: String { String(localized: "sidebar.room.newName", defaultValue: "New Space", bundle: .module) }
     static var newProfile: String { String(localized: "sidebar.space.new", defaultValue: "New Space", bundle: .module) }
-    static var history: String { String(localized: "sidebar.space.history", defaultValue: "History", bundle: .module) }
     static var profiles: String { String(localized: "sidebar.a11y.rooms", defaultValue: "Spaces", bundle: .module) }
     static func profileCurrent(_ name: String) -> String {
         String(localized: "sidebar.a11y.roomCurrent", defaultValue: "\(name), current space", bundle: .module)

@@ -47,7 +47,7 @@ enum WorkspaceCreation {
             try await withTerminal(
                 createWorkspace: { try await connection.createWorkspace(name: name, key: key).key },
                 createTerminal: terminal,
-                closeWorkspace: { try await WorkspaceClose.close($0, terminals: [], on: connection) }
+                closeWorkspace: { try await WorkspaceClose.close($0, terminals: [], on: connection, reason: .sessionEnd) }
             )
         }
     }
@@ -76,7 +76,7 @@ enum WorkspaceCreation {
                     guard let created else { throw DaemonError.notConnected }
                     return try await firstTab(created)
                 },
-                closeWorkspace: { try await WorkspaceClose.close($0, terminals: [], on: connection) }
+                closeWorkspace: { try await WorkspaceClose.close($0, terminals: [], on: connection, reason: .sessionEnd) }
             )
         }
     }
@@ -87,10 +87,21 @@ enum WorkspaceCreation {
     @MainActor
     static func newTabPage(_ spawn: WorkspaceSpawn, _ key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
                            repair: EmptyWorkspaceRepair, tabs: AgentTabStore) async throws -> String? {
-        guard spawn.opensNewTabPage || spawn.firstChat != nil, spawn.command == nil, tabs.canHost(on: daemon),
+        guard spawn.opensNewTabPage || spawn.firstChat != nil || spawn.firstSession != nil, spawn.command == nil,
+              tabs.opensFirstPage(on: daemon, chat: spawn.firstChat != nil || spawn.firstSession != nil),
               let connection = daemon.connection else { return nil }
         return try await createWithFirstTab(key, name: spawn.name, on: connection, repair: repair) { created in
-            _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon, chat: spawn.firstChat)
+            if let session = spawn.firstSession {
+                // A session of this Mac never opens in a workspace of another machine (cx-k21v).
+                guard daemon.isLocal else { throw AgentTabRefusal(message: RefusalStrings.agentTabMachineMismatch) }
+                guard let localHost = tabs.localHost else { throw DaemonError.notConnected }
+                // A chat of this Mac's acpmux: its tab shows it as soon as the tree lists it.
+                let record = AgentSessionRef(host: localHost, hostName: tabs.localHostName, session: session)
+                _ = try await connection.request(NewConversationTabRequest(agentSession: record, workspace: created.workspace,
+                                                                           origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString))
+            } else {
+                _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon, chat: spawn.firstChat)
+            }
             return created.key.rawValue
         }
     }

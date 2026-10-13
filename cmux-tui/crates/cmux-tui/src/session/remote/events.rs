@@ -89,6 +89,7 @@ impl RemoteSession {
             | "agent-presence-changed"
             | "title-changed"
             | "bell"
+            | "program-status-changed"
             | "size-state"
             | "scroll-changed" => surface == Some(target),
             _ => true,
@@ -454,6 +455,22 @@ impl RemoteSession {
                     self.emit(MuxEvent::Bell(id));
                 }
             }
+            // OSC 7501: patch the tab's shown status in place, as titles are,
+            // so a program's progress never holds input behind a refresh.
+            Some("program-status-changed") => {
+                if let Some(id) = surface_id() {
+                    let status = crate::session::tree::parse_program_status(&value);
+                    let updated = self
+                        .tree
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .update_program_status(id, status);
+                    if !updated && self.invalidate_tree_once() {
+                        self.emit(MuxEvent::TreeChanged);
+                    }
+                    self.emit(MuxEvent::ProgramStatusChanged { surface: id, status });
+                }
+            }
             Some("notification") => {
                 let Some(notification) = value.get("notification").and_then(Value::as_u64) else {
                     return;
@@ -478,6 +495,8 @@ impl RemoteSession {
                         .and_then(Value::as_str)
                         .and_then(NotificationSource::parse)
                         .unwrap_or(NotificationSource::Daemon),
+                    desktop: value.get("desktop").and_then(Value::as_bool).unwrap_or(true),
+                    reply: value.get("reply").and_then(Value::as_bool).unwrap_or(false),
                 }));
             }
             Some("overflow") => {

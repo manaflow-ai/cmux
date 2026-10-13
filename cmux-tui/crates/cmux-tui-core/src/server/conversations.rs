@@ -34,6 +34,12 @@ pub const CONVERSATION_DRAFT_EVENTS_CAPABILITY: &str = "conversation-draft-event
 /// `thread_root` on `message.send` and on messages, and a send that moves
 /// the sender's own read cursor (cx-59n8.2).
 pub const CONVERSATION_THREADS_CAPABILITY: &str = "conversation-threads-v1";
+/// `conversation-thread` (one thread, paged), `threads` root stats on
+/// `conversation-snapshot` and `conversation-history`, and with
+/// `cloud-conversations-v1` also `cloud-conversation-thread` (cx-59n8.6).
+pub const CONVERSATION_THREAD_READ_CAPABILITY: &str = "conversation-thread-v1";
+/// `link_preview` message parts on the local conversation owner.
+pub const LINK_PREVIEW_CAPABILITY: &str = "link-preview-v1";
 
 /// `conversation-create`: a retry with the same `idempotency_key` and request
 /// returns the conversation it created.
@@ -60,6 +66,21 @@ pub(super) struct HistoryParams {
     pub(super) before_seq: u64,
     pub(super) limit: u32,
 }
+
+/// `conversation-thread`: root `root` and up to `limit` (1-500, default 50)
+/// of its replies with seq above `after_seq` (default 0).
+#[derive(Deserialize)]
+pub(super) struct ThreadParams {
+    conversation: String,
+    root: String,
+    #[serde(default)]
+    after_seq: u64,
+    #[serde(default)]
+    limit: Option<u32>,
+}
+
+/// Default page of `conversation-thread`.
+const THREAD_PAGE: u32 = 50;
 
 /// `conversation-op`: one op under a client idempotency key.
 #[derive(Deserialize)]
@@ -254,9 +275,12 @@ pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow
     require_local(mux, client)?;
     let SnapshotParams { conversation, tail } = params;
     validate_page(tail, "tail")?;
-    let (summary, messages) =
-        mux.with_conversations(|store| store.snapshot(&conversation, tail))?;
-    Ok(json!({"conversation": summary, "messages": messages}))
+    let (summary, messages, threads) = mux.with_conversations(|store| {
+        let (summary, messages) = store.snapshot(&conversation, tail)?;
+        let threads = store.thread_summaries(&conversation, &messages)?;
+        Ok((summary, messages, threads))
+    })?;
+    Ok(json!({"conversation": summary, "messages": messages, "threads": threads}))
 }
 
 pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::Result<Value> {
@@ -266,9 +290,22 @@ pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::
     require_local(mux, client)?;
     let HistoryParams { conversation, before_seq, limit } = params;
     validate_page(limit, "limit")?;
-    let messages =
-        mux.with_conversations(|store| store.history(&conversation, before_seq, limit))?;
-    Ok(json!({"messages": messages}))
+    let (messages, threads) = mux.with_conversations(|store| {
+        let messages = store.history(&conversation, before_seq, limit)?;
+        let threads = store.thread_summaries(&conversation, &messages)?;
+        Ok((messages, threads))
+    })?;
+    Ok(json!({"messages": messages, "threads": threads}))
+}
+
+pub(super) fn thread(mux: &Mux, client: u64, params: ThreadParams) -> anyhow::Result<Value> {
+    require_local(mux, client)?;
+    let ThreadParams { conversation, root, after_seq, limit } = params;
+    let limit = limit.unwrap_or(THREAD_PAGE);
+    validate_page(limit, "limit")?;
+    let page =
+        mux.with_conversations(|store| store.thread(&conversation, &root, after_seq, limit))?;
+    Ok(serde_json::to_value(page)?)
 }
 
 pub(super) fn search(mux: &Mux, client: u64, params: SearchParams) -> anyhow::Result<Value> {

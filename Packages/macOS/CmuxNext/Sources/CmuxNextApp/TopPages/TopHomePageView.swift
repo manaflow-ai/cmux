@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeEngine
 import Observation
 
 /// The Home top page, two columns: MessagesLab's conversation list
@@ -115,11 +116,12 @@ final class TopHomePageView: NSView {
     /// asked to show once it is listed.
     private func observe(_ home: HomeService) {
         let store = home.homeStore
+        home.refreshChiefAvatar()
         // task-owner: lives as long as this view; event-driven (Observation)
         let sidebar = sidebar
         rowsObservation = Task { [weak self] in
-            for await (all, archived, _, _, _) in ObservationStream({
-                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks)
+            for await (all, archived, _, _, _, _) in ObservationStream({
+                (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatar)
             }) {
                 guard let self else { return }
                 rows = Self.visible(all, archivedChiefs: archived, me: store.me?.id)
@@ -261,6 +263,9 @@ final class TopHomePageView: NSView {
         }
         guard let window else { return }
         let panel = NSWindow(contentViewController: sheet)
+        // The sheet draws in this page's scope (a room's own theme), not the app's: its labels
+        // resolved before the sheet had a parent.
+        panel.adoptThemeScope(of: self)
         window.beginSheet(panel)
     }
 }

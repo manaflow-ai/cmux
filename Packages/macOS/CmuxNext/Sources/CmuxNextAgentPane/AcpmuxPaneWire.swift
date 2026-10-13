@@ -45,7 +45,14 @@ public nonisolated struct AgentPaneRemoteApprovals: Sendable {
         case daemonTookNoKey(String?)
         /// The daemon that answers does not hold this app's key.
         case keyNotHeld
-        /// ssh or the machine failed (its own message).
+        /// The machine's agent daemon is too old for a keyed start (a Cloud machine, cx-psxg).
+        case daemonTooOld
+        /// The machine is not running.
+        case machineNotRunning
+        /// The person does not alone own the machine, or it is a team machine: approvals from
+        /// this app stay off there (cx-psxg).
+        case notSingleOwner
+        /// ssh, the Cloud service or the machine failed (its own message).
         case failed(String)
     }
 

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextTabs
 
 // Tab strip intents -> daemon commands. Local-only state (selection,
@@ -244,8 +245,9 @@ extension PaneController {
     /// New <Kind> Tab reads as the kind `sameKind` names ("New Browser Tab").
     static func tabMenu(_ id: String, tab: TabModel?, workspaceKind: String?, sameKind: NewTabKind, registry: ActionRegistry) -> NSMenu {
         let menu = tabMenuEntries(id, tab: tab, workspaceKind: workspaceKind, registry: registry)
-        let items = menu.items + menu.items.compactMap(\.submenu).flatMap(\.items)  // it sits in the New submenu
-        if let item = items.first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
+        // It sits in a submenu (More > New).
+        func all(_ menu: NSMenu) -> [NSMenuItem] { menu.items + menu.items.compactMap(\.submenu).flatMap(all) }
+        if let item = all(menu).first(where: { ActionRegistry.menuRun(of: $0)?.id == "newTab.ofKind" }),
            let title = registry.title(for: sameKind.newActionID) {
             item.title = title
         }
@@ -257,14 +259,14 @@ extension PaneController {
         // Home keeps its tabs: no promote entries.
         let kept = Set(TabPromotion.menuRemovals(kind: workspaceKind))
         guard let tab, tab.kind == .browser else {
-            // Hibernation discards a page; a terminal has none.
-            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute"]))
+            // Hibernation discards a page; a terminal has none (Restart only once its shell ended).
+            let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union(["hibernateTab", "wakeTab", "toggleTabAudioMute"]).union(TabRestart.hiddenMenuItems(tab)).union(CloudMove.hiddenMenuItems(tab)))
             return registry.makeContextMenu(for: .tab, target: target, entries: entries)
         }
         // A browser tab offers the engine it is not on.
         let other: ActionID = tab.browserEngine == BrowserEngineTag.cef.rawValue ? "browser.openInChromium" : "browser.openInWebKit"
         // Terminal themes and keep-running do not apply to a page.
-        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep"]))
+        let entries = ContextMenuCatalog.shared.entries(for: .tab, removing: kept.union([other, "terminal.setTheme", "terminal.clearTheme", "terminal.keep", TabRestart.action, CloudMove.action, CloudBringBack.action]))
         return registry.makeContextMenu(for: .tab, target: target, entries: entries, implied: .browserFocused)
     }
 
@@ -274,14 +276,14 @@ extension PaneController {
         case .tab(let id, _):
             select(id)
             return Self.tabMenu(id.rawValue, tab: tab(id), workspaceKind: workspace?.workspace.kind,
-                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services), registry: registry)
+                                sameKind: NewTabKind.of(id.rawValue, tab: tab(id), services: services), registry: registry).themeRows(in: view.themeScope.fullStrength)
         case .group(let group), .savedGroup(let group):
             let saved = daemon.store.savedTabGroups.contains { $0.openGroup?.rawValue == group.rawValue }
             return registry.makeContextMenu(for: .tabGroup, target: ActionTargetRef(kind: .tabGroup, id: group.rawValue),
                                             entries: TabGroupPinMenu.entries(saved: saved))
         case .emptyStrip:
             let entries = ContextMenuCatalog.shared.entries(for: .newTab) + [.separator] + ContextMenuCatalog.shared.entries(for: .pane)
-            return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries)
+            return registry.makeContextMenu(for: .pane, target: ActionTargetRef(kind: .pane, id: paneKey), entries: entries).themeRows(in: view.themeScope.fullStrength)
         case .newTabButton:
             // The engine menu predicts a Chromium tab (ChromiumWarmup).
             services.chromiumWarmup.chromiumLikely(.newTabMenu)

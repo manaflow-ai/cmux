@@ -25,6 +25,11 @@ export class FakeCloudDriver implements RawCloudDriver {
     }
   }
 
+  /** The fake has no guest: a guest exec (the keyed acpmux start) fails as the provider's refusal. */
+  async execStdin(): Promise<never> {
+    throw new DriverError("cloud.provider.refused", "fake provider: no guest exec", true)
+  }
+
   async find(name: string) {
     this.maybeFail()
     const row = this.sql.exec<{ id: string; tag: string; state: string }>(`SELECT id, tag, state FROM cloud_fake_vm WHERE name = ?`, name)[0]

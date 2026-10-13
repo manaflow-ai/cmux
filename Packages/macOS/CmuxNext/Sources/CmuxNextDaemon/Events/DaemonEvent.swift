@@ -55,6 +55,11 @@ public enum DaemonEvent: Sendable, Hashable {
     case terminalRegistryChanged(revision: UInt64)
     /// A browser profile's bookmarks changed (`bookmarks-v1`): refetch them.
     case bookmarksChanged(browserProfileID: String, revision: UInt64)
+    /// The daemon history module committed a change (`history-v1`): its revision and the entry
+    /// kinds it touched. History views re-read `history.entries.list`.
+    case historyChanged(revision: UInt64, kinds: [String])
+    /// keybindings.json changed (`keybindings-v1`): a hand edit or a write.
+    case keybindingsChanged(revision: UInt64)
     /// One committed op on a local conversation (`local-conversations-v1`).
     case conversationChanged(ConversationEvent)
     /// A participant started or stopped typing (ephemeral).

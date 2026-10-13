@@ -195,11 +195,24 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     // MARK: Display scale
 
+    /// cmux: the scale this view last rasterized and snapped at (setRenderScale).
+    private(set) var appliedRenderScale: CGFloat = Fixture.renderScale
+
     /// The window moved to a display with another scale (or a test forced
     /// one): drop every cached row bitmap and re-rasterize all bitmaps of the
     /// window at the new scale. Live morphs keep their bitmaps until they land.
+    /// The rows follow the new device pixel grid: row heights that round to it
+    /// (text thread previews, ThreadPreview.height) are made again
+    /// (`rowsForScale`), and every visible row and the typing indicator (with
+    /// its clip) snap again (RowCell.refreshSnap from decorate). A host calls
+    /// this on its backing scale change (appkit-native: HostView
+    /// viewDidChangeBackingProperties -> ChatController.displayScaleChanged).
     func setRenderScale(_ s: CGFloat) {
-        guard s > 0, Fixture.renderScale != s else { return }
+        // cmux: the guard is this view's own scale, not only the shared Fixture.renderScale: cmux Home has a window
+        // view per pane, and a second pane (or a tab shown again) whose scale is behind must still re-rasterize and
+        // re-snap after the first pane set the shared value.
+        guard s > 0, Fixture.renderScale != s || appliedRenderScale != s else { return }
+        appliedRenderScale = s
         Fixture.renderScale = s
         RowBitmaps.shared.removeAll()
         compose.rescale()
@@ -210,7 +223,36 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         walk(self)
         header.layer.contentsScale = s
         morphs.values.forEach { $0.rescale() }
-        refreshVisibleCells()
+        if !rowsForScale() { refreshVisibleCells() }
+    }
+
+    /// Rows whose height was rounded at another display scale (a text thread preview: 41.65 pt of parts is 41.5 pt at
+    /// 2x, 42 pt at 1x, ThreadPreview.height) take their height at the current one, and the visible rows keep their
+    /// places (as a width change's exact pass, measureWindow). Only the heights change: the model's own rows, no new
+    /// derivation and no measuring (a preview's box does not depend on the scale); fading rows stay. True when a row
+    /// changed (restore then decorated the visible cells); false and no work without such a row.
+    @discardableResult private func rowsForScale() -> Bool {
+        var changed = false
+        let specs: [RowSpec] = model.rows.compactMap { r in
+            guard !r.ghost else { return nil }
+            guard case let .threadPreview(pv) = r.spec.kind, r.spec.height != pv.height else { return r.spec }
+            var s = r.spec
+            s.height = pv.height
+            changed = true
+            return s
+        }
+        guard changed else { return false }
+        // The width pass's derived rows hold the old heights.
+        widthDerived = nil
+        let anchor = visibleAnchor()
+        model.set(specs, at: clock(), ghosts: true)
+        collection.reloadData()
+        _ = layout.rebaseIfNeeded(force: true)
+        layout.invalidateLayout()
+        restore(anchor)
+        // The host's native views follow the new content height (appkit-native: scroller and document height).
+        onWidthPass()
+        return true
     }
 
     // MARK: Window activity
@@ -245,6 +287,21 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     var anchorY: CGFloat { compose.anchorBase - (compose.fieldHeight - ComposeView.height(lines: 1, chips: false)) }
     var fieldTop: CGFloat { compose.fieldBottom - compose.fieldHeight }
     func windowY(contentY: CGFloat) -> CGFloat { contentY - collection.contentOffset.y + MessagesWindowView.cvTop }
+    /// This view's origin in its window's layer tree and the directions of its axes there (RowCell.windowPlace): a host
+    /// can place the view on a fraction of a point (cmux Home's panes); every row (RowCell.snapRow) and the typing
+    /// indicator snap to the window's device pixels, not to the view's.
+    var windowPlace: (origin: CGPoint, axis: CGPoint) {
+        let o = layer.convert(CGPoint.zero, to: nil), p = layer.convert(CGPoint(x: 1, y: 1), to: nil)
+        guard o.x.isFinite, o.y.isFinite, p.x.isFinite, p.y.isFinite else { return (.zero, CGPoint(x: 1, y: 1)) }
+        return (o, CGPoint(x: p.x - o.x, y: p.y - o.y))
+    }
+    /// The host moved this view in its window without a layout or scroll pass here (a cmux Home pane moved by a
+    /// fraction of a point, the view attached to a window): the visible rows read the new place (rows and the typing
+    /// indicator snap again to the window's device pixels).
+    func refreshWindowPlace() {
+        let place = windowPlace
+        for case let cell as RowCell in collection.visibleCells { cell.windowPlace = place }
+    }
     var pinnedOffset: CGFloat { layout.contentHeight - cvHeight }
     /// Lowest allowed offset: the oldest loaded row just under the header.
     var minOffset: CGFloat { min(layout.rowsTop - (Fixture.headerHeight + 8 - MessagesWindowView.cvTop), pinnedOffset) }
@@ -271,6 +328,18 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     var widthFrameScheduler: ((@escaping () -> Void) -> Void)?
     /// A width pass ran in this display frame (cleared by the next frame's tick).
     private var widthPassInFrame = false
+    /// Main-thread seconds of this display frame's width passes (cleared by the next frame's tick).
+    private var widthPassCostInFrame: CFTimeInterval = 0
+    /// A later width change in a frame still runs its pass at once while the frame's passes (with
+    /// the layout, restore and bitmap reflow each caused) took less than this; only a frame whose passes cost more defers the next one to the next tick.
+    /// Live resize of the Instinct window (cx-3cb resize-pace, drained takes 2026-10-12, main
+    /// 6d8ebb8): a pass took about 0.4 ms there, yet each deferred change showed the new window
+    /// width with the rows of the old one for a frame (4-5 frames per 2 s drag in which the
+    /// outgoing bubbles did not follow the edge; Messages 0). A long pass (a divider drag over the
+    /// 1M store) still defers, as before.
+    static var widthPassFrameBudget: CFTimeInterval = 0.002
+    /// The start of a live width pass in this layout (its cost is added once the layout ends).
+    private var passStart: CFTimeInterval?
     /// A width change came after this frame's width pass: its width is in `bounds`, its pass
     /// waits for the next frame's tick.
     private var widthPassPending = false
@@ -301,14 +370,18 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // seen). The first width change of a frame runs the pass now; a later one in the
             // same frame only records its width, and the next frame's tick runs one pass at the
             // last width (`widthTick`).
-            if widthChanged, !captureMode, widthFrameScheduler != nil, widthPassInFrame {
+            if widthChanged, !captureMode, widthFrameScheduler != nil, widthPassInFrame,
+               widthPassCostInFrame >= MessagesWindowView.widthPassFrameBudget {
                 MessagesWindowView.widthPassesDeferred += 1
                 widthPassPending = true
             } else {
+                passStart = CACurrentMediaTime()
                 widthPass(changed: widthChanged)
-                if widthChanged, !captureMode, let schedule = widthFrameScheduler, !widthPassInFrame {
-                    widthPassInFrame = true
-                    schedule { [weak self] in self?.widthTick() }
+                if widthChanged, !captureMode, let schedule = widthFrameScheduler {
+                    if !widthPassInFrame {
+                        widthPassInFrame = true
+                        schedule { [weak self] in self?.widthTick() }
+                    }
                 }
             }
         }
@@ -317,6 +390,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         layout.invalidateLayout()
         restore(anchor)
         RowCell.flushReflow()
+        // The frame's pass cost: the pass and the layout, restore and bitmap reflow it caused.
+        if let t0 = passStart { widthPassCostInFrame += CACurrentMediaTime() - t0; passStart = nil }
         // The fills follow the new height (cells made later get it in decorate).
         let span = fillSpan
         for case let cell as RowCell in collection.visibleCells { cell.fillSpan = span }
@@ -328,10 +403,12 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// the current width (the last one recorded), and this frame counts as having had its pass.
     private func widthTick() {
         widthPassInFrame = false
+        widthPassCostInFrame = 0
         guard widthPassPending else { return }
         widthPassPending = false
         guard rowsWidth != bounds.width, let schedule = widthFrameScheduler else { return }
         let anchor = visibleAnchor()
+        let t0 = CACurrentMediaTime()
         widthPass(changed: true)
         widthPassInFrame = true
         schedule { [weak self] in self?.widthTick() }
@@ -340,6 +417,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         layout.invalidateLayout()
         restore(anchor)
         RowCell.flushReflow()
+        widthPassCostInFrame = CACurrentMediaTime() - t0
         onWidthPass()
     }
     /// After a width pass that ran at a display frame's tick (outside the host's layout): the
@@ -610,10 +688,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
         // A send's animations run at Messages' phase (Springs.sendPhase): the field shrinks when the
         // draft had more than one line (or attachments).
+        let fieldShrinks = compose.fieldRect.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5
         let sendPhase: Double = {
             guard case .send = action else { return 0 }
-            return Springs.sendPhase(fieldShrinks: compose.fieldRect.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
+            return Springs.sendPhase(fieldShrinks: fieldShrinks)
         }()
+        // The transcript starts later than the flying bubble in a send (Springs.sendRowsDelay).
+        let rowsDelay: Double = { if case .send = action { return Springs.sendRowsDelay(fieldShrinks: fieldShrinks) }; return 0 }()
         var begin = beginTime(t) + sendPhase
         // My new tapback pops in its row's badge (RowCell.configureBadge); chosen in the menu, it and
         // the rows are timed from the choosing input (tapbackInput).
@@ -741,7 +822,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // the field's frame (Messages: one frame, no in-between frame); a send's collapse animates.
         let fieldSteps: Bool = { switch action { case .setDraft, .attach, .removeDraftAttachment: return true; default: return false } }()
         if animate && rowsChange || compose.fieldRect != oldField && !fieldSteps {
-            animateRows(action, el, begin: begin, t: t, oldSnap: oldSnap, oldRowsTop: oldRowsTop, oldOffset: oldOffset,
+            animateRows(action, el, begin: begin, rowsDelay: rowsDelay, t: t, oldSnap: oldSnap, oldRowsTop: oldRowsTop, oldOffset: oldOffset,
                         newOffset: newOffset, state: state, old: old)
         }
         phase("animateRows")
@@ -956,9 +1037,14 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// Window-space delta of every row near the viewport, as additive springs
     /// (one ledger entry per moved row), plus the fades of rows that appear,
     /// disappear or change.
-    private func animateRows(_ action: Action, _ el: SpringElement, begin: CFTimeInterval, t: Double,
+    /// `rowsDelay` (a send: Springs.sendRowsDelay): every motion and fade here starts that much after
+    /// `begin` (each element delayed: a hold at the start value until then, no frame at the final place),
+    /// an older flying bubble's shift too, so it stays in its row.
+    private func animateRows(_ action: Action, _ el: SpringElement, begin: CFTimeInterval, rowsDelay: Double, t: Double,
                              oldSnap: TranscriptModel.TailSnapshot, oldRowsTop: CGFloat, oldOffset: CGFloat, newOffset: CGFloat,
                              state: AppState, old: AppState) {
+        func later(_ e: SpringElement) -> SpringElement { e.delayed(by: rowsDelay) }
+        let el = later(el)
         let band = model.range(newOffset - layout.rowsTop - 600, newOffset - layout.rowsTop + cvHeight + 600)
         var deltas: [String: CGFloat] = [:]
         var lastDelta: CGFloat?
@@ -1044,7 +1130,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 if key != "typing" { out = Springs.ghostOut }
                 else if case .receive = action { out = Springs.typingOutOnReceive }
                 else { out = Springs.typingOut }
-                ledger.add(key, .content, "opacity", from: 1, to: 0, out, begin: begin)
+                ledger.add(key, .content, "opacity", from: 1, to: 0, later(out), begin: begin)
                 continue
             }
             guard r.insertedAt == t, oldSnap.index(key) == nil, newKeys.contains(key) else {
@@ -1052,25 +1138,53 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 if case let .receipt(nb, _) = r.spec.kind, let oi = oldSnap.index(key), let oldSpec = oldSnap.row(oi)?.spec, // checked
                    case let .receipt(ob, orest) = oldSpec.kind, ob != nb {
                     receiptChanges.updateValue((ob, orest, oldSpec), forKey: key) // dictionary write
-                    ledger.add(key, .receiptOld, "opacity", from: 1, to: 0, Springs.receiptOldOut, begin: begin)
-                    ledger.add(key, .receiptNew, "opacity", from: 0, to: 1, Springs.receiptNewIn, begin: begin)
+                    ledger.add(key, .receiptOld, "opacity", from: 1, to: 0, later(Springs.receiptChangeOut), begin: begin)
+                    ledger.add(key, .receiptNew, "opacity", from: 0, to: 1, later(Springs.receiptChangeIn), begin: begin)
                 }
                 // A link card replacing its loading square fades in while the rows
                 // make room (Messages: the image comes up from dim, link-url-and-text t+2.0-2.3 s).
                 if case let .part(np) = r.spec.kind, case let .link(_, nt, ns, ni, _) = np.part, !Sizing.linkPending(title: nt, site: ns, image: ni),
                    let oi = oldSnap.index(key), let oldSpec = oldSnap.row(oi)?.spec, case let .part(op) = oldSpec.kind, // checked
                    case let .link(_, ot, os, oimg, _) = op.part, Sizing.linkPending(title: ot, site: os, image: oimg) {
-                    ledger.add(key, .content, "opacity", from: 0.35, to: 1, Springs.ghostOut, begin: begin)
+                    ledger.add(key, .content, "opacity", from: 0.35, to: 1, later(Springs.ghostOut), begin: begin)
                 }
                 continue
             }
             switch r.spec.kind {
             case .typing:
-                ledger.add(key, .typing, "transform.scale", from: 0, to: 1, Springs.typingPop, begin: begin)
-                ledger.add(key, .typing, "opacity", from: 0, to: 1, Springs.typingFade, begin: begin)
-                typingBegin = begin + Springs.typingPop.components[0].delay
-            case .receipt:
-                ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.receiptIn, begin: begin)
+                // Messages (lossless send-typed-take1, send-typed-media-take1, typing-unfocused-take1; ANIMATIONS.md
+                // section 6): the typing bubble does not ride the rows' scroll. It grows in its final window place
+                // (the opposite of the row's own move cancels it), about a point near its upper left, and drifts
+                // a few points into place. Its two tail discs are layers of their own beside it: Messages shows
+                // them from its first frames, larger than the bubble, and moves them into place on their own
+                // curves (Springs.typingDiscFrom). Bubble, dots and discs fade in as one (the row's content).
+                if let d = deltas[key], abs(d) > 0.01 {
+                    ledger.add(key, .typing, "position.y", from: Double(-d), to: 0, el, begin: begin)
+                    for i in RowDraw.typingDiscs.indices { ledger.add(key, .typingDisc(i), "position.y", from: Double(-d), to: 0, el, begin: begin) }
+                }
+                ledger.add(key, .typing, "transform.scale", from: 0, to: 1, Springs.typingScale, begin: begin)
+                ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.typingOpacity, begin: begin)
+                ledger.add(key, .typing, "position.x", from: Double(Springs.typingDrift.x), to: 0, Springs.typingDriftX, begin: begin)
+                ledger.add(key, .typing, "position.y", from: Double(Springs.typingDrift.y), to: 0, Springs.typingDriftY, begin: begin)
+                for (i, f) in Springs.typingDiscFrom.enumerated() {
+                    ledger.add(key, .typingDisc(i), "position.x", from: f.x, to: 0, Springs.typingDiscX(i), begin: begin)
+                    ledger.add(key, .typingDisc(i), "position.y", from: f.y, to: 0, Springs.typingDiscY(i), begin: begin)
+                    ledger.add(key, .typingDisc(i), "transform.scale", from: f.scale, to: 1, Springs.typingDiscScale(i), begin: begin)
+                }
+            case let .receipt(bold, rest):
+                // Messages (lossless send-typed-take1, Delivered): the label fades in while it grows from
+                // Springs.receiptAppearScale about its own centre (the row's content scales about the row's
+                // centre; the opposite offsets keep the label's centre in place: all follow one curve).
+                // The label's centre: drawReceipt's text (baseline 14 pt under the row's top) at half its cap height.
+                ledger.add(key, .content, "opacity", from: 0, to: 1, later(Springs.receiptAppearOpacity), begin: begin)
+                let s0 = Double(Springs.receiptAppearScale)
+                let dx = Double(r.spec.metrics.receiptRight - RowDraw.receiptWidth(bold, rest) / 2 - r.spec.width / 2)
+                let capHeight = HomeFonts.system(ofSize: Fixture.captionSize).capHeight
+                let dy = Double(14 - capHeight / 2 - r.spec.height / 2)
+                let grow = later(Springs.receiptAppearGrow)
+                ledger.add(key, .content, "transform.scale", from: s0, to: 1, grow, begin: begin)
+                ledger.add(key, .content, "position.x", from: (1 - s0) * dx, to: 0, grow, begin: begin)
+                ledger.add(key, .content, "position.y", from: (1 - s0) * dy, to: 0, grow, begin: begin)
             case let .part(p):
                 if case .receive = action {
                     // An outgoing insert's opacity follows the scroll's
@@ -1095,10 +1209,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 } else if case .send = action {
                     // Hidden while the morph flies (text rows); see startMorph.
                 } else {
-                    ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.ghostOut, begin: begin)
+                    ledger.add(key, .content, "opacity", from: 0, to: 1, later(Springs.ghostOut), begin: begin)
                 }
             default:
-                ledger.add(key, .content, "opacity", from: 0, to: 1, Springs.receiptIn, begin: begin)
+                ledger.add(key, .content, "opacity", from: 0, to: 1, later(Springs.receiptIn), begin: begin)
             }
         }
     }
@@ -1214,7 +1328,6 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private var receiptChanges: [String: (String, String, RowSpec)] = [:]
     /// Layer time until which the recycler keeps its overscan.
     private var overscanUntil: CFTimeInterval = 0
-    private var typingBegin: CFTimeInterval = 0
 
     // MARK: Rows hidden when they appear
 
@@ -1279,12 +1392,25 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private func startMorph(_ m: Message, from field: CGRect, begin: CFTimeInterval) {
         guard let (key, i) = morphRow(m), let spec = model.rows[checked: i]?.spec, case let .part(p) = spec.kind, let tl = p.text else { return }
         let body = RowDraw.bodyRect(spec)
-        let top = windowY(contentY: layout.contentTop(i))
-        let target = CGRect(x: body.minX, y: top, width: body.width, height: body.height)
-        // The flying bubble keeps 16 pt per line (measured: its bottom is 1 pt
-        // lower than the landed cell's until the swap).
-        let flying = CGRect(x: target.minX, y: target.minY, width: target.width, height: p.size.height)
-        let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size, begin: begin)
+        // The landed row's content is snapped to the window's device pixels (RowCell.snapRow, from the cell's top and
+        // left edge; the margin is whole points): the bubble flies to the same place (0 when the view starts on a
+        // whole device pixel).
+        let s = max(1, Fixture.renderScale), place = windowPlace
+        let top0 = windowY(contentY: layout.contentTop(i))
+        let top = top0 + RowCell.snap(top0 - RowDraw.margin, place.origin.y, place.axis.y, scale: s)
+        // The anchored side of the row (RowCell.anchorX: the right edge for my row) as snapRow snaps it.
+        let dx = RowCell.snap(RowCell.anchorX(spec, layout.frame(for: i)), place.origin.x, place.axis.x, scale: s)
+        // The landed balloon: RowDraw.balloon in row coordinates as the cell draws it (Messages draws an outgoing text
+        // balloon 0.38 pt inside its frame from 2 lines on), moved to the snapped window place; the text stays on the
+        // frame. The flying bubble keeps 16 pt per line (p.size, not bodySize; measured: its bottom is 1 pt lower than
+        // the landed cell's until the swap).
+        let rowFrame = CGRect(x: body.minX, y: body.minY, width: body.width, height: p.size.height)
+        let shift = CGPoint(x: dx, y: top - body.minY)
+        let frame = rowFrame.offsetBy(dx: shift.x, dy: shift.y)
+        let flying = RowDraw.balloon(rowFrame, row: p).offsetBy(dx: shift.x, dy: shift.y)
+        let mb = MorphBubble(key: key, in: morphLayer, windowBounds: bounds, from: field, to: flying, textLayout: tl, size: p.size,
+                             textOrigin: CGPoint(x: frame.minX - flying.minX, y: frame.minY - flying.minY), begin: begin,
+                             fieldShrinks: field.height > ComposeMetrics.height(lines: 1, chips: false) + 0.5)
         morphs[key] = mb
         #if canImport(UIKit) || APPKIT_NATIVE
         // The glass tints the bubble until its bottom leaves the field's top.
@@ -1428,7 +1554,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             cell.contentView.layer.opacity = opacity
             CATransaction.commit()
         }
+        cell.windowPlace = windowPlace
         cell.windowY = windowY(contentY: layout.frame(for: i).minY)
+        // A display scale change or a reused cell of the other side: the snap follows (no-op otherwise).
+        cell.refreshSnap()
         // Connector from the root's vertical center down to this bubble.
         if case let .part(p) = r.spec.kind, let rootKey = p.connectorRoot {
             let cellTop = layout.frame(for: i).minY
@@ -1451,6 +1580,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             case .cell: target = cell.layer
             case .content: target = cell.contentView.layer
             case .typing: target = cell.typingContainer
+            case let .typingDisc(i): target = cell.typingDiscs[checked: i] ?? cell.typingContainer // checked
             case .receiptOld: target = cell.receiptOld
             case .receiptNew: target = cell.bitmap
             case .connector: target = cell.connector
@@ -1476,8 +1606,20 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
                 Animate.scalar(target, e.keyPath, from: e.from, to: e.to, e.element, begin: e.begin)
             }
         }
-        if case .typing = r.spec.kind, !r.ghost, cell.dots.first?.sublayers?.first?.animation(forKey: "dots") == nil {
-            cell.startTypingDots(begin: r.insertedAt > 0 ? typingBegin : Animate.now(layer))
+        if case .typing = r.spec.kind {
+            if r.ghost {
+                cell.stopTypingBreath()
+            } else if cell.typingInsertedAt != r.insertedAt || cell.dots.first?.sublayers?.first?.animation(forKey: "dots") == nil
+                        || cell.needsTypingBreath {
+                // The dots and the breathing run from the insert's begin (layer time). This used to read a begin
+                // that the commit stored after the cell's first decorate: the dots then ran from layer time 0, so
+                // their phase was arbitrary (motion-gate harness: begin 0). A new indicator under the same key, or
+                // the same row live again after its fade began (stopTypingBreath), starts both again.
+                let insert = r.insertedAt > 0 ? beginTime(r.insertedAt) : Animate.now(layer)
+                cell.typingInsertedAt = r.insertedAt
+                cell.startTypingDots(begin: insert + Springs.typingDotsPhase)
+                cell.startTypingBreath(insert: insert)
+            }
         }
     }
 
@@ -1501,8 +1643,10 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         if pinned != store.state.ui.scroll.pinnedToBottom || abs(back - store.state.ui.scroll.offset) > 0.5 {
             store.dispatch(.setScroll(offset: back, pinned: pinned))
         }
+        let place = windowPlace
         for case let cell as RowCell in collection.visibleCells {
             if let ip = collection.indexPath(for: cell), ip.item < model.count {
+                cell.windowPlace = place
                 cell.windowY = windowY(contentY: layout.frame(for: ip.item).minY)
             }
         }
@@ -1630,7 +1774,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // Source frames: the same rows' cells in the transcript, where they are visible.
         var sources: [String: CGRect] = [:]
         for case let cell as RowCell in collection.visibleCells where !cell.isHidden {
-            if let spec = cell.spec { sources[spec.key] = cell.convert(cell.bounds, to: self) }
+            // The drawn rows: the cell's frame moved by its content's window snap (RowCell.rowSnap).
+            if let spec = cell.spec { sources[spec.key] = cell.convert(cell.bounds, to: self).offsetBy(dx: cell.rowSnap.x, dy: cell.rowSnap.y) }
         }
         let total = rows.reduce(0) { $0 + $1.total }
         var y = MessagesWindowView.threadCenterY + (bounds.height - Fixture.windowSize.height) - total / 2
@@ -1687,21 +1832,25 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     // MARK: Hit testing
 
-    struct Hit { var row: PartRow; var body: CGRect; var key: String }
+    /// `outline`: the drawn balloon (RowDraw.balloon, computed in row coordinates as the cell draws it), same space as
+    /// `body`; its corners are those of `body` (BubblePath.make cornersOf).
+    struct Hit { var row: PartRow; var body: CGRect; var key: String; var outline: CGRect }
 
     func hit(_ p: CGPoint) -> Hit? {
         if threadOpen {
             for (v, spec) in zip(threadViews, threadSpecs).reversed() {
                 guard case let .part(row) = spec.kind else { continue }
                 let body = RowDraw.bodyRect(spec).offsetBy(dx: v.frame.minX, dy: v.frame.minY)
-                if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key) }
+                let outline = RowDraw.balloon(RowDraw.bodyRect(spec), row: row).offsetBy(dx: v.frame.minX, dy: v.frame.minY)
+                if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key, outline: outline) }
             }
             return nil
         }
         for case let cell as RowCell in collection.visibleCells {
             guard let spec = cell.spec, case let .part(row) = spec.kind else { continue }
             let body = cell.convert(RowDraw.bodyRect(spec), to: self)
-            if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key) }
+            let outline = cell.convert(RowDraw.balloon(RowDraw.bodyRect(spec), row: row), to: self)
+            if body.insetBy(dx: -4, dy: -4).contains(p) { return Hit(row: row, body: body, key: spec.key, outline: outline) }
         }
         return nil
     }
@@ -1714,7 +1863,9 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             // A thread preview (its outlined root copy, stub and "N Replies") opens the thread too.
             if case let .threadPreview(pv) = spec.kind {
                 let r = cell.convert(cell.bounds, to: self)
-                if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
+                if pv.outgoing {
+                    if p.x >= r.minX + spec.metrics.rightEdge - max(pv.box.width, 90) { return pv.root }
+                } else if p.x <= r.minX + Fixture.leftEdge + max(pv.box.width, 90) { return pv.root }
             }
         }
         return nil
@@ -1730,7 +1881,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
             if case let .part(p) = row.spec.kind, p.outgoing == mine, p.text != nil, accept(p) {
                 let body = RowDraw.bodyRect(row.spec)
                 let y = windowY(contentY: layout.contentTop(i))
-                return Hit(row: p, body: CGRect(x: body.minX, y: y, width: body.width, height: body.height), key: row.spec.key)
+                let outline = RowDraw.balloon(body, row: p).offsetBy(dx: 0, dy: y - body.minY)
+                return Hit(row: p, body: CGRect(x: body.minX, y: y, width: body.width, height: body.height), key: row.spec.key, outline: outline)
             }
         }
         return nil

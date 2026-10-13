@@ -28,7 +28,7 @@
   outline: none;
   white-space: pre-wrap;
   word-break: break-word;
-  caret-color: var(--agent-text);
+  caret-color: var(--cmux-caret, var(--agent-text));
 }
 .acpmux-md > * {
   margin: 0;
@@ -99,7 +99,7 @@
   color: var(--agent-text);
   position: relative;
   outline: none;
-  caret-color: var(--agent-text);
+  caret-color: var(--cmux-caret, var(--agent-text));
 }
 .acpmux-md p {
   margin-top: 0;

@@ -230,6 +230,20 @@ fn cmux_next_feed_selecting_a_tab_keeps_unread_and_the_ack_clears_it() {
     assert!(!unread(&daemon.tree(), second));
 }
 
+/// `server stop` returns when the owner is gone, so an `ensure` right after
+/// it starts the next owner every time (it used to find the session still
+/// owned now and then: "detached session owner did not become ready").
+#[test]
+fn cmux_next_feed_an_ensure_right_after_a_stop_starts_the_next_owner() {
+    let daemon = Daemon::start("restarts");
+    let surface = new_workspace(&daemon);
+    daemon.notify("on a tab", Some(surface));
+    for _ in 0..30 {
+        daemon.restart();
+        assert_eq!(daemon.items().len(), 1);
+    }
+}
+
 /// A tab ack that leaves an item unread (moved to the cloud owner) keeps
 /// the ring, and a restart keeps it too.
 #[test]
@@ -377,5 +391,78 @@ fn cmux_next_feed_an_ack_sent_on_the_notification_event_clears_the_ring() {
         }
         assert!(!unread(&daemon.tree(), surface), "round {round}: the ring stayed");
         assert!(!is_unread(&item_titled(&daemon, &title)), "round {round}: the item stayed unread");
+    }
+}
+
+/// `cmux notify --desktop false` (classic's flag, hq#1870 P1 12): the
+/// notification still posts, and its event tells the app to show no banner.
+#[test]
+fn cmux_next_notify_desktop_false_reaches_the_app_event() {
+    let daemon = Daemon::start("desktop");
+    let capabilities =
+        daemon.ok(json!({"id": "identify", "cmd": "identify"}))["capabilities"].clone();
+    assert!(
+        capabilities.as_array().unwrap().iter().any(|c| c == "notification-desktop-v1"),
+        "identify must advertise notification-desktop-v1: {capabilities}"
+    );
+    let mut events = daemon.plain();
+    writeln!(events.0.get_mut(), "{}", json!({"id": "sub", "cmd": "subscribe"})).unwrap();
+    assert_eq!(events.line()["ok"], true);
+    for (title, desktop) in [("quiet", "false"), ("loud", "true")] {
+        let output = Command::new(bin())
+            .arg("--socket")
+            .arg(&daemon.socket)
+            .args(["notify", "--workspace", "current", "--title", title, "--desktop", desktop])
+            .env("CMUX_TUI_STATE_DIR", daemon.dir.join("state"))
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let event = loop {
+            let event = events.line();
+            if event["event"] == "notification" && event["title"] == title {
+                break event;
+            }
+        };
+        assert_eq!(event["desktop"], desktop == "true", "{event}");
+    }
+}
+
+/// `cmux notify --reply` (classic's flag, hq#1870 P1 12): the notification's
+/// event asks the app for a banner with a text reply, which the app types
+/// into the notifying terminal. Without the flag the event offers none.
+#[test]
+fn cmux_next_notify_reply_reaches_the_app_event() {
+    let daemon = Daemon::start("reply");
+    let capabilities =
+        daemon.ok(json!({"id": "identify", "cmd": "identify"}))["capabilities"].clone();
+    assert!(
+        capabilities.as_array().unwrap().iter().any(|c| c == "notification-reply-v1"),
+        "identify must advertise notification-reply-v1: {capabilities}"
+    );
+    let mut events = daemon.plain();
+    writeln!(events.0.get_mut(), "{}", json!({"id": "sub", "cmd": "subscribe"})).unwrap();
+    assert_eq!(events.line()["ok"], true);
+    for (title, reply) in [("asks", true), ("tells", false)] {
+        let mut args = vec!["notify", "--workspace", "current", "--title", title];
+        if reply {
+            args.push("--reply");
+        }
+        let output = Command::new(bin())
+            .arg("--socket")
+            .arg(&daemon.socket)
+            .args(&args)
+            .env("CMUX_TUI_STATE_DIR", daemon.dir.join("state"))
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let event = loop {
+            let event = events.line();
+            if event["event"] == "notification" && event["title"] == title {
+                break event;
+            }
+        };
+        assert_eq!(event["reply"], reply, "{event}");
     }
 }

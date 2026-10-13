@@ -7,7 +7,9 @@ import { receiveTransportEvent, type TransportEvent } from "./bridgeSocket";
 import { receiveModelCatalog } from "./modelCatalogHost";
 import { setEditedFilesSettings } from "./turnChanges/settings";
 import { setComposerSettings } from "./composerSettings";
+import { setAgentDiffColors } from "./diffColors";
 import { setDeviceChats } from "./newtab/deviceChats";
+import { setToolCards } from "./toolCards/toolCardStore";
 import { setRecentlyClosed } from "./newtab/recentlyClosed";
 import { setHeaderState } from "./header/headerState";
 import { setFloatingState } from "./floatingState";
@@ -84,11 +86,16 @@ export function applyHostEvent(event: HostEvent): void {
       return setEditedFilesSettings(event.value);
     case "composer":
       return setComposerSettings(event.value);
+    case "diffColors":
+      return setAgentDiffColors(event.value);
     case "deviceChats":
       // Direct, like editedFiles: a push before the New Tab screen mounts is kept.
       return setDeviceChats(event.value);
     case "recentlyClosed":
       return setRecentlyClosed(event.value);
+    case "toolCards":
+      // Direct, like deviceChats: a push before the chat mounts is kept.
+      return setToolCards(event.value);
     case "customization":
       return bridge?.applyCustomization(value);
     case "headerState":

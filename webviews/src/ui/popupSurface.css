@@ -5,20 +5,17 @@
 :root {
   --ui-popup-radius: 8px;
   --ui-popup-padding: 4px;
-  /* A popup is a glass surface above the page, rather than a second opaque panel.  Hosts may
-     provide --ui-popup-bg, but the shared material keeps enough of it transparent for the page
-     to read through while the border and shadow preserve the edge at either theme. */
-  --ui-popup-glass-alpha: var(--surface-text-min, 92%);
-  --ui-popup-blur: var(--surface-blur, blur(20px) saturate(1.4));
   --ui-popup-shadow:
     0 8px 24px color-mix(in srgb, black 18%, transparent),
     0 1px 3px color-mix(in srgb, black 14%, transparent),
-    inset 0 0 0 0.5px color-mix(in srgb, white 12%, transparent);
+    inset 0 0 0 0.5px color-mix(in srgb, currentColor 12%, transparent);
   --ui-row-height: 28px;
   --ui-row-radius: 5px;
   --ui-row-padding-inline: 8px;
-  /* Each surface runs the open only under prefers-reduced-motion: no-preference. */
+  /* The open fades and scales in; under Reduce Motion it only fades (ui-popup-fade). */
   --ui-popup-open: 120ms;
+  /* The close: a fade, in every motion setting (the native fadeOut token). */
+  --ui-popup-close: 80ms;
 }
 
 @keyframes ui-popup-open {
@@ -28,18 +25,53 @@
   }
 }
 
-/* Every popup is a legible glass surface on the dropdown layer by default (webviews/src/ui/README.md,
-   "Layers and transparency"). Zero-specificity defaults: a feature's own surface class still wins. A
-   host maps --ui-popup-bg/--ui-popup-fg to its theme (the agent pane: acpmux/styles.css), so a popup
-   that names no surface (a nested submenu, a new menu) still gets the same material. */
+@keyframes ui-popup-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Reduce Motion keeps the open's fade and drops its scale (POLISH: no flash; motion.md rule 7):
+   a popup that appeared in one frame flashed. Every host loads this sheet. */
+@media (prefers-reduced-motion: reduce) {
+  :where(.ui-popup) {
+    animation: ui-popup-fade var(--ui-popup-open) ease-out;
+  }
+}
+
+/* A popup fades out when it closes (POLISH: no flash; a closed menu vanished in one frame). Base UI
+   keeps it mounted while it carries data-ending-style, until the fade ends. */
+:where(.ui-popup) {
+  transition: opacity var(--ui-popup-close) ease-in;
+}
+:where(.ui-popup[data-ending-style]) {
+  opacity: 0;
+}
+
+/* A dialog and its backdrop fade in and out (POLISH: no flash; the page darkened in one frame). */
+:where(.ui-dialog, .ui-backdrop) {
+  transition: opacity var(--ui-popup-open) ease-out;
+}
+:where(.ui-dialog, .ui-backdrop)[data-starting-style],
+:where(.ui-dialog, .ui-backdrop)[data-ending-style] {
+  opacity: 0;
+}
+:where(.ui-dialog, .ui-backdrop)[data-ending-style] {
+  transition-duration: var(--ui-popup-close);
+}
+
+/* Every popup is the solid popup surface (--surface-popup, pages/shared/desktop.css) on the
+   dropdown layer by default (webviews/src/ui/README.md, "Layers and transparency"): opaque and
+   unblurred, so the page under it never shows through. Zero-specificity defaults: a feature's
+   own surface class still wins, and draws on the same token. A host maps --ui-popup-fg to its
+   ink (the agent pane: acpmux/styles.css), so a popup that names no surface (a nested submenu,
+   a new menu) still gets the same look. */
 :where(.ui-positioner) {
   z-index: var(--layer-dropdown);
 }
 :where(.ui-popup) {
-  background-color: color-mix(in srgb, var(--ui-popup-bg, var(--ui-surface, Canvas)) var(--ui-popup-glass-alpha), transparent);
+  background-color: var(--surface-popup);
   color: var(--ui-popup-fg, var(--ui-fg, CanvasText));
-  -webkit-backdrop-filter: var(--ui-popup-blur);
-  backdrop-filter: var(--ui-popup-blur);
 }
 
 /* The shipped agent pane loads this shared surface sheet without ui.css. Keep modal layers here
@@ -59,20 +91,6 @@
   width: min(560px, calc(100vw - 32px));
   z-index: var(--layer-modal);
   outline: none;
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  :where(.ui-popup) {
-    background-color: var(--ui-popup-bg, var(--ui-surface, Canvas));
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-
-:root[data-reduce-transparency] :where(.ui-popup) {
-  background-color: var(--ui-popup-bg, var(--ui-surface, Canvas));
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }
 
 /* Menu sections and separators look the same in every host (dogfood 2026-10-09: the agent pane's reasoning menu drew

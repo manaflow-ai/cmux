@@ -14,6 +14,20 @@ public nonisolated enum ActionCatalog {
     /// and lookup so older call sites keep working.
     public static let legacyAliases: [ActionID: ActionID] = [
         "app.quit": "quit",
+        // Classic cmux shortcut IDs next renamed (hq#1870 parity audit): a binding
+        // from classic's Settings or cmux.json keeps working.
+        "showWindowHints": "hints.show",
+        "agentInbox": "feed.show",
+        "resize-pane-left": "resizePaneLeft",
+        "resize-pane-right": "resizePaneRight",
+        "resize-pane-up": "resizePaneUp",
+        "resize-pane-down": "resizePaneDown",
+        "diffViewerScrollDown": "diffViewerNextLine",
+        "diffViewerScrollUp": "diffViewerPreviousLine",
+        "diffViewerScrollHalfPageDown": "diffViewerHalfPageDown",
+        "diffViewerScrollHalfPageUp": "diffViewerHalfPageUp",
+        "diffViewerScrollToBottom": "diffViewerGoToBottom",
+        "diffViewerScrollToTop": "diffViewerGoToTop",
         // Cmd-T's id named a setting value; it opens the tabs.newTabKind kind (cmuxterm-hq#1829).
         "newTab.sameKind": "newTab.default",
         // New Workspace Like This keeps the directory and the group (cmuxterm-hq#1829).

@@ -216,6 +216,9 @@ struct State {
     stderr_dropped: u64,
     /// No daemon can adopt this host any more: end like SIGTERM.
     unadoptable: bool,
+    /// The processes under this host when it was told to end: the ones a
+    /// harness moved out of its group are ended with the host.
+    under: Vec<super::tree::Started>,
     /// The connection of the last controller that said `Hello`, also when
     /// a failed send already dropped it as the controller.
     last_owner: Option<u64>,
@@ -352,6 +355,7 @@ impl Started {
             leader_alive,
             stderr_dropped: 0,
             unadoptable: false,
+            under: Vec::new(),
             last_owner: None,
         };
         let mut next_conn = 0u64;
@@ -375,6 +379,9 @@ impl Started {
                 }
                 Event::Stdout(None) => {
                     permit_out = false;
+                    if state.exit_h.is_none() {
+                        state.end_background_shells().await;
+                    }
                     state.stdout_done = true;
                     state.maybe_push_exit();
                 }
@@ -401,6 +408,7 @@ impl Started {
                         tracing::warn!(
                             "harness output stays open after its exit; reporting the exit"
                         );
+                        state.end_background_shells().await;
                         state.stdout_done = true;
                         state.stderr_done = true;
                         state.maybe_push_exit();
@@ -409,6 +417,7 @@ impl Started {
                 Event::Term => {
                     // The frozen end path (`terminate_unadoptable`): end the
                     // harness while its group is still ours, then the host.
+                    state.note_under();
                     if state.leader_alive.load(std::sync::atomic::Ordering::SeqCst)
                         && let Some(pg) = state.pgid
                     {
@@ -448,6 +457,7 @@ impl Started {
             }
             if state.unadoptable {
                 // As SIGTERM: end the harness while its group is ours, then the host.
+                state.note_under();
                 if state.leader_alive.load(std::sync::atomic::Ordering::SeqCst)
                     && let Some(pg) = state.pgid
                 {
@@ -480,6 +490,8 @@ impl Started {
                 });
             }
         }
+        // What the harness moved out of its group outlives the group signal.
+        super::tree::kill_still_running(&state.under);
         remove_own_artifacts(&state.spec.hosts_dir, &state.record);
         remove_promoted(&state.spec.hosts_dir, &state.record);
         Ok(())
@@ -487,6 +499,16 @@ impl Started {
 }
 
 impl State {
+    /// Note the processes under this host before its harness group is
+    /// ended, while the harness still parents what it moved out of it.
+    fn note_under(&mut self) {
+        for p in super::tree::descendants(&[std::process::id()]) {
+            if !self.under.contains(&p) {
+                self.under.push(p);
+            }
+        }
+    }
+
     /// Number and retain one entry, and send it to a resumed controller.
     fn push(&mut self, entry: Entry) {
         self.next_h += 1;
@@ -528,6 +550,16 @@ impl State {
         while self.entries.front().is_some_and(|(eh, _, _)| *eh <= self.acked_h) {
             if let Some((_, _, w)) = self.entries.pop_front() {
                 self.weight -= w;
+            }
+        }
+    }
+
+    /// Claude's background shells ended with it (cx-ncc.84): each still
+    /// running is reported stopped, before the exit entry.
+    async fn end_background_shells(&mut self) {
+        if let Some(tr) = self.translator.clone() {
+            for m in tr.end_background_shells().await {
+                self.push(Entry::In { msg: m.to_value() });
             }
         }
     }
@@ -728,6 +760,11 @@ impl State {
                     .pgid
                     .filter(|_| self.leader_alive.load(std::sync::atomic::Ordering::SeqCst))
                 {
+                    self.under = tokio::task::spawn_blocking(|| {
+                        super::tree::descendants(&[std::process::id()])
+                    })
+                    .await
+                    .unwrap_or_default();
                     // SAFETY: the harness leads this process group.
                     unsafe { libc::killpg(pg, libc::SIGTERM) };
                     let grace = std::time::Duration::from_millis(grace_ms);

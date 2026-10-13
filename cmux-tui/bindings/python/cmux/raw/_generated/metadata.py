@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703'
+IR_SHA256 = '7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa'
 
 
 @dataclass(frozen=True)
@@ -476,6 +476,7 @@ COMMANDS = {
             'key': CommandFieldMetadata(7, 'workspace-registry-v1'),
             'mutation_id': CommandFieldMetadata(7, None),
             'origin': CommandFieldMetadata(7, None),
+            'reason': CommandFieldMetadata(None, 'close-reason-v1'),
             'workspace': CommandFieldMetadata(None, None),
         },
     ),
@@ -527,6 +528,20 @@ COMMANDS = {
         None,
         {
             'conversation': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cloud-conversation-thread': CommandMetadata(
+        'cloud-conversation-thread',
+        'local-admin',
+        12,
+        'conversation-thread-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'root': CommandFieldMetadata(None, None),
         },
     ),
     'cloud-conversation-unsubscribe': CommandMetadata(
@@ -809,6 +824,20 @@ COMMANDS = {
             'tail': CommandFieldMetadata(None, None),
         },
     ),
+    'conversation-thread': CommandMetadata(
+        'conversation-thread',
+        'local-admin',
+        12,
+        'conversation-thread-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'conversation': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'root': CommandFieldMetadata(None, None),
+        },
+    ),
     'conversation-typing': CommandMetadata(
         'conversation-typing',
         'local-admin',
@@ -1085,6 +1114,19 @@ COMMANDS = {
         None,
         {
             'saved': CommandFieldMetadata(None, None),
+        },
+    ),
+    'delete-terminal-commands': CommandMetadata(
+        'delete-terminal-commands',
+        'local-admin',
+        12,
+        'terminal-command-history-v1',
+        ('local-admin',),
+        None,
+        {
+            'all': CommandFieldMetadata(None, None),
+            'ids': CommandFieldMetadata(None, None),
+            'started_since_ms': CommandFieldMetadata(None, None),
         },
     ),
     'delete-workspace-group': CommandMetadata(
@@ -1452,6 +1494,18 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'list-terminal-commands': CommandMetadata(
+        'list-terminal-commands',
+        'local-admin',
+        12,
+        'terminal-command-history-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_id': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
         },
     ),
     'list-terminals': CommandMetadata(
@@ -1847,6 +1901,7 @@ COMMANDS = {
             'owner': CommandFieldMetadata(None, None),
             'page': CommandFieldMetadata(None, 'page-tabs-v1'),
             'pane': CommandFieldMetadata(None, None),
+            'route': CommandFieldMetadata(None, 'page-tab-route-v1'),
             'rows': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, 'conversation-tab-transaction-v1'),
             'workspace': CommandFieldMetadata(None, None),
@@ -2819,11 +2874,12 @@ COMMANDS = {
         'set-terminal-command-history',
         'local-admin',
         12,
-        'terminal-command-journal-v1',
+        'terminal-command-history-v1',
         ('local-admin',),
         None,
         {
             'enabled': CommandFieldMetadata(None, None),
+            'retention_days': CommandFieldMetadata(None, None),
         },
     ),
     'set-terminal-idle-policy': CommandMetadata(
@@ -3161,6 +3217,7 @@ COMMANDS = {
         {
             'bookmark': CommandFieldMetadata(None, None),
             'favicon_key': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(12, 'bookmark-icon-v1'),
             'last_used_ms': CommandFieldMetadata(None, None),
             'mutation_id': CommandFieldMetadata(None, None),
             'origin': CommandFieldMetadata(None, None),
@@ -3255,6 +3312,7 @@ COMMANDS = {
             'collapsed': CommandFieldMetadata(None, None),
             'color': CommandFieldMetadata(None, None),
             'group': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(12, 'screen-group-icon-v1'),
             'name': CommandFieldMetadata(None, None),
         },
     ),
@@ -3269,6 +3327,7 @@ COMMANDS = {
             'collapsed': CommandFieldMetadata(None, None),
             'color': CommandFieldMetadata(None, None),
             'group': CommandFieldMetadata(None, None),
+            'icon': CommandFieldMetadata(12, 'tab-group-icon-v1'),
             'name': CommandFieldMetadata(None, None),
         },
     ),
@@ -3400,6 +3459,8 @@ EVENTS = {
     'frame': EventMetadata('frame', 6, None, ('attach-browser',), 'emitted'),
     'frontend-projection-changed': EventMetadata('frontend-projection-changed', 7, None, ('subscribe',), 'emitted'),
     'graphics-status': EventMetadata('graphics-status', 10, None, ('subscribe',), 'emitted'),
+    'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
+    'keybindings-changed': EventMetadata('keybindings-changed', 12, 'keybindings-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
     'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
@@ -3410,6 +3471,7 @@ EVENTS = {
     'pane-added': EventMetadata('pane-added', 7, None, ('subscribe-deltas',), 'emitted'),
     'pane-closed': EventMetadata('pane-closed', 7, None, ('subscribe-deltas',), 'emitted'),
     'personal-changed': EventMetadata('personal-changed', 12, 'profiles-v1', ('subscribe',), 'emitted'),
+    'program-status-changed': EventMetadata('program-status-changed', 12, None, ('subscribe',), 'emitted'),
     'render-delta': EventMetadata('render-delta', 7, None, ('attach-render',), 'emitted'),
     'render-state': EventMetadata('render-state', 7, None, ('attach-render',), 'emitted'),
     'resized': EventMetadata('resized', 6, None, ('attach-byte',), 'emitted'),

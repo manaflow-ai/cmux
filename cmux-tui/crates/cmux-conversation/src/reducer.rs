@@ -314,6 +314,14 @@ pub fn apply(head: &ConversationHead, request: &OpRequest<'_>) -> Result<Commit,
                 reactions: Vec::new(),
                 origin: None,
             };
+            // A sender that had read everything before its send has read its
+            // own message too, for every client of this owner. One that had
+            // not keeps its cursor, so a message it never read (an agent's
+            // unhandled turn) stays unread. The change stays `message`;
+            // clients read the cursor from the head (corpus notes, cx-59n8.4).
+            if head.read_cursors.get(request.actor).copied().unwrap_or(0) >= head.last_seq {
+                next.read_cursors.insert(request.actor.to_string(), next.last_seq);
+            }
             let change = Change::Message { message: message.clone() };
             (Some(message), change)
         }
@@ -563,7 +571,9 @@ fn valid_short_text(value: &str, max_bytes: usize) -> bool {
     !value.is_empty() && value.len() <= max_bytes && !value.chars().any(char::is_control)
 }
 
-fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
+/// The shape rules of a part list, as a send or an edit checks them (an
+/// import checks the same).
+pub fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
     if parts.is_empty() || parts.len() > MAX_PARTS {
         return Err(Reject::InvalidParts);
     }
@@ -607,7 +617,13 @@ fn validate_parts(parts: &[Part]) -> Result<(), Reject> {
                     return Err(Reject::InvalidParts);
                 }
             }
+            Part::LinkPreview { .. } => {
+                if !crate::link_preview::valid_link_preview_part(part) {
+                    return Err(Reject::InvalidParts);
+                }
+            }
             Part::Question(question) => crate::question::validate(question)?,
+            Part::Unknown(_) => return Err(Reject::InvalidParts),
         }
     }
     Ok(())

@@ -21,7 +21,8 @@ extension TabStripView {
             let anchor = window.convertToScreen(tabsClip.convert(chip.frame, to: nil))
             return (.groupChip(group), metrics.minInactiveTabWidth, anchor)
         }
-        guard let id = tabID(at: point), let cell = cells[id] else { return nil }
+        // A New Tab page's card would only repeat its title (Leo 2026-10-11).
+        guard let id = tabID(at: point), let cell = cells[id], model.tab(id)?.isNewTabPage != true else { return nil }
         return (id, cell.frame.width, window.convertToScreen(tabsClip.convert(cell.frame, to: nil)))
     }
 

@@ -70,6 +70,13 @@ final class ActionMenuTarget: NSObject, NSMenuItemValidation {
         // A standalone key window claims the run: its close items stay
         // enabled (they close it), actions on main window content are off.
         let invocation = ActionInvocation(target: payload.target, arguments: payload.arguments)
+        // A main menu toggle reads as the change it makes for the focused target (Pin
+        // Workspace or Unpin Workspace, PINNED-ITEMS-END-TO-END); no target title, the
+        // catalog's. Context menu items (an ActionMenuPayload) are decorated when built.
+        if menuItem.representedObject is String, let targetTitle = registry.action(for: payload.id)?.targetTitle,
+           let title = targetTitle(invocation) ?? registry.title(for: payload.id), menuItem.title != title {
+            menuItem.title = title
+        }
         if let route = registry.keyWindowRoute?(registry.canonicalID(for: payload.id), invocation) { return route.enablesMenuItem }
         guard ActionTargetReasons.canPerform(payload.id, invocation: ActionInvocation(target: payload.target), in: registry) else { return false }
         if let gate = registry.menuKeyEquivalentGate, !menuItem.keyEquivalent.isEmpty, registry.isDispatchingKeyDown() {

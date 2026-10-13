@@ -5,8 +5,9 @@ pub(super) const WORKSPACE_HELP: &str = "\
 USAGE
   cmux workspace list [--order session|personal]
   cmux workspace create [--name <value>] [--empty] [--ephemeral] [--correlation-key <value>]
-    [--expected-revision <revision>]
+    [--expected-revision <revision>] [--cwd <path>] [--shell <script> | -- <argv...>]
   cmux workspace <selector> show|focus|close
+  cmux workspace <selector> close --others|--to-right|--to-left|--all [--end-terminals]
   cmux workspace <selector> rename <name>|--name <name>
   cmux workspace <selector> move --index <n>
   cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color]
@@ -28,13 +29,17 @@ USAGE
   cmux workspace group list [--room <room>]
   cmux workspace group create --name <value> [--color <value>] [--room <room>] [--index <n>] [--collapse]
   cmux workspace group <group> update [--name <value>] [--color <value>|--clear-color]
-    [--icon <emoji or SF Symbol name>|--clear-icon] [--pinned true|false]
+    [--icon <icon>|--clear-icon] [--pinned true|false]
     [--room <room>] [--collapse|--expand] [--top-index <n>|--clear-top-index]
   cmux workspace group <group> delete
   cmux workspace group <group> move --index <n>
   cmux workspace group <group> add --workspace <selector> [--index <n>]
   cmux workspace group remove --workspace <selector>
 
+close with --others, --to-right, --to-left or --all closes the selected
+workspace's siblings (the session's workspaces, the home one never) as one
+closed group: one `cmux closed reopen` restores them all. The same flags on
+screen, pane and tab close work in the screen, pane or tab bar.
 Nested panes support split --right or --down. Without a selector, status,
 progress and log target the caller's workspace inside a cmux terminal, else
 the current one. Levels: info, progress, success, warning, error. Text that
@@ -48,7 +53,8 @@ workspaces, and each group's workspaces where the group shows. The app's
 snapshot.get windows[].workspaces lists the order each window shows. --top-index
 puts a group right before the workspace at that placement index;
 --clear-top-index puts it after every loose workspace. --icon sets a group's
-icon (one emoji or an SF Symbol name); --clear-icon removes it. --pinned true
+icon (one emoji, an SF Symbol name, or a stored image:sha256-<hex> or
+svg:sha256-<hex> asset); --clear-icon removes it. --pinned true
 saves a group so it stays when its workspaces close; false unpins it.
 
 SELECTORS
@@ -61,6 +67,7 @@ USAGE
   cmux pane list
   cmux pane create [--correlation-key <value>]
   cmux pane <selector> show|focus|close
+  cmux pane <selector> close --others|--all
   cmux pane <selector> rename <name>|--name <name>
   cmux pane <selector> split [--right|--down] [--ratio <value>]
     [--viewport-width <fraction>] [--correlation-key <value>]
@@ -83,6 +90,7 @@ pub(super) const TAB_HELP: &str = "\
 USAGE
   cmux tab list
   cmux tab <selector> show|focus|close
+  cmux tab <selector> close --others|--to-right|--to-left|--all [--include-pinned]
   cmux tab <selector> rename <name>|--name <name>
   cmux tab <selector> move --workspace <selector> --screen <selector>
     --pane <selector> --index <n>
@@ -97,7 +105,8 @@ USAGE
   cmux tab group list [--pane <pane_…>]
   cmux tab group create --tabs <tab_…,...> [--name <value>] [--color <color>]
   cmux tab group <group> show|ungroup|close
-  cmux tab group <group> update [--name <value>] [--color <color>] [--collapse|--expand]
+  cmux tab group <group> update [--name <value>] [--color <color>]
+    [--icon <icon>|--clear-icon] [--collapse|--expand]
   cmux tab group <group> add --tabs <tab_…,...> [--index <n>]
   cmux tab group remove --tabs <tab_…,...>
   cmux tab group <group> move [--pane <pane_…>] [--index <n>]
@@ -112,7 +121,9 @@ USAGE
 
 Zoom is a browser page zoom or a terminal font scale. Pinned tabs sort first
 and leave their group. A group or saved group is named by its id or exact
-name. Group colors: grey, blue, red, yellow, green, pink, purple, cyan, orange.
+name. Group colors: grey, blue, red, yellow, green, pink, purple, cyan, orange,
+or a custom #RRGGBB. A group icon is one emoji, an SF Symbol name, or a stored
+image:sha256-<hex> or svg:sha256-<hex> asset; --clear-icon removes it.
 
 SELECTORS
   <selector> is an id (ws_…, pane_…, tab_…, term_…), current, or an exact

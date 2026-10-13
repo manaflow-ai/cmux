@@ -65,6 +65,17 @@ export const TextRun = Schema.Struct({
 
 const Sha256 = Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)).annotate({ identifier: "HomeSha256", description: "SHA-256 of the bytes, lowercase hex." })
 
+/**
+ * The owners count a link preview's title and site in code points and its URL in UTF-8 bytes
+ * (cmux-conversation link_preview.rs, home-core link-preview.ts). The UTF-16 `isMaxLength`
+ * beside each is only the loose bound JSON Schema can state (a code point is at most 2 units, a
+ * URL has no more units than bytes); these filters are the rule.
+ */
+const maxCodePoints = (max: number) =>
+  Schema.makeFilter((value: string) => [...value].length <= max || `at most ${max} characters`)
+const utf8MaxBytes = (max: number) =>
+  Schema.makeFilter((value: string) => new TextEncoder().encode(value).length <= max || `at most ${max} UTF-8 bytes`)
+
 /** A derived image of an attachment (a video's poster, an image's preview): JPEG or WebP, capped per variant. */
 const derivedImage = (identifier: string, maxBytes: number, description: string) =>
   Schema.Struct({
@@ -93,7 +104,15 @@ export const Part = Schema.Union([
     duration_ms: Schema.optionalKey(Schema.Number.check(Schema.isInt(), Schema.isGreaterThanOrEqualTo(0))),
     poster: Schema.optionalKey(derivedImage("HomeAttachmentPoster", 2_000_000, "Video only: the poster image uploaded with the video's slot (intent `poster`, then PUT to `poster_upload`); it must equal the one the video's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"poster\"}.")),
     preview: Schema.optionalKey(derivedImage("HomeAttachmentPreview", 512_000, "Image only: a small preview uploaded with the image's slot (intent `preview`, then PUT to `preview_upload`); it must equal the one the image's record holds. Fetch it with POST /v1/home/attachments/url {variant: \"preview\"}."))
-  }).annotate({ description: "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold." })
+  }).annotate({ description: "A file uploaded to this conversation first (POST /v1/home/attachments/intent, then PUT the bytes); the owner refuses a hash it does not hold." }),
+  Schema.Struct({
+    type: Schema.Literal("link_preview"),
+    url: Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(2048), utf8MaxBytes(2048)),
+    // A null title, site or image is absent, as both owners read it (serde `Option`, link-preview.ts).
+    title: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(600), maxCodePoints(300)))),
+    site: Schema.optionalKey(Schema.NullOr(Schema.String.check(Schema.isMinLength(1), Schema.isMaxLength(506), maxCodePoints(253)))),
+    image: Schema.optionalKey(Schema.NullOr(derivedImage("HomeLinkPreviewImage", 512_000, "An ordinary image attachment the sender uploaded to this conversation (intent, then PUT; image/jpeg or image/webp, at most 512000 bytes); the owner refuses a hash it does not hold with the same type and size. Fetch it with POST /v1/home/attachments/url {hash: image.hash}.")))
+  }).annotate({ description: "A link with the preview its sender fetched; receivers render only from this part and never fetch the URL. url is http(s) with a host and no user info, at most 2048 UTF-8 bytes; title and site have no control characters." })
 ]).annotate({ identifier: "HomePart" })
 export const Parts = Schema.Array(Part).check(Schema.isMinLength(1), Schema.isMaxLength(16))
 
@@ -114,11 +133,24 @@ export const Message = Schema.Struct({
   author: ParticipantId,
   parts: Schema.Array(Part),
   reply_to: Schema.optionalKey(PartRef),
+  thread_root: Schema.optionalKey(MessageId),
   created_at: Timestamp,
   edited_at: Schema.optionalKey(Timestamp),
   retracted_at: Schema.optionalKey(Timestamp),
   reactions: Schema.Array(Reaction)
 }).annotate({ identifier: "HomeMessage" })
+
+/**
+ * Thread stats of one root, computed by the owner at read time (cx-59n8.6): every reply counts,
+ * a retracted one too; `authors` are the first 3 distinct reply authors by seq.
+ */
+export const ThreadSummary = Schema.Struct({
+  root: MessageId,
+  reply_count: Seq,
+  last_reply_seq: Schema.NullOr(Seq),
+  last_reply_at: Schema.NullOr(Timestamp),
+  authors: Schema.Array(ParticipantId).check(Schema.isMaxLength(3))
+}).annotate({ identifier: "HomeThreadSummary" })
 
 export const DeliveryState = Schema.Literals(["queued", "sent", "delivered", "bounced", "complained", "failed", "suppressed", "refused_env"]).annotate({ identifier: "HomeDeliveryState" })
 

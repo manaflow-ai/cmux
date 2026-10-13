@@ -6,7 +6,9 @@ import CmuxNextSettings
 /// first frame to rest (plans/cmux-next/motion.md "Verification").
 /// `speed` with `value` ("fast", "normal", "off") sets the live speed in
 /// memory only, so a bench can compare speeds without writing cmux.json; the
-/// next cmux.json load restores the file's value.
+/// next cmux.json load restores the file's value. `reduce` with `value` true or
+/// false overrides Reduce Motion in memory (null follows the system setting
+/// again), so a bench records reduced motion without the system setting.
 enum DebugMotion {
     static func handle(_ params: [String: JSONValue]) -> JSONValue {
         switch params["action"]?.stringValue ?? "read" {
@@ -16,6 +18,8 @@ enum DebugMotion {
             if let value = params["value"]?.stringValue, let speed = MotionSpeed(rawValue: value) {
                 DesignSettings.shared.animationSpeed = speed
             }
+        case "reduce":
+            Motion.reduceMotionOverride = params["value"]?.boolValue
         case "stop":
             let report = self.report
             MotionTrace.stop()

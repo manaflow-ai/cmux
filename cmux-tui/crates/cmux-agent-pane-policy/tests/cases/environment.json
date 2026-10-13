@@ -83,6 +83,44 @@
    "/tmp/acpmux-501/eaf4eea38918181c.sock"
   ]
  ],
+ "configured_sockets": [
+  [
+   "/tmp/x/s.sock",
+   "/Users/me/.acpmux",
+   501,
+   "/tmp/x/s.sock"
+  ],
+  [
+   "/fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/s.sock",
+   "/Users/me/.acpmux",
+   501,
+   "/fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/s.sock"
+  ],
+  [
+   "/Library/Application Support/cmux-build-worker/work/steps/efa0692bd81cf13857d13ae1/tmp/amd-clisid-43762/s.sock",
+   "/Users/me/.acpmux",
+   501,
+   "/tmp/acpmux-501/67717e3a5f009619.sock"
+  ],
+  [
+   "/eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee/s.sock",
+   "/Users/me/.acpmux",
+   501,
+   "/tmp/acpmux-501/587a75e9e1778888.sock"
+  ],
+  [
+   "rel/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/s.sock",
+   "/Users/me/.acpmux",
+   501,
+   "rel/dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd/s.sock"
+  ],
+  [
+   "",
+   "/Users/me/.acpmux",
+   501,
+   "/Users/me/.acpmux/acpmux.sock"
+  ]
+ ],
  "resolve": [
   {
    "name": "default home",
@@ -168,6 +206,26 @@
     "executable": "/opt/homebrew/bin/acpmux",
     "home": "/Users/me/.acpmux",
     "socket": "/Users/me/.acpmux/acpmux.sock",
+    "args": []
+   }
+  },
+  {
+   "name": "ACPMUX_SOCKET past the Unix socket limit",
+   "tag": null,
+   "bundled": "/App/bin",
+   "env": {
+    "PATH": "",
+    "ACPMUX_SOCKET": "/Library/Application Support/cmux-build-worker/work/steps/efa0692bd81cf13857d13ae1/tmp/amd-clisid-43762/s.sock"
+   },
+   "user_home": "/Users/me",
+   "uid": 501,
+   "executables": [
+    "/App/bin/acpmux"
+   ],
+   "expect": {
+    "executable": "/App/bin/acpmux",
+    "home": "/Users/me/.acpmux",
+    "socket": "/tmp/acpmux-501/67717e3a5f009619.sock",
     "args": []
    }
   },

@@ -78,6 +78,7 @@ public:
     [[nodiscard]] Result<JsonValue> cloud_conversation_op(const CloudConversationOpRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_snapshot(const CloudConversationSnapshotRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_subscribe(const CloudConversationSubscribeRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> cloud_conversation_thread(const CloudConversationThreadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_conversation_unsubscribe(const CloudConversationUnsubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_inbox_list(const CloudInboxListRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> cloud_inbox_subscribe(const CloudInboxSubscribeRequest& request = {}, RequestOptions options = {});
@@ -100,6 +101,7 @@ public:
     [[nodiscard]] Result<ConversationOpResult> conversation_op(const ConversationOpRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSearchResult> conversation_search(const ConversationSearchRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ConversationSnapshotResult> conversation_snapshot(const ConversationSnapshotRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ConversationThreadResult> conversation_thread(const ConversationThreadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> conversation_typing(const ConversationTypingRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<CopyResult> copy(const CopyRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<BookmarkChangeResult> create_bookmark(const CreateBookmarkRequest& request, RequestOptions options = {});
@@ -118,6 +120,7 @@ public:
     [[nodiscard]] Result<JsonValue> delete_profile(const DeleteProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_saved_screen_group(const DeleteSavedScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<DeleteSavedTabGroupResult> delete_saved_tab_group(const DeleteSavedTabGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalCommandDeleteResult> delete_terminal_commands(const DeleteTerminalCommandsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_workspace_group(const DeleteWorkspaceGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AttachedViewOutcomeResult> detach_attached_view(const DetachAttachedViewRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> detach_client(const DetachClientRequest& request, RequestOptions options = {});
@@ -150,6 +153,7 @@ public:
     [[nodiscard]] Result<JsonValue> list_saved_screen_groups(const ListSavedScreenGroupsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ListSavedTabGroupsResult> list_saved_tab_groups(const ListSavedTabGroupsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ListTabGroupsResult> list_tab_groups(const ListTabGroupsRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<TerminalCommandList> list_terminal_commands(const ListTerminalCommandsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ListTerminalsResult> list_terminals(const ListTerminalsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> list_workspace_groups(const ListWorkspaceGroupsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<Tree> list_workspaces(const ListWorkspacesRequest& request = {}, RequestOptions options = {});

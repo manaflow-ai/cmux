@@ -49,7 +49,7 @@ export class PolicyRefused extends Schema.TaggedError<PolicyRefused>()(
 
 export class BadRequest extends Schema.TaggedError<BadRequest>()(
   "BadRequest",
-  { code: Schema.Literals(["validation.invalid", "selector.not_found", "cloud.machine.not_found", "cloud.machine.not_bound"]), message: Schema.String },
+  { code: Schema.Literals(["validation.invalid", "selector.not_found", "cloud.machine.not_found", "cloud.machine.not_bound", "unknown_message"]), message: Schema.String },
   { httpApiStatus: 400 }
 ) {}
 

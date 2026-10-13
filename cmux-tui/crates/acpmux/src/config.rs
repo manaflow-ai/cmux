@@ -24,12 +24,38 @@ pub fn home() -> PathBuf {
     dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")).join(".acpmux")
 }
 
-/// Unix socket path. macOS limits socket paths to about 100 bytes, so a
-/// long home directory falls back to a short path in a private per-user
-/// directory under /tmp (on Windows, in the user's temp folder), derived
-/// from the home path so daemon and clients agree.
+/// Unix socket path, by the rule every host and client shares
+/// (cmux-agent-pane-policy `environment::socket_path`): `ACPMUX_SOCKET`, else
+/// `<home>/acpmux.sock`. A long home, or an absolute `ACPMUX_SOCKET` past the
+/// Unix socket limit (a long TMPDIR), falls back to a short path in a private
+/// per-user directory under /tmp, derived from the home or the configured
+/// path so daemon and clients agree.
+#[cfg(unix)]
 pub fn socket_path() -> PathBuf {
-    if let Ok(v) = std::env::var("ACPMUX_SOCKET") {
+    let configured = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty());
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    let resolved = PathBuf::from(cmux_agent_pane_policy::environment::socket_path(
+        configured.as_deref(),
+        &home(),
+        uid,
+    ));
+    // Another user owns or can write the shared directory: never trust a
+    // socket there. The long path fails to bind with a clear error instead.
+    let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
+    if resolved.parent() == Some(dir.as_path()) && !private_dir(&dir, uid) {
+        return configured.map(PathBuf::from).unwrap_or_else(|| home().join("acpmux.sock"));
+    }
+    resolved
+}
+
+/// Windows: `ACPMUX_SOCKET`, else `<home>\\acpmux.sock`; a long home (AF_UNIX
+/// paths are limited to 108 bytes there too) falls back to a short path in an
+/// owner-only folder in this user's temp folder, derived from the home path
+/// so daemon and clients agree.
+#[cfg(windows)]
+pub fn socket_path() -> PathBuf {
+    if let Some(v) = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty()) {
         return PathBuf::from(v);
     }
     let preferred = home().join("acpmux.sock");
@@ -41,26 +67,11 @@ pub fn socket_path() -> PathBuf {
         hash ^= b as u64;
         hash = hash.wrapping_mul(0x0100_0000_01b3);
     }
-    #[cfg(unix)]
-    {
-        let uid = unsafe { libc::getuid() };
-        let dir = PathBuf::from(format!("/tmp/acpmux-{uid}"));
-        if private_dir(&dir, uid) {
-            return dir.join(format!("{hash:016x}.sock"));
-        }
+    let dir = std::env::temp_dir().join("acpmux");
+    let path = dir.join(format!("{hash:016x}.sock"));
+    if path.as_os_str().len() < 96 && cmux::local_socket::private_directory(&dir).is_ok() {
+        return path;
     }
-    // Windows: AF_UNIX paths are limited to 108 bytes too. The short path is
-    // in an owner-only folder in this user's temp folder.
-    #[cfg(windows)]
-    {
-        let dir = std::env::temp_dir().join("acpmux");
-        let path = dir.join(format!("{hash:016x}.sock"));
-        if path.as_os_str().len() < 96 && cmux::local_socket::private_directory(&dir).is_ok() {
-            return path;
-        }
-    }
-    // Another user owns or can write the shared directory: never trust a
-    // socket there. The long path fails to bind with a clear error instead.
     preferred
 }
 
@@ -233,6 +244,25 @@ pub fn derive_family(name: &str, profile: &HarnessProfile) -> String {
         }
     }
     name.split(['-', '_', '.']).next().unwrap_or(name).to_lowercase()
+}
+
+/// Which agent store a fork through an earlier turn copies (`hub/fork_at.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnCut {
+    /// Claude Code's transcript (`claude -p`, Claude Code's own protocol).
+    Claude,
+    /// Codex's rollout (codex-acp, which forks a thread only at its end).
+    Codex,
+}
+
+/// How profile `name` forks through an earlier turn; None when its agent
+/// forks only at a chat's end.
+pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
+    match profile.kind {
+        HarnessKind::ClaudeStdio => Some(TurnCut::Claude),
+        HarnessKind::Acp if derive_family(name, profile) == "codex" => Some(TurnCut::Codex),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

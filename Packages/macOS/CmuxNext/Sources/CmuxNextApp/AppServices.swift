@@ -71,8 +71,9 @@ final class AppServices {
     /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
     let input = InputVerificationService()
     private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
-    /// Reopen Closed Tab history; set when the tab handlers bind.
-    var closedTabs: ClosedTabTracker?
+    /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind.
+    /// The daemon owns the closed history itself (`DaemonClosedHistory`).
+    var closedTabs: ClosedTabsFeed?
     /// The app-wide "where was I" trail (plans/cmux-next/history.md 4.2).
     private(set) lazy var locationTrail = LocationTrailService(services: self)
     /// The merged history read side and the per-profile visit logs.
@@ -92,10 +93,10 @@ final class AppServices {
     /// `cmux://agent-activity`: the computer use sessions page.
     private(set) lazy var agentActivityPage = AgentActivityPageService(services: self)
     private(set) lazy var remoteViewPages = RemoteViewPageService()
-    /// Recently closed workspaces (history lists).
-    private(set) lazy var closedWorkspaces = ClosedWorkspaceTracker(services: self)
     /// Bookmarks of every browser profile (plans/cmux-next/bookmarks.md).
     private(set) lazy var bookmarks = BookmarkService(services: self)
+    /// The user's keybindings.json, owned by the home daemon, as the binding table's user layer.
+    private(set) lazy var keybindingsFile = KeybindingsFileService(services: self)
     /// App platform (DEV prototype): registry, JavaScriptCore app host, App Store.
     private(set) lazy var apps = AppsService(services: self)
     /// The Tasks page and its mirror of the local Tasks owner (plans/cmux-next/tasks.md).
@@ -115,8 +116,6 @@ final class AppServices {
         service.start()
         return service
     }()
-    /// Recently closed screens (Reopen Closed Screen).
-    let closedScreens = ClosedScreenHistory()
     /// The kinds of tabs opened on purpose, by folder, for `tabs.newTabKind: auto`.
     var newTabKinds = NewTabKindMemory()
     /// Each pane's own Show Tab Bar choice (`PaneTabBar`).
@@ -229,7 +228,7 @@ final class AppServices {
         _ = themes  // built here, as before
         _ = remoteLocalhost  // built here, as before
         cache.configureBrowser = { [weak self] tab, url, base in  // a Cloud proxied tab's store first (ProxiedBrowserTabs)
-            let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true) ?? base  // cx-d0d.59
+            let base = self?.cache.pageRequests.closedHistories.restoring(base, url: url, local: self?.machines.daemon(forTab: tab).isLocal == true, tab: tab.id) ?? base  // cx-d0d.59
             return await self?.cache.pageRequests.proxiedTabs.configuration(for: tab.id, url: url, base: base) { await self?.remoteLocalhost.configuration(for: tab, url: url, base: base) ?? base } ?? base
         }
         cache.findTab = { [weak self] key in self?.remoteLocalhost.tab(id: key) }

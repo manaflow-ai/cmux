@@ -1,11 +1,15 @@
-import { useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "./cx";
+import { useEscapingPopup } from "./popupHost";
+import { usePopupHost } from "./UiProvider";
 
 /** An action in the standalone context menu. */
 export interface ContextMenuItem {
   id: string;
   label: ReactNode;
+  /** An icon before the label, as macOS shows on items such as Hide (HideableChrome.tsx). */
+  icon?: ReactNode;
   ariaLabel?: string;
   disabled?: boolean;
   destructive?: boolean;
@@ -26,7 +30,22 @@ export interface ContextMenuProps {
   onOpen?(): void;
   /** Targets (a CSS selector) that keep the host's own menu, such as a text field's Cut, Copy and Paste. */
   ignore?: string;
+  /**
+   * "own": only a right-click on this host's own DOM opens the menu. React passes events up from a
+   * popup a child opened (a picker's search field), though the popup draws elsewhere on the page.
+   */
+  targets?: "own";
 }
+
+/** Inline, as the placement is: the agent pane does not load ui.css. */
+const MENU_ICON = {
+  display: "inline-flex",
+  alignItems: "center",
+  justifyContent: "center",
+  width: 16,
+  height: 16,
+  flex: "none",
+} as const;
 
 /**
  * A point-anchored context menu for surfaces that do not use the shared Menu trigger.
@@ -34,13 +53,53 @@ export interface ContextMenuProps {
  * A right-click over selected text keeps the host's native menu (Copy), unless `selection="menu"`.
  * The menu renders at the document root: a fixed popup inside an ancestor with a transform (or a
  * transform animation, such as a settings category's enter animation) is placed relative to that
- * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Escape returns focus to
- * the invoking control when it has one.
+ * ancestor, not the viewport, so it opened away from the pointer (cx-dmnf). Closing attempts to
+ * restore the invoking control when it remains connected at the close turn; navigation actions
+ * own any later focus changes. Like a native menu, it opens down and right of the pointer and
+ * flips up or left where that would leave the window.
  */
-export function ContextMenu({ items, children, className, selection, onOpen, ignore }: ContextMenuProps) {
+export function ContextMenu({ items, children, className, selection, onOpen, ignore, targets }: ContextMenuProps) {
   const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
   const [active, setActive] = useState(0);
   const returnFocus = useRef<HTMLElement | null>(null);
+  const menu = useRef<HTMLDivElement | null>(null);
+  const host = usePopupHost();
+  const [shown, setShown] = useState<HTMLDivElement | null>(null);
+  const attach = useCallback(
+    (node: HTMLDivElement | null) => {
+      menu.current = node;
+      if (host) setShown(node);
+    },
+    [host],
+  );
+  // No room above or below the pointer in the page: past the window's edge, as a Mac context menu
+  // (popupHost.ts). The backdrop stays, so a click on the page still closes it.
+  useEscapingPopup(
+    host,
+    shown,
+    () => point && { getBoundingClientRect: () => ({ left: point.x, right: point.x, top: point.y, bottom: point.y }) },
+    { side: "bottom", align: "start", gap: 0, shell: "self" },
+  );
+  // Where the menu sits, measured before it paints.
+  const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
+  useLayoutEffect(() => {
+    const node = menu.current;
+    if (!point || !node) {
+      setPlace(null);
+      return;
+    }
+    const { width, height } = node.getBoundingClientRect();
+    const left = point.x + width > window.innerWidth - 4 ? point.x - width : point.x;
+    const top = point.y + height > window.innerHeight - 4 ? point.y - height : point.y;
+    setPlace({
+      left: Math.max(4, Math.min(left, window.innerWidth - width - 4)),
+      top: Math.max(4, Math.min(top, window.innerHeight - height - 4)),
+    });
+  }, [point]);
+  // Takes focus once placed (a hidden menu cannot take it), so Up/Down/Return work.
+  useLayoutEffect(() => {
+    if (place) menu.current?.focus();
+  }, [place]);
   const enabled = items.filter((item) => !item.disabled);
   const close = (restoreFocus = false) => {
     setPoint(null);
@@ -50,8 +109,18 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
   };
   const run = (item: ContextMenuItem | undefined) => {
     if (!item || item.disabled) return;
+    // Keep the opener across the action. The action may remove or replace it (for example, a
+    // sidebar row's Close action), so restoring before `onSelect` would focus a node that is about
+    // to disappear. Restore only when the action did not deliberately move focus elsewhere.
+    const target = returnFocus.current;
     close();
     item.onSelect();
+    queueMicrotask(() => {
+      if (!target?.isConnected) return;
+      const focused = document.activeElement;
+      if (focused && focused !== document.body && focused !== document.documentElement) return;
+      target.focus({ preventScroll: true });
+    });
   };
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>, restoreFocus = false) => {
     if (event.key === "Escape") {
@@ -61,6 +130,10 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
       if (enabled.length === 0) return;
       event.preventDefault();
       setActive((index) => (index + (event.key === "ArrowDown" ? 1 : -1) + enabled.length) % enabled.length);
+    } else if (event.key === "Home" || event.key === "End") {
+      if (enabled.length === 0) return;
+      event.preventDefault();
+      setActive(event.key === "Home" ? 0 : enabled.length - 1);
     } else if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       run(enabled[active]);
@@ -70,6 +143,10 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
     <div
       className={cx("ui-context-menu-host", className)}
       onContextMenu={(event) => {
+        // A menu inside this host already took the right-click (its own item's Hide, inside a
+        // row's Show); a host with no items keeps the default.
+        if (event.defaultPrevented || items.length === 0) return;
+        if (targets === "own" && !(event.target instanceof Node && event.currentTarget.contains(event.target))) return;
         if (selection !== "menu" && window.getSelection()?.isCollapsed === false) return;
         if (ignore && event.target instanceof Element && event.target.closest(ignore)) return;
         event.preventDefault();
@@ -77,8 +154,9 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
         setActive(0);
         const target = event.target instanceof Element ? event.target : null;
         returnFocus.current =
-          target?.closest<HTMLElement>("button, a[href], input, select, textarea, [tabindex]:not([tabindex='-1'])") ??
-          null;
+          target?.closest<HTMLElement>(
+            "button, a[href], input, select, textarea, [contenteditable]:not([contenteditable='false']), [role='textbox'], [tabindex]:not([tabindex='-1'])",
+          ) ?? null;
         setPoint({ x: event.clientX, y: event.clientY });
       }}
     >
@@ -90,11 +168,10 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
             <div
               className="ui-context-menu-backdrop"
               style={{ position: "fixed", inset: 0, zIndex: "var(--layer-dropdown)" }}
-              onPointerDown={() => close()}
+              onPointerDown={() => close(true)}
             >
               <div
-                // Takes focus when it opens, so Up/Down/Return work.
-                ref={(node) => node?.focus()}
+                ref={attach}
                 className="ui-popup ui-context-menu"
                 role="menu"
                 data-focus-ring="rows"
@@ -102,8 +179,9 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                 style={{
                   position: "fixed",
                   minWidth: 180,
-                  left: Math.max(4, Math.min(point.x, window.innerWidth - 244)),
-                  top: Math.max(4, point.y),
+                  left: place?.left ?? point.x,
+                  top: place?.top ?? point.y,
+                  visibility: place ? undefined : "hidden",
                 }}
                 onPointerDown={(event) => event.stopPropagation()}
                 onKeyDown={(event) => {
@@ -127,7 +205,20 @@ export function ContextMenu({ items, children, className, selection, onOpen, ign
                       data-highlighted={enabled[active] === item ? "" : undefined}
                       onClick={() => run(item)}
                     >
-                      {item.label}
+                      {/* A text label truncates with its full text as a tooltip; a composed label
+                          (text plus a shortcut) keeps its own flex layout. */}
+                      {item.icon ? (
+                        <span className="ui-menu-icon" aria-hidden="true" style={MENU_ICON}>
+                          {item.icon}
+                        </span>
+                      ) : null}
+                      {typeof item.label === "string" ? (
+                        <span className="ui-menu-label" title={item.label}>
+                          {item.label}
+                        </span>
+                      ) : (
+                        item.label
+                      )}
                     </button>
                   </div>
                 ))}

@@ -82,12 +82,15 @@ export default agentPaneEntry({
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
+    // The context-usage-menu play draws it beside Hide Context Usage.
+    "agent-session/acpmux/ComposerPickers.tsx#RingIcon",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/composer/PromptEditor.tsx",
     "agent-session/acpmux/MarkdownField.tsx",
     "agent-session/acpmux/EffortPicker.tsx",
     "agent-session/acpmux/EmptyState.tsx",
     "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
+    "agent-session/acpmux/MentionMenu.tsx#MentionMenu",
   ],
   variants: {
     "new-chat": {
@@ -144,6 +147,17 @@ export default agentPaneEntry({
     idle: {
       note: "After a turn: Send, the mode and model chips.",
       snapshot: chat(finished),
+    },
+    focused: {
+      note: "The prompt focused: no ring drawn inside the composer box.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-md" });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        await ctx.waitFor(() => ctx.document.activeElement === field);
+        const outline = ctx.document.defaultView!.getComputedStyle(field).outlineStyle;
+        if (outline !== "none") throw new Error(`the focused prompt draws an outline (${outline})`);
+      },
     },
     // POLISH.md right-click contract: the prompt's own menu over selected text, never WebKit's.
     "context-menu": {
@@ -339,6 +353,31 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued-edit"));
       },
     },
+    "history-recall": {
+      note: "Play: ↑ from the empty prompt brings back the chat's last prompt, ↑ again the one before, ↓ steps forward and past the newest empties the prompt, as in Codex and Claude Code. The older prompt has Markdown characters the field escapes. A prompt being typed is never replaced.",
+      snapshot: chat([
+        user("Fix arr[0] and the 2 * 3 case in fetch_helper_retry", 6),
+        assistant("Added retries with exponential backoff.", 5),
+        user("Then add a test for the 429 path", 3),
+        assistant("Added the test.", 2),
+      ]),
+      play: async (ctx) => {
+        const prompt = () =>
+          ctx.document.querySelector(".acpmux-composer-prompt .acpmux-md-root")?.textContent?.trim() ?? "";
+        await ctx.click({ selector: ".acpmux-composer-prompt" });
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "Then add a test for the 429 path");
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "Fix arr[0] and the 2 * 3 case in fetch_helper_retry");
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => prompt() === "Then add a test for the 429 path");
+        await ctx.press("ArrowDown");
+        await ctx.waitFor(() => prompt() === "");
+        await ctx.type("draft");
+        await ctx.press("ArrowUp");
+        await ctx.waitFor(() => prompt() === "draft");
+      },
+    },
     "queued-long": {
       note: "Many queued prompts, one too long for its row: the rows scroll, and the cut-off one shows a tooltip on hover.",
       snapshot: chat(working, {
@@ -414,7 +453,7 @@ export default agentPaneEntry({
       },
     },
     "context-usage-menu": {
-      note: "Play: right-click the context ring; Hide Context Usage hides it, and a right-click on the footer then offers Show Context Usage.",
+      note: "Play: right-click the context ring; Hide Context Usage hides it, and a right-click on the composer's button row then offers Show Context Usage.",
       snapshot: chat(finished, {
         summary: {
           sessionId: "gallery-usage",
@@ -451,6 +490,89 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-composer-plus [data-value="attach"]'));
       },
     },
+    // cx-ncc.71 (Codex parity): + > Attach Screenshot… and Attach Window… take a capture through the
+    // host (macOS screencapture's own region or window pick) and attach it as an image chip.
+    "attach-screenshot": {
+      note: "Play: + > Attach Screenshot… asks the host for a region capture, attaches the image it returns and puts focus back in the prompt.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      checks: {
+        anchorMovePx: {
+          value: 80,
+          reason:
+            "The attached image's 72 px thumbnail row opens above the prompt, the same growth a pasted image makes.",
+        },
+        layoutShiftMax: { value: 0.05, reason: "The thumbnail row the capture adds above the prompt." },
+      },
+      native: {
+        "composer.capture": {
+          name: "Screenshot.png",
+          mimeType: "image/png",
+          data: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        },
+      },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="screenshot"]' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+        // Back in the prompt, to type about the capture (the + menu does not take focus back).
+        await ctx.waitFor(() => ctx.document.activeElement?.closest(".acpmux-composer-prompt"));
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
+          .cmuxGalleryLog;
+        const asked = log.find(({ method }) => method === "composer.capture");
+        if ((asked?.params as { mode?: string } | undefined)?.mode !== "screen")
+          throw new Error(`capture asked ${JSON.stringify(asked)}`);
+      },
+    },
+    "attach-window-cancelled": {
+      note: "Play: + > Attach Window… that the person cancels attaches nothing, shows no error and puts focus back in the prompt.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      native: { "composer.capture": null },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="window"]' });
+        const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string; params?: unknown }[] })
+          .cmuxGalleryLog;
+        await ctx.waitFor(() =>
+          log.some(
+            ({ method, params }) => method === "composer.capture" && (params as { mode?: string })?.mode === "window",
+          ),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        if (ctx.document.querySelector(".acpmux-attachment-image, .acpmux-attachment-note"))
+          throw new Error("a cancelled capture attached something or showed a note");
+        if (!ctx.document.activeElement?.closest(".acpmux-composer-prompt"))
+          throw new Error("a cancelled capture left focus off the prompt");
+      },
+    },
+    "attach-screenshot-too-large": {
+      note: "Play: + > Attach Screenshot… of a capture too large to attach shows the composer's note naming it, not nothing.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      checks: {
+        anchorMovePx: {
+          value: 40,
+          reason: "The note row opens above the prompt, as a pasted file that is too large does.",
+        },
+        layoutShiftMax: { value: 0.05, reason: "The note row the refused capture adds above the prompt." },
+      },
+      native: { "composer.capture": { tooLarge: true, name: "Screenshot 2026-10-11 14.32.05.png" } },
+      play: async (ctx) => {
+        await ctx.click({ selector: ".acpmux-composer-plus .acpmux-picker-button" });
+        await ctx.click({ selector: '.acpmux-composer-plus [data-value="screenshot"]' });
+        await ctx.waitFor(() =>
+          ctx.document
+            .querySelector(".acpmux-attachment-note")
+            ?.textContent?.includes("Screenshot 2026-10-11 14.32.05.png"),
+        );
+        if (ctx.document.querySelector(".acpmux-attachment-image"))
+          throw new Error("a refused capture attached an image");
+      },
+    },
     "context-breakdown": {
       note: "Play: open the context ring after a first message on Codex; the details split Agent setup (system prompt, tools and instructions) from the conversation.",
       snapshot: chat(finished, {
@@ -481,6 +603,30 @@ export default agentPaneEntry({
         await ctx.click({ selector: "[contenteditable='true']" });
         await ctx.type("/");
         await ctx.waitFor(() => ctx.document.querySelector("[role='listbox'], [role='menu']"));
+      },
+    },
+    "slash-menu-full": {
+      note: "Play: type / with an agent's full command list; in a small window the list goes past the window's edge (cx-6k6cg).",
+      snapshot: chat(finished, {
+        commands: [
+          { name: "add-dir", description: "Add a new working directory" },
+          { name: "agents", description: "Manage agent configurations" },
+          { name: "clear", description: "Clear conversation history and free up context" },
+          { name: "compact", description: "Clear conversation history but keep a summary in context" },
+          { name: "config", description: "Open the config panel" },
+          { name: "cost", description: "Show the total cost and duration of the current session" },
+          { name: "doctor", description: "Diagnose and verify your installation" },
+          { name: "init", description: "Initialize a new CLAUDE.md file with codebase documentation" },
+          { name: "memory", description: "Edit memory files" },
+          { name: "permissions", description: "Manage allow and deny tool permission rules" },
+          { name: "review", description: "Review a pull request" },
+          { name: "status", description: "Show the version, model, account and connectivity" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: "[contenteditable='true']" });
+        await ctx.type("/");
+        await ctx.waitFor(() => ctx.document.querySelector("#acpmux-slash-menu [role='option']"));
       },
     },
     "slash-menu-keyboard": {
@@ -517,6 +663,81 @@ export default agentPaneEntry({
         if (ctx.document.activeElement !== ctx.find(prompt)) throw new Error("slash command pick lost prompt focus");
         if (!ctx.find(prompt).textContent?.includes(`${command} `))
           throw new Error("slash command pick did not update prompt");
+      },
+    },
+    "search-files-key": {
+      note: "Play: Search Files… (Cmd-P in an agent chat, cx-ncc.69) opens the chat folder's file search with the keyboard in its field.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        // The prompt has the keyboard when the key comes in, as in a chat.
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
+        page.cmuxAcpmuxBridge?.command?.("searchFiles");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-file-search") !== null);
+        await ctx.waitFor(() => ctx.document.activeElement === ctx.document.querySelector(".acpmux-file-search input"));
+      },
+    },
+    "mention-picker": {
+      note: "Play: type @rea in the prompt; the chat's files that match open under the caret, best first, and Return writes @README.md into the prompt.",
+      snapshot: chat(finished),
+      native: {
+        "file.search": {
+          root: CWD,
+          results: [
+            { path: "README.md", matches: [0, 1, 2] },
+            { path: "src/reader.ts", matches: [4, 5, 6] },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("Fix @rea");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() =>
+          Array.from(ctx.document.querySelectorAll(".acpmux-mention-row")).some((row) =>
+            row.textContent?.includes("README.md"),
+          ),
+        );
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
+        if (!ctx.find(prompt).textContent?.includes("Fix @README.md"))
+          throw new Error(`mention pick did not write the path: ${ctx.find(prompt).textContent}`);
+        if (ctx.document.activeElement !== ctx.find(prompt)) throw new Error("mention pick lost prompt focus");
+      },
+    },
+    "mention-escaped-path": {
+      note: "Play: pick a path markdown escapes (src/__init__.py), then keep typing; the picker stays closed after the space it wrote.",
+      snapshot: chat(finished),
+      native: { "file.search": { root: CWD, results: [{ path: "src/__init__.py", matches: [6, 7, 8] }] } },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("Read @ini");
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-mention-row") !== null);
+        await ctx.press("Enter");
+        await ctx.waitFor(() => ctx.find(prompt).getAttribute("aria-expanded") === "false");
+        await ctx.type("now");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        if (!ctx.find(prompt).textContent?.includes("Read @src/__init__.py now"))
+          throw new Error(`mention pick did not write the path: ${ctx.find(prompt).textContent}`);
+        if (
+          ctx.document.querySelector(".acpmux-mention-row") ||
+          ctx.find(prompt).getAttribute("aria-expanded") === "true"
+        )
+          throw new Error("the picker reopened after the picked path's space");
+      },
+    },
+    "mention-mid-word": {
+      note: "Play: an @ inside a word (an email address) opens no file picker.",
+      snapshot: chat(finished),
+      native: { "file.search": { root: CWD, results: [{ path: "README.md" }] } },
+      play: async (ctx) => {
+        const prompt = { selector: "[contenteditable='true']" } as const;
+        await ctx.focus(prompt);
+        await ctx.type("mail me@rea");
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        if (ctx.document.querySelector(".acpmux-mention-row")) throw new Error("an @ inside a word opened the picker");
       },
     },
     "slash-fork": {

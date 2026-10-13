@@ -33,7 +33,7 @@ extension BrowserPageService {
             let run = try await router.runAction(ControlCall(request: request, snapshot: call.snapshot, connection: call.connection,
                                                              deadline: call.deadline, progress: call.progress))
             var result = Self.base(tab)
-            for key in ["ran", "waited", "created"] { result[key] = run[key] ?? .null }
+            for key in ["ran", "waited", "created"] { result.updateValue(run[key] ?? .null, forKey: key) }
             if let sequence = run["sequence"] { result["sequence"] = sequence }
             return .object(result)
         }.claimingProgress()

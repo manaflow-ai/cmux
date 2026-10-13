@@ -8,8 +8,8 @@ public enum SessionStateChange: Sendable, Hashable {
     case workspaceRemoved(ResourceID)
     case screen(ResourceID, SessionStateMirror.ScreenState?)
     case tab(ResourceID, SessionStateMirror.TabRecord?)
-    /// A terminal's OSC 9;4 progress and OSC 7501 program status records.
-    case terminal(ResourceID, TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [])
+    /// A terminal's OSC 9;4 progress, OSC 7501 program status records and running shell command.
+    case terminal(ResourceID, TerminalProgressReport?, programStatus: [ProgramStatusRecord] = [], busySinceMs: UInt64? = nil)
     case closed(ClosedItem)
     case closedRemoved(String)
     case status(WorkspaceStatus)
@@ -103,6 +103,13 @@ enum SessionWire {
 
         /// OSC 7501 records (`extra.program_status`).
         var programStatus: [ProgramStatusRecord] { ProgramStatusRecord.records(extra) }
+
+        /// When the terminal's running shell command started (`extra.busy.since_ms`, terminal-activity-v1:
+        /// OSC 133 C..D), nil at a prompt.
+        var busySinceMs: UInt64? {
+            guard case .object(let busy)? = extra?["busy"] else { return nil }
+            return busy["since_ms"]?.stringValue.flatMap { UInt64($0, radix: 10) }
+        }
     }
 
     struct StateLists: Decodable {
@@ -137,7 +144,8 @@ enum SessionWire {
             for screen in screens?.compactMap(\.value) ?? [] { mirror.screens.updateValue(screen.screenState, forKey: screen.id) }
             for tab in tabs?.compactMap(\.value) ?? [] where !tab.tabRecord.isEmpty { mirror.tabs.updateValue(tab.tabRecord, forKey: tab.id) }
             for terminal in terminals?.compactMap(\.value) ?? [] {
-                mirror.apply(.terminal(terminal.id, terminal.progress, programStatus: terminal.programStatus))
+                mirror.apply(.terminal(terminal.id, terminal.progress, programStatus: terminal.programStatus,
+                                       busySinceMs: terminal.busySinceMs))
             }
             mirror.closed = Array((state.closed?.compactMap(\.value) ?? []).prefix(SessionStateMirror.closedLimit))
             for status in state.workspaceStatus?.compactMap(\.value) ?? [] { mirror.workspaceStatus.updateValue(status, forKey: status.workspaceID) }
@@ -169,7 +177,7 @@ enum SessionWire {
             case ("delete", "tab"): change = .tab(rid, nil)
             case ("upsert", "terminal"):
                 let terminal = try c.decode(Entity.self, forKey: .value)
-                change = .terminal(rid, terminal.progress, programStatus: terminal.programStatus)
+                change = .terminal(rid, terminal.progress, programStatus: terminal.programStatus, busySinceMs: terminal.busySinceMs)
             case ("delete", "terminal"): change = .terminal(rid, nil)
             case ("state_upsert", "closed"): change = .closed(try c.decode(ClosedItem.self, forKey: .value))
             case ("state_delete", "closed"): change = .closedRemoved(id)

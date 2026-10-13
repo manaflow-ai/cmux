@@ -12,6 +12,8 @@ pub(super) enum OperationOwner {
     Auxiliary,
     State,
     Git,
+    /// The daemon history module (history_ops.rs).
+    History,
     Credential,
     Connection,
     /// Settings (the settings file): the config owner (resource_router/config.rs).
@@ -125,10 +127,26 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::GitCheckpointList
         | ResourceOperation::GitCheckpointPin
         | ResourceOperation::GitCheckpointUnpin
+        | ResourceOperation::GitCommit
         | ResourceOperation::GitDiff
         | ResourceOperation::GitFilesList
         | ResourceOperation::GitFilesSearch
+        | ResourceOperation::GitPush
+        | ResourceOperation::GitWorktreeCreate
+        | ResourceOperation::GitWorktreeApply
+        | ResourceOperation::GitWorktreeRemove
         | ResourceOperation::GitStatus => OperationOwner::Git,
+        ResourceOperation::HistoryEntriesList
+        | ResourceOperation::HistoryEntriesRemove
+        | ResourceOperation::HistorySiteRemove
+        | ResourceOperation::HistoryClear
+        | ResourceOperation::HistoryRestore
+        | ResourceOperation::HistoryBackupsPurge
+        | ResourceOperation::HistoryVisitRecord
+        | ResourceOperation::HistoryVisitTitle
+        | ResourceOperation::HistoryVisitRemove
+        | ResourceOperation::HistoryVisitSummaries
+        | ResourceOperation::HistoryVisitImport => OperationOwner::History,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet
@@ -144,6 +162,7 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::TabGroupMove
         | ResourceOperation::TabGroupUngroup
         | ResourceOperation::TabGroupClose
+        | ResourceOperation::LayoutBulk
         | ResourceOperation::WorkspaceGroupList
         | ResourceOperation::WorkspaceGroupCreate
         | ResourceOperation::WorkspaceGroupUpdate
@@ -254,7 +273,11 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::SettingsSnapshot
         | ResourceOperation::SettingsSet
         | ResourceOperation::SettingsReset
-        | ResourceOperation::SettingsResetAll => OperationOwner::Config,
+        | ResourceOperation::SettingsResetAll
+        | ResourceOperation::KeybindingsGet
+        | ResourceOperation::KeybindingsSet
+        | ResourceOperation::KeybindingsRemove
+        | ResourceOperation::KeybindingsReset => OperationOwner::Config,
     }
 }
 

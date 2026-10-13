@@ -61,8 +61,15 @@ extension ChatController {
         let time = DateFormatter()
         time.dateStyle = .none
         time.timeStyle = .short
-        return visibleMessages().map { m in
-            let e = MessageAccessibilityElement(messageID: m.id)
+        // cmux: MessagesLab 30495be (TranscriptAccess.swift:75), this file stays at bd65bbf: the
+        // elements are kept, one per message id and reused. AX clients hold them between calls; an
+        // element made on every call was freed before a client read it (the AX dump's list was empty).
+        let visible = visibleMessages()
+        let keep = Set(visible.map(\.id))
+        selection.axElements = selection.axElements.filter { keep.contains($0.key) }
+        return visible.map { m in
+            let e = selection.axElements[m.id] ?? MessageAccessibilityElement(messageID: m.id)
+            selection.axElements[m.id] = e
             let msg = store.state.message(m.id)
             let sender = msg.map { msg in
                 msg.senderId == store.state.me ? NativeStrings.you
@@ -98,6 +105,8 @@ struct TextPosition: Equatable { var key: String; var offset: Int }
 /// Drag-to-select across rows. The highlight is a shape layer over the rows,
 /// recomputed when the transcript moves or changes.
 final class TranscriptSelection {
+    /// cmux: MessagesLab 30495be: the transcript's accessibility elements, one per visible message id.
+    var axElements: [ID: MessageAccessibilityElement] = [:]
     unowned let controller: ChatController
     let layer = CAShapeLayer()
     private(set) var anchor: TextPosition?
@@ -182,8 +191,10 @@ final class TranscriptSelection {
         guard let key = selectedKey, let demo = controller.demo else { return nil }
         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
             guard let spec = cell.spec, spec.key == key, case let .part(p) = spec.kind else { continue }
-            let body = cell.convert(RowDraw.bodyRect(spec), to: demo)
-            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail).cgPath
+            // cmux: MessagesLab 2281879's selection outline (this file stays at bd65bbf): the drawn balloon.
+            let frame = RowDraw.bodyRect(spec)
+            let body = cell.convert(RowDraw.balloon(frame, row: p), to: demo)
+            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail, cornersOf: frame.size).cgPath
         }
         return nil
     }

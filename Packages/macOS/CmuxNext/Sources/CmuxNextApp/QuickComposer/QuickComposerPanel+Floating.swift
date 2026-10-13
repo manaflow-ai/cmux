@@ -16,7 +16,9 @@ extension QuickComposerPanel {
             minSize = FloatingChatFrames.minimumSize
             guard let screen = screen ?? Self.screenUnderPointer() else { return }
             let saved = frames.frame(onDisplay: FloatingChatFrames.display(screen))
-            setFrame(FloatingChatFrames.placement(saved: saved, near: frame, in: screen.visibleFrame), display: true, animate: isVisible)
+            // Hidden (a tab moved here), it opens where the composer would.
+            let near = isVisible ? frame : Self.placement(size: frame.size, in: screen.visibleFrame)
+            setFrame(FloatingChatFrames.placement(saved: saved, near: near, in: screen.visibleFrame), display: true, animate: isVisible)
         } else {
             styleMask.remove(.resizable)
             level = .floating

@@ -18,6 +18,7 @@ enum TabHandlers {
         bindMetadata(registry, ctx)
         TabHandlers.bindMoreActions(into: registry, context: ctx)
         PaneTabBarHandlers.bind(into: registry, context: ctx)
+        TabRestart.bind(into: registry, context: ctx)
     }
 
     private static func bindLifecycle(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -65,15 +66,20 @@ enum TabHandlers {
                 pane.newTerminalTab(cwd: pane.tab(id)?.cwd)
             }
         })
-        let history = ClosedTabTracker(services: ctx.services)
-        ctx.services.closedTabs = history
+        ctx.services.closedTabs = ClosedTabsFeed(services: ctx.services)
+        // Cmd-Shift-T (reopen-closed.md 4): the newest closed group of the key window at any
+        // level, from the daemon's closed history (the only one); a window the app closed is a
+        // `window` group there (`window-records-v1`). With no group to reopen (an older daemon, a
+        // record write that failed) the app's registry reopens the last closed window.
         registry.bind("reopenClosedBrowserPanel", invoke: { _ in
-            // The daemon's history first; the app's tracker covers daemons without it.
-            if let entry = DaemonClosedHistory.entries([.tab], in: ctx.services).first {
+            if let entry = DaemonClosedHistory.newest(for: ctx.services.windows.active?.state.id, in: ctx.services) {
                 return DaemonClosedHistory.reopen(entry, services: ctx.services)
             }
-            guard let record = history.popLast() ?? ctx.refuseQuietly(RefusalStrings.noRecentlyClosedTab) else { return }
-            history.reopen(record, fallback: ctx.services.windows.active?.focusedPane)
+            if ctx.services.windows.reopenClosedWindow() { return }
+            guard DaemonClosedHistory.isServed(in: ctx.services) else {
+                return ctx.refuse(RefusalStrings.needsDaemonCapability(DaemonCapabilities.shared.stateResources))
+            }
+            ctx.refuseQuietly(RefusalStrings.noRecentlyClosedTab)
         })
     }
 
@@ -251,6 +257,7 @@ enum TabHandlers {
             guard let id = invocation.target?.id, let (tab, _) = ctx.services.locateTab(id) else { return nil }
             return tab.pinned ? PinStrings.unpinTab : PinStrings.pinTab
         }
+        PinnedPage.bind(registry, ctx: ctx)
     }
 
     /// Optimistic rename; an empty name clears it on the daemon.

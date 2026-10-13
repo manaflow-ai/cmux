@@ -291,10 +291,13 @@ export default agentPaneEntry({
     "page:cmux.agent",
     "agent-session/acpmux/App.tsx#VirtualTranscript",
     "agent-session/acpmux/App.tsx#AcpmuxApp",
+    "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
+    "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
+    "agent-session/acpmux/conversation/HighlightedCode.tsx",
     "agent-session/acpmux/conversation/DiagramBlock.tsx",
     "agent-session/acpmux/conversation/StreamingCode.tsx",
     "agent-session/acpmux/conversation/Math.tsx",
@@ -305,7 +308,10 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
+    "agent-session/acpmux/conversation/CopyButton.tsx#CopyButton",
+    "agent-session/acpmux/conversation/toolOutput.tsx#OutputMore",
     "agent-session/acpmux/conversation/EditDiff.tsx",
+    "agent-session/acpmux/conversation/EditDiffHunks.tsx",
     "agent-session/acpmux/conversation/EditedFilesCard.tsx",
     "agent-session/acpmux/conversation/PreviewCard.tsx",
     "agent-session/acpmux/conversation/Thinking.tsx",
@@ -360,6 +366,148 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "copy-last-code-block": {
+      note: "Play: Copy Last Code Block (cx-ncc.72, Codex parity) hands the app the last fenced block of the latest reply, not an earlier one.",
+      snapshot: chat([
+        user(prompt, 6),
+        assistant("First try:\n\n```ts\nretry(fetch, 3);\n```", 5),
+        summary(4.9, { status: "completed" }),
+        user("Cap the backoff too", 3),
+        assistant(
+          "Two changes:\n\n```ts\nconst delay = Math.min(cap, base * 2 ** attempt);\n```\n\nand the call:\n\n```ts\nretry(fetch, { attempts: 3, cap: 8000 });\n```\n\nDone.",
+          2,
+        ),
+        summary(1.9, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { lastCodeBlock?(): string | null } };
+        await ctx.waitFor(() => page.cmuxAcpmuxBridge?.lastCodeBlock !== undefined);
+        const copied = page.cmuxAcpmuxBridge?.lastCodeBlock?.();
+        if (copied !== "retry(fetch, { attempts: 3, cap: 8000 });") throw new Error(`copied ${JSON.stringify(copied)}`);
+      },
+    },
+    "archive-chat-key": {
+      note: "Play: Archive Chat (cx-ncc.72) archives the chat through the same host call as the chat menu's Archive.",
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        const page = ctx.document.defaultView as unknown as {
+          cmuxAcpmuxBridge?: { command?(name: string): void };
+          cmuxGalleryLog: { method: string; params?: { archived?: boolean } }[];
+        };
+        page.cmuxAcpmuxBridge?.command?.("archiveChat");
+        await ctx.waitFor(() =>
+          page.cmuxGalleryLog.some(({ method, params }) => method === "chat.archive" && params?.archived === true),
+        );
+      },
+    },
+    "fork-any-turn": {
+      note: "Play: a Claude chat offers Fork under every completed turn (cx-yqiv, Codex parity); an earlier turn's forks through that turn.",
+      snapshot: forkTurns("claude"),
+      play: forkEarlierTurn,
+    },
+    "fork-any-turn-codex": {
+      note: "Play: a Codex chat offers Fork under every completed turn too (cx-a7r); an earlier turn's forks through that turn.",
+      snapshot: forkTurns("codex"),
+      play: forkEarlierTurn,
+    },
+    "fork-latest-turn-only": {
+      note: "Play: another agent forks only at a chat's end, so only the latest turn offers Fork.",
+      snapshot: forkTurns(undefined),
+      play: async (ctx) => {
+        await ctx.focus({ selector: "[contenteditable='true']" });
+        await ctx.waitFor(() => ctx.document.querySelectorAll('button[aria-label="Fork from here"]').length === 1);
+      },
+    },
+    "mark-unread-menu": {
+      note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks the host to mark the chat unread.",
+      snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string }[] };
+        await ctx.click({ role: "button", name: "Chat actions" });
+        await ctx.click({ role: "menuitem", name: "Mark as Unread" });
+        await ctx.waitFor(() => page.cmuxGalleryLog.some(({ method }) => method === "chat.markUnread"));
+      },
+    },
+    "thought-row": {
+      note: "Play: a long thought is one closed Thought row titled by its first line (cx-ncc.73, Codex parity); a click opens the full text.",
+      snapshot: chat(
+        [
+          user(prompt, 2),
+          activity(
+            [
+              thought(
+                "Check how the helper parses errors first.\n\nThe retry wrapper in src/net/client.ts swallows the status code, so a 429 looks like a network failure.\n\nRetry only on 429 and 5xx, with jittered backoff capped at three attempts.",
+              ),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+            ],
+            1.5,
+          ),
+        ],
+        { isWorking: true },
+      ),
+      play: async (ctx) => {
+        const row = () => ctx.document.querySelector<HTMLButtonElement>("button.cv-thought");
+        await ctx.waitFor(() => row()?.textContent?.includes("Check how the helper parses errors first.") ?? false);
+        if (row()!.getAttribute("aria-expanded") !== "false") throw new Error("a thought opens closed");
+        if (ctx.document.body.textContent?.includes("jittered backoff"))
+          throw new Error("a closed thought shows only its first line");
+        await ctx.click({ selector: "button.cv-thought" });
+        await ctx.waitFor(() => row()?.getAttribute("aria-expanded") === "true");
+        await ctx.waitFor(() => ctx.document.body.textContent?.includes("jittered backoff"));
+      },
+    },
+    "thought-find": {
+      note: "Play: Find in Chat for a word in a closed thought opens it and marks the word in its text, never the row's own Thought label (cx-ncc.73).",
+      checks: {
+        longFrameFailMs: {
+          value: 80,
+          reason:
+            "The key that opens the closed Worked for fold still re-renders the whole pane once (the fold state lives in AcpmuxPane; Find state moved below it in cx-ncc.86): 70-120 ms at 4x CPU throttle in dev React, other keys now render the transcript alone.",
+        },
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Find opens the fold and the thought that hold the match, which moves the rows below on purpose.",
+        },
+      },
+      snapshot: chat([
+        user(prompt, 2),
+        activity(
+          [
+            thought(
+              "Check how the helper parses errors first.\n\nOn second thought, the retry wrapper swallows the status.",
+            ),
+            tool("Read client.ts", "read", "completed", {
+              locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+            }),
+          ],
+          1.5,
+        ),
+        assistant("Retries now stop on a 4xx.", 1),
+        summary(0.9, { status: "completed" }),
+      ]),
+      play: async (ctx) => {
+        // Cmd-F: the app sends the page `find`, and the bar takes the keyboard.
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { command?(name: string): void } };
+        page.cmuxAcpmuxBridge?.command?.("find");
+        await ctx.waitFor(() => ctx.document.activeElement?.classList.contains("acpmux-find__field") ?? false);
+        // A key at a time, as a person types: the play's type inserts its whole text in one task,
+        // which ran seven query updates and the fold opening in one frame (cx-ncc.76).
+        for (const key of "thought") await ctx.type(key);
+        const active = () => {
+          const highlights = (ctx.document.defaultView as unknown as { CSS: { highlights?: Map<string, Set<Range>> } })
+            .CSS.highlights;
+          return [...(highlights?.get("acpmux-find-active") ?? [])][0];
+        };
+        await ctx.waitFor(() => active() !== undefined);
+        const at = active()!.startContainer.parentElement;
+        if (!at?.closest(".cv-thought__body"))
+          throw new Error(`the current match is not in the thought's text: ${at?.className ?? "none"}`);
+      },
     },
     "working-tools": {
       note: "Tool calls running in a live turn.",
@@ -806,6 +954,28 @@ export default agentPaneEntry({
         );
       },
     },
+    "keyboard-copy": {
+      note: "Play: select a transcript range, invoke both Ctrl-C and Cmd-C, and keep the range focused for copy feedback.",
+      snapshot: chat(selectionRows),
+      play: async (ctx) => {
+        await ctx.focus({ selector: '[data-row-id="gallery-selection-user"]' });
+        await ctx.press("Shift+ArrowDown");
+        await ctx.waitFor(
+          () =>
+            ctx.document
+              .querySelector('[data-row-id="gallery-selection-answer"]')
+              ?.getAttribute("data-transcript-selected") === "true",
+        );
+        await ctx.press("Control+c");
+        await ctx.press("Meta+c");
+        await ctx.waitFor(() => {
+          const answer = ctx.document.querySelector('[data-row-id="gallery-selection-answer"]');
+          return (
+            answer?.getAttribute("data-transcript-selected") === "true" && answer.contains(ctx.document.activeElement)
+          );
+        });
+      },
+    },
     "keyboard-focus": {
       note: "Play: focus the Worked for disclosure and press Enter; the tool details open without leaving the transcript.",
       snapshot: chat(keyboardRows),
@@ -842,6 +1012,23 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-shell__output")?.textContent === "3 pass\n0 fail");
       },
     },
+    "shell-long-colored-output": {
+      note: "A long, coloured test run: no colour codes, its last 400 lines under a cut mark, Show all output, and Copy in the label.",
+      checks: shellDisclosureChecks,
+      snapshot: chat(
+        shellRows("gallery-shell-long", "Run the whole suite", "bun test", {
+          output: Array.from(
+            { length: 1200 },
+            (_, index) => `\x1b[32m(pass)\x1b[0m retry backoff case ${index + 1} \x1b[2m[0.${index % 10}ms]\x1b[0m`,
+          ).join("\n"),
+          exitCode: 0,
+        }),
+      ),
+      play: async (ctx) => {
+        await openSingleShell(ctx);
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-output-more")?.textContent === "Show all output");
+      },
+    },
     "shell-failed-exit": {
       note: "A failed command exposes its nonzero exit status alongside its output.",
       checks: shellDisclosureChecks,
@@ -865,3 +1052,30 @@ export default agentPaneEntry({
     },
   },
 });
+
+/// Two completed turns of a chat whose agent family is `family` (cx-yqiv).
+/// Both turns offer Fork, and the earlier one's forks through that turn's summary (seq 3).
+async function forkEarlierTurn(ctx: PlayContext) {
+  const page = ctx.document.defaultView as unknown as {
+    cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
+  };
+  const forks = () => [...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]')];
+  await ctx.focus({ selector: "[contenteditable='true']" });
+  await ctx.waitFor(() => forks().length === 2);
+  forks()[0]!.click();
+  await ctx.waitFor(() =>
+    page.cmuxGalleryLog.some(({ method, params }) => method === "chat.fork" && params?.throughSeq === 3),
+  );
+}
+
+function forkTurns(family: string | undefined) {
+  const snapshot = chat([
+    user("Add retry with backoff to the uploader", 9, { seq: 1 }),
+    assistant("Done: three tries, doubling from 200 ms, only on 5xx and timeouts.", 8.5),
+    summary(8.5, { seq: 3, status: "completed" }),
+    user("Now cover it with a test that fakes two timeouts", 6, { seq: 4 }),
+    assistant("Added `uploader.retry.test.ts`; it passes and fails without the retry.", 5),
+    summary(5, { seq: 6, status: "completed" }),
+  ]);
+  return { ...snapshot, summary: snapshot.summary && { ...snapshot.summary, family } };
+}

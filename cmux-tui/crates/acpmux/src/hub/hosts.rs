@@ -622,7 +622,10 @@ impl Hub {
             );
             {
                 let state = s.permissions.lock().unwrap();
-                if state.pending.is_empty() && s.status() == SessionStatus::Waiting {
+                if state.pending.is_empty()
+                    && s.status() == SessionStatus::Waiting
+                    && !hub.secrets.waiting_in(&s.id)
+                {
                     let next = if s.turn().is_some() {
                         SessionStatus::Running
                     } else {

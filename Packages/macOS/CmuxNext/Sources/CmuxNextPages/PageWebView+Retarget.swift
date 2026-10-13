@@ -25,6 +25,8 @@ extension PageWebView {
         (webView as? PageWKWebView)?.forgetUserActivation()
         self.descriptor = descriptor
         self.dynamicResources = dynamicResources
+        // A drop handler belongs to the claim that set it (Settings takes image drops).
+        fileDrop = nil
         themeSurface = surface
         setAccessibilityIdentifier("cmux.page.\(descriptor.id)")
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
@@ -63,6 +65,7 @@ extension PageWebView {
         router.rebind(descriptor: descriptor, routes: [])
         (webView as? PageWKWebView)?.forgetUserActivation()
         dynamicResources = nil
+        fileDrop = nil
         route = nil
         countsTouches = false
         touched = false

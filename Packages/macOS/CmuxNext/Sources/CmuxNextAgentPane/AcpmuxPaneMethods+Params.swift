@@ -14,17 +14,22 @@ nonisolated extension AcpmuxPaneMethods {
         "session/cancel": (["sessionId"], []),
         "_acpmux/watch": (["enabled"], []),
         "_acpmux/events": (["sessionId", "afterSeq", "beforeSeq", "limit", "kinds"], []),
-        "_acpmux/attach": (["sessionId", "limit", "kinds", "eventStream"], []),
+        // `visible`: whether the pane shows the chat; acpmux owns unread from it (cx-n8ou).
+        "_acpmux/attach": (["sessionId", "limit", "kinds", "eventStream", "visible"], []),
         "_acpmux/detach": (["sessionId"], []),
+        "_acpmux/view": (["sessionId", "visible"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
         "_acpmux/kill": (["sessionId", "purge"], []),
         "_acpmux/prewarm": (["harness", "cwd"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
         "_acpmux/harnesses": (["cwd"], []),
-        "_acpmux/models": ([], []),
+        // `refresh`: the picker's Refresh models; acpmux probes its agents' model lists again. It
+        // grants nothing (the same probes acpmux runs in the background), so no gesture rule.
+        "_acpmux/models": (["refresh"], []),
         "_acpmux/status": ([], []),
         "_acpmux/draft_get": (["sessionId"], []),
         "_acpmux/draft_set": (["sessionId", "text"], []),
+        "_acpmux/ask": (["sessionId", "text"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
         "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "index"], []),
         // `_meta`: only the gesture ticket of the person's pick (cx-0q7o), never anything else.

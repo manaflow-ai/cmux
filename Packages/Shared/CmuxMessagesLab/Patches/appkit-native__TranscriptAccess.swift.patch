@@ -27,7 +27,34 @@
          }
      }
  
-@@ -115,6 +116,9 @@
+@@ -60,8 +61,15 @@
+         let time = DateFormatter()
+         time.dateStyle = .none
+         time.timeStyle = .short
+-        return visibleMessages().map { m in
+-            let e = MessageAccessibilityElement(messageID: m.id)
++        // cmux: MessagesLab 30495be (TranscriptAccess.swift:75), this file stays at bd65bbf: the
++        // elements are kept, one per message id and reused. AX clients hold them between calls; an
++        // element made on every call was freed before a client read it (the AX dump's list was empty).
++        let visible = visibleMessages()
++        let keep = Set(visible.map(\.id))
++        selection.axElements = selection.axElements.filter { keep.contains($0.key) }
++        return visible.map { m in
++            let e = selection.axElements[m.id] ?? MessageAccessibilityElement(messageID: m.id)
++            selection.axElements[m.id] = e
+             let msg = store.state.message(m.id)
+             let sender = msg.map { msg in
+                 msg.senderId == store.state.me ? NativeStrings.you
+@@ -97,6 +105,8 @@
+ /// Drag-to-select across rows. The highlight is a shape layer over the rows,
+ /// recomputed when the transcript moves or changes.
+ final class TranscriptSelection {
++    /// cmux: MessagesLab 30495be: the transcript's accessibility elements, one per visible message id.
++    var axElements: [ID: MessageAccessibilityElement] = [:]
+     unowned let controller: ChatController
+     let layer = CAShapeLayer()
+     private(set) var anchor: TextPosition?
+@@ -115,6 +125,9 @@
      }
  
      var isEmpty: Bool { anchor == nil || anchor == focus }
@@ -37,7 +64,20 @@
  
      // MARK: Selected message (a click on a bubble)
  
-@@ -219,7 +223,7 @@
+@@ -178,8 +191,10 @@
+         guard let key = selectedKey, let demo = controller.demo else { return nil }
+         for case let cell as RowCell in demo.collection.visibleCells where !cell.isHidden {
+             guard let spec = cell.spec, spec.key == key, case let .part(p) = spec.kind else { continue }
+-            let body = cell.convert(RowDraw.bodyRect(spec), to: demo)
+-            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail).cgPath
++            // cmux: MessagesLab 2281879's selection outline (this file stays at bd65bbf): the drawn balloon.
++            let frame = RowDraw.bodyRect(spec)
++            let body = cell.convert(RowDraw.balloon(frame, row: p), to: demo)
++            return BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail, cornersOf: frame.size).cgPath
+         }
+         return nil
+     }
+@@ -219,7 +234,7 @@
      @discardableResult
      func selectWord(at p: CGPoint) -> Bool {
          guard let pos = position(at: p), let demo = controller.demo, let i = demo.model.index[pos.key],
@@ -46,7 +86,7 @@
          let str = NSAttributedString(string: tl.text)
          guard str.length > 0 else { return false }
          let r = str.doubleClick(at: min(pos.offset, str.length - 1))
-@@ -255,28 +259,31 @@
+@@ -255,28 +270,31 @@
          if p.y < r.body.minY { return TextPosition(key: r.key, offset: 0) }
          if p.y > r.body.maxY { return TextPosition(key: r.key, offset: (tl.text as NSString).length) }
          let x = p.x - r.body.minX - Fixture.bubblePadX, y = p.y - r.body.minY - Fixture.bubblePadY
@@ -87,7 +127,7 @@
              let len = (tl.text as NSString).length
              let from = key == s.key ? s.offset : 0
              let to = key == e.key ? e.offset : len
-@@ -300,7 +307,7 @@
+@@ -300,7 +318,7 @@
                      let inter = NSIntersectionRange(sel, line.range)
                      let empty = line.range.length == 0 && NSLocationInRange(line.range.location, sel)
                      guard inter.length > 0 || empty else { continue }

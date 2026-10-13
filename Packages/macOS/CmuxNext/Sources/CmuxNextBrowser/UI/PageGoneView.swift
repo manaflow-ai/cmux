@@ -12,6 +12,7 @@ final class PageGoneView: NSView {
     private let titleLabel = NSTextField(labelWithString: "")
     private let messageLabel = NSTextField(wrappingLabelWithString: "")
     private let codeLabel = NSTextField(labelWithString: "")
+    private let reloadButton = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: nil)
     private let density = DensityBinding()
 
     override init(frame: NSRect) {
@@ -20,7 +21,9 @@ final class PageGoneView: NSView {
         setAccessibilityIdentifier(BrowserChromeView.pageGoneIdentifier)
         messageLabel.alignment = .center
         codeLabel.isSelectable = true
-        let reload = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: self)
+        codeLabel.focusRingType = .none
+        let reload = reloadButton
+        reload.target = self
         reload.setAccessibilityIdentifier(BrowserChromeView.pageGoneReloadIdentifier)
         let stack = NSStackView(views: [symbol, titleLabel, messageLabel, reload, codeLabel])
         stack.orientation = .vertical
@@ -77,4 +80,12 @@ final class PageGoneView: NSView {
     }
 
     @objc private func reload() { onReload?() }
+
+    #if DEBUG
+    /// `debug.browser.page_status`: the title, the message and the button the sad tab shows.
+    var debugText: String { "\(titleLabel.stringValue)\n\(messageLabel.stringValue)\n\(reloadButton.isHidden ? "" : reloadButton.title)" }
+
+    /// Presses Reload through its button, as a click does.
+    func pressReload() { reloadButton.performClick(nil) }
+    #endif
 }

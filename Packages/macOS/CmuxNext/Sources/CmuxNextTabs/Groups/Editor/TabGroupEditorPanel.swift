@@ -45,6 +45,9 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
     /// The bubble's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?
     private var swatches: [TabGroupSwatchView] = []
+    /// After the palette dots: a custom color from the system color panel (cx-wqn5).
+    private let customSwatch = GroupCustomSwatchView(label: Strings.editorCustomColor)
+    private let colorPanel = GroupColorPanel.shared
     private var saveRow: TabGroupEditorRow?
     private var group: TabGroupItem?
     private var dismissing = false
@@ -93,7 +96,8 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             swatch.onPick = { [weak self] picked in self?.pick(picked) }
             return swatch
         }
-        let swatchRow = NSStackView(views: swatches)
+        customSwatch.onPress = { [weak self] in self?.pickCustom() }
+        let swatchRow = NSStackView(views: swatches + [customSwatch])
         swatchRow.spacing = Metrics.space2
         swatchRow.distribution = .equalSpacing
 
@@ -135,6 +139,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         glass.applyTheme()
         glass.performWithTheme {
             nameField.textColor = Palette.textPrimary
+            nameField.applyThemedPlaceholder(Strings.editorNamePlaceholder)
             field.layer?.backgroundColor = Palette.hoverFill.cgColor
         }
         styleFieldEditor()
@@ -155,13 +160,23 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         let renamed = self.group?.id != group.id || nameField.currentEditor() == nil
         self.group = group
         if renamed { nameField.stringValue = group.name }
-        for swatch in swatches { swatch.isChosen = swatch.color == group.colorToken }
+        for swatch in swatches { swatch.isChosen = .palette(swatch.color) == group.tint }
+        if case .custom = group.tint { customSwatch.custom = group.tint } else { customSwatch.custom = nil }
+        customSwatch.isChosen = customSwatch.custom != nil
         saveRow?.title = group.isSaved ? Strings.editorUnsave : Strings.editorSave
     }
 
     private func pick(_ color: GroupColor) {
-        guard let group, group.colorToken != color else { return }
-        onCommand?(.setColor(group.id, color))
+        guard let group, group.tint != .palette(color) else { return }
+        onCommand?(.setColor(group.id, .palette(color)))
+    }
+
+    /// Opens the system color panel for this group. The bubble closes when the panel takes the
+    /// keys; the colors the person settles on still go to the group.
+    private func pickCustom() {
+        guard let group else { return }
+        let id = group.id
+        colorPanel.open(current: group.tint) { [weak self] tint in self?.onCommand?(.setColor(id, tint)) }
     }
 
     private func commitName() {
@@ -201,7 +216,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
         guard let editor = nameField.currentEditor() as? NSTextView else { return }
         nameField.performWithTheme {
             editor.selectedTextAttributes = [.backgroundColor: Palette.selectionFill.blended(withFraction: 0.5, of: Palette.textSecondary) ?? Palette.selectionFill]
-            editor.insertionPointColor = Palette.textPrimary
+            editor.insertionPointColor = Palette.caret
         }
     }
 

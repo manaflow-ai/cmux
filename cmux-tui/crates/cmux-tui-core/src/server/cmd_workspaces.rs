@@ -244,22 +244,33 @@ pub(super) fn move_workspace_to_group(
     }))
 }
 
+/// How `close-workspace` ends: `terminals` also ends its terminals (`batch-close-v1`), and a
+/// `reason` (`close-reason-v1`, only with `terminals`) keeps the close out of closed history.
+pub(super) struct Ending {
+    pub terminals: bool,
+    pub reason: Option<crate::mux::CloseReason>,
+}
+
 pub(super) fn close_workspace(
     mux: &Arc<Mux>,
     client: u64,
     workspace: Option<WorkspaceId>,
     key: Option<String>,
-    end_terminals: bool,
+    ending: Ending,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
+    if ending.reason.is_some() && !ending.terminals {
+        anyhow::bail!("bad request: close-workspace takes a reason only with end_terminals");
+    }
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-    let result = if end_terminals {
-        mux.close_workspace_ending_terminals(
+    let result = if ending.terminals {
+        mux.close_workspace_ending_terminals_for(
             workspace,
             key.as_deref(),
             mutation.expected_generation.as_deref(),
             mutation.expected_revision,
             &workspace_mutation,
+            ending.reason,
         )?
         .0
     } else {

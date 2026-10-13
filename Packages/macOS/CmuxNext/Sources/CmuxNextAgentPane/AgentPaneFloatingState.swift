@@ -16,6 +16,8 @@ public struct AgentPaneFloatingState: Equatable, Sendable {
     }
 
     var json: JSONValue { ["holding": .bool(holding), "onTop": .bool(onTop), "collapsed": .bool(collapsed)] }
+    /// `quick.floatingState`'s reply: a page that loads after the last push reads it.
+    var reply: [String: Any] { ["holding": holding, "onTop": onTop, "collapsed": collapsed] }
 }
 
 extension AgentPageEvent {

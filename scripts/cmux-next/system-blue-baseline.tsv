@@ -1,7 +1,5 @@
 # check-system-blue.py baseline: path<TAB>count (lower it; never raise it by hand)
-Packages/Shared/CmuxAgentCursor/Sources/CmuxAgentCursor/AgentCursorPalette.swift	4
-Packages/macOS/CmuxNext/Sources/CmuxNextIcons/Icon.swift	1
 webviews/src/agent-session/acpmux/ProjectBadge.tsx	1
 webviews/src/agent-session/acpmux/mockFixture.ts	4
 webviews/src/agent-session/acpmux/summary/summary.css	1
-webviews/src/styles.css	6
+webviews/src/styles.css	2

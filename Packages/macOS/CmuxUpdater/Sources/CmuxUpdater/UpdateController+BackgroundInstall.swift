@@ -15,15 +15,55 @@ extension UpdateController {
         driver.stagedItem
     }
 
-    /// Installs the staged update and relaunches. No-op without one.
+    /// Sparkle's scheduled background check, now: with `SUAutomaticallyUpdate` on it downloads
+    /// through Sparkle's own silent driver, not this app's driver (the update harness's
+    /// `background` run, and what a scheduled check does).
+    public func checkInBackground() {
+        guard !updater.sessionInProgress else {
+            // Sparkle ignores a check while a session runs (the launch probe): run it after.
+            log.append("background check queued behind the running session")
+            pendingBackgroundCheck = true
+            return
+        }
+        log.append("background check requested")
+        updater.checkForUpdatesInBackground()
+    }
+
+    /// Installs the staged update and relaunches. The update is staged either by this app's driver
+    /// (its held ready reply) or by Sparkle's own silent driver: with `SUAutomaticallyUpdate` on
+    /// (a preference the shipped NIGHTLY app shares with this one), a scheduled check never reaches
+    /// this app's driver; it downloads, then hands over Sparkle's immediate-install handler through
+    /// `willInstallUpdateOnQuit`. Both look the same ("Update ready"), so both must install. If the
+    /// app is still running ``installWatchdogTimeout`` after the click, or nothing can install,
+    /// the click ends in a visible error that offers a manual download, never a dead button.
     public func installStagedUpdate() {
-        driver.installStaged()
+        if driver.installStaged() {
+            armStagedInstallWatchdog()
+            return
+        }
+        if case .installing(let installing) = model.state, installing.isAutoUpdate {
+            log.append("background install: installing the update Sparkle staged silently")
+            model.setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
+            installing.retryTerminatingApplication()
+            armStagedInstallWatchdog()
+            return
+        }
+        setInstallDidNotStartError(diagnostic: "install clicked with no staged update (state=\(model.state))")
+    }
+
+    /// The app should quit for the installer within ``installWatchdogTimeout``; a click that
+    /// leaves it running becomes the "couldn't start the update" error with its retry.
+    private func armStagedInstallWatchdog() {
+        installWatchdog.arm { [weak self] in
+            guard let self else { return }
+            self.setInstallDidNotStartError(diagnostic: "the app was still running \(Int(self.installWatchdog.timeoutSeconds))s after the install click (state=\(self.model.state))")
+        }
     }
 
     /// Installs the update downloading in the background as soon as it is ready: the user
     /// clicked while it was still downloading.
     public func installWhenStaged() {
-        guard driver.stagedInstall == nil else { return driver.installStaged() }
+        guard driver.stagedInstall == nil else { return installStagedUpdate() }
         driver.installsWhenStaged = true
     }
 

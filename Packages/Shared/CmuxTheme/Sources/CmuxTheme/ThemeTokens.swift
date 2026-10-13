@@ -69,6 +69,12 @@ public struct ThemeTokens: Hashable, Sendable {
     /// Selected text in chrome text fields (the terminal's selection color
     /// when the config sets one).
     public var textSelection: ThemeRGB
+    /// The config's own selection color (`selection-background`); nil when it names none or
+    /// the primary text would not read on it (an inverse-video selection).
+    public var terminalSelection: ThemeRGB?
+    /// Text carets: the terminal's cursor color when the config names one, else the primary
+    /// text, at least 3:1 on the background.
+    public var caret: ThemeRGB
 
     // Status, from the ANSI palette
     /// Needs-attention marks (ANSI yellow).
@@ -136,8 +142,8 @@ public struct ThemeTokens: Hashable, Sendable {
         let isDark = bg.relativeLuminance < input.foreground.relativeLuminance
         let fg = input.foreground
         let app = AppTheme.derive(from: input)
-        // The app accent when the setting names one; nil keeps the neutral fills.
-        let accent = input.accent == .neutral ? nil : app[.accent]
+        // The app accent when the setting or the theme names one; nil keeps the neutral fills.
+        let accent = input.accent == .neutral && input.accentColor == nil ? nil : app[.accent]
 
         let hover = fg.withAlpha(isDark ? 0.06 : 0.05)
         // An accent selection is the app theme's (`AppTheme` .selection: the accent over the background).
@@ -149,6 +155,13 @@ public struct ThemeTokens: Hashable, Sendable {
         let primary = readable(fg, over: worstSurface, minimum: minimumTextContrast)
         let secondary = muted(primary, toward: bg, upTo: 0.38, over: worstSurface, minimum: minimumTextContrast)
         let tertiary = muted(primary, toward: bg, upTo: 0.55, over: worstSurface, minimum: minimumMarkContrast)
+
+        // The config's selection fill, when text reads on it. Many themes select by inverse video
+        // (the foreground as the fill, with a dark `selection-foreground`); chrome and pages draw
+        // only the fill, which would hide the text, so those keep the derived selection.
+        let configSelection = input.selectionBackground.flatMap {
+            primary.contrast(with: $0.composited(over: bg)) >= minimumMarkContrast ? $0 : nil
+        }
 
         let palette = input.palette.count >= 8 ? input.palette : ThemeInput.ghosttyDefault.palette
         func status(_ index: Int) -> ThemeRGB { readable(palette[index], over: bg, minimum: minimumMarkContrast) }
@@ -188,7 +201,9 @@ public struct ThemeTokens: Hashable, Sendable {
             focusRing: accent ?? fg.withAlpha(0.40),
             glassTint: bg.withAlpha(isDark ? 0.40 : 0.30),
             shadow: bg.mixed(toward: .black, 0.85),
-            textSelection: input.selectionBackground ?? bg.mixed(toward: fg, 0.22),
+            textSelection: configSelection ?? bg.mixed(toward: fg, 0.22),
+            terminalSelection: configSelection,
+            caret: input.cursor.map { readable($0, over: bg, minimum: minimumMarkContrast) } ?? primary,
             attention: status(3),
             danger: status(1),
             success: status(2),

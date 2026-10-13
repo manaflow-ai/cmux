@@ -65,6 +65,18 @@ final class FilePageService: InternalPageProvider {
 
     func title(for key: String) -> String { tabs[key]?.file?.lastPathComponent ?? title }
 
+    /// The file the tab opened on (page-tab-route-v1); a later open inside the page keeps the first.
+    func route(for key: String) -> String? { tabs[key]?.file?.path }
+
+    /// A store tab came back on `route` (Reopen Closed, relaunch). The daemon
+    /// gave the path, so it is granted only as a recent file is
+    /// (`FilePageProvider`'s recents grant); any other path opens as an open
+    /// the user did not choose.
+    func restore(_ route: String, for key: String) {
+        guard tabs[key] == nil, route.hasPrefix("/") else { return }
+        tabs[key] = Tab(file: URL(fileURLWithPath: route), userChose: isRecent(route))
+    }
+
     var openKeys: [String] { tabs.keys.sorted() }
 
     func pageView(_ key: String) -> PageWebView? { tabs[key]?.page }
@@ -145,16 +157,37 @@ final class FilePageService: InternalPageProvider {
         show(in: pane, focus: focus, Tab(file: nil)) { key in self.file(key) == nil }
     }
 
+    /// The tab opens as a store tab where the pane's daemon holds page tabs
+    /// (page-tabs-v1), on its file as the route (page-tab-route-v1), so it
+    /// moves like any daemon tab and Reopen Closed brings it back on that
+    /// file; else as an app-only tab.
     private func show(in pane: PaneController, focus: Bool, _ tab: Tab, matching: (String) -> Bool) -> String {
         let window = services.windowController(showing: pane)
         for candidate in window?.content?.panes.values.map({ $0 }) ?? [pane] {
-            if let shown = services.pages.tabIDs(in: candidate.paneKey).first(where: { tabs[$0] != nil && matching($0) }) {
+            let keys = services.pages.tabIDs(in: candidate.paneKey) + candidate.pane.tabs.compactMap { services.pages.storeKey(of: $0.id) }
+            if let shown = keys.first(where: { tabs[$0] != nil && matching($0) }) {
                 if focus { reveal(shown, in: candidate) }
                 return shown
+            }
+            // A store tab of the same file that has not been shown yet (relaunch): show it, not a second one.
+            if let file = tab.file?.path, let unshown = candidate.pane.tabs.first(where: {
+                $0.page == kind.page.rawValue && $0.pageRoute == file && services.pages.storeKey(of: $0.id) == nil
+            }) {
+                if focus {
+                    candidate.select(StripTabID(unshown.id))
+                    candidate.focusContent()
+                }
+                return unshown.id
             }
         }
         let key = LocalPageTab.makeKey(kind.page)
         tabs[key] = tab
+        // A store tab only on this Mac's daemon that keeps the route: a file path of this Mac never
+        // goes to another machine's daemon, and a tab without its route could not come back.
+        if let window, pane.daemon.isLocal, services.pages.keepsRoutes(pane.daemon),
+           services.pages.openStoreTab(kind.page, in: pane, window: window, focus: focus, key: key) != nil {
+            return key
+        }
         services.pages.open(kind.page, in: pane.paneKey, of: pane.daemon.store, after: pane.stripModel.selectedID?.rawValue,
                             window: window, key: key)
         pane.apply(pane.snapshot())
@@ -163,7 +196,7 @@ final class FilePageService: InternalPageProvider {
     }
 
     private func reveal(_ key: String, in pane: PaneController) {
-        pane.select(StripTabID(key))
+        pane.select(services.pages.stripID(showing: key, in: pane) ?? StripTabID(key))
         pane.focusContent()
     }
 
@@ -234,7 +267,8 @@ final class FilePageService: InternalPageProvider {
     // MARK: InternalPageProvider
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        guard var tab = tabs[key] else { return NSView() }
+        // A store tab with no route (an empty tab, an older daemon) shows the empty state.
+        var tab = tabs[key] ?? Tab(file: nil)
         let host = FilePageTabHost(service: self, key: key)
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
         let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, host: host, clock: clock,

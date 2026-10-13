@@ -6,12 +6,14 @@ import {
   useRef,
   useState,
   type ComponentProps,
+  type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
   type RefObject,
 } from "react";
 import { Menu as BaseMenu } from "@base-ui/react/menu";
-import { usePortalContainer } from "./UiProvider";
+import { useOverlayPosition, usePopupHost, usePortalContainer } from "./UiProvider";
+import { useEscapingPopup, type AnchorBox } from "./popupHost";
 import { cx } from "./cx";
 import { UI_ANCHOR_GAP } from "./anchor";
 import { isMousePress, trackPressRelease } from "./pressRelease";
@@ -177,6 +179,8 @@ export interface MenuPopupProps {
   className?: string;
   /** Side of the trigger; submenus open at the inline end. */
   side?: "top" | "bottom" | "inline-end" | "inline-start";
+  /** False keeps `side` while open (`useOpenSide` chose it); default flips when there is no room. */
+  flip?: boolean;
   align?: "start" | "center" | "end";
   /** What the menu is placed against (default: the menu button). */
   anchor?: ComponentProps<typeof BaseMenu.Positioner>["anchor"];
@@ -185,6 +189,8 @@ export interface MenuPopupProps {
    * field (a picker's search) returns focus there.
    */
   finalFocus?: boolean | RefObject<HTMLElement | null>;
+  /** Keys the menu takes beyond Base UI's own (a mode menu's number keys). */
+  onKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => void;
   children: ReactNode;
 }
 
@@ -197,32 +203,57 @@ export function MenuPopup({
   label,
   className,
   side = "bottom",
+  flip = true,
   align = "start",
   anchor,
   finalFocus,
+  onKeyDown,
   children,
 }: MenuPopupProps) {
   const container = usePortalContainer();
+  const positionMethod = useOverlayPosition();
+  const host = usePopupHost();
+  const [popup, setPopup] = useState<HTMLElement | null>(null);
+  // No room above or below in the page: past the window's edge (popupHost.ts). Side menus stay.
+  useEscapingPopup(side === "top" || side === "bottom" ? host : null, popup, () => anchorElement(anchor, popup), {
+    side: side === "top" ? "top" : "bottom",
+    align: align === "end" ? "end" : "start",
+    gap: UI_ANCHOR_GAP,
+  });
   return (
     <BaseMenu.Portal container={container}>
       <BaseMenu.Positioner
         className="ui-positioner"
+        positionMethod={positionMethod}
         anchor={anchor}
         side={side}
+        collisionAvoidance={flip ? undefined : { side: "none" }}
         align={align}
         sideOffset={UI_ANCHOR_GAP}
       >
         <BaseMenu.Popup
+          // Only a page with a host measures its menus; the others render as they did.
+          ref={host ? setPopup : undefined}
           id={id}
           aria-label={label}
           className={cx("ui-popup ui-menu", className)}
           finalFocus={finalFocus}
+          onKeyDown={onKeyDown}
         >
           <PopupSurface value={className}>{children}</PopupSurface>
         </BaseMenu.Popup>
       </BaseMenu.Positioner>
     </BaseMenu.Portal>
   );
+}
+
+/** What a menu opened from: its `anchor` (an element or a virtual anchor), else its open trigger. */
+function anchorElement(anchor: MenuPopupProps["anchor"], popup: HTMLElement | null): AnchorBox | null {
+  const resolved = typeof anchor === "function" ? anchor() : anchor && "current" in anchor ? anchor.current : anchor;
+  if (resolved && "getBoundingClientRect" in resolved) return resolved;
+  if (resolved) return null;
+  const triggers = popup?.ownerDocument.querySelectorAll("[aria-haspopup][data-popup-open]") ?? [];
+  return triggers.length ? triggers[triggers.length - 1] : null;
 }
 
 export interface MenuItemProps {
@@ -320,14 +351,20 @@ export function MenuRadioItem({
   className,
   disabled,
   shortcut,
+  closeOnClick,
   children,
-}: { value: string } & Omit<MenuItemProps, "onSelect">) {
+}: {
+  value: string;
+  /** Close the menu when picked (Base UI keeps a radio menu open by default). */
+  closeOnClick?: boolean;
+} & Omit<MenuItemProps, "onSelect">) {
   const context = use(MenuContext);
   return (
     <BaseMenu.RadioItem
       className={cx("ui-menu-item", className)}
       value={value}
       disabled={disabled}
+      closeOnClick={closeOnClick}
       onPointerMove={(event) => context?.movePointer(event)}
       onPointerUp={(event) => {
         if (disabled) return;

@@ -22,6 +22,25 @@ extension ScreenContentView {
     /// edge): strip rings and highlights are clipped out of these.
     var coverRects: [CGRect] { PaneArrival.covers(geometry, docks: growingDocks) }
 
+    /// The frames of shown panes stacked above `host` that overlap it (local coordinates). Only
+    /// mid-motion: an unzoom's pane springing back over the panes it uncovers, a zoom's growing
+    /// over the others. Their headers are see-through, so what is under them is masked out.
+    func panes(above host: PaneHostView) -> [CGRect] {
+        guard let index = subviews.firstIndex(of: host) else { return [] }
+        var rects: [CGRect] = []
+        for case let above as PaneHostView in subviews[(index + 1)...] where !above.isHidden && above.alphaValue > 0.99 {
+            let shared = above.frame.intersection(host.frame)
+            if shared.width > 0.5 && shared.height > 0.5 { rects.append(above.frame) }
+        }
+        return rects
+    }
+
+    /// What hides `host`'s ring and dim (local coordinates): the docked columns over a strip pane,
+    /// and the panes in front of it (`panes(above:)`).
+    func ringCovers(of host: PaneHostView, docks: [CGRect]) -> [CGRect] {
+        (isStripHost(host) ? docks : []) + panes(above: host)
+    }
+
     /// True when the scroll moves this divider or column edge.
     func scrolls(_ kind: DividerHandleView.Kind) -> Bool {
         switch kind {
@@ -46,9 +65,11 @@ extension ScreenContentView {
     /// `clip` is that range (`PaneArrival.stripClip`, which follows a dock
     /// growing in); a pane growing in from an edge is also masked to
     /// `revealing`, the part its spring shows.
+    /// Any part under a pane in front (`panes(above:)`) is cut off too.
     func clipToStrip(_ host: PaneHostView, scrolls: Bool, clip: CGRect?, revealing: CGRect? = nil) {
         var visible = revealing.map(host.frame.intersection) ?? host.frame
         if scrolls, let clip { visible = visible.intersection(clip) }
+        for cover in panes(above: host) { visible = visible.remainder(outside: cover) }
         if visible == host.frame { return host.setStripClip(nil) }
         host.setStripClip(visible.isNull ? .zero : visible.offsetBy(dx: -host.frame.minX, dy: -host.frame.minY))
     }
@@ -82,6 +103,8 @@ extension ScreenContentView {
     private func rank(_ view: NSView) -> Int {
         switch view {
         case let host as PaneHostView:
+            // A zoom's covered panes stay under every pane.
+            if covered.contains(host.pane) { return -1 }
             return geometry.scrolls(pane: host.pane) ? 0 : 3 + cornerRank(geometry.dockFrame(containing: host.pane))
         case let divider as DividerHandleView:
             guard !scrolls(divider.kind) else { return 1 }
@@ -121,13 +144,27 @@ extension ScreenContentView {
     /// hidden under it: a layer mask does not change hit testing.
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        guard !isHidden, geometry.dock.contains(where: { $0.cover.contains(local) }) else { return super.hitTest(point) }
+        guard !isHidden, geometry.dock.contains(where: { $0.cover.contains(local) }) else {
+            // A zoom's covered panes have left the layout: a click there goes to this view.
+            let hit = super.hitTest(point)
+            guard !covered.isEmpty, let hit, coveredHost(containing: hit) != nil else { return hit }
+            return self
+        }
         for view in subviews.reversed() where !view.isHidden {
-            if let host = view as? PaneHostView, geometry.scrolls(pane: host.pane) { continue }
+            if let host = view as? PaneHostView, geometry.scrolls(pane: host.pane) || covered.contains(host.pane) { continue }
             if let divider = view as? DividerHandleView, scrolls(divider.kind) { continue }
             if let hit = view.hitTest(local) { return hit }
         }
         return self
+    }
+
+    private func coveredHost(containing view: NSView) -> PaneHostView? {
+        var current: NSView? = view
+        while let candidate = current, candidate !== self {
+            if let host = candidate as? PaneHostView, covered.contains(host.pane) { return host }
+            current = candidate.superview
+        }
+        return nil
     }
 
     /// Pane frames for directional focus in one logical line: the left
@@ -171,4 +208,22 @@ private nonisolated func compareStacking(_ a: NSView, _ b: NSView, _ context: Un
     let x = table.ranks[ObjectIdentifier(a)] ?? 0
     let y = table.ranks[ObjectIdentifier(b)] ?? 0
     return x < y ? .orderedAscending : (x > y ? .orderedDescending : .orderedSame)
+}
+
+extension CGRect {
+    /// What is left outside `cover` when that is one rect (`cover` spans this rect's full height or
+    /// width from one side, as a pane springing over its neighbors does); else this rect.
+    func remainder(outside cover: CGRect) -> CGRect {
+        let shared = intersection(cover)
+        guard !shared.isNull, shared.width > 0.5, shared.height > 0.5 else { return self }
+        if shared.height >= height - 0.5 {
+            if shared.minX <= minX + 0.5 { return CGRect(x: shared.maxX, y: minY, width: maxX - shared.maxX, height: height) }
+            if shared.maxX >= maxX - 0.5 { return CGRect(x: minX, y: minY, width: shared.minX - minX, height: height) }
+        }
+        if shared.width >= width - 0.5 {
+            if shared.minY <= minY + 0.5 { return CGRect(x: minX, y: shared.maxY, width: width, height: maxY - shared.maxY) }
+            if shared.maxY >= maxY - 0.5 { return CGRect(x: minX, y: minY, width: width, height: shared.minY - minY) }
+        }
+        return self
+    }
 }

@@ -2,13 +2,15 @@
 
 use super::*;
 
+mod composer;
+
 /// Subscribe the connection to a session and, when that is new, count it
 /// as attached (remote sessions are not counted; their host does that).
 pub(super) fn attach(hub: &Hub, conn: &Conn, id: &str) {
     if conn.subscribe(id)
         && let Ok(s) = hub.resolve(id)
     {
-        hub.attach_count(&s, 1);
+        hub.attach_count(&s, 1, true);
     }
 }
 
@@ -121,10 +123,10 @@ async fn dispatch_request(
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
-                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET,
+                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
-                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds"], "trustGate": true}}
+                "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer"], "trustGate": true}}
             }))
         }
         method::AUTHENTICATE => Ok(json!({})),
@@ -842,16 +844,8 @@ async fn dispatch_request(
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(20) as usize;
             Ok(json!({"sessionId": s.id, "turns": hub.history(&s, limit)}))
         }
-        method::MUX_DRAFT_GET => {
-            let s = hub.resolve(session_key(&params)?)?;
-            Ok(json!({"sessionId": s.id, "draft": s.meta().composer_draft}))
-        }
-        method::MUX_DRAFT_SET => {
-            let s = hub.resolve(session_key(&params)?)?;
-            let text = str_param(&params, "text")
-                .ok_or_else(|| RpcError::invalid_params("text is required"))?;
-            let draft = hub.set_composer_draft(&s, text).map_err(RpcError::invalid_params)?;
-            Ok(json!({"sessionId": s.id, "draft": draft}))
+        method::MUX_DRAFT_GET | method::MUX_DRAFT_SET | method::MUX_ASK => {
+            composer::handle(hub, conn, m, &params).await
         }
         method::MUX_TAG => {
             let s = hub.resolve(session_key(&params)?)?;
@@ -871,11 +865,9 @@ async fn dispatch_request(
         method::MUX_HARNESS_ENABLE => {
             super::harness_enable::handle(hub, conn.origin, &params).await
         }
-        method::MUX_HARNESS_ADD
-        | method::MUX_HARNESS_REMOVE
-        | method::MUX_HARNESS_RESTORE
-        | method::MUX_HARNESS_DOCTOR
-        | method::MUX_REGISTRY => super::harness_admin::handle(hub, conn.origin, m, &params).await,
+        name if super::harness_admin::METHODS.contains(&name) => {
+            super::harness_admin::handle(hub, conn.origin, name, &params).await
+        }
         method::MUX_ROUTE_LIST
         | method::MUX_ROUTE_SHOW
         | method::MUX_ROUTE_ADD
@@ -901,9 +893,8 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
             let event_stream = params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-            if conn.subscribe_with(&s.id, SubOpts { event_stream, filter: filter.clone() }) {
-                hub.attach_count(&s, 1);
-            }
+            let hidden = params.get("visible") == Some(&Value::Bool(false));
+            view::attach(hub, conn, &s, SubOpts { event_stream, filter: filter.clone(), hidden });
             let after = params.get("afterSeq").and_then(Value::as_u64);
             let before = params.get("beforeSeq").and_then(Value::as_u64);
             let limit = params.get("limit").and_then(Value::as_u64).unwrap_or(2000) as usize;
@@ -920,12 +911,11 @@ async fn dispatch_request(
             )
         }
         method::MUX_DETACH => {
-            let s = hub.resolve(session_key(&params)?)?;
-            if conn.unsubscribe(&s.id) {
-                hub.attach_count(&s, -1);
-            }
+            view::detach(hub, conn, &*hub.resolve(session_key(&params)?)?);
             Ok(json!({}))
         }
+        method::MUX_VIEW => view::view(hub, conn, &params),
+        method::MUX_MARK_UNREAD => view::mark_unread(hub, &params),
         method::MUX_WATCH => {
             let on = params.get("enabled").and_then(Value::as_bool).unwrap_or(true);
             conn.watch_all.store(on, Ordering::SeqCst);
@@ -978,7 +968,7 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             let prompt_id = str_param(&params, "promptId")
                 .ok_or_else(|| RpcError::invalid_params("promptId is required"))?;
-            let removed = hub.remove_queued(&s, prompt_id);
+            let removed = hub.withdraw_queued(&s, prompt_id)?;
             Ok(json!({"sessionId": s.id, "promptId": prompt_id, "removed": removed}))
         }
         method::MUX_PERMISSION_GROUPS => {
@@ -1016,7 +1006,7 @@ async fn dispatch_request(
                 .ok_or_else(|| RpcError::invalid_params("policy is required"))?
                 .parse()
                 .map_err(RpcError::invalid_params)?;
-            hub.set_policy(&s, policy).await;
+            hub.set_policy_unless_moving(&s, policy).await?;
             Ok(hub.session_summary(&s))
         }
         method::MUX_EXPORT => {

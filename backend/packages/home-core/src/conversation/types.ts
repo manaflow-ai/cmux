@@ -86,6 +86,20 @@ export interface AttachmentPart {
   readonly preview?: DerivedImage
 }
 
+/**
+ * A link with the preview its sender fetched (link-preview.ts); receivers render only from it.
+ * `image` names an ordinary attachment record (JPEG or WebP, at most 512 KB) the sender uploaded
+ * to this conversation; a cloud owner checks it like an attachment part's hash. Swift
+ * `ConversationLinkPreview` in snake_case.
+ */
+export interface LinkPreviewPart {
+  readonly type: "link_preview"
+  readonly url: string
+  readonly title?: string
+  readonly site?: string
+  readonly image?: DerivedImage
+}
+
 /** A derived image (a video's poster, an image's preview): JPEG or WebP, stored next to its attachment under the same upload slot. */
 export interface DerivedImage {
   readonly hash: string
@@ -96,6 +110,7 @@ export interface DerivedImage {
 export type Part =
   | { readonly type: "text"; readonly text: string; readonly runs?: ReadonlyArray<TextRun> }
   | AttachmentPart
+  | LinkPreviewPart
   | {
       readonly type: "work"
       readonly session: string
@@ -128,6 +143,8 @@ export interface Message {
   readonly author: string
   readonly parts: ReadonlyArray<Part>
   readonly reply_to?: PartRef
+  /** The root of the thread this message replies in; a root has none (one level). */
+  readonly thread_root?: string
   readonly created_at: string
   readonly edited_at?: string
   readonly retracted_at?: string
@@ -263,7 +280,7 @@ export interface Summary {
 
 /** The local subset: the ops of the Rust crate (also valid on a cloud head). */
 export type LocalOp =
-  | { readonly kind: "message.send"; readonly client_msg_id: string; readonly parts: ReadonlyArray<Part>; readonly reply_to?: PartRef }
+  | { readonly kind: "message.send"; readonly client_msg_id: string; readonly parts: ReadonlyArray<Part>; readonly reply_to?: PartRef; readonly thread_root?: string }
   | { readonly kind: "message.edit"; readonly message_id: string; readonly parts: ReadonlyArray<Part> }
   | { readonly kind: "message.retract"; readonly message_id: string }
   | { readonly kind: "reaction.add"; readonly message_id: string; readonly part_index: number; readonly reaction: ReactionKind }

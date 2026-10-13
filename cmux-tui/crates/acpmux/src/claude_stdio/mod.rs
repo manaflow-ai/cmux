@@ -18,7 +18,7 @@ use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
 use tokio::sync::Mutex;
 
 /// The session/update variants and ids this translator emits are plain ACP.
@@ -111,6 +111,8 @@ pub fn models() -> &'static [(&'static str, &'static str)] {
     &MODELS
 }
 
+#[cfg(test)]
+mod edit_diff_tests;
 mod inbound;
 mod outbound;
 #[cfg(test)]
@@ -233,6 +235,37 @@ pub struct Translator {
     /// Claude's task ids of running subagents -> their Agent tool call
     /// (`task_updated` names only the task).
     subagent_tasks: Mutex<HashMap<String, String>>,
+    /// The chat model's context window as Claude Code last reported it (a
+    /// result's `modelUsage`), 0 until then: `usage_update`'s `size`.
+    context_window: AtomicU64,
+    /// The tokens the chat's context last held (its last `message_delta`; a
+    /// compaction resets it).
+    context_used: AtomicU64,
+    /// The model id the chat's main loop last ran (its `message_start`): the
+    /// `modelUsage` key for its window, which a picker alias is not.
+    loop_model: Mutex<String>,
+    /// The API message each stream writes now (its `message_start`), by the
+    /// Agent tool call of a subagent's stream ("" for the chat's): its text
+    /// chunks' `messageId`, so a steer's answer starts its own row (cx-f51kv).
+    message_ids: Mutex<HashMap<String, String>>,
+    /// Running file edits: tool_use id -> their ACP diff content, which their
+    /// completion carries again so the diff outlives the tool's text result.
+    edits: Mutex<HashMap<String, Value>>,
+    /// Running shells by tool_use id (cx-ncc.84): each Bash call until its
+    /// result (or, once a `local_bash` task names it, its `task_notification`),
+    /// and those in the background (`run_in_background`, or moved there) until
+    /// their `task_notification` or Claude's exit ends them.
+    background_shells: Mutex<HashMap<String, BackgroundShell>>,
+}
+
+/// A running shell: the session its Bash call ran in, its command, Claude's
+/// task id once a task event named it, and whether it runs in the background.
+#[derive(Debug, Clone)]
+struct BackgroundShell {
+    sid: String,
+    command: String,
+    task: Option<String>,
+    background: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -273,6 +306,12 @@ impl Translator {
             subagents: Mutex::new(HashMap::new()),
             background_subagents: Mutex::new(HashSet::new()),
             subagent_tasks: Mutex::new(HashMap::new()),
+            background_shells: Mutex::new(HashMap::new()),
+            context_window: AtomicU64::new(0),
+            context_used: AtomicU64::new(0),
+            loop_model: Mutex::new(String::new()),
+            message_ids: Mutex::new(HashMap::new()),
+            edits: Mutex::new(HashMap::new()),
         })
     }
 
@@ -350,6 +389,32 @@ fn tool_kind(name: &str) -> &'static str {
         "AskUserQuestion" | "ExitPlanMode" => "other",
         _ => "other",
     }
+}
+
+/// A file edit's ACP `diff` content: one diff per Edit or MultiEdit
+/// replacement, and Write as the whole file (no old text). None for any other
+/// tool, or input without a path.
+fn edit_diffs(name: &str, input: &Value) -> Option<Value> {
+    let path = input.get("file_path").and_then(Value::as_str)?;
+    let diff = |old: Option<&Value>, new: Option<&Value>| json!({"type": "diff", "path": path, "oldText": old.cloned().unwrap_or(Value::Null), "newText": new.cloned().unwrap_or_else(|| json!(""))});
+    let diffs: Vec<Value> = match name {
+        "Edit" => vec![diff(input.get("old_string"), input.get("new_string"))],
+        "MultiEdit" => input
+            .get("edits")
+            .and_then(Value::as_array)?
+            .iter()
+            .map(|e| diff(e.get("old_string"), e.get("new_string")))
+            .collect(),
+        "Write" => vec![diff(None, input.get("content"))],
+        _ => return None,
+    };
+    Some(Value::Array(diffs))
+}
+
+/// The file a tool reads or writes, as ACP `locations`.
+fn tool_locations(input: &Value) -> Option<Value> {
+    let path = input.get("file_path").and_then(Value::as_str)?;
+    Some(json!([{"path": path}]))
 }
 
 fn tool_title(name: &str, input: &Value) -> String {

@@ -1,11 +1,18 @@
 import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "./scrollers";
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
-import { appearanceBackgroundColor, readableColor, type DiffViewerAppearance } from "./appearance";
-import { syntaxPaletteColor } from "./syntax-colors";
+import {
+  appearanceBackgroundColor,
+  readableColor,
+  type DiffChangeColors,
+  type DiffViewerAppearance,
+} from "./appearance";
+import { pageSyntaxVariable, syntaxRoleColors, syntaxTokenRules, type SyntaxRoleName } from "./syntax-theme";
 
 export type DiffViewerOptions = {
   collapsed: boolean;
+  /** Diff Colors, the Settings-only add/remove palette (appearance.ts `setDiffChangeColors`). */
+  colors: DiffChangeColors;
   diffIndicators: "bars" | "classic" | "none";
   expandUnchanged: boolean;
   layout: "split" | "unified";
@@ -171,6 +178,20 @@ export function fileTreeUnsafeCSS(): string {
       height: 100%;
       min-height: 0;
       background-color: var(--cmux-diff-solid-bg);
+      /* Icon hues from the terminal theme (styles.css \`--cmux-file-icon-*\`), as in file headers. */
+      --trees-icon-gray: var(--cmux-file-icon-gray);
+      --trees-icon-red: var(--cmux-file-icon-red);
+      --trees-icon-vermilion: var(--cmux-file-icon-vermilion);
+      --trees-icon-orange: var(--cmux-file-icon-orange);
+      --trees-icon-yellow: var(--cmux-file-icon-yellow);
+      --trees-icon-green: var(--cmux-file-icon-green);
+      --trees-icon-teal: var(--cmux-file-icon-teal);
+      --trees-icon-cyan: var(--cmux-file-icon-cyan);
+      --trees-icon-blue: var(--cmux-file-icon-blue);
+      --trees-icon-indigo: var(--cmux-file-icon-indigo);
+      --trees-icon-purple: var(--cmux-file-icon-purple);
+      --trees-icon-pink: var(--cmux-file-icon-pink);
+      --trees-icon-mauve: var(--cmux-file-icon-mauve);
     }
     [data-file-tree-virtualized-scroll='true'] {
       height: 100%;
@@ -212,7 +233,13 @@ export function fileTreeUnsafeCSS(): string {
   `;
 }
 
-export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearance) {
+/// A Shiki theme from a terminal theme. Token colors are page variables (`syntaxTokenColors`)
+/// unless `variables` is false, for a renderer that needs literal colors (Monaco).
+export function shikiThemeFromGhostty(
+  theme: any,
+  appearance: DiffViewerAppearance,
+  { variables = true }: { variables?: boolean } = {},
+) {
   const palette = theme.palette ?? {};
   const renderedBackground = appearanceBackgroundColor(theme.background, appearance);
   const contrastBackground = themeBackgroundForContrast(theme);
@@ -253,89 +280,27 @@ export function shikiThemeFromGhostty(theme: any, appearance: DiffViewerAppearan
       "editor.selectionBackground": theme.selectionBackground,
       "editor.selectionForeground": theme.selectionForeground,
     },
-    tokenColors: syntaxTokenColors(theme, foreground, renderedBackground, contrastBackground),
+    tokenColors: syntaxTokenColors(theme, foreground, renderedBackground, contrastBackground, variables),
   };
 }
 
-/// Shiki token rules colored from the terminal's ANSI palette. A palette slot the host did not
-/// send uses the default terminal palette for the theme's type, and a slot too close to the
-/// background is blended toward the foreground until it reads, keeping its hue; mapping it to
-/// the foreground instead would make the token indistinguishable from plain text.
-function syntaxTokenColors(theme: any, foreground: string, renderedBackground: string, contrastBackground: string) {
+/// Shiki token rules colored from the terminal's ANSI palette (syntax-theme.ts): each rule reads
+/// its role's page variable (`--cmux-syntax-{light,dark}-<role>`, set by applyDiffViewerAppearance
+/// with every host theme change), with this theme's color behind it, so a palette change recolors
+/// code without registering a new theme.
+function syntaxTokenColors(
+  theme: any,
+  foreground: string,
+  renderedBackground: string,
+  contrastBackground: string,
+  variables: boolean,
+) {
   const type = theme.type === "light" ? "light" : "dark";
-  const color = (...slots: number[]) =>
-    syntaxPaletteColor(theme.palette ?? {}, slots, type, contrastBackground, foreground);
-  return [
-    { settings: { foreground, background: renderedBackground } },
-    {
-      scope: ["comment", "punctuation.definition.comment", "string.comment"],
-      settings: { foreground: color(8), fontStyle: "italic" },
-    },
-    { scope: ["string", "constant.other.symbol", "string.regexp"], settings: { foreground: color(2) } },
-    {
-      scope: [
-        "constant.numeric",
-        "constant.language",
-        "constant.character",
-        "support.constant",
-        "variable.other.enummember",
-      ],
-      settings: { foreground: color(3) },
-    },
-    {
-      scope: ["keyword", "storage", "storage.type", "storage.modifier", "keyword.operator.new", "keyword.control"],
-      settings: { foreground: color(5) },
-    },
-    {
-      scope: ["entity.name.function", "support.function", "meta.function-call entity.name.function"],
-      settings: { foreground: color(4) },
-    },
-    {
-      scope: ["entity.name.type", "entity.name.class", "entity.other.inherited-class", "support.type", "support.class"],
-      settings: { foreground: color(6) },
-    },
-    {
-      scope: ["entity.name.tag", "meta.tag.sgml", "entity.name.section"],
-      settings: { foreground: color(1) },
-    },
-    { scope: ["entity.other.attribute-name"], settings: { foreground: color(3) } },
-    {
-      scope: ["markup.heading", "punctuation.definition.heading"],
-      settings: { foreground: color(12, 4), fontStyle: "bold" },
-    },
-    {
-      scope: ["markup.bold", "punctuation.definition.bold"],
-      settings: { foreground: color(11, 3), fontStyle: "bold" },
-    },
-    {
-      scope: ["markup.italic", "punctuation.definition.italic"],
-      settings: { foreground: color(13, 5), fontStyle: "italic" },
-    },
-    {
-      scope: ["markup.inline.raw", "markup.raw", "markup.fenced_code", "markup.raw.block"],
-      settings: { foreground: color(10, 2) },
-    },
-    {
-      scope: ["markup.underline.link", "string.other.link", "markup.link"],
-      settings: { foreground: color(14, 6) },
-    },
-    {
-      scope: ["markup.quote", "punctuation.definition.quote"],
-      settings: { foreground: color(8), fontStyle: "italic" },
-    },
-    {
-      // The bullet only: `markup.list` spans the whole item, which would color every list line.
-      scope: ["punctuation.definition.list", "markup.table"],
-      settings: { foreground: color(9, 1) },
-    },
-    { scope: ["markup.inserted", "punctuation.definition.inserted"], settings: { foreground: color(2) } },
-    { scope: ["markup.deleted", "punctuation.definition.deleted"], settings: { foreground: color(1) } },
-    { scope: ["variable", "meta.definition.variable"], settings: { foreground } },
-    {
-      scope: ["invalid", "message.error"],
-      settings: { foreground: color(9, 1) },
-    },
-  ];
+  const colors = syntaxRoleColors(theme.palette ?? {}, type, contrastBackground, foreground);
+  const color = (role: SyntaxRoleName) =>
+    variables ? `var(${pageSyntaxVariable(type, role)}, ${colors[role]})` : colors[role];
+  // Plain text reads the `variable` role (the foreground), so it follows a theme change too.
+  return syntaxTokenRules({ foreground: color("variable"), background: renderedBackground }, color);
 }
 
 function themeBackgroundForContrast(theme: any): string {

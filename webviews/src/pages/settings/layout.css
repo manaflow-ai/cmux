@@ -13,12 +13,12 @@
   --accent: var(--cmux-accent, var(--text));
   /* A highlighted list row (desktop.css --cmux-row-focus): hover's family, a touch stronger. */
   --row-focus: var(--cmux-row-focus, var(--accent-soft));
-  --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-token, Canvas)));
+  --on-accent: var(--cmux-on-accent, var(--cmux-app-window, var(--cmux-surface-solid, Canvas)));
   --accent-text: var(--text);
   --column: 720px;
-  --row-pad-y: 7px;
+  --row-pad-y: 3px;
   --row-pad-x: 12px;
-  --row-min: 38px;
+  --row-min: 28px;
   --card-radius: 10px;
   --sidebar-width: 208px;
   /* Motion: the app's MotionTunables (hover 80 ms, focus 100 ms, fade in 120 ms, fade out 80 ms),
@@ -33,9 +33,9 @@
 }
 
 :root[data-settings-look="dense"] {
-  --row-pad-y: 4px;
+  --row-pad-y: 2px;
   --row-pad-x: 2px;
-  --row-min: 30px;
+  --row-min: 26px;
   --card-radius: 0;
   --sidebar-width: 188px;
   font-size: 12px;
@@ -168,6 +168,12 @@
   border-radius: var(--card-radius);
 }
 
+/* Controls in a row are 22 px (a 16 px line in padding and a hairline border), so a row with one
+   line of text is --row-min tall; a row with help text takes a second line. */
+.row :is(.field, .segment, .button, .theme-button) {
+  line-height: 16px;
+}
+
 .row {
   min-height: var(--row-min);
   padding: var(--row-pad-y) var(--row-pad-x);
@@ -226,7 +232,7 @@
   margin-top: 3px;
   padding: 1px 7px 1px 5px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 4px;
   font-size: 11px;
 }
 
@@ -235,7 +241,7 @@
   justify-content: flex-start;
   align-items: center;
   gap: 6px;
-  min-height: 30px;
+  min-height: 26px;
   font-size: 11.5px;
   color: var(--muted-text);
 }
@@ -287,6 +293,28 @@
   padding: 2px 10px;
 }
 
+/* The button already rests on --input-bg, so its hover steps up to the accent's soft fill. */
+.button:hover:not(:disabled) {
+  background: var(--accent-soft);
+}
+
+/* An action row keeps its control and the empty Reset slot on one line: a long path shrinks to an
+   ellipsis instead of pushing the slot onto a line of its own. */
+.action-row-control {
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.action-row-control > .row-help {
+  min-width: 0;
+}
+
+/* A card's intro is a sentence or two: it wraps instead of clipping, with room before the card. */
+.group > .row-help {
+  margin-bottom: 8px;
+  white-space: normal;
+}
+
 .link-button {
   color: var(--accent-text);
 }
@@ -300,22 +328,182 @@
   margin: 0 0 24px;
 }
 
-.theme-preview,
-.theme-palette {
+.theme-preview {
   display: block;
   width: 100%;
   height: auto;
 }
 
-.theme-palette {
-  margin-top: 14px;
-  color: var(--muted-text);
+/* The theme's colors (ThemeTokens): 16 ANSI swatches in two rows, then the four named colors.
+   Each swatch is a button that opens its tuner; an edited one carries a dot. */
+/* Both are fieldsets (the swatch groups), without the fieldset's own frame. */
+.theme-tokens,
+.token-tuner-snaps {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
-.theme-palette-hex {
+.theme-tokens {
+  display: grid;
+  gap: 6px;
+  margin-top: 14px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.theme-tokens-row,
+.theme-tokens-named {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-tokens-named {
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin-top: 4px;
+}
+
+.theme-tokens-label {
+  width: 52px;
+  flex: none;
+}
+
+.theme-tokens-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.theme-tokens-hex,
+.token-tuner-hex {
   font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 10px;
+  font-size: var(--text-caption);
+}
+
+.theme-tokens-hex {
   opacity: 0.8;
+}
+
+.theme-token {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.theme-token:not(:disabled) {
+  cursor: pointer;
+}
+
+.theme-token:not(:disabled):hover {
+  box-shadow: 0 0 0 2px var(--row-focus);
+}
+
+/* The edited dot: a border-drawn disc in the text color, ringed in the page surface. */
+.theme-token[data-edited]::after {
+  content: "";
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 0;
+  height: 0;
+  border: 3.5px solid var(--text);
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--cmux-surface-solid, Canvas);
+}
+
+.token-tuner-body {
+  display: grid;
+  gap: 10px;
+  width: 248px;
+  padding: 10px;
+}
+
+.token-tuner-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.token-tuner-swatch {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+}
+
+.token-tuner-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.token-tuner-hex {
+  width: 78px;
+}
+
+.token-tuner-slider {
+  display: grid;
+  gap: 4px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.token-tuner-slider input {
+  height: 10px;
+  margin: 0;
+  border-radius: 5px;
+  appearance: none;
+}
+
+.token-tuner-slider input::-webkit-slider-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--cmux-surface-solid, Canvas);
+  border-radius: 50%;
+  background: var(--accent);
+  appearance: none;
+}
+
+.token-tuner-snaps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.token-tuner-snap {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.token-tuner-contrast {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+}
+
+.token-tuner-contrast[data-contrast-low] {
+  color: var(--warning);
+}
+
+.token-tuner-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .theme-caption {
@@ -333,6 +521,27 @@
   color: var(--text);
   font-weight: 500;
   white-space: nowrap;
+}
+
+/* Save as Ghostty Theme and Import Theme File, with their inline name and replace prompts. */
+.theme-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.theme-files-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-sm);
+}
+
+.theme-files-row .field {
+  flex: 1 1 180px;
+  min-width: 0;
 }
 
 /* The Theme section's help explains a choice; it wraps instead of truncating. */
@@ -371,8 +580,8 @@
 
 .theme-ball {
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
 }
 
 .theme-ball-empty {
@@ -410,6 +619,13 @@
   box-shadow: inset var(--cmux-row-focus-bar, 0px) 0 0 var(--cmux-accent, currentColor);
 }
 
+/* The right-clicked (pinned) preview: its ball is ringed in the text color while the app shows it. */
+.theme-option-row[data-previewing] .theme-ball {
+  border-radius: 50%;
+  outline: 1.5px solid currentColor;
+  outline-offset: 1px;
+}
+
 .theme-option-row {
   display: flex;
   align-items: center;
@@ -428,6 +644,11 @@
   color: var(--accent-text);
 }
 
+.theme-empty {
+  padding: 6px;
+  font-size: var(--text-detail);
+}
+
 .theme-count {
   padding: 6px 6px 2px;
   border-top: 1px solid var(--border);
@@ -436,7 +657,7 @@
   color: var(--muted-text);
 }
 
-/* The Reset slot: every row reserves it, so the control fades and scales in place. */
+/* The Reset slot: every row reserves it, so the control fades in place. */
 .reset-slot {
   display: inline-flex;
   flex: none;
@@ -446,17 +667,14 @@
 
 .reset-button {
   opacity: 0;
-  transform: scale(0.8);
   transition:
     opacity var(--motion-out) var(--motion-ease),
-    transform var(--motion-out) var(--motion-ease),
     background var(--motion-hover);
 }
 
 .reset-slot[data-shown] .reset-button {
   opacity: 1;
-  transform: none;
-  transition-duration: var(--motion-in), var(--motion-in), var(--motion-hover);
+  transition-duration: var(--motion-in), var(--motion-hover);
 }
 
 /* A category fades in when it opens; a transform never moves anything else. */
@@ -470,7 +688,6 @@
 @keyframes settings-pop {
   from {
     opacity: 0;
-    transform: scale(0.92);
   }
 }
 
@@ -521,8 +738,9 @@
   margin-top: 0;
 }
 
+/* The popup surfaces keep their fades (pages/shared/desktop.css). */
 @media (prefers-reduced-motion: reduce) {
-  *,
+  *:not(.ui-popup, .ui-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop),
   *::before,
   *::after {
     animation: none !important;
@@ -562,5 +780,6 @@
 
   .content {
     padding: 14px 16px 40px;
+    --content-fade-top: 12px;
   }
 }

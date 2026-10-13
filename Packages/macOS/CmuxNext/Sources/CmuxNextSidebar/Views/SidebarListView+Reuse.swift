@@ -16,10 +16,7 @@ extension SidebarListView {
     func wire(_ view: SidebarRowView, key: SidebarRowKey) {
         switch (key, view) {
         case let (.workspace(id), view as WorkspaceRowView):
-            view.onClose = { [weak self] in self?.model.send(.close([id])) }
-            view.onMore = contextMenuProvider == nil ? nil : { [weak self] in self.map { SidebarRowMenu(list: $0).show(for: id) } }
-            view.onSelect = { [weak self] in self?.model.click(id) }
-            view.onToggleTabs = { [weak self] in self?.model.toggleWorkspaceTabs(id); self?.reload(animated: true) }
+            view.wire(id, in: self)
         case let (.tab(workspaceID, tabID), view as SidebarTabRowView):
             view.onSelect = { [weak self] in
                 self?.model.send(.selectTab(workspace: workspaceID, tab: tabID))

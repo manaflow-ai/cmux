@@ -244,6 +244,10 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugKey.send(call.params, services: services))
             },
+            // The app's resign and become-active path without activating it (DebugAppActivation).
+            .mainActor("debug.app_activation") { call in
+                .value(DebugAppActivation.send(call.params))
+            },
             .mainActor("debug.palette.capture") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(DebugPaletteCapture.capture(call.params, services: services))
@@ -268,7 +272,10 @@ final class AppControl {
             .mainActor("debug.home_native_fixture.open") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let attachments = call.params["attachments"]?.boolValue ?? false
-                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments))
+                // `new`: one more fixture tab, also when the window lists one already (a fixture tab the daemon
+                // restored from an earlier run of the same tag shows no transcript).
+                let fresh = call.params["new"]?.boolValue ?? false
+                return .value(DebugHomeNativeFixture.open(services: services, attachments: attachments, fresh: fresh))
             },
             // `debug.home.attach` {paths: [..] | path, via: drop|paste|pick}:
             // files enter the shown Home composer through the same intake as
@@ -281,6 +288,7 @@ final class AppControl {
                 guard let services else { return .value(.null) }
                 return .value(DebugWindowList.list(services: services))
             },
+            .mainActor("debug.page_popup") { _ in .value(DebugPagePopup.list()) },
             .async("debug.window_snapshot") { [weak services] call in
                 guard let services = await MainActor.run(body: { services }) else { return .null }
                 return await DebugWindowSnapshot.captureAsync(call.params, services: services)
@@ -376,6 +384,10 @@ final class AppControl {
             // The quit sheet (Quit and the local terminals).
             .mainActor("debug.quit") { [weak services] call in
                 .value(services.map { DebugQuit.run(call.params, $0) } ?? .null)
+            },
+            // Every window's toasts (R96): list, a person's action run, the undo key.
+            .mainActor("debug.toast") { [weak services] call in
+                .value(services.map { DebugToast.run(call.params, $0) } ?? .null)
             },
             // Every open cmux dialog (R96): list, fixtures, keys, presses.
             .mainActor("debug.dialog") { [weak services] call in

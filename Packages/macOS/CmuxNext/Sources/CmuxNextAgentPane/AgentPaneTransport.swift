@@ -63,6 +63,15 @@ import CmuxNextCompat
     public let decisions = AcpmuxDecisionContexts()
     /// The keyed restart the chat's machine offers, when it runs on another machine.
     private(set) var remoteApprovals: AgentPaneRemoteApprovals?
+    /// The current connection is a chat on another machine (``RemoteAcpmuxWire``): its folders are
+    /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
+    /// its own folder trust, cx-k21v).
+    private(set) var remoteWire = false
+    /// A remote wire's `session/new` took the person's send gesture (connection, uptime): the
+    /// first `session/prompt` on that connection goes with it, however long the start took.
+    var remoteStartCredit: (connection: Int, at: TimeInterval)?
+    /// How long a remote start's gesture waits for its first prompt (the start may take 75 s).
+    static let remoteStartCreditLifetime: TimeInterval = 120
     /// Told when an allow went to another daemon run without the person's proof: that daemon
     /// holds no key of this app for that run, so it refuses the allow.
     public var onRemoteApprovalsOff: (@MainActor (AgentPaneRemoteApprovals?) -> Void)?
@@ -97,8 +106,11 @@ import CmuxNextCompat
     /// The app-wide gate: one mode confirmation open at a time, across all panes and windows.
     public var confirmationGate = AgentPaneConfirmationGate.shared
     /// acpmux's Enable harness prompt for `id` in `folder` (`_acpmux/harness_enable` without
-    /// sha256, over the unix socket); nil when the daemon cannot give one (refused, not found).
-    public var harnessEnablePrompt: @MainActor (_ folder: String, _ id: String) async -> AgentPaneHarnessEnablePrompt? = { _, _ in nil }
+    /// sha256, over the unix socket); throws when the daemon cannot give one (its refusal, as
+    /// ``AcpmuxRPCError``, says why).
+    public var harnessEnablePrompt: @MainActor (_ folder: String, _ id: String) async throws -> AgentPaneHarnessEnablePrompt = { _, _ in
+        throw AcpmuxStatusClient.Failure.closed
+    }
     /// Shows the native Enable harness sheet for `prompt`; Cancel answers false.
     public var requestHarnessEnable: (@MainActor (_ prompt: AgentPaneHarnessEnablePrompt, _ answer: @escaping @MainActor (Bool) -> Void) -> Void)?
     /// The current socket's request ids (relay-owned, mapped back on the reply).
@@ -110,6 +122,11 @@ import CmuxNextCompat
     /// `_acpmux/tag` on the host's socket: sets and removes a session's tags (the chat menu's
     /// Archive). Replaced in tests.
     public var tagSession: @MainActor (_ sessionId: String, _ set: [String: String], _ remove: [String]) async throws -> Void = { _, _, _ in
+        throw AcpmuxStatusClient.Failure.closed
+    }
+
+    /// `_acpmux/markUnread` on the host's socket (Mark as Unread, cx-ncc.78). Replaced in tests.
+    public var markUnread: @MainActor (_ sessionId: String) async throws -> Void = { _ in
         throw AcpmuxStatusClient.Failure.closed
     }
 
@@ -129,9 +146,13 @@ import CmuxNextCompat
             guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
             try await AcpmuxStatusClient.tag(socketPath: path, sessionId: session, set: set, remove: remove)
         }
+        markUnread = { [weak self] session in
+            guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
+            try await AcpmuxStatusClient.markUnread(socketPath: path, sessionId: session)
+        }
         harnessEnablePrompt = { [weak self] folder, id in
-            guard let path = self?.socketPath else { return nil }
-            return await AcpmuxStatusClient.harnessEnablePrompt(socketPath: path, folder: folder, id: id)
+            guard let path = self?.socketPath else { throw AcpmuxStatusClient.Failure.closed }
+            return try await AcpmuxStatusClient.harnessEnablePrompt(socketPath: path, folder: folder, id: id)
         }
     }
 
@@ -151,6 +172,8 @@ import CmuxNextCompat
         localAppToken = connection.localAppToken
         socketPath = connection.socketPath
         remoteApprovals = connection.remote?.approvals
+        remoteWire = connection.remote != nil
+        remoteStartCredit = nil
         decisions.reset()
         sentFirst = false
         let ids = AcpmuxRequestIds()

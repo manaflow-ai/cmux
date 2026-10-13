@@ -46,6 +46,8 @@ pub(crate) mod routing;
 #[cfg(unix)]
 mod runs;
 #[cfg(unix)]
+mod server_tmp;
+#[cfg(unix)]
 mod servers;
 #[cfg(unix)]
 mod serves;
@@ -71,7 +73,7 @@ use std::sync::{Arc, OnceLock};
 #[cfg(unix)]
 pub(crate) use mirror::{HiddenAccess, Origin, SetOp};
 #[cfg(unix)]
-pub(crate) use provider::{ProviderClaim, admit_origin};
+pub(crate) use provider::{ProviderClaim, admit_origin, hosting_app_connection};
 #[cfg(unix)]
 pub(crate) use runs::{Caller, RunRequest};
 #[cfg(unix)]

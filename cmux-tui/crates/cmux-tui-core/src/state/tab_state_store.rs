@@ -16,10 +16,13 @@ pub(crate) const MIN_ZOOM: f64 = 0.25;
 pub(crate) const MAX_ZOOM: f64 = 5.0;
 
 /// Store a tab placement's pinned flag. Returns whether it changed.
+/// `url`: the page a browser tab is pinned on (Back to Pinned Page); a pin
+/// already stored keeps its page, and an unpin forgets it with the row.
 pub(crate) fn set_tab_pinned(
     transaction: &Transaction<'_>,
     tab_id: &str,
     pinned: bool,
+    url: Option<&str>,
 ) -> anyhow::Result<bool> {
     let current = transaction
         .query_row("SELECT pinned FROM tab_presentation WHERE tab_id = ?1", [tab_id], |row| {
@@ -29,14 +32,30 @@ pub(crate) fn set_tab_pinned(
         .is_some_and(|value| value != 0);
     if pinned {
         transaction.execute(
-            "INSERT INTO tab_presentation(tab_id, pinned) VALUES(?1, 1)
-             ON CONFLICT(tab_id) DO UPDATE SET pinned = 1",
-            [tab_id],
+            "INSERT INTO tab_presentation(tab_id, pinned, url) VALUES(?1, 1, ?2)
+             ON CONFLICT(tab_id) DO UPDATE SET pinned = 1, url = COALESCE(url, excluded.url)",
+            params![tab_id, url],
         )?;
     } else {
         transaction.execute("DELETE FROM tab_presentation WHERE tab_id = ?1", [tab_id])?;
     }
     Ok(current != pinned)
+}
+
+/// Additive: the page a pinned browser tab was pinned on (cx-lle.6). Older
+/// builds name their columns, so they keep reading and writing the table; a
+/// pin they write has no page (Back to Pinned Page is unavailable for it).
+pub(crate) fn add_tab_pinned_url_column(transaction: &Transaction<'_>) -> anyhow::Result<()> {
+    let has_url = transaction
+        .prepare("PRAGMA table_info(tab_presentation)")?
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|column| column == "url");
+    if !has_url {
+        transaction.execute_batch("ALTER TABLE tab_presentation ADD COLUMN url TEXT;")?;
+    }
+    Ok(())
 }
 
 /// Additive: a `tab_state` table an older build created has no icon
@@ -65,8 +84,9 @@ pub(crate) struct TabStateUpdate {
     /// Install id of the app hosting a frontend-rendered browser tab, stored
     /// on its browser record. Only that app sends it; the CLI never does.
     pub(crate) owner: Option<String>,
-    /// The user's icon for the tab (the shared icon wire string: one emoji
-    /// or an SF Symbol name, ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS).
+    /// The user's icon for the tab (the shared icon wire string: one emoji,
+    /// an SF Symbol name, ICON-PICKER-ALL-EMOJI-AND-SF-SYMBOLS, or a stored
+    /// `image:`/`svg:` asset, `icon-assets-v1`, checked by `state_update_tab`).
     pub(crate) icon: Option<Option<String>>,
 }
 
@@ -82,7 +102,7 @@ impl TabStateUpdate {
             crate::state::window_record_store::validate_key("owner", owner)?;
         }
         if let Some(Some(icon)) = &self.icon {
-            crate::workspace_registry::validate_presentation_icon(icon)?;
+            crate::workspace_registry::presentation_store::validate_icon_value(icon)?;
         }
         for list in [&self.back, &self.forward].into_iter().flatten() {
             anyhow::ensure!(
@@ -111,6 +131,10 @@ pub(crate) fn update_tab_state(
             .execute("UPDATE tab_state SET zoom = ?2 WHERE tab_id = ?1", params![tab_id, zoom])?;
     }
     if let Some(icon) = &update.icon {
+        // Checked in the transaction that writes it, so no blob sweep runs in between.
+        if let Some(icon) = icon {
+            crate::workspace_registry::personal_store::require_icon_asset(transaction, icon)?;
+        }
         transaction
             .execute("UPDATE tab_state SET icon = ?2 WHERE tab_id = ?1", params![tab_id, icon])?;
     }
@@ -155,7 +179,8 @@ pub(crate) fn tab_group_snapshot(
 ) -> anyhow::Result<Option<Value>> {
     let row = connection
         .query_row(
-            "SELECT pane_id, name, color, collapsed, saved_id FROM tab_groups WHERE group_id = ?1",
+            "SELECT pane_id, name, color, collapsed, saved_id, icon
+             FROM tab_groups WHERE group_id = ?1",
             [group_id],
             |row| {
                 Ok((
@@ -164,11 +189,12 @@ pub(crate) fn tab_group_snapshot(
                     row.get::<_, String>(2)?,
                     row.get::<_, i64>(3)?,
                     row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             },
         )
         .optional()?;
-    let Some((pane_id, name, color, collapsed, saved_id)) = row else { return Ok(None) };
+    let Some((pane_id, name, color, collapsed, saved_id, icon)) = row else { return Ok(None) };
     let tabs = {
         let mut statement = connection.prepare(
             "SELECT m.tab_id FROM tab_group_members AS m
@@ -191,6 +217,7 @@ pub(crate) fn tab_group_snapshot(
         "collapsed": collapsed != 0,
         "tab_ids": tabs,
         "saved_tab_group_id": saved_id,
+        "icon": icon,
     })))
 }
 
@@ -256,6 +283,7 @@ fn public_saved(record: &SavedTabGroupRecord, index: usize) -> Value {
         "room_id": record.room,
         "name": record.name,
         "color": record.color,
+        "icon": record.icon,
         "members": record.members.iter().map(public_member).collect::<Vec<_>>(),
         "index": index,
         "updated_at_ms": record.updated_at_ms.to_string(),

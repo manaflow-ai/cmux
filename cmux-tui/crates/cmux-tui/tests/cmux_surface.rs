@@ -286,6 +286,19 @@ fn every_routed_scope_prints_its_own_help() {
     }
 }
 
+/// `cmux notify --help` names the flags `notify` takes (cx-894rb): it said
+/// `--reply` was refused, while a reply banner typed into the terminal live.
+#[test]
+fn notify_help_names_reply_and_desktop() {
+    let names = Names::new("notify-help");
+    let output = names.run("cmux", &["notify", "--help"]);
+    let stdout = text(&output.stdout);
+    assert!(output.status.success(), "{}", text(&output.stderr));
+    assert!(stdout.contains("[--reply]"), "{stdout}");
+    assert!(stdout.contains("[--desktop true|false]"), "{stdout}");
+    assert!(!stdout.contains("refused"), "{stdout}");
+}
+
 /// `acp` and `link` take their own options, so a cmux global option before
 /// them names the fix instead of calling them unknown scopes.
 #[test]

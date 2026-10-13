@@ -56,7 +56,8 @@ final class ScreenBarController {
     private func snapshot() -> Snapshot { Self.snapshot(content) }
 
     private static func snapshot(_ content: WorkspaceContentController) -> Snapshot {
-        Snapshot(bar: ScreenBarMapping.shared.snapshot(content.workspace, untitled: ScreenStrings.untitled, emojiIcon: ScreenEmojiIcon.icon),
+        Snapshot(bar: ScreenBarMapping.shared.snapshot(content.workspace, untitled: ScreenStrings.untitled, emojiIcon: ScreenEmojiIcon.icon,
+                                                       assetIcon: IconAssetImages.shared.tabIcon(owner: content.daemon)),
                  active: content.layoutModel.activeScreenID?.rawValue)
     }
 
@@ -181,7 +182,7 @@ final class ScreenBarController {
         case .removeFromGroup(let id, _):
             if let screen = screen(id) { ScreenGroupCommands.remove([screen], daemon: daemon) }
         case .createGroup(let item, let ids):
-            ScreenGroupCommands.create(ids.compactMap(screen), in: content.workspace, name: item.name, color: item.colorToken, daemon: daemon)
+            ScreenGroupCommands.create(ids.compactMap(screen), in: content.workspace, name: item.name, color: item.tint, daemon: daemon)
         case .group(let command):
             run(command)
         default:

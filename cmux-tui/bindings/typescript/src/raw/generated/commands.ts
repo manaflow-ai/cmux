@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703. */
+/* cmux-tui mux protocol 12, IR 7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa. */
 
 
 import type * as T from "./types.js";
@@ -344,6 +344,8 @@ export interface CloseWorkspaceRequest extends CmuxRequestBase {
   "key"?: (string) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
+  /** With end_terminals: the close is not recorded in the closed history (session_end). */
+  "reason"?: (T.CloseReason) | null;
   "workspace"?: (T.Id) | null;
 }
 export type CloseWorkspaceResult = T.WorkspaceMutationResult;
@@ -381,6 +383,16 @@ export interface CloudConversationSubscribeRequest extends CmuxRequestBase {
   "conversation": string;
 }
 export type CloudConversationSubscribeResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface CloudConversationThreadRequest extends CmuxRequestBase {
+  cmd: "cloud-conversation-thread";
+  "after_seq"?: (bigint) | null;
+  "conversation": string;
+  "limit"?: (number) | null;
+  "root": string;
+}
+export type CloudConversationThreadResult = T.JsonValue;
 
 /** Protocol v12; authority: local-admin. */
 export interface CloudConversationUnsubscribeRequest extends CmuxRequestBase {
@@ -569,6 +581,7 @@ export interface ConversationHistoryRequest extends CmuxRequestBase {
 }
 export type ConversationHistoryResult = {
   "messages": Array<T.ConversationMessage>;
+  "threads"?: Array<T.ConversationThreadSummary>;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -627,6 +640,22 @@ export interface ConversationSnapshotRequest extends CmuxRequestBase {
 export type ConversationSnapshotResult = {
   "conversation": T.ConversationSummary;
   "messages": Array<T.ConversationMessage>;
+  "threads"?: Array<T.ConversationThreadSummary>;
+};
+
+/** Protocol v12; authority: local-admin. */
+export interface ConversationThreadRequest extends CmuxRequestBase {
+  cmd: "conversation-thread";
+  "after_seq"?: bigint;
+  "conversation": string;
+  "limit"?: (number) | null;
+  "root": string;
+}
+export type ConversationThreadResult = {
+  "has_more": boolean;
+  "replies": Array<T.ConversationMessage>;
+  "root": T.ConversationMessage;
+  "thread": T.ConversationThreadSummary;
 };
 
 /** Protocol v12; authority: local-admin. */
@@ -842,6 +871,15 @@ export type DeleteSavedTabGroupResult = {
   "saved": string;
   [key: string]: unknown;
 };
+
+/** Protocol v12; authority: local-admin. */
+export interface DeleteTerminalCommandsRequest extends CmuxRequestBase {
+  cmd: "delete-terminal-commands";
+  "all"?: boolean;
+  "ids"?: (Array<string>) | null;
+  "started_since_ms"?: (string) | null;
+}
+export type DeleteTerminalCommandsResult = T.TerminalCommandDeleteResult;
 
 /** Protocol v12; authority: control. */
 export interface DeleteWorkspaceGroupRequest extends CmuxRequestBase {
@@ -1097,6 +1135,14 @@ export type ListTabGroupsResult = {
   "groups": Array<T.TabGroupRun>;
   [key: string]: unknown;
 };
+
+/** Protocol v12; authority: local-admin. */
+export interface ListTerminalCommandsRequest extends CmuxRequestBase {
+  cmd: "list-terminal-commands";
+  "after_id"?: (string) | null;
+  "limit"?: (number) | null;
+}
+export type ListTerminalCommandsResult = T.TerminalCommandList;
 
 /** Protocol v9; authority: control. */
 export interface ListTerminalsRequest extends CmuxRequestBase {
@@ -1369,6 +1415,7 @@ export interface NewConversationTabRequest extends CmuxRequestBase {
   "owner"?: (string) | null;
   "page"?: (string) | null;
   "pane"?: (T.Id) | null;
+  "route"?: (string) | null;
   "rows"?: (number) | null;
   /** Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result. */
   "transaction"?: (string) | null;
@@ -2074,6 +2121,7 @@ export type SetTabPinnedResult = T.JsonValue;
 export interface SetTerminalCommandHistoryRequest extends CmuxRequestBase {
   cmd: "set-terminal-command-history";
   "enabled": boolean;
+  "retention_days"?: (number) | null;
 }
 export type SetTerminalCommandHistoryResult = T.TerminalCommandHistoryResult;
 
@@ -2305,6 +2353,8 @@ export interface UpdateBookmarkRequest extends CmuxRequestBase {
   cmd: "update-bookmark";
   "bookmark": string;
   "favicon_key"?: (string) | null;
+  /** Folders only; null clears. Refused on a url node. */
+  "icon"?: (string) | null;
   "last_used_ms"?: (bigint) | null;
   "mutation_id"?: (string) | null;
   "origin"?: (string) | null;
@@ -2375,6 +2425,7 @@ export interface UpdateScreenGroupRequest extends CmuxRequestBase {
   "collapsed"?: (boolean) | null;
   "color"?: (string) | null;
   "group": string;
+  "icon"?: (string) | null;
   "name"?: (string) | null;
 }
 export type UpdateScreenGroupResult = T.JsonValue;
@@ -2385,6 +2436,7 @@ export interface UpdateTabGroupRequest extends CmuxRequestBase {
   "collapsed"?: (boolean) | null;
   "color"?: (string) | null;
   "group": string;
+  "icon"?: (string) | null;
   "name"?: (string) | null;
 }
 export type UpdateTabGroupResult = T.TabGroupOutcome;
@@ -2490,6 +2542,7 @@ export type CmuxRequest =
   | CloudConversationOpRequest
   | CloudConversationSnapshotRequest
   | CloudConversationSubscribeRequest
+  | CloudConversationThreadRequest
   | CloudConversationUnsubscribeRequest
   | CloudInboxListRequest
   | CloudInboxSubscribeRequest
@@ -2512,6 +2565,7 @@ export type CmuxRequest =
   | ConversationOpRequest
   | ConversationSearchRequest
   | ConversationSnapshotRequest
+  | ConversationThreadRequest
   | ConversationTypingRequest
   | CopyRequest
   | CreateBookmarkRequest
@@ -2530,6 +2584,7 @@ export type CmuxRequest =
   | DeleteProfileRequest
   | DeleteSavedScreenGroupRequest
   | DeleteSavedTabGroupRequest
+  | DeleteTerminalCommandsRequest
   | DeleteWorkspaceGroupRequest
   | DetachAttachedViewRequest
   | DetachClientRequest
@@ -2562,6 +2617,7 @@ export type CmuxRequest =
   | ListSavedScreenGroupsRequest
   | ListSavedTabGroupsRequest
   | ListTabGroupsRequest
+  | ListTerminalCommandsRequest
   | ListTerminalsRequest
   | ListWorkspaceGroupsRequest
   | ListWorkspacesRequest
@@ -3001,6 +3057,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "cloud-conversations-v1";
     stream: null;
   };
+  "cloud-conversation-thread": {
+    request: CloudConversationThreadRequest;
+    result: CloudConversationThreadResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-thread-v1";
+    stream: null;
+  };
   "cloud-conversation-unsubscribe": {
     request: CloudConversationUnsubscribeRequest;
     result: CloudConversationUnsubscribeResult;
@@ -3177,6 +3241,14 @@ export interface CmuxCommandDefinitionMap {
     capability: "local-conversations-v1";
     stream: null;
   };
+  "conversation-thread": {
+    request: ConversationThreadRequest;
+    result: ConversationThreadResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "conversation-thread-v1";
+    stream: null;
+  };
   "conversation-typing": {
     request: ConversationTypingRequest;
     result: ConversationTypingResult;
@@ -3319,6 +3391,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "saved-tab-groups-v1";
+    stream: null;
+  };
+  "delete-terminal-commands": {
+    request: DeleteTerminalCommandsRequest;
+    result: DeleteTerminalCommandsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "terminal-command-history-v1";
     stream: null;
   };
   "delete-workspace-group": {
@@ -3575,6 +3655,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "tab-groups-v1";
+    stream: null;
+  };
+  "list-terminal-commands": {
+    request: ListTerminalCommandsRequest;
+    result: ListTerminalCommandsResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "terminal-command-history-v1";
     stream: null;
   };
   "list-terminals": {
@@ -4366,7 +4454,7 @@ export interface CmuxCommandDefinitionMap {
     result: SetTerminalCommandHistoryResult;
     authority: "local-admin";
     since: 12;
-    capability: "terminal-command-journal-v1";
+    capability: "terminal-command-history-v1";
     stream: null;
   };
   "set-terminal-idle-policy": {

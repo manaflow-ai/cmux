@@ -15,7 +15,9 @@ use crate::roots::ChatRoot;
 use crate::scan::{RootScan, read_file, scan_root};
 use crate::store_file;
 
-const CACHE_VERSION: u32 = 1;
+// 2: Codex rollouts count their typed prompts from message items (current Codex writes no
+// user_message events), so tallies saved without them are read again.
+const CACHE_VERSION: u32 = 2;
 
 /// One chat across every root that holds it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,7 +162,12 @@ impl ChatIndex {
             b.entry
                 .updated_ms
                 .cmp(&a.entry.updated_ms)
-                .then_with(|| a.entry.key().cmp(&b.entry.key()))
+                // Ties: the key text (`<harness id>:<session id>`) ascending, the order
+                // clients keep (AcpmuxChatsStore), not the enum's declaration order.
+                .then_with(|| {
+                    let text = |e: &ChatEntry| format!("{}:{}", e.harness.id(), e.session_id);
+                    text(&a.entry).cmp(&text(&b.entry))
+                })
         });
         chats
     }

@@ -16,6 +16,9 @@
 //! the file exists (agent_tools.rs). The bridge reads the file when it
 //! connects, never from argv or its env.
 //!
+//! A host crash leaves `endpoint.json` behind: [`active_dir`] checks that
+//! its helper still runs and removes a stale file ([`liveness`], cx-zgk0).
+//!
 //! Phase 1 forwards `tools/list` and `tools/call` unchanged (upstream tool
 //! names and arguments). Argument mapping, per-session scope and the
 //! activity log are phase 2.
@@ -27,6 +30,10 @@ use serde_json::{Value, json};
 use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 #[cfg(unix)]
 use tokio::net::UnixStream;
+
+mod liveness;
+
+pub use liveness::Owner;
 
 /// The helper v2 endpoint folder the app exports to this daemon.
 pub const ENDPOINT_DIR_ENV: &str = "CMUX_NEXT_CUA_V2_DIR";
@@ -40,6 +47,8 @@ pub const SERVER_NAME: &str = "cmux-cua";
 pub struct Endpoint {
     pub socket: PathBuf,
     pub secret: String,
+    /// The helper process, when the app recorded it.
+    pub owner: Option<Owner>,
 }
 
 impl std::fmt::Debug for Endpoint {
@@ -54,9 +63,25 @@ pub fn dir_from_env() -> Option<PathBuf> {
     std::env::var_os(ENDPOINT_DIR_ENV).filter(|v| !v.is_empty()).map(PathBuf::from)
 }
 
-/// The folder, when the helper v2 runs now (its `endpoint.json` exists).
+/// The folder, when the helper v2 runs now: its `endpoint.json` exists, the
+/// helper it names is alive and its socket accepts a connection. A file a
+/// host crash left behind (its helper gone) is removed, and sessions get the
+/// legacy server; a live helper's file stays when its socket refuses once.
+/// A file the bridge would refuse (not private, not JSON) keeps the folder,
+/// so the agent's tool call reports why.
 pub fn active_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
-    dir.filter(|d| d.join(ENDPOINT_FILE).is_file())
+    let dir = dir.filter(|d| d.join(ENDPOINT_FILE).is_file())?;
+    #[cfg(unix)]
+    if let Ok((endpoint, text)) = read_endpoint_text(&dir)
+        && let Err(stale) = liveness::check(endpoint.owner, &endpoint.socket)
+    {
+        tracing::warn!(?stale, dir = %dir.display(), "Computer Use helper v2 endpoint not usable");
+        if stale.removable() {
+            liveness::remove_if_unchanged(&dir.join(ENDPOINT_FILE), &text);
+        }
+        return None;
+    }
+    Some(dir)
 }
 
 /// Reads `endpoint.json` in `dir`. The file must be a regular file of this
@@ -66,6 +91,12 @@ pub fn active_dir(dir: Option<PathBuf>) -> Option<PathBuf> {
 /// secret, at a socket of theirs.
 #[cfg(unix)]
 pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
+    read_endpoint_text(dir).map(|(endpoint, _)| endpoint)
+}
+
+/// [`read_endpoint`] and the file's text.
+#[cfg(unix)]
+fn read_endpoint_text(dir: &Path) -> Result<(Endpoint, String)> {
     use std::io::Read;
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
     let path = dir.join(ENDPOINT_FILE);
@@ -96,7 +127,12 @@ pub fn read_endpoint(dir: &Path) -> Result<Endpoint> {
     let value: Value = serde_json::from_str(&text).context("endpoint.json is not JSON")?;
     let socket = value["socket"].as_str().ok_or_else(|| anyhow!("endpoint.json has no socket"))?;
     let secret = value["secret"].as_str().ok_or_else(|| anyhow!("endpoint.json has no secret"))?;
-    Ok(Endpoint { socket: PathBuf::from(socket), secret: secret.to_owned() })
+    let endpoint = Endpoint {
+        socket: PathBuf::from(socket),
+        secret: secret.to_owned(),
+        owner: Owner::from_json(&value),
+    };
+    Ok((endpoint, text))
 }
 
 /// Windows port: the owner check (`fstat` uid and mode) needs the owner-only

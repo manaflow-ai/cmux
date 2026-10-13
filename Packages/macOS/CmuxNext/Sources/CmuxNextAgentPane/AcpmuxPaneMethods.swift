@@ -21,12 +21,15 @@ nonisolated enum AcpmuxPaneMethods {
         // Sessions (direct.ts).
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
         // acpmux extensions (direct.ts).
-        "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/warm",
+        "_acpmux/watch", "_acpmux/events", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
         "_acpmux/kill", "_acpmux/prewarm", "_acpmux/harnesses", "_acpmux/models", "_acpmux/permission_respond",
         // Read-only, and its reply is filtered to ``replyShapes`` (ad349).
         "_acpmux/status", "_acpmux/draft_get",
         // Session-scoped draft writes are kept separate from the filtered replies above.
         "_acpmux/draft_set",
+        // A side question about a chat in the pane's scope (direct.ts ask, `/btw`): acpmux answers
+        // it in a throwaway fork under deny-all, so it runs an agent turn like a prompt (cx-ef2m).
+        "_acpmux/ask",
         // Withdraw or change a queued prompt of a session in the pane's scope (direct.ts
         // removeQueued, editQueued).
         "_acpmux/queue_remove", "_acpmux/queue_edit",
@@ -87,6 +90,9 @@ nonisolated enum AcpmuxPaneMethods {
     /// Notifications (no `id`).
     public static let notifications: Set<String> = ["session/cancel"]
 
+    /// The top-level keys of a page frame (direct.ts sends no others).
+    static let frameKeys: Set<String> = ["jsonrpc", "id", "method", "params"]
+
     /// Longest frame the page may send (a prompt with attachments is the largest).
     public static let maximumFrameBytes = 32 << 20
 
@@ -137,6 +143,9 @@ nonisolated enum AcpmuxPaneMethods {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any],
               object["jsonrpc"] as? String == "2.0" else { return refuse(.invalidFrame, nil, nil) }
         let id = object["id"].flatMap(rawID)
+        // Only the keys the pane sends (cx-6o0): a `result` or `error` would make a request read as
+        // a response, and the daemon might act on any other key it knows.
+        guard Set(object.keys).isSubset(of: frameKeys) else { return refuse(.invalidFrame, object["method"] as? String, id) }
         guard let method = object["method"] as? String else { return refuse(.methodRefused, nil, nil) }
         // C1: no page frame may make the harness spawn a command.
         if let params = object["params"], carriesServers(params) { return refuse(.mcpServersRefused, method, id) }
@@ -169,7 +178,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
-        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
+        "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     ]
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
@@ -191,10 +200,14 @@ nonisolated enum AcpmuxPaneMethods {
 
     /// The error frame that answers a refused request, as the daemon would answer an unknown one.
     /// `rootRequested` stays in the frame the Rust policy shares; this host no longer offers to add
-    /// a refused folder as a root, so it never sets it.
-    public static func refusal(requestID: String, error: AgentPaneTransportError, method: String?, rootRequested: Bool = false) -> String {
+    /// a refused folder as a root, so it never sets it. `detail`: acpmux's own reason (a refused
+    /// Enable harness prompt), shown by the page; `reason`: why, as a code the page words.
+    public static func refusal(requestID: String, error: AgentPaneTransportError, method: String?, rootRequested: Bool = false,
+                               detail: String? = nil, reason: String? = nil) -> String {
         var data: [String: Any] = ["code": error.rawValue, "origin": "native"]
         if let method { data["method"] = method }
+        if let detail, !detail.isEmpty { data["detail"] = String(detail.prefix(1000)) }
+        if let reason { data["reason"] = reason }
         if rootRequested { data["rootRequested"] = true }
         let body: [String: Any] = ["code": -32601, "message": "Refused by the cmux host", "data": data]
         let encoded = (try? JSONSerialization.data(withJSONObject: body)).map { String(decoding: $0, as: UTF8.self) } ?? "{}"
@@ -216,6 +229,8 @@ nonisolated enum AcpmuxPaneMethods {
 
     public static let gestureRules: [String: GestureRule] = [
         "session/prompt": .always,
+        // A side question runs an agent turn too (in a throwaway fork of the chat).
+        "_acpmux/ask": .always,
         // Every value until the host has a list of the permissive ones (bypass, auto-approve, yolo).
         "session/set_mode": .always,
         "session/set_config_option": .always,

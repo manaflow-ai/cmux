@@ -67,7 +67,10 @@ enum PaneHandlers {
         let controller = ctx.services.paneController(for: pane)
         let content = controller?.workspace
         let handle = pane.handle
-        let cwd = invocation["cwd"]?.stringValue ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
+        // Ghostty's `split-inherit-working-directory = false`: the home folder (NewTerminalStart).
+        let named = invocation["cwd"]?.stringValue
+            ?? NewTerminalStart.uninherited(.split, services: ctx.services, daemon: daemon, besides: controller?.selectedTab)
+        let cwd = named ?? controller?.selectedTab?.cwd ?? pane.tabs.first?.cwd
         let workspace = ctx.services.workspaceKey(of: pane)
         let keep = invocation["keep"]?.boolValue == true ? true : nil
         let logger = ctx.services.daemon.logger
@@ -85,7 +88,7 @@ enum PaneHandlers {
         case .tab(let strip):
             if let content = strip.workspace { focus(strip.layoutPaneID, in: content) }
             if page { return strip.newTabPage() }
-            return strip.newTerminalTab(cwd: invocation["cwd"]?.stringValue, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
+            return strip.newTerminalTab(cwd: named, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
         }
         let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
         let sizing = controller.flatMap { controller in

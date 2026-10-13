@@ -5,9 +5,38 @@ work to come along: recent workspaces (folder, title, terminals and their launch
 or SSH commands) and Claude Code or Codex chats, resumed by session id. An agent
 can follow it end to end. Nothing here modifies classic's files.
 
-There is no migration UI in cmux-next. Everything goes through
+The quick way is **Import Workspaces from Classic cmux** in cmux-next's command
+palette, or `cmux workspace import-classic`. It opens every workspace from
+classic's last saved session, with the same panes, splits, tabs and tab names.
+It never runs on its own. It shows a toast when it finishes, and running it
+again opens the workspaces again.
+
+- Terminals open in their folders. A command that was running doesn't start
+  again. A terminal's saved scrollback prints once above its first prompt, as
+  plain output with its colors; titles, links and other terminal codes in it
+  are dropped. This needs cmux-next's shell integration (zsh, bash or fish).
+- Browser tabs open on their pages, in the same pane and order. A tab keeps a
+  name you gave it; otherwise it shows the page's title.
+- A terminal that ran a Claude Code or Codex session opens as a chat that
+  resumes that session (acpmux adopt), in the same pane and place, under the
+  chat's own title. It stays a terminal in its folder when a tab already
+  resumes that session, or when acpmux can't resume it as a chat.
+- SSH workspaces open on their host, as if you had run SSH… with
+  `user@host:port`. Classic's identity file and SSH options don't come over, so
+  the host must work from `~/.ssh/config` and your SSH agent, and it needs
+  cmux-tui. A host that doesn't connect within 20 seconds stays in classic, and
+  the toast says so; the import doesn't try it again for its other workspaces,
+  and a machine it added for that host is removed again. An agent session in an
+  SSH workspace opens as a terminal, because adopted chats run on this Mac.
+  An SSH terminal opens without its old scrollback, and the toast says so.
+- Cloud VM workspaces stay in classic, and the toast says so: cmux-next
+  can't attach a classic VM yet.
+- Markdown viewers and file previews stay in classic, and the toast says so.
+  A pane that held only those closes up, and its neighbour takes its space.
+
+To choose what comes over, or to bring launch commands too, use
 [`scripts/cmux-next/classic-to-next.py`](../../scripts/cmux-next/classic-to-next.py)
-and cmux-next's control socket.
+and cmux-next's control socket, as below.
 
 ## 1. Start cmux-next
 
@@ -73,8 +102,11 @@ python3 scripts/cmux-next/classic-to-next.py --apply --select w1,a2
 - An agent chat opens as a cmux-next agent chat in its folder, resumed by its
   Claude Code or Codex session id.
 - A workspace opens as a new cmux-next workspace in its folder, with a terminal
-  tab per classic terminal, each in its own folder with its launch or SSH
-  command. Selecting a workspace also brings the chats that were open in it.
+  per classic terminal, each in its own folder with its launch or SSH command.
+  It keeps classic's layout: each classic pane becomes a cmux-next pane with
+  the same tabs in the same order, and each split keeps its direction and
+  divider position. Selecting a workspace also brings the chats that were open
+  in it.
 - Each row prints `ok` or `FAIL` with the reason. Rows open once even when
   selected twice.
 
@@ -84,7 +116,16 @@ a `cmux action run newTab` line per row that works with any build's CLI. Its
 agent rows resume the chat in a terminal (`claude --resume <id>`,
 `codex resume <id>`) instead of an agent chat.
 
-The layout isn't recreated: a split workspace comes over as tabs in one pane.
+What the layout leaves out:
+
+- Each pane opens on its last tab, not the tab classic had selected.
+- A chat opens as its own workspace (above), and browser tabs don't come over.
+  A pane that held only those closes up, and its neighbour takes its space.
+- The `cmux action run newTab` fallback opens one workspace per terminal, with
+  no splits.
+- A canvas workspace (classic's freeform layout) comes over as tabs in one pane.
+- A terminal the saved layout doesn't place (a damaged session file) joins the
+  first pane as a tab.
 
 ## 5. Move live classic sessions (optional)
 

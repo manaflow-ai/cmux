@@ -125,6 +125,8 @@ pub use agent_session_attach::{
     AGENT_SESSION_ATTACH_CAPABILITY, AGENT_SESSION_START_CAPABILITY, AcpmuxStarter, AgentStartHost,
     AgentStartHostSource,
 };
+#[cfg(unix)]
+pub mod agent_transfer;
 mod app_trust;
 pub use app_trust::{FrontendKey, frontend_proof, install_frontend_key, read_frontend_key};
 mod client_hello;
@@ -188,6 +190,7 @@ mod cmd_terminal_io;
 mod cmd_terminals;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
+mod command_history;
 mod responses;
 mod rows;
 mod screen_json;
@@ -279,9 +282,8 @@ pub const PANE_BROWSER_KIND_CAPABILITY: &str = "pane-browser-kind-v1";
 pub const TAB_WORKSPACE_MOVE_CAPABILITY: &str = "tab-workspace-move-v1";
 pub const LAYOUT_UNDO_CAPABILITY: &str = "layout-undo-v1";
 pub const CLEAR_HISTORY_CAPABILITY: &str = "clear-history-v1";
-/// Finished shell commands (OSC 133) journaled as `shell.command.finished`
-/// when a trusted client turns it on with `set-terminal-command-history`.
-pub const TERMINAL_COMMAND_JOURNAL_CAPABILITY: &str = "terminal-command-journal-v1";
+/// Finished shell commands (OSC 133) as deletable rows with a retention.
+pub const TERMINAL_COMMAND_HISTORY_CAPABILITY: &str = "terminal-command-history-v1";
 pub const CLEAR_HISTORY_KEY_CAPABILITY: &str = "clear-history-key-v1";
 pub const SURFACE_SUBSCRIBE_FILTER_CAPABILITY: &str = "surface-subscribe-filter";
 pub const SESSION_JOURNAL_CAPABILITY: &str = "session-journal-v1";
@@ -422,7 +424,7 @@ pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// Browser profile records in personal state: `browser_profiles` in
 /// `list-personal` and the `*-browser-profile` commands (plans/cmux-next/data-model.md section 5).
 pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
-pub use bookmarks::BOOKMARKS_CAPABILITY;
+pub use bookmarks::{BOOKMARK_ICON_CAPABILITY, BOOKMARKS_CAPABILITY};
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
 /// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
 /// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,
@@ -668,12 +670,10 @@ enum Command {
     ServerStats {
         include: Option<Vec<String>>,
     },
-    /// Turn terminal command history on or off for this daemon
-    /// (`terminal-command-journal-v1`). Off by default and after a restart;
-    /// trusted local connections only.
-    SetTerminalCommandHistory {
-        enabled: bool,
-    },
+    /// `terminal-command-history-v1`, trusted local only (server/command_history.rs).
+    SetTerminalCommandHistory(command_history::SetParams),
+    ListTerminalCommands(command_history::ListParams),
+    DeleteTerminalCommands(command_history::DeleteParams),
     /// Gracefully hand this daemon's durable session to a replacement.
     /// The caller must fence the request with values from this daemon's `identify` response.
     ShutdownDaemon {
@@ -1235,6 +1235,9 @@ enum Command {
         color: Option<String>,
         #[serde(default)]
         collapsed: Option<bool>,
+        /// `screen-group-icon-v1`: the group's icon; null clears it.
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
     },
     AddScreensToScreenGroup {
         group: String,
@@ -1420,6 +1423,9 @@ enum Command {
         color: Option<String>,
         #[serde(default)]
         collapsed: Option<bool>,
+        /// `tab-group-icon-v1`: the group's icon; null clears it.
+        #[serde(default, deserialize_with = "present_nullable")]
+        icon: Option<Option<String>>,
     },
     AddTabsToTabGroup {
         group: String,
@@ -1606,6 +1612,7 @@ enum Command {
     ConversationCreate(conversations::CreateParams),
     ConversationSnapshot(conversations::SnapshotParams),
     ConversationHistory(conversations::HistoryParams),
+    ConversationThread(conversations::ThreadParams),
     ConversationSearch(conversations::SearchParams),
     /// The history search index (`history-search-v1`, server/history_search.rs).
     HistorySearch(history_search::HistorySearchParams),
@@ -1622,6 +1629,7 @@ enum Command {
     CloudInboxList(cloud_conversations::InboxListParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
+    CloudConversationThread(cloud_conversations::ThreadParams),
     CloudConversationOp(cloud_conversations::OpParams),
     CloudInboxSubscribe,
     CloudInboxUnsubscribe,
@@ -1885,6 +1893,8 @@ enum Command {
         key: Option<String>,
         #[serde(default)]
         end_terminals: bool,
+        #[serde(default)]
+        reason: Option<crate::mux::CloseReason>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },
@@ -2419,11 +2429,13 @@ mod client_registry_views;
 
 mod listen;
 pub use listen::{
-    PendingServer, SocketStartLock, connect_session_socket, prepare_socket_parent, serve,
-    serve_paused,
+    BoundSocket, PendingServer, START_LOCK_DEADLINE, SocketStartLock, bind_session_socket,
+    connect_session_socket, prepare_socket_parent, serve, serve_bound, serve_paused,
 };
+mod restoring;
 #[cfg(test)]
 use listen::{prepare_runtime_socket_directory, socket_start_lock_retry_delay};
+pub use restoring::RestoringServer;
 
 #[cfg(test)]
 use websocket_listener::handle_websocket_connection;
@@ -2542,7 +2554,9 @@ fn handle_connection_frame(
         return keep_open;
     }
     #[cfg(unix)]
-    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer) {
+    if let Some(keep_open) = agent_session_attach::try_handle(mux, client, message, writer)
+        .or_else(|| agent_transfer::try_handle(mux, client, message, writer))
+    {
         return keep_open;
     }
     #[cfg(unix)]
@@ -2965,9 +2979,9 @@ fn handle_command_with_cancellation(
             offset,
             data,
         ),
-        Command::SetTerminalCommandHistory { enabled } => {
-            cmd_terminals::set_terminal_command_history(mux, client, enabled)
-        }
+        command @ (Command::SetTerminalCommandHistory(_)
+        | Command::ListTerminalCommands(_)
+        | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::Identify => cmd_server::identify(mux),
@@ -3263,8 +3277,8 @@ fn handle_command_with_cancellation(
         Command::CreateScreenGroup { screens, name, color } => {
             cmd_screens::create_screen_group(mux, actor, screens, name, color)
         }
-        Command::UpdateScreenGroup { group, name, color, collapsed } => {
-            cmd_screens::update_screen_group(mux, actor, group, name, color, collapsed)
+        Command::UpdateScreenGroup { group, name, color, collapsed, icon } => {
+            cmd_screens::update_screen_group(mux, actor, group, name, color, collapsed, icon)
         }
         Command::AddScreensToScreenGroup { group, screens, index } => {
             cmd_screens::add_screens_to_screen_group(mux, actor, group, screens, index)
@@ -3373,8 +3387,8 @@ fn handle_command_with_cancellation(
         Command::CreateTabGroup { surfaces, name, color, group, transaction } => {
             cmd_tabs::create_tab_group(mux, actor, surfaces, name, color, group, transaction)
         }
-        Command::UpdateTabGroup { group, name, color, collapsed } => {
-            cmd_tabs::update_tab_group(mux, actor, group, name, color, collapsed)
+        Command::UpdateTabGroup { group, name, color, collapsed, icon } => {
+            cmd_tabs::update_tab_group(mux, actor, group, name, color, collapsed, icon)
         }
         Command::AddTabsToTabGroup { group, surfaces, transaction } => {
             cmd_tabs::add_tabs_to_tab_group(mux, actor, group, surfaces, transaction)
@@ -3474,6 +3488,7 @@ fn handle_command_with_cancellation(
         Command::ConversationCreate(params) => conversations::create(mux, client, params),
         Command::ConversationSnapshot(params) => conversations::snapshot(mux, client, params),
         Command::ConversationHistory(params) => conversations::history(mux, client, params),
+        Command::ConversationThread(params) => conversations::thread(mux, client, params),
         Command::ConversationSearch(params) => conversations::search(mux, client, params),
         Command::HistorySearch(params) => history_search::search(mux, client, params),
         Command::ConversationOp(params) => conversations::op(mux, client, params),
@@ -3490,6 +3505,9 @@ fn handle_command_with_cancellation(
         }
         Command::CloudConversationHistory(params) => {
             cloud_conversations::history(mux, client, params)
+        }
+        Command::CloudConversationThread(params) => {
+            cloud_conversations::thread(mux, client, params)
         }
         Command::CloudConversationOp(params) => cloud_conversations::op(mux, client, params),
         Command::CloudInboxSubscribe => cloud_conversations::subscribe(mux, client, None),
@@ -3674,8 +3692,9 @@ fn handle_command_with_cancellation(
         Command::CloseScreen { screen, end_terminals } => {
             cmd_screens::close_screen(mux, actor, screen, end_terminals)
         }
-        Command::CloseWorkspace { workspace, key, end_terminals, mutation } => {
-            cmd_workspaces::close_workspace(mux, client, workspace, key, end_terminals, mutation)
+        Command::CloseWorkspace { workspace, key, end_terminals, reason, mutation } => {
+            let ending = cmd_workspaces::Ending { terminals: end_terminals, reason };
+            cmd_workspaces::close_workspace(mux, client, workspace, key, ending, mutation)
         }
         Command::MarkWorkspacesProviderManaged { authority } => {
             cmd_workspaces::mark_workspaces_provider_managed(mux, authority)
@@ -3801,6 +3820,10 @@ mod session_identity_tests;
 #[cfg(test)]
 #[path = "server/personal_tests.rs"]
 mod personal_tests;
+
+#[cfg(test)]
+#[path = "server/group_icon_raw_tests.rs"]
+mod group_icon_raw_tests;
 
 #[cfg(test)]
 #[path = "server/device_kind_tests.rs"]

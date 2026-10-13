@@ -67,3 +67,102 @@ test("a change from the host shows without a reload; no daemon says why", async 
   expect(element.textContent).toContain("acpmux did not answer");
   page.unmount();
 });
+
+test("an outdated harness shows both versions and an Update; one that needs sudo shows its command; Agents gets a badge", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const element = card(page.container)!;
+  const codex = element.querySelector<HTMLElement>('[data-harness="codex"]')!;
+  expect(codex.querySelector("[data-harness-version]")!.textContent).toContain("0.3.1");
+  expect(codex.querySelector("[data-harness-version]")!.textContent).toContain("0.4.0");
+  expect(codex.querySelector('[data-harness-auth="signedOut"]')).not.toBeNull();
+  // An update that writes a folder this user cannot: the exact command, never a button that runs it.
+  const claude = element.querySelector<HTMLElement>('[data-harness="claude"]')!;
+  expect(claude.querySelector('[data-harness-action="update"]')).toBeNull();
+  expect(claude.querySelector("[data-harness-command]")!.textContent).toBe(
+    "sudo npm install -g @anthropic-ai/claude-code@latest",
+  );
+  expect(claude.querySelector("[data-harness-auth]")).toBeNull();
+  // An up-to-date one has neither.
+  const copilot = element.querySelector<HTMLElement>('[data-harness="github-copilot-cli"]')!;
+  expect(copilot.querySelector('[data-harness-action="update"], [data-harness-command]')).toBeNull();
+  expect(page.container.querySelector('[data-section-link="agents"] [data-badge="update"]')).not.toBeNull();
+  const press = async (selector: string) => {
+    await act(async () => element.querySelector<HTMLButtonElement>(selector)!.click());
+    await settle();
+  };
+  await press('[data-harness="codex"] [data-harness-action="update"]');
+  await press('[data-harness-action="updateAll"]');
+  await press('[data-harness-action="refresh"]');
+  expect(page.provider.harnessRuns.filter((run) => run.action !== "refresh")).toEqual([
+    { action: "update", id: "codex" },
+    { action: "updateAll" },
+  ]);
+  // Refresh asks the daemon to check again (after an update); opening the card does not.
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "refresh", recheck: true });
+  // Up to date and signed in: no badge.
+  await act(async () =>
+    page.provider.setHarnesses({
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.4.0",
+          latest: "0.4.0",
+          outdated: false,
+          auth: "signedIn",
+          update: null,
+        },
+      ],
+    }),
+  );
+  await settle();
+  expect(page.container.querySelector('[data-section-link="agents"] [data-badge]')).toBeNull();
+  expect(card(page.container)!.querySelector('[data-harness-action="updateAll"]')).toBeNull();
+  page.unmount();
+});
+
+test("Update Automatically turns auto-update on for one harness; a failed auto-update says why", async () => {
+  const page = await renderPage({ path: "/settings/agents" });
+  await settle();
+  const element = card(page.container)!;
+  // Only a harness whose update needs no sudo offers it.
+  expect(element.querySelector('[data-harness="claude"] [data-harness-auto]')).toBeNull();
+  const box = element.querySelector<HTMLInputElement>('[data-harness="codex"] input[data-harness-auto]')!;
+  expect(box.checked).toBe(false);
+  await act(async () => box.click());
+  await settle();
+  expect(page.provider.harnessRuns.at(-1)).toEqual({ action: "autoUpdate", id: "codex", on: true });
+  await act(async () =>
+    page.provider.setHarnesses({
+      loading: false,
+      problem: null,
+      harnesses: [
+        {
+          id: "codex",
+          name: null,
+          kind: "acp",
+          source: "path",
+          problem: null,
+          version: "0.3.1",
+          latest: "0.4.0",
+          outdated: true,
+          auth: "signedIn",
+          update: { command: "npm install -g @openai/codex@latest", elevated: false },
+          autoUpdate: true,
+          lastAutoUpdate: { ok: false, detail: "npm ERR! network timeout" },
+        },
+      ],
+    }),
+  );
+  await settle();
+  const row = card(page.container)!.querySelector<HTMLElement>('[data-harness="codex"]')!;
+  expect(row.querySelector<HTMLInputElement>("input[data-harness-auto]")!.checked).toBe(true);
+  expect(row.querySelector("[data-harness-auto-failed]")!.textContent).toContain("npm ERR! network timeout");
+  page.unmount();
+});

@@ -96,7 +96,7 @@ final class FlightRecorder: NSObject {
         // Paging and streaming carry whole messages: describing them formatted 200 messages per page (about 4 ms).
         case let .prependPage(p): name = "prependPage \(p.count)"
         case let .appendPage(p): name = "appendPage \(p.count)"
-        case let .replaceWindow(p, start): name = "replaceWindow \(p.count) at \(start)"
+        case let .replaceWindow(p, start, _): name = "replaceWindow \(p.count) at \(start)"
         case let .appendText(id, t): name = "appendText \(id) +\(t.utf8.count)"
         default: name = String(String(describing: a).prefix(60))
         }
@@ -504,7 +504,7 @@ final class FlightRecorder: NSObject {
     /// About 0.5 s of window captures, one per display frame, off the main thread.
     private func burst(_ dir: String, _ c: ChatController, count: Int) {
         guard let window = c.window else { return }  // cmux: the pane's window is optional
-        guard let wid = UInt32(exactly: window.windowNumber) else { return } // cmux: no trapping conversion
+        guard let wid = UInt32(exactly: window.windowNumber) else { return } // no trapping conversion
         let q = DispatchQueue(label: "flight.burst", qos: .utility)
         let start = CACurrentMediaTime()
         var i = 0

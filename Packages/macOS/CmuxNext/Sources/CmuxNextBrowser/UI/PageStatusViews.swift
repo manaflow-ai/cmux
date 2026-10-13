@@ -61,8 +61,9 @@ final class PageStatusViews {
         } else if !goneView.isHidden {
             goneView.isHidden = true
         }
-        // Chromium's own error page or interstitial is the page: never
-        // cover it, not even for the moment before it commits.
+        // Both engines: cmux's error page or certificate warning over the
+        // error page Chromium commits under it, except Chromium's
+        // interstitial after Proceed handed it the decision.
         if state.processExit == nil, let error = state.loadError, !error.engineShowsPage {
             errorView.show(error)
         } else if !errorView.isHidden {

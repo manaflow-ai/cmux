@@ -80,7 +80,7 @@ struct AppInstallButton: View {
                 Color.clear.frame(width: 0)
             } else if model.state(of: id)?.isDefault == true {
                 AppStoreBadge(text: AppsStrings.installedForEveryone)
-                    .help(AppsStrings.installedForEveryoneHelp)
+                    .themedHelp(AppsStrings.installedForEveryoneHelp)
                     .accessibilityIdentifier("appStore.install.\(id)")
             } else if model.state(of: id)?.installed == true {
                 textButton(AppsStrings.remove, color: colors.danger) { await model.requestRemove(id) }

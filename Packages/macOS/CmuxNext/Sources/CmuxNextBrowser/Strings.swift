@@ -7,6 +7,9 @@ nonisolated enum Strings {
     static var back: String { String(localized: "browser.toolbar.back", defaultValue: "Back", bundle: .module) }
     static var forward: String { String(localized: "browser.toolbar.forward", defaultValue: "Forward", bundle: .module) }
     static var reload: String { String(localized: "browser.toolbar.reload", defaultValue: "Reload This Page", bundle: .module) }
+    /// The Reload button's right-click menu (cx-2lm4).
+    static var menuReload: String { String(localized: "browser.toolbar.menu.reload", defaultValue: "Reload Page", bundle: .module) }
+    static var menuHardReload: String { String(localized: "browser.toolbar.menu.hardReload", defaultValue: "Hard Reload Page", bundle: .module) }
     static var stop: String { String(localized: "browser.toolbar.stop", defaultValue: "Stop Loading", bundle: .module) }
     static var bookmarkAdd: String { String(localized: "browser.bookmark.add", defaultValue: "Bookmark This Page", bundle: .module) }
     static var bookmarkEdit: String { String(localized: "browser.bookmark.edit", defaultValue: "Edit Bookmark", bundle: .module) }

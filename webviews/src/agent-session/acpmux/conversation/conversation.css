@@ -121,6 +121,215 @@
 .cv-user__cancel:hover {
   color: var(--cv-text);
 }
+/* Cancel on the start status line, which then reads "Thinking" in the same place (cx-ncc.58). */
+.cv-thinking__cancel {
+  margin-left: 6px;
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: default;
+}
+.cv-thinking__cancel:hover {
+  color: var(--cv-text);
+}
+
+/* ---------- Side preview panel (ArtifactPanel.tsx) ---------- */
+/* Beside the chat and its composer; a narrow pane gives it the whole width. */
+.acpmux-artifact {
+  flex: 0 0 clamp(320px, 46%, 760px);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: inset 1px 0 0 var(--agent-border);
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+  font-family: var(--cv-font);
+}
+@media (max-width: 720px) {
+  .acpmux-artifact {
+    position: absolute;
+    inset: 0;
+    z-index: var(--layer-overlay);
+    box-shadow: none;
+  }
+}
+.acpmux-artifact-bar {
+  flex: 0 0 44px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 14px;
+  box-sizing: border-box;
+}
+.acpmux-artifact-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+.acpmux-artifact-versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.acpmux-artifact-version {
+  min-width: 26px;
+  text-align: center;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  color: var(--agent-muted);
+}
+.acpmux-artifact-tabs {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--acpmux-composer-tray);
+}
+.acpmux-artifact-tab {
+  all: unset;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 6px;
+  font-size: var(--text-detail);
+  line-height: 24px;
+  color: var(--agent-muted);
+  cursor: default;
+}
+.acpmux-artifact-tab:hover:not([aria-pressed="true"]) {
+  color: var(--agent-text);
+}
+.acpmux-artifact-tab[aria-pressed="true"] {
+  background: var(--agent-page-bg);
+  color: var(--agent-text);
+}
+.acpmux-artifact-tab:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-artifact-actions {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.acpmux-artifact-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+.acpmux-artifact-body > .cv-codeblock {
+  margin: 0 12px 12px;
+}
+.acpmux-artifact-doc {
+  padding: 4px 20px 20px;
+}
+.acpmux-artifact-run {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.acpmux-artifact-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+}
+/* Copy and Edit under a prompt (cx-ncc.60): shown while the pointer is over the prompt or a key
+   reached them, as Claude's. */
+.cv-user__actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 4px;
+  padding-right: 2px;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.cv-user:hover .cv-user__actions,
+.cv-user__actions:focus-within,
+.cv-user__actions--versions {
+  opacity: 1;
+}
+/* < n/m > between a prompt's versions (cx-ncc.61), before Copy and Edit, as Claude's. */
+.cv-user__versions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.cv-user__version-count {
+  min-width: 28px;
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  color: var(--cv-text-muted);
+}
+/* The prompt open for editing: the bubble's place and shape, its text editable, Cancel and Send under it. */
+.cv-user__edit {
+  box-sizing: border-box;
+  width: min(100%, 560px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border-radius: 16px;
+  background: var(--cv-bubble);
+  box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
+}
+.cv-user__edit-field {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: var(--cv-line-height);
+  max-height: 320px;
+  overflow-y: auto;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  line-height: var(--cv-line-height);
+  color: var(--cv-text);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+.cv-user__edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.cv-user__edit-button {
+  all: unset;
+  box-sizing: border-box;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-family: var(--cv-font);
+  font-size: var(--text-control);
+  line-height: 26px;
+  color: var(--cv-text);
+  box-shadow: inset 0 0 0 1px var(--cv-rule);
+  cursor: default;
+}
+.cv-user__edit-button:hover {
+  background: var(--cv-faint-rule);
+}
+.cv-user__edit-button--send {
+  color: var(--agent-surface);
+  background: var(--cv-text);
+  box-shadow: none;
+}
+.cv-user__edit-button--send:hover {
+  background: var(--cv-codeblock-text);
+}
+.cv-user__edit-button:disabled {
+  opacity: 0.4;
+}
 
 /* ---------- Markdown ---------- */
 
@@ -265,6 +474,7 @@
   top: 0.35em;
   --cmux-markdown-checkbox-secondary: var(--agent-muted);
   --cmux-markdown-checkbox-accent: var(--agent-accent);
+  --cmux-markdown-checkbox-ink: var(--agent-on-accent);
   box-shadow: inset 0 0 0 1px var(--cv-strong-rule);
 }
 /* appearance.borders none: retain a quiet fill so an open task remains visible without a ring. */
@@ -496,7 +706,9 @@ pre.cv-math-source {
   outline-offset: -1.5px;
   border-radius: 8px;
 }
-.acpmux-row__copy {
+/* Scoped to the row so it outranks .cv-iconbtn's `all: unset`, which comes later in this file and
+   otherwise put the button back in the flow, shown at rest. */
+.acpmux-row .acpmux-row__copy {
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
@@ -509,7 +721,7 @@ pre.cv-math-source {
   opacity: 1;
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-row__copy {
+  .acpmux-row .acpmux-row__copy {
     transition: opacity 120ms ease-out;
   }
 }
@@ -637,8 +849,27 @@ pre.cv-math-source {
 .cv-tool__chevron {
   margin-left: -4px;
 }
+/* A thought: "Thought" and its first line on one row, the full text below once opened (cx-ncc.73). */
 .cv-thought .cv-tool__text {
-  white-space: normal;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+.cv-thought__label {
+  flex: none;
+}
+.cv-thought__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text-muted);
+}
+.cv-thought__body {
+  margin: 2px 0 6px 22px;
+  color: var(--cv-text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .cv-worked.is-toggle:hover,
 .cv-tool.is-toggle:hover {
@@ -688,6 +919,16 @@ pre.cv-math-source {
 .cv-shell__label,
 .cv-shell__exit {
   font: 13px/20px var(--cv-font);
+}
+/* "Shell" with the output's copy button at the other end; the button overhangs the label's line. */
+.cv-shell__label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 20px;
+}
+.cv-shell__label .cv-codeblock__action {
+  margin-right: -6px;
 }
 .cv-shell__body {
   display: flex;
@@ -879,6 +1120,52 @@ pre.cv-math-source {
 .cv-rotor.is-flipped {
   transform: rotate(180deg);
 }
+/* A call's output under its row (ToolRow.tsx): copyable whole from the corner on hover or focus. */
+.cv-tool-output-card {
+  position: relative;
+  margin: 4px 0 8px;
+}
+.cv-tool-output-card .cv-tool-output {
+  margin: 0;
+}
+.cv-tool-output__copy {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  color: var(--cv-text-muted);
+  background: var(--cv-card-fill);
+  opacity: 0;
+}
+.cv-tool-output__copy:hover {
+  color: var(--cv-text);
+  background: color-mix(in srgb, var(--cv-fg) 7%, var(--cv-card-fill));
+}
+.cv-tool-output-card:hover .cv-tool-output__copy,
+.cv-tool-output__copy:focus-visible {
+  opacity: 1;
+}
+/* The mark where a long output's shown end begins, and the button that shows all of it. */
+.cv-output-cut {
+  color: var(--cv-text-muted);
+}
+.cv-output-more {
+  all: unset;
+  display: block;
+  margin: 4px 0 0;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+  cursor: pointer;
+}
+.cv-output-more:hover {
+  color: var(--cv-text);
+}
+.cv-output-more:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 1px;
+  border-radius: 4px;
+}
 .cv-message .cv-tool-output {
   margin: 0 10px 8px 32.5px;
 }
@@ -919,6 +1206,13 @@ pre.cv-math-source {
   width: 20px;
   height: 20px;
   border-radius: 5px;
+}
+/* Retry's model menu (TurnRows.tsx): a narrow chevron that sits against Retry. */
+.cv-iconbtn.cv-turn-retry-menu {
+  width: 14px;
+  min-width: 0;
+  padding: 0;
+  margin-left: -3px;
 }
 .cv-iconbtn:hover {
   color: var(--cv-text);
@@ -967,8 +1261,8 @@ pre.cv-math-source {
 
 /* R104: a block that appears while the reply streams, and a row that arrives live (a reply, a
  * tool call, a status line), fade in and rise 4px on the shared fade-in token. `translate` and
- * `opacity` never move layout, so nothing below shifts. Off under Reduce Motion and when
- * ui.animationSpeed is off (the token is 0). */
+ * `opacity` never move layout, so nothing below shifts. Reduce Motion keeps the fade without the
+ * rise (cv-enter-fade, below); ui.animationSpeed off turns both off (the token is 0). */
 @keyframes cv-enter {
   from {
     opacity: 0;
@@ -983,6 +1277,12 @@ pre.cv-math-source {
   .cv-enter,
   .acpmux-row--enter {
     animation: cv-enter var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cv-enter,
+  .acpmux-row--enter {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
   }
 }
 
@@ -1023,18 +1323,15 @@ pre.cv-math-source {
     opacity: 1;
   }
 }
-@media (prefers-reduced-motion: no-preference) {
-  .cv-code-handoff.is-fading .cv-code-handoff__real {
-    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
-  }
+/* Opacity only, so it runs under Reduce Motion too (desktop.css exempts it). */
+.cv-code-handoff.is-fading .cv-code-handoff__real {
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* R104: the newest revealed characters fade in (RevealedMarkdown); opacity only, on the
  * compositor. The text holds its final layout while transparent, so no line ever reflows. */
-@media (prefers-reduced-motion: no-preference) {
-  .cv-fresh {
-    animation: cv-enter-fade 160ms cubic-bezier(0.2, 0, 0, 1) both;
-  }
+.cv-fresh {
+  animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
 }
 
 /* R104: the live edge, a soft bar after the newest character while a reply streams. It takes no
@@ -1103,10 +1400,14 @@ pre.cv-math-source {
 }
 
 /* Images (Markdown.tsx): a data URL image fits the column; a web image is a link. */
+/* A reply's image: as wide as the column at most, and no taller than a screenful's share, so a tall
+ * screenshot does not push the reply off the page; the viewer shows it whole. */
 .cv-img {
   display: block;
   max-width: 100%;
+  max-height: 360px;
   height: auto;
+  object-fit: contain;
   margin: 6px 0;
   border-radius: 8px;
 }
@@ -1515,12 +1816,15 @@ pre.cv-math-source {
   border: 0.5px solid var(--agent-border);
   border-radius: 8px;
   background: var(--acpmux-base, var(--agent-page-bg));
-  box-shadow: 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%));
+  box-shadow: var(--ui-popup-shadow, 0 4px 14px var(--agent-shadow, rgb(0 0 0 / 18%)));
   font-family: var(--cv-font);
   font-size: var(--text-body);
 }
+.acpmux-find__bar:focus-within {
+  border-color: var(--agent-accent);
+}
 .acpmux-find__field {
-  width: 180px;
+  width: min(180px, 40vw);
   height: 100%;
   padding: 0;
   border: 0;
@@ -1562,6 +1866,13 @@ pre.cv-math-source {
 .acpmux-find__step:hover:not(:disabled) {
   background: var(--agent-control-hover, color-mix(in srgb, var(--agent-text) 6%, transparent));
 }
+.acpmux-find__up {
+  transform: rotate(180deg);
+}
+/* No match for the query: the count reads as an answer, not as quiet detail. */
+.acpmux-find__count[data-empty] {
+  color: var(--agent-text);
+}
 .acpmux-find__step:disabled {
   opacity: 0.4;
 }
@@ -1569,12 +1880,13 @@ pre.cv-math-source {
   outline: 2px solid var(--agent-accent);
   outline-offset: -2px;
 }
+/* Find matches: the theme's highlight (the yellow is only for an unthemed preview). */
 ::highlight(acpmux-find) {
-  background-color: color-mix(in srgb, #f5c542 40%, transparent);
+  background-color: color-mix(in srgb, var(--agent-highlight, #f5c542) 40%, transparent);
 }
 ::highlight(acpmux-find-active) {
-  background-color: #f5c542;
-  color: #1d1d1f;
+  background-color: var(--agent-highlight, #f5c542);
+  color: var(--agent-highlight-text, #1d1d1f);
 }
 
 /* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the
@@ -1605,7 +1917,7 @@ pre.cv-math-source {
   cursor: default;
   opacity: 0;
   pointer-events: none;
-  transform: translate3d(-50%, 6px, 0) scale(0.92);
+  transform: translate3d(-50%, 6px, 0);
 }
 .acpmux-jump-latest[data-shown] {
   opacity: 1;
@@ -1674,4 +1986,84 @@ pre.cv-math-source {
   background-color: var(--agent-page-bg);
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
+}
+
+/* The agent's todo list (PlanList.tsx, cx-ncc.80). */
+.cv-plan {
+  margin: 8px 0;
+  font-size: var(--text-body);
+}
+.cv-plan__heading {
+  height: 20px;
+  font-size: var(--text-caption);
+  color: var(--cv-text-muted);
+}
+.cv-plan__items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.cv-plan__item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 22px;
+}
+.cv-plan__mark {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--cv-text-muted);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+/* The item's state for screen readers only (the pane does not load ui.css's .ui-sr-only). */
+.cv-plan__state {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.cv-plan__item[data-status="completed"] {
+  color: var(--cv-text-muted);
+  text-decoration: line-through;
+}
+.cv-plan__item[data-status="completed"] .cv-plan__mark {
+  border-color: transparent;
+  background: var(--cv-text-muted);
+  color: var(--agent-accent-text, #fff);
+}
+.cv-plan__item[data-status="in_progress"] {
+  font-weight: 600;
+}
+.cv-plan__item[data-status="in_progress"] .cv-plan__mark {
+  border-color: var(--agent-text);
+}
+
+/* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */
+.cv-bgtask {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 22px;
+  margin: 4px 0;
+  color: var(--cv-text-muted);
+  font-size: var(--text-caption);
+}
+.cv-bgtask > svg {
+  flex: none;
+}
+.cv-bgtask__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-bgtask[data-state="failed"] > svg {
+  color: var(--agent-danger);
 }

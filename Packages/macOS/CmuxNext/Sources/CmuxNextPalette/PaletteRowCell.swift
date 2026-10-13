@@ -57,9 +57,19 @@ final class PaletteTableRowView: NSTableRowView {
     private let fill = CALayer()
     private var fadesNextFill = false
 
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        // A fade asked for before the row was reused belongs to its old row.
+        fadesNextFill = false
+    }
+
     var isPaletteSelected = false {
         didSet { if isPaletteSelected != oldValue { needsDisplay = true } }
     }
+
+    /// The table's selection only tells VoiceOver which row is selected (`syncTableSelection`);
+    /// the row's text keeps its own colors.
+    override var interiorBackgroundStyle: NSView.BackgroundStyle { .normal }
 
     var isHovered = false {
         didSet { if isHovered != oldValue { needsDisplay = true } }
@@ -109,7 +119,7 @@ final class PaletteRowCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("palette.row")
 
     private let icon = NSImageView()
-    private let swatch = PaletteSwatchView()
+    let swatch = PaletteSwatchView()
     private let title = PaletteText.label(Typography.body, tone: nil)
     private let subtitle = PaletteText.label(Typography.caption, tone: .secondary)
     private let accessory = PaletteText.label(Typography.caption, tone: .tertiary)
@@ -118,6 +128,8 @@ final class PaletteRowCell: NSTableCellView {
     private var titleText = ""
     private var highlights: [Int] = []
     private var isSelected = false
+    private var swatches: [ThemeRGB] = []
+    private var ball: PaletteBall?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -141,9 +153,11 @@ final class PaletteRowCell: NSTableCellView {
                 ?? item.brand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: Metrics.iconSize) }
                 ?? PaletteText.symbol(item.symbol ?? "command", size: Metrics.iconSize)
         }
-        swatch.colors = item.swatches
-        swatch.isHidden = item.swatches.isEmpty
-        icon.isHidden = !item.swatches.isEmpty
+        swatches = item.swatches
+        ball = item.ball
+        let drawsColor = !item.swatches.isEmpty || item.ball != nil
+        swatch.isHidden = !drawsColor
+        icon.isHidden = drawsColor
         self.isSelected = isSelected
         titleText = item.title
         highlights = row.highlights
@@ -178,6 +192,7 @@ final class PaletteRowCell: NSTableCellView {
         performWithTheme {
             icon.contentTintColor = isSelected ? Palette.textPrimary : Palette.textSecondary
             title.attributedStringValue = Self.highlighted(titleText, highlights)
+            swatch.colors = ball.map { [$0.color.ballRGB(marksContent: $0.marksContent)] } ?? swatches
         }
     }
 
@@ -192,7 +207,7 @@ final class PaletteRowCell: NSTableCellView {
         if !keycaps.isHidden {
             let size = keycaps.intrinsicContentSize
             right -= size.width
-            keycaps.frame = NSRect(x: right, y: midY - size.height / 2, width: size.width, height: size.height)
+            keycaps.frame = pixelAligned(NSRect(x: right, y: midY - size.height / 2, width: size.width, height: size.height))
             right -= Metrics.space4
         }
         if !accessory.isHidden {
@@ -212,8 +227,8 @@ final class PaletteRowCell: NSTableCellView {
     }
 
     private func centered(x: CGFloat, width: CGFloat, field: NSTextField) -> NSRect {
-        let height = field.intrinsicContentSize.height
-        return NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height)
+        let height = PaletteText.height(field)
+        return pixelAligned(NSRect(x: x, y: (bounds.height - height) / 2, width: width, height: height))
     }
 
     /// Matched characters in full label color and the emphasized weight; the

@@ -14,10 +14,10 @@ final class SidebarIconView: NSView {
     private let swatch = CALayer()
     private let emoji = SidebarEmojiGlyphView()
     private var icon: WorkspaceIcon?
-    /// A symbol without a color draws in the primary text color (a group's
-    /// icon inside its colored label, next to the name) instead of the
-    /// secondary one.
-    var drawsUncoloredSymbolAsText = false { didSet { needsDisplay = true } }
+    /// One ink for every symbol, tinted or not (the solid group header's
+    /// glyph ink, cx-qno.22: a red icon must not vanish on a red bar); nil
+    /// keeps a symbol's tint and draws an uncolored one in the secondary text color.
+    var symbolInk: NSColor? { didSet { if symbolInk != oldValue { needsDisplay = true } } }
 
     /// Rows reserve room for a chosen icon or a built-in type glyph.
     static func showsIcon(_ icon: WorkspaceIcon?, fallback: IconName? = nil) -> Bool {
@@ -82,7 +82,7 @@ final class SidebarIconView: NSView {
         CATransaction.setDisableActions(true)
         performWithTheme {
             let tint: NSColor? = if case let .symbol(_, tint)? = icon {
-                tint.map(SidebarStyle.color) ?? (drawsUncoloredSymbolAsText ? Palette.textPrimary : Palette.textSecondary)
+                symbolInk ?? tint.map(SidebarStyle.color) ?? Palette.textSecondary
             } else if icon == nil {
                 Palette.textSecondary
             } else {

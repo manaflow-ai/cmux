@@ -46,7 +46,8 @@ typedef enum {
   CMUX_SHIM_LOADING_STATE = 7,    // a = loading | back << 1 | forward << 2
   CMUX_SHIM_LOAD_START = 8,       // main frame; s1 = url
   CMUX_SHIM_LOAD_END = 9,         // main frame; a = http status
-  CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, s1 = text, s2 = url
+  CMUX_SHIM_LOAD_ERROR = 10,      // main frame; a = cef_errorcode_t, b = 1 when Chromium shows its certificate
+                                  // interstitial for it, s1 = text, s2 = url
   CMUX_SHIM_PROGRESS = 11,        // a = progress * 1000
   CMUX_SHIM_FULLSCREEN = 12,      // a = 1 entering
   CMUX_SHIM_DEVTOOLS_RESULT = 13, // request = message id, a = success, s1 = JSON
@@ -156,6 +157,13 @@ typedef enum {
   // Chromium ended a waiting PERMISSION_PROMPT itself (the page navigated or
   // closed); request = its token. Not sent after the host's answer.
   CMUX_SHIM_PERMISSION_DISMISSED = 42,
+  // Chromium's password manager asks to save or update a sign-in (fork API
+  // 20; Chromium's bubble does not show). request = prompt id, s1 = JSON
+  // {"prompt_id","browser_id","kind": "save" | "update" | "gone","origin",
+  // "username","other_usernames_count"}; never the password. "gone": the
+  // tab navigated or closed and the prompt can no longer be answered.
+  // Answer once with cmux_shim_password_prompt_answer.
+  CMUX_SHIM_PASSWORD_PROMPT = 43,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -313,6 +321,9 @@ CMUX_SHIM_EXPORT void cmux_shim_set_focus(int browser_id, int focus);
 // Without a handler every focus request wins (CEF's default).
 CMUX_SHIM_EXPORT void cmux_shim_set_focus_request_handler(cmux_shim_focus_request_fn handler);
 CMUX_SHIM_EXPORT void cmux_shim_set_zoom_level(int browser_id, double level);
+// File > Print… (CefBrowserHost::Print): Chromium's print preview over the
+// page, as the page's own window.print(). Returns 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_print(int browser_id);
 // FIND_RESULT events carry `find_id`.
 CMUX_SHIM_EXPORT void cmux_shim_find(int browser_id, int find_id, const char* text, int forward, int match_case, int find_next);
 CMUX_SHIM_EXPORT void cmux_shim_stop_finding(int browser_id, int clear_selection);
@@ -495,6 +506,12 @@ CMUX_SHIM_EXPORT int cmux_shim_download_favicon(int browser_id, int reply, const
 // every cookie was handled: a = written, s1 = {"written","rejected"}.
 // Returns 0 when nothing was started (bad path or JSON).
 CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* profile_cache_path, int reply, const char* json);
+// Clear Browsing Data: deletes the cookies of profile_cache_path (a
+// persistent profile; an off-the-record key returns 0) created at or after
+// `since` (microseconds since 1601; 0 deletes every cookie), creating the
+// context when no tab opened it yet. REPLY with `reply` and browser 0
+// follows: a = cookies deleted. Returns 0 when nothing was started.
+CMUX_SHIM_EXPORT int cmux_shim_clear_cookies(const char* profile_cache_path, int reply, int64_t since);
 // Browser import: saved passwords into the Chromium password store of
 // profile_cache_path (a persistent profile; an off-the-record key returns 0),
 // the store autofill reads, encrypted with cmux's own Keychain key. Every
@@ -502,8 +519,9 @@ CMUX_SHIM_EXPORT int cmux_shim_import_cookies(const char* profile_cache_path, in
 // copies the entries before it returns, so the caller zeroes its buffers at
 // once; the shim zeroes its copies when the store has taken them. Values are
 // never logged. REPLY with `reply` and browser 0 follows: s1 = {"added",
-// "duplicate","conflict","rejected"} (counts only). Returns 0 when nothing was
-// started (bad path, or the fork lacks cmux_password_import: API 15).
+// "duplicate","conflict","rejected"} (counts), plus "conflicts" (the indices
+// of the conflicting entries) on API 20. Returns 0 when nothing was started
+// (bad path, or the fork lacks cmux_password_import: API 15).
 typedef struct {
   const char* url;
   size_t url_length;
@@ -525,6 +543,23 @@ CMUX_SHIM_EXPORT int cmux_shim_import_passwords(const char* profile_cache_path, 
 CMUX_SHIM_EXPORT int cmux_shim_password_entry_size(void);
 // 1 when this fork can write passwords (cmux_password_import, API 15).
 CMUX_SHIM_EXPORT int cmux_shim_password_import_available(void);
+// Answers a PASSWORD_PROMPT: action 0 save, 1 update, 2 never for the site,
+// 3 dismiss (cmux_password_prompt_action_t). `username` NULL keeps the
+// submitted one. Returns 0 for a gone or answered prompt, or a fork without
+// the prompt handler (API 20).
+CMUX_SHIM_EXPORT int cmux_shim_password_prompt_answer(int prompt_id, int action, const char* username);
+// Chromium suggests generated passwords without a Google account (fork API
+// 20; Chromium's default needs sync). Still only where saving and filling
+// are on. Returns 0 when the fork lacks it. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_set_password_generation_enabled(int enabled);
+// 1 when an import reply lists the conflicting rows ("conflicts": indices
+// into the entries) and those can be replaced (API 20).
+CMUX_SHIM_EXPORT int cmux_shim_password_replace_available(void);
+// Saves each entry's password over the saved one for its sign-in, the
+// person's explicit choice for a conflict; never adds a sign-in. Replies
+// {"updated","missing","rejected"} like cmux_shim_import_passwords does.
+CMUX_SHIM_EXPORT int cmux_shim_replace_passwords(const char* profile_cache_path, int reply,
+                                                 const cmux_shim_password_entry* entries, int count);
 // Turns Chromium's password filling on or off in one tab. An agent-driven
 // tab has it off: a page script could otherwise read a filled password
 // after an automated click (plans/cmux-next/browser.md, "Secure sign-in").
@@ -591,6 +626,13 @@ CMUX_SHIM_EXPORT char* cmux_shim_ssl_status(int browser_id);
 // as Chrome does) so the next load verifies the server again. REPLY with
 // `reply` follows once both finished, a = 1. Returns 0 when not started.
 CMUX_SHIM_EXPORT int cmux_shim_clear_certificate_exceptions(int browser_id, int reply);
+// Proceed on the host's certificate warning page. Chromium fails a main-frame
+// load with a certificate error (the host shows its warning) unless this was
+// called for the browser, `host` and error `code` first: that error then
+// continues (Chromium remembers it for the profile), or, with
+// `chromium_decides`, goes to Chromium's own interstitial, which knows
+// whether HSTS allows proceeding. Returns 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_certificate_proceed(int browser_id, const char* host, int code, int chromium_decides);
 CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 
 // Renderer processes of a tab (resource hover cards). Writes at most

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBrowser
 import CmuxNextBrowserImport
 import CmuxNextDesign
@@ -24,6 +25,19 @@ final class OnboardingService {
     /// Background-discovered local folders offered by new agent tabs.
     private(set) var projectFolders: [String] = []
     private var projectScanTask: Task<Void, Never>?
+
+    /// Where `workspace.importClassic` reads classic's saved session; nil
+    /// reads the one classic saved last (tests point it at a fixture).
+    var classicSessions: ClassicSessionImporter?
+    /// How `workspace.importClassic` reaches a classic SSH workspace's host:
+    /// the daemon for that destination. Nil connects through `SSHService`
+    /// (tests stand in a daemon).
+    var classicSSH: (@MainActor (String) throws -> DaemonService)?
+    /// What acpmux would do with a classic agent session (`_acpmux/chat_open`):
+    /// only `adopt` opens a chat. Nil asks this Mac's acpmux (tests answer).
+    var classicChatPlan: (@MainActor (AgentPaneAdopt, String?) async throws -> AcpmuxChatOpenPlan?)?
+    /// The toast `workspace.importClassic` showed last.
+    var classicImportNotice: String?
 
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
@@ -51,14 +65,9 @@ final class OnboardingService {
                         .error("classic session snapshot could not be read: \(String(describing: error), privacy: .public)")
                     classic = []
                 }
-                func classicDirectories(_ layout: ClassicSessionLayout) -> [String] {
-                    switch layout {
-                    case .pane(let pane): pane.tabs.compactMap(\.workingDirectory)
-                    case .split(_, _, let first, let second): classicDirectories(first) + classicDirectories(second)
-                    }
-                }
-                let classicFolders = classic.flatMap { workspace in
-                    [workspace.workingDirectory] + classicDirectories(workspace.layout)
+                // Folders on this Mac: an SSH or Cloud VM workspace's are another machine's.
+                let classicFolders = classic.filter { $0.remote == nil && $0.cloudVM == nil }.flatMap { workspace in
+                    [workspace.workingDirectory] + workspace.layout.tabs.compactMap(\.workingDirectory)
                 }
                 var seen = Set<String>()
                 return (agent + classicFolders).compactMap { path in

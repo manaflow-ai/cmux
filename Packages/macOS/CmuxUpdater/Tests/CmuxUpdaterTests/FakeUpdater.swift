@@ -35,4 +35,5 @@ final class FakeUpdater: UpdaterHandle {
     }
 
     func checkForUpdateInformation() {}
+    func checkForUpdatesInBackground() {}
 }

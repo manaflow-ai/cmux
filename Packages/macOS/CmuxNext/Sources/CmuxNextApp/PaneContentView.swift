@@ -30,6 +30,10 @@ final class PaneContentView: NSView, PaneContentChrome {
         didSet { if barPosition != oldValue { updateBand() } }
     }
     private var placementObservation: Task<Void, Never>?
+    /// The pane's buttons at the strip's trailing end (`PaneContentView+Toolbar`).
+    var toolbar: PaneToolbar? { didSet { installToolbar(replacing: oldValue) } }
+    /// Its tab bar's empty space drags the pane onto another to swap them (cx-8bv1j).
+    var swapDrag: PaneSwapDrag?
     /// The acting agent's name tag (`PaneContentView+AgentTag`).
     let agentTag = AgentPresenceTagView()
     private var agentTagObservation: Task<Void, Never>?
@@ -37,7 +41,7 @@ final class PaneContentView: NSView, PaneContentChrome {
     var hidesStrip = false {
         didSet {
             guard hidesStrip != oldValue else { return }
-            stripView.isHidden = hidesStrip
+            // Applied in layout(): a paint hold may keep the strip until its swap.
             refreshBandHeight()
             needsLayout = true
         }
@@ -55,6 +59,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     private var reportedChrome: (header: CGFloat, footer: CGFloat) = (-1, -1)
     /// The outgoing view kept while the shown one has not painted (`PaneContentView+PaintHold`).
     let paintHold = PanePaintHold(owner: "pane.paint-hold")
+    /// The strip the hold's outgoing view showed under, kept until the swap.
+    var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
     /// Runs once when the launch image goes (`clearLaunchImage`).
@@ -117,7 +123,14 @@ final class PaneContentView: NSView, PaneContentChrome {
         let onTop = barPosition == .top
         // Pinned to a browser's band, the strip follows its constraints and
         // the browser fills the pane (its band holds the strip's place).
-        if !isBandActive { stripView.frame = NSRect(x: 0, y: onTop ? 0 : contentHeight, width: bounds.width, height: stripHeight) }
+        let shown = shownStripHeight
+        stripView.isHidden = shown <= 0
+        toolbar?.view.isHidden = shown <= 0
+        if !isBandActive {
+            let tools = toolbarWidth(shown: shown)
+            stripView.frame = NSRect(x: 0, y: onTop ? 0 : bounds.height - shown, width: bounds.width - tools, height: shown)
+            toolbar?.view.frame = NSRect(x: bounds.width - tools, y: stripView.frame.minY, width: tools, height: shown)
+        }
         let hostFrame = isBandActive ? bounds : NSRect(x: 0, y: onTop ? stripHeight : 0, width: bounds.width, height: contentHeight)
         reportHeaderIfChanged()
         let hostChanged = contentHost.frame != hostFrame
@@ -141,11 +154,11 @@ final class PaneContentView: NSView, PaneContentChrome {
 
     var paneHeaderHeight: CGFloat {
         // The band is inside the browser's header.
-        (barPosition == .top && !isBandActive ? stripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
+        (barPosition == .top && !isBandActive ? shownStripHeight : 0) + (innerChrome?.paneHeaderHeight ?? 0)
     }
 
     /// The strip below the content (`tabs.barPosition` bottom); else 0.
-    var paneFooterHeight: CGFloat { barPosition == .bottom ? stripHeight : 0 }
+    var paneFooterHeight: CGFloat { barPosition == .bottom ? shownStripHeight : 0 }
 
     /// The strip's height: its tabs sit with equal gaps above (from the
     /// pane cell's top, through the pane padding) and below (to the content

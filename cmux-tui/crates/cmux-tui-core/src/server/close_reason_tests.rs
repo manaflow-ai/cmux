@@ -85,3 +85,25 @@ fn close_reason_is_in_the_idempotency_fingerprint() {
     assert!(run(&mux, plain).is_err(), "the same key without the reason is another request");
     mux.shutdown();
 }
+
+/// A workspace whose first terminal never started (an import, a new workspace in a folder that
+/// is gone) is closed again by the app that created it, with `reason: "session_end"`: nothing
+/// is recorded, so Recently Closed never lists it (cx-avtwr). Without the reason, a workspace
+/// is recorded even with no tab (one the CLI made).
+#[test]
+fn a_session_end_workspace_close_leaves_no_closed_history() {
+    let mux = Mux::new_for_test("close-reason-workspace", crate::SurfaceOptions::default());
+    browser_tabs(&mux, 1);
+    let failed = "6f1c2a3b-4d5e-4f60-8a71-92b3c4d5e6f7";
+    run(&mux, json!({"cmd":"create-workspace","name":"nightly-focus-20","key":failed})).unwrap();
+    let discard = json!({"cmd":"close-workspace","key":failed,"end_terminals":true,
+                         "reason":"session_end"});
+    run(&mux, discard).unwrap();
+    assert_eq!(closed_groups(&mux), 0, "a session-end workspace close is not recorded");
+
+    let empty = "0a1b2c3d-4e5f-4a60-9b71-c2d3e4f5a6b7";
+    run(&mux, json!({"cmd":"create-workspace","name":"spare","key":empty})).unwrap();
+    run(&mux, json!({"cmd":"close-workspace","key":empty,"end_terminals":true})).unwrap();
+    assert_eq!(closed_groups(&mux), 1, "a plain workspace close is recorded");
+    mux.shutdown();
+}

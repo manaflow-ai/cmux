@@ -70,6 +70,8 @@ export type ThemeInput = {
   backgroundOpacity: number;
   /** `appearance.accent` (ThemeInput.accent); neutral when absent. */
   accent?: AppAccent;
+  /** The theme's own accent (ThemeInput.accentColor); wins over `accent`. */
+  accentColor?: ThemeRGB | null;
 };
 
 export const GHOSTTY_DEFAULT: ThemeInput = {
@@ -149,10 +151,18 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
   const bg = input.background;
   const fg = input.foreground;
   const isDark = luminance(bg) < luminance(fg);
-  // The app theme when the setting names an accent; null keeps the neutral fills.
+  // The app theme when the setting or the theme names an accent; null keeps the neutral fills.
   const app =
-    input.accent && input.accent !== "neutral"
-      ? deriveAppTheme({ background: hex(bg), foreground: hex(fg), palette: input.palette.map(hex) }, input.accent)
+    (input.accent && input.accent !== "neutral") || input.accentColor
+      ? deriveAppTheme(
+          {
+            background: hex(bg),
+            foreground: hex(fg),
+            palette: input.palette.map(hex),
+            accent: input.accentColor ? hex(input.accentColor) : null,
+          },
+          input.accent ?? "neutral",
+        )
       : null;
   const accent = app ? parseHex(app.tokens.accent) : null;
   const hover = withAlpha(fg, isDark ? 0.06 : 0.05);
@@ -199,7 +209,12 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
     focusRing: accent ?? withAlpha(fg, 0.4),
     glassTint: withAlpha(bg, isDark ? 0.4 : 0.3),
     shadow: mixed(bg, BLACK, 0.85),
-    textSelection: input.selectionBackground ?? mixed(bg, fg, 0.22),
+    // The config's selection only when text reads on it (ThemeTokens.swift: an inverse-video
+    // selection would hide the text).
+    textSelection:
+      input.selectionBackground && contrast(primary, composited(input.selectionBackground, bg)) >= MINIMUM_MARK_CONTRAST
+        ? input.selectionBackground
+        : mixed(bg, fg, 0.22),
     attention: status(3),
     danger: status(1),
     success: status(2),

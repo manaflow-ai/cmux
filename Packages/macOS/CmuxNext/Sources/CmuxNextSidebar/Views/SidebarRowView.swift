@@ -16,7 +16,7 @@ class SidebarRowView: NSView {
             guard isSelected != oldValue else { return }
             fadesNextFill = false
             needsDisplay = true
-            // Rows show controls on the selected row too (the menu button, cx-a9h6).
+            // Rows show controls on the selected row too (the tab chevron, cx-fo2t).
             needsLayout = true
         }
     }
@@ -69,7 +69,7 @@ class SidebarRowView: NSView {
         targetSize = nil
         alphaValue = 1
         setTitleHidden(false)
-        toolTip = nil
+        themedToolTip = nil
     }
 
     /// Buttons that receive clicks directly.

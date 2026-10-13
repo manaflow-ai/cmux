@@ -1,7 +1,7 @@
 //! Adopting a harness's own session (`session/new` with
-//! `_meta.acpmux.adopt = {harness, agentSessionId}`): a Claude Code or Codex
-//! conversation started outside acpmux becomes an acpmux session that
-//! resumes it (`claude --resume <id>`, or ACP `session/load` for Codex).
+//! `_meta.acpmux.adopt = {harness, agentSessionId}`): a Claude Code, Codex
+//! or OpenCode conversation started outside acpmux becomes an acpmux session
+//! that resumes it (`claude --resume <id>`, or ACP `session/load`).
 //!
 //! The id comes from a client, so it is checked before it names a file: a
 //! bare id only, found in the harness's own store, or the request fails.
@@ -113,19 +113,73 @@ pub fn is_bare_id(id: &str) -> bool {
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
-/// Finds `id` in the store of harness `family` (`claude` or `codex`).
+/// Finds `id` in the store of harness `family` (`claude`, `codex` or
+/// `opencode`). OpenCode's store is its data dir, where the chat index looks.
 pub fn find(family: &str, id: &str, homes: &HarnessHomes) -> Result<Adoptable, String> {
     if !is_bare_id(id) {
         return Err(format!("agentSessionId {id:?} is not a session id"));
     }
-    let file = match family {
-        "claude" => find_claude(&homes.claude, id),
-        "codex" => find_codex(&homes.codex, id),
+    let stores = match family {
+        "claude" => vec![homes.claude.clone()],
+        "codex" => vec![homes.codex.clone()],
+        "opencode" => opencode_stores(),
         other => return Err(format!("adopt is not supported for {other} sessions")),
-    }
-    .ok_or_else(|| format!("no {family} session {id}"))?;
+    };
+    stores
+        .iter()
+        .find_map(|store| find_in(family, id, store))
+        .ok_or_else(|| format!("no {family} session {id}"))
+}
+
+/// `id` in the one store `store` of `family`.
+fn find_in(family: &str, id: &str, store: &Path) -> Option<Adoptable> {
+    let file = match family {
+        "claude" => find_claude(store, id)?,
+        "codex" => find_codex(store, id)?,
+        "opencode" => {
+            // One DB holds every OpenCode chat; it records the folder in the session row.
+            let (db, cwd) = cmux_chat_index::find_opencode_session(store, id)?;
+            return Some(Adoptable { file: db, cwd: cwd.map(PathBuf::from) });
+        }
+        _ => return None,
+    };
     let cwd = recorded_cwd(family, &file);
-    Ok(Adoptable { file, cwd })
+    Some(Adoptable { file, cwd })
+}
+
+/// OpenCode's data dirs, as the chat index finds them (`$XDG_DATA_HOME/opencode`, then the
+/// platform's defaults).
+fn opencode_stores() -> Vec<PathBuf> {
+    let home = dirs::home_dir().unwrap_or_default();
+    cmux_chat_index::default_roots(
+        cmux_chat_index::AdapterKind::OpenCode,
+        cmux_chat_index::Platform::current(),
+        &home,
+        &crate::chats::login_var,
+    )
+    .into_iter()
+    .map(|(root, _)| root)
+    .collect()
+}
+
+/// `find` in `homes`, else in one of `others`: the stores acpmux's own chat
+/// index holds the chat in (cx-vx54), never a path from a request. The
+/// second value names the other store the session was found in.
+pub fn find_any(
+    family: &str,
+    id: &str,
+    homes: &HarnessHomes,
+    others: &[PathBuf],
+) -> Result<(Adoptable, Option<PathBuf>), String> {
+    match find(family, id, homes) {
+        Ok(found) => Ok((found, None)),
+        // `find` refused an id that is not bare before it named a file; so do the others.
+        Err(error) if !is_bare_id(id) => Err(error),
+        Err(error) => others
+            .iter()
+            .find_map(|store| find_in(family, id, store).map(|found| (found, Some(store.clone()))))
+            .ok_or(error),
+    }
 }
 
 /// Whether the Claude store at `root` (a CLAUDE_CONFIG_DIR) has session `id`.
@@ -144,7 +198,7 @@ pub(crate) fn find_claude(root: &Path, id: &str) -> Option<PathBuf> {
 }
 
 /// `<codex>/sessions/YYYY/MM/DD/rollout-<time>-<id>.jsonl`.
-fn find_codex(root: &Path, id: &str) -> Option<PathBuf> {
+pub(crate) fn find_codex(root: &Path, id: &str) -> Option<PathBuf> {
     let suffix = format!("-{id}.jsonl");
     let mut dirs = vec![(root.join("sessions"), 0)];
     while let Some((dir, depth)) = dirs.pop() {

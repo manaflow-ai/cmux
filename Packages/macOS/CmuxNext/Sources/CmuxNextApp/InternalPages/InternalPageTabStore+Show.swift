@@ -20,7 +20,7 @@ extension InternalPageTabStore {
         for pane in panes {
             guard let tab = pane.pane.tabs.first(where: { $0.page == page.rawValue }) else { continue }
             if focus { reveal(tab.id, in: pane) }
-            return view(forStoreTab: tab, in: pane.daemon.store, window: window)
+            return view(forStoreTab: tab, in: pane.daemon.store, local: pane.daemon.isLocal, window: window)
         }
         if let found = tab(of: page, inPanes: panes.map(\.paneKey)),
            let pane = panes.first(where: { $0.paneKey == found.pane }) {

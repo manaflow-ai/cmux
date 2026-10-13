@@ -88,6 +88,10 @@ public final class LayoutModel {
     /// once per request; `sequence` distinguishes repeats of the same pane.
     public private(set) var centerRequest: ColumnCenterRequest?
 
+    /// The latest one-shot "show this column" request (``revealColumn(containing:)``). The view applies it
+    /// once the pane's column is in the strip, which may be a later snapshot than the request's.
+    public private(set) var revealRequest: ColumnCenterRequest?
+
     /// Receives every intent. Set by the App (or `MockLayoutSource`).
     @ObservationIgnored public var intentHandler: (@MainActor (LayoutIntent) -> Void)?
 
@@ -256,6 +260,13 @@ public final class LayoutModel {
         focus(pane)
         centerRequest = ColumnCenterRequest(pane: pane, sequence: (centerRequest?.sequence ?? 0) &+ 1)
         return true
+    }
+
+    /// Scrolls the column holding `pane` into view, the least that shows it, and leaves focus where it
+    /// is: a tab opened beside a chat that keeps focus (cx-27j7). The strip otherwise follows focus
+    /// only, so a column added out of view would stay there. Client-local, like ``centerColumn(containing:)``.
+    public func revealColumn(containing pane: PaneID) {
+        revealRequest = ColumnCenterRequest(pane: pane, sequence: (revealRequest?.sequence ?? 0) &+ 1)
     }
 
     // MARK: Divider and column gestures

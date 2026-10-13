@@ -86,6 +86,16 @@ struct ForkApi {
   int (*password_set_username)(const char*, const char*, const char*, void (*)(void*, int), void*) = nullptr;
   int (*password_reveal)(const char*, const char*, void (*)(void*, const char*, size_t), void*) = nullptr;
   int (*password_export)(const char*, const char*, void (*)(void*, int), void*) = nullptr;
+  // API version 20: import with the conflicting rows' indices, and Replace
+  // for them (the person's explicit choice; shim_password_import.mm).
+  int (*password_import_v2)(const char*, const cmux_shim_password_entry*, int,
+                            void (*)(void*, int, int, int, const int*, int), void*) = nullptr;
+  int (*password_import_replace)(const char*, const cmux_shim_password_entry*, int, void (*)(void*, int, int, int),
+                                 void*) = nullptr;
+  // API version 20: save and update prompts go to the host (shim_password_core.mm).
+  void (*set_password_prompt_handler)(void (*)(void*, const char*), void*) = nullptr;
+  int (*password_prompt_answer)(int, int, const char*) = nullptr;
+  int (*set_password_generation_enabled)(int) = nullptr;
   // API version 22: the chrome.bookmarks bridge (shim_bookmarks.mm).
   int (*bookmarks_observe)(const char*, void (*)(void*, const char*), void*) = nullptr;
   int (*bookmarks_sync)(const char*, const char*) = nullptr;
@@ -216,6 +226,10 @@ void InstallWindowRequestHandler();
 // applies the New Tab page URL and native messaging folders stored before
 // CefInitialize (shim_extensions_ui.mm).
 void InstallExtensionUIHandlers();
+// Sends Chromium's password save and update prompts to the host (API 20),
+// so Chromium's bubble does not show (shim_password_core.mm).
+void InstallPasswordPromptHandler();
+void RemovePasswordPromptHandler();
 // The visible entry's virtual URL when it is chrome://newtab (the New Tab
 // page, which loads another URL), else `url`.
 std::string DisplayAddress(CefRefPtr<CefBrowser> browser, const std::string& url);
@@ -241,6 +255,22 @@ void ForgetDownloads();
 CefRefPtr<CefPermissionHandler> PermissionHandler();
 // Releases every waiting prompt callback (before CefShutdown).
 void ForgetPermissionPrompts();
+
+// A Proceed the host asked for on a certificate warning
+// (cmux_shim_certificate_proceed, shim_site.mm, UI thread): taken by the
+// browser's next certificate error with that host and error code.
+enum class CertificateProceed { kNone, kContinue, kChromium };
+CertificateProceed TakeCertificateProceed(int browser_id, const std::string& host, int code);
+// The browser's certificate error `code` and its answer: cancelled (the host
+// shows its warning) or left to Chromium's interstitial.
+void NoteCertificateError(int browser_id, int code, bool chromium_interstitial);
+// The main-frame load error the host sees: Chromium may end a cancelled
+// certificate request as ERR_ABORTED, which reports the certificate error
+// instead; `chromium_interstitial` when Chromium shows its own page for it.
+// Every main-frame load start or error ends the browser's pending
+// certificate state (a Proceed covers only its own load).
+int CertificateLoadError(int browser_id, int code, std::string* text, bool* chromium_interstitial);
+void ForgetCertificateState(int browser_id);
 
 // Context menus the host is showing, by token (UI thread only).
 int StoreMenuCallback(CefRefPtr<CefRunContextMenuCallback> callback);

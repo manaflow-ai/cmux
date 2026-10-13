@@ -35,7 +35,6 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
         hidesOnDeactivate = false
         becomesKeyOnlyIfNeeded = false
         isMovableByWindowBackground = true
-        animationBehavior = .utilityWindow
         isReleasedWhenClosed = false
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient, .ignoresCycle]
         setAccessibilityIdentifier("cmux.quickComposer")
@@ -54,6 +53,8 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
     override var canBecomeMain: Bool { false }
 
     func present(_ content: NSView, focus: NSView?) {
+        // Read per show: the panel is reused, and motion settings change live.
+        animationBehavior = Motion.animatesMovement ? .utilityWindow : .none
         if content.superview !== surface.contentView {
             surface.contentView.subviews.forEach { $0.removeFromSuperview() }
             content.frame = surface.contentView.bounds
@@ -65,9 +66,16 @@ final class QuickComposerPanel: NSPanel, QuickComposerWindow, NSWindowDelegate {
             content.layer?.masksToBounds = true
             surface.contentView.addSubview(content)
         }
-        // The floating chat stays where it was moved to.
-        if !isVisible, !holdsChat, let screen = Self.screenUnderPointer() {
-            setFrame(Self.placement(size: frame.size, in: screen.visibleFrame), display: false)
+        // The floating chat stays where it was moved to; summoned on another screen, it opens where it was left there.
+        if !isVisible, let screen = Self.screenUnderPointer() {
+            let composer = Self.placement(size: holdsChat ? Self.size : frame.size, in: screen.visibleFrame)
+            let display = FloatingChatFrames.display(screen)
+            if !holdsChat {
+                setFrame(composer, display: false)
+            } else if let target = FloatingChatFrames.summoned(onDisplay: self.screen.map(FloatingChatFrames.display), toDisplay: display,
+                                                               saved: frames.frame(onDisplay: display), near: composer, in: screen.visibleFrame) {
+                setFrame(target, display: false)
+            }
         }
         // Raise never activates the app; under no-activate it does not take the keys either.
         WindowActivation.show(self, .raise)

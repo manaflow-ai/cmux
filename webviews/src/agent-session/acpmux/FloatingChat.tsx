@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
-import { useT } from "./i18n";
+import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
+import { useT, type Translate } from "./i18n";
 import { Icon } from "./icons/Icon";
 import type { FloatingState } from "./floatingState";
+import type { ComposerAttachment } from "./attachments";
 
 /// What the compact bar shows of the chat: working, waiting on the user, or quiet.
 export type FloatingStatus = "streaming" | "attention" | "idle";
@@ -16,6 +18,18 @@ export interface QuickFloating {
   setOnTop(onTop: boolean): void;
   setCollapsed(collapsed: boolean): void;
   moveToTab(): void;
+  /// Include focused tab: attaches what the user is looking at in cmux to the next prompt, as a chip.
+  includeContext(): void;
+}
+
+/// Include focused tab's chip from the App's `quick.context` reply (`{name, text}`), or nothing when
+/// the user is looking at nothing it can include. One chip at a time: a newer one replaces it. An
+/// untitled tab's chip is named `fallback`.
+export function contextAttachment(value: unknown, fallback: string): ComposerAttachment | undefined {
+  const raw = (value ?? {}) as { name?: unknown; text?: unknown };
+  if (typeof raw.text !== "string" || !raw.text.trim()) return undefined;
+  const name = typeof raw.name === "string" && raw.name.trim() ? raw.name : fallback;
+  return { id: "floating-context", kind: "text", name, mimeType: "text/plain", size: raw.text.length, text: raw.text };
 }
 
 /// The chat's state for the compact bar: an ask waiting on the user comes first, then a turn running.
@@ -25,7 +39,8 @@ export function floatingStatus(waiting: boolean, running: boolean): FloatingStat
 }
 
 /// The floating chat's keys while it holds a chat: ⌘J folds it to the compact bar and back, ⌘⇧P
-/// keeps it over other windows or not. They are the panel's own, like Return and Escape.
+/// keeps it over other windows or not, ⌘⇧I includes the focused tab. They are the panel's own,
+/// like Return and Escape.
 export function useFloatingKeys(floating: QuickFloating | undefined) {
   const latest = useRef(floating);
   latest.current = floating;
@@ -38,11 +53,12 @@ export function useFloatingKeys(floating: QuickFloating | undefined) {
       const key = event.key.toLowerCase();
       if (key === "j" && !event.shiftKey) current.setCollapsed(!current.state.collapsed);
       else if (key === "p" && event.shiftKey) current.setOnTop(!current.state.onTop);
+      else if (key === "i" && event.shiftKey && !current.state.collapsed) current.includeContext();
       else return;
       event.preventDefault();
       event.stopPropagation();
     };
-    // ui-allow: the floating panel's own window keys (⌘J, ⌘⇧P), wherever focus is in its page, like an app menu key.
+    // ui-allow: the floating panel's own window keys (⌘J, ⌘⇧P, ⌘⇧I), wherever focus is in its page, like an app menu key.
     document.addEventListener("keydown", onKey, true);
     return () => document.removeEventListener("keydown", onKey, true);
   }, [holding]);
@@ -59,42 +75,83 @@ function StatusMark({ status }: { status: FloatingStatus }) {
   );
 }
 
-/// The open floating chat's header: its title, keep on top, fold to the compact bar, move to a tab.
+/// The floating chat header's right-click menu: its buttons by name. Only the header has one: the
+/// compact bar's panel is 44 pt tall, too short to show a menu drawn in the page.
+function floatingMenu(floating: QuickFloating, t: Translate): ContextMenuItem[] {
+  const onTop = floating.state.onTop;
+  // Every row keeps the check column, so the labels line up whether Keep on top is on or not.
+  const row = (label: string, on = false) => (
+    <>
+      <span className="acpmux-header-customize-check" aria-hidden="true">
+        {on ? "✓" : ""}
+      </span>
+      {label}
+    </>
+  );
+  return [
+    { id: "include", label: row(t("floating.includeContext")), onSelect: () => floating.includeContext() },
+    {
+      id: "onTop",
+      label: row(t("floating.keepOnTop"), onTop),
+      ariaLabel: t("floating.keepOnTop"),
+      onSelect: () => floating.setOnTop(!onTop),
+    },
+    { id: "collapse", label: row(t("render.collapse")), onSelect: () => floating.setCollapsed(true) },
+    { id: "moveToTab", label: row(t("floating.moveToTab")), onSelect: () => floating.moveToTab() },
+  ];
+}
+
+/// The open floating chat's header: its title, include the focused tab, keep on top, fold to the
+/// compact bar, move to a tab.
 export function FloatingHeader({ floating }: { floating: QuickFloating }) {
   const t = useT();
   return (
-    <header className="acpmux-floating-header">
-      <StatusMark status={floating.status} />
-      <span className="acpmux-floating-title">{floating.title}</span>
-      <button
-        type="button"
-        className="acpmux-header-tool"
-        aria-label={t("floating.keepOnTop")}
-        aria-pressed={floating.state.onTop}
-        title={`${t("floating.keepOnTop")} ⌘⇧P`}
-        onClick={() => floating.setOnTop(!floating.state.onTop)}
-      >
-        <Icon name="action.pin" size={15} selected={floating.state.onTop} />
-      </button>
-      <button
-        type="button"
-        className="acpmux-header-tool"
-        aria-label={t("render.collapse")}
-        title={`${t("render.collapse")} ⌘J`}
-        onClick={() => floating.setCollapsed(true)}
-      >
-        <Icon name="disclosure.expanded" size={15} />
-      </button>
-      <button
-        type="button"
-        className="acpmux-header-tool"
-        aria-label={t("floating.moveToTab")}
-        title={`${t("floating.moveToTab")} ⌘↩`}
-        onClick={() => floating.moveToTab()}
-      >
-        <Icon name="link.open.newtab" size={15} />
-      </button>
-    </header>
+    <ContextMenu className="acpmux-floating-menu-host" items={floatingMenu(floating, t)}>
+      <header className="acpmux-floating-header">
+        <StatusMark status={floating.status} />
+        <span className="acpmux-floating-title" title={floating.title}>
+          {floating.title}
+        </span>
+        <button
+          type="button"
+          className="acpmux-header-tool"
+          aria-label={t("floating.includeContext")}
+          title={`${t("floating.includeContext")} ⌘⇧I`}
+          onClick={() => floating.includeContext()}
+        >
+          <Icon name="composer.mention" size={15} />
+        </button>
+        <button
+          type="button"
+          className="acpmux-header-tool"
+          aria-label={t("floating.keepOnTop")}
+          aria-pressed={floating.state.onTop}
+          title={`${t("floating.keepOnTop")} ⌘⇧P`}
+          onClick={() => floating.setOnTop(!floating.state.onTop)}
+        >
+          <Icon name="action.pin" size={15} selected={floating.state.onTop} />
+        </button>
+        <button
+          type="button"
+          className="acpmux-header-tool"
+          aria-label={t("render.collapse")}
+          title={`${t("render.collapse")} ⌘J`}
+          onClick={() => floating.setCollapsed(true)}
+        >
+          {/* Folds up into the bar: the chevron points up. */}
+          <Icon name="disclosure.expanded" size={15} className="acpmux-icon-flip" />
+        </button>
+        <button
+          type="button"
+          className="acpmux-header-tool"
+          aria-label={t("floating.moveToTab")}
+          title={`${t("floating.moveToTab")} ⌘↩`}
+          onClick={() => floating.moveToTab()}
+        >
+          <Icon name="link.open.newtab" size={15} />
+        </button>
+      </header>
+    </ContextMenu>
   );
 }
 
@@ -107,7 +164,8 @@ export function FloatingCompactBar({ floating }: { floating: QuickFloating }) {
         type="button"
         className="acpmux-floating-bar-open"
         aria-label={`${t("render.expand")}: ${floating.title}`}
-        title={`${t("render.expand")} ⌘J`}
+        // The bar cuts the title and last line short; the tooltip has both in full.
+        title={[floating.title, floating.line, `${t("render.expand")} ⌘J`].filter(Boolean).join("\n")}
         onClick={() => floating.setCollapsed(false)}
       >
         <StatusMark status={floating.status} />

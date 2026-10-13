@@ -7,6 +7,7 @@ import type { PageClient } from "../pages/shared/pageClient";
 import { UiProvider, languageDirection } from "../ui/UiProvider";
 import { DiffEmptyState } from "./DiffEmptyState";
 import { viewerEmptyStrings } from "./strings";
+import { appPopupHost } from "../pages/shared/pagePopupHost";
 
 export interface PickDiffOptions {
   /** `payload.labels` of the empty config, for the source names. */
@@ -27,7 +28,7 @@ export async function pickDiffConfig(
   return new Promise((resolve) => {
     const root = createRoot(rootElement);
     root.render(
-      <UiProvider container={rootElement} dir={languageDirection(strings.language)}>
+      <UiProvider container={rootElement} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
         <DiffEmptyState
           client={client}
           strings={strings}

@@ -33,7 +33,8 @@
     "palette_usage",
     "git_checkpoint",
     "conversation",
-    "setting"
+    "setting",
+    "keybinding"
   ],
   "types": {
     "RequestOrigin": {
@@ -5542,18 +5543,10 @@
       "max_length": 64
     },
     "GroupColor": {
-      "kind": "enum",
-      "values": [
-        "grey",
-        "blue",
-        "red",
-        "yellow",
-        "green",
-        "pink",
-        "purple",
-        "cyan",
-        "orange"
-      ]
+      "kind": "primitive",
+      "name": "string",
+      "min_length": 1,
+      "max_length": 7
     },
     "TabGroupSnapshot": {
       "kind": "object",
@@ -5615,6 +5608,17 @@
             }
           },
           "description": "The saved group this live group syncs with."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "tab-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -5767,6 +5771,17 @@
             "kind": "primitive",
             "name": "decimal"
           }
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "tab-group-icon-v1: the saved group's icon, the shared icon string; a reopen gives the live group this icon. null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -6170,6 +6185,17 @@
             }
           },
           "description": "Members in screen order; they are contiguous."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "screen-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -6256,6 +6282,25 @@
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "page": {
+          "required": false,
+          "description": "The page a closed page tab showed (`page-tabs-v1`): reopening brings it back. Its `url` is then the tab's `about:blank` placeholder.",
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          }
+        },
+        "empty": {
+          "required": false,
+          "description": "True when the tab would reopen as nothing: an untouched New Tab page (a chat tab with no session yet) or a browser on `about:blank`. Recently Closed leaves it out. Absent otherwise.",
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          }
         }
       },
       "extra": false
@@ -6303,7 +6348,8 @@
             "values": [
               "tab",
               "screen",
-              "workspace"
+              "workspace",
+              "window"
             ]
           }
         },
@@ -6558,7 +6604,8 @@
             "values": [
               "tab",
               "screen",
-              "workspace"
+              "workspace",
+              "window"
             ]
           }
         },
@@ -6588,6 +6635,17 @@
           },
           "description": "Members still in the group after a partial reopen."
         },
+        "window": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "For a reopened `window` group (a window the app closed): the window record (`install/window`) the app shows again; the window keeps its workspaces, and `workspace_id` is the session's active workspace."
+        },
         "screen_ids": {
           "required": true,
           "type": {
@@ -6611,6 +6669,56 @@
       },
       "extra": false
     },
+    "LayoutBulkResult": {
+      "kind": "object",
+      "fields": {
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "Every tab the call closed, in container order."
+        },
+        "pane_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "pane"
+            }
+          },
+          "description": "At level `pane`: the panes the selector chose; else empty."
+        },
+        "screen_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "screen"
+            }
+          },
+          "description": "At level `screen`: the screens the selector chose; else empty."
+        },
+        "workspace_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "At level `workspace`: the workspaces the selector chose; else empty."
+        }
+      },
+      "extra": false
+    },
     "SettingsChange": {
       "kind": "object",
       "fields": {
@@ -6624,6 +6732,189 @@
             }
           },
           "description": "Dotted keys whose effective or file value changed; the MutationResult revision is the settings revision."
+        }
+      },
+      "extra": false
+    },
+    "KeybindingEntry": {
+      "kind": "object",
+      "fields": {
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "The entry's position in the keybindings.json array."
+        },
+        "keys": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The chord's strokes in keybindings.json syntax (ctrl+k, s); one to four."
+        },
+        "command": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The command id; a removal entry names it without its leading -."
+        },
+        "when": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The entry's when clause; null when it has none."
+        },
+        "args": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            }
+          },
+          "description": "The entry's args object, passed to the command; null when it has none."
+        },
+        "removal": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "A -command entry: it unbinds a default binding of command instead of adding one."
+        }
+      },
+      "extra": false
+    },
+    "KeybindingTarget": {
+      "kind": "object",
+      "fields": {
+        "key": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The binding's chord in keybindings.json syntax."
+        },
+        "when": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The binding's when clause; absent matches the binding without one."
+        },
+        "command": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The binding's command; absent is the new binding's command."
+        }
+      },
+      "extra": false
+    },
+    "KeybindingDiagnostic": {
+      "kind": "object",
+      "fields": {
+        "index": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "uint32"
+            }
+          },
+          "description": "The entry the problem is in; null for a problem with the whole file."
+        },
+        "problem": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "unreadable_file",
+              "not_an_object",
+              "missing_command",
+              "missing_key",
+              "invalid_key",
+              "too_many_keys",
+              "first_key_needs_command_or_control",
+              "invalid_when",
+              "invalid_args"
+            ]
+          }
+        },
+        "message": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        }
+      },
+      "extra": false
+    },
+    "KeybindingsSnapshot": {
+      "kind": "object",
+      "fields": {
+        "path": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The keybindings.json path the owner reads and writes."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Advances once per change the owner saw (its own writes and hand edits); keybindings-changed carries the same revision."
+        },
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "KeybindingEntry"
+            }
+          },
+          "description": "The entries the file holds, in file order; an entry with a problem is left out and reported in diagnostics."
+        },
+        "diagnostics": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "KeybindingDiagnostic"
+            }
+          }
         }
       },
       "extra": false
@@ -8180,6 +8471,166 @@
       },
       "extra": false
     },
+    "GitCommitResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "commit": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          }
+        },
+        "branch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Absent when HEAD is detached."
+        },
+        "parent": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          },
+          "description": "The first parent, absent for a root commit."
+        },
+        "summary": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The commit's subject line."
+        },
+        "files_changed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "additions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "deletions": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        }
+      },
+      "extra": false
+    },
+    "GitPushResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "remote": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "branch": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          }
+        },
+        "upstream": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The pushed branch, for example origin/main."
+        },
+        "pushed_commit": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          }
+        },
+        "previous_remote_commit": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          },
+          "description": "The remote branch's commit before a fast-forward; absent for a new branch or an up-to-date push."
+        },
+        "created_upstream": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The push set the branch's upstream."
+        },
+        "up_to_date": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The remote already had the commit; nothing was sent."
+        }
+      },
+      "extra": false
+    },
+    "GitStatusWorktree": {
+      "kind": "object",
+      "fields": {
+        "main_root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The main checkout the worktree belongs to."
+        }
+      },
+      "extra": false
+    },
     "GitStatusResult": {
       "kind": "object",
       "fields": {
@@ -8232,7 +8683,7 @@
             "name": "string",
             "min_length": 1
           },
-          "description": "The branch the branch scope compares with: origin's default branch, else main or master."
+          "description": "The branch the branch scope compares with: the base the current branch was made from (branch.<branch>.cmuxBase, git.worktree.create), else origin's default branch, else main or master."
         },
         "ahead": {
           "required": true,
@@ -8249,6 +8700,133 @@
             "name": "uint32"
           },
           "description": "Commits behind upstream; 0 without one."
+        },
+        "worktree": {
+          "required": false,
+          "type": {
+            "kind": "ref",
+            "name": "GitStatusWorktree"
+          },
+          "description": "Present in a linked worktree (git worktree add, git.worktree.create); absent in the main checkout."
+        }
+      },
+      "extra": false
+    },
+    "GitWorktreeApplyResult": {
+      "kind": "object",
+      "fields": {
+        "main_root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The main checkout the work was applied to."
+        },
+        "files": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "description": "The paths the work changed, relative to the repository root: each now differs in the main checkout."
+        }
+      },
+      "extra": false
+    },
+    "GitWorktreeCreateResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The new worktree's folder."
+        },
+        "branch": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The worktree's new branch, cmux/<name>."
+        },
+        "base": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "What the branch was made from: the base given, the current branch, or HEAD's commit when detached. Recorded as branch.<branch>.cmuxBase: a branch by name, any other revision as its commit."
+        },
+        "base_commit": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 4,
+            "max_length": 64
+          }
+        },
+        "main_root": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The main checkout's folder; absent for a bare repository."
+        }
+      },
+      "extra": false
+    },
+    "GitWorktreeRemoveResult": {
+      "kind": "object",
+      "fields": {
+        "root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The removed worktree's folder."
+        },
+        "main_root": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The main checkout, which stays."
+        },
+        "branch": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The worktree's branch; absent for a detached HEAD."
+        },
+        "branch_deleted": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "The branch was deleted with it: git.worktree.create made it, and it got no new commits git could not find elsewhere (or discard)."
         }
       },
       "extra": false
@@ -8927,6 +9505,339 @@
         }
       },
       "extra": false
+    },
+    "HistoryEntry": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "Qualified id: page:<profile>:<visit>, agent:<machine>/<provider>/<session>, command:<machine>/<terminal>/<start ms>, closed:daemon:<id> or location:<machine>:<tab>:<index>."
+        },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "ref",
+            "name": "HistoryKind"
+          }
+        },
+        "at_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "Visit, last activity, start or close time in Unix milliseconds."
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The page title (else its URL), the command, or an English title the pages localize."
+        },
+        "detail": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The line shown under the title: URL, directory or workspace."
+        },
+        "machine": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "The machine name; absent for this machine."
+        },
+        "workspace": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "available": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "False while the owning machine is not connected."
+        },
+        "current": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Location: the trail cursor."
+        },
+        "running": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "boolean"
+          },
+          "description": "Agent: the session has not ended."
+        },
+        "url": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "profile": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Page: the browser profile the visit belongs to."
+        },
+        "closed_kind": {
+          "required": false,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "terminal_tab",
+              "browser_tab",
+              "screen",
+              "workspace"
+            ]
+          }
+        },
+        "cwd": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "command": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Command: the command line."
+        },
+        "exit_code": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "int32"
+          }
+        },
+        "session_id": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Agent: the provider's own session id."
+        },
+        "provider": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          },
+          "description": "Agent: the hook adapter id, for the localized title."
+        }
+      },
+      "extra": false
+    },
+    "HistoryEntriesListResult": {
+      "kind": "object",
+      "fields": {
+        "entries": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "HistoryEntry"
+            },
+            "max_items": 5000
+          },
+          "description": "Newest first by at_ms, then id; at most limit."
+        },
+        "revision": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          },
+          "description": "The history revision that history-changed carries."
+        }
+      },
+      "extra": false
+    },
+    "HistoryRemovalResult": {
+      "kind": "object",
+      "fields": {
+        "removed": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many visits were removed, plus the agent and command entries hidden."
+        },
+        "restore_id": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 40,
+              "max_length": 40
+            }
+          },
+          "description": "history:<32 hex>: history.restore puts the removed visits back. Null when no visit was removed."
+        }
+      },
+      "extra": false
+    },
+    "HistoryRestoreResult": {
+      "kind": "object",
+      "fields": {
+        "restored": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32",
+            "minimum": 1
+          },
+          "description": "How many visits came back."
+        }
+      },
+      "extra": false
+    },
+    "HistoryPurgeResult": {
+      "kind": "object",
+      "fields": {
+        "purged": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many backed-up visits were deleted for good."
+        }
+      },
+      "extra": false
+    },
+    "HistoryVisitRecordResult": {
+      "kind": "object",
+      "fields": {
+        "id": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string",
+            "min_length": 1
+          },
+          "description": "The visit's entry id, page:<profile>:<visit>."
+        }
+      },
+      "extra": false
+    },
+    "HistoryVisitTitleResult": {
+      "kind": "object",
+      "fields": {
+        "updated": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "Visits whose title changed: 0 or 1."
+        }
+      },
+      "extra": false
+    },
+    "HistoryVisitImportResult": {
+      "kind": "object",
+      "fields": {
+        "imported": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many visits came in."
+        }
+      },
+      "extra": false
+    },
+    "HistoryVisitSummary": {
+      "kind": "object",
+      "fields": {
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "string"
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The newest title of the URL, or null."
+        },
+        "visit_count": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          }
+        },
+        "last_visit_ms": {
+          "required": true,
+          "type": {
+            "kind": "primitive",
+            "name": "decimal"
+          }
+        }
+      },
+      "extra": false
+    },
+    "HistoryRange": {
+      "kind": "enum",
+      "values": [
+        "hour",
+        "today",
+        "week",
+        "month",
+        "all"
+      ]
+    },
+    "HistoryKind": {
+      "kind": "enum",
+      "values": [
+        "page",
+        "location",
+        "closed",
+        "command",
+        "agent"
+      ]
     },
     "ProjectSourceSeen": {
       "kind": "object",
@@ -10283,6 +11194,22 @@
             }
           }
         },
+        "extra": false
+      }
+    },
+    "keybindings.invalid": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {},
+        "extra": false
+      }
+    },
+    "keybindings.unreadable": {
+      "retryable": false,
+      "details": {
+        "kind": "object",
+        "fields": {},
         "extra": false
       }
     },
@@ -12848,6 +13775,23 @@
             },
             "description": "With all: delete only groups closed at or after this Unix time in milliseconds."
           },
+          "before_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "With all: delete only groups closed before this Unix time in milliseconds (retention by age)."
+          },
+          "keep_newest": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1
+            },
+            "description": "With all: delete every group but the newest N (retention by count). With before_ms, one pass deletes both sets. Not with since_ms."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -14183,6 +15127,17 @@
             "default": 262144,
             "description": "Per file; a longer patch is cut at a line and marked patch_truncated."
           },
+          "context_lines": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "default": 3,
+            "description": "Unchanged lines around each change in the patches; one file's paths with a large value give that file whole."
+          },
           "max_files": {
             "required": false,
             "type": {
@@ -14543,6 +15498,132 @@
         "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, repository_changed, repository_busy, budget_exceeded, unsupported_index, managed_pin, no_state_directory, store_failed or git_failed; extra.message explains it."
       ]
     },
+    "git.commit": {
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "message": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 65536
+            },
+            "description": "The commit message, at most 64 KiB, used as given apart from git's whitespace cleanup (a line starting with # stays)."
+          },
+          "paths": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1
+              },
+              "max_items": 5000
+            },
+            "description": "Commit exactly these files or folders as they are in the working tree: relative to the root, or absolute inside it, and literal (never pathspec magic). They are staged first, so new files can be named, and they stay staged when the commit is refused; other staged changes stay staged and out of the commit."
+          },
+          "all": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Commit every tracked change, like git commit -a. Not with paths."
+          },
+          "include_untracked": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "With all: stage untracked, nonignored files too."
+          },
+          "amend": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Replace HEAD with the new commit, keeping HEAD's parents."
+          },
+          "no_verify": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "default": false,
+            "description": "Skip the pre-commit and commit-msg hooks, as git commit --no-verify does."
+          },
+          "expected_head": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 4,
+              "max_length": 64
+            },
+            "description": "The full HEAD commit the caller saw; refuse with head_moved when HEAD is another."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitCommitResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "git runs in the user's environment as in a terminal: their config, identity, signing and hooks apply. It never prompts (no terminal, GIT_TERMINAL_PROMPT=0, no askpass), and the whole operation is stopped after 120 s.",
+        "With neither paths nor all, the index is committed as it is. A merge, rebase, cherry-pick or revert in progress refuses with merge_in_progress.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout reports the commit the first attempt made instead of committing again: the attempt's id is in the commit's reflog message, and only a HEAD whose newest reflog entry names it is reported.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, nothing_to_commit, head_moved, merge_in_progress, hook_failed, identity_missing, index_locked, path_not_found, timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git and its hooks printed (at most 16 KiB)."
+      ]
+    },
     "git.diff": {
       "class": "read",
       "idempotency": "forbidden",
@@ -14611,6 +15692,17 @@
             },
             "default": 262144,
             "description": "Per file; a longer patch is cut at a line and marked patch_truncated."
+          },
+          "context_lines": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "default": 3,
+            "description": "Unchanged lines around each change in the patches; one file's paths with a large value give that file whole."
           },
           "max_files": {
             "required": false,
@@ -14769,6 +15861,103 @@
         "operation.failed details.extra.code is the machine reason: not_a_repository, no_working_directory, target_not_found or git_failed."
       ]
     },
+    "git.push": {
+      "class": "mutation",
+      "risk": "send-external",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "remote": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "A configured remote's name. Default: where git push would go (the branch's pushRemote, remote.pushDefault, its upstream remote), else origin."
+          },
+          "branch": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The local branch to push to the branch of the same name. Default: the current branch."
+          },
+          "set_upstream": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Make the branch track the pushed branch. Default: true when the branch has no upstream."
+          },
+          "expected_head": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 4,
+              "max_length": 64
+            },
+            "description": "The full commit the caller saw at the branch's tip; refuse with head_moved when it is another."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitPushResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Never forces: a remote branch with commits the local one lacks refuses with rejected_non_fast_forward.",
+        "A branch that tracks another branch name or remote refuses with upstream_mismatch (as push.default=simple) unless set_upstream is true, which pushes the same-named branch and tracks it.",
+        "git runs in the user's environment, so their credential helper, SSH agent and pre-push hook work as in a terminal. It never prompts (no terminal, GIT_TERMINAL_PROMPT=0, no askpass), and the whole operation is stopped after 120 s. A remote with its own push refspecs or mirroring is refused.",
+        "The commit read at the branch's tip (and checked against expected_head) is the one pushed, also by a retry after a lost reply or a timeout. Pushing a commit the remote already has succeeds with up_to_date true.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, no_remote, push_refspec_configured, mirror_remote, upstream_mismatch, detached_head, branch_not_found, head_moved, rejected_non_fast_forward, rejected_by_remote, hook_failed, auth_failed, network_failed, timed_out, repository_changed, store_failed or git_failed; extra.message explains it, extra.output carries what git and the remote printed (at most 16 KiB) and extra.ref_status the remote's verdict on the ref."
+      ]
+    },
     "git.status": {
       "class": "read",
       "idempotency": "forbidden",
@@ -14806,6 +15995,1347 @@
       "errors": [
         "operation.failed",
         "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
+    "git.worktree.apply": {
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitWorktreeApplyResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Run it in a linked worktree whose branch git.worktree.create recorded a base for. Everything the worktree changed since the merge base with that base, its commits, uncommitted edits and new files it never added, lands in the main checkout's files as uncommitted changes; submodules are left out. HEAD and the index of both checkouts stay as they are, and the user's diff and apply settings change nothing.",
+        "Refused, changing nothing, when the main checkout has changes of its own at any path the work touches (a staged or unstaged change, or a file git does not track there), when the work does not apply cleanly there, or when the worktree is mid-merge or mid-rebase. git runs in the user's environment, never prompts and is stopped after 120 s.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout finds the work applied instead of applying it twice; one stopped while git wrote the files is refused as interrupted, as the main checkout may hold part of it.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, no_base, unmerged, no_merge_base, nothing_to_apply, main_checkout_changed (extra.files lists the paths), does_not_apply, interrupted, timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
+      ]
+    },
+    "git.worktree.create": {
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 100
+            },
+            "description": "The worktree's name, made a slug (lowercase letters, digits and -, at most 48 before a suffix). Default: chat- and six random hex digits."
+          },
+          "base": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The revision the new branch starts at. Default: the current branch, else HEAD's commit."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitWorktreeCreateResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The worktree is ~/.cmux/worktrees/<project>/<name> on the session host, on a new branch cmux/<name>; <project> is the main checkout's folder name. A name taken by a folder or a branch gets the next free suffix (-2 to -99).",
+        "The user's checkout, index and uncommitted changes are untouched. git worktree add runs in the user's environment, so their post-checkout hook and filters run; it never prompts and is stopped after 120 s.",
+        "A replayed key returns the first result with replayed true; the same key with other arguments is idempotency.conflict. A retry after a lost reply or a timeout finds the worktree the first attempt made; a failing post-checkout hook does not undo the worktree, so it is reported as made.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, base_not_found, name_taken, path_exists, no_home, timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
+      ]
+    },
+    "git.worktree.remove": {
+      "class": "mutation",
+      "risk": "execute",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional",
+          "terminal": "optional"
+        },
+        "fields": {
+          "path": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "An absolute path to a file or folder inside a repository. Use it, or a workspace, pane, tab or terminal selector whose working directory names the repository."
+          },
+          "discard": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Remove it even with uncommitted changes or commits on no other branch or remote. Default: false."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "GitWorktreeRemoveResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Run it in a linked worktree; the main checkout and other worktrees are never touched. git worktree remove runs from the main checkout in the user's environment, never prompts and is stopped after 120 s. The folder goes with its ignored files. The branch goes too when git.worktree.create made it (cmux/<name> with a recorded base), with its settings; any other branch stays.",
+        "Without discard it is refused, changing nothing, while the worktree has uncommitted changes (tracked or untracked files) or commits on no other branch and no remote, on a detached HEAD or on the branch that goes. It is checked again right before the folder and the branch go; a branch that got new commits meanwhile stays (branch_deleted false). With discard that work is lost.",
+        "A replayed key returns the first result with replayed true while the request still names the same repository; once the folder is gone, a request naming it finds no repository. The same key with other arguments is idempotency.conflict. A retry after a timeout finishes what the first attempt started.",
+        "operation.failed details.reason is the machine reason: not_a_repository, no_working_directory, target_not_found, not_a_worktree, uncommitted_changes (extra.files lists up to 20 paths, extra.count all of them), unpushed_commits (extra.branch, absent for a detached HEAD, and extra.count), timed_out, repository_changed, store_failed or git_failed; extra.message explains it and extra.output carries what git printed (at most 16 KiB)."
+      ]
+    },
+    "history.backups.purge": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "restore_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 40,
+              "max_length": 40
+            },
+            "description": "A history:<32 hex> restore id from a removal."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryPurgeResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only origin user (a verified cmux app connection, gate A2) may send it: a backup is the undo of a removal, so no agent deletes it. Any other origin is refused with origin.forbidden."
+      ]
+    },
+    "history.clear": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "range": {
+            "required": true,
+            "type": {
+              "kind": "ref",
+              "name": "HistoryRange"
+            },
+            "description": "hour, today (from the local start of today), week (7 days), month (28 days) or all. Entries at or after the range's start are cleared."
+          },
+          "kinds": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HistoryKind"
+              },
+              "max_items": 5
+            },
+            "description": "Entry kinds (page, location, closed, command, agent); empty or omitted: every kind."
+          },
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "One browser profile; it narrows the clear to that profile's page visits."
+          },
+          "local_day_start_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The local start of today in Unix milliseconds, from the caller's time zone, for range today. Omitted: the daemon's local midnight."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryRemovalResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
+        "Page visits in the range are removed; agent and command entries are hidden by range (not with a profile); closed and location entries are never touched; removed counts visits."
+      ]
+    },
+    "history.entries.list": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "One browser profile; it narrows the list to that profile's page visits."
+          },
+          "kinds": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "ref",
+                "name": "HistoryKind"
+              },
+              "max_items": 5
+            },
+            "description": "Entry kinds (page, location, closed, command, agent); empty or omitted: every kind."
+          },
+          "text": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 1024
+            },
+            "description": "Every whitespace-separated token must appear in the entry, folded for case, diacritics and width, in any order."
+          },
+          "range": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "HistoryRange"
+            },
+            "description": "hour, today (from the local start of today), week (7 days), month (28 days) or all.",
+            "default": "all"
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 5000
+            },
+            "description": "At most this many entries.",
+            "default": 500
+          },
+          "local_day_start_ms": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The local start of today in Unix milliseconds, from the caller's time zone, for range today. Omitted: the daemon's local midnight."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "ref",
+        "name": "HistoryEntriesListResult"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "The merged history, newest first: page visits of every browser profile (shared by the machine's sessions), agent sessions and finished commands folded from the session journal minus the hidden ones, closed items, and the app's location trail."
+      ]
+    },
+    "history.entries.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "ids": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 1024
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Entry ids from history.entries.list."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryRemovalResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
+        "Page visits are removed; agent and command entries are hidden; closed entries are left to age out; any location id refuses the whole request with operation.failed reason history.location_client_owned (the app owns its trail)."
+      ]
+    },
+    "history.restore": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "restore_id": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 40,
+              "max_length": 40
+            },
+            "description": "A history:<32 hex> restore id from a removal."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryRestoreResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Puts a removal's visits back, once; a backup that was restored, purged or expired is operation.failed."
+      ]
+    },
+    "history.site.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "host": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 253
+            },
+            "description": "A host name such as example.com: its visits and those of its subdomains are removed."
+          },
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "One browser profile; omitted: every profile."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryRemovalResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Every removal moves the visits to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention."
+      ]
+    },
+    "history.visit.import": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The browser profile's wire id."
+          },
+          "path": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 4096
+            },
+            "description": "The absolute path of the app's own History.sqlite visit log of the profile."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryVisitImportResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only origin user (the verified cmux app connection, gate A2) may send it: it makes the daemon read a file by path. Any other origin is refused with origin.forbidden.",
+        "Copies every visit of the app's own log from before the daemon owned page history into the profile, in one transaction; the file is read, never changed. A retry with the same idempotency key imports nothing again."
+      ]
+    },
+    "history.visit.record": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The browser profile's wire id."
+          },
+          "url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8192
+            },
+            "description": "The URL of the finished main-frame navigation."
+          },
+          "title": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "max_length": 1024
+            },
+            "description": "The page title, when the load already has one."
+          },
+          "tab": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The tab that visited it, <machine>/<tab id>, when the reporter knows it."
+          },
+          "at_ms": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "decimal"
+            },
+            "description": "The visit's time in Unix milliseconds."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryVisitRecordResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only origin user (the verified cmux app connection, gate A2) may send it: the app that hosts the browser reports what the person visited, so no agent adds a visit. Any other origin is refused with origin.forbidden.",
+        "Visits older than 90 days and beyond 100,000 per profile are pruned."
+      ]
+    },
+    "history.visit.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "One browser profile; omitted: every profile."
+          },
+          "urls": {
+            "required": true,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 8192
+              },
+              "min_items": 1,
+              "max_items": 1000
+            },
+            "description": "Every visit of exactly one of these URLs is removed."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryRemovalResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
+        "The omnibox's Remove suggestion and the browser REPL's delete {urls}: exact URLs, one removal with one restore id."
+      ]
+    },
+    "history.visit.summaries": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The browser profile's wire id."
+          },
+          "limit": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "uint32",
+              "minimum": 1,
+              "maximum": 5000
+            },
+            "description": "At most this many URLs.",
+            "default": 5000
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "array",
+        "items": {
+          "kind": "ref",
+          "name": "HistoryVisitSummary"
+        },
+        "max_items": 5000
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "One row per URL of the profile, most recent first: the omnibox seed."
+      ]
+    },
+    "history.visit.title": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "profile": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "The browser profile's wire id."
+          },
+          "url": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 8192
+            },
+            "description": "The visited URL."
+          },
+          "title": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "The page title that arrived after the navigation."
+          }
+        },
+        "extra": false
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "HistoryVisitTitleResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ],
+      "constraints": [
+        "Only origin user (the verified cmux app connection, gate A2) may send it: the app that hosts the browser reports what the person visited, so no agent adds a visit. Any other origin is refused with origin.forbidden.",
+        "Sets the title of the newest visit of the URL in the profile."
+      ]
+    },
+    "keybindings.get": {
+      "class": "read",
+      "idempotency": "forbidden",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {},
+        "extra": false,
+        "constraints": [
+          "Answers {path, revision, entries, diagnostics} for keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it). A missing file has no entries; an unreadable one has one unreadable_file diagnostic with a null index."
+        ]
+      },
+      "result": {
+        "kind": "ref",
+        "name": "KeybindingsSnapshot"
+      },
+      "errors": [
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "keybindings.remove": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "command": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The command id (newTab, workbench.action.files.save, ...)."
+          },
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The chord in keybindings.json syntax: strokes separated by spaces (ctrl+k s), at most four, the first with cmd or ctrl."
+          },
+          "when": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The when clause; absent binds everywhere."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. keybindings-changed reports it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The owner edits keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it) in place, keeping its comments, re-reads it under the advisory lock first and publishes it atomically. Origin page may not call keybindings.*. An edit that leaves the text unchanged writes nothing and publishes no keybindings-changed.",
+          "Unbinds one binding of command: a user entry is dropped, and a default binding gets a -command removal entry.",
+          "A key with bad syntax, more than four strokes or a first stroke without cmd or ctrl is keybindings.invalid; a file that is not a JSONC array is keybindings.unreadable and stays unchanged."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "EmptyResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "keybindings.invalid",
+        "keybindings.unreadable",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "keybindings.reset": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "command": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The command id (newTab, workbench.action.files.save, ...)."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. keybindings-changed reports it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The owner edits keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it) in place, keeping its comments, re-reads it under the advisory lock first and publishes it atomically. Origin page may not call keybindings.*. An edit that leaves the text unchanged writes nothing and publishes no keybindings-changed.",
+          "Removes every entry and every removal entry of command, so its default bindings apply again.",
+          "A file that is not a JSONC array is keybindings.unreadable and stays unchanged."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "EmptyResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "keybindings.invalid",
+        "keybindings.unreadable",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "keybindings.set": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "keybinding",
+      "ancestors": [
+        "machine",
+        "session"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required"
+        },
+        "fields": {
+          "command": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The command id (newTab, workbench.action.files.save, ...)."
+          },
+          "key": {
+            "required": true,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The chord in keybindings.json syntax: strokes separated by spaces (ctrl+k s), at most four, the first with cmd or ctrl."
+          },
+          "when": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "The when clause; absent binds everywhere."
+          },
+          "args": {
+            "required": false,
+            "type": {
+              "kind": "map",
+              "values": {
+                "kind": "ref",
+                "name": "JsonValue"
+              }
+            },
+            "description": "The command's args object; absent or empty binds without args."
+          },
+          "replaces": {
+            "required": false,
+            "type": {
+              "kind": "ref",
+              "name": "KeybindingTarget"
+            },
+            "description": "The binding this one replaces; its command defaults to command."
+          },
+          "origin": {
+            "required": false,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "user",
+                "cli",
+                "mcp",
+                "script",
+                "remote",
+                "app"
+              ]
+            },
+            "description": "Who asks; absent is cli. keybindings-changed reports it."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "The owner edits keybindings.json beside the settings file (CMUX_NEXT_CONFIG_FILE moves it) in place, keeping its comments, re-reads it under the advisory lock first and publishes it atomically. Origin page may not call keybindings.*. An edit that leaves the text unchanged writes nothing and publishes no keybindings-changed.",
+          "Binds key to command. With replaces, that binding goes: a user entry is edited or dropped, and a default binding gets a -command removal entry.",
+          "A key with bad syntax, more than four strokes or a first stroke without cmd or ctrl is keybindings.invalid; a file that is not a JSONC array is keybindings.unreadable and stays unchanged."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "EmptyResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "keybindings.invalid",
+        "keybindings.unreadable",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "validation.invalid"
+      ]
+    },
+    "layout.bulk": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional"
+        },
+        "fields": {
+          "verb": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "close"
+              ]
+            },
+            "description": "`close` archives the chosen objects as one closed group."
+          },
+          "level": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "tab",
+                "pane",
+                "screen",
+                "workspace"
+              ]
+            }
+          },
+          "selector": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "this",
+                "others",
+                "to_right",
+                "to_left",
+                "all",
+                "selection"
+              ]
+            },
+            "description": "`this`, `others`, `to_right`, `to_left` and `all` work in the anchor's container, in its order: the pane's tabs, the screen's panes, the workspace's screens, the session's workspaces. `selection` closes `ids`."
+          },
+          "anchor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Public id at `level` the selector is relative to. Omit to use the object the selectors name at `level` (`tab: current`)."
+          },
+          "ids": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 256
+              },
+              "min_items": 1,
+              "max_items": 4096
+            },
+            "description": "Public ids at `level` for `selection`, from any containers."
+          },
+          "include_pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Also close pinned tabs, screens and workspaces. Default false: every selector but `this` and `selection` skips them."
+          },
+          "end_terminals": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "End the terminals whose every view closes, as a workspace close does. Default false."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "One call is one commit and one closed group: Reopen Closed restores every object it closed.",
+          "Containers the close empties close in the same commit and join the group.",
+          "The home workspace anchors a selector but never closes; an object with no tab has nothing to close and is not reported. A call with nothing to close commits nothing and keeps no idempotency receipt.",
+          "`to_right` and `to_left` are refused at level `pane`.",
+          "At most 4096 tabs per call."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "LayoutBulkResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
         "selector.ambiguous",
         "selector.invalid",
         "selector.not_found",
@@ -15030,6 +17560,22 @@
               "name": "NotificationLevel"
             },
             "default": "info"
+          },
+          "desktop": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "false: the app shows no desktop banner for it (cmux notify --desktop false); the sidebar marker still shows. Default true."
+          },
+          "reply": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true: the app's banner takes a typed reply, which it pastes into the notifying terminal and submits (cmux notify --reply). Default false."
           },
           "terminal_id": {
             "required": false,
@@ -18597,6 +21143,17 @@
               "name": "boolean"
             }
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "screen-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset, put-blob); null clears it. An asset the daemon does not store is refused with validation.invalid."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -18608,7 +21165,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, or collapsed is present."
+          "At least one of name, color, collapsed, or icon is present."
         ]
       },
       "result": {
@@ -21727,6 +24284,17 @@
               "name": "boolean"
             }
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "tab-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset, put-blob); null clears it. A linked saved group follows. An asset the daemon does not store is refused with validation.invalid."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -21738,7 +24306,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, or collapsed is present."
+          "At least one of name, color, collapsed, or icon is present."
         ]
       },
       "result": {
@@ -23590,6 +26158,35 @@
             },
             "description": "An ephemeral workspace is closed by the daemon at its next start."
           },
+          "cwd": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string"
+            },
+            "description": "The first terminal's folder. Needs initial_content terminal."
+          },
+          "argv": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string"
+              },
+              "min_items": 1
+            },
+            "description": "The first terminal's exact executable and arguments, instead of the login shell. Needs initial_content terminal; not with shell."
+          },
+          "shell": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            },
+            "description": "Script the first terminal runs with the server platform default shell and -lc. Needs initial_content terminal; not with argv."
+          },
           "correlation_key": {
             "required": false,
             "type": {
@@ -23611,7 +26208,10 @@
         },
         "extra": false,
         "constraints": [
-          "initial_content is explicit. terminal returns CreatedTerminalPath; empty returns CreatedWorkspaceOnly."
+          "initial_content is explicit. terminal returns CreatedTerminalPath; empty returns CreatedWorkspaceOnly.",
+          "cwd, argv and shell launch the first terminal, so they need initial_content terminal.",
+          "At most one of argv or shell is present; argv[0] is non-empty.",
+          "A command in argv or shell needs the workspace:execute app scope, as workspace.run does."
         ]
       },
       "result": {

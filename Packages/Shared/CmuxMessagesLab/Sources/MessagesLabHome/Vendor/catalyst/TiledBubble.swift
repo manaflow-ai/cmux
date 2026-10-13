@@ -243,22 +243,23 @@ final class TiledBody {
         if p.outgoing {
             fill.backgroundColor = nil
             cell.fillGradient.isHidden = false
-            RowCell.placeFill(cell.fillGradient, windowTop: cell.windowY, width: spec.width, span: cell.fillSpan, reachBelow: cell.fillReachBelow)
+            RowCell.placeFill(cell.fillGradient, windowTop: cell.contentWindowY, width: spec.width, span: cell.fillSpan, reachBelow: cell.fillReachBelow)
         } else {
             cell.fillGradient.isHidden = true
             fill.backgroundColor = Fixture.incoming.cgColor
         }
-        let x0 = floor((body.minX - BubbleSlices.pad) * s) / s
-        let phase = body.minX - BubbleSlices.pad - x0
+        let outline = RowDraw.balloon(body, row: p) // an outgoing text balloon is drawn inside its frame
+        let x0 = floor((outline.minX - BubbleSlices.pad) * s) / s
+        let phase = outline.minX - BubbleSlices.pad - x0
         // a slice image that could not be allocated leaves the bubble outline undrawn.
-        if let img = BubbleSlices.image(bodyWidth: body.width, phase: phase, outgoing: p.outgoing, tail: p.tail, scale: s) {
+        if let img = BubbleSlices.image(bodyWidth: outline.width, phase: phase, outgoing: p.outgoing, tail: p.tail, scale: s) {
             let ih = CGFloat(img.height) / s
             shape.contents = img
             shape.contentsScale = s
             // The middle pixel row stretches (the image is symmetric, so the flip does not matter).
             shape.contentsCenter = CGRect(x: 0, y: 0.5 - 0.5 / CGFloat(img.height), width: 1, height: 1 / CGFloat(img.height))
-            shape.frame = CGRect(x: x0, y: body.minY - BubbleSlices.vpad, width: CGFloat(img.width) / s,
-                                 height: body.height + ih - 2 * BubbleSlices.cap)
+            shape.frame = CGRect(x: x0, y: outline.minY - BubbleSlices.vpad, width: CGFloat(img.width) / s,
+                                 height: outline.height + ih - 2 * BubbleSlices.cap)
         } else {
             shape.contents = nil
         }
@@ -273,14 +274,14 @@ final class TiledBody {
         if !p.reactions.isEmpty {
             let h = RowDraw.margin + 24
             badges.frame = CGRect(x: 0, y: 0, width: spec.width, height: h)
-            let key = "\(p.reactions)|\(p.outgoing)|\(body.minX)|\(body.width)|\(spec.width)|\(s)|\(Fixture.paletteGeneration)"
+            let key = "\(p.reactions)|\(p.myReaction ?? -1)|\(p.outgoing)|\(body.minX)|\(body.width)|\(spec.width)|\(s)|\(Fixture.paletteGeneration)"
             if key != badgeKey {
                 badgeKey = key
                 Reclaimer.release(badges.contents)
                 badges.contentsScale = s
                 let b = body
                 badges.contents = WideBitmap.make(size: badges.frame.size, scale: s, opaque: false) { ctx in
-                    PartRenderer.drawReactions(ctx, p.reactions, body: b, outgoing: p.outgoing)
+                    PartRenderer.drawReactions(ctx, p.reactions, mine: p.myReaction, body: b, outgoing: p.outgoing)
                 }
             }
         }

@@ -167,6 +167,8 @@ pub struct ConversationHistoryParams {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ConversationHistoryResult {
     pub messages: Vec<HomeMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threads: Option<Vec<HomeThreadSummary>>,
     pub next_before_seq: Option<i64>,
     pub revision: String,
 }
@@ -383,6 +385,8 @@ pub struct ConversationSnapshotParams {
 pub struct ConversationSnapshotResult {
     pub conversation: HomeConversationSummary,
     pub messages: Vec<HomeMessage>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threads: Option<Vec<HomeThreadSummary>>,
     pub revision: String,
 }
 
@@ -398,6 +402,56 @@ wire_errors! {
         NotParticipant = "not_participant",
         OwnerUnreachable = "owner.unreachable",
         UnknownConversation = "unknown_conversation",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
+wire_op! {
+    /// Read one thread: its root and the replies after after_seq (ascending, exact has_more), with the root's stats. A root that is unknown, is itself a reply, or is hidden by since_join is unknown_message.
+    ConversationThreadOp {
+        name: "conversation.thread",
+        class: Read,
+        idempotency: Forbidden,
+        owner: "cloud:ConversationDO",
+        risk: "read",
+        principals: [Session, Install],
+        params: ConversationThreadParams,
+        result: ConversationThreadResult,
+        error: ConversationThreadError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationThreadParams {
+    pub conversation: ConversationId,
+    pub root: MessageId,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub after_seq: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ConversationThreadResult {
+    pub root: HomeMessage,
+    pub replies: Vec<HomeMessage>,
+    pub has_more: bool,
+    pub thread: HomeThreadSummary,
+}
+
+wire_errors! {
+    /// The error codes conversation.thread declares.
+    ConversationThreadError {
+        Archived = "archived",
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        Forbidden = "forbidden",
+        IdempotencyConflict = "idempotency.conflict",
+        KindForbids = "kind_forbids",
+        NotParticipant = "not_participant",
+        OwnerUnreachable = "owner.unreachable",
+        UnknownConversation = "unknown_conversation",
+        UnknownMessage = "unknown_message",
         ValidationInvalid = "validation.invalid",
     }
 }
@@ -850,54 +904,3 @@ wire_op! {
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct FeedCountsParams {}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedCountsResult {
-    pub open_requests: i64,
-    pub unread: i64,
-    pub by_priority: BTreeMap<String, i64>,
-    pub by_poster_kind: BTreeMap<String, i64>,
-    pub revision: String,
-}
-
-wire_errors! {
-    /// The error codes feed.counts declares.
-    FeedCountsError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-    }
-}
-
-wire_op! {
-    /// Read one feed item (its answer once it is answered). An agent reads only the items it posted.
-    FeedGetOp {
-        name: "feed.get",
-        class: Read,
-        idempotency: Forbidden,
-        owner: "cloud:FeedDO",
-        risk: "read",
-        principals: [Session, Install],
-        params: FeedGetParams,
-        result: FeedGetResult,
-        error: FeedGetError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedGetParams {
-    pub item: FeedItemId,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct FeedGetResult {
-    pub item: FeedItem,
-}
-
-wire_errors! {
-    /// The error codes feed.get declares.
-    FeedGetError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        SelectorNotFound = "selector.not_found",
-    }
-}

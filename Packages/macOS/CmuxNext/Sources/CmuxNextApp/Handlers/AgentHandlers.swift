@@ -57,6 +57,8 @@ enum AgentHandlers {
                 context.services.quickComposer.toggle()
             })
         }
+        // A chat tab's Move to Floating Chat (cx-b9qi): the same panel holds its session.
+        context.services.agentTabs.moveToFloatingChat = { [weak services = context.services] in services?.quickComposer.moveToFloatingChat(session: $0) ?? false }
         // Computer Use Setup: one model (`ComputerUseSetup`) behind the palette, the CLI, the
         // Settings card and the onboarding step. Setup opens the guided step; the two grant
         // actions open their Privacy & Security list.
@@ -154,6 +156,15 @@ enum AgentHandlers {
             }
             view.showModelPicker()
         })
+        // Search Files… (Cmd-P, cx-ncc.69) opens the composer's file search, keyboard in its field.
+        registry.bind("agentPane.searchFiles", run: { invocation in
+            guard invocation.allowsViewChange else { return context.refuse(MiscHandlerStrings.pickerNeedsFocus) }
+            guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                  let view = context.services.agentTabs.existingView(key) else {
+                return context.refuse(MiscHandlerStrings.searchFilesNeedsAgentChat)
+            }
+            view.showFileSearch()
+        })
         registry.bind("agentPane.createCheckpoint", run: { invocation in
             guard invocation.allowsViewChange else {
                 return context.refuse(MiscHandlerStrings.checkpointNeedsFocus)
@@ -164,6 +175,20 @@ enum AgentHandlers {
             }
             view.showCreateCheckpoint()
         })
+        // Commit and Push run the changes view's own path. Headless callers
+        // use the session host's `cmux git commit|push` instead.
+        for (id, action) in [("agentPane.git.commit", AgentPaneGitAction.commit), ("agentPane.git.push", .push)] as [(ActionID, AgentPaneGitAction)] {
+            registry.bind(id, run: { invocation in
+                guard invocation.allowsViewChange else {
+                    return context.refuse(MiscHandlerStrings.gitWriteNeedsFocus)
+                }
+                guard let pane = context.scope(invocation).pane, let key = pane.currentTabKey,
+                      let view = context.services.agentTabs.existingView(key) else {
+                    return context.refuse(MiscHandlerStrings.gitNeedsAgentChat)
+                }
+                view.runGitAction(action)
+            })
+        }
         registry.bindUnavailable(["palette.openTerminalChatView"], ActionFailure(message: MiscHandlerStrings.agentChat))
         registry.bindUnavailable(["palette.launchClaudeTeams", "palette.launchCodexTeams"], ActionFailure(message: MiscHandlerStrings.agentTeams))
         registry.bindUnavailable(

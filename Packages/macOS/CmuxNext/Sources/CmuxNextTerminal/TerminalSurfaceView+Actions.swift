@@ -26,10 +26,10 @@ extension TerminalSurfaceView {
                 GhosttyRuntime.shared.bellSettings.ring()
             }
         case .openURL(let text):
-            guard let url = Self.url(from: text) else { return false }
             if let delegate = session.delegate {
-                return delegate.terminalSession(session, open: url)
+                return delegate.terminalSession(session, openLink: text)
             }
+            guard let url = Self.url(from: text) else { return false }
             // Never the blocking open: Ghostty holds the renderer lock here.
             NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
         case .mouseShape(let shape):

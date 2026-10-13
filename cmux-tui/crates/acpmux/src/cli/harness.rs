@@ -27,6 +27,7 @@ use crate::config::folder_profiles;
 use crate::config::profiles::{self, ProfileSources, Severity};
 use crate::config::{Config, HarnessKind, HarnessProfile, ProfileSource};
 
+mod program;
 pub(crate) mod wire;
 use wire::{TempFolder, Wire};
 
@@ -573,12 +574,12 @@ pub async fn doctor(cfg: &Config, id: &str, opts: &DoctorOptions) -> DoctorRepor
     match folder_profiles::resolve_program(profile, workdir) {
         Some(path) => r.push("command", StepStatus::Pass, &path.to_string_lossy(), None),
         None => {
-            r.push(
-                "command",
-                StepStatus::Fail,
-                &format!("`{program}` is not on PATH"),
-                Some(install_hint(cfg, id, &program)),
-            );
+            let file = match &folder_target {
+                Some(Ok(target)) => Some(target.path.as_str()),
+                _ => None,
+            };
+            let (detail, fix) = program::problem(cfg, id, &program, workdir, file);
+            r.push("command", StepStatus::Fail, &detail, Some(fix));
             return r.done();
         }
     }

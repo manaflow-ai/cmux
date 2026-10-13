@@ -56,10 +56,31 @@
     "git.checkpoint.list",
     "git.checkpoint.pin",
     "git.checkpoint.unpin",
+    "git.commit",
     "git.diff",
     "git.files.list",
     "git.files.search",
+    "git.push",
     "git.status",
+    "git.worktree.apply",
+    "git.worktree.create",
+    "git.worktree.remove",
+    "history.backups.purge",
+    "history.clear",
+    "history.entries.list",
+    "history.entries.remove",
+    "history.restore",
+    "history.site.remove",
+    "history.visit.import",
+    "history.visit.record",
+    "history.visit.remove",
+    "history.visit.summaries",
+    "history.visit.title",
+    "keybindings.get",
+    "keybindings.remove",
+    "keybindings.reset",
+    "keybindings.set",
+    "layout.bulk",
     "machine.get",
     "machine.list",
     "notification.ack",
@@ -458,6 +479,8 @@
       "server-stats",
       "subscribe-activity",
       "set-terminal-command-history",
+      "list-terminal-commands",
+      "delete-terminal-commands",
       "register-browser-provider",
       "get-browser-provider",
       "unregister-browser-provider",
@@ -468,6 +491,7 @@
       "conversation-create",
       "conversation-snapshot",
       "conversation-history",
+      "conversation-thread",
       "conversation-search",
       "history-search",
       "conversation-op",
@@ -484,6 +508,7 @@
       "cloud-inbox-list",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",
+      "cloud-conversation-thread",
       "cloud-conversation-op",
       "cloud-inbox-subscribe",
       "cloud-inbox-unsubscribe",
@@ -524,7 +549,19 @@
       ]
     },
     {
+      "name": "program-status-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
       "name": "bookmarks-changed",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "history-changed",
       "streams": [
         "subscribe"
       ]
@@ -624,6 +661,12 @@
     },
     {
       "name": "graphics-status",
+      "streams": [
+        "subscribe"
+      ]
+    },
+    {
+      "name": "keybindings-changed",
       "streams": [
         "subscribe"
       ]

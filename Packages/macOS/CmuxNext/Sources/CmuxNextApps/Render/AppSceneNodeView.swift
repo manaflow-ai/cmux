@@ -50,7 +50,11 @@ struct AppSceneNodeView: View {
         case .circle, .capsule, .rectangle, .roundedRectangle:
             AppSceneShape(node: node)
         case .progressView:
-            if let value = node.number("value") { ProgressView(value: min(max(value, 0), 1)).controlSize(.small) } else { ProgressView().controlSize(.small) }
+            if let value = node.number("value") {
+                ProgressView(value: min(max(value, 0), 1)).controlSize(.small).tint(colors.primary)
+            } else {
+                ThemedSpinner(size: 16)
+            }
         case .textField:
             AppSceneTextField(model: model, id: id, node: node)
         case .row:

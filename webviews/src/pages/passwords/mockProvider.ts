@@ -50,7 +50,7 @@ export function sampleData(sections: Partial<Sections> = {}): MockData {
       { id: "default", name: "Default" },
       { id: "work", name: "Work" },
     ],
-    sections: { passwords: true, passkeys: true, exceptions: true, export: true, ...sections },
+    sections: { passwords: true, passkeys: true, exceptions: true, export: true, browserImport: true, ...sections },
     passwords: {
       default: [
         row("p1", "github.com", "octo@example.com", { times_used: 41 }),
@@ -127,7 +127,7 @@ export class MockPasswordsProvider implements PageClient {
     if (op === "cmux.app.action.run") {
       // The app's import actions: the mock records the run (in `calls`) and checks the gesture.
       this.gate();
-      if (p.action !== "importFromBrowser" && p.action !== "password.importCSV") {
+      if (p.action !== "importFromBrowser" && p.action !== "browser.importFromFiles") {
         throw pageError("cmux.app.action_refused", `${String(p.action)} is not an action of this page`);
       }
       return { ran: true };

@@ -25,6 +25,8 @@ public actor AgentSessionAttachClient {
     private var connecting: Task<LineTransport, any Error>?
     private let handler = HandlerBox()
     private var closed = false
+    /// The connected daemon serves `agent-session-start-v1` (read from its own `identify`).
+    private var servesStart = false
 
     /// `surface`: the tab's surface id in the daemon's store.
     public init(surface: UInt64, requestTimeout: Duration = .seconds(10), endpoint: @escaping EndpointProvider) {
@@ -43,6 +45,28 @@ public actor AgentSessionAttachClient {
     public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?) async throws -> Data {
         try await call("agent-session-events", page(afterSeq, beforeSeq, limit, kinds))
     }
+
+    /// `agent-session-start` (`agent-session-start-v1`): the daemon starts a new chat for the tab
+    /// in its own machine's acpmux (policy `ask`) and binds it; returns the new session id. A
+    /// daemon that does not serve the verb is refused here (`agent_session.start_unsupported`),
+    /// so no start ever falls back to another machine.
+    public func start(cwd: String, harness: String?) async throws -> String {
+        _ = try await liveTransport()
+        guard servesStart else {
+            throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
+        }
+        var params: [String: any Sendable] = ["cwd": cwd]
+        if let harness { params["harness"] = harness }
+        let data = try await call("agent-session-start", params)
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let session = object["session"] as? String, !session.isEmpty else {
+            throw AgentSessionAttachError(code: "agent_session.refused", message: "agent-session-start answered no session")
+        }
+        return session
+    }
+
+    /// The code ``start(cwd:harness:)`` throws for a daemon without `agent-session-start-v1`.
+    public static let startUnsupported = "agent_session.start_unsupported"
 
     public func prompt(id: String, text: String) async throws -> Data {
         try await call("agent-session-prompt", ["prompt_id": id, "text": text])
@@ -147,6 +171,7 @@ public actor AgentSessionAttachClient {
                 transport.close()
                 throw AgentSessionAttachError(code: "agent_session.unsupported", message: "the daemon does not serve agent session attach")
             }
+            servesStart = identity.supports(DaemonCapabilities.shared.agentSessionStart)
             _ = try await DaemonConnection.perform(
                 SetClientInfoRequest(name: "cmux-next agent attach", kind: "agent-session-attach", capabilities: []),
                 on: transport, timeout: requestTimeout)

@@ -23,8 +23,6 @@ enum PaletteLayout {
     /// Transparent margin around the panel so the shadow and the open
     /// animation are never clipped by the window.
     static var shadowMargin: CGFloat { Metrics.space6 * 2 }
-    static var shadowRadius: CGFloat { Metrics.space6 + Metrics.space4 }
-    static var shadowOffset: CGFloat { Metrics.space4 }
 
     static var windowSize: CGSize {
         CGSize(width: width + 2 * shadowMargin, height: height + 2 * shadowMargin)
@@ -37,6 +35,14 @@ enum PaletteLayout {
     static var iconBox: CGFloat { Metrics.iconSize + Metrics.space2 }
 }
 
+extension NSView {
+    /// `rect` on whole backing pixels, for a text field's frame set from `layout()` (cx-wcej; see
+    /// `PaletteText.height`).
+    func pixelAligned(_ rect: NSRect) -> NSRect {
+        backingAlignedRect(rect, options: [.alignMinXNearest, .alignMinYNearest, .alignWidthNearest, .alignHeightNearest])
+    }
+}
+
 /// Label helpers so every text view uses Design typography.
 enum PaletteText {
     static func label(_ font: NSFont, tone: PaletteTone? = .primary) -> PaletteLabel {
@@ -47,6 +53,18 @@ enum PaletteText {
         field.maximumNumberOfLines = 1
         field.cell?.truncatesLastVisibleLine = true
         return field
+    }
+
+    /// A text field's height for a frame set from `layout()`: its cell's height without bounds,
+    /// up to whole backing pixels. Not `intrinsicContentSize`, which for a truncating label
+    /// depends on the field's current frame: at some scales a row set 14 points, read back 13,
+    /// set 13, read 14, and each change asked for another pass until AppKit threw "more Layout
+    /// Window passes than there are views in the window" (cx-wcej).
+    static func height(_ field: NSTextField) -> CGFloat {
+        let unbounded = NSRect(x: 0, y: 0, width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        let natural = field.cell?.cellSize(forBounds: unbounded).height ?? field.intrinsicContentSize.height
+        let scale = field.window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        return ceil(natural * scale) / scale
     }
 
     /// Width that shows the whole string. `intrinsicContentSize` of a

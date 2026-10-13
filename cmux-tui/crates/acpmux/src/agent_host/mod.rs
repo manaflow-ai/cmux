@@ -28,6 +28,8 @@ pub mod host {
 }
 pub mod link;
 pub mod sweep;
+#[cfg(unix)]
+pub(crate) mod tree;
 mod wait;
 pub use wait::{
     BOOTSTRAP_BUDGET, HostTimeout, QUERY_BUDGET, dead, death_watches, wait_dead_async,

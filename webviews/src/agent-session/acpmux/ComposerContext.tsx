@@ -11,6 +11,7 @@ import { isAgentHome, projectLabel } from "./sessionList";
 import { translate as t } from "./i18n";
 import { registerPicker } from "./pickerOpeners";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
+import { useOpenSide } from "../../ui/openSide";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -40,6 +41,7 @@ export function ComposerContext({
   onProject,
   projectChoices,
   onBrowseProject,
+  onNewWorktree,
   localName,
   movedTo,
   onMove,
@@ -54,6 +56,8 @@ export function ComposerContext({
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
   onBrowseProject?(): void;
+  /// New Worktree (cx-lyqio.2): a new chat on this Mac starts in a worktree of its folder.
+  onNewWorktree?(cwd: string): void;
   /// This Mac's name (the handshake's `machineName`).
   localName?: string;
   /// The folder a started chat moved to.
@@ -100,7 +104,8 @@ export function ComposerContext({
   const currentComputer = computers.find((computer) => computer.id === selectedComputer) ?? computers[0];
   if (!currentComputer && !currentFolder && !projectChoices) return null;
   const readOnly = started || onProject === undefined;
-  const moves = started && onMove !== undefined && !busy;
+  const movable = started && onMove !== undefined;
+  const moves = movable && !busy;
   const branch = summary?.branch;
   // A started chat's Choose folder…: the host's folder panel, then the move (dogfood 09).
   const browseMove = onBrowseFolder
@@ -113,7 +118,9 @@ export function ComposerContext({
   return (
     <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
       <div className="acpmux-location-leading">
-        {readOnly && !moves && !currentFolder ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
+        {/* A movable chat keeps its folder control while a turn runs (off, not gone), so the row
+            never loses and regains it with each turn (cx-ncc.58). */}
+        {readOnly && !movable && !currentFolder ? null : !readOnly && selectedComputer === "local" && projectChoices ? (
           <FolderMenu
             label={t(CONTEXT_LABELS.folder)}
             menu="Location"
@@ -121,6 +128,7 @@ export function ComposerContext({
             current={currentFolder}
             onPick={(cwd) => onProject?.(cwd)}
             onBrowse={onBrowseProject}
+            onNewWorktree={currentFolder && onNewWorktree ? () => onNewWorktree(currentFolder) : undefined}
             localName={localName}
             peers={peers}
           />
@@ -172,15 +180,14 @@ export function ComposerContext({
 }
 
 function BranchPicker({ branch }: { branch: string }) {
-  const [open, setOpen] = useState(false);
-  const [control, anchor] = useControlAnchor();
+  const { control, anchor, open, setOpen, side } = useLocationPopover();
   return (
     <span ref={control} className="acpmux-location-picker" title={branch}>
       <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton className="acpmux-location-button" label={t("changes.scope.branch")}>
+        <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={t("changes.scope.branch")}>
           <LocationFace icon={<BranchIcon />} value={branch} chevron />
         </MenuButton>
-        <MenuPopup side="top" anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
+        <MenuPopup side={side} flip={false} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="end">
           <MenuRadioGroup value={branch} onValueChange={() => undefined}>
             <MenuRadioItem value={branch} disabled className="acpmux-menu-item">
               <span className="acpmux-menu-text">
@@ -197,7 +204,7 @@ function BranchPicker({ branch }: { branch: string }) {
 function BranchIcon() {
   return (
     <svg
-      className="acpmux-icon acpmux-location-icon"
+      className="acpmux-icon acpmux-location-icon ui-ghost-icon"
       width={14}
       height={14}
       viewBox="0 0 16 16"
@@ -282,7 +289,11 @@ function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value:
     <>
       {icon}
       <span className="acpmux-location-label">{value}</span>
-      {chevron && <ChevronIcon />}
+      {chevron && (
+        <span className="ui-ghost-icon" aria-hidden="true">
+          <ChevronIcon />
+        </span>
+      )}
     </>
   );
 }
@@ -290,7 +301,7 @@ function LocationFace({ icon, value, chevron }: { icon?: React.ReactNode; value:
 function FolderIcon() {
   return (
     <svg
-      className="acpmux-icon acpmux-location-icon"
+      className="acpmux-icon acpmux-location-icon ui-ghost-icon"
       width={14}
       height={14}
       viewBox="0 0 16 16"
@@ -308,9 +319,11 @@ function FolderIcon() {
 
 /// The location menus open next to their control: on its top side, the way the model menu opens
 /// above its chip (Lawrence 2026-10-08: "popover is not next to the button"; this replaces
-/// cx-yrgh's anchor at the card's top edge, which left the card's height between the two). With too
-/// little room above, the positioner flips the menu under the row.
-function useControlAnchor() {
+/// cx-yrgh's anchor at the card's top edge, which left the card's height between the two). Every
+/// location menu decides its side once, when it opens, by the shared rule (`useOpenSide`): above
+/// unless the menu's full height does not fit there and below has more room. It keeps that side
+/// while open (a filter shrinking the folder list never moves it, cx-ncc.53) and fits the room.
+function useLocationPopover() {
   const control = useRef<HTMLSpanElement>(null);
   const anchor = useMemo<UiVirtualAnchor>(
     () => ({
@@ -321,8 +334,12 @@ function useControlAnchor() {
     }),
     [],
   );
-  return [control, anchor] as const;
+  return { control, anchor, ...useOpenSide(control, "top", LOCATION_MENU_HEIGHT) };
 }
+
+/// A location menu at its tallest: the folder list's cap (composerLocation.css), a field or
+/// Choose folder…, and the menu's padding.
+const LOCATION_MENU_HEIGHT = 320;
 
 /// Automation opens a location menu by its stable name (`openPicker`: "Computer", "Location"),
 /// as a click does: the focus leaves the prompt, then the menu opens. A label (a started chat)
@@ -349,6 +366,7 @@ function FolderMenu({
   current,
   onPick,
   onBrowse,
+  onNewWorktree,
   localName,
   peers,
 }: {
@@ -359,21 +377,22 @@ function FolderMenu({
   current?: string;
   onPick(cwd: string): void;
   onBrowse?(): void;
+  /// New Worktree of the current folder.
+  onNewWorktree?(): void;
   localName?: string;
   peers?: string[];
 }) {
-  const [open, setOpen] = useState(false);
   const [adding, setAdding] = useState(false);
-  const [control, anchor] = useControlAnchor();
+  const { control, anchor, open, setOpen, side } = useLocationPopover();
   useLocationOpener(menu, () => setOpen(true));
   const value = current ? projectLabel(current) : t(CONTEXT_LABELS.chooseFolder);
   return (
     <span ref={control} className="acpmux-location-picker" title={current}>
       <Menu open={open} onOpenChange={setOpen}>
-        <MenuButton className="acpmux-location-button" label={label}>
+        <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
           <LocationFace icon={<FolderIcon />} value={value} chevron />
         </MenuButton>
-        <MenuPopup side="top" anchor={anchor} className="acpmux-menu acpmux-location-menu" align="start">
+        <MenuPopup side={side} flip={false} anchor={anchor} className="acpmux-menu acpmux-location-menu" align="start">
           {folders.length > 0 && (
             <>
               <div className="acpmux-location-folders">
@@ -395,8 +414,20 @@ function FolderMenu({
                   ))}
                 </MenuRadioGroup>
               </div>
-              {onBrowse && <MenuSeparator />}
+              {(onBrowse || onNewWorktree) && <MenuSeparator />}
             </>
+          )}
+          {onNewWorktree && (
+            <MenuItem
+              className="acpmux-menu-item acpmux-location-choose"
+              onSelect={() => {
+                setOpen(false);
+                onNewWorktree();
+              }}
+            >
+              <span className="ui-menu-check" aria-hidden="true" />
+              <span className="acpmux-menu-label">{t("worktree.new")}</span>
+            </MenuItem>
           )}
           {onBrowse && (
             <MenuItem
@@ -459,9 +490,8 @@ function LocationPicker({
   extras?: { id: string; label: string; onSelect(): void }[];
   onPick(id: string): void;
 }) {
-  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [control, anchor] = useControlAnchor();
+  const { control, anchor, open, setOpen, side } = useLocationPopover();
   const press = usePopoverTrigger(open, setOpen);
   useLocationOpener(disabled ? undefined : menu, () => setOpen(true));
   const shown = useMemo(() => {
@@ -492,10 +522,16 @@ function LocationPicker({
     return (
       <span ref={control} className="acpmux-location-picker">
         <Menu open={open} onOpenChange={setOpen}>
-          <MenuButton className="acpmux-location-button" label={label}>
+          <MenuButton className="acpmux-location-button ui-ghost ui-ghost-sm" label={label}>
             {button}
           </MenuButton>
-          <MenuPopup side="top" anchor={anchor} className="acpmux-menu acpmux-location-menu" align="start">
+          <MenuPopup
+            side={side}
+            flip={false}
+            anchor={anchor}
+            className="acpmux-menu acpmux-location-menu"
+            align="start"
+          >
             <MenuRadioGroup value={selected ?? ""} onValueChange={pick}>
               {options.map((option) => (
                 <MenuRadioItem key={option.id} value={option.id} className="acpmux-menu-item">
@@ -531,7 +567,7 @@ function LocationPicker({
     <span ref={control} className="acpmux-location-picker" title={selected}>
       <button
         type="button"
-        className="acpmux-location-button"
+        className="acpmux-location-button ui-ghost ui-ghost-sm"
         aria-label={label}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -548,7 +584,8 @@ function LocationPicker({
         anchor={open ? anchor : null}
         label={label}
         className="acpmux-menu acpmux-location-menu"
-        side="top"
+        side={side}
+        flip={false}
       >
         <Combobox
           suggestions={suggestions}
@@ -558,7 +595,7 @@ function LocationPicker({
           label={label}
           placeholder={t(CONTEXT_LABELS.folderSearch)}
           inputClassName="acpmux-location-search block h-8 w-full min-w-60 appearance-none border-0 bg-transparent px-2 font-[inherit] text-fg outline-none placeholder:text-muted"
-          listClassName="m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
+          listClassName="acpmux-location-folders m-0 list-none border-t-[0.5px] border-edge p-0 pt-1 [&:not([hidden])]:mt-1"
           itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
           renderItem={(path) => {
             const folder = options.find((option) => option.id === path);
@@ -570,6 +607,7 @@ function LocationPicker({
             );
           }}
           inline
+          keepHeight
         />
         {onBrowse && (
           <>

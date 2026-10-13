@@ -18,12 +18,13 @@ immutable=1) and never written, moved or locked:
 and, to find a past chat's folder, the agent's own transcript
 (~/.claude/projects/*/<id>.jsonl, ~/.codex/sessions/**/rollout-*<id>.jsonl).
 
-Each row has a short id: w<N> for a workspace (its folder, title, layout and
-terminals with their launch commands), a<N> for an agent chat (Claude Code or
-Codex session id and folder). --apply reopens the selected rows in a running
+Each row has a short id: w<N> for a workspace (its folder, title, split layout
+and terminals with their launch commands), a<N> for an agent chat (Claude Code
+or Codex session id and folder). --apply reopens the selected rows in a running
 cmux-next through its control socket (session.transfer.open): an agent chat as a cmux-next agent chat
 resumed by its session id, a workspace as a new workspace in its folder with
-one terminal per classic terminal (cwd and launch or SSH command).
+one terminal per classic terminal (cwd and launch or SSH command), in classic's
+panes and splits.
 """
 from __future__ import annotations
 
@@ -48,6 +49,7 @@ class Terminal:
     title: str
     cwd: str | None
     command: str | None
+    panel: str | None = None  # classic panel id, which its layout names
 
 
 @dataclass
@@ -67,7 +69,7 @@ class Workspace:
     key: str  # classic workspace id (or title + folder when it has none)
     title: str
     cwd: str | None
-    layout: dict | None
+    layout: dict | None  # split tree over `terminals` (layout_of); None for one pane
     terminals: list[Terminal]
     ssh: str | None
     last_seen: float
@@ -202,12 +204,14 @@ class Inventory:
                 continue
             command = command_text(binding.get("command")) if binding.get("kind") == "ssh" else None
             command = command or command_text(term.get("tmuxStartCommand"))
-            terminals.append(Terminal(ptitle, pcwd, command))
+            terminals.append(Terminal(ptitle, pcwd, command, panel.get("id")))
+        # A canvas workspace (freeform panes) has no split tree to keep: its terminals come over as tabs.
+        terminals, layout = layout_of(None if ws.get("layoutMode") == "canvas" else ws.get("layout"), terminals)
         existing = self.workspaces.get(key)
         if existing and existing.last_seen >= when:
             existing.sources.append(label)
             return
-        self.workspaces[key] = Workspace(key, title, cwd, ws.get("layout"), terminals, ssh, when,
+        self.workspaces[key] = Workspace(key, title, cwd, layout, terminals, ssh, when,
                                          (existing.sources if existing else []) + [label],
                                          [f"{h}:{s}" for h, s in agent_ids])
 
@@ -282,6 +286,57 @@ class Inventory:
         return workspaces, agents
 
 
+def layout_of(node, terminals: list[Terminal]) -> tuple[list[Terminal], dict | None]:
+    """Classic's split tree as cmux-next's: terminals in pane order, and the tree
+    with each pane's terminals as indices into them (None for a single pane).
+
+    Classic: {"type": "pane", "pane": {"panelIds": [...]}} or {"type": "split",
+    "split": {"orientation": "horizontal"|"vertical", "dividerPosition", "first",
+    "second"}}. cmux-next: {"terminals": [i, ...]} or {"split": "right"|"down",
+    "ratio", "first", "second"}. A pane left with no terminal (its chats open
+    as their own workspaces, browsers do not come over) folds into its sibling;
+    a terminal the tree misses joins the first pane.
+    """
+    # A damaged file can repeat an id or hold a non-string one: the first
+    # terminal with an id is the one the tree places; the rest join the first pane.
+    by_panel: dict[str, Terminal] = {}
+    for t in terminals:
+        if isinstance(t.panel, str):
+            by_panel.setdefault(t.panel, t)
+    ordered: list[Terminal] = []
+
+    def walk(node):
+        if not isinstance(node, dict):
+            return None
+        if node.get("type") == "pane":
+            pane = node.get("pane")
+            ids = pane.get("panelIds") if isinstance(pane, dict) else None
+            panes = [by_panel.pop(p) for p in ids if isinstance(p, str) and p in by_panel] if isinstance(ids, list) else []
+            ordered.extend(panes)
+            return {"terminals": [len(ordered) - len(panes) + i for i in range(len(panes))]} if panes else None
+        split = node.get("split")
+        if not isinstance(split, dict):
+            return None
+        first, second = walk(split.get("first")), walk(split.get("second"))
+        if not (first and second):
+            return first or second
+        ratio = split.get("dividerPosition")
+        return {"split": "down" if split.get("orientation") == "vertical" else "right",
+                "ratio": ratio if isinstance(ratio, (int, float)) and 0 < ratio < 1 else 0.5,
+                "first": first, "second": second}
+
+    tree = walk(node)
+    placed = {id(t) for t in ordered}
+    missed = [t for t in terminals if id(t) not in placed]
+    if not tree or "terminals" in tree:
+        return ordered + missed, None
+    first = tree
+    while "terminals" not in first:
+        first = first["first"]
+    first["terminals"] += range(len(ordered), len(ordered) + len(missed))
+    return ordered + missed, tree
+
+
 def transcript_cwd(path: str) -> str | None:
     try:
         with open(path, "rb") as f:
@@ -346,10 +401,13 @@ class Next:
     @staticmethod
     def workspace_params(ws: Workspace) -> dict:
         terminals = ws.terminals or [Terminal(ws.title, ws.cwd, None)]
-        return {"workspace": {"name": ws.title or None, "cwd": ws.cwd,
-                              "terminals": [{"title": t.title or None, "cwd": t.cwd or ws.cwd,
-                                             "command": t.command or (f"exec ssh {ws.ssh}" if ws.ssh else None)}
-                                            for t in terminals]}}
+        workspace = {"name": ws.title or None, "cwd": ws.cwd,
+                     "terminals": [{"title": t.title or None, "cwd": t.cwd or ws.cwd,
+                                    "command": t.command or (f"exec ssh {ws.ssh}" if ws.ssh else None)}
+                                   for t in terminals]}
+        if ws.layout and ws.terminals:
+            workspace["layout"] = ws.layout
+        return {"workspace": workspace}
 
 
 def fallback_commands(row, socket: str) -> list[str]:

@@ -1185,6 +1185,137 @@
           }
         }
       }
+    },
+    "home.thread.rootNotReady": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "You can reply in this thread once its first message is delivered."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "يمكنك الرد في هذه السلسلة بعد تسليم رسالتها الأولى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "U ovoj niti možete odgovoriti kada se isporuči njena prva poruka."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Du kan svare i denne tråd, når dens første besked er leveret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Du kannst in diesem Thread antworten, sobald seine erste Nachricht zugestellt ist."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Podrás responder en este hilo cuando se entregue su primer mensaje."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vous pourrez répondre dans ce fil une fois son premier message distribué."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Potrai rispondere in questa conversazione quando il suo primo messaggio sarà consegnato."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このスレッドには、最初のメッセージが配信されると返信できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "អ្នកអាចឆ្លើយតបក្នុងខ្សែនេះ នៅពេលសារដំបូងរបស់វាត្រូវបានបញ្ជូន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "첫 메시지가 전달되면 이 스레드에 답장할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Du kan svare i denne tråden når den første meldingen er levert."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Możesz odpowiedzieć w tym wątku, gdy jego pierwsza wiadomość zostanie dostarczona."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Você poderá responder neste tópico quando a primeira mensagem dele for entregue."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ответить в этой ветке можно будет, когда её первое сообщение будет доставлено."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "คุณตอบกลับในเธรดนี้ได้เมื่อข้อความแรกของเธรดถูกส่งถึงแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu ileti dizisinin ilk mesajı teslim edildiğinde yanıt verebilirsiniz."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відповісти в цій гілці можна буде, коли її перше повідомлення буде доставлено."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bạn có thể trả lời trong chuỗi này khi tin nhắn đầu tiên của chuỗi đã được gửi đến."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此线程的第一条消息送达后，你即可在其中回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此討論串的第一則訊息送達後，你即可在其中回覆。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

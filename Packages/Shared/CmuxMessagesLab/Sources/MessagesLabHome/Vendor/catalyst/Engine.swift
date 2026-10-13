@@ -65,8 +65,12 @@ enum Action {
     case appendPage([Message])
     /// Drop messages far from the viewport (bounded memory).
     case evict(top: Int, bottom: Int)
-    /// Jump: replace the loaded window.
-    case replaceWindow([Message], start: Int)
+    /// Replace the loaded window: `msgs` are messages [start, start + msgs.count) of a history
+    /// of `total`. nil: the window ends at the newest message (a host without a pager: its
+    /// window is all it has). The total is set with the window, never kept from before: a
+    /// total left ahead of the window's end kept `atNewest` false, and every later receive
+    /// stayed hidden (cmux Home, cx-7nf0). A total below the window's end is raised to it.
+    case replaceWindow([Message], start: Int, total: Int? = nil)
     /// A hosted row's new payload (CustomRows.swift): the part is replaced in place and
     /// written through; a height change animates like any row change.
     case setCustomPart(ID, Int, CustomPart)
@@ -81,6 +85,11 @@ enum Action {
 }
 
 enum Reducer {
+    /// Whether `.send` takes DRAFT: text other than white space, or an attachment. Return on any
+    /// other draft does nothing (`Store.apply` drops the rejected send; the hosts do not dispatch it).
+    static func canSend(_ d: Draft) -> Bool {
+        !d.attachments.isEmpty || !d.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
     /// Pure state transition. `now` stamps new records; `newID` names them.
     static func reduce(_ s: inout AppState, _ action: Action, now: Date, newID: () -> ID) -> Message? {
         let stamp = Instant.format(now)
@@ -89,8 +98,8 @@ enum Reducer {
             s.ui.draft.text = text
         case .send:
             let d = s.ui.draft
+            guard canSend(d) else { return nil }
             let text = d.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty || !d.attachments.isEmpty else { return nil }
             var parts = d.attachments.map { Part.attachment($0) }
             if !text.isEmpty { parts += TextParts.parts(for: text) }
             let m = Message(id: newID(), senderId: s.me, sentAt: stamp, parts: parts,
@@ -182,10 +191,10 @@ enum Reducer {
             s.conversation.messages.removeFirst(t)
             s.conversation.messages.removeLast(b)
             s.windowStart += t
-        case let .replaceWindow(msgs, start):
+        case let .replaceWindow(msgs, start, total):
             s.conversation.messages = msgs
             s.windowStart = start
-            s.total = start + msgs.count // cmux: Home has no pager; its window always ends at the newest message (cx-7nf0)
+            s.total = max(total ?? 0, start + msgs.count)
             s.ui.scroll = .init(pinnedToBottom: false, offset: 0)
         case let .setCustomPart(id, pi, part):
             guard let i = s.conversation.messages.lastIndex(where: { $0.id == id }),
@@ -345,7 +354,8 @@ final class Store {
     init(conversation: Conversation, baseDate: Date, windowStart: Int = 0, total: Int? = nil) {
         state = AppState(conversation: conversation)
         state.windowStart = windowStart
-        state.total = total ?? conversation.messages.count
+        // nil: the window ends at the newest message (as `.replaceWindow`).
+        state.total = max(total ?? 0, windowStart + conversation.messages.count)
         self.baseDate = baseDate
     }
 
@@ -412,6 +422,10 @@ final class Store {
     private func apply(_ action: Action, at t: Double) {
         let old = state
         let sent = Reducer.reduce(&state, action, now: date(at: t), newID: { makeID("local") })
+        // A rejected send (Return on an empty field) changed nothing and is not committed: the
+        // window ran the field's send flash and started the send morph again on my last message.
+        // Messages shows nothing for it.
+        if case .send = action, sent == nil { return }
         if let writer { Reducer.writeThrough(action, sent: sent, state: state, to: writer) }
         onChange?(action, t, old, state)
         if let sent { responder?.didSend(sent, self) }

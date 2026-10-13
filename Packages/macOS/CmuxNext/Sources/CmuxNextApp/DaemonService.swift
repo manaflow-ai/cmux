@@ -112,7 +112,8 @@ final class DaemonService {
             retryWake = prestart.wake
         } else {
             do {
-                launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment,
+                launcher = try DaemonLauncher.forApp(tag: launch.tag, bundleID: launch.bundleID,
+                                                terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: AppsService.daemonEnvironment)
             } catch {
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
@@ -120,10 +121,8 @@ final class DaemonService {
             }
         }
         endpointProvider = launcher.endpointProvider
-        if let session = try? DaemonLauncher.sessionName(tag: launch.tag) {
-            launchSnapshotSession = session
-            showLaunchSnapshot(session: session)
-        }
+        launchSnapshotSession = launcher.configuration.session
+        showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey, retryWake: retryWake)
@@ -140,7 +139,7 @@ final class DaemonService {
         // commit is read while the first connect runs, off its path.
         let logger = logger
         // task-owner: one `--version` run per start; the handoff check awaits it
-        let bundledCommit = Task { try? await launcher.bundledBuildCommit() }
+        let bundledCommit = prestart?.bundledCommit ?? Task { try? await launcher.bundledBuildCommit() }
         let handOff: @Sendable (DaemonConnection, DaemonIdentity) async -> Bool = { connection, identity in
             guard identity.buildCommit != nil, let bundled = await bundledCommit.value else { return false }
             let decision = await launcher.handOffIfStale(identity: identity, using: connection, bundledCommit: bundled)

@@ -168,7 +168,7 @@
 }
 
 .ds-destructive:not(:disabled) {
-  color: var(--app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
+  color: var(--cmux-app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
 }
 
 .ds-scroll {

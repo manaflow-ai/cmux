@@ -2,6 +2,8 @@
 //! operation it sends: the CLI's coverage test and `cmux mcp`'s parity test
 //! both read it.
 
+mod git;
+
 /// Operations whose CLI command sends several requests (`cmux agent message`
 /// and `cmux agent inbox`, cli/agent_message.rs), so no single case sends
 /// them.
@@ -21,7 +23,6 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
     const PAIRING: &str = "pairing_0000000000000000000000000000000b";
     const PROJECTION: &str = "projection_0000000000000000000000000000000c";
     const VIEW: &str = "sidebar_view_0000000000000000000000000000000d";
-    const CHECKPOINT: &str = "ckpt_0000000000000000000000000000000e";
     const CONVERSATION: &str = "conv_01J00000000000000000000000";
 
     let mut cases: Vec<(Vec<&'static str>, &'static str)> = vec![
@@ -446,6 +447,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
         ),
         (vec!["tab", TAB, "focus"], "tab.focus"),
         (vec!["tab", TAB, "close"], "tab.close"),
+        (vec!["tab", TAB, "close", "--others", "--include-pinned"], "layout.bulk"),
         (vec!["terminal", "list"], "terminal.list"),
         (vec!["terminal", TERMINAL, "show"], "terminal.get"),
         (vec!["terminal", TERMINAL, "write", "--text", "hello"], "terminal.input.write"),
@@ -669,95 +671,6 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             vec!["notification", "clear", "--terminal", "term_00000000000000000000000000000041"],
             "notification.clear",
         ),
-        (vec!["git", "status", "--path", "/repo"], "git.status"),
-        (
-            vec!["git", "files", "--path", "/repo", "--limit", "20", "app", "tsx"],
-            "git.files.search",
-        ),
-        (vec!["git", "list", "--path", "/repo", "--limit", "500"], "git.files.list"),
-        (
-            vec![
-                "git",
-                "checkpoint",
-                "diff",
-                "--path",
-                "/repo",
-                "ckpt_00000000000000000000000000000001",
-                "ckpt_00000000000000000000000000000002",
-                "--only",
-                "src,docs",
-                "--patch",
-                "--max-patch-bytes",
-                "1024",
-                "--max-files",
-                "10",
-            ],
-            "git.checkpoint.diff",
-        ),
-        (
-            vec![
-                "git",
-                "diff",
-                "--path",
-                "/repo",
-                "--scope",
-                "staged",
-                "--patch",
-                "--max-patch-bytes",
-                "1024",
-                "--max-files",
-                "10",
-                "src",
-            ],
-            "git.diff",
-        ),
-        (
-            vec![
-                "git",
-                "checkpoint",
-                "create",
-                "--path",
-                "/repo",
-                "--reason",
-                "handoff",
-                "--exclude",
-                "target,.env.local",
-                "--expected-repository",
-                "repo_00000000000000000000000000000001",
-                "--expected-worktree",
-                "wt_00000000000000000000000000000001",
-                "--max-bytes",
-                "1048576",
-                "--max-files",
-                "100",
-                "notes.md",
-            ],
-            "git.checkpoint.create",
-        ),
-        (vec!["git", "checkpoint", "get", CHECKPOINT, "--path", "/repo"], "git.checkpoint.get"),
-        (
-            vec![
-                "git",
-                "checkpoint",
-                "list",
-                "--path",
-                "/repo",
-                "--cursor",
-                "1.ckpt_1",
-                "--limit",
-                "10",
-                "--candidates",
-            ],
-            "git.checkpoint.list",
-        ),
-        (
-            vec!["git", "checkpoint", "pin", CHECKPOINT, "--pin", "user:keep", "--reason", "keep"],
-            "git.checkpoint.pin",
-        ),
-        (
-            vec!["git", "checkpoint", "unpin", CHECKPOINT, "--pin", "user:keep"],
-            "git.checkpoint.unpin",
-        ),
         (vec!["conversation", "list"], "conversation.list"),
         (vec!["conversation", CONVERSATION, "get", "--tail", "5"], "conversation.get"),
         (
@@ -784,6 +697,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
             "conversation.events",
         ),
     ];
+    cases.extend(git::git_cases());
     cases.extend(state_resource_cases(WORKSPACE, SCREEN, PANE, TAB));
     cases
 }
@@ -868,7 +782,19 @@ fn state_resource_cases<'a>(
             "tab_group.create",
         ),
         (
-            vec!["tab", "group", "g", "update", "--name", "n", "--color", "red", "--collapse"],
+            vec![
+                "tab",
+                "group",
+                "g",
+                "update",
+                "--name",
+                "n",
+                "--color",
+                "red",
+                "--collapse",
+                "--icon",
+                "folder.fill",
+            ],
             "tab_group.update",
         ),
         (vec!["tab", "group", "g", "add", "--tabs", tab, "--index", "0"], "tab_group.add_tabs"),
@@ -935,7 +861,19 @@ fn state_resource_cases<'a>(
             "screen_group.create",
         ),
         (
-            vec!["screen", "group", "g", "update", "--name", "n", "--color", "red", "--collapse"],
+            vec![
+                "screen",
+                "group",
+                "g",
+                "update",
+                "--name",
+                "n",
+                "--color",
+                "red",
+                "--collapse",
+                "--icon",
+                "folder.fill",
+            ],
             "screen_group.update",
         ),
         (vec!["screen", "group", "g", "add", "--screens", screen], "screen_group.add_screens"),

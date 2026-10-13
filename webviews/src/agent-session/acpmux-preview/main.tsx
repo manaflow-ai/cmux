@@ -1,3 +1,5 @@
+// desktop.css first, as in the bundle: it defines the popup surface (--surface-popup) and type scale.
+import "../../pages/shared/desktop.css";
 import "../../ui/popupSurface.css";
 import "../shared/styles.css";
 import "../acpmux/styles.css";

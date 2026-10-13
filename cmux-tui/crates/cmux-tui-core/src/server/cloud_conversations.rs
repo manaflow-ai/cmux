@@ -18,6 +18,32 @@ use crate::conversation_store::LOCAL_USER;
 
 pub(super) use crate::cloud_conversations::CLOUD_CONVERSATIONS_CAPABILITY as CAPABILITY;
 
+/// Advertised with `cloud-conversations-v1`: only the verified cmux app
+/// connection sets or clears the human's lease and sends `origin: "user"`
+/// (home-cloud-proxy.md section 3, cmux#13742).
+pub(super) const APP_ONLY_LEASE_CAPABILITY: &str = "cloud-lease-app-only-v1";
+
+/// Whether `client` is the verified cmux app (the `frontend` actor: a
+/// role-main Unix connection whose code signature or install key was
+/// proved in `client-hello`), the same check the feed handoff uses.
+fn is_app(mux: &Mux, client: u64) -> bool {
+    matches!(super::origin_gate::connection_actor(mux, client), crate::Actor::Frontend { .. })
+}
+
+/// `origin: "user"` says the human acted in the app; any other connection
+/// is refused, never silently re-tagged.
+fn check_origin(mux: &Mux, client: u64, origin: Option<&str>) -> anyhow::Result<()> {
+    if origin != Some("user") || is_app(mux, client) {
+        return Ok(());
+    }
+    Err(CloudError::Rejected {
+        code: "forbidden".into(),
+        message: "origin \"user\" requires the verified cmux app connection".into(),
+        retryable: false,
+    }
+    .into())
+}
+
 /// `cloud-session-set`: the app's cloud session lease. The token moves into
 /// the cloud link's zeroizing buffer and is never echoed or logged.
 #[derive(Deserialize)]
@@ -69,6 +95,17 @@ pub(super) struct HistoryParams {
     conversation: String,
     before_seq: u64,
     limit: u32,
+}
+
+/// `cloud-conversation-thread` (`conversation-thread-v1`).
+#[derive(Deserialize)]
+pub(super) struct ThreadParams {
+    conversation: String,
+    root: String,
+    #[serde(default)]
+    after_seq: Option<u64>,
+    #[serde(default)]
+    limit: Option<u32>,
 }
 
 /// `cloud-conversation-subscribe` / `cloud-conversation-unsubscribe`.
@@ -124,6 +161,31 @@ fn service(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
         .ok_or_else(|| anyhow::anyhow!("cloud conversations are not available in this daemon"))
 }
 
+/// The service for a command that uses the lease. While the verified cmux
+/// app holds the lease, it is the human's: only the app may read, send or
+/// subscribe with it (cmux#13742). `cloud-session-status` and the
+/// unsubscribes use no lease and stay open.
+fn lease_user(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
+    let service = service(mux, client)?;
+    let app = is_app(mux, client);
+    // The app never uses a lease another connection set (P2-2): it is signed
+    // out until it leases its own session.
+    if app && !service.app_holds_lease() {
+        return Err(CloudError::SignedOut.into());
+    }
+    if service.app_holds_lease() && !app {
+        return Err(CloudError::Rejected {
+            code: "forbidden".into(),
+            message: "the cloud session lease belongs to the verified cmux app connection; \
+                      other connections cannot use it"
+                .into(),
+            retryable: false,
+        }
+        .into());
+    }
+    Ok(service)
+}
+
 pub(super) fn session_set(
     mux: &Mux,
     client: u64,
@@ -131,32 +193,43 @@ pub(super) fn session_set(
 ) -> anyhow::Result<Value> {
     let SessionSetParams { api_base_url, access_token, expires_at, client_version } = params;
     let lease = SessionParams { api_base_url, access_token, expires_at, client_version };
-    Ok(service(mux, client)?.set_session(lease)?)
+    Ok(service(mux, client)?.set_session_by(lease, is_app(mux, client))?)
 }
 
 pub(super) fn session_clear(mux: &Mux, client: u64) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.clear_session())
+    Ok(service(mux, client)?.clear_session_by(is_app(mux, client))?)
 }
 
 pub(super) fn session_status(mux: &Mux, client: u64) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.session_status())
+    let service = service(mux, client)?;
+    if is_app(mux, client) && !service.app_holds_lease() {
+        return Ok(json!({"state": "signed_out"}));
+    }
+    Ok(service.session_status())
 }
 
 pub(super) fn inbox_list(mux: &Mux, client: u64, params: InboxListParams) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.inbox_list(params.limit, params.include_archived)?)
+    Ok(lease_user(mux, client)?.inbox_list(params.limit, params.include_archived)?)
 }
 
 pub(super) fn snapshot(mux: &Mux, client: u64, params: SnapshotParams) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.snapshot(&params.conversation, params.tail)?)
+    Ok(lease_user(mux, client)?.snapshot(&params.conversation, params.tail)?)
 }
 
 pub(super) fn history(mux: &Mux, client: u64, params: HistoryParams) -> anyhow::Result<Value> {
     let HistoryParams { conversation, before_seq, limit } = params;
-    Ok(service(mux, client)?.history(&conversation, before_seq, limit)?)
+    Ok(lease_user(mux, client)?.history(&conversation, before_seq, limit)?)
+}
+
+pub(super) fn thread(mux: &Mux, client: u64, params: ThreadParams) -> anyhow::Result<Value> {
+    let ThreadParams { conversation, root, after_seq, limit } = params;
+    Ok(lease_user(mux, client)?.thread(&conversation, &root, after_seq, limit)?)
 }
 
 pub(super) fn op(mux: &Mux, client: u64, params: OpParams) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.op(&OpRequest::from(params))?)
+    let service = lease_user(mux, client)?;
+    check_origin(mux, client, params.origin.as_deref())?;
+    Ok(service.op(&OpRequest::from(params))?)
 }
 
 pub(super) fn subscribe(
@@ -165,7 +238,7 @@ pub(super) fn subscribe(
     target: Option<TargetParams>,
 ) -> anyhow::Result<Value> {
     let target = target.map_or(Target::Inbox, |params| Target::Conversation(params.conversation));
-    Ok(service(mux, client)?.subscribe(client, target)?)
+    Ok(lease_user(mux, client)?.subscribe(client, target)?)
 }
 
 pub(super) fn unsubscribe(
@@ -180,7 +253,7 @@ pub(super) fn unsubscribe(
 
 /// `cloud-mux-subscribe`: the lease's own chief's wake queue.
 pub(super) fn mux_subscribe(mux: &Mux, client: u64) -> anyhow::Result<Value> {
-    let service = service(mux, client)?;
+    let service = lease_user(mux, client)?;
     Ok(service.subscribe(client, service.mux_target()?)?)
 }
 
@@ -193,7 +266,14 @@ pub(super) fn mux_unsubscribe(mux: &Mux, client: u64) -> anyhow::Result<Value> {
 }
 
 pub(super) fn mux_ack(mux: &Mux, client: u64, params: MuxAckParams) -> anyhow::Result<Value> {
-    Ok(service(mux, client)?.mux_ack(&params.conversation, params.seq)?)
+    Ok(lease_user(mux, client)?.mux_ack(&params.conversation, params.seq)?)
+}
+
+/// Whether `client`'s event stream carries cloud events (P2-1 of the
+/// cmux#13742 review): only the verified cmux app's while the app holds the
+/// lease.
+pub(super) fn delivers(mux: &Mux, client: u64) -> bool {
+    mux.cloud_conversations().is_some_and(|service| service.delivers_to(is_app(mux, client)))
 }
 
 /// Whether `cmd` calls the cloud and should leave the request loop.
@@ -203,6 +283,7 @@ pub(super) fn is_network(cmd: &Command) -> bool {
         Command::CloudInboxList(_)
             | Command::CloudConversationSnapshot(_)
             | Command::CloudConversationHistory(_)
+            | Command::CloudConversationThread(_)
             | Command::CloudConversationOp(_)
             | Command::CloudMuxAck(_)
     )
@@ -252,8 +333,9 @@ pub(super) fn start(
     cmd: Command,
     writer: &MessageWriter,
 ) -> bool {
-    let precheck = service(mux, client).and_then(|service| {
+    let precheck = lease_user(mux, client).and_then(|service| {
         if let Command::CloudConversationOp(params) = &cmd {
+            check_origin(mux, client, params.origin.as_deref())?;
             service.check_op(&OpRequest {
                 conversation: params.conversation.clone(),
                 idempotency_key: params.idempotency_key.clone(),
@@ -319,3 +401,7 @@ fn send(writer: &MessageWriter, id: Option<Value>, result: anyhow::Result<Value>
 #[cfg(test)]
 #[path = "cloud_conversation_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cloud_lease_gate_tests.rs"]
+mod lease_gate_tests;

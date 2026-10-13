@@ -89,11 +89,13 @@ final class TitlebarToolbarBand: NSView {
     }
 
     /// Names Back and Forward with their actions' titles and keys.
-    func describeHistory(back: String, forward: String) {
+    func describeHistory(back: String, forward: String, backShortcut: String? = nil, forwardShortcut: String? = nil) {
         backButton.setAccessibilityLabel(back)
-        backButton.toolTip = back
+        backButton.themedToolTip = back
+        backButton.themedToolTipShortcut = backShortcut
         forwardButton.setAccessibilityLabel(forward)
-        forwardButton.toolTip = forward
+        forwardButton.themedToolTip = forward
+        forwardButton.themedToolTipShortcut = forwardShortcut
     }
 
     @available(*, unavailable)
@@ -132,7 +134,8 @@ final class TitlebarToolbarBand: NSView {
     /// Names the toggle with its action title and bound key.
     func describeToggle(title: String, shortcut: String?) {
         sidebarToggle.setAccessibilityLabel(title)
-        sidebarToggle.toolTip = shortcut.map { "\(title) (\($0))" } ?? title
+        sidebarToggle.themedToolTip = title
+        sidebarToggle.themedToolTipShortcut = shortcut
     }
 
     private var descriptionObservation: Task<Void, Never>?
@@ -213,8 +216,8 @@ final class TitlebarBandButton: NSButton {
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: size, weight: .regular))
     }
 
-    /// A right-click or long-press menu (Back / Forward lists).
-    var menuProvider: (() -> NSMenu?)?
+    /// A right-click or long-press menu (Back / Forward lists); the sidebar toggle's opens on right-click only.
+    var menuProvider: (() -> NSMenu?)?, longPressOpensMenu = true
 
     override func rightMouseDown(with event: NSEvent) {
         guard isEnabled else { return }
@@ -225,7 +228,7 @@ final class TitlebarBandButton: NSButton {
     /// A long press shows the menu like a browser's Back button; a click runs.
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
-        guard menuProvider != nil, let window else { return super.mouseDown(with: event) }
+        guard menuProvider != nil, longPressOpensMenu, let window else { return super.mouseDown(with: event) }
         let deadline = Date().addingTimeInterval(NSEvent.doubleClickInterval)
         while let next = window.nextEvent(matching: [.leftMouseUp, .leftMouseDragged], until: deadline, inMode: .eventTracking, dequeue: true) {
             if next.type == .leftMouseUp { sendAction(action, to: target); return }

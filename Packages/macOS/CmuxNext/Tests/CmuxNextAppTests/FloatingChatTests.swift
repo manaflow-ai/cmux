@@ -51,16 +51,40 @@ struct FloatingChatTests {
         var opened: [String?] = []
         /// The floating states pushed to the page, in order.
         var pushed: [AgentPaneFloatingState] = []
-        var controller: QuickComposerController?
+        /// The session each made chat was bound to (nil: a new chat).
+        var made: [String?] = []
+        /// What the user is looking at in cmux, for Include focused tab.
+        var focused: AgentPaneQuickContext?
+        /// Weak: the controller's closures hold the rig, and the rig's deinit clears its defaults.
+        weak var controller: QuickComposerController?
+        /// This launch's user defaults; a relaunch passes the same suite.
+        let suite: String
+        let defaults: UserDefaults
+
+        /// The first launch on a suite owns it and removes it when done.
+        let ownsSuite: Bool
+
+        init(suite: String, ownsSuite: Bool) {
+            self.suite = suite
+            self.ownsSuite = ownsSuite
+            defaults = UserDefaults(suiteName: suite) ?? .standard
+        }
+
+        deinit {
+            if ownsSuite { UserDefaults.standard.removePersistentDomain(forName: suite) }
+        }
     }
 
-    static func rig(floating: Bool) throws -> (Rig, QuickComposerController) {
+    static func rig(floating: Bool, suite: String? = nil) throws -> (Rig, QuickComposerController) {
         let page = FileManager.default.temporaryDirectory.appending(path: "floating-chat-\(UUID().uuidString)/index.html")
         try FileManager.default.createDirectory(at: page.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("<html></html>".utf8).write(to: page)
-        let rig = Rig()
+        let rig = Rig(suite: suite ?? "floating-chat-\(UUID().uuidString)", ownsSuite: suite == nil)
         let controller = QuickComposerController(
-            makeChat: { AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(page)) },
+            makeChat: { session in
+                rig.made.append(session)
+                return AgentPaneView(model: AgentPaneModel(host: NoHost(), sessionId: session), source: .bundled(page))
+            },
             makeWindow: { rig.window },
             openInWindow: { session in
                 rig.opened.append(session)
@@ -71,7 +95,9 @@ struct FloatingChatTests {
                 return true
             },
             floating: { floating },
-            pushState: { state, _ in rig.pushed.append(state) })
+            pushState: { state, _ in rig.pushed.append(state) },
+            context: { rig.focused },
+            defaults: rig.defaults)
         rig.controller = controller
         return (rig, controller)
     }
@@ -145,6 +171,22 @@ struct FloatingChatTests {
         #expect(!rig.window.isVisible)
         #expect(controller.chat == nil)
         #expect(rig.window.held.isEmpty)
+    }
+
+    @Test func aHiddenFloatingChatSummonedOnAnotherScreenOpensWhereItWasLeftThere() {
+        let laptop = CGRect(x: 0, y: 0, width: 1512, height: 944)
+        let monitor = CGRect(x: 1512, y: 0, width: 2560, height: 1415)
+        let left = CGRect(x: 1000, y: 100, width: 400, height: 700)
+        let composer = CGRect(x: 2452, y: 841, width: 680, height: 220)
+
+        // Summoned on the screen it was left on: it stays put.
+        #expect(FloatingChatFrames.summoned(onDisplay: "1", toDisplay: "1", saved: left, near: composer, in: laptop) == nil)
+        // On the other screen: the frame it was left at there.
+        let there = CGRect(x: 3600, y: 300, width: 420, height: 900)
+        #expect(FloatingChatFrames.summoned(onDisplay: "1", toDisplay: "2", saved: there, near: composer, in: monitor) == there)
+        // Never placed there: the default column, its top where the composer's would be.
+        #expect(FloatingChatFrames.summoned(onDisplay: "1", toDisplay: "2", saved: nil, near: composer, in: monitor)
+            == CGRect(x: 2572, y: 441, width: 440, height: 620))
     }
 
     @Test func theFloatingChatComesBackWhereItWasLeftOnEachScreen() throws {
@@ -224,4 +266,109 @@ struct FloatingChatTests {
         #expect(rig.pushed.last == AgentPaneFloatingState(holding: true, onTop: false, collapsed: false))
         #expect(!rig.window.onTop)
     }
+
+    /// A chat tab's "..." menu Move to Floating Chat, as the page sends it: `pane.action {id: "floatingChat"}`.
+    @Test func aChatTabsMoveToFloatingChatHandsItsSessionToTheApp() async throws {
+        var moved: [String] = []
+        let model = AgentPaneModel(host: NoHost(), sessionId: "session-8")
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() }, moveToFloatingChat: { session in
+            moved.append(session)
+            return true
+        })
+        let reply = await model.respond(to: Self.request("pane.action", ["id": "floatingChat"]))
+        #expect(reply["ok"] as? Bool == true)
+        #expect(moved == ["session-8"])
+
+        // Nowhere to float it (the floating chat is off): the page hears it failed and the tab stays.
+        model.header?.moveToFloatingChat = { _ in false }
+        let refused = await model.respond(to: Self.request("pane.action", ["id": "floatingChat"]))
+        #expect(refused["ok"] as? Bool == false)
+    }
+
+    @Test func aChatTabMovedToTheFloatingPanelKeepsItsSessionAndCanGoBackToATab() async throws {
+        let (rig, controller) = try Self.rig(floating: true)
+        #expect(controller.moveToFloatingChat(session: "session-9"))
+
+        let chat = try #require(controller.chat)
+        #expect(rig.made == ["session-9"], "the panel did not open the tab's own session")
+        #expect(chat.model.sessionId == "session-9")
+        #expect(controller.holdsChat)
+        #expect(rig.window.isVisible)
+        #expect(rig.window.held == [true])
+        // The page reads the panel's state when it loads: it opens as the floating chat.
+        let state = await chat.model.respond(to: Self.request("quick.floatingState", [:]))
+        #expect((state["value"] as? [String: Any])?["holding"] as? Bool == true)
+
+        // And back: the floating chat's Move to Tab opens the same session as a tab.
+        _ = await chat.model.respond(to: Self.request("quick.openInWindow", ["sessionId": "session-9"]))
+        #expect(rig.opened == ["session-9"])
+        #expect(!controller.holdsChat)
+    }
+
+    @Test func movingAnotherTabToTheFloatingPanelSendsTheChatItHeldToATab() async throws {
+        let (rig, controller) = try Self.rig(floating: true)
+        controller.show()
+        let first = try #require(controller.chat)
+        _ = await first.model.respond(to: Self.started("session-10"))
+
+        #expect(controller.moveToFloatingChat(session: "session-11"))
+        #expect(rig.opened == ["session-10"], "the chat the panel held was dropped")
+        #expect(controller.chat?.model.sessionId == "session-11")
+        #expect(controller.holdsChat)
+        #expect(rig.window.isVisible)
+    }
+
+    @Test func withTheFloatingChatOffATabStaysATab() throws {
+        let (rig, controller) = try Self.rig(floating: false)
+        #expect(!controller.moveToFloatingChat(session: "session-12"))
+        #expect(controller.chat == nil)
+        #expect(!rig.window.isVisible)
+    }
+
+    /// Start Agent's key (or Start Agent from Any App's, from another app) summons the floating chat to
+    /// type in: a folded chat opens back out with the keys, and the key again puts it away.
+    @Test func summoningAFoldedFloatingChatOpensItWithTheKeys() async throws {
+        let (rig, controller) = try Self.rig(floating: true)
+        controller.show()
+        let chat = try #require(controller.chat)
+        _ = await chat.model.respond(to: Self.started("session-13"))
+        _ = await chat.model.respond(to: Self.request("quick.setCollapsed", ["collapsed": true]))
+        rig.window.loseKeys()
+        #expect(rig.window.isVisible)
+
+        controller.toggle()
+        #expect(rig.window.isKeyWindow)
+        #expect(!rig.window.collapsed, "the summoned chat stayed folded")
+        #expect(rig.pushed.last == AgentPaneFloatingState(holding: true, onTop: true, collapsed: false))
+
+        controller.toggle()
+        #expect(!rig.window.isVisible)
+        // Hidden folded, it comes back open too.
+        _ = await chat.model.respond(to: Self.request("quick.setCollapsed", ["collapsed": true]))
+        controller.toggle()
+        #expect(rig.window.isVisible)
+        #expect(!rig.window.collapsed)
+    }
+
+    /// Include focused tab (⌘⇧I or the header's button): the page asks for what the user is looking at
+    /// in cmux and attaches it to the next prompt only, as a chip the user sees and can remove.
+    @Test func includeFocusedTabHandsThePageWhatTheUserIsLookingAt() async throws {
+        let (rig, controller) = try Self.rig(floating: true)
+        controller.show()
+        let chat = try #require(controller.chat)
+        _ = await chat.model.respond(to: Self.started("session-14"))
+
+        rig.focused = AgentPaneQuickContext(name: "zsh · ~/src/app (selection)", text: "error: no such module 'Upload'")
+        let reply = await chat.model.respond(to: Self.request("quick.context", [:]))
+        let value = try #require(reply["value"] as? [String: Any])
+        #expect(value["name"] as? String == "zsh · ~/src/app (selection)")
+        #expect(value["text"] as? String == "error: no such module 'Upload'")
+
+        // Nothing to include (an empty pane, no main window): the page hears there is none.
+        rig.focused = nil
+        let none = await chat.model.respond(to: Self.request("quick.context", [:]))
+        #expect(none["ok"] as? Bool == true)
+        #expect(none["value"] is NSNull)
+    }
 }
+

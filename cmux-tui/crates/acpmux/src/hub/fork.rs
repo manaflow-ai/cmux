@@ -1,12 +1,28 @@
 //! Part of `Hub`; see `hub/mod.rs`. `session/fork`: a new session from a
 //! parent's conversation. Its per-session env is the fork request's own,
-//! never the parent's (session_env.rs). `through` (a Claude chat only) forks
-//! through an earlier turn instead of the chat's end (`fork_at.rs`).
+//! never the parent's (session_env.rs). `through` (a Claude or Codex chat
+//! only) forks through an earlier turn instead of the chat's end (`fork_at.rs`).
 
 use super::*;
 use std::sync::atomic::Ordering;
 
 impl Hub {
+    /// Whether the session runs Claude Code, and its profile env plus its
+    /// preset's (`agent_tools::left_out`, where Claude keeps its store).
+    pub(super) async fn harness_env(
+        &self,
+        meta: &SessionMeta,
+    ) -> (bool, std::collections::BTreeMap<String, String>) {
+        let cfg = self.config.read().await;
+        let profile = cfg.profile(&meta.harness);
+        let mut env = profile.map(|p| p.env.clone()).unwrap_or_default();
+        if let Some(preset) = meta.preset.as_ref().and_then(|n| cfg.presets.get(n)) {
+            env.extend(preset.env.clone());
+        }
+        meta.apply_chat_store(&mut env);
+        (profile.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio), env)
+    }
+
     pub async fn fork(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -16,26 +32,22 @@ impl Hub {
         through: Option<u64>,
     ) -> Result<Arc<Session>, RpcError> {
         let parent_meta = session.meta();
-        // The profile env plus the preset's, for `agent_tools::left_out`.
-        let (is_claude, fork_env) = {
-            let cfg = self.config.read().await;
-            let profile = cfg.profile(&parent_meta.harness);
-            let mut env = profile.map(|p| p.env.clone()).unwrap_or_default();
-            if let Some(preset) = parent_meta.preset.as_ref().and_then(|n| cfg.presets.get(n)) {
-                env.extend(preset.env.clone());
-            }
-            (profile.is_some_and(|p| p.kind == crate::config::HarnessKind::ClaudeStdio), env)
-        };
+        let (is_claude, fork_env) = self.harness_env(&parent_meta).await;
         let sid = parent_meta
             .agent_session_id
             .clone()
             .ok_or_else(|| RpcError::internal("no agent session"))?;
         let cwd = cwd.unwrap_or_else(|| parent_meta.cwd.clone());
         let id = uuid::Uuid::now_v7().to_string();
-        let cut = through.filter(|_| is_claude);
+        let turn_cut = {
+            let cfg = self.config.read().await;
+            cfg.profile(&parent_meta.harness)
+                .and_then(|p| crate::config::turn_cut(&parent_meta.harness, p))
+        };
+        let cut = through.filter(|_| turn_cut.is_some());
         let mut turn_count = parent_meta.turn_count;
         let (res, new_sid) = if let Some(through) = cut {
-            // The fork resumes a copy of Claude's transcript through that turn.
+            // The fork resumes a copy of the agent's transcript through that turn.
             let history = self
                 .store
                 .events(&session.id, 0, 500_000)
@@ -46,15 +58,21 @@ impl Hub {
             turn_count =
                 history.iter().filter(|e| e.seq <= through && e.kind == "turn_result").count()
                     as u64;
-            // Claude resumes from the project directory the copy sits in.
+            // Claude resumes from the project directory the copy sits in, and
+            // Codex from the folder its rollout names.
             if cwd != parent_meta.cwd {
                 return Err(RpcError::invalid_params(
                     "a fork through an earlier turn keeps the chat's folder",
                 ));
             }
-            let store = self.harness_homes().with_env(&[&fork_env]).claude;
-            let copy = super::fork_at::claude_transcript_through(&store, &sid, cut_ms)
-                .map_err(|e| RpcError::internal(format!("fork through turn: {e}")))?;
+            let homes = self.harness_homes().with_env(&[&fork_env]);
+            let copy = match turn_cut {
+                Some(crate::config::TurnCut::Codex) => {
+                    super::fork_at::codex_rollout_through(&homes.codex, &sid, cut_ms)
+                }
+                _ => super::fork_at::claude_transcript_through(&homes.claude, &sid, cut_ms),
+            }
+            .map_err(|e| RpcError::internal(format!("fork through turn: {e}")))?;
             (json!({}), copy)
         } else if is_claude {
             // The fork happens when the new session's process starts with
@@ -121,6 +139,8 @@ impl Hub {
             remote_origin: parent_meta.remote_origin,
             // Never inherited: the fork request sets its own or runs without one.
             session_env,
+            // The fork resumes the parent from its store, and its conversation lands there.
+            chat_store: parent_meta.chat_store.clone(),
             harness_roots: vec![],
             composer_draft: None,
         };

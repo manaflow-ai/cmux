@@ -4,6 +4,54 @@
 #[allow(unused_imports)]
 use super::*;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamEnrollmentTokenListResult {
+    pub team: TeamId,
+    pub tokens: Vec<EnrollmentToken>,
+    pub devices: Vec<ManagedDevice>,
+    pub revision: String,
+}
+
+wire_errors! {
+    /// The error codes team.enrollment_token.list declares.
+    TeamEnrollmentTokenListError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+    }
+}
+
+wire_op! {
+    /// Revoke an enrollment token. Devices already enrolled stay managed.
+    TeamEnrollmentTokenRevokeOp {
+        name: "team.enrollment_token.revoke",
+        class: Mutation,
+        idempotency: Required,
+        owner: "cloud:TeamDO",
+        risk: "destructive",
+        principals: [Session],
+        params: TeamEnrollmentTokenRevokeParams,
+        result: EnrollmentToken,
+        error: TeamEnrollmentTokenRevokeError,
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct TeamEnrollmentTokenRevokeParams {
+    pub token: EnrollmentTokenId,
+}
+
+wire_errors! {
+    /// The error codes team.enrollment_token.revoke declares.
+    TeamEnrollmentTokenRevokeError {
+        AuthForbidden = "auth.forbidden",
+        AuthUnauthenticated = "auth.unauthenticated",
+        IdempotencyConflict = "idempotency.conflict",
+        RevisionConflict = "revision.conflict",
+        SelectorNotFound = "selector.not_found",
+        ValidationInvalid = "validation.invalid",
+    }
+}
+
 wire_op! {
     /// Page a team's enrolled hosts by host id (keyset: pass next_cursor as cursor).
     TeamHostsListOp {
@@ -853,54 +901,4 @@ pub struct TeamVmSshCertResult {
     pub valid_before: i64,
     pub ca_generation: i64,
     pub ca_public_key: String,
-}
-
-wire_errors! {
-    /// The error codes team_vm.ssh_cert declares.
-    TeamVmSshCertError {
-        AuthForbidden = "auth.forbidden",
-        AuthUnauthenticated = "auth.unauthenticated",
-        IdempotencyConflict = "idempotency.conflict",
-        OwnerUnreachable = "owner.unreachable",
-        RevisionConflict = "revision.conflict",
-        TeamVmSshCaNotConfigured = "team_vm.ssh_ca_not_configured",
-        TeamVmSshClassRefused = "team_vm.ssh_class_refused",
-        TeamVmSshKeyInvalid = "team_vm.ssh_key_invalid",
-        TeamVmSshPresenceRefused = "team_vm.ssh_presence_refused",
-        TeamVmSshPresenceRequired = "team_vm.ssh_presence_required",
-        TeamVmSshRateLimited = "team_vm.ssh_rate_limited",
-        TeamVmTainted = "team_vm.tainted",
-        ValidationInvalid = "validation.invalid",
-    }
-}
-
-wire_op! {
-    /// Start a full-shell SSH certificate request: returns a single-use presence challenge for one of your devices. Approve it there (Face ID, Touch ID or passcode), then call team_vm.ssh_cert with class human, the proof and the same request key.
-    TeamVmSshCertChallengeOp {
-        name: "team_vm.ssh_cert.challenge",
-        class: Mutation,
-        idempotency: Required,
-        owner: "cloud:TeamDO",
-        risk: "execute",
-        principals: [Session],
-        params: TeamVmSshCertChallengeParams,
-        result: TeamVmSshCertChallengeResult,
-        error: TeamVmSshCertChallengeError,
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCertChallengeParams {
-    pub public_key: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub validity_minutes: Option<i64>,
-    pub presence_install: InstallId,
-    pub request: String,
-}
-
-#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct TeamVmSshCertChallengeResult {
-    pub sign: Value,
-    pub message: String,
-    pub expires_at: i64,
 }

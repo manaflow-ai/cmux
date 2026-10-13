@@ -21,6 +21,15 @@ import PackageDescription
 // Since 3339f2ada it reports OSC 7501 program status (ghostty-next PR 29).
 // Since 673a6369c its terminfo and XTGETTCAP advertise Pst (PR 32), and its
 // non-Darwin builds localize compiler-rt's libSystem symbols (PR 31).
+// Since c41410256 the app can veto a hover regex link
+// (ghostty_surface_set_link_filter; PR 33).
+// Since 89dc50175 ghostty_config_get reads a plain TerminalColor
+// (cursor-color, cursor-text, selection-*) as a color (PR 34).
+// Since 03ddb2869 the Metal text shader contrasts against the real
+// background under a macOS glass style, so minimum-contrast keeps dark text
+// dark on a light theme (PR 35).
+// Since 4792f0307 it does the same at background-opacity 0, which cmux-next
+// gives its surfaces in a translucent window (PR 36).
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -45,8 +54,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-673a6369c4ba43cddcc94ff67361872824ffa528-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "e1005a1245250b232c744a49a277eaa218c33590f938775b0564c7d9c3e216a2"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-4792f03070e6134ea764e3e9bec630631eb1bd47-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "fe416827c16b0abb2e31de16294dfc22265d503f4dedc84036b0fc5145fecfb6"
         ),
     ]
 )

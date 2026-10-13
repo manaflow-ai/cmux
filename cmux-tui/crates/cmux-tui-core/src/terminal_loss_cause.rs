@@ -29,6 +29,10 @@ pub(crate) fn read_crash(record_path: &Path, incarnation: Option<&str>) -> Optio
 
 /// The conventional name of a signal number.
 pub(crate) fn signal_name(signal: i64) -> String {
+    // Windows hosts record no signals.
+    #[cfg(windows)]
+    let known: [(i32, &str); 0] = [];
+    #[cfg(unix)]
     let known = [
         (libc::SIGHUP, "SIGHUP"),
         (libc::SIGINT, "SIGINT"),

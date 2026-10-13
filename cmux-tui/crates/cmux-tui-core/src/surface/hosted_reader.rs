@@ -3,7 +3,7 @@
 //! terminal and, after a loss or resync, reconnects or rehosts.
 
 use super::*;
-use std::os::unix::net::UnixStream;
+use crate::terminal_host_runtime::HostStream as UnixStream;
 
 mod output;
 mod reconnect;
@@ -23,6 +23,9 @@ pub(super) struct HostedReader {
     pub(super) applied_color_overrides: TerminalColorOverrides,
     pub(super) applied_color_revision: u64,
     pub(super) applied_cursor_activity: Option<u64>,
+    /// Where the shell is between its prompt marks, for the prompt-time
+    /// reset of a dead program's modes.
+    pub(super) shell_marks: crate::prompt_mode_reset::ShellMarks,
     pub(super) title_changed: Arc<AtomicBool>,
     pub(super) pending_bells: PendingBells,
     /// Test seam: slows applying each output frame so tests can build an
@@ -292,6 +295,9 @@ impl HostedReader {
         {
             return None;
         }
+        if first_loss {
+            publish_host_link_state(pty);
+        }
 
         if self.connected_at.is_none_or(|at| at.elapsed() >= TERMINAL_HOST_HEALTHY_CONNECTION) {
             self.flap_backoff = TerminalHostReconnectBackoff::default();
@@ -317,6 +323,16 @@ impl Drop for WakeInputOnReaderEnd {
     fn drop(&mut self) {
         if let Some(pty) = self.0.as_pty() {
             pty.stream_progress.notify();
+            // A reader that gave up on its host leaves the terminal `failed`:
+            // push the tab here, with no lock held, so clients show it.
+            if matches!(
+                TerminalHostConnectionState::from_u8(
+                    pty.host_connection_state.load(Ordering::Acquire)
+                ),
+                TerminalHostConnectionState::Failed
+            ) {
+                publish_host_link_state(pty);
+            }
         }
     }
 }

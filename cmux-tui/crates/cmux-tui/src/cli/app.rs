@@ -21,13 +21,15 @@ use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode, UsageError};
 use crate::app_identity::AppIdentity;
+use events::stream_events;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
 use open::{is_web_url, parse_open_with};
-use page::parse_page;
+use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot};
 pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
 
 mod call;
+mod events;
 mod keybinding;
 mod open;
 mod page;
@@ -96,6 +98,12 @@ pub(super) enum AppCommand {
     Events {
         params: Value,
     },
+    /// `browser.page.screenshot`, whose PNG goes to `out` (`-` is stdout,
+    /// none is a new file in the temporary directory).
+    Screenshot {
+        params: Value,
+        out: Option<String>,
+    },
 }
 
 /// The classic CLI's top-level discovery verbs: `cmux identify`, `cmux ping`
@@ -143,8 +151,17 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
     if !APP_SCOPES.contains(&scope.as_str()) {
         return Ok(None);
     }
-    let messages = &crate::localization::catalog().app_control;
     let rest = &args[1..];
+    // The session host owns history reads and edits (`history.*`), so they
+    // work with the app quit; the other `history` words are app actions.
+    if scope == "history"
+        && rest
+            .first()
+            .is_some_and(|verb| super::command::HISTORY_DAEMON_VERBS.contains(&verb.as_str()))
+    {
+        return Ok(None);
+    }
+    let messages = &crate::localization::catalog().app_control;
     let call = |method, params| AppCommand::Call {
         method,
         params,
@@ -188,17 +205,6 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             run_action(id, tail, ActionName::Any)?
         }
         ("settings", Some("get" | "set" | "reset" | "unset")) => settings::parse(rest)?,
-        // The app's durable page, location, closed and agent history
-        // (plans/cmux-next/history.md): `history list|search`.
-        ("history", Some(verb @ ("list" | "search"))) => {
-            let (text, tail) = read_text(verb, &rest[1..], scope)?;
-            let options = Options::parse(tail, &["kind", "range", "limit"], &[])?;
-            let mut params = read_query(&options, text, &["kind", "range"]);
-            if let Some(limit) = options.value("limit") {
-                params.insert("limit".into(), json!(parse_limit(limit, scope)?));
-            }
-            call("history.list", Value::Object(params))
-        }
         // The app's AI provider accounts, no secrets (`accounts.list`); the
         // other `accounts` verbs are app actions.
         ("accounts", Some("list")) => {
@@ -525,8 +531,11 @@ fn typed(code: &str, message: String, socket: Option<&AppSocket>) -> Value {
 }
 
 fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ran {
-    let (method, mut params, timeout, pick) = match command {
-        AppCommand::Call { method, params, timeout, pick } => (method, params, timeout, pick),
+    let (method, mut params, timeout, pick, screenshot_out) = match command {
+        AppCommand::Call { method, params, timeout, pick } => (method, params, timeout, pick, None),
+        AppCommand::Screenshot { params, out } => {
+            ("browser.page.screenshot", params, Some(SCREENSHOT_TIMEOUT), None, Some(out))
+        }
         AppCommand::Events { params } => {
             return Ran::Done(stream_events(stream, params, global.output));
         }
@@ -593,6 +602,9 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
         }
     };
     match response {
+        Ok(result) if screenshot_out.is_some() => {
+            Ran::Done(save_screenshot(result, screenshot_out.flatten().as_deref(), global.output))
+        }
         Ok(result) => {
             let value = match pick {
                 Some(key) => result.get("topology").and_then(|topology| topology.get(key)).cloned(),
@@ -791,8 +803,16 @@ pub(super) fn caller_from(env: impl Fn(&str) -> Option<String>) -> Option<Value>
 
 /// `params` with the caller added for a [`CALLER_METHODS`] method that names
 /// none, and whether it was added. `browser.open_split` names a terminal with
-/// its own `terminal_id`, so it gets only an agent caller.
+/// its own `terminal_id`, so it gets only an agent caller. A `caller: null`
+/// means no caller (a request for another session than the caller's,
+/// frontend_browser.rs): it is removed and none is added.
 fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
+    if let Some(object) = params.as_object_mut()
+        && object.get("caller").is_some_and(Value::is_null)
+    {
+        object.remove("caller");
+        return (params, false);
+    }
     if !CALLER_METHODS.contains(&method) {
         return (params, false);
     }
@@ -888,37 +908,6 @@ pub(super) fn parse_response(line: &str) -> Result<Result<Value, Value>, String>
         Some(false) => Ok(Err(value.get("error").cloned().unwrap_or(Value::Null))),
         None => Err(messages.invalid_response.to_owned()),
     }
-}
-
-/// `events.stream`: one JSON event per line until the app closes the
-/// stream or this process is interrupted. Blocking reads, no polling.
-fn stream_events(stream: &mut UnixStream, params: Value, output: OutputMode) -> i32 {
-    if let Err(error) =
-        send_line(stream, &json!({ "id": 1, "method": "events.stream", "params": params }))
-    {
-        return failure("app.transport", &error, output, 3);
-    }
-    let reader = match stream.try_clone() {
-        Ok(reader) => BufReader::new(reader),
-        Err(error) => return failure("app.transport", &error.to_string(), output, 3),
-    };
-    let mut stdout = std::io::stdout().lock();
-    for line in reader.lines() {
-        let Ok(line) = line else { return 3 };
-        let Ok(value) = serde_json::from_str::<Value>(&line) else { continue };
-        if value.get("ok").and_then(Value::as_bool) == Some(false) {
-            let error = value.get("error").cloned().unwrap_or(Value::Null);
-            return super::wire::print_local_error(&error, output, 1);
-        }
-        let written = match output {
-            OutputMode::Quiet => Ok(()),
-            _ => writeln!(stdout, "{line}").and_then(|()| stdout.flush()),
-        };
-        if written.is_err() {
-            return 0;
-        }
-    }
-    0
 }
 
 /// `accounts.list` with `handles_stable: false`: the Keychain salt failed,

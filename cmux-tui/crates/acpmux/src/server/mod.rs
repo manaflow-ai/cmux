@@ -32,6 +32,8 @@ pub struct SubOpts {
     pub event_stream: bool,
     /// With `event_stream`, only records this filter passes are sent.
     pub filter: EventFilter,
+    /// Attached without showing the chat (`view.rs`).
+    pub hidden: bool,
 }
 
 pub struct Conn {
@@ -110,9 +112,6 @@ impl Conn {
     /// Subscribe, replacing any options. True when the subscription is new.
     fn subscribe_with(&self, session_id: &str, opts: SubOpts) -> bool {
         self.subs.lock().unwrap().insert(session_id.to_owned(), opts).is_none()
-    }
-    fn unsubscribe(&self, session_id: &str) -> bool {
-        self.subs.lock().unwrap().remove(session_id).is_some()
     }
     fn label(&self) -> String {
         let n = self.name.lock().unwrap().clone();
@@ -746,13 +745,7 @@ async fn serve_connection_from(
         }
     }
     fan.abort();
-    // Every attachment this connection held ends with it.
-    let subs: Vec<String> = conn.subs.lock().unwrap().drain().map(|(k, _)| k).collect();
-    for id in subs {
-        if let Ok(s) = hub.resolve(&id) {
-            hub.attach_count(&s, -1);
-        }
-    }
+    view::release_all(&hub, &conn);
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
 
@@ -954,12 +947,14 @@ pub mod local_app;
 pub mod peer_auth;
 mod peer_forward;
 mod redact;
-mod remote_guard;
+pub(crate) mod remote_guard;
 mod requests;
 mod stream;
 use stream::serve_stream;
 mod routes;
+mod secrets;
 pub(crate) mod trust_gate;
+mod view;
 mod wait;
 #[cfg(windows)]
 mod windows_socket;

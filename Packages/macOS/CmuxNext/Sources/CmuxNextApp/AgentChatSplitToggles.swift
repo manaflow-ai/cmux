@@ -17,7 +17,9 @@ import CmuxNextDaemon
 @MainActor
 final class AgentChatSplitToggles {
     /// The header actions that own a panel, sorted.
-    static let panels = [changes, files, preview, "splitBrowserRight", "splitRight"]
+    static let panels = [changes, files, preview, "splitBrowserRight", splitDown, "splitRight"]
+    /// Split Down (cx-kk7lm): a terminal under the chat, the chat's own split, never beside another panel.
+    static let splitDown = "splitDown"
     /// Changes: the diff viewer's page.
     static let changes = "openDiffViewer"
     /// Files: a tree of the chat's folder (cx-p4rt), off by default until styled.
@@ -28,7 +30,7 @@ final class AgentChatSplitToggles {
     /// Whether `tab` is the panel header action `id` opens: a terminal, a browser, or a diff page.
     private static func owns(_ id: String, _ tab: TabModel) -> Bool {
         switch id {
-        case "splitRight": tab.kind == .pty
+        case "splitRight", splitDown: tab.kind == .pty
         case "splitBrowserRight", preview: tab.kind == .browser
         case changes: tab.page == "diff"
         case files: tab.page == InternalPageID.files.rawValue
@@ -73,7 +75,9 @@ final class AgentChatSplitToggles {
         // Preview opens the chat's page; a click with none (its page closed elsewhere) opens nothing.
         if id == Self.preview, url == nil { return }
         let splits = splits(in: tabs, chat: chat)
-        let anchor = opened.indices.reversed().lazy
+        // Split Down splits the chat itself; the panels right of it line up after the last one of theirs.
+        let anchor = id == Self.splitDown ? nil : opened.indices.reversed().lazy
+            .filter { self.opened[$0].id != Self.splitDown }
             .compactMap { splits[$0] }
             .first { Self.beside(chat, $0, in: store) }
         // Open mode adds one per click: keep the recent ones, enough to find the last split beside the chat.
@@ -139,16 +143,20 @@ final class AgentChatSplitToggles {
     /// The chat header's state (cx-00n1): the tab's pin, whether the panes beside the chat show,
     /// and the splits whose button is lit, the ones a toggle click would close (each button's last
     /// split, while it is in the chat's workspace). One read, so ``AgentChatHeaderWatch`` observes
-    /// exactly what the page shows.
-    func headerState(chat: String, store: DaemonStore?) -> AgentPaneHeaderState {
+    /// exactly what the page shows. `pullRequest` names the chat folder's pull request (cx-tcwj): nil
+    /// for a chat whose folder is not on this Mac.
+    func headerState(chat: String, store: DaemonStore?, pullRequest: AgentChatPullRequest? = nil) -> AgentPaneHeaderState {
         guard let store else { return AgentPaneHeaderState() }
         let tabs = Self.workspaceTabs(of: chat, in: store) ?? []
         let splits = splits(in: tabs, chat: chat)
         let lit = Self.panels.filter { id in
             opened.lastIndex { $0.id == id }.flatMap { splits[$0] } != nil
         }
-        return AgentPaneHeaderState(pinned: store.tab(id: chat)?.pinned ?? false,
-                                    sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit)
+        var state = AgentPaneHeaderState(pinned: store.tab(id: chat)?.pinned ?? false,
+                                         sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit,
+                                         floatingChat: QuickComposerTunables.floatingChat.value)
+        state.pullRequest = pullRequest?.badge(cwd: store.tab(id: chat)?.cwd)
+        return state
     }
 
     /// [+] New tab, which becomes Hide tabs in the same spot (cx-qom0, ChatGPT's right column). On a

@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703.
+// cmux-tui mux protocol 12, IR 7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -485,6 +485,9 @@ pub struct CloseWorkspaceRequest {
     pub mutation_id: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub origin: Optional<String>,
+    /// With end_terminals: the close is not recorded in the closed history (session_end).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub reason: Optional<T::CloseReason>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub workspace: Optional<T::Id>,
 }
@@ -535,6 +538,20 @@ pub struct CloudConversationSubscribeRequest {
 
 #[rustfmt::skip]
 pub type CloudConversationSubscribeResult = T::JsonValue;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CloudConversationThreadRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_seq: Optional<u64>,
+    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+    pub root: String,
+}
+
+#[rustfmt::skip]
+pub type CloudConversationThreadResult = T::JsonValue;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -805,6 +822,8 @@ pub struct ConversationHistoryRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationHistoryResult {
     pub messages: Vec<T::ConversationMessage>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub threads: Option<Vec<T::ConversationThreadSummary>>,
 }
 
 #[rustfmt::skip]
@@ -882,6 +901,28 @@ pub struct ConversationSnapshotRequest {
 pub struct ConversationSnapshotResult {
     pub conversation: T::ConversationSummary,
     pub messages: Vec<T::ConversationMessage>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub threads: Option<Vec<T::ConversationThreadSummary>>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationThreadRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub after_seq: Option<u64>,
+    pub conversation: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+    pub root: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConversationThreadResult {
+    pub has_more: bool,
+    pub replies: Vec<T::ConversationMessage>,
+    pub root: T::ConversationMessage,
+    pub thread: T::ConversationThreadSummary,
 }
 
 #[rustfmt::skip]
@@ -1222,6 +1263,20 @@ pub struct DeleteSavedTabGroupResult {
     #[serde(flatten)]
     pub additional: BTreeMap<String, serde_json::Value>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DeleteTerminalCommandsRequest {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub all: Option<bool>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub ids: Optional<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub started_since_ms: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type DeleteTerminalCommandsResult = T::TerminalCommandDeleteResult;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1573,6 +1628,18 @@ pub struct ListTabGroupsResult {
     #[serde(flatten)]
     pub additional: BTreeMap<String, serde_json::Value>,
 }
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ListTerminalCommandsRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_id: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u32>,
+}
+
+#[rustfmt::skip]
+pub type ListTerminalCommandsResult = T::TerminalCommandList;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -1961,6 +2028,8 @@ pub struct NewConversationTabRequest {
     pub page: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub pane: Optional<T::Id>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub route: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub rows: Optional<u16>,
     /// Client transaction id (1 to 128 printable ASCII), echoed on the created tab's tab-added delta and in the result.
@@ -2949,6 +3018,8 @@ pub type SetTabPinnedResult = T::JsonValue;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SetTerminalCommandHistoryRequest {
     pub enabled: bool,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub retention_days: Optional<u32>,
 }
 
 #[rustfmt::skip]
@@ -3274,6 +3345,9 @@ pub struct UpdateBookmarkRequest {
     pub bookmark: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub favicon_key: Optional<String>,
+    /// Folders only; null clears. Refused on a url node.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub last_used_ms: Optional<u64>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
@@ -3385,6 +3459,8 @@ pub struct UpdateScreenGroupRequest {
     pub color: Optional<String>,
     pub group: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
 }
 
@@ -3399,6 +3475,8 @@ pub struct UpdateTabGroupRequest {
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub color: Optional<String>,
     pub group: String,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub icon: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub name: Optional<String>,
 }
@@ -3694,6 +3772,9 @@ impl CmuxClient {
         if !request.origin.is_missing() {
             self.require_protocol_field("close-workspace", 7)?;
         }
+        if !request.reason.is_missing() {
+            self.require_capability_field("close-workspace", "close-reason-v1")?;
+        }
         self.execute(&CLOSE_WORKSPACE_METADATA, &request)
     }
 
@@ -3711,6 +3792,10 @@ impl CmuxClient {
 
     pub fn cloud_conversation_subscribe(&mut self, request: CloudConversationSubscribeRequest) -> Result<CloudConversationSubscribeResult> {
         self.execute(&CLOUD_CONVERSATION_SUBSCRIBE_METADATA, &request)
+    }
+
+    pub fn cloud_conversation_thread(&mut self, request: CloudConversationThreadRequest) -> Result<CloudConversationThreadResult> {
+        self.execute(&CLOUD_CONVERSATION_THREAD_METADATA, &request)
     }
 
     pub fn cloud_conversation_unsubscribe(&mut self, request: CloudConversationUnsubscribeRequest) -> Result<CloudConversationUnsubscribeResult> {
@@ -3799,6 +3884,10 @@ impl CmuxClient {
 
     pub fn conversation_snapshot(&mut self, request: ConversationSnapshotRequest) -> Result<ConversationSnapshotResult> {
         self.execute(&CONVERSATION_SNAPSHOT_METADATA, &request)
+    }
+
+    pub fn conversation_thread(&mut self, request: ConversationThreadRequest) -> Result<ConversationThreadResult> {
+        self.execute(&CONVERSATION_THREAD_METADATA, &request)
     }
 
     pub fn conversation_typing(&mut self, request: ConversationTypingRequest) -> Result<ConversationTypingResult> {
@@ -3893,6 +3982,10 @@ impl CmuxClient {
 
     pub fn delete_saved_tab_group(&mut self, request: DeleteSavedTabGroupRequest) -> Result<DeleteSavedTabGroupResult> {
         self.execute(&DELETE_SAVED_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn delete_terminal_commands(&mut self, request: DeleteTerminalCommandsRequest) -> Result<DeleteTerminalCommandsResult> {
+        self.execute(&DELETE_TERMINAL_COMMANDS_METADATA, &request)
     }
 
     pub fn delete_workspace_group(&mut self, request: DeleteWorkspaceGroupRequest) -> Result<DeleteWorkspaceGroupResult> {
@@ -4033,6 +4126,10 @@ impl CmuxClient {
 
     pub fn list_tab_groups(&mut self, request: ListTabGroupsRequest) -> Result<ListTabGroupsResult> {
         self.execute(&LIST_TAB_GROUPS_METADATA, &request)
+    }
+
+    pub fn list_terminal_commands(&mut self, request: ListTerminalCommandsRequest) -> Result<ListTerminalCommandsResult> {
+        self.execute(&LIST_TERMINAL_COMMANDS_METADATA, &request)
     }
 
     pub fn list_terminals(&mut self, request: ListTerminalsRequest) -> Result<T::ListTerminalsResult> {
@@ -4192,6 +4289,9 @@ impl CmuxClient {
         }
         if !request.page.is_missing() {
             self.require_capability_field("new-conversation-tab", "page-tabs-v1")?;
+        }
+        if !request.route.is_missing() {
+            self.require_capability_field("new-conversation-tab", "page-tab-route-v1")?;
         }
         if !request.transaction.is_missing() {
             self.require_capability_field("new-conversation-tab", "conversation-tab-transaction-v1")?;
@@ -4826,6 +4926,10 @@ impl CmuxClient {
     }
 
     pub fn update_bookmark(&mut self, request: UpdateBookmarkRequest) -> Result<UpdateBookmarkResult> {
+        if !request.icon.is_missing() {
+            self.require_protocol_field("update-bookmark", 12)?;
+            self.require_capability_field("update-bookmark", "bookmark-icon-v1")?;
+        }
         self.execute(&UPDATE_BOOKMARK_METADATA, &request)
     }
 
@@ -4850,10 +4954,18 @@ impl CmuxClient {
     }
 
     pub fn update_screen_group(&mut self, request: UpdateScreenGroupRequest) -> Result<UpdateScreenGroupResult> {
+        if !request.icon.is_missing() {
+            self.require_protocol_field("update-screen-group", 12)?;
+            self.require_capability_field("update-screen-group", "screen-group-icon-v1")?;
+        }
         self.execute(&UPDATE_SCREEN_GROUP_METADATA, &request)
     }
 
     pub fn update_tab_group(&mut self, request: UpdateTabGroupRequest) -> Result<UpdateTabGroupResult> {
+        if !request.icon.is_missing() {
+            self.require_protocol_field("update-tab-group", 12)?;
+            self.require_capability_field("update-tab-group", "tab-group-icon-v1")?;
+        }
         self.execute(&UPDATE_TAB_GROUP_METADATA, &request)
     }
 

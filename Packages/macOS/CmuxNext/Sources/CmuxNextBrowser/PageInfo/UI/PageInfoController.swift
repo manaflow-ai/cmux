@@ -18,6 +18,10 @@ public final class PageInfoController {
     private let tabSource: () -> (any BrowserTab)?
     private let anchorSource: () -> NSView?
     private var panel: PageInfoPanel?
+    /// Opens and closes the bubble like every native popup (POLISH: calm motion).
+    private let fade = PopupFade()
+    /// The omnibar button on screen, where the bubble grows from and shrinks to.
+    private var anchorRect = CGRect.zero
     private let card = PageInfoCardView()
     var observation: ObservationLoop?
     var loadTask: Task<Void, Never>?
@@ -36,7 +40,8 @@ public final class PageInfoController {
         windows.parentWindow = { anchor()?.window.map { $0.parent ?? $0 } }
     }
 
-    public var isShown: Bool { panel?.isVisible ?? false }
+    /// A bubble fading out counts as closed: the button opens it again.
+    public var isShown: Bool { (panel?.isVisible ?? false) && !fade.isClosing }
 
     var tab: (any BrowserTab)? { tabSource() }
     var provider: (any PageInfoProviding)? { tab as? any PageInfoProviding }
@@ -104,13 +109,13 @@ public final class PageInfoController {
     }
 
     public func close() {
-        guard let panel, panel.isVisible else { return }
+        guard let panel, isShown else { return }
         observation?.cancel()
         observation = nil
         loadTask?.cancel()
         panel.onResignKey = nil
-        panel.parent?.removeChildWindow(panel)
-        panel.orderOut(nil)
+        panel.onKeyElsewhere = nil
+        fade.close(panel, toward: anchorRect)
         if pageHadFocus { onReturnFocus?() }
     }
 
@@ -119,6 +124,7 @@ public final class PageInfoController {
         self.panel = panel
         let size = cardSize
         let anchorRect = window.convertToScreen(anchor.convert(anchor.bounds, to: nil))
+        self.anchorRect = anchorRect
         let margin = PageInfoStyle.shadowMargin
         var frame = NSRect(x: anchorRect.minX - margin - PageInfoStyle.rowInset,
                            y: anchorRect.minY - size.height - 2, width: size.width, height: size.height)
@@ -129,13 +135,9 @@ public final class PageInfoController {
         // The bubble takes the omnibar's theme scope (its room or workspace).
         panel.adoptThemeScope(of: anchor)
         panel.setFrame(frame, display: true)
-        if panel.parent !== window {
-            panel.parent?.removeChildWindow(panel)
-            window.addChildWindow(panel, ordered: .above)
-        }
         panel.onResignKey = { [weak self] in self?.dismissForResign() }
         panel.onKeyElsewhere = { [weak self] in self?.dismissForResign() }
-        if !panel.isVisible { panel.orderFront(nil) }
+        fade.open(panel, over: window, toward: anchorRect)
         panel.makeKey()
         panel.makeFirstResponder(card)
     }

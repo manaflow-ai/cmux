@@ -6,24 +6,31 @@ keep printing and --browsers Chromium tabs, and samples every --sample seconds:
 
   - CPU share, memory footprint and wakeups/s per process kind (app, cmux-tui daemon, terminal
     hosts, acpmux, agents, Chromium helpers or WebKit processes), from proc_pid_rusage
-    (bench_idle.usage). Browser tabs are Chromium when the build has it, else WebKit; WebKit's
+    (bench_idle.usage), and open file descriptors (proc_pidinfo PROC_PIDLISTFDS). Browser tabs are Chromium when the build has it, else WebKit; WebKit's
     processes are launchd's children, so every one that started after the app is counted (run
     the soak on a host where nothing else uses WebKit);
   - control-socket round trips (system.ping, snapshot.get): a reply slower than --hang-after
     seconds is a hang;
-  - crashes: a new DiagnosticReports .ips of cmux, cmux-tui or acpmux, or the app, daemon or
-    acpmux PID changing;
+  - crashes: a new DiagnosticReports .ips of this app copy (its bundle ID), of a process of it
+    the soak saw (every kind but WebKit, launchd's children) or of a child of the app, or the
+    app, daemon or acpmux PID changing.
+    Other builds crashing on the same host (a capture mini's tagged builds) do not count;
   - agent turns: every agent gets a streaming turn ("slow") every --turn-every seconds; a turn
     still running after 5 minutes is stuck.
+
+The last --idle seconds are quiet: no new turns, and the terminals stop printing and wait on input.
+Once every turn has ended and --settle seconds have passed, those samples are the idle cost.
 
 The agents are acpmux's test agent (cmux-tui/crates/acpmux/tests/fake_agent.py): no account, no
 network, no credential on the host. The app runs with its own ACPMUX_HOME and config in a scratch
 folder; the soak never touches the host's ~/.acpmux or settings.
 
 At the end it writes report.json and report.md to --out and exits 1 when a criterion failed:
-no crash, no hang, no stuck turn, memory growth (median of the last hour against the first
-hour after --warmup) within --max-growth-percent and --max-growth-mb per kind, and the mean
-CPU of the app and the daemon under --max-app-cpu and --max-daemon-cpu. Teardown goes through
+no crash, no hang, no stuck turn, memory growth (median of the last hour of load against an hour mid-load,
+or quarters of a shorter load phase) within --max-growth-percent and --max-growth-mb per kind, open fds of the
+app, daemon and acpmux growing by at most --max-fd-growth, the mean CPU of the app and the daemon
+under --max-app-cpu and --max-daemon-cpu. Idle CPU over --max-idle-*-cpu (app, daemon,
+acpmux) is a WARN line until --idle-cpu-gate fail. report.md ends with a memory and fd trend. Teardown goes through
 the app's quit path, then TagTeardown (acpmux and cmux-tui shutdown, exact PIDs of this copy).
 
 Host rules: an Aqua GUI session for this user; nothing else answering on the app's control
@@ -35,11 +42,15 @@ socket. Use a copy of the app (the nightly runner unpacks cmux-next-dev into the
 from __future__ import annotations
 
 import argparse
+import ctypes
 import datetime as dt
+import functools
 import glob
 import json
 import os
 import plistlib
+import re
+import shlex
 import shutil
 import socket
 import statistics
@@ -59,10 +70,30 @@ FAKE_AGENT = os.path.join(HERE, "../../cmux-tui/crates/acpmux/tests/fake_agent.p
 FAKE_HARNESS = "readiness-soak-agent"
 CRASH_NAMES = ("cmux", "acpmux")
 STUCK_TURN_S = 300
-TERMINAL_WORK = "i=0; while :; do i=$((i+1)); echo \"soak $i $(date +%T)\"; ls -l /usr/bin | head -30; sleep 2; done"
+# Each terminal prints until the quiet phase creates {stop}, then waits on its input (an idle shell).
+TERMINAL_WORK = ("i=0; while [ ! -e {stop} ]; do i=$((i+1)); echo \"soak $i $(date +%T)\"; ls -l /usr/bin | head -30; "
+                 "sleep 2; done; echo soak quiet; exec cat")
 STATIC_PAGE = "<!doctype html><title>soak static</title><h1>static</h1><p>no script</p>"
 TICKING_PAGE = ("<!doctype html><title>soak ticking</title><h1 id=t>0</h1>"
                 "<script>let n=0;setInterval(()=>{document.getElementById('t').textContent=++n},5000)</script>")
+
+
+PROC_PIDLISTFDS, PROC_FDINFO_SIZE = 1, 8
+
+
+@functools.cache
+def libproc():
+    return ctypes.CDLL("/usr/lib/libproc.dylib")  # on first use, so the module imports off macOS (its tests)
+
+
+def open_fds(pid):
+    """Open file descriptors of pid (proc_pidinfo PROC_PIDLISTFDS), or None when it is gone."""
+    size = libproc().proc_pidinfo(ctypes.c_int(pid), PROC_PIDLISTFDS, ctypes.c_uint64(0), None, 0)
+    if size <= 0:
+        return None
+    buffer = ctypes.create_string_buffer(size + 64 * PROC_FDINFO_SIZE)
+    used = libproc().proc_pidinfo(ctypes.c_int(pid), PROC_PIDLISTFDS, ctypes.c_uint64(0), buffer, len(buffer))
+    return used // PROC_FDINFO_SIZE if used > 0 else None
 
 
 def now_iso():
@@ -84,7 +115,30 @@ def bundle_tag(app):
     prefix = "com.cmuxterm.app.debug."
     if not bundle_id.startswith(prefix):
         raise SystemExit(f"readiness-soak: {app} is {bundle_id!r}, not a tagged build ({prefix}<tag>)")
-    return bundle_id[len(prefix):], executable
+    # The app's own tag rule (ControlSocketPath.sanitize): lowercase, [^a-z0-9]+ -> "-".
+    return re.sub(r"[^a-z0-9]+", "-", bundle_id[len(prefix):].lower()).strip("-"), executable
+
+
+def own_copy(app, work):
+    """A copy of app in work with its own bundle id (<id>.soak<pid>), ad hoc signed like a capture slot's clone.
+
+    A tagged build's control socket, cmux-tui session and acpmux tag home all follow its bundle id, so any
+    other copy of the same build on the host (an installed cmux NEXT DEV) neither blocks the soak's copy nor
+    shares its daemons."""
+    copy = os.path.join(work, os.path.basename(app.rstrip("/")))
+    copied = run("ditto", app, copy, timeout=900)
+    if copied.returncode:
+        raise SystemExit(f"readiness-soak: copying {app} failed: {copied.stderr.strip()[-300:]}")
+    plist = os.path.join(copy, "Contents/Info.plist")
+    with open(plist, "rb") as handle:
+        info = plistlib.load(handle)
+    info["CFBundleIdentifier"] = f"{info.get('CFBundleIdentifier', '')}.soak{os.getpid()}"
+    with open(plist, "wb") as handle:
+        plistlib.dump(info, handle)
+    signed = run("codesign", "--force", "--deep", "--sign", "-", copy, timeout=900)
+    if signed.returncode:
+        raise SystemExit(f"readiness-soak: signing the copy failed: {signed.stderr.strip()[-300:]}")
+    return copy
 
 
 def acpmux_socket(home):
@@ -147,21 +201,22 @@ class Soak:
     def __init__(self, args):
         self.args = args
         self.app = os.path.realpath(args.app)
-        self.tag, executable = bundle_tag(self.app)
-        self.binary = os.path.join(self.app, "Contents/MacOS", executable)
-        self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
-        self.socket = args.socket or f"/tmp/cmux-debug-{self.tag}.sock"
         self.out = args.out
         os.makedirs(self.out, exist_ok=True)
-        self.work = tempfile.mkdtemp(prefix="cmux-soak-")
+        # Resolved (/var -> /private/var), so the copy and its helpers have one path that TagTeardown matches.
+        self.work = os.path.realpath(tempfile.mkdtemp(prefix="cmux-soak-"))
         self.acpmux_home = os.path.join(self.work, "acpmux")
+        self.quiet_file = os.path.join(self.work, "quiet")
         self.acp = Acpmux(acpmux_socket(self.acpmux_home))
-        self.samples = open(os.path.join(self.out, "samples.jsonl"), "a")
+        self.samples = None  # opened by begin(), after preflight: a refused soak never touches another's files
+        self.stage = "setup"
         self.events = []
         self.setup = {}
         self.agents = {}  # session id -> {"started": monotonic or None, "turns": n, "done": n}
         self.started = time.time()
         self.pids = {}
+        self.app_pid = None
+        self.seen_pids = set()  # every PID of this copy but WebKit's, for crash reports
         self.webkit_before = set()
 
     def event(self, kind, detail):
@@ -169,6 +224,18 @@ class Soak:
         say(f"EVENT {kind}: {detail}")
 
     # ---- setup ---------------------------------------------------------------------------
+
+    def identify(self):
+        """Run this soak's own tagged copy of --app (own_copy) unless --same-tag."""
+        if not self.args.same_tag:
+            self.app = own_copy(self.app, self.work)
+        self.tag, executable = bundle_tag(self.app)
+        with open(os.path.join(self.app, "Contents/Info.plist"), "rb") as handle:
+            self.bundle_id = plistlib.load(handle)["CFBundleIdentifier"]
+        self.binary = os.path.join(self.app, "Contents/MacOS", executable)
+        self.tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
+        self.socket = self.args.socket or f"/tmp/cmux-debug-{self.tag}.sock"
+        self.setup["tag"] = self.tag
 
     def preflight(self):
         if run("launchctl", "print", f"gui/{os.getuid()}").returncode != 0:
@@ -180,9 +247,40 @@ class Soak:
             except OSError:
                 pass
         table = process_table()
+        # Two soaks on one host would measure each other.
+        parents, mine, pid = {p: pp for p, pp, _ in table}, set(), os.getpid()
+        while pid and pid not in mine:  # this soak and the shells that started it
+            mine.add(pid)
+            pid = parents.get(pid)
+        others = [pid for pid, _, cmd in table if "readiness-soak.py" in cmd and pid not in mine]
+        if others:
+            raise SystemExit(f"readiness-soak: another soak runs on this host (PID {others[0]})")
         if any(cmd.startswith(self.binary) for _, _, cmd in table):
             raise SystemExit(f"readiness-soak: {self.binary} is already running")
         self.webkit_before = {pid for pid, _, cmd in table if "com.apple.WebKit." in cmd}
+
+    def forget(self):
+        """Remove the state the app keeps under this run's own bundle id and tag (both carry the soak's PID,
+        so no other build shares them). --same-tag runs the build as it is and keeps its state."""
+        if self.args.same_tag or not getattr(self, "bundle_id", None):
+            return
+        bundle, tag = self.bundle_id, self.tag
+        support = os.path.expanduser("~/Library/Application Support")
+        run("defaults", "delete", bundle)
+        for path in (os.path.expanduser(f"~/Library/Preferences/{bundle}.plist"),
+                     os.path.join(support, bundle),
+                     os.path.join(support, "cmux-next", bundle),
+                     os.path.join(support, "cmux", bundle),
+                     os.path.join(support, "cmux", f"managed-status.{bundle}.json"),
+                     os.path.join(support, "cmux", "tags", tag),
+                     os.path.expanduser(f"~/.cmux/chief/isolated/{tag}")):
+            if os.path.isdir(path) and not os.path.islink(path):
+                shutil.rmtree(path, ignore_errors=True)
+            elif os.path.lexists(path):
+                os.remove(path)
+
+    def begin(self):
+        self.samples = open(os.path.join(self.out, "samples.jsonl"), "w")
 
     def launch(self):
         os.makedirs(self.acpmux_home)
@@ -209,6 +307,7 @@ class Soak:
             raise SystemExit(f"readiness-soak: no control socket at {self.socket}")
         identity = self.control.call("system.identify").get("result", {})
         self.setup["identity"] = {k: identity.get(k) for k in ("pid", "build", "version", "bundle_identifier") if k in identity}
+        self.app_pid = self.setup["identity"].get("pid")
         say(f"app up: {self.setup['identity']}")
 
     def connect(self):
@@ -225,7 +324,7 @@ class Soak:
             return
         made = 0
         for index in range(self.args.terminals):
-            reply = request(status["socket"], {"id": 10 + index, "cmd": "run", "argv": ["/bin/sh", "-c", TERMINAL_WORK],
+            reply = request(status["socket"], {"id": 10 + index, "cmd": "run", "argv": ["/bin/sh", "-c", TERMINAL_WORK.format(stop=shlex.quote(self.quiet_file))],
                                                "new_workspace": True, "name": f"soak-terminal-{index + 1}"}, 30)
             made += bool(reply.get("ok"))
             if not reply.get("ok"):
@@ -283,16 +382,21 @@ class Soak:
         """{pid: kind} for every process of this app copy and its agents."""
         app_pid = self.setup["identity"].get("pid")
         found = {}
-        bin_dir = os.path.join(self.app, "Contents/Resources/bin/")
+        tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
+        acpmux = os.path.join(self.app, "Contents/Resources/bin/acpmux")
         for pid, ppid, cmd in process_table():
+            # self.app is resolved (/private/var/...); the app names some helpers by /var/... (TagTeardown too).
+            cmd = "/private" + cmd if cmd.startswith(("/var/", "/tmp/")) else cmd
             if pid == app_pid:
                 found[pid] = "app"
             elif ppid == app_pid and " Helper" in cmd:
                 found[pid] = "chromium-helper"
-            elif cmd.startswith(self.tui):
+            elif cmd.startswith(tui):
                 found[pid] = "terminal-host" if "__terminal-host" in cmd else "daemon"
-            elif cmd.startswith(bin_dir + "acpmux"):
+            elif cmd.startswith(acpmux + " daemon run"):
                 found[pid] = "acpmux"
+            elif cmd.startswith(acpmux):
+                found[pid] = "acpmux-helper"  # its router and per-agent hosts come and go with turns
             elif self.work in cmd and "fake_agent.py" in cmd:
                 found[pid] = "agent"
             elif "com.apple.WebKit." in cmd and pid not in self.webkit_before:
@@ -314,12 +418,31 @@ class Soak:
         return round((time.monotonic() - started) * 1000, 1), ok
 
     def crash_reports(self):
+        """This copy's crash reports since the soak started (other builds' reports do not count)."""
         found = []
         for path in glob.glob(os.path.expanduser("~/Library/Logs/DiagnosticReports/*.ips")):
             name = os.path.basename(path).lower()
-            if any(n in name for n in CRASH_NAMES) and os.path.getmtime(path) >= self.started:
+            if any(n in name for n in CRASH_NAMES) and os.path.getmtime(path) >= self.started and self.owns_report(path):
                 found.append(path)
         return sorted(found)
+
+    def owns_report(self, path):
+        """Whether an .ips names this copy's bundle ID, a PID of this copy or a child of its app. A
+        report still being written does not parse yet; it counts on a later tick, once it does."""
+        try:
+            with open(path, errors="replace") as handle:
+                header = json.loads(handle.readline())
+                if header.get("bundleID") == self.bundle_id:
+                    return True
+                body = json.loads(handle.read())
+        except (OSError, ValueError):
+            return False
+        # parentPid: a helper that started and crashed between two ticks (acpmux hosts come and go with turns).
+        return body.get("pid") in self.seen_pids or body.get("parentPid") in self.seen_pids | {self.app_pid} - {None}
+
+    def track(self, kinds):
+        """Remembers the PIDs whose crash reports are this copy's (not WebKit's: any app's)."""
+        self.seen_pids.update(pid for pid, kind in kinds.items() if kind != "webkit")
 
     def sample(self, before, kinds, wall):
         rows = {}
@@ -327,8 +450,9 @@ class Soak:
             first, last = before.get(pid), usage(pid)
             if first is None or last is None:
                 continue
-            row = rows.setdefault(kind, {"count": 0, "cpu_percent": 0.0, "footprint_mb": 0.0, "wakeups_per_s": 0.0})
+            row = rows.setdefault(kind, {"count": 0, "cpu_percent": 0.0, "footprint_mb": 0.0, "wakeups_per_s": 0.0, "fds": 0})
             row["count"] += 1
+            row["fds"] += open_fds(pid) or 0
             row["cpu_percent"] += 100.0 * (last[0] - first[0]) / (wall * 1e9)
             row["wakeups_per_s"] += (last[1] - first[1]) / wall
             row["footprint_mb"] += last[2] / 1048576
@@ -336,20 +460,30 @@ class Soak:
 
     def loop(self):
         end = time.monotonic() + self.args.hours * 3600
+        # The last --idle seconds are quiet: no new turns, terminals stop printing, so what the app,
+        # daemon and acpmux use then is their idle cost.
+        quiet_at = end - self.args.idle
+        quiet = False
         next_turn = {session: time.monotonic() + i * self.args.turn_every / max(len(self.agents), 1)
                      for i, session in enumerate(self.agents)}
-        seen_reports = set(self.crash_reports())
         kinds = self.kinds()
+        self.track(kinds)
+        seen_reports = set(self.crash_reports())
         before = {pid: usage(pid) for pid in kinds}
         for key in ("app", "daemon", "acpmux"):
             self.pids[key] = sorted(pid for pid, kind in kinds.items() if kind == key)
         tick = time.monotonic()
         while time.monotonic() < end:
             time.sleep(self.args.sample)  # soak script: the sampling interval
+            if not quiet and time.monotonic() >= quiet_at:
+                quiet = True
+                open(self.quiet_file, "w").close()
+                self.event("quiet", "no new turns; terminals stop printing")
             wall = time.monotonic() - tick
             tick = time.monotonic()
             processes = self.sample(before, kinds, wall)
             kinds = self.kinds()
+            self.track(kinds)
             before = {pid: usage(pid) for pid in kinds}
             for key in ("app", "daemon", "acpmux"):
                 pids = sorted(pid for pid, kind in kinds.items() if kind == key)
@@ -372,10 +506,13 @@ class Soak:
                 if entry["started"] is not None and time.monotonic() - entry["started"] > STUCK_TURN_S:
                     self.event("stuck-turn", f"agent {session} turn {entry['turns']} running for over {STUCK_TURN_S} s")
                     entry["started"] = None
-                if entry["started"] is None and time.monotonic() >= next_turn[session]:
+                if not quiet and entry["started"] is None and time.monotonic() >= next_turn[session]:
                     self.prompt(session)
                     next_turn[session] = time.monotonic() + self.args.turn_every
             record = {"at": now_iso(), "elapsed_s": round(time.time() - self.started), "processes": processes,
+                      "phase": "quiet" if quiet else "load",
+                      "running": sum(e["started"] is not None or statuses.get(session) == "running"
+                                     for session, e in self.agents.items()),
                       "ping_ms": ping_ms, "snapshot_ms": snapshot_ms,
                       "turns": sum(e["turns"] for e in self.agents.values()),
                       "turns_done": sum(e["done"] for e in self.agents.values())}
@@ -385,41 +522,81 @@ class Soak:
     # ---- report --------------------------------------------------------------------------
 
     def report(self):
-        self.samples.close()
-        with open(os.path.join(self.out, "samples.jsonl")) as handle:
-            samples = [json.loads(line) for line in handle if line.strip()]
+        stem = "report"
+        if self.samples:
+            self.samples.close()
+            with open(os.path.join(self.out, "samples.jsonl")) as handle:
+                samples = [json.loads(line) for line in handle if line.strip()]
+        else:
+            samples = []
+            if os.path.exists(os.path.join(self.out, "samples.jsonl")):
+                stem = "refused"  # --out holds another soak's run; keep its report
         warm = [s for s in samples if s["elapsed_s"] >= self.args.warmup]
-        hour = 3600
-        first = [s for s in warm if s["elapsed_s"] < self.args.warmup + hour]
-        last_start = (warm[-1]["elapsed_s"] - hour) if warm else 0
-        last = [s for s in warm if s["elapsed_s"] >= last_start]
+        # Idle: quiet samples once every turn has ended and --settle seconds have passed.
+        quiet_from = min((s["elapsed_s"] for s in samples if s.get("phase") == "quiet"), default=None)
+        idle = [s for s in samples if quiet_from is not None and s["elapsed_s"] >= quiet_from + self.args.settle
+                and not s.get("running")]
+        # Growth is the middle of the load phase against its end: a bounded buffer (terminal scrollback, 50 MB
+        # per copy) that fills in the first half passes, and a steady leak still shows half its growth. Each
+        # window is an hour, or a quarter of a shorter load phase.
+        load = [s for s in warm if s.get("phase", "load") == "load"]
+        span = (load[-1]["elapsed_s"] - load[0]["elapsed_s"]) if load else 0
+        window = min(3600, span / 4)
+        middle = (load[0]["elapsed_s"] + span / 2) if load else 0
+        first = [s for s in load if middle - window / 2 <= s["elapsed_s"] < middle + window / 2]
+        last = [s for s in load if s["elapsed_s"] >= load[-1]["elapsed_s"] - window] if load else []
         kinds = sorted({k for s in samples for k in s["processes"]})
-        summary, failures = {}, []
+        summary, failures, warnings = {}, [], []
 
         def median(rows, kind, key):
-            values = [s["processes"][kind][key] for s in rows if kind in s["processes"]]
+            values = [s["processes"][kind].get(key) for s in rows if kind in s["processes"]]
+            values = [v for v in values if v is not None]
             return round(statistics.median(values), 2) if values else None
+
+        def mean(rows, kind, key):
+            values = [s["processes"][kind][key] for s in rows if kind in s["processes"]]
+            return round(statistics.fmean(values), 2) if values else None
 
         for kind in kinds:
             cpu = [s["processes"][kind]["cpu_percent"] for s in warm if kind in s["processes"]]
             summary[kind] = {
                 "mean_cpu_percent": round(statistics.fmean(cpu), 2) if cpu else None,
                 "max_cpu_percent": round(max(cpu), 2) if cpu else None,
-                "footprint_mb_first_hour": median(first, kind, "footprint_mb"),
-                "footprint_mb_last_hour": median(last, kind, "footprint_mb"),
+                "footprint_mb_mid": median(first, kind, "footprint_mb"),
+                "footprint_mb_end": median(last, kind, "footprint_mb"),
                 "wakeups_per_s_median": median(warm, kind, "wakeups_per_s"),
+                "fds_mid": median(first, kind, "fds"),
+                "fds_end": median(last, kind, "fds"),
+                "idle_cpu_percent": mean(idle, kind, "cpu_percent"),
+                "idle_wakeups_per_s": mean(idle, kind, "wakeups_per_s"),
             }
             row = summary[kind]
-            start_mb, end_mb = row["footprint_mb_first_hour"], row["footprint_mb_last_hour"]
+            start_mb, end_mb = row["footprint_mb_mid"], row["footprint_mb_end"]
             if start_mb and end_mb and kind in ("app", "daemon", "acpmux"):
                 growth = end_mb - start_mb
                 row["growth_mb"], row["growth_percent"] = round(growth, 1), round(100 * growth / start_mb, 1)
                 if growth > self.args.max_growth_mb and row["growth_percent"] > self.args.max_growth_percent:
-                    failures.append(f"{kind} memory grew {growth:.0f} MB ({row['growth_percent']}%) from the first to the last hour")
+                    failures.append(f"{kind} memory grew {growth:.0f} MB ({row['growth_percent']}%) from mid-run to the end of the load")
+            start_fds, end_fds = row["fds_mid"], row["fds_end"]
+            if start_fds is not None and end_fds is not None and kind in ("app", "daemon", "acpmux"):
+                row["fd_growth"] = round(end_fds - start_fds)
+                if row["fd_growth"] > self.args.max_fd_growth:
+                    failures.append(f"{kind} open fds grew by {row['fd_growth']} ({start_fds:g} -> {end_fds:g}) from mid-run to the end of the load")
+        for kind in ("app", "daemon", "acpmux"):
+            if samples and kind not in summary:
+                failures.append(f"no {kind} process was found, so its checks did not run")
         for kind, limit in (("app", self.args.max_app_cpu), ("daemon", self.args.max_daemon_cpu)):
             mean = (summary.get(kind) or {}).get("mean_cpu_percent")
             if mean is not None and mean > limit:
                 failures.append(f"{kind} mean CPU {mean}% over {limit}%")
+        if self.args.idle:
+            if not idle:
+                failures.append("no idle samples (the quiet phase never settled)")
+            for kind, limit in (("app", self.args.max_idle_app_cpu), ("daemon", self.args.max_idle_daemon_cpu),
+                                ("acpmux", self.args.max_idle_acpmux_cpu)):
+                value = (summary.get(kind) or {}).get("idle_cpu_percent")
+                if value is not None and value > limit:
+                    (failures if self.args.idle_cpu_gate == "fail" else warnings).append(f"{kind} idle CPU {value}% over {limit}%")
         for kind in ("crash", "hang", "stuck-turn"):
             count = sum(1 for e in self.events if e["kind"] == kind)
             if count:
@@ -428,31 +605,46 @@ class Soak:
             wanted, got = getattr(self.args, name), self.setup.get(name)
             if got != wanted:
                 failures.append(f"setup: {got} of {wanted} {name}")
+        if self.args.agents and samples and not samples[-1]["turns_done"]:
+            failures.append("no agent turn finished")
+        if self.setup.get("error"):
+            failures = [f"setup stopped: {self.setup['error']}"]  # the rest follow from it
         hours = round((samples[-1]["elapsed_s"] if samples else 0) / 3600, 2)
         if hours < self.args.hours * 0.95:
             failures.append(f"ran {hours} h of {self.args.hours} h")
         pings = sorted(s["snapshot_ms"] for s in samples)
-        result = {"ok": not failures, "failures": failures, "hours": hours, "setup": self.setup,
+        result = {"ok": not failures, "failures": failures, "warnings": warnings, "hours": hours, "setup": self.setup,
                   "app": self.app, "summary": summary, "events": self.events,
                   "snapshot_ms_p50": pings[len(pings) // 2] if pings else None,
                   "snapshot_ms_p99": pings[int(len(pings) * 0.99)] if pings else None,
                   "turns": samples[-1]["turns"] if samples else 0, "turns_done": samples[-1]["turns_done"] if samples else 0}
-        with open(os.path.join(self.out, "report.json"), "w") as handle:
+        with open(os.path.join(self.out, f"{stem}.json"), "w") as handle:
             json.dump(result, handle, indent=1)
         lines = [f"# cmux-next readiness soak: {'PASS' if result['ok'] else 'FAIL'}", "",
                  f"Build {self.setup.get('identity', {}).get('build')} ({self.setup.get('identity', {}).get('version')}), "
                  f"{hours} h, {self.setup.get('agents')} agents ({result['turns_done']}/{result['turns']} turns done), "
                  f"{self.setup.get('terminals')} terminals, {self.setup.get('browsers')} {self.setup.get('browser_engine', '')} browser tabs.", ""]
         lines += [f"- FAIL: {failure}" for failure in failures] or ["- No failures."]
+        lines += [f"- WARN: {warning}" for warning in warnings]
         lines += ["", f"Control round trip (snapshot.get): p50 {result['snapshot_ms_p50']} ms, p99 {result['snapshot_ms_p99']} ms.", "",
-                  "| Process | Mean CPU % | Max CPU % | Memory first h (MB) | Memory last h (MB) | Wakeups/s |",
-                  "| --- | --- | --- | --- | --- | --- |"]
+                  "| Process | Mean CPU % | Max CPU % | Memory mid-run (MB) | Memory end (MB) | Wakeups/s | fds mid-run | fds end | Idle CPU % | Idle wakeups/s |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
         for kind, row in summary.items():
-            lines.append(f"| {kind} | {row['mean_cpu_percent']} | {row['max_cpu_percent']} | {row['footprint_mb_first_hour']} | "
-                         f"{row['footprint_mb_last_hour']} | {row['wakeups_per_s_median']} |")
+            lines.append(f"| {kind} | {row['mean_cpu_percent']} | {row['max_cpu_percent']} | {row['footprint_mb_mid']} | "
+                         f"{row['footprint_mb_end']} | {row['wakeups_per_s_median']} | {row['fds_mid']} | "
+                         f"{row['fds_end']} | {row['idle_cpu_percent']} | {row['idle_wakeups_per_s']} |")
+        # Trend: memory and fds of the app, daemon and acpmux at about twelve points, so a slow leak shows its slope.
+        if samples:
+            step = max(1, len(samples) // 12)
+            lines += ["", "Trend (memory MB / open fds):", "",
+                      "| Elapsed min | Phase | app | daemon | acpmux |", "| --- | --- | --- | --- | --- |"]
+            for s in samples[::step] + ([samples[-1]] if (len(samples) - 1) % step else []):
+                cells = [f"{s['processes'][k]['footprint_mb']:g} / {s['processes'][k].get('fds')}" if k in s["processes"] else "-"
+                         for k in ("app", "daemon", "acpmux")]
+                lines.append(f"| {s['elapsed_s'] // 60} | {s.get('phase', 'load')} | " + " | ".join(cells) + " |")
         if self.events:
             lines += ["", "Events:"] + [f"- {e['at']} {e['kind']}: {e['detail']}" for e in self.events]
-        with open(os.path.join(self.out, "report.md"), "w") as handle:
+        with open(os.path.join(self.out, f"{stem}.md"), "w") as handle:
             handle.write("\n".join(lines) + "\n")
         print("\n".join(lines))
         return result
@@ -473,6 +665,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="a copy of a tagged cmux-next app (bundle com.cmuxterm.app.debug.<tag>)")
     parser.add_argument("--socket", help="the app's control socket (default /tmp/cmux-debug-<tag>.sock)")
+    parser.add_argument("--same-tag", action="store_true",
+                        help="run --app as it is instead of a copy with its own bundle id and tag")
     parser.add_argument("--hours", type=float, default=24)
     parser.add_argument("--agents", type=int, default=10)
     parser.add_argument("--terminals", type=int, default=10)
@@ -485,26 +679,52 @@ def main():
     parser.add_argument("--max-growth-percent", type=float, default=25)
     parser.add_argument("--max-app-cpu", type=float, default=10)
     parser.add_argument("--max-daemon-cpu", type=float, default=5)
+    parser.add_argument("--max-fd-growth", type=float, default=100,
+                        help="open fds the app, daemon or acpmux may gain from mid-run to the end of the load")
+    parser.add_argument("--idle", type=float, default=1800,
+                        help="seconds at the end with no new turns and quiet terminals (0: none)")
+    parser.add_argument("--settle", type=float, default=300, help="seconds into the quiet phase before idle samples count")
+    parser.add_argument("--max-idle-app-cpu", type=float, default=1)
+    parser.add_argument("--max-idle-daemon-cpu", type=float, default=0.5)
+    parser.add_argument("--max-idle-acpmux-cpu", type=float, default=0.5)
+    parser.add_argument("--idle-cpu-gate", choices=("warn", "fail"), default="warn",
+                        help="an idle CPU over its limit warns (default, until a 24h report shows real idle numbers) or fails")
     parser.add_argument("--out", default=os.path.join(os.getcwd(), "readiness-soak"))
     args = parser.parse_args()
+    if args.warmup + args.idle >= args.hours * 3600:
+        parser.error("--warmup plus --idle must leave a load phase within --hours")  # else every load check is empty
     soak = Soak(args)
-    soak.preflight()
-    teardown = TagTeardown(soak.app, acpmux_home=soak.acpmux_home, acpmux_socket=soak.acp.path, log=say)
-    teardown.install()
+    teardown = None
     result = {"ok": False}
     try:
+        soak.identify()
+        soak.preflight()
+        soak.begin()
+        teardown = TagTeardown(soak.app, acpmux_home=soak.acpmux_home, acpmux_socket=soak.acp.path, log=say)
+        teardown.install()
         soak.launch()
         soak.start_terminals()
         soak.start_browsers()
         soak.start_agents()
         say(f"setup: {json.dumps(soak.setup)}")
+        soak.stage = "run"
         soak.loop()
+    except SystemExit as stop:
+        if soak.stage == "setup":
+            # A refused or failed setup still writes report.json and report.md, naming why.
+            soak.setup["error"] = str(stop.code)
+        else:
+            soak.event("stopped", f"the soak was stopped ({stop.code}); the report covers what ran")
+        raise
     finally:
         try:
             result = soak.report()
         finally:
-            soak.quit()
-            teardown.end()
+            if "identity" in soak.setup:
+                soak.quit()
+            if teardown:
+                teardown.end()
+                soak.forget()
             shutil.rmtree(soak.work, ignore_errors=True)
     sys.exit(0 if result.get("ok") else 1)
 

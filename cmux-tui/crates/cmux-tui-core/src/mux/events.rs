@@ -43,6 +43,13 @@ pub enum MuxEvent {
     /// detached while their durable exit receipt remains queryable; local
     /// terminals have already been reaped when this arrives.
     SurfaceExited(SurfaceId),
+    /// The OSC 7501 status a surface's tab shows changed (state or
+    /// progress); `None` when it shows none. Raw clients get
+    /// `program-status-changed` with the tab's new `program_status`.
+    ProgramStatusChanged {
+        surface: SurfaceId,
+        status: Option<crate::program_status::ShownProgramStatus>,
+    },
     TitleChanged {
         surface: SurfaceId,
         title: Arc<str>,
@@ -98,9 +105,18 @@ pub enum MuxEvent {
         personal_revision: u64,
     },
     BookmarksChanged(personal::BookmarksChange),
+    /// The history module committed a change (`history-v1`): the history
+    /// revision and the entry kinds that changed. Consumers re-read
+    /// `history.entries.list`.
+    HistoryChanged {
+        revision: u64,
+        kinds: Vec<String>,
+    },
     /// The settings file or a managed layer changed (`settings-v1`;
     /// mux/settings.rs).
     SettingsChanged(cmux_config::Change),
+    /// keybindings.json changed (`keybindings-v1`; mux/keybindings.rs).
+    KeybindingsChanged(cmux_config::KeybindingsChange),
     Conversation(Arc<crate::conversation_store::ConversationEvent>),
     /// An event of the cloud conversations proxy (`cloud-conversations-v1`).
     CloudConversation(Arc<crate::cloud_conversations::CloudEvent>),

@@ -10,7 +10,7 @@
 import type { AcpmuxRow } from "../model";
 import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
-import { timestampTurns } from "./timestamps";
+import { showsTimestamp, type TurnTimes } from "./timestamps";
 import { isSubagentGroup } from "../subagents/subagentRows";
 import type { Translate } from "../i18n";
 
@@ -21,6 +21,9 @@ export const DATE = "date";
 /// Rows added for the turn still running: "Thinking" until it has output, then a ticking
 /// "Working for 42s" line over its work, where "Worked for" lands when the turn ends.
 export const THINKING = "thinking";
+/// The last turn's Thinking line has one id from send to the first output: the sent prompt's row
+/// changes id when acpmux echoes it, the line keeps its place (cx-ncc.58).
+const LIVE_THINKING = `${THINKING}-live`;
 export const WORKING = "working";
 /// A row added for an ended turn that started or mentioned a local web page (previewUrl.ts): its
 /// preview card, with the page's address as its text.
@@ -66,43 +69,174 @@ const isEdit = (row: AcpmuxRow) =>
 export function turnView(
   rows: readonly AcpmuxRow[],
   expanded: ReadonlySet<string>,
+  options: { now?: number; working?: boolean; clockOffset?: number } = {},
+): AcpmuxRow[] {
+  return turnViewFrom(rows, expanded, options).rows;
+}
+
+/// A turn view (``turnViewFrom``) with what it was drawn from, for the next snapshot to build on.
+export type TurnView = {
+  source: readonly AcpmuxRow[];
+  expanded: ReadonlySet<string>;
+  clockOffset: number;
+  /// Where the first prompt is: the rows before it draw as they are.
+  lead: number;
+  /// Each turn's prompt index in `source`, its times, whether it is dated, and how many drawn
+  /// rows there are up to its end.
+  starts: number[];
+  times: TurnTimes[];
+  dated: boolean[];
+  ends: number[];
+  rows: AcpmuxRow[];
+};
+
+/// ``turnView``, building on `previous`: the turns before the one holding the first row that
+/// differs from `previous.source` (by object) keep their drawn rows, so a long chat's snapshot
+/// shapes only its last turns.
+export function turnViewFrom(
+  rows: readonly AcpmuxRow[],
+  expanded: ReadonlySet<string>,
   {
     now = Date.now(),
     working = false,
     clockOffset = 0,
   }: { now?: number; working?: boolean; clockOffset?: number } = {},
-): AcpmuxRow[] {
-  const out: AcpmuxRow[] = [];
-  let index = 0;
-  // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
-  while (index < rows.length && rows[index]!.kind !== "user") out.push(rows[index++]!);
-  const loadedFromStart = index === 0;
-  const turns: { user: AcpmuxRow; turn: AcpmuxRow[]; held: AcpmuxRow[] }[] = [];
-  while (index < rows.length) {
-    const user = rows[index++]!;
-    const turn: AcpmuxRow[] = [];
-    // A prompt not yet accepted (sent while this turn runs, or refused) sorts among this turn's
-    // rows by its send time; it neither ends the turn nor folds into it, and draws after it.
-    const held: AcpmuxRow[] = [];
-    while (index < rows.length && (rows[index]!.kind !== "user" || isUnsent(rows[index]!))) {
-      const row = rows[index++]!;
-      (row.kind === "user" ? held : turn).push(row);
-    }
-    turns.push({ user, turn, held });
+  previous?: TurnView,
+): TurnView {
+  // The turn to shape from: the one holding the first changed row. The turn before it may
+  // have ended there, and the last turn draws differently once another follows it.
+  let reuse = 0;
+  if (previous && previous.expanded === expanded && previous.clockOffset === clockOffset && previous.starts.length) {
+    const shared = previous.source;
+    let from = 0;
+    while (from < rows.length && from < shared.length && rows[from] === shared[from]) from += 1;
+    while (reuse < previous.starts.length && previous.starts[reuse]! < from) reuse += 1;
+    reuse = Math.max(0, reuse - 1);
   }
-  const dated = timestampTurns(
-    turns.map(({ user, turn }) => ({ promptAt: user.at, answerAt: [...turn].reverse().find(isAnswer)?.at })),
-    now,
-    loadedFromStart,
-  );
-  turns.forEach(({ user, turn, held }, at) => {
-    if (dated[at]) out.push({ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE });
+  // The first turn's line depends on `now`.
+  if (reuse > 0 && showsTimestamp(previous!.times[0]!, undefined, now, previous!.lead === 0) !== previous!.dated[0])
+    reuse = 0;
+  let index: number;
+  let lead: number;
+  let out: AcpmuxRow[];
+  let starts: number[];
+  let times: TurnTimes[];
+  let dated: boolean[];
+  let ends: number[];
+  if (reuse > 0) {
+    lead = previous!.lead;
+    index = previous!.starts[reuse]!;
+    out = previous!.rows.slice(0, previous!.ends[reuse - 1]);
+    starts = previous!.starts.slice(0, reuse);
+    times = previous!.times.slice(0, reuse);
+    dated = previous!.dated.slice(0, reuse);
+    ends = previous!.ends.slice(0, reuse);
+  } else {
+    out = [];
+    index = 0;
+    // Rows before the first prompt (a greeting, or history paged in mid-turn) draw as they are.
+    while (index < rows.length && rows[index]!.kind !== "user") out.push(rows[index++]!);
+    lead = index;
+    starts = [];
+    times = [];
+    dated = [];
+    ends = [];
+  }
+  const first = starts.length;
+  const fromStart = lead === 0;
+  // Each turn is its prompt's index up to the next accepted prompt: its rows, and any prompt not
+  // yet accepted (sent while this turn runs, or refused), which sorts among them by its send time
+  // and neither ends the turn nor folds into it. Indexes, not arrays: a long chat's snapshot only
+  // copies the rows of a turn that changed (shapedTurn).
+  while (index < rows.length) {
+    const start = index++;
+    let answerAt: number | undefined;
+    while (index < rows.length && (rows[index]!.kind !== "user" || isUnsent(rows[index]!))) {
+      if (isAnswer(rows[index]!)) answerAt = rows[index]!.at;
+      index += 1;
+    }
+    starts.push(start);
+    const turn = { promptAt: rows[start]!.at, answerAt };
+    dated.push(showsTimestamp(turn, times.at(-1), now, fromStart));
+    times.push(turn);
+  }
+  for (let at = first; at < starts.length; at += 1) {
+    const start = starts[at]!;
+    const end = at + 1 < starts.length ? starts[at + 1]! : rows.length;
     // Only the last turn can still be running.
-    const last = at === turns.length - 1;
-    const live = working && last;
-    out.push(user, ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset), ...held);
-  });
-  return out;
+    const last = at === starts.length - 1;
+    for (const row of shapedTurn(rows, start, end, expanded, working && last, last, clockOffset, dated[at]!))
+      out.push(row);
+    ends.push(out.length);
+  }
+  return { source: rows, expanded, clockOffset, lead, starts, times, dated, ends, rows: out };
+}
+
+/// A turn as drawn, kept while its rows (by identity) and what shapes them stay the same: a long
+/// chat's snapshot rebuilds only the turns that changed, and an unchanged turn's derived rows stay
+/// the same objects, so the row memos and the height cache keep them.
+type ShapedTurn = {
+  /// The turn's rows after its prompt, held prompts included, as last shaped.
+  source: readonly AcpmuxRow[];
+  open: boolean;
+  last: boolean;
+  clockOffset: number;
+  dated: boolean;
+  rows: AcpmuxRow[];
+};
+const shapedTurns = new WeakMap<AcpmuxRow, ShapedTurn>();
+
+/// The drawn rows of the turn at `rows[start]` (its prompt) up to `end`, then its held prompts.
+function shapedTurn(
+  rows: readonly AcpmuxRow[],
+  start: number,
+  end: number,
+  expanded: ReadonlySet<string>,
+  live: boolean,
+  last: boolean,
+  clockOffset: number,
+  dated: boolean,
+): AcpmuxRow[] {
+  const user = rows[start]!;
+  const open = expanded.size > 0 && expanded.has(`${WORKED}-${user.id}`);
+  // A running turn changes with every event.
+  const cached = live ? undefined : shapedTurns.get(user);
+  if (
+    cached &&
+    cached.open === open &&
+    cached.last === last &&
+    cached.clockOffset === clockOffset &&
+    cached.dated === dated &&
+    cached.source.length === end - start - 1
+  ) {
+    let same = true;
+    for (let index = start + 1; same && index < end; index += 1)
+      same = cached.source[index - start - 1] === rows[index];
+    if (same) return cached.rows;
+  }
+  const source = rows.slice(start + 1, end);
+  const turn = source.filter((row) => row.kind !== "user");
+  const held = turn.length === source.length ? [] : source.filter((row) => row.kind === "user");
+  const date = dated ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : [];
+  // A sent prompt waiting for its turn to open draws the Thinking line already, with the start
+  // status while its agent starts (harnessSwitch: "Starting Claude Code…"); the line never
+  // jumps from under the bubble to the turn's status row, nor leaves for a frame (cx-ncc.58).
+  const waiting = !live && last && user.pending && !user.failed && turn.length === 0 && held.length === 0;
+  let shaped: AcpmuxRow[];
+  if (waiting) {
+    const { status, queued } = user;
+    const line: AcpmuxRow = { id: LIVE_THINKING, version: status ? 0 : 1, at: user.at, kind: THINKING };
+    if (status) Object.assign(line, { status, queued });
+    shaped = [...date, status ? { ...user, status: undefined } : user, line];
+  } else
+    shaped = [
+      ...date,
+      user,
+      ...shapeTurn(user, turn, expanded, live, last, last && held.length === 0, clockOffset),
+      ...held,
+    ];
+  if (!live) shapedTurns.set(user, { source, open, last, clockOffset, dated, rows: shaped });
+  return shaped;
 }
 
 const isAnswer = (row: AcpmuxRow) => row.kind === "assistant";
@@ -134,10 +268,11 @@ function shapeTurn(
     }
   const answer = final >= 0 ? body[final] : undefined;
   // Work before the answer folds away (all of it, when the turn ended without one); edits
-  // also close the turn as their card. Subagent groups stay out, under the fold's line.
+  // also close the turn as their card. Subagent groups and the todo list stay out, under the
+  // fold's line.
   const before = (final >= 0 ? body.slice(0, final) : body).filter((row) => row.kind !== "typing");
-  const work = before.filter((row) => !isSubagentGroup(row));
-  const groups = before.filter(isSubagentGroup);
+  const work = before.filter((row) => !staysOut(row));
+  const groups = before.filter(staysOut);
   const after = final >= 0 ? body.slice(final + 1) : [];
   // Edits after the answer join the card too, so its Undo covers the whole turn.
   const edits = [...work.filter(isEdit), ...after.filter(isEdit)];
@@ -217,9 +352,15 @@ function editsCard(edits: AcpmuxRow[]): AcpmuxRow[] {
       items: edits.flatMap((row) => row.items ?? []),
       toolCount: edits.reduce((sum, row) => sum + (row.toolCount ?? 0), 0),
       ended: true,
+      merged: edits.map((row) => row.id),
     },
   ];
 }
+
+/// A row that draws under a finished turn's fold line rather than inside it: a subagent group,
+/// and the turn's todo list (cx-ncc.80), whose last state is what the turn got done.
+const staysOut = (row: AcpmuxRow) =>
+  isSubagentGroup(row) || (row.kind === "plan" && row.plan !== undefined) || row.kind === "backgroundTask";
 
 /// A turn that ended without a summary (history paged in from before acpmux kept one, or a
 /// turn a restart cut off): its work folds under "N previous messages", like any
@@ -233,7 +374,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
       break;
     }
   const before = final >= 0 ? rows.slice(0, final) : rows;
-  const work = before.filter((row) => !isSubagentGroup(row));
+  const work = before.filter((row) => !staysOut(row));
   if (work.length === 0) return rows;
   const id = `${WORKED}-${user.id}`;
   const open = expanded.has(id);
@@ -243,7 +384,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
   return [
     { id, version: version * 2 + (open ? 1 : 0), at: user.at, kind: WORKED, previous },
     ...(open ? work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })) : []),
-    ...before.filter(isSubagentGroup),
+    ...before.filter(staysOut),
     ...(final >= 0 ? rows.slice(final) : []),
     ...editsCard(edits),
   ];
@@ -257,7 +398,7 @@ function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: Rea
 function liveTurn(user: AcpmuxRow, turn: AcpmuxRow[], clockOffset: number): AcpmuxRow[] {
   const rows = turn.filter((row) => row.kind !== "typing");
   const last = rows.at(-1);
-  if (!last) return [{ id: `${THINKING}-${user.id}`, version: 1, at: user.at, kind: THINKING }];
+  if (!last) return [{ id: LIVE_THINKING, version: 1, at: user.at, kind: THINKING }];
   const answering = last.kind === "assistant";
   if (answering && rows.length === 1) return rows;
   // The status ticks on this computer's clock, from the prompt moved onto it.

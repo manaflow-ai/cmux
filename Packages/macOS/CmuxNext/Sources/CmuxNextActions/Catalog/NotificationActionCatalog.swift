@@ -24,6 +24,14 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
                 category: .notifications, symbol: "bell.badge", surfaces: [.palette, .keyboard, .menu],
                 cliName: "notification jump-to-latest-unread", mainMenu: .window
             ),
+            // Classic's Jump to Last Prompt (hq#1870 P1 7); classic's ⇧⌘B is the bookmarks bar here.
+            ActionDescriptor(
+                id: "jumpToLastPrompt",
+                title: String(localized: "action.jumpToLastPrompt", defaultValue: "Jump to Last Prompt", bundle: .module),
+                keywords: ["agent", "prompt", "submitted", "back"], defaultShortcut: Shortcut("b", modifiers: [.command, .control]),
+                category: .notifications, symbol: "arrow.uturn.backward.circle", surfaces: [.palette, .keyboard, .menu],
+                mainMenu: .window
+            ),
             ActionDescriptor(
                 id: "toggleUnread",
                 title: String(localized: "action.toggleUnread", defaultValue: "Toggle Unread", bundle: .module),

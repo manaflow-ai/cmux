@@ -53,14 +53,22 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// Whether the device-wide All chats section is shown at the bottom of the
     /// sidebar (Lawrence 2026-10-09: on by default); its header's Hide Section turns it off.
     public var showChats = true
+    /// The bottom band's pieces (cx-wab7m): each hides from its own right-click menu and comes
+    /// back from the band's (`sidebar.showSpaces`: the spaces dots; `sidebar.showProfileControl`:
+    /// the profile button).
+    public var showSpaces = true
+    public var showProfileControl = true
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
     /// people like minimal mode"): workspace rows draw only their icon, name,
     /// unread mark and attention state (no second line, no counts or badges,
     /// no tab rows), and section headers become thin lines (the `lines` look).
     public var minimal = false
+    /// Compact or expanded workspace rows (`sidebar.density`); minimal mode wins.
+    public var density: SidebarDensity = .compact
     /// Pinned bands that hide until the pointer is over the sidebar (R54).
-    /// R100: the Settings/account band shows only while the pointer is over the sidebar.
-    public var minimalMode: SidebarMinimalMode = .bottom
+    /// Off by default: a fresh profile's sidebar is pinned, its Settings and
+    /// account band always shown; hover-reveal is opt-in (Leo 2026-10-11).
+    public var minimalMode: SidebarMinimalMode = .off
     /// Cmd-1…9 and Cmd-Ctrl-[ / ] (`sidebar.numbering`, `sidebar.cmd9`,
     /// `sidebar.stepping`, `sidebar.steppingWraps`).
     public var navigation = SidebarNavigationSettings.defaults

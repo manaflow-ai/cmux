@@ -171,6 +171,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Transfer { session, to, cwd, name, interrupt } => {
+            super::transfer::run(&session, &to, cwd, name, interrupt, json_out).await
+        }
         Command::Import { path, name } => {
             let client = connect(true).await?;
             let mut p = json!({"path": std::path::absolute(path)?});

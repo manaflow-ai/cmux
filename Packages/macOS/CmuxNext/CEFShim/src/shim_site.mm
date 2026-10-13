@@ -201,6 +201,84 @@ class FaviconReply : public CefDownloadImageCallback {
 
 }  // namespace
 
+namespace {
+
+struct PendingProceed {
+  std::string host;
+  int code;
+  CertificateProceed mode;
+};
+
+// Proceeds the host asked for, one per browser (UI thread). A browser's
+// entry is replaced by its next Proceed, taken by its next certificate
+// error on that host with that code, or dropped by its next main-frame
+// load start or error.
+std::map<int, PendingProceed>& CertificateProceeds() {
+  static auto* proceeds = new std::map<int, PendingProceed>();
+  return *proceeds;
+}
+
+struct AnsweredCertificate {
+  int code;
+  bool chromium_interstitial;
+};
+
+// The browser's last certificate error and its answer (UI thread).
+std::map<int, AnsweredCertificate>& AnsweredCertificates() {
+  static auto* answered = new std::map<int, AnsweredCertificate>();
+  return *answered;
+}
+
+// Chromium's names (net_error_list.h) for the errors cmux lets a person
+// proceed past; others show their number.
+const char* CertificateErrorName(int code) {
+  switch (code) {
+    case -200: return "net::ERR_CERT_COMMON_NAME_INVALID";
+    case -201: return "net::ERR_CERT_DATE_INVALID";
+    case -202: return "net::ERR_CERT_AUTHORITY_INVALID";
+    default: return "";
+  }
+}
+
+}  // namespace
+
+namespace cmux_shim {
+
+CertificateProceed TakeCertificateProceed(int browser_id, const std::string& host, int code) {
+  auto it = CertificateProceeds().find(browser_id);
+  if (it == CertificateProceeds().end() || it->second.host != host || it->second.code != code) {
+    return CertificateProceed::kNone;
+  }
+  const CertificateProceed mode = it->second.mode;
+  CertificateProceeds().erase(it);
+  return mode;
+}
+
+void NoteCertificateError(int browser_id, int code, bool chromium_interstitial) {
+  AnsweredCertificates()[browser_id] = {code, chromium_interstitial};
+}
+
+int CertificateLoadError(int browser_id, int code, std::string* text, bool* chromium_interstitial) {
+  *chromium_interstitial = false;
+  auto it = AnsweredCertificates().find(browser_id);
+  if (it != AnsweredCertificates().end()) {
+    if (!it->second.chromium_interstitial && code == -3) {  // ERR_ABORTED
+      code = it->second.code;
+      *text = CertificateErrorName(code);
+    }
+    *chromium_interstitial = it->second.chromium_interstitial && code == it->second.code;
+  }
+  ForgetCertificateState(browser_id);
+  return code;
+}
+
+void ForgetCertificateState(int browser_id) {
+  CertificateProceeds().erase(browser_id);
+  AnsweredCertificates().erase(browser_id);
+}
+
+}  // namespace cmux_shim
+
 extern "C" {
 
 int cmux_shim_content_setting(int browser_id, const char* url, const char* type) {
@@ -249,6 +327,15 @@ int cmux_shim_download_favicon(int browser_id, int reply, const char* url, int m
   // As a favicon (Chromium's favicon request flags), from the cache when it
   // has the icon, in the tab's request context: its cookies and profile.
   browser->GetHost()->DownloadImage(url, true, static_cast<uint32_t>(max_size), false, new FaviconReply(browser_id, reply));
+  return 1;
+}
+
+int cmux_shim_certificate_proceed(int browser_id, const char* host, int code, int chromium_decides) {
+  if (!BrowserById(browser_id) || !host || !*host) {
+    return 0;
+  }
+  CertificateProceeds()[browser_id] = {host, code,
+                                       chromium_decides ? CertificateProceed::kChromium : CertificateProceed::kContinue};
   return 1;
 }
 

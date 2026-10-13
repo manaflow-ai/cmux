@@ -7,7 +7,7 @@ import type { Rendered } from "./testing";
 
 const restore = installDom();
 afterAll(() => restore());
-const { click, ops, renderPage, run } = await import("./testing");
+const { changeValue, click, fire, ops, renderPage, run } = await import("./testing");
 
 let page: Rendered | null = null;
 afterEach(() => {
@@ -93,4 +93,108 @@ test("a theme shows as a round ball: its background, its text color and its six 
   expect(accent.getAttribute("data-ball-hue")).toBe("5");
   const radius = (dot: Element) => Number(dot.getAttribute("r"));
   for (const dot of ring) if (dot !== accent) expect(radius(accent)).toBeGreaterThan(radius(dot));
+});
+
+test("a theme previews live in the app before it is picked: hover or arrows, right-click pins it, Escape reverts", async () => {
+  page = await renderPage({ path: "/settings/theme" });
+  await click(theme(page).querySelector('[data-theme-row="app"] [data-theme-picker]')!);
+  const option = (name: string) => document.querySelector<HTMLElement>(`[data-theme-option="${name}"]`)!;
+  const previews = () => ops(page!.provider, "cmux.settings.preview");
+  // Right-click a theme: the app shows it, without a write, and it stays while the pointer moves on.
+  await fire(option("Dracula"), "contextmenu");
+  expect(previews().at(-1)).toEqual({ key: "appearance.appTheme", value: "Dracula" });
+  expect(option("Dracula").closest("[data-previewing]")).not.toBeNull();
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+  // Escape reverts: the preview ends and nothing was written.
+  await fire(document.querySelector<HTMLElement>(".theme-search")!, "keydown", { key: "Escape" });
+  expect(ops(page.provider, "cmux.settings.preview.end").length).toBeGreaterThan(0);
+  expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
+});
+
+test("a theme with color edits reads as custom and previews its edited colors", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: {
+      values: {
+        "appearance.theme": "Dracula",
+        "appearance.themeEdits": { "Dracula/background": "#101010", "Gruvbox Dark/4": "#123456" },
+      },
+    },
+  });
+  expect(theme(page).querySelector("[data-theme-picker]")?.textContent).toContain("Dracula (custom)");
+  // The preview draws the edited background; the theme's other colors stay its own.
+  expect(theme(page).querySelector("[data-theme-preview] rect")?.getAttribute("fill")).toBe("#101010");
+  await click(theme(page).querySelector("[data-theme-picker]")!);
+  const name = (theme: string) =>
+    document.querySelector(`[data-theme-option="${theme}"] .theme-option-name`)?.textContent ?? "";
+  expect(name("Gruvbox Dark")).toBe("Gruvbox Dark (custom)");
+  expect(name("Tokyo Night")).toBe("Tokyo Night");
+  // The edits never become a setting row of their own.
+  expect(page.container.querySelector('[data-row-key="appearance.themeEdits"]')).toBeNull();
+});
+
+test("each theme color is editable: sliders and snaps preview live, Done keeps the edit, Escape reverts", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: { values: { "appearance.theme": "Dracula", "appearance.themeEdits": { "Dracula/1": "#ff0000" } } },
+  });
+  const token = (name: string) => theme(page!).querySelector<HTMLButtonElement>(`[data-token="${name}"]`)!;
+  const tuner = () => document.querySelector<HTMLElement>("[data-token-tuner]");
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 120));
+  const edits = () =>
+    ops(page!.provider, "cmux.settings.set").filter((op) => (op as { key: string }).key === "appearance.themeEdits");
+  expect(token("1").hasAttribute("data-edited")).toBe(true);
+  expect(token("4").hasAttribute("data-edited")).toBe(false);
+
+  // A hue drag previews the edited theme live, without a write.
+  await click(token("4"));
+  const hue = tuner()!.querySelectorAll<HTMLInputElement>('input[type="range"]')[2]!;
+  await changeValue(hue, "30");
+  await settle();
+  const preview = ops(page.provider, "cmux.settings.preview").at(-1) as { key: string; value: Record<string, string> };
+  expect(preview.key).toBe("appearance.themeEdits");
+  expect(preview.value["Dracula/1"]).toBe("#ff0000");
+  expect(preview.value["Dracula/4"]).toMatch(/^#[0-9a-f]{6}$/);
+  expect(edits()).toEqual([]);
+  // Escape reverts: the preview ends and nothing is written.
+  await fire(tuner()!.querySelector("input")!, "keydown", { key: "Escape" });
+  await settle();
+  expect(tuner()).toBeNull();
+  expect(edits()).toEqual([]);
+  expect(ops(page.provider, "cmux.settings.preview.end").length).toBeGreaterThan(0);
+
+  // A snap color applies at once, and Done keeps it as the theme's edit (the original theme never changes).
+  await click(token("4"));
+  const snap = tuner()!.querySelector<HTMLButtonElement>("[data-snap]")!;
+  const snapped = snap.getAttribute("data-snap")!;
+  await click(snap);
+  expect(tuner()!.querySelector<HTMLInputElement>("input")!.value).toBe(snapped);
+  await click([...tuner()!.querySelectorAll("button")].at(-1)!);
+  expect(edits().at(-1)).toEqual({
+    key: "appearance.themeEdits",
+    value: { "Dracula/1": "#ff0000", "Dracula/4": snapped },
+  });
+});
+
+test("a theme color below its contrast floor says so and Raise Contrast lifts it; Reset drops the edit", async () => {
+  page = await renderPage({
+    path: "/settings/theme",
+    mock: { values: { "appearance.theme": "Dracula", "appearance.themeEdits": { "Dracula/1": "#ff0000" } } },
+  });
+  const tuner = () => document.querySelector<HTMLElement>("[data-token-tuner]");
+  await click(theme(page).querySelector('[data-token="foreground"]')!);
+  // Dracula's background is #282a36: a foreground this close fails 4.5:1.
+  await changeValue(tuner()!.querySelector<HTMLInputElement>("input")!, "#30323e");
+  const readout = () => tuner()!.querySelector<HTMLElement>(".token-tuner-contrast")!;
+  expect(readout().hasAttribute("data-contrast-low")).toBe(true);
+  await click(readout().querySelector("button")!);
+  expect(readout().hasAttribute("data-contrast-low")).toBe(false);
+  expect(Number(readout().textContent!.match(/([\d.]+):1/)![1])).toBeGreaterThanOrEqual(4.5);
+  await fire(tuner()!.querySelector("input")!, "keydown", { key: "Escape" });
+
+  // Reset on an edited color removes its entry; with none left the key resets.
+  await click(theme(page).querySelector('[data-token="1"]')!);
+  const reset = [...tuner()!.querySelectorAll("button")].find((button) => button.textContent === "Reset")!;
+  await click(reset);
+  expect(ops(page.provider, "cmux.settings.reset").at(-1)).toEqual({ key: "appearance.themeEdits" });
 });

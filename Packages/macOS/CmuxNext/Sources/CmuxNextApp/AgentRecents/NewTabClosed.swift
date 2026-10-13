@@ -42,17 +42,13 @@ enum NewTabClosed {
         HistoryRestorer(services: services).reopen(item)
     }
 
-    /// The newest closed items, as the page draws them, without favicons.
-    /// Reads the closed-tab tracker's revision, the one part of History's
-    /// closed list that is not observable state itself. Leaves out tabs
-    /// closed in incognito windows, and the app's own record of a workspace
-    /// whose daemon keeps closed history (the daemon's entry stands).
+    /// The newest closed items, as the page draws them, without favicons:
+    /// the daemons' closed history (the only one). Reads the closed-tab
+    /// feed's revision, so a close or a reopen redraws the page.
     static func items(_ services: AppServices) -> [AgentPaneClosedItem] {
         _ = services.closedTabs?.changes.revision
         return services.history.closedEntries().sorted { $0.time > $1.time }.lazy.compactMap { entry -> AgentPaneClosedItem? in
-            guard case .closed(let item) = entry.payload, !(services.closedTabs?.isIncognito(item.id) ?? false) else { return nil }
-            if entry.id.hasPrefix("closed:workspace:"),
-               services.machines.daemons.first(where: { $0.machineID == item.machine })?.store.servesStateResources == true { return nil }
+            guard case .closed(let item) = entry.payload else { return nil }
             let kind: AgentPaneClosedItem.Kind = switch item.kind {
             case .terminalTab: .terminal
             case .browserTab: .browser

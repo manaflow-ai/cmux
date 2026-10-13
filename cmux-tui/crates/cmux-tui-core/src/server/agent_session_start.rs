@@ -399,3 +399,12 @@ fn settle_asking_mode(link: &AcpmuxLink, session: &str) -> Result<String, Refusa
         }
     }
 }
+
+impl Mux {
+    /// The machine kind gate of `agent-session-start` (team VM, Cloud VM of
+    /// unknown kind, or never told), read again at each call; a guarded
+    /// chat move in (`agent_transfer.rs`) takes the same rule.
+    pub(crate) fn agent_host_gate(&self) -> Result<(), Refusal> {
+        self.control_clients.agent_sessions.starts.host_gate()
+    }
+}

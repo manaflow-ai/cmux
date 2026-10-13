@@ -39,6 +39,7 @@ nonisolated enum ComputerUseSettingsSchema {
                 title: SettingsText.keyed("settings.computerUse.enabled", "Computer Use"),
                 help: SettingsText.keyed("settings.computerUse.enabled.help",
                                          "Lets agents see and use your apps through the signed cmux Computer Use helper. macOS asks for Accessibility and Screen Recording when you first allow them."),
+                summary: SettingsText.keyed("settings.computerUse.enabled.summary", "Lets agents see and use your apps"),
                 kind: .toggle, default: .bool(ComputerUseSettings().enabled),
                 keywords: ["computer use", "agents", "automation", "screen recording", "accessibility", "helper"]
             ),
@@ -47,6 +48,7 @@ nonisolated enum ComputerUseSettingsSchema {
                 title: SettingsText.keyed("settings.computerUse.driver", "Computer Use Driver"),
                 help: SettingsText.keyed("settings.computerUse.driver.help",
                                          "Legacy runs the current cmux Computer Use helper. Upstream runs the new helper built on the upstream Cua Driver; macOS asks for its permissions separately."),
+                summary: SettingsText.keyed("settings.computerUse.driver.summary", "Which helper runs Computer Use"),
                 kind: .choice([
                     SettingChoice(ComputerUseDriver.legacy.rawValue,
                                   SettingsText.keyed("settings.computerUse.driver.legacy", "Legacy")),

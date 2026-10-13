@@ -10,18 +10,22 @@ use cmux_tui_core::resource::{
 use serde_json::{Map, Number, Value, json};
 
 use super::{GlobalArgs, UsageError};
-use flags::{BOOLEAN_FLAGS, usage};
+use flags::{BOOLEAN_FLAGS, usage, validate_one_of};
 
 mod browser;
+mod bulk_close;
 #[cfg(test)]
 pub(in crate::cli) mod cases;
 mod conversation;
 mod flags;
-mod git;
+pub(super) mod git;
+mod history;
+pub(super) use history::DAEMON_VERBS as HISTORY_DAEMON_VERBS;
 mod plan;
 mod screen;
 mod server_ensure;
 mod state;
+mod workspace;
 
 pub(super) use plan::{RequestPlan, Resolve, ResponseView, WireOperation, ZoomStep};
 use screen::{parse_screen, parse_screen_strings};
@@ -165,6 +169,7 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         "room" => state::parse_room(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "closed" => state::parse_closed(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "git" => git::parse_git(&strs(&tokens.words[1..]), &mut tokens.flags)?,
+        "history" => history::parse_history(&strs(&tokens.words[1..]), &mut tokens.flags)?,
         "conversation" => {
             conversation::parse_conversation(&strs(&tokens.words[1..]), &mut tokens.flags)?
         }
@@ -594,20 +599,7 @@ fn parse_workspace(
             request(ResourceOperation::WorkspacePlacementList, selectors, flags, Map::new())
         }
         ["list"] => state::workspace_list(selectors, flags),
-        ["create"] => {
-            let mut params = Map::new();
-            if let Some(name) = flags.take("name") {
-                params.insert("name".into(), Value::String(name));
-            }
-            params.insert(
-                "initial_content".into(),
-                Value::String(if flags.boolean("empty") { "empty" } else { "terminal" }.into()),
-            );
-            if flags.boolean("ephemeral") {
-                params.insert("ephemeral".into(), Value::Bool(true));
-            }
-            request(ResourceOperation::WorkspaceCreate, selectors, flags, params)
-        }
+        ["create"] => workspace::workspace_create(selectors, flags, argv),
         [selector, "show"] => {
             selectors.insert("workspace", "ws", selector)?;
             request(ResourceOperation::WorkspaceGet, selectors, flags, Map::new())
@@ -630,10 +622,7 @@ fn parse_workspace(
             selectors.insert("workspace", "ws", selector)?;
             request(ResourceOperation::WorkspaceFocus, selectors, flags, Map::new())
         }
-        [selector, "close"] => {
-            selectors.insert("workspace", "ws", selector)?;
-            request(ResourceOperation::WorkspaceClose, selectors, flags, Map::new())
-        }
+        [selector, "close"] => bulk_close::close("workspace", selector, selectors, flags),
         [selector, "run", tail @ ..] => {
             selectors.insert("workspace", "ws", selector)?;
             let mut params = run_params(tail, argv, flags)?;
@@ -772,10 +761,7 @@ fn parse_pane_strings(
             insert_positive_u16(&mut params, "columns", "--columns", flags.required("columns")?)?;
             request(ResourceOperation::PaneViewportWidthSet, selectors, flags, params)
         }
-        [selector, "close"] => {
-            selectors.insert("pane", "pane", selector)?;
-            request(ResourceOperation::PaneClose, selectors, flags, Map::new())
-        }
+        [selector, "close"] => bulk_close::close("pane", selector, selectors, flags),
         [selector, "run", tail @ ..] => {
             selectors.insert("pane", "pane", selector)?;
             let mut params = run_params(tail, argv, flags)?;
@@ -850,10 +836,7 @@ fn parse_tab_strings(
             selectors.insert("tab", "tab", selector)?;
             state::tab_change(action, rest, selectors, flags)
         }
-        [selector, "close"] => {
-            selectors.insert("tab", "tab", selector)?;
-            request(ResourceOperation::TabClose, selectors, flags, Map::new())
-        }
+        [selector, "close"] => bulk_close::close("tab", selector, selectors, flags),
         [selector, "terminal", tail @ ..] => {
             selectors.insert("tab", "tab", selector)?;
             let tail = tail.iter().map(|value| (*value).to_string()).collect::<Vec<_>>();
@@ -1200,23 +1183,17 @@ fn parse_notification(words: &[String], flags: &mut Flags) -> Result<CommandPlan
 /// The target is the caller's own terminal (`CMUX_TUI_TERMINAL_ID`, injected
 /// into every daemon PTY) unless `--surface` names another terminal of this
 /// session or `--workspace` asks for a session-level row; a machine cannot
-/// address anything outside its own session. `--reply` is refused: the reply
-/// channel would type into a terminal, and that channel does not cross the
-/// machine boundary. `--window`, `--id-format`, and `--desktop` are accepted
-/// for signature parity and have no meaning on a machine: the Mac decides how
-/// a machine's row is delivered. `--desktop` is still validated so a bad value
-/// fails the same way it does locally, and like the local flag it is not
-/// validated with `--clear`.
+/// address anything outside its own session. `--reply` asks the app for a
+/// banner that takes a typed reply for the target terminal (only it).
+/// `--window` and `--id-format` are accepted for signature
+/// parity. `--desktop false` asks the app for no banner; like the local flag
+/// it is not validated with `--clear`.
 fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     if !words.is_empty() {
         return usage("notify takes flags only");
     }
     let selectors = Selectors::default();
-    if flags.boolean("reply") {
-        return Err(UsageError::new(
-            "--reply is not available on a machine: replies would type into a terminal across the link",
-        ));
-    }
+    let reply = flags.boolean("reply");
     let _ = flags.take("window");
     let _ = flags.take("id-format");
     let desktop = flags.take("desktop");
@@ -1266,9 +1243,14 @@ fn parse_notify(words: &[String], flags: &mut Flags) -> Result<CommandPlan, Usag
         return request(ResourceOperation::NotificationClear, &selectors, flags, params);
     }
     // Like the local flag, `--desktop` has no effect with `--clear` and is validated only here.
-    if let Some(desktop) = desktop {
-        parse_bool("--desktop", &desktop)
-            .map_err(|_| UsageError::new("--desktop must be true|false"))?;
+    if let Some(desktop) = desktop
+        && !parse_bool("--desktop", &desktop)
+            .map_err(|_| UsageError::new("--desktop must be true|false"))?
+    {
+        params.insert("desktop".into(), Value::Bool(false));
+    }
+    if reply {
+        params.insert("reply".into(), Value::Bool(true));
     }
     let title = flags.take("title").unwrap_or_else(|| "Notification".into());
     if title.is_empty() {
@@ -1924,15 +1906,8 @@ fn supports_expected_revision(operation: ResourceOperation) -> bool {
                 | ResourceOperation::SessionJournalHookPut
                 | ResourceOperation::SessionJournalProducerPut
                 | ResourceOperation::SessionJournalSegmentSeal
+                | ResourceOperation::LayoutBulk
         )
-}
-
-fn validate_one_of(flag: &str, value: &str, allowed: &[&str]) -> Result<(), UsageError> {
-    if allowed.contains(&value) {
-        Ok(())
-    } else {
-        Err(UsageError::new(format!("{flag} must be one of {}", allowed.join(", "))))
-    }
 }
 
 fn parse_bool(flag: &str, value: &str) -> Result<bool, UsageError> {
@@ -3511,13 +3486,12 @@ mod tests {
             protocol(&["notify", "--clear", "--surface", TERMINAL, "--desktop", "maybe"]);
         assert_eq!(clear_ignores_desktop.operation.name().unwrap(), "notification.clear");
 
-        assert!(
-            parse(&strings(&["notify", "--reply", "--title", "x"]), super::super::Surface::CmuxTui)
-                .is_err(),
-            "no reply channel across the link"
-        );
-        // The Mac owns delivery for a machine's rows, so the local banner
-        // switch parses for parity and adds nothing to the request.
+        let reply = protocol(&["notify", "--workspace", "current", "--reply", "--title", "x"]);
+        assert_eq!(reply.params["reply"], true, "a reply banner, for the caller's terminal only");
+        let no_reply = protocol(&["notify", "--workspace", "current", "--title", "x"]);
+        assert!(no_reply.params.get("reply").is_none());
+        // `--desktop false` is a plain `desktop` field (the e2e test reads it
+        // on the event), never classic's `effects` object.
         for parity in [
             &["notify", "--workspace", "current", "--desktop", "false"][..],
             &["notify", "--workspace", "current", "--desktop=true"][..],

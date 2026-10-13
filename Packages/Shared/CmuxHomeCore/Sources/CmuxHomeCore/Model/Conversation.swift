@@ -126,9 +126,13 @@ public struct InboxSnapshot: Hashable, Sendable {
 public struct ConversationPage: Hashable, Sendable {
     public var conversation: ConversationSummary
     public var messages: [Message]
+    /// The owner's stats of the thread roots in `messages` (empty from an
+    /// owner without thread stats).
+    public var threads: [ThreadSummary]
 
-    public init(conversation: ConversationSummary, messages: [Message]) {
+    public init(conversation: ConversationSummary, messages: [Message], threads: [ThreadSummary] = []) {
         self.conversation = conversation
         self.messages = messages
+        self.threads = threads
     }
 }

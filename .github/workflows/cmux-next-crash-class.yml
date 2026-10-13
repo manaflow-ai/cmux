@@ -13,6 +13,8 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/ci/crash-class-gate.sh"
+      - "scripts/ci/pr_owned_findings.py"
       - ".github/workflows/cmux-next-crash-class.yml"
   push:
     branches:
@@ -22,6 +24,8 @@ on:
       - "Packages/macOS/CmuxNext/Package.swift"
       - "scripts/cmux-next/check-concurrency.sh"
       - "scripts/cmux-next/check-main-actor-work.py"
+      - "scripts/ci/crash-class-gate.sh"
+      - "scripts/ci/pr_owned_findings.py"
       - ".github/workflows/cmux-next-crash-class.yml"
   workflow_dispatch:
 
@@ -40,14 +44,19 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
+          # A pull request's merge commit with its parents: the gate fails the
+          # PR only for findings in the files it changes.
+          fetch-depth: ${{ github.event_name == 'pull_request' && '2' || '1' }}
           persist-credentials: false
           sparse-checkout: |
             Packages/macOS/CmuxNext/Sources
             Packages/macOS/CmuxNext/Package.swift
             scripts/cmux-next
+            scripts/ci/crash-class-gate.sh
+            scripts/ci/pr_owned_findings.py
           sparse-checkout-cone-mode: false
 
       - name: Crash-class concurrency rules
         env:
-          CHECK_CONCURRENCY_ONLY: crash-class
-        run: scripts/cmux-next/check-concurrency.sh "$GITHUB_WORKSPACE/Packages/macOS/CmuxNext"
+          GATE_SCOPE: ${{ github.event_name == 'pull_request' && '--pr' || '' }}
+        run: scripts/ci/crash-class-gate.sh ${GATE_SCOPE:+"$GATE_SCOPE"}

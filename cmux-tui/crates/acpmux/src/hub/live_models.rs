@@ -102,6 +102,12 @@ impl Hub {
         let listed =
             crate::live_models::probe(target.cli, &target.argv, &target.env, &cwd, PROBE_TIMEOUT)
                 .await;
+        // A list call that started a session leaves no transcript behind.
+        let folder = cwd.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            crate::probe_cleanup::remove_probe_transcripts(&folder)
+        })
+        .await;
         let harness = target.harness;
         let models = match listed {
             Ok(models) => models,

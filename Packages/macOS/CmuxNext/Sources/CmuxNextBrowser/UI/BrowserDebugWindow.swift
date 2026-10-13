@@ -75,7 +75,7 @@ public final class BrowserDebugWindow: NSObject, BrowserTabDelegate {
         case .close:
             tabs.removeAll { $0 === tab }
             if let next = tabs.last { chrome.tab = next; observe() } else { window.close() }
-        case .download:
+        case .download, .webNotification:
             break
         case .activate:
             chrome.tab = tab

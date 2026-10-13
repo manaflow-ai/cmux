@@ -107,7 +107,9 @@ enum AgentBesidePlacement {
             let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
                 TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
             }
-            return moved ? nil : "beside-caller: the move into a new column failed (see the app log)"
+            guard moved else { return "beside-caller: the move into a new column failed (see the app log)" }
+            await revealMoved(tab.id, from: anchor, services: services)
+            return nil
         })
         return { surface in
             then?(surface)
@@ -127,6 +129,28 @@ extension AgentBesidePlacement {
               let column = screen.columns.first(where: { $0.layout.paneIDs.contains(chat.handle) }),
               column.dock == nil else { return nil }
         return column.id
+    }
+}
+
+extension AgentBesidePlacement {
+    /// Scrolls the new column of tab `id`, moved out of `anchor`, into view once the store lists it
+    /// there; focus stays in the chat. The strip follows focus only, so a column the daemon added past
+    /// the viewport (after the last column, as beside a chat docked left) stayed out of view (cx-27j7).
+    @MainActor static func revealMoved(_ id: String, from anchor: PaneModel, services: AppServices) async {
+        guard let content = services.paneController(for: anchor)?.workspace else { return }
+        let listed = Task { @MainActor () -> Bool in
+            for await moved in Observations({ services.locateTab(id).map { $0.1 !== anchor } ?? false }) where moved {
+                return true
+            }
+            return false
+        }
+        let bound = DemandTimer(owner: "AgentBesidePlacement.reveal")
+        bound.schedule(after: openLimit) { @MainActor in
+            listed.cancel()
+        }
+        let moved = await listed.value
+        bound.cancel()
+        if moved, let pane = services.locateTab(id)?.1 { content.layoutModel.revealColumn(containing: LayoutPaneID(pane.id)) }
     }
 }
 

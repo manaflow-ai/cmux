@@ -5,6 +5,7 @@
   --acpmux-mp-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
   --acpmux-mp-gap: 4px;
   width: min(310px, calc(100vw - 24px));
+  min-width: 0;
   box-sizing: border-box;
 }
 .acpmux-mp-rail-scroll {
@@ -92,6 +93,9 @@
    a usable text width. The rail remains horizontally scrollable when a pane has many harnesses. */
 @media (max-width: 407px) {
   .acpmux-mp {
+    /* useUiAnchor resolves these coordinates in viewport space. Fixed positioning keeps a
+       narrow picker from enlarging the composer's scrollable row while it is open. */
+    position: fixed !important;
     width: calc(100vw - 16px) !important;
     max-width: calc(100vw - 16px);
     flex-direction: column !important;
@@ -137,7 +141,7 @@
   padding: 6px;
   box-sizing: border-box;
   border-radius: 12px;
-  background: var(--acpmux-menu-bg);
+  background: var(--surface-popup);
   box-shadow:
     inset 0 0 0 0.5px var(--acpmux-composer-edge),
     0 10px 30px var(--agent-shadow, rgb(0 0 0 / 0.35));
@@ -229,25 +233,17 @@
 }
 
 /* Nested cascade levels are popups too. Keep their bespoke placement and scrolling, but use the
-   same material as the root model menu and Base UI surfaces. */
+   same solid popup surface as the root model menu and Base UI surfaces. */
 .acpmux-mp-cascade .acpmux-mp-sub {
   border: 1px solid var(--ui-line, color-mix(in srgb, var(--agent-text) 12%, transparent));
-  background-color: color-mix(in srgb, var(--acpmux-menu-bg, var(--ui-surface, Canvas)) var(--surface-text-min, 92%), transparent);
-  -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
-  backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
+  background-color: var(--surface-popup);
   box-shadow: var(--ui-popup-shadow);
 }
 
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-mp-cascade .acpmux-mp-sub {
-    background-color: var(--acpmux-menu-bg, var(--ui-surface, Canvas));
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
+/* Under Increase Contrast the search row's text step does not show (muted is the text color):
+   the row takes the shared focus ring when its field has focus (cx-ncc.57). */
+@media (prefers-contrast: more) {
+  .acpmux-mp-search:focus-within {
+    box-shadow: inset 0 0 0 var(--cmux-focus-ring-width) var(--cmux-focus-ring-color);
   }
-}
-
-:root[data-reduce-transparency] .acpmux-mp-cascade .acpmux-mp-sub {
-  background-color: var(--acpmux-menu-bg, var(--ui-surface, Canvas));
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
 }

@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703. */
+/* cmux-tui mux protocol 12, IR 7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -71,6 +71,8 @@ export type Bookmark = {
   "browser_profile_id": string;
   "created_ms": bigint;
   "favicon_key"?: string;
+  /** Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>. */
+  "icon"?: string;
   /** `bm_` and 32 lowercase hex digits. */
   "id": string;
   /** Dense 0-based position among the node's siblings. */
@@ -253,7 +255,7 @@ export type ConversationPart = {
   "status"?: string;
   /** type text. */
   "text"?: string;
-  /** Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview; see spec/commands.md). A part of another type keeps its fields in the additional properties. */
+  /** Known values: text (text, runs), work (session, host, status, preview) and, with local-attachments-v1, attachment (hash, name, mime_type, byte_count, width, height, duration_ms, poster, preview) and link_preview (url, title, site, image; see spec/commands.md). A part of another type keeps its fields in the additional properties. */
   "type": string;
   [key: string]: unknown;
 };
@@ -319,6 +321,8 @@ export type ConversationTabRecord = {
   "owner"?: string;
   /** Page source (page-tabs-v1): the id of one of the app's own pages; exclusive with the other sources. */
   "page"?: string;
+  /** What the page shows (page-tab-route-v1): a viewer's file or folder or a page's sub-view, 1 to 4096 bytes without control characters; only with page. */
+  "route"?: string;
 };
 
 export type ConversationTextRun = {
@@ -326,6 +330,14 @@ export type ConversationTextRun = {
   "link"?: string;
   "mention"?: string;
   "start": number;
+};
+
+export type ConversationThreadSummary = {
+  "authors": Array<string>;
+  "last_reply_at": (string) | null;
+  "last_reply_seq": (bigint) | null;
+  "reply_count": bigint;
+  "root": string;
 };
 
 export type CopyResult = {
@@ -680,6 +692,8 @@ export type ProcessInfoResult = {
   "pid": (number) | null;
 };
 
+export type ProgramStatusState = "working" | "blocked" | "error" | "done";
+
 export type ProviderWorkspaceMutationResult = {
   "key": string;
   "workspace": Id;
@@ -861,7 +875,7 @@ export type SavedTabGroupMember = {
 };
 
 export type SavedTabGroupRecord = {
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   "members": Array<SavedTabGroupMember>;
@@ -1010,6 +1024,11 @@ export type SetTerminalKeepResult = {
   "terminal_resource_id"?: (string) | null;
 };
 
+export type ShownProgramStatus = {
+  "progress": (number) | null;
+  "state": ProgramStatusState;
+};
+
 export type ShutdownDaemonResult = {
   "accepted": true;
   "ended_terminals"?: (bigint) | null;
@@ -1120,10 +1139,13 @@ export type Tab = {
   "kind": "pty" | "browser" | "conversation";
   "name": (string) | null;
   "notification"?: (NotificationMarker) | null;
+  "program_status"?: (ShownProgramStatus) | null;
   "short_id"?: string;
   "size": (Size) | null;
   "supports_clear_history_key_fallback"?: boolean;
   "surface": Id;
+  /** Why a terminal will end with something other than its shell although terminal hosts are on: `breakaway_denied` (Windows: the host runs inside the daemon's kill-on-close Job Object and ends when that job closes) or `host_start_failed` (no host; the daemon runs the terminal and it ends with the daemon). Null otherwise and for browser tabs. A string, not an enum: clients read an unknown value as a notice for another reason. */
+  "terminal_host_fallback"?: (string) | null;
   "terminal_id"?: (string) | null;
   "terminal_incarnation"?: (string) | null;
   "terminal_resource_id"?: (string) | null;
@@ -1149,7 +1171,7 @@ export type TabGroupOutcome = {
 
 export type TabGroupRecord = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "id": string;
   /** May be empty: the group shows only its color. */
@@ -1161,7 +1183,7 @@ export type TabGroupRecord = {
 
 export type TabGroupRun = {
   "collapsed": boolean;
-  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange. Other values are future colors. */
+  /** Known values: grey, blue, red, yellow, green, pink, purple, cyan, orange, or a custom #RRGGBB. Other values are future colors. */
   "color": string;
   "count": bigint;
   "id": string;
@@ -1213,8 +1235,31 @@ export type TerminalColors = {
   "selection_fg": (ColorHex) | null;
 };
 
+export type TerminalCommandDeleteResult = {
+  "deleted": bigint;
+};
+
 export type TerminalCommandHistoryResult = {
   "enabled": boolean;
+  "retention_days": number;
+};
+
+export type TerminalCommandList = {
+  "commands": Array<TerminalCommandRecord>;
+  "deletions": string;
+  "registry_id": string;
+  "retention_days": number;
+  "truncated": boolean;
+};
+
+export type TerminalCommandRecord = {
+  "command": (string) | null;
+  "cwd": (string) | null;
+  "duration_ms": string;
+  "exit_code": (number) | null;
+  "id": string;
+  "started_at_ms": string;
+  "terminal_id": string;
 };
 
 export type TerminalEventsResult = {

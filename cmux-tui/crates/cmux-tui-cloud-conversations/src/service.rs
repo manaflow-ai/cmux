@@ -67,7 +67,8 @@ pub trait CloudBackend: Send + Sync {
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError>;
-    /// Opens `url` with subprotocols `cmux.wire.v1, bearer.<bearer>`.
+    /// Opens `url` with subprotocol `cmux.wire.v1` and the bearer in the
+    /// `authorization` header (cx-dgsp; legacy subprotocol only for an old Worker).
     fn connect(
         &self,
         url: &str,
@@ -106,6 +107,9 @@ pub struct ServiceOptions {
     pub max_concurrent_requests: usize,
     /// Unix milliseconds.
     pub now_ms: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// API origins beyond the built-in cmux Cloud ones that a lease from a
+    /// connection that is not the app may name (`CMUX_CLOUD_API_ORIGINS`).
+    pub api_origins: Vec<String>,
 }
 
 impl Default for ServiceOptions {
@@ -117,6 +121,13 @@ impl Default for ServiceOptions {
             poll: Duration::from_secs(1),
             max_conversation_subscriptions: 64,
             max_concurrent_requests: 16,
+            api_origins: std::env::var("CMUX_CLOUD_API_ORIGINS")
+                .unwrap_or_default()
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(str::to_string)
+                .collect(),
             now_ms: Arc::new(|| {
                 SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -135,6 +146,9 @@ struct Lease {
     expiring_sent: bool,
     /// A socket announced `expired` for this generation.
     expired_sent: bool,
+    /// The verified cmux app set the current lease (`cloud-lease-app-only-v1`):
+    /// no other connection may replace or clear it.
+    app_held: bool,
 }
 
 struct Subscription {
@@ -200,6 +214,20 @@ pub struct CloudConversations {
     inner: Arc<Inner>,
 }
 
+/// The refusal text of a lease change from a connection that is not the app.
+const APP_ONLY_LEASE: &str = "the cloud session lease belongs to the verified cmux app connection; only it may set or clear it";
+
+fn check_lease_holder(lease: &Lease, by_app: bool) -> Result<(), CloudError> {
+    if by_app || !lease.app_held || lease.session.is_none() {
+        return Ok(());
+    }
+    Err(CloudError::Rejected {
+        code: "forbidden".into(),
+        message: APP_ONLY_LEASE.into(),
+        retryable: false,
+    })
+}
+
 impl CloudConversations {
     pub fn new(backend: Arc<dyn CloudBackend>) -> Self {
         Self::with_options(backend, ServiceOptions::default())
@@ -229,8 +257,22 @@ impl CloudConversations {
     /// `cloud-session-set`: replaces the lease. Open sockets reconnect with
     /// the new token and resume.
     pub fn set_session(&self, params: SessionParams) -> Result<Value, CloudError> {
+        self.set_session_by(params, true)
+    }
+
+    /// `cloud-session-set` from a connection that is (`by_app`) or is not the
+    /// verified cmux app. A lease the app set is the human's: any other
+    /// connection is refused until the app clears it.
+    pub fn set_session_by(&self, params: SessionParams, by_app: bool) -> Result<Value, CloudError> {
         let reply = {
             let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+            check_lease_holder(&lease, by_app)?;
+            if !by_app {
+                super::session::check_known_origin(
+                    &params.api_base_url,
+                    &self.inner.options.api_origins,
+                )?;
+            }
             let session = CloudSession::new(params, lease.generation + 1)?;
             lease.generation = session.generation;
             lease.expiring_sent = false;
@@ -241,6 +283,7 @@ impl CloudConversations {
                 "expires_at": session.expires_at,
             });
             lease.session = Some(session);
+            lease.app_held = by_app;
             reply
         };
         self.inner.notify();
@@ -249,13 +292,28 @@ impl CloudConversations {
 
     /// `cloud-session-clear`.
     pub fn clear_session(&self) -> Value {
+        self.clear_session_by(true).unwrap_or_else(|_| json!({"state": "signed_out"}))
+    }
+
+    /// `cloud-session-clear` from a connection that is (`by_app`) or is not
+    /// the verified cmux app; refused like `set_session_by`.
+    pub fn clear_session_by(&self, by_app: bool) -> Result<Value, CloudError> {
         {
             let mut lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+            check_lease_holder(&lease, by_app)?;
             lease.session = None;
+            lease.app_held = false;
             lease.generation += 1;
         }
         self.inner.notify();
-        json!({"state": "signed_out"})
+        Ok(json!({"state": "signed_out"}))
+    }
+
+    /// Whether the verified cmux app set the current lease
+    /// (`cloud-lease-app-only-v1`): then only the app may use it.
+    pub fn app_holds_lease(&self) -> bool {
+        let lease = self.inner.lease.lock().unwrap_or_else(PoisonError::into_inner);
+        lease.app_held && lease.session.is_some()
     }
 
     /// `cloud-session-status`. Never returns the token.
@@ -338,6 +396,34 @@ impl CloudConversations {
         history_data(value)
     }
 
+    /// `cloud-conversation-thread`: `conversation.thread`, the owner's value
+    /// unchanged (root, replies, has_more, thread).
+    pub fn thread(
+        &self,
+        conversation: &str,
+        root: &str,
+        after_seq: Option<u64>,
+        limit: Option<u32>,
+    ) -> Result<Value, CloudError> {
+        require_conversation(conversation)?;
+        if root.is_empty() || root.len() > 128 {
+            return Err(CloudError::BadRequest("root must be a message id".into()));
+        }
+        let mut params = json!({"conversation": conversation, "root": root});
+        if let Some(after_seq) = after_seq {
+            params["after_seq"] = json!(after_seq);
+        }
+        if let Some(limit) = limit {
+            if !(1..=MAX_PAGE).contains(&limit) {
+                return Err(CloudError::BadRequest(format!("limit must be 1-{MAX_PAGE}")));
+            }
+            params["limit"] = json!(limit);
+        }
+        let (value, _) =
+            read_value(self.post("/v1/read", &read_body("conversation.thread", params))?)?;
+        Ok(value)
+    }
+
     /// The leased chief's wake queue (`cloud-mux-subscribe`): the agent is
     /// the lease token's `agt` claim, so a client can never name another
     /// chief's queue. Refused for a person's session token.
@@ -358,6 +444,8 @@ impl CloudConversations {
     /// `cloud-mux-ack`: the brain handled the wakes of `conversation` up to
     /// `seq`. `mux.ack` for the lease's own chief; the idempotency key names
     /// the wake row (`<conversation>:<seq>`), so a repeated ack is a replay.
+    /// No `origin`: the Worker's origin schema has no agent value, and the
+    /// chief is the token's `agt` claim (cx-59n8.17).
     pub fn mux_ack(&self, conversation: &str, seq: u64) -> Result<Value, CloudError> {
         require_conversation(conversation)?;
         let agent = self.lease_agent()?;
@@ -365,7 +453,6 @@ impl CloudConversations {
             "op": "mux.ack",
             "params": {"agent": agent, "conversation": conversation, "seq": seq},
             "idempotency_key": format!("mux-ack:{conversation}:{seq}"),
-            "origin": "agent",
         });
         mutation_data(self.post("/v1/ops", &body)?)
     }
@@ -507,6 +594,15 @@ impl CloudConversations {
             }
         }
         self.inner.notify();
+    }
+
+    /// Whether a connection (`is_app`: the verified cmux app) receives cloud
+    /// events. While the app holds the lease, its events are the human's:
+    /// only the app gets them. Without an app lease (a headless brain's own
+    /// daemon, which reads events on a second connection) every trusted
+    /// local stream does, as before.
+    pub fn delivers_to(&self, is_app: bool) -> bool {
+        is_app || !self.app_holds_lease()
     }
 
     /// Whether `target` still has an upstream driver (tests and diagnostics).

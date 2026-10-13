@@ -12838,6 +12838,530 @@
           }
         }
       }
+    },
+    "updater.button.downloadManually": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Download Manually"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنزيل يدويًا"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzmi ručno"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Download manuelt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Manuell laden"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Descargar manualmente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Télécharger manuellement"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Scarica manualmente"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "手動でダウンロード"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទាញយកដោយដៃ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "직접 다운로드"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Last ned manuelt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pobierz ręcznie"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Baixar manualmente"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скачать вручную"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ดาวน์โหลดด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Elle indir"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завантажити вручну"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tải xuống thủ công"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "手动下载"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "手動下載"
+          }
+        }
+      }
+    },
+    "updater.preflight.folder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux can't replace itself in %@. Move cmux to Applications, or download the update manually."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستطيع cmux استبدال نفسه في %@. انقل cmux إلى التطبيقات، أو نزّل التحديث يدويًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne može zamijeniti sebe u %@. Premjestite cmux u Applications ili ručno preuzmite ažuriranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kan ikke erstatte sig selv i %@. Flyt cmux til Programmer, eller download opdateringen manuelt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kann sich in %@ nicht ersetzen. Verschiebe cmux in den Ordner „Programme“ oder lade das Update manuell."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux no puede reemplazarse en %@. Mueve cmux a Aplicaciones o descarga la actualización manualmente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ne peut pas se remplacer dans %@. Déplacez cmux dans Applications ou téléchargez la mise à jour manuellement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux non può sostituirsi in %@. Sposta cmux in Applicazioni o scarica l’aggiornamento manualmente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux は %@ で自身を置き換えられません。cmux をアプリケーションフォルダに移動するか、アップデートを手動でダウンロードしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux មិនអាចជំនួសខ្លួនឯងនៅក្នុង %@ បានទេ។ ផ្លាស់ទី cmux ទៅ Applications ឬទាញយកបច្ចុប្បន្នភាពដោយដៃ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux가 %@에서 자신을 교체할 수 없습니다. cmux를 응용 프로그램 폴더로 옮기거나 업데이트를 직접 다운로드하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kan ikke erstatte seg selv i %@. Flytt cmux til Programmer, eller last ned oppdateringen manuelt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux nie może się zastąpić w %@. Przenieś cmux do Aplikacji albo pobierz aktualizację ręcznie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux não consegue se substituir em %@. Mova o cmux para Aplicativos ou baixe a atualização manualmente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не может заменить себя в %@. Переместите cmux в «Программы» или скачайте обновление вручную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ไม่สามารถแทนที่ตัวเองใน %@ ได้ ย้าย cmux ไปที่แอปพลิเคชัน หรือดาวน์โหลดอัปเดตด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux kendini %@ içinde değiştiremiyor. cmux’u Uygulamalar’a taşıyın veya güncellemeyi elle indirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux не може замінити себе в %@. Перемістіть cmux у «Програми» або завантажте оновлення вручну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux không thể tự thay thế trong %@. Hãy chuyển cmux vào Ứng dụng hoặc tải bản cập nhật thủ công."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 无法在 %@ 中替换自身。请将 cmux 移到“应用程序”，或手动下载更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 無法在 %@ 中取代自身。請將 cmux 移到「應用程式」，或手動下載更新。"
+          }
+        }
+      }
+    },
+    "updater.preflight.space": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "There isn't enough free disk space to install the update. Free some space, or download the update manually."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا توجد مساحة كافية على القرص لتثبيت التحديث. حرّر بعض المساحة، أو نزّل التحديث يدويًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nema dovoljno slobodnog prostora za instaliranje ažuriranja. Oslobodite prostor ili ručno preuzmite ažuriranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der er ikke nok ledig diskplads til at installere opdateringen. Frigør plads, eller download opdateringen manuelt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Für das Update ist nicht genug freier Speicher vorhanden. Gib Speicher frei oder lade das Update manuell."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "No hay suficiente espacio libre para instalar la actualización. Libera espacio o descarga la actualización manualmente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’espace disque libre est insuffisant pour installer la mise à jour. Libérez de l’espace ou téléchargez la mise à jour manuellement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Non c’è abbastanza spazio libero per installare l’aggiornamento. Libera spazio o scarica l’aggiornamento manualmente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アップデートをインストールするための空き容量が足りません。空き容量を増やすか、アップデートを手動でダウンロードしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនមានទំហំថាសទំនេរគ្រប់គ្រាន់ដើម្បីដំឡើងបច្ចុប្បន្នភាពទេ។ បង្កើតទំហំទំនេរ ឬទាញយកបច្ចុប្បន្នភាពដោយដៃ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "업데이트를 설치할 디스크 공간이 부족합니다. 공간을 확보하거나 업데이트를 직접 다운로드하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Det er ikke nok ledig diskplass til å installere oppdateringen. Frigjør plass, eller last ned oppdateringen manuelt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Za mało wolnego miejsca, aby zainstalować aktualizację. Zwolnij miejsce albo pobierz aktualizację ręcznie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Não há espaço livre suficiente para instalar a atualização. Libere espaço ou baixe a atualização manualmente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Недостаточно свободного места для установки обновления. Освободите место или скачайте обновление вручную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "พื้นที่ว่างในดิสก์ไม่พอสำหรับติดตั้งอัปเดต เพิ่มพื้นที่ว่าง หรือดาวน์โหลดอัปเดตด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Güncellemeyi yüklemek için yeterli boş disk alanı yok. Yer açın veya güncellemeyi elle indirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Недостатньо вільного місця для встановлення оновлення. Звільніть місце або завантажте оновлення вручну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không đủ dung lượng trống để cài bản cập nhật. Hãy giải phóng dung lượng hoặc tải bản cập nhật thủ công."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磁盘空间不足，无法安装更新。请释放空间，或手动下载更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "磁碟空間不足，無法安裝更新。請釋放空間，或手動下載更新。"
+          }
+        }
+      }
+    },
+    "updater.preflight.missing": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The downloaded update is no longer there. Check for updates again, or download the update manually."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لم يعد التحديث الذي تم تنزيله موجودًا. تحقّق من التحديثات مجددًا، أو نزّل التحديث يدويًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Preuzeto ažuriranje više nije tu. Ponovo provjerite ažuriranja ili ručno preuzmite ažuriranje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den downloadede opdatering findes ikke længere. Søg efter opdateringer igen, eller download opdateringen manuelt."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das geladene Update ist nicht mehr vorhanden. Suche erneut nach Updates oder lade das Update manuell."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La actualización descargada ya no está. Busca actualizaciones de nuevo o descarga la actualización manualmente."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La mise à jour téléchargée n’est plus là. Recherchez de nouveau les mises à jour ou téléchargez-la manuellement."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "L’aggiornamento scaricato non c’è più. Cerca di nuovo gli aggiornamenti o scaricalo manualmente."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダウンロードしたアップデートが見つかりません。もう一度アップデートを確認するか、手動でダウンロードしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បច្ចុប្បន្នភាពដែលបានទាញយកលែងមានទៀតហើយ។ ពិនិត្យរកបច្ចុប្បន្នភាពម្តងទៀត ឬទាញយកដោយដៃ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다운로드한 업데이트가 더 이상 없습니다. 업데이트를 다시 확인하거나 직접 다운로드하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den nedlastede oppdateringen finnes ikke lenger. Se etter oppdateringer på nytt, eller last ned oppdateringen manuelt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pobranej aktualizacji już nie ma. Sprawdź aktualizacje ponownie albo pobierz ją ręcznie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A atualização baixada não está mais disponível. Procure atualizações novamente ou baixe a atualização manualmente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скачанного обновления больше нет. Проверьте обновления снова или скачайте обновление вручную."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่พบอัปเดตที่ดาวน์โหลดไว้แล้ว ตรวจหาอัปเดตอีกครั้ง หรือดาวน์โหลดอัปเดตด้วยตนเอง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "İndirilen güncelleme artık yok. Güncellemeleri yeniden denetleyin veya güncellemeyi elle indirin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Завантаженого оновлення більше немає. Перевірте оновлення ще раз або завантажте його вручну."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bản cập nhật đã tải không còn nữa. Hãy kiểm tra lại cập nhật hoặc tải bản cập nhật thủ công."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已下载的更新不见了。请重新检查更新，或手动下载更新。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已下載的更新不見了。請重新檢查更新，或手動下載更新。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -193,6 +193,32 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 110)])
             ),
+            // Leo (cx-wab7m): the bottom band's pieces hide the macOS way, Hide on the piece's
+            // own menu and Show on the band's (`sidebar.showSpaces`, `sidebar.showProfileControl`).
+            ActionDescriptor(
+                id: "sidebar.spaces.hide", title: t("action.sidebar.spaces.hide", "Hide Spaces"),
+                keywords: ["sidebar", "spaces", "dots", "hide", "footer"], category: .sidebar, symbol: "eye.slash",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.profile],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.profile, .view, 100)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.spaces.show", title: t("action.sidebar.spaces.show", "Show Spaces"),
+                keywords: ["sidebar", "spaces", "dots", "show", "unhide", "footer"], category: .sidebar, symbol: "eye",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarFooter, .view, 100)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.profileControl.hide", title: t("action.sidebar.profileControl.hide", "Hide Profile Button"),
+                keywords: ["sidebar", "profile", "account", "avatar", "hide", "footer"], category: .sidebar, symbol: "eye.slash",
+                surfaces: [.palette, .keyboard, .contextMenu], targets: [.sidebarItem],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarItem, .view, 100)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.profileControl.show", title: t("action.sidebar.profileControl.show", "Show Profile Button"),
+                keywords: ["sidebar", "profile", "account", "avatar", "show", "unhide", "footer"], category: .sidebar, symbol: "eye",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarFooter, .view, 110)])
+            ),
             // Leo (2026-10-06): Group ▸ in the sidebar's menu picks how the
             // Projects list buckets its loose rows (`sidebar.groupBy`).
             ActionDescriptor(
@@ -206,6 +232,20 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 keywords: ["sidebar", "projects", "group", "folder", "directory", "cwd"], category: .sidebar, symbol: "folder",
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .organize, 111, folder: .group)])
+            ),
+            // cx-13w3: compact (one line) or expanded (T3 Code / Codex style) workspace rows
+            // (`sidebar.density`); the sidebar's Options offers the one that applies.
+            ActionDescriptor(
+                id: "sidebar.density.compact", title: t("action.sidebar.density.compact", "Sidebar Density: Compact"),
+                keywords: ["sidebar", "density", "compact", "rows", "one line", "dense"], category: .sidebar, symbol: "list.dash",
+                surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 132, folder: .options)])
+            ),
+            ActionDescriptor(
+                id: "sidebar.density.expanded", title: t("action.sidebar.density.expanded", "Sidebar Density: Expanded"),
+                keywords: ["sidebar", "density", "expanded", "rows", "preview", "two lines", "t3", "codex"], category: .sidebar,
+                symbol: "list.bullet.below.rectangle", surfaces: [.palette, .keyboard, .contextMenu],
+                surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 133, folder: .options)])
             ),
             // Leo (2026-10-09): the sidebar's and a workspace row's menus
             // check Show Tabs Under Workspaces (`sidebar.showWorkspaceTabs`;

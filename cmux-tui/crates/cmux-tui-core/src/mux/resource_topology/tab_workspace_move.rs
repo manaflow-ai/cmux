@@ -135,7 +135,7 @@ impl Mux {
                             id: mux.next_id(),
                             public_id: WorkspacePublicId::random()?,
                             key: Mux::new_workspace_key()?,
-                            name: Mux::moved_tab_workspace_name(name.as_deref(), state),
+                            name: mux.moved_tab_workspace_name(name.as_deref(), state),
                             screens: Vec::new(),
                             active_screen: 0,
                         },

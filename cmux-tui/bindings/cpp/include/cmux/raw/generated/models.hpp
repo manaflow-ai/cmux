@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2304aafc2ea0c866da63b1459d38e771c9ca3f8c655dc06fed821ca8d3c6e703";
+inline constexpr std::string_view kProtocolIrSha256 = "7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -60,6 +60,7 @@ struct ConversationSearchHit;
 struct ConversationSummary;
 struct ConversationTabRecord;
 struct ConversationTextRun;
+struct ConversationThreadSummary;
 struct CopyResult;
 enum class CursorStyle;
 struct DeadPane;
@@ -114,6 +115,7 @@ struct PaneRef;
 struct PaneSurfaceResult;
 struct PingResult;
 struct ProcessInfoResult;
+enum class ProgramStatusState;
 struct ProviderWorkspaceMutationResult;
 struct ReadScreenResult;
 struct ReadScrollbackResult;
@@ -153,6 +155,7 @@ struct SetSizeCountsResult;
 struct SetSizePolicyResult;
 struct SetTerminalIdlePolicyResult;
 struct SetTerminalKeepResult;
+struct ShownProgramStatus;
 struct ShutdownDaemonResult;
 struct SidebarPluginResult;
 struct Size;
@@ -182,7 +185,10 @@ struct TerminalClipboardReplyResult;
 struct TerminalClipboardSubscribeResult;
 struct TerminalColorOverrides;
 struct TerminalColors;
+struct TerminalCommandDeleteResult;
 struct TerminalCommandHistoryResult;
+struct TerminalCommandList;
+struct TerminalCommandRecord;
 struct TerminalEventsResult;
 struct TerminalExit;
 struct TerminalExitOutcome;
@@ -250,6 +256,7 @@ struct CloudConversationHistoryRequest;
 struct CloudConversationOpRequest;
 struct CloudConversationSnapshotRequest;
 struct CloudConversationSubscribeRequest;
+struct CloudConversationThreadRequest;
 struct CloudConversationUnsubscribeRequest;
 struct CloudInboxListRequest;
 struct CloudInboxSubscribeRequest;
@@ -284,6 +291,8 @@ struct ConversationSearchRequest;
 struct ConversationSearchResult;
 struct ConversationSnapshotRequest;
 struct ConversationSnapshotResult;
+struct ConversationThreadRequest;
+struct ConversationThreadResult;
 struct ConversationTypingRequest;
 struct CopyRequest;
 struct CreateBookmarkRequest;
@@ -304,6 +313,7 @@ struct DeleteProfileRequest;
 struct DeleteSavedScreenGroupRequest;
 struct DeleteSavedTabGroupRequest;
 struct DeleteSavedTabGroupResult;
+struct DeleteTerminalCommandsRequest;
 struct DeleteWorkspaceGroupRequest;
 struct DetachAttachedViewRequest;
 struct DetachClientRequest;
@@ -343,6 +353,7 @@ struct ListSavedTabGroupsRequest;
 struct ListSavedTabGroupsResult;
 struct ListTabGroupsRequest;
 struct ListTabGroupsResult;
+struct ListTerminalCommandsRequest;
 struct ListTerminalsRequest;
 struct ListWorkspaceGroupsRequest;
 struct ListWorkspacesRequest;
@@ -519,6 +530,8 @@ struct EmptyEvent;
 struct FrameEvent;
 struct FrontendProjectionChangedEvent;
 struct GraphicsStatusEvent;
+struct HistoryChangedEvent;
+struct KeybindingsChangedEvent;
 struct LayoutChangedEvent;
 struct MachineUsageChangedEvent;
 struct NotificationEvent;
@@ -529,6 +542,7 @@ struct PairingResolvedEvent;
 struct PaneAddedEvent;
 struct PaneClosedEvent;
 struct PersonalChangedEvent;
+struct ProgramStatusChangedEvent;
 struct RenderDeltaEvent;
 struct RenderStateEvent;
 struct ResizedEvent;
@@ -592,6 +606,7 @@ enum class ZoomPaneRequestMode;
 enum class BrowserStateEventStatus;
 enum class ClientAttachedEventTransport;
 enum class GraphicsStatusEventKind;
+enum class KeybindingsChangedEventOrigin;
 enum class SettingsChangedEventOrigin;
 struct ConversationAttachmentUploadResultStoredPoster;
 struct ConversationAttachmentUploadResultStoredPreview;
@@ -825,6 +840,7 @@ struct ConversationTabRecord {
     std::optional<std::string> conversation{};
     std::optional<std::string> owner{};
     std::optional<std::string> page{};
+    std::optional<std::string> route{};
     friend bool operator==(const ConversationTabRecord&, const ConversationTabRecord&) = default;
 };
 
@@ -839,6 +855,7 @@ struct Bookmark {
     std::string browser_profile_id{};
     std::uint64_t created_ms{};
     std::optional<std::string> favicon_key{};
+    std::optional<std::string> icon{};
     std::string id{};
     std::uint64_t index{};
     std::string kind{};
@@ -1412,6 +1429,7 @@ struct CloseWorkspaceRequest {
     Field<std::string> key{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
+    Field<CloseReason> reason{};
     Field<Id> workspace{};
     friend bool operator==(const CloseWorkspaceRequest&, const CloseWorkspaceRequest&) = default;
 };
@@ -1460,6 +1478,14 @@ struct CloudConversationSnapshotRequest {
 struct CloudConversationSubscribeRequest {
     std::string conversation{};
     friend bool operator==(const CloudConversationSubscribeRequest&, const CloudConversationSubscribeRequest&) = default;
+};
+
+struct CloudConversationThreadRequest {
+    Field<std::uint64_t> after_seq{};
+    std::string conversation{};
+    Field<std::uint32_t> limit{};
+    std::string root{};
+    friend bool operator==(const CloudConversationThreadRequest&, const CloudConversationThreadRequest&) = default;
 };
 
 struct CloudConversationUnsubscribeRequest {
@@ -1835,8 +1861,18 @@ struct ConversationHistoryRequest {
     friend bool operator==(const ConversationHistoryRequest&, const ConversationHistoryRequest&) = default;
 };
 
+struct ConversationThreadSummary {
+    std::vector<std::string> authors{};
+    std::optional<std::string> last_reply_at{};
+    std::optional<std::uint64_t> last_reply_seq{};
+    std::uint64_t reply_count{};
+    std::string root{};
+    friend bool operator==(const ConversationThreadSummary&, const ConversationThreadSummary&) = default;
+};
+
 struct ConversationHistoryResult {
     std::vector<ConversationMessage> messages{};
+    std::optional<std::vector<ConversationThreadSummary>> threads{};
     friend bool operator==(const ConversationHistoryResult&, const ConversationHistoryResult&) = default;
 };
 
@@ -1920,7 +1956,24 @@ struct ConversationSnapshotRequest {
 struct ConversationSnapshotResult {
     ConversationSummary conversation{};
     std::vector<ConversationMessage> messages{};
+    std::optional<std::vector<ConversationThreadSummary>> threads{};
     friend bool operator==(const ConversationSnapshotResult&, const ConversationSnapshotResult&) = default;
+};
+
+struct ConversationThreadRequest {
+    std::optional<std::uint64_t> after_seq{};
+    std::string conversation{};
+    Field<std::uint32_t> limit{};
+    std::string root{};
+    friend bool operator==(const ConversationThreadRequest&, const ConversationThreadRequest&) = default;
+};
+
+struct ConversationThreadResult {
+    bool has_more{};
+    std::vector<ConversationMessage> replies{};
+    ConversationMessage root{};
+    ConversationThreadSummary thread{};
+    friend bool operator==(const ConversationThreadResult&, const ConversationThreadResult&) = default;
 };
 
 struct ConversationTypingEvent {
@@ -2159,6 +2212,13 @@ struct DeleteSavedTabGroupResult {
     std::string saved{};
     Json::Object additional_properties{};
     friend bool operator==(const DeleteSavedTabGroupResult&, const DeleteSavedTabGroupResult&) = default;
+};
+
+struct DeleteTerminalCommandsRequest {
+    std::optional<bool> all{};
+    Field<std::vector<std::string>> ids{};
+    Field<std::string> started_since_ms{};
+    friend bool operator==(const DeleteTerminalCommandsRequest&, const DeleteTerminalCommandsRequest&) = default;
 };
 
 struct DeleteWorkspaceGroupRequest {
@@ -2544,6 +2604,12 @@ struct GuestUrlSubscribeResult {
     friend bool operator==(const GuestUrlSubscribeResult&, const GuestUrlSubscribeResult&) = default;
 };
 
+struct HistoryChangedEvent {
+    std::vector<std::string> kinds{};
+    std::uint64_t revision{};
+    friend bool operator==(const HistoryChangedEvent&, const HistoryChangedEvent&) = default;
+};
+
 struct HistorySearchRange {
     std::uint32_t end{};
     std::uint32_t start{};
@@ -2665,6 +2731,22 @@ struct JournalFrontendEventRequest {
 
 struct JournalFrontendEventResult {
     friend bool operator==(const JournalFrontendEventResult&, const JournalFrontendEventResult&) = default;
+};
+
+enum class KeybindingsChangedEventOrigin {
+    user,
+    cli,
+    mcp,
+    script,
+    remote,
+    app,
+    file,
+};
+
+struct KeybindingsChangedEvent {
+    KeybindingsChangedEventOrigin origin{};
+    std::uint64_t revision{};
+    friend bool operator==(const KeybindingsChangedEvent&, const KeybindingsChangedEvent&) = default;
 };
 
 struct KittyGraphicsState {
@@ -2813,6 +2895,12 @@ struct ListTabGroupsResult {
     friend bool operator==(const ListTabGroupsResult&, const ListTabGroupsResult&) = default;
 };
 
+struct ListTerminalCommandsRequest {
+    Field<std::string> after_id{};
+    Field<std::uint32_t> limit{};
+    friend bool operator==(const ListTerminalCommandsRequest&, const ListTerminalCommandsRequest&) = default;
+};
+
 struct ListTerminalsRequest {
     friend bool operator==(const ListTerminalsRequest&, const ListTerminalsRequest&) = default;
 };
@@ -2900,6 +2988,19 @@ struct NotificationMarker {
     friend bool operator==(const NotificationMarker&, const NotificationMarker&) = default;
 };
 
+enum class ProgramStatusState {
+    working,
+    blocked,
+    error,
+    done,
+};
+
+struct ShownProgramStatus {
+    std::optional<std::uint16_t> progress{};
+    ProgramStatusState state{};
+    friend bool operator==(const ShownProgramStatus&, const ShownProgramStatus&) = default;
+};
+
 enum class TabBrowserSource {
     external,
     launched,
@@ -2926,10 +3027,12 @@ struct Tab {
     TabKind kind{};
     std::optional<std::string> name{};
     Field<NotificationMarker> notification{};
+    Field<ShownProgramStatus> program_status{};
     std::optional<std::string> short_id{};
     std::optional<Size> size{};
     std::optional<bool> supports_clear_history_key_fallback{};
     Id surface{};
+    Field<std::string> terminal_host_fallback{};
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     Field<std::string> terminal_resource_id{};
@@ -3223,6 +3326,7 @@ struct NewConversationTabRequest {
     Field<std::string> owner{};
     Field<std::string> page{};
     Field<Id> pane{};
+    Field<std::string> route{};
     Field<std::uint16_t> rows{};
     Field<std::string> transaction{};
     Field<Id> workspace{};
@@ -3375,8 +3479,10 @@ struct NoteSizeActivityResult {
 
 struct NotificationEvent {
     std::string body{};
+    std::optional<bool> desktop{};
     NotificationLevel level{};
     Id notification{};
+    std::optional<bool> reply{};
     std::optional<NotificationSource> source{};
     std::optional<Id> surface{};
     std::string title{};
@@ -3542,6 +3648,12 @@ struct ProcessInfoResult {
     Field<std::string> foreground_executable{};
     std::optional<std::uint32_t> pid{};
     friend bool operator==(const ProcessInfoResult&, const ProcessInfoResult&) = default;
+};
+
+struct ProgramStatusChangedEvent {
+    std::optional<ShownProgramStatus> program_status{};
+    Id surface{};
+    friend bool operator==(const ProgramStatusChangedEvent&, const ProgramStatusChangedEvent&) = default;
 };
 
 struct ProviderWorkspaceMutationResult {
@@ -4351,6 +4463,7 @@ struct SetTabPinnedRequest {
 
 struct SetTerminalCommandHistoryRequest {
     bool enabled{};
+    Field<std::uint32_t> retention_days{};
     friend bool operator==(const SetTerminalCommandHistoryRequest&, const SetTerminalCommandHistoryRequest&) = default;
 };
 
@@ -4683,9 +4796,35 @@ struct TerminalClipboardSubscribeResult {
     friend bool operator==(const TerminalClipboardSubscribeResult&, const TerminalClipboardSubscribeResult&) = default;
 };
 
+struct TerminalCommandDeleteResult {
+    std::uint64_t deleted{};
+    friend bool operator==(const TerminalCommandDeleteResult&, const TerminalCommandDeleteResult&) = default;
+};
+
 struct TerminalCommandHistoryResult {
     bool enabled{};
+    std::uint32_t retention_days{};
     friend bool operator==(const TerminalCommandHistoryResult&, const TerminalCommandHistoryResult&) = default;
+};
+
+struct TerminalCommandRecord {
+    std::optional<std::string> command{};
+    std::optional<std::string> cwd{};
+    std::string duration_ms{};
+    std::optional<std::int32_t> exit_code{};
+    std::string id{};
+    std::string started_at_ms{};
+    std::string terminal_id{};
+    friend bool operator==(const TerminalCommandRecord&, const TerminalCommandRecord&) = default;
+};
+
+struct TerminalCommandList {
+    std::vector<TerminalCommandRecord> commands{};
+    std::string deletions{};
+    std::string registry_id{};
+    std::uint32_t retention_days{};
+    bool truncated{};
+    friend bool operator==(const TerminalCommandList&, const TerminalCommandList&) = default;
 };
 
 struct TerminalEventsRequest {
@@ -4909,6 +5048,7 @@ struct UnsaveTabGroupResult {
 struct UpdateBookmarkRequest {
     std::string bookmark{};
     Field<std::string> favicon_key{};
+    Field<std::string> icon{};
     Field<std::uint64_t> last_used_ms{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};
@@ -4967,6 +5107,7 @@ struct UpdateScreenGroupRequest {
     Field<bool> collapsed{};
     Field<std::string> color{};
     std::string group{};
+    Field<std::string> icon{};
     Field<std::string> name{};
     friend bool operator==(const UpdateScreenGroupRequest&, const UpdateScreenGroupRequest&) = default;
 };
@@ -4975,6 +5116,7 @@ struct UpdateTabGroupRequest {
     Field<bool> collapsed{};
     Field<std::string> color{};
     std::string group{};
+    Field<std::string> icon{};
     Field<std::string> name{};
     friend bool operator==(const UpdateTabGroupRequest&, const UpdateTabGroupRequest&) = default;
 };
@@ -5419,6 +5561,12 @@ struct Codec<ConversationTextRun> {
 };
 
 template <>
+struct Codec<ConversationThreadSummary> {
+    static Result<Json> encode(const ConversationThreadSummary& value);
+    static Result<ConversationThreadSummary> decode(const Json& value);
+};
+
+template <>
 struct Codec<CopyResult> {
     static Result<Json> encode(const CopyResult& value);
     static Result<CopyResult> decode(const Json& value);
@@ -5743,6 +5891,12 @@ struct Codec<ProcessInfoResult> {
 };
 
 template <>
+struct Codec<ProgramStatusState> {
+    static Result<Json> encode(const ProgramStatusState& value);
+    static Result<ProgramStatusState> decode(const Json& value);
+};
+
+template <>
 struct Codec<ProviderWorkspaceMutationResult> {
     static Result<Json> encode(const ProviderWorkspaceMutationResult& value);
     static Result<ProviderWorkspaceMutationResult> decode(const Json& value);
@@ -5977,6 +6131,12 @@ struct Codec<SetTerminalKeepResult> {
 };
 
 template <>
+struct Codec<ShownProgramStatus> {
+    static Result<Json> encode(const ShownProgramStatus& value);
+    static Result<ShownProgramStatus> decode(const Json& value);
+};
+
+template <>
 struct Codec<ShutdownDaemonResult> {
     static Result<Json> encode(const ShutdownDaemonResult& value);
     static Result<ShutdownDaemonResult> decode(const Json& value);
@@ -6151,9 +6311,27 @@ struct Codec<TerminalColors> {
 };
 
 template <>
+struct Codec<TerminalCommandDeleteResult> {
+    static Result<Json> encode(const TerminalCommandDeleteResult& value);
+    static Result<TerminalCommandDeleteResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<TerminalCommandHistoryResult> {
     static Result<Json> encode(const TerminalCommandHistoryResult& value);
     static Result<TerminalCommandHistoryResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandList> {
+    static Result<Json> encode(const TerminalCommandList& value);
+    static Result<TerminalCommandList> decode(const Json& value);
+};
+
+template <>
+struct Codec<TerminalCommandRecord> {
+    static Result<Json> encode(const TerminalCommandRecord& value);
+    static Result<TerminalCommandRecord> decode(const Json& value);
 };
 
 template <>
@@ -6559,6 +6737,12 @@ struct Codec<CloudConversationSubscribeRequest> {
 };
 
 template <>
+struct Codec<CloudConversationThreadRequest> {
+    static Result<Json> encode(const CloudConversationThreadRequest& value);
+    static Result<CloudConversationThreadRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<CloudConversationUnsubscribeRequest> {
     static Result<Json> encode(const CloudConversationUnsubscribeRequest& value);
     static Result<CloudConversationUnsubscribeRequest> decode(const Json& value);
@@ -6763,6 +6947,18 @@ struct Codec<ConversationSnapshotResult> {
 };
 
 template <>
+struct Codec<ConversationThreadRequest> {
+    static Result<Json> encode(const ConversationThreadRequest& value);
+    static Result<ConversationThreadRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ConversationThreadResult> {
+    static Result<Json> encode(const ConversationThreadResult& value);
+    static Result<ConversationThreadResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<ConversationTypingRequest> {
     static Result<Json> encode(const ConversationTypingRequest& value);
     static Result<ConversationTypingRequest> decode(const Json& value);
@@ -6880,6 +7076,12 @@ template <>
 struct Codec<DeleteSavedTabGroupResult> {
     static Result<Json> encode(const DeleteSavedTabGroupResult& value);
     static Result<DeleteSavedTabGroupResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<DeleteTerminalCommandsRequest> {
+    static Result<Json> encode(const DeleteTerminalCommandsRequest& value);
+    static Result<DeleteTerminalCommandsRequest> decode(const Json& value);
 };
 
 template <>
@@ -7114,6 +7316,12 @@ template <>
 struct Codec<ListTabGroupsResult> {
     static Result<Json> encode(const ListTabGroupsResult& value);
     static Result<ListTabGroupsResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ListTerminalCommandsRequest> {
+    static Result<Json> encode(const ListTerminalCommandsRequest& value);
+    static Result<ListTerminalCommandsRequest> decode(const Json& value);
 };
 
 template <>
@@ -8173,6 +8381,18 @@ struct Codec<GraphicsStatusEvent> {
 };
 
 template <>
+struct Codec<HistoryChangedEvent> {
+    static Result<Json> encode(const HistoryChangedEvent& value);
+    static Result<HistoryChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<KeybindingsChangedEvent> {
+    static Result<Json> encode(const KeybindingsChangedEvent& value);
+    static Result<KeybindingsChangedEvent> decode(const Json& value);
+};
+
+template <>
 struct Codec<LayoutChangedEvent> {
     static Result<Json> encode(const LayoutChangedEvent& value);
     static Result<LayoutChangedEvent> decode(const Json& value);
@@ -8230,6 +8450,12 @@ template <>
 struct Codec<PersonalChangedEvent> {
     static Result<Json> encode(const PersonalChangedEvent& value);
     static Result<PersonalChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<ProgramStatusChangedEvent> {
+    static Result<Json> encode(const ProgramStatusChangedEvent& value);
+    static Result<ProgramStatusChangedEvent> decode(const Json& value);
 };
 
 template <>
@@ -8608,6 +8834,12 @@ template <>
 struct Codec<GraphicsStatusEventKind> {
     static Result<Json> encode(const GraphicsStatusEventKind& value);
     static Result<GraphicsStatusEventKind> decode(const Json& value);
+};
+
+template <>
+struct Codec<KeybindingsChangedEventOrigin> {
+    static Result<Json> encode(const KeybindingsChangedEventOrigin& value);
+    static Result<KeybindingsChangedEventOrigin> decode(const Json& value);
 };
 
 template <>

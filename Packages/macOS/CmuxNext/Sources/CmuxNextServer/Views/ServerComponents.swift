@@ -1,5 +1,6 @@
 import CmuxNextIcons
 import SwiftUI
+import CmuxNextDesign
 
 /// The card fill and hairline used by the dashboard and the pairing views.
 struct CardBackground: ViewModifier {
@@ -38,7 +39,7 @@ struct StoreFooter: View {
         HStack(spacing: 5) {
             Text(verbatim: "cmux \(store.version) · \(store.channel)")
             if store.pinned {
-                Icon(.statePinned, size: 12).help(ServerStrings.pinned)
+                Icon(.statePinned, size: 12).themedHelp(ServerStrings.pinned)
             }
             Spacer()
         }

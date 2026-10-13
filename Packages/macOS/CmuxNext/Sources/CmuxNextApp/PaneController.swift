@@ -118,23 +118,17 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         // A dock-bound chat stays hidden under the id the store gave it (`dockBound`).
         let hidden = pendingClosed.union(dockBound)
+        // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
+        let titles = TabTitleResolver(services: services)
         var items = pane.tabs.filter { !hidden.contains($0.id) }.map { tab -> StripTabItem in
             // A new tab page is "New Tab", with the new-tab icon, until it
             // becomes a chat (then the chat's title and icon).
-            let isNewTabPage = tab.agentSession != nil && services.agentTabs.pageTabs.ids.contains(tab.id)
-            let untitled = tab.agentSession != nil
-                ? isNewTabPage ? AgentHistoryPage.title(tab.id, services) ?? Strings.untitledBrowser : AgentPaneModel.tabTitle
-                : tab.kind == .conversation ? services.home.tabTitle(for: tab) : tab.kind == .browser ? Strings.untitledBrowser : fallback
-            var item = TabItemMapping.shared.item(tab, fallbackTitle: untitled, isNewTabPage: isNewTabPage)
+            let isNewTabPage = titles.isNewTabPage(tab)
+            var item = TabItemMapping.shared.item(tab, fallbackTitle: titles.untitled(tab, fallback: fallback), isNewTabPage: isNewTabPage)
             // Reading the app's provider here (the apps mirror) re-runs the snapshot, and so the
             // content, when the app becomes available after the tree arrived.
-            if let app = tab.appTab, let provider = services.apps.pageProvider(appID: app.app, codeRouterAsPage: false),
-               let page = services.pages.storeTabItem(tab, page: provider.page) {
-                // An app tab names and badges itself like its app.
-                item.title = page.title
-                item.icon = page.icon
-            } else if tab.page != nil, let page = services.pages.storeTabItem(tab) {
-                // A page tab names and badges itself like the page it shows.
+            // An app or page tab names and badges itself like the page it shows.
+            if let page = titles.page(tab) {
                 item.title = page.title
                 item.icon = page.icon
             }
@@ -165,7 +159,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
                 browserIcon(key: tab.id, recordFavicon: incognito ? nil : tab.faviconURL, recordURL: tab.url).apply(to: &item)
                 item.audio = BrowserTabAudio.badge(services.cache.existingBrowser(tab.id)?.tab.state)
             }
-            TabItemMapping.shared.applyUserIcon(tab, to: &item)
+            TabItemMapping.shared.applyUserIcon(tab, to: &item, asset: IconAssetImages.shared.tabIcon(owner: daemon))
             return item
         }
         for local in state?.localBrowserTabs[paneKey] ?? [] where !hidden.contains(local.id) {
@@ -179,10 +173,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         items += services.localTabItems(in: paneKey, hiding: hidden)
         let saved = Set(store.savedTabGroups.compactMap(\.openGroup))
+        let groupAsset = IconAssetImages.shared.tabIcon(owner: daemon)
         let groups = pane.tabGroups.map { group in
-            TabGroupItem(id: TabGroupID(group.id.rawValue), name: group.name,
-                         colorToken: group.color.flatMap(GroupColor.init(rawValue:)) ?? .grey,
-                         isCollapsed: group.collapsed, isSaved: saved.contains(group.id))
+            TabItemMapping.shared.groupItem(group, isSaved: saved.contains(group.id), asset: groupAsset)
         }
         let connected = if case .connected = store.connectionState { true } else { false }
         return Snapshot(items: items, groups: groups, defaultIndex: pane.defaultTabIndex, connected: connected,
@@ -335,10 +328,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         }
         guard let tab = pane.tabs.first(where: { $0.id == key }) else { return nil }
         switch tab.kind {
-        case .pty:
-            let entry = BenchSpans.measure("terminal.surface") { services.cache.terminal(for: tab, daemon: daemon) }
-            services.themes.terminalDidMount(entry)
-            return .terminal(entry)
+        case .pty: return TerminalTabContent.make(tab, in: self)
         case .browser where tab.appTab != nil: return appTabContent(tab)
         case .browser where tab.isFrontendOwned:
             return services.cache.browser(for: tab).map(TabContent.browser)
@@ -346,7 +336,8 @@ final class PaneController: SurfacePresenter, PresentablePane {
             return services.remoteTerminals.content(for: tab, home: daemon)
         case .conversation where tab.agentSession != nil: return AgentTabContent(pane: self).content(key)
         case .conversation where tab.page != nil:
-            return services.pages.view(forStoreTab: tab, in: daemon.store, window: state.flatMap { services.windows.controller(for: $0.id) })
+            return services.pages.view(forStoreTab: tab, in: daemon.store, local: daemon.isLocal,
+                                       window: state.flatMap { services.windows.controller(for: $0.id) })
                 .map(TabContent.page)
         case .conversation: return services.home.tabView(for: tab).map(TabContent.conversation)
         default:

@@ -23,7 +23,8 @@ and render-server field animation, blurred header and native scrolling.
   - appkit-native: Compose, Materials, LabGlass (system glass on macOS 26
     and newer, an NSVisualEffectView stand-in on 14 and 15), NativeScroll,
     HeaderBar, HeaderBackdrop, TranscriptAccess, SwipeReply (installed only when the
-    owner can take a reply: `ChatIntents.canReply`, false until HomeOp has one),
+    owner can take a reply: `ChatIntents.canReply`; Home sends the reply as
+    `HomeOp.sendMessage(threadRoot:)`, the thread view's Esc and clicks are `Cmux/PaneHost+Thread.swift`),
     FlightRecorder (off until the app's policy, `HomeFlightRecorder`, turns it
     on: a Debug Settings opt-in in DEV and NIGHTLY until it costs at most 0.3 ms a
     frame, never Release or RC).
@@ -59,7 +60,7 @@ and render-server field animation, blurred header and native scrolling.
 | Model, Layout | live dates in the user's zone and locale (fixtures keep -07:00 and en_US) |
 | Fixture, Transcript, Morph | optional cmux theme; nil keeps MessagesLab's measured palette |
 | Fixture | a theme without an accent keeps MessagesLab's measured blue, gradient and white text (`FixtureTheme.measuredAccent`) |
-| Fixture, Transcript, Compose | typing dots, placeholder, waveform, caret and chip fill from the theme on a light theme; a dark theme keeps MessagesLab's measured values (the field glass and its buttons follow with the view appearance, `FieldChrome.applyTheme`) |
+| Fixture, Transcript, Compose | typing dots, placeholder, waveform, caret and chip fill from the theme on a light theme; a dark theme keeps MessagesLab's measured values (da4161d: the typing indicator's fill is the theme's incoming grey, one level darker in red and green in the key window on a dark theme; its dots keep the measured dim and lit levels) (the field glass and its buttons follow with the view appearance, `FieldChrome.applyTheme`) |
 | HeaderBackdrop | the tint uses the theme background (MessagesLab's grey read as a band on a cmux pane) |
 | Layout, Localizable.xcstrings | the placeholder says Message, not iMessage; every string carries all 21 app languages (upstream has en and ja; the rest machine translated, `needs_review`) |
 | AppKitNative.xcstrings | every string in all 21 app languages (machine translated, `needs_review`); `check-l10n.sh` scans this package's tables |
@@ -67,7 +68,6 @@ and render-server field animation, blurred header and native scrolling.
 | SwipeReply | the pane controller's window is optional |
 | RowDrawing | file, audio, contact and voice memo rows on my side use the theme's sent text colour (white by default; a light accent showed white text) |
 | Engine, WindowView | `cmuxSetAttachment`: an attachment part's picture or upload state changed in HomeStore (no content change, no transition; the row redraws in place) |
-| Engine | `.replaceWindow` sets the total to the window's end: Home has no pager, its window always ends at the newest message, and a rebuild that left the old total kept `atNewest` false, so received messages stayed hidden (cx-7nf0) |
 | Engine, Layout, Transcript | `cmuxNotice`: the host's notice (Home's merge notice) is MessagesLab's centered system row under the newest message, not an overlay; its accessibility label has no leading space |
 | Compose | `onPastePasteboard`: the field's paste reaches the host's attachment intake first (Home's type rule, prepared by HomeStore) |
 | Layout | `code` runs draw monospaced with one font held for the process (`HomeFonts.code`: a font made per run on the row render threads came back nil and crashed) |
@@ -76,7 +76,9 @@ and render-server field animation, blurred header and native scrolling.
 | Fixture | the gradient mix falls back to the measured blue when a colour cannot convert (never reads components of an unconverted colour; the Markdown getWhite fix is upstream as 40b9869) |
 | SidebarView (sidebar) | Messages' pin drags (reorder a pinned tile, drag it onto the list to unpin, drag a row into the grid to pin it there, Escape cancels): the mouse-down hands off to `Cmux/SidebarPinDragging.swift`, a reload lets the drag follow or the drop land, and the tile layers, render context and avatar cache are readable by that file (the drag copies the drawn tile's parts, so it works on single-bitmap and layered tiles); upstream ask |
 | FlightRecorder | the app's policy and log folder (`HomeFlightRecorder`), window captures behind their own opt-in, the pane's optional window (attached from `ChatController.windowChanged`, observers replaced), FlashCheck/LiveProbes/Bench/LiveRecord helpers from `HomeFlightRecorder` |
+| WindowView | `setRenderScale` guards on the view's own `appliedRenderScale` as well as the shared `Fixture.renderScale`: Home has a window view per pane, and a second pane (or a tab shown again) must still re-rasterize and re-snap (82ccac1) after the first pane set the shared scale. Two windows on displays of different scales still share one `Fixture.renderScale` (upstream) |
 | Layout | `MessagesLabLocalization`'s default is the package bundle (`Bundle(for:)` of a class in a linked package is the app's); the image placeholder and code-text strings carry all 21 app languages in Localizable.xcstrings |
+| TranscriptAccess (pinned at bd65bbf) | MessagesLab 30495be's accessibility fix only: one element per visible message id, kept on `TranscriptSelection.axElements` and reused (an element made per call was freed, and VoiceOver and AX clients saw an empty Messages list); the rest of the newer file (selection menu, speech, search) is not rolled in. MessagesLab 2281879's selection outline is ported: the selected bubble's path is the drawn balloon (`RowDraw.balloon`, its frame's corners) |
 | SwipeReply, TranscriptAccess (own pins) | crash program (plans/cmux-next/crash-elimination.md): no force unwraps, `try!`, `as!` or IUOs. From eb1ed28 the rest of the crash program is upstream (586d5f0 CrashGuard/CrashSafeGraphics, ef7da0a the decided hunks), and so are the per-view widths, the 434 pt text column, the scroller's own right edge and the macOS 14 gates (60e79ec LabGlass) |
 
 ## Updating
@@ -135,7 +137,7 @@ grey loading card and its fade-in, URLSession link previews through LinkGuard,
 long text (LongText, TiledBubble, MediaCache), the scroller's knob drag and
 track click, compose hover only over the field) except SwipeReply at 0c8147b and TranscriptAccess at bd65bbf (d5d6a18's rewrite needs
 unvendored drivers: SelectionCheck, MarkdownAccess, the pager; a `cmux:` line speaks custom parts)
-(not installed while HomeOp has no reply). Earlier in this pin: cd2bc08's link
+(installed when the owner can take a reply). Earlier in this pin: cd2bc08's link
 rule, size cache keyed by part content, compose image previews; da2b8ae's text
 column, 358.4 - 0.654 x (628 - W) pt.
 

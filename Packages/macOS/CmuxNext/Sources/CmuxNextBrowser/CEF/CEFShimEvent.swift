@@ -17,7 +17,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case loadingState(browser: Int32, loading: Bool, canGoBack: Bool, canGoForward: Bool)
     case loadStart(browser: Int32, url: String)
     case loadEnd(browser: Int32, httpStatus: Int)
-    case loadError(browser: Int32, code: Int, text: String, url: String)
+    /// `chromiumInterstitial`: Chromium shows its own certificate page for
+    /// it (`cmux_shim_certificate_proceed` left the decision to it).
+    case loadError(browser: Int32, code: Int, text: String, url: String, chromiumInterstitial: Bool)
     case progress(browser: Int32, value: Double)
     case fullscreen(browser: Int32, entering: Bool)
     case devToolsResult(browser: Int32, messageID: Int32, success: Bool, json: String)
@@ -59,6 +61,10 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     /// (`permissionDismissed`).
     case permissionPrompt(browser: Int32, token: Int32, permissions: Int64, origin: String)
     case permissionDismissed(browser: Int32, token: Int32)
+    /// Chromium's password manager asks to save or update a sign-in, or its
+    /// prompt is gone (PASSWORD_PROMPT, fork API 20), answered with
+    /// `cmux_shim_password_prompt_answer(promptID, …)`.
+    case passwordPrompt(browser: Int32, promptID: Int32, json: String)
     /// The page did not handle a key down (Windows key code): a plain
     /// Escape, or a letter outside editable fields with `shift`.
     case keyUnhandled(browser: Int32, keyCode: Int, shift: Bool)
@@ -93,7 +99,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 7: self = .loadingState(browser: browser, loading: a & 1 != 0, canGoBack: a & 2 != 0, canGoForward: a & 4 != 0)
         case 8: self = .loadStart(browser: browser, url: s1)
         case 9: self = .loadEnd(browser: browser, httpStatus: Int(a))
-        case 10: self = .loadError(browser: browser, code: Int(a), text: s1, url: s2)
+        case 10: self = .loadError(browser: browser, code: Int(a), text: s1, url: s2, chromiumInterstitial: b != 0)
         case 11: self = .progress(browser: browser, value: min(max(Double(a) / 1000, 0), 1))
         case 12: self = .fullscreen(browser: browser, entering: a != 0)
         case 13: self = .devToolsResult(browser: browser, messageID: request, success: a != 0, json: s1)
@@ -132,6 +138,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 40: self = .externalURL(browser: browser, url: s1, userGesture: a != 0)
         case 41: self = .permissionPrompt(browser: browser, token: request, permissions: a, origin: s1)
         case 42: self = .permissionDismissed(browser: browser, token: request)
+        case 43: self = .passwordPrompt(browser: browser, promptID: request, json: s1)
         default: self = .unknown(kind: kind)
         }
     }

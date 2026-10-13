@@ -7,7 +7,14 @@ name: cmux-next PR autofix
 # backstop for merges that cross). Repairs that need a person stay with the
 # pull request.
 #
-# Two jobs, so the pull request's own code never runs next to a write token:
+# The action exports (plans/cmux-next/action-surfaces.json, actions.md,
+# links.json) need a Mac swift test: when the pull request changes their inputs
+# (autofix-areas.sh: actions), action-exports regenerates them on a Mac
+# (scripts/cmux-next/regenerate-action-exports.sh) and repair copies them in
+# before it rewrites the docs shortcuts from them. Rust and the docs read the
+# committed copy, so they stay checked in, but no person regenerates them.
+#
+# Two jobs hold the token boundary, so the pull request's own code never runs next to a write token:
 #   repair: runs the repairs the pull request's changed paths need
 #     (scripts/cmux-next/autofix-areas.sh), plus cargo clippy --fix
 #     (machine-applicable lints only) on the cmux-tui crates it changes
@@ -21,7 +28,7 @@ name: cmux-next PR autofix
 #     ffi-release environment, for feat-cmux-next only
 #     (tests/test_ci_signing_secrets_need_release_environment.py). Until the
 #     App's secrets exist the job leaves the repairs in the artifact. It
-#     applies the patch with the base commit's scripts/cmux-next/pr-autofix-apply.sh
+#     applies the patch with the base branch tip's scripts/cmux-next/pr-autofix-apply.sh
 #     (only repair outputs; never a workflow, manifest or lockfile) and pushes
 #     one commit to the pull request's branch.
 # No loop: a head that is already an autofix commit (its Autofix-Run trailer)
@@ -37,8 +44,164 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Whether the Mac action-exports job runs: decided on Linux, so a pull
+  # request that does not change the catalog never takes a Mac.
+  action-areas:
+    name: action export areas
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      actions: ${{ steps.areas.outputs.actions }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Autofix scripts from the base
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet --depth=1 origin "refs/heads/$BASE_REF"
+          mkdir -p "$RUNNER_TEMP/autofix"
+          git archive FETCH_HEAD scripts/cmux-next | tar -x -C "$RUNNER_TEMP/autofix"
+
+      # The same paths as repair's Changed areas step (the files API, an
+      # autofix head repairs nothing); only the actions key is used.
+      - name: Changed areas
+        id: areas
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        run: |
+          set -euo pipefail
+          # The base's copy, or the pull request's while the base has no actions area yet.
+          areas="$RUNNER_TEMP/autofix/scripts/cmux-next/autofix-areas.sh"
+          grep -q '^area actions ' "$areas" || areas=scripts/cmux-next/autofix-areas.sh
+          if git log -1 --format=%B | grep -q '^Autofix-Run: ' || ! grep -q '^area actions ' "$areas"; then
+            echo "actions=false" | tee -a "$GITHUB_OUTPUT"
+          elif [ "$CHANGED_FILES" -ge 3000 ]; then
+            "$areas" --all | grep '^actions=' | tee -a "$GITHUB_OUTPUT"
+          else
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+              --jq '.[] | .filename, (.previous_filename // empty)' | "$areas" | grep '^actions=' | tee -a "$GITHUB_OUTPUT"
+          fi
+
+  # Regenerates the action exports on a Mac with a read-only token and hands
+  # them to repair as the action-exports artifact (files at their repository
+  # paths). A pull request whose catalog does not build gets no exports; its
+  # other repairs still run.
+  action-exports:
+    name: action exports (Mac)
+    needs: action-areas
+    if: needs.action-areas.outputs.actions == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && 'glaeda-gui-std-xcode-26.6' || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
+    timeout-minutes: 40
+    permissions:
+      contents: read
+    outputs:
+      exports: ${{ steps.regenerate.outputs.exports }}
+      # The exports on this tree are current: regenerated, or already fresh.
+      verified: ${{ steps.regenerate.outcome == 'success' }}
+    env:
+      CMUX_CI_XCODE_APP: ${{ vars.CMUX_CI_XCODE_APP_MACOS_26 }}
+      CMUX_CI_REQUIRED_MACOS_SDK_MAJOR: "26"
+    steps:
+      - name: Clear stale git locks (self-hosted reused workspace)
+        shell: bash
+        run: rm -f "${GITHUB_WORKSPACE:-$PWD}/.git/index.lock" 2>/dev/null || true
+
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+          submodules: false
+
+      - name: Drop stale submodule checkouts (self-hosted reused workspace)
+        run: scripts/ci/reset-stale-submodules.sh
+
+      - name: Autofix scripts from the base
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet --depth=1 origin "refs/heads/$BASE_REF"
+          mkdir -p "$RUNNER_TEMP/autofix"
+          git archive FETCH_HEAD scripts/cmux-next | tar -x -C "$RUNNER_TEMP/autofix"
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Set up pinned cmux-tui Rust (sidebar layout reducer)
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      # The package's resources include the web bundles (cmux-next.yml's
+      # generated-files job builds them the same way).
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Give this job its own bun
+        run: scripts/cmux-next/private-bun.sh
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      - name: Source key of the web bundles
+        id: web-bundle-key
+        run: echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the web bundles built for this source key
+        id: web-bundle-cache
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: web-bundles-out
+          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
+
+      - name: Install the restored web bundles
+        if: steps.web-bundle-cache.outputs.cache-hit == 'true'
+        run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
+
+      - name: Build the web bundles
+        run: scripts/cmux-next/build-web-bundles.sh
+
+      # A catalog that does not build is the pull request's own red elsewhere;
+      # this job then hands over nothing and the other repairs still run.
+      - name: Regenerate the action exports
+        id: regenerate
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # The base's copy, or the pull request's before the base has one.
+          regenerate="$RUNNER_TEMP/autofix/scripts/cmux-next/regenerate-action-exports.sh"
+          [[ -x "$regenerate" ]] || regenerate=scripts/cmux-next/regenerate-action-exports.sh
+          "$regenerate" "$RUNNER_TEMP/action-exports" | tee "$RUNNER_TEMP/action-exports.txt"
+          if grep -q '^regenerated: ' "$RUNNER_TEMP/action-exports.txt"; then
+            echo "exports=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.regenerate.outputs.exports == 'true'
+        with:
+          name: action-exports
+          path: ${{ runner.temp }}/action-exports
+          if-no-files-found: error
+          retention-days: 1
+
   repair:
     name: autofix repairs
+    # The action exports come first: the docs shortcuts are rewritten from them.
+    # The other repairs still run when the Mac job fails or is skipped.
+    needs: [action-areas, action-exports]
+    if: ${{ !cancelled() }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
     # clippy compiles the changed crates (cached below).
     timeout-minutes: 40
@@ -53,17 +216,19 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
           persist-credentials: false
 
-      # The autofix's own scripts come from the base commit, so a branch cut
-      # before they existed is repaired too; the generators they run are the
-      # pull request's own.
+      # The autofix's own scripts come from the base branch's tip, so a branch
+      # cut before they existed is repaired too; the generators they run are
+      # the pull request's own. Not pull_request.base.sha: GitHub leaves it at
+      # the base the PR last moved onto, which for #19029 was a day old and
+      # had no autofix-areas.sh.
       - name: Autofix scripts from the base
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
-          git fetch --quiet --depth=1 origin "$BASE_SHA"
+          git fetch --quiet --depth=1 origin "refs/heads/$BASE_REF"
           mkdir -p "$RUNNER_TEMP/autofix"
-          git archive "$BASE_SHA" scripts/cmux-next scripts/ci | tar -x -C "$RUNNER_TEMP/autofix"
+          git archive FETCH_HEAD scripts/cmux-next scripts/ci | tar -x -C "$RUNNER_TEMP/autofix"
           echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
 
       - name: Changed areas
@@ -71,6 +236,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
         run: |
           set -euo pipefail
           if git log -1 --format=%B | grep -q '^Autofix-Run: '; then
@@ -79,7 +245,16 @@ jobs:
             exit 0
           fi
           echo "skip=false" >> "$GITHUB_OUTPUT"
-          gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only > "$RUNNER_TEMP/changed.txt"
+          # The files API, not `gh pr diff`: GitHub refuses the diff of a PR
+          # over 300 files (HTTP 406), and this lists up to 3000. A rename lists
+          # both paths. Past 3000 it stops without an error, so such a PR runs
+          # every area.
+          if [ "$CHANGED_FILES" -ge 3000 ]; then
+            "$AUTOFIX/autofix-areas.sh" --all | tee -a "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files?per_page=100" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "$RUNNER_TEMP/changed.txt"
           "$AUTOFIX/autofix-areas.sh" < "$RUNNER_TEMP/changed.txt" | tee -a "$GITHUB_OUTPUT"
 
       # dump-package needs the Swift 6.2 tools (ci-target-graph.py); see
@@ -99,7 +274,7 @@ jobs:
           node-version: "24.11.1"
 
       - name: Setup Bun
-        if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.cloud == 'true' || steps.areas.outputs.webviews == 'true'
+        if: steps.areas.outputs.shortcuts == 'true' || steps.areas.outputs.apphost == 'true' || needs.action-exports.outputs.exports == 'true' || steps.areas.outputs.cloud == 'true' || steps.areas.outputs.webviews == 'true'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.2"
@@ -133,6 +308,13 @@ jobs:
           git diff --binary -- . > "$RUNNER_TEMP/webviews-fmt.patch"
           git checkout --quiet -- .
 
+      - name: Download the regenerated action exports
+        if: steps.areas.outputs.skip == 'false' && needs.action-exports.outputs.exports == 'true'
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: action-exports
+          path: ${{ runner.temp }}/action-exports
+
       - name: Repair
         if: steps.areas.outputs.skip == 'false'
         env:
@@ -141,6 +323,9 @@ jobs:
           STRINGS: ${{ steps.areas.outputs.strings }}
           SDK: ${{ steps.areas.outputs.sdk }}
           SHORTCUTS: ${{ steps.areas.outputs.shortcuts }}
+          APPHOST: ${{ steps.areas.outputs.apphost }}
+          ACTIONS: ${{ steps.areas.outputs.actions || needs.action-areas.outputs.actions }}
+          EXPORTS_VERIFIED: ${{ needs.action-exports.outputs.verified }}
           RATCHETS: ${{ steps.areas.outputs.ratchets }}
           CLOUD: ${{ steps.areas.outputs.cloud }}
           GHOSTTY: ${{ steps.areas.outputs.ghostty }}
@@ -148,10 +333,20 @@ jobs:
         run: |
           set -euo pipefail
           args=()
+          # Regenerated action exports: the docs shortcuts and app-host files follow them.
+          if [[ -d "$RUNNER_TEMP/action-exports" ]]; then
+            args+=(--generated "$RUNNER_TEMP/action-exports")
+            SHORTCUTS=true APPHOST=true
+          fi
           [[ "$GRAPH" == true ]] && args+=(--package-dump "$RUNNER_TEMP/package-dump.json")
           [[ "$STRINGS" == true ]] && args+=(--strings)
           [[ "$SDK" == true ]] && args+=(--sdk)
           [[ "$SHORTCUTS" == true ]] && args+=(--docs-shortcuts)
+          # The base's script takes --app-host once this repair has landed there.
+          [[ "$APPHOST" == true ]] && grep -q -- '--app-host)' "$AUTOFIX/base-autofix.sh" && args+=(--app-host)
+          # Dependency order: the shortcuts and app-host files follow the action
+          # exports, so they wait while the exports' inputs changed unverified.
+          [[ "$ACTIONS" == true && "$EXPORTS_VERIFIED" != true ]] && grep -q -- '--unverified-exports)' "$AUTOFIX/base-autofix.sh" && args+=(--unverified-exports)
           [[ "$RATCHETS" == true ]] && args+=(--ratchets)
           [[ "$CLOUD" == true ]] && args+=(--cloud-clients)
           [[ -s "$RUNNER_TEMP/webviews-fmt.patch" ]] && args+=(--webviews-fmt-patch "$RUNNER_TEMP/webviews-fmt.patch")
@@ -207,18 +402,21 @@ jobs:
   push:
     name: push the repairs
     needs: repair
-    if: needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+    # An explicit status check: the implicit success() would also require the
+    # action-exports job above repair, which most pull requests skip.
+    if: ${{ !cancelled() && needs.repair.result == 'success' && needs.repair.outputs.patch == 'true' && github.event.pull_request.head.repo.full_name == github.repository }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }} # ephemeral-required: holds a contents write token for a pull request branch; ephemeral Blacksmith VM
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
-      # The apply script comes from the base commit: the patch was made by the
-      # pull request's code, and the script decides what of it may be pushed.
+      # The apply script comes from the base branch's tip (as the repair's
+      # scripts do): the patch was made by the pull request's code, and the
+      # script decides what of it may be pushed.
       - name: Check out the base's apply script
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: refs/heads/${{ github.event.pull_request.base.ref }}
           path: base
           persist-credentials: false
           sparse-checkout: scripts/cmux-next

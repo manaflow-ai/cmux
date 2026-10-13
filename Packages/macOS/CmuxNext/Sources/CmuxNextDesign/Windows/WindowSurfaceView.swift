@@ -49,7 +49,8 @@ public final class WindowSurfaceView: NSView, WindowSurfacePainting {
     /// The backdrop of `window`'s theme scope and Reduce Transparency.
     public func backdrop(in window: NSWindow) -> WindowBackdrop {
         WindowBackdrop(window.themeScope.tokens, reduceTransparency: reduceTransparency(), art: window.themeScope.backdropArt,
-                       selection: window.themeScope.backdropSelection, tuning: window.themeScope.appearanceTuning)
+                       selection: window.themeScope.backdropSelection, tuning: window.themeScope.appearanceTuning,
+                       tintOpacity: window.themeScope.backdropTintOpacity)
     }
 
     public func paintWindowSurface(of window: NSWindow) {

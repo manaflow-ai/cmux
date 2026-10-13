@@ -40,6 +40,8 @@ public final class Events {
     public static final EventMetadata FRAME = new EventMetadata("frame", 6, null, List.of("attach-browser"), true);
     public static final EventMetadata FRONTEND_PROJECTION_CHANGED = new EventMetadata("frontend-projection-changed", 7, null, List.of("subscribe"), true);
     public static final EventMetadata GRAPHICS_STATUS = new EventMetadata("graphics-status", 10, null, List.of("subscribe"), true);
+    public static final EventMetadata HISTORY_CHANGED = new EventMetadata("history-changed", 12, "history-v1", List.of("subscribe"), true);
+    public static final EventMetadata KEYBINDINGS_CHANGED = new EventMetadata("keybindings-changed", 12, "keybindings-v1", List.of("subscribe"), true);
     public static final EventMetadata LAYOUT_CHANGED = new EventMetadata("layout-changed", 6, null, List.of("subscribe"), true);
     public static final EventMetadata MACHINE_USAGE_CHANGED = new EventMetadata("machine-usage-changed", 12, "machine-usage-v1", List.of("subscribe"), true);
     public static final EventMetadata NOTIFICATION = new EventMetadata("notification", 6, null, List.of("subscribe", "attach-byte", "attach-browser"), true);
@@ -50,6 +52,7 @@ public final class Events {
     public static final EventMetadata PANE_ADDED = new EventMetadata("pane-added", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata PANE_CLOSED = new EventMetadata("pane-closed", 7, null, List.of("subscribe-deltas"), true);
     public static final EventMetadata PERSONAL_CHANGED = new EventMetadata("personal-changed", 12, "profiles-v1", List.of("subscribe"), true);
+    public static final EventMetadata PROGRAM_STATUS_CHANGED = new EventMetadata("program-status-changed", 12, null, List.of("subscribe"), true);
     public static final EventMetadata RENDER_DELTA = new EventMetadata("render-delta", 7, null, List.of("attach-render"), true);
     public static final EventMetadata RENDER_STATE = new EventMetadata("render-state", 7, null, List.of("attach-render"), true);
     public static final EventMetadata RESIZED = new EventMetadata("resized", 6, null, List.of("attach-byte"), true);
@@ -116,6 +119,8 @@ public final class Events {
         values.put("frame", FRAME);
         values.put("frontend-projection-changed", FRONTEND_PROJECTION_CHANGED);
         values.put("graphics-status", GRAPHICS_STATUS);
+        values.put("history-changed", HISTORY_CHANGED);
+        values.put("keybindings-changed", KEYBINDINGS_CHANGED);
         values.put("layout-changed", LAYOUT_CHANGED);
         values.put("machine-usage-changed", MACHINE_USAGE_CHANGED);
         values.put("notification", NOTIFICATION);
@@ -126,6 +131,7 @@ public final class Events {
         values.put("pane-added", PANE_ADDED);
         values.put("pane-closed", PANE_CLOSED);
         values.put("personal-changed", PERSONAL_CHANGED);
+        values.put("program-status-changed", PROGRAM_STATUS_CHANGED);
         values.put("render-delta", RENDER_DELTA);
         values.put("render-state", RENDER_STATE);
         values.put("resized", RESIZED);

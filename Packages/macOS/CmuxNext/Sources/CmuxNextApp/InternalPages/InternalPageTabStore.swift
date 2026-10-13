@@ -27,13 +27,13 @@ final class InternalPageTabStore {
     @ObservationIgnored private var watches: [ObjectIdentifier: Task<Void, Never>] = [:]
     /// Go Back (true) or Go Forward (false) from a page view's mouse buttons and swipes.
     @ObservationIgnored var navigate: ((Bool) -> Void)?
-    /// Sends `new-conversation-tab` for a page tab (`page-tabs-v1`) in a pane:
-    /// the created tab and the event sequence its reply follows. Sends it on
-    /// the pane's daemon; tests hold it.
-    @ObservationIgnored var createStoreTab: @MainActor (PaneID, DaemonService, String, ClientTransactionID) async throws
-        -> (created: PageTabCreated, sequence: UInt64?) = { pane, daemon, page, transaction in
+    /// Sends `new-conversation-tab` for a page tab (`page-tabs-v1`) on its
+    /// route (`page-tab-route-v1`) in a pane: the created tab and the event
+    /// sequence its reply follows. Sends it on the pane's daemon; tests hold it.
+    @ObservationIgnored var createStoreTab: @MainActor (PaneID, DaemonService, String, String?, ClientTransactionID) async throws
+        -> (created: PageTabCreated, sequence: UInt64?) = { pane, daemon, page, route, transaction in
         guard let connection = daemon.connection else { throw DaemonError.notConnected }
-        let request = NewConversationTabRequest(page: page, pane: pane, origin: InternalPageTabStore.createOrigin,
+        let request = NewConversationTabRequest(page: page, route: route, pane: pane, origin: InternalPageTabStore.createOrigin,
                                                 mutationID: UUID().uuidString.lowercased(), transaction: transaction)
         let response = try await connection.request(request)
         let created = PageTabCreated(key: response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)",
@@ -48,6 +48,11 @@ final class InternalPageTabStore {
     @ObservationIgnored private var storeTabStores: [String: DaemonStore] = [:]
     /// Store page tabs a live tree has listed; gone from it, they closed.
     @ObservationIgnored private var seenLive: Set<String> = []
+
+    /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
+    func keepsRoutes(_ daemon: DaemonService) -> Bool {
+        daemon.supports(DaemonCapabilities.shared.pageTabRoute)
+    }
 
     /// The `origin` of the app's `new-conversation-tab` requests for page tabs.
     static let createOrigin = "cmux-next-page-tab"
@@ -146,12 +151,16 @@ final class InternalPageTabStore {
 
     /// The view of store page tab `tab` (its `page` source, or `page` for an
     /// app tab, `app-screens-v1`), made on first show under a provider key of
-    /// its own.
-    func view(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore,
+    /// its own. A tab this app did not open shows its route
+    /// (`page-tab-route-v1`) only from this Mac's daemon (`local`): another
+    /// machine's daemon never names a file or folder for this Mac to read.
+    func view(forStoreTab tab: TabModel, page: InternalPageID? = nil, in store: DaemonStore, local: Bool = false,
               window: WindowController?) -> InternalPageView? {
         if let key = storeKeys[tab.id], let view = views[key] { return view }
         guard let page = page ?? tab.page.map(InternalPageID.init(rawValue:)), let provider = providers[page] else { return nil }
         let key = storeKeys[tab.id] ?? LocalPageTab.makeKey(page)
+        // A tab this app did not open (Reopen Closed, relaunch, another app): its route says what it shows.
+        if local, storeKeys[tab.id] == nil, let route = tab.pageRoute { provider.restore(route, for: key) }
         track(tab.id, key: key, in: store, window: window)
         // A pane lists it: the tree has it.
         seenLive.insert(tab.id)
@@ -178,7 +187,9 @@ final class InternalPageTabStore {
         let key = given.flatMap { LocalPageTab.page(of: $0) == page ? $0 : nil } ?? LocalPageTab.makeKey(page)
         var snapshot = TabSnapshot(surface: provisional.surface, tabResourceID: ResourceID(rawValue: provisional.id),
                                    kind: .conversation, title: provider.title(for: key), browserRenderer: "frontend")
-        snapshot.conversation = ConversationTabRef(page: page.rawValue)
+        // The route goes only to a daemon that keeps it; an older one would drop it.
+        let route = daemon.supports(DaemonCapabilities.shared.pageTabRoute) ? provider.route(for: key) : nil
+        snapshot.conversation = ConversationTabRef(page: page.rawValue, route: route)
         track(provisional.id, key: key, in: store, window: window)
         let view = InternalPageView(key: key, page: page, content: provider.makeView(for: key, in: window))
         views[key] = view
@@ -196,7 +207,7 @@ final class InternalPageTabStore {
         let create = createStoreTab, handle = pane.pane.handle
         pane.services.registry.track(Task { @MainActor [weak self, weak pane] () -> ActionWorkFailure? in
             do {
-                let (created, sequence) = try await create(handle, daemon, page.rawValue, transaction)
+                let (created, sequence) = try await create(handle, daemon, page.rawValue, route, transaction)
                 self?.storeTabCreated(provisional.id, as: created.key, surface: created.surface)
                 // The store's tab replaces the provisional one in one step, never beside it.
                 ProvisionalTab.created(transaction, surface: created.surface, in: store)

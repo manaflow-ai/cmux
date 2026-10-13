@@ -236,6 +236,9 @@ impl Hub {
             )
             .with_data(json!({"reason": "steer.unavailable"})));
         }
+        if steer_now && session.moving().is_some() {
+            return Err(super::queue::moving_error());
+        }
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
@@ -268,6 +271,7 @@ impl Hub {
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
+            clear_sent_draft(&mut m, &text);
             if m.title.is_none() {
                 let first = text.lines().find(|l| !l.trim().is_empty()).unwrap_or("").trim();
                 if !first.is_empty() {
@@ -531,6 +535,10 @@ impl Hub {
                 Some(_) => {}
             }
         }
+        // The agent's notifications before this answer (the reply text, the
+        // preview) are applied before the turn settles, so every record below
+        // and the chat activity it sends see them.
+        Self::drain_inbound(session).await;
         match &result {
             Ok(v) => {
                 self.note_reply_refusal(session);
@@ -575,8 +583,8 @@ impl Hub {
             }
         }
         self.reset_stream(session);
-        // Nobody watching: the sidebar dot and `wait --until done` see it.
-        if session.attached.load(Ordering::SeqCst) == 0 {
+        // Nobody showing it: the sidebar dot and `wait --until done` see it.
+        if !self.shown(session) {
             session.meta.lock().unwrap().unread = true;
         }
         if session.status() != SessionStatus::Closed {
@@ -630,6 +638,21 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
+    }
+
+    /// Waits until the inbound loop handled every agent message queued before
+    /// now. Bounded: a loop that is gone (closed channel) or stuck never holds
+    /// a turn's settlement past the bound.
+    async fn drain_inbound(session: &Session) {
+        let (done, handled) = tokio::sync::oneshot::channel();
+        let queued = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            session.inbound_tx.send(crate::agent::Inbound::Barrier(done)),
+        )
+        .await;
+        if matches!(queued, Ok(Ok(()))) {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handled).await;
+        }
     }
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the

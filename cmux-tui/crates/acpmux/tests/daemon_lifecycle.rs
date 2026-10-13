@@ -286,6 +286,65 @@ async fn sigterm_is_bounded_with_busy_agents_and_attached_clients() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// A home, socket and TMPDIR so deep that the configured socket path is past
+/// the Unix socket limit (a CI worker's long TMPDIR): the daemon still binds,
+/// at a short alias, and a client given the same long path reaches it.
+#[tokio::test]
+async fn a_socket_path_past_the_unix_limit_still_serves() {
+    let dir = scratch("long").join("d".repeat(110));
+    std::fs::create_dir_all(&dir).unwrap();
+    let socket = dir.join("s.sock");
+    assert!(socket.as_os_str().len() > 104, "the path must be past the limit");
+    let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--ready-fd", "1"])
+        .args(["--log", "warn"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("TMPDIR", &dir)
+        .env_remove("XPC_SERVICE_NAME")
+        .env_remove("ACPMUX_LOGIN_ENV")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit())
+        .spawn()
+        .unwrap();
+    let stdout = child.stdout.take().unwrap();
+    let ready = tokio::task::spawn_blocking(move || {
+        BufReader::new(stdout).lines().map_while(Result::ok).find_map(|line| {
+            serde_json::from_str::<Value>(&line).ok().filter(|v| v["ready"] == true)
+        })
+    });
+    let ready = tokio::time::timeout(Duration::from_secs(20), ready).await.unwrap().unwrap();
+    let Some(ready) = ready else {
+        let _ = child.kill();
+        panic!("the daemon exited without a readiness line: {:?}", child.wait());
+    };
+    let bound = PathBuf::from(ready["socket"].as_str().unwrap());
+    assert!(bound.as_os_str().len() <= 103, "bound past the limit: {}", bound.display());
+    // A client knows only the long path.
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        .args(["daemon", "shutdown"])
+        .env("ACPMUX_HOME", &dir)
+        .env("ACPMUX_SOCKET", &socket)
+        .env("TMPDIR", &dir)
+        .output()
+        .unwrap();
+    let exited = (0..200).find_map(|_| {
+        let status = child.try_wait().unwrap();
+        if status.is_none() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        status
+    });
+    if exited.is_none() {
+        let _ = child.kill();
+        let _ = child.wait();
+    }
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert!(exited.is_some(), "the client's shutdown did not reach the daemon");
+    assert!(!bound.exists(), "the short socket stayed after shutdown");
+}
+
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.
 ///

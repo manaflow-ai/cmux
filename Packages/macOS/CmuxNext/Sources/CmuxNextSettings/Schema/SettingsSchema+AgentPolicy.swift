@@ -37,16 +37,16 @@ extension SettingsSchema {
         // The edited-files card (looks only).
         .union(AgentPaneEditedFilesSettingsSchema.agentSettableKeys)
 .union(["agentPane.zoom"]) // display-only agent surface zoom
-        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring (looks only)
+        .union(AgentPaneComposerSettingsSchema.agentSettableKeys) // the composer's context ring and mic (looks only)
 
     private static let agentSettableTable: Set<String> = [
         "window.titlebar",
         "shortcuts.showModifierHoldHints",
         "window.titlebarButtons",
         "tabs.plusButton",
-        "tabs.barPosition", "tabs.barOrder",
+        "tabs.barPosition", "tabs.barOrder", "tabs.hiddenButtons",
         "navigation.historyScope", "navigation.history.scope",
-        "sidebar.minimalMode", "sidebar.minimal",
+        "sidebar.minimalMode", "sidebar.minimal", "sidebar.density",
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
@@ -78,6 +78,7 @@ extension SettingsSchema {
         "appearance.theme",
         "appearance.appTheme",
         "appearance.accent",
+        "appearance.themeEdits",
         "appearance.backdropArt",
         "appearance.backgroundOpacity",
         "appearance.backgroundBlur",
@@ -122,7 +123,7 @@ extension SettingsSchema {
         "sidebar.topBandMaxShare",
         "sidebar.bottomBandMaxShare",
         "sidebar.pinnedBandsScroll", "sidebar.showWorkspaceTabs", "sidebar.showChats",
-        "sidebar.cards.tips", "sidebar.showProjects", "sidebar.groupBy",
+        "sidebar.cards.tips", "sidebar.showProjects", "sidebar.showSpaces", "sidebar.showProfileControl", "sidebar.groupBy",
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
@@ -149,6 +150,7 @@ extension SettingsSchema {
         "notifications.attention.persist",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
+        "notifications.attention.moveToTop",
         // cmux-browser mutes a workspace through settings.set as `script` (cmux-browser #614).
         "notifications.mutedWorkspaces",
         "labs.previewFeatures",
@@ -160,13 +162,20 @@ extension SettingsSchema {
     /// Keys an agent may not set or reset, with the reason.
     public static let agentRefusedKeys: [String: AgentRefusal] = Dictionary(uniqueKeysWithValues: OmnibarSettingsSchema.privacyKeys.map { ($0, AgentRefusal.privacy) })
         .merging(refusedTable) { first, _ in first }
+        .merging(BrowserPasswordsSettingsSchema.refusedKeys) { first, _ in first }
 
     private static let refusedTable: [String: AgentRefusal] = [
         "agents.chats.roots": .privacy,
         "agents.chats.discovery": .privacy,
         "agents.chats.enabled": .privacy,
         "picker.pinned": .userOnly,
+        // A pin leads the empty palette and an alias wins its word: an agent could put Close Window
+        // under the user's Return.
+        "palette.aliases": .userOnly, "palette.pins": .userOnly,
         "history.terminalCommands": .privacy,
+        "history.commandRetentionDays": .privacy,
+        "history.closed.maxGroups": .privacy,
+        "history.closed.maxAgeDays": .privacy,
         "feed.mirrorNotifications.agents": .privacy,
         "feed.mirrorNotifications.terminal": .privacy,
         // An agent must not turn on sending its own prompts to the phone (cx-aocz).
@@ -174,6 +183,10 @@ extension SettingsSchema {
         "feed.github.enabled": .network,
         "feed.github.pollIntervalSeconds": .network,
         "browser.remoteLocalhost": .network,
+        // Links the person sends to their default browser (a bank, SSO) must not move into a browser agents drive.
+        "browser.openTerminalLinksInCmuxBrowser": .privacy,
+        "browser.hostsToOpenInEmbeddedBrowser": .privacy,
+        "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).

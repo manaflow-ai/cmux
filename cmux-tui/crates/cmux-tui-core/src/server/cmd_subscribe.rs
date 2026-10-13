@@ -111,6 +111,11 @@ pub(super) fn subscribe_command(
                 {
                     continue;
                 }
+                MuxEvent::CloudConversation(_)
+                    if !super::cloud_conversations::delivers(&event_mux, client) =>
+                {
+                    continue;
+                }
                 MuxEvent::PairingRequested(challenge) => json!({
                     "event": "pairing-requested",
                     "request": challenge.id,
@@ -211,6 +216,11 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             })
         }
         MuxEvent::Bell(id) => json!({"event": "bell", "surface": id}),
+        MuxEvent::ProgramStatusChanged { surface, status } => json!({
+            "event": "program-status-changed",
+            "surface": surface,
+            "program_status": status.map(|status| status.wire()),
+        }),
         MuxEvent::Notification(notification) => json!({
             "event": "notification",
             "notification": notification.notification,
@@ -219,6 +229,8 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "level": notification.level.as_str(),
             "surface": notification.surface,
             "source": notification.source.as_str(),
+            "desktop": notification.desktop,
+            "reply": notification.reply,
         }),
         MuxEvent::GraphicsStatus(status) => match status {
             GraphicsStatus::KittyImageBudgetWorkerStartFailed { error } => json!({
@@ -291,10 +303,20 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             "browser_profile_id": change.browser_profile_id,
             "bookmarks_revision": change.bookmarks_revision,
         }),
+        MuxEvent::HistoryChanged { revision, kinds } => json!({
+            "event": "history-changed",
+            "revision": revision,
+            "kinds": kinds,
+        }),
         MuxEvent::SettingsChanged(change) => json!({
             "event": "settings-changed",
             "revision": change.revision,
             "keys": change.keys,
+            "origin": change.origin.as_str(),
+        }),
+        MuxEvent::KeybindingsChanged(change) => json!({
+            "event": "keybindings-changed",
+            "revision": change.revision,
             "origin": change.origin.as_str(),
         }),
         MuxEvent::TerminalRegistryChanged { registry_id, generation, terminal_revision } => json!({

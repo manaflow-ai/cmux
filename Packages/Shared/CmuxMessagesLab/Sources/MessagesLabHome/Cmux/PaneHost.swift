@@ -62,6 +62,11 @@ final class HostView: NSView {
     let paneHeader = PaneHeaderView(frame: .zero)
     private(set) var demo: MessagesWindowView?
     weak var controller: ChatController? { didSet { scrollView.document.controller = controller } }
+    /// MessagesLab b6760b6: the window's update observer and the window place the rows last read
+    /// (PaneHost+WindowPlace.swift).
+    var windowPlaceObserver: NSObjectProtocol?
+    var lastWindowPlace: (origin: CGPoint, axis: CGPoint)?
+    deinit { windowPlaceObserver.map(NotificationCenter.default.removeObserver) }
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -139,6 +144,9 @@ final class HostView: NSView {
         // emoji buttons were invisible until an engine change moved the
         // field, and "+" and emoji never came back.
         demo?.layoutIfNeeded()
+        // MessagesLab b6760b6: the typing indicator snaps to the window's device pixels; the pane's place
+        // in the window can change with no size change of the window view (RowCell.windowPlace).
+        refreshWindowPlace()
         CATransaction.commit()
         placeNativeViews()
     }
@@ -176,11 +184,19 @@ final class HostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         controller?.windowChanged()
+        observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
     }
 
+    /// A backing scale change (the window moved to a display with another scale): ChatController.displayScaleChanged
+    /// calls MessagesWindowView.setRenderScale, which re-rasterizes and, from MessagesLab 82ccac1, re-snaps the rows,
+    /// the typing indicator and its clip and remakes the thread-preview heights at the new scale
+    /// (scripts/cmux-next/home-scale-change.py). Attaching to a window of another scale takes the same path (windowChanged).
     override func viewDidChangeBackingProperties() {
         super.viewDidChangeBackingProperties()
-        guard let s = window?.backingScaleFactor, s != DisplayScale.current else { return }
+        // This pane's own transcript scale, not only the shared DisplayScale.current: another pane of the window
+        // may have taken the change first (MessagesWindowView.appliedRenderScale, a cmux patch).
+        guard let s = window?.backingScaleFactor, s != DisplayScale.current || (controller?.demo?.appliedRenderScale).map({ $0 != s }) == true
+        else { return }
         DisplayScale.current = s
         controller?.displayScaleChanged()
     }
@@ -249,8 +265,8 @@ extension TranscriptDocumentView {
 /// projection of HomeStore (the single writer), so `install` takes the
 /// adapter's conversation, there is no pager, responder or write-through
 /// source, and the user's changes leave through `intents` instead of being
-/// dispatched (send, tapback); the wake timer is the host's scheduler; reply,
-/// edit and undo send are not offered (HomeOp has no reply, edit or unsend);
+/// dispatched (send, tapback); the wake timer is the host's scheduler; edit
+/// and undo send are not offered in the pane;
 /// the attachment intake (picker, paste, drop) is the host's (`intents`),
 /// the chips, morph and bubbles MessagesLab's.
 final class ChatController: NSObject, NSTextViewDelegate {
@@ -290,13 +306,16 @@ final class ChatController: NSObject, NSTextViewDelegate {
     private var pickerEmoji: NSView?
     /// The context menu's target highlight, alive while its menu is (the menu's delegate).
     var menuHighlight: MenuHighlight?
+    /// The menu input that chose my tapback, until HomeStore commits it (PaneTapback.swift).
+    var tapbackChoice: TapbackChoice?
     /// Press and hold on a message (MessagesLab 7f1a811).
     private let hold = PressHold()
     private(set) lazy var selection = TranscriptSelection(controller: self)
     /// Trackpad swipe-to-reply (SwipeReply.swift). cmux: installed only when
-    /// the owner can honor `.reply` (`intents.canReply`); HomeOp has no
-    /// reply operation yet, so a swipe would open a thread nothing can send to.
+    /// the owner can honor `.reply` (`intents.canReply`).
     private(set) lazy var swipe = SwipeReply(controller: self)
+    /// cmux: the thread and reply view's Esc and clicks (PaneHost+Thread.swift).
+    private(set) lazy var thread = PaneThread(controller: self)
     static let args = ProcessInfo.processInfo.arguments
     /// Test modes never take focus.
     static let noFocus = args.contains("--bench") || args.contains("--audit-resolution") || args.contains("--scroll-trace")
@@ -356,6 +375,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             guard let self else { return }
             let sv = self.host.scrollView, clip = sv.contentView
             let range = max(0, (sv.documentView?.frame.height ?? 0) - clip.bounds.height)
+            sv.endPace() // MessagesLab 3508ff9: a jump shows at once (upstream goes through scroll(toModelOffset:))
             clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: (CGFloat(v) * range).rounded())); sv.reflectScrolledClipView(clip)
         }
         installFrameAndPressWiring(demo) // MessagesLab ced183d (PaneHost+FrameWiring.swift)
@@ -383,7 +403,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         }
         if Self.args.contains("--inactive") { demo.setInactive(true) }
         scheduleWake()
-        if intents?.canReply == true { swipe.install() }
+        if intents?.canReply == true { swipe.install(); thread.install() }
         host.needsLayout = true
         onInstalled.forEach { $0(self) }
         return store
@@ -407,7 +427,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
             demo.setInactive(!Self.args.contains("--active"))
         }
         observers.append(nc.addObserver(forName: NSWindow.didChangeScreenNotification, object: window, queue: .main) { [weak self] _ in self?.windowDidChangeScreen() })
-        if DisplayScale.current != window.backingScaleFactor {
+        if DisplayScale.current != window.backingScaleFactor || demo.appliedRenderScale != window.backingScaleFactor {
             DisplayScale.current = window.backingScaleFactor
             displayScaleChanged()
         }
@@ -415,6 +435,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
     }
 
     static func warmUp() {
+        // MessagesLab 7518134: the menu's glyphs and title icons are made before the first open (only
+        // images; no view, window or event), on a later pass than this layout.
+        RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm(); MenuAction.warm() }
         let tv = FieldTextView(usingTextLayoutManager: true)
         tv.frame = NSRect(x: 0, y: 0, width: 300, height: 40)
         tv.typingAttributes = ComposeView.typing
@@ -430,6 +453,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func dispatch(_ a: Action) {
         guard let store else { return }
+        thread.note(a)
         // MessagesLab bd65bbf (Host.dispatch): a keystroke goes first. Engine jobs due now
         // run at the start of the next display frame, so they do not add their commits to
         // the keystroke's frame; a send goes first only past statuses and typing (message
@@ -487,6 +511,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         demo.setRenderScale(s)
         demo.moveToWindowRecursively()
         picker?.rescale()
+        intents?.rowsPlaced()  // the video layers follow the rows' new snap (82ccac1)
     }
 
     // MARK: Wake-ups (no polling, no display link)
@@ -538,7 +563,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
 
     func escape() {
         if picker != nil { closePicker(); return }
-        if isWorking { onStop?() }
+        // In the field a working agent stops first (one Esc), as before threads; then the
+        // thread view. The pane's Esc monitor (focus on the transcript) only closes the view.
+        if isWorking { onStop?(); return }
+        _ = thread.escape()
     }
 
     // MARK: Drops
@@ -583,7 +611,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
     func mouseUp(at p: CGPoint, _ e: NSEvent) {
         let held = hold.fired
         hold.cancel()
-        if held { return }
+        if held || thread.swallowed(e) { return }
         if selection.mouseUp() { return }
         if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) }
     }
@@ -592,6 +620,7 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard let demo else { return }
         if picker != nil { closePicker(); return }
         if let id = demo.compose.chip(at: p) { dispatch(.removeDraftAttachment(id)); return }
+        if thread.clicked(p) { return }
         guard p.y > Fixture.headerHeight, !demo.compose.fieldRect.insetBy(dx: 0, dy: -2).contains(p) else { return }
         if let hit = demo.hit(p) {
             // cmux: a link (re-checked at click time, MarkdownLinkPolicy) opens in PaneLinks.
@@ -672,6 +701,10 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard let cs = window?.screen?.colorSpace?.cgColorSpace, cs != DisplayScale.colorSpace, let demo else { return }
         DisplayScale.colorSpace = cs
         RowBitmaps.shared.removeAll()
+        // MessagesLab 7518134: the palette glyphs are drawn again in the new colour space now, not
+        // inside the next menu's open on main.
+        MenuGlyphs.removeAll()
+        RunLoop.main.perform(inModes: [.default]) { MenuGlyphs.warm() }
         let inactive = Fixture.inactive
         demo.setInactive(!inactive)
         demo.setInactive(inactive)

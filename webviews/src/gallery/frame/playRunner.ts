@@ -19,12 +19,13 @@ import {
 } from "../play";
 
 /** What the matrix runner installs for trusted input (Playwright's mouse and keyboard). */
-type InputDriver = (action: {
+export type GalleryInputAction = {
   kind: "click" | "contextmenu" | "hover" | "down" | "move" | "up" | "type" | "press";
   x?: number;
   y?: number;
   text?: string;
-}) => Promise<void>;
+};
+type InputDriver = (action: GalleryInputAction) => Promise<void>;
 
 /** What the matrix runner installs to take one still per settled step (a filmstrip). */
 type StepStill = (step: { index: number; step: string }) => Promise<void>;
@@ -44,16 +45,57 @@ const rectOf = (element: Element | null): Rect | null => {
 };
 
 /** The element's center in the top page's coordinates (through same-origin parent frames). */
-function pageCenter(element: Element): { x: number; y: number } {
-  const rect = element.getBoundingClientRect();
-  let x = rect.x + rect.width / 2;
-  let y = rect.y + rect.height / 2;
+function pagePoint(point: { x: number; y: number }): { x: number; y: number } {
+  let x = point.x;
+  let y = point.y;
   for (let frame: Window = window; frame !== frame.parent && frame.frameElement; frame = frame.parent) {
     const offset = frame.frameElement.getBoundingClientRect();
     x += offset.x;
     y += offset.y;
   }
   return { x, y };
+}
+
+function pageCenter(element: Element): { x: number; y: number } {
+  const rect = element.getBoundingClientRect();
+  return pagePoint({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
+}
+
+type SelectionRect = Pick<DOMRect, "left" | "right" | "top" | "width" | "height">;
+type SelectionPoint = { x: number; y: number };
+
+/** The first and last line points a trusted mouse drag should cross for a text range. */
+export function selectionDragPoints(
+  rects: readonly SelectionRect[],
+): { start: SelectionPoint; end: SelectionPoint } | undefined {
+  const visible = rects.filter((rect) => rect.width > 0 && rect.height > 0);
+  const first = visible[0];
+  const last = visible.at(-1);
+  if (!first || !last) return undefined;
+  const inset = (rect: SelectionRect) => Math.min(2, Math.max(0.5, rect.width / 2));
+  return {
+    start: { x: first.left + inset(first), y: first.top + first.height / 2 },
+    end: { x: last.right - inset(last), y: last.top + last.height / 2 },
+  };
+}
+
+/** Selects text with the matrix's trusted pointer driver, falling back to a DOM range in the shell. */
+export async function selectTextWithDriver(element: Element, driver?: InputDriver): Promise<void> {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  const points = selectionDragPoints(Array.from(range.getClientRects()));
+  if (driver && points) {
+    const start = pagePoint(points.start);
+    const end = pagePoint(points.end);
+    await driver({ kind: "down", ...start });
+    await driver({ kind: "move", ...end });
+    await driver({ kind: "up", ...end });
+    return;
+  }
+  const selection = document.getSelection();
+  if (!selection) return;
+  selection.removeAllRanges();
+  selection.addRange(range);
 }
 
 const nextFrame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
@@ -245,6 +287,9 @@ function describeElement(element: Element): string {
  */
 function measurePopups(): PopupMeasure[] {
   const found = [...document.querySelectorAll(POPUP_SELECTOR)].filter((element) => {
+    // A closing popup fades out under data-ending-style (Base UI keeps it mounted for the fade); it
+    // is no longer the top layer, so what it fades over is not covering it (cx-xxga3).
+    if (element.closest("[data-ending-style]")) return false;
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== "hidden";
   });
@@ -453,14 +498,9 @@ export async function runPlay(
     },
     selectText: async (target) => {
       const element = find(target);
-      await gesture(`select text in ${describeTarget(target)}`, "select", element, () => {
-        const selection = document.getSelection();
-        if (!selection) return;
-        const range = document.createRange();
-        range.selectNodeContents(element);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      });
+      await gesture(`select text in ${describeTarget(target)}`, "select", element, () =>
+        selectTextWithDriver(element, window.top?.cmuxGalleryInput),
+      );
     },
     type: async (text, target) => {
       const element = target ? (find(target) as HTMLElement) : (document.activeElement as HTMLElement | null);

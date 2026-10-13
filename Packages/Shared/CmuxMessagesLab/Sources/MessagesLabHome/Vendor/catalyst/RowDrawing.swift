@@ -70,6 +70,56 @@ enum RowDraw {
         return CGRect(x: x, y: margin, width: p.size.width, height: p.bodySize.height)
     }
 
+    /// The drawn outline (body and tail) of a part in its body frame `body`. Only an outgoing text
+    /// balloon differs from its frame: real Messages (macOS 27) draws it a little inside the frame, in
+    /// width and height alike, while the row and the row pitch keep the frame's 16 n + 14 pt
+    /// (tools/evidence/ANIMATIONS.md section 1 "Multi-line sends", tools/evidence/anim/refs3line/bubheight.py;
+    /// references/real-messages/interactions/send-3line, send-4line, send-2line-break and
+    /// deactivate-activate/tp1200ms.png, summed coverage on flat columns and rows):
+    /// - 2 lines and more (15 bubbles): the top and left edges 0.04 pt outside the frame (0.08 device
+    ///   px: edge fraction .92), the bottom and right edges 0.42 pt inside it (fraction .16), so the
+    ///   balloon is 0.38 pt smaller: 45.62 / 61.62 / 77.62 pt in 46 / 62 / 78 pt rows (h = 15.998 n +
+    ///   13.621, rms 0.005). The right edge of every multi-line balloon in deactivate-activate is 0.42 pt
+    ///   left of the 608 pt edge, and its three balloon widths there are whole device px minus 0.38 pt (742.24,
+    ///   724.24, 694.24 px where our frames are 742.17, 724.70, 694.21 px wide): the frame's left edge is on the
+    ///   device pixel at or left of ours (left edges 472.92, 490.92, 520.92 px for our 473.83, 491.30, 521.79).
+    /// - 1 line (4 bubbles in the send-1line takes, 7 in deactivate-activate): top 0.023 pt outside (fraction .954), bottom 0.106 pt inside (.788): 29.917 pt.
+    /// - The body keeps its frame's corners (BubblePath.make cornersOf).
+    /// - The tail stays at the balloon's bottom right corner (Messages' tail tip moves with it, 1 px up
+    ///   and left in deactivate-activate).
+    /// No cause in our geometry explains it (the mask, tail and text layout all place the frame exactly);
+    /// the same offsets on all four sides of balloons of every width point to Messages' balloon artwork
+    /// being drawn inset in its frame. Messages' edges are also softer (two partly covered device px per
+    /// edge, coverage .21/.87 at the top and .93/.24 at the bottom); ours stay one-pixel crisp edges.
+    /// Incoming balloons are exactly their frames (30 / 46 pt); media, links and custom rows keep theirs.
+    /// macOS 27 only: the macOS 26 fits (MESSAGESLAB_OS_FIT=26) keep the frame. The only macOS 26 reference, the
+    /// original recording (HEVC 4:2:0), has no still multi-line outgoing balloon, and with the inset its flying
+    /// bubble's bottom edge error got worse (motion-gate capture26 parity: edge_B_rms 1.36 -> 1.67 px).
+    static func balloon(_ body: CGRect, row p: PartRow) -> CGRect {
+        insetApplies(p) ? insetBalloon(body) : body
+    }
+
+    /// An outgoing text part on macOS 27 (Catalyst / AppKit): its balloon is drawn inside its frame (`balloon`) and its
+    /// cell masks the fill with Messages' soft edge (SoftBalloon).
+    static func insetApplies(_ p: PartRow) -> Bool {
+#if os(iOS) && !targetEnvironment(macCatalyst)
+        return false
+#else
+        guard p.outgoing, case .text = p.part, !ComposeMetrics.macOS26 else { return false }
+        return true
+#endif
+    }
+
+    /// `balloon`'s measured rule without the part check.
+    static func insetBalloon(_ body: CGRect) -> CGRect {
+        let s = Fixture.renderScale
+        let multi = body.height > 38 // 30 pt for 1 line, 46 for 2
+        let out: CGFloat = multi ? 0.04 : 0.023, inset: CGFloat = multi ? 0.419 : 0.106
+        let left = floor(body.minX * s + 0.001) / s
+        return CGRect(x: left - out, y: body.minY - out,
+                      width: body.maxX - inset - (left - out), height: body.height + out - inset)
+    }
+
     /// Outgoing shapes whose fill is the window-position gradient (a layer).
     static func needsFill(_ spec: RowSpec) -> Bool {
         guard case let .part(p) = spec.kind, p.outgoing else { return false }
@@ -119,9 +169,18 @@ enum RowDraw {
         case let .receipt(bold, rest):
             drawReceipt(ctx, bold, rest, receiptRight: m.receiptRight, top: top)
         case .typing:
-            drawTypingBubble(ctx, top: top + 4)
+            // macOS: the bubble is a vector layer of the cell (RowCell.typingBody), placed on whole device pixels;
+            // this bitmap drew it at fractional geometry and was then resampled at a fractional position (each
+            // straight edge spread over 2 px). The iOS app keeps it in the bitmap.
+#if os(iOS) && !targetEnvironment(macCatalyst)
+            drawTypingBubble(ctx, top: top + typingBubble.minY - margin)
+#endif
         case let .threadPreview(pv):
-            PartRenderer.drawThreadPreview(ctx, pv, top: top, width: spec.width)
+            if pv.outgoing {
+                PartRenderer.drawOutgoingThreadPreview(ctx, pv, top: top, rightEdge: m.rightEdge)
+            } else {
+                PartRenderer.drawThreadPreview(ctx, pv, top: top, width: spec.width)
+            }
         }
     }
 
@@ -139,18 +198,32 @@ enum RowDraw {
             .reduce(0) { $0 + TextDraw.width($1.0, font: $1.1, kern: captionKern) }
     }
 
-    /// The typing bubble without its dots (dots are layers that animate).
-    static let typingBubble = CGRect(x: 20, y: margin + 4, width: 44, height: 27.5)
+    /// The typing bubble without its dots and tail discs (layers that animate). Messages at rest, read from pixel
+    /// coverage of its lossless typing stills (tools/evidence/anim/typedge.py; no model fit): 44 x 27 pt, its
+    /// straight edges on whole device pixels (left 20 pt, top 46.5 pt above the field's top edge). macOS draws it
+    /// as a layer whose top RowCell snaps to a whole device pixel (tools/evidence/ANIMATIONS.md section 6,
+    /// cx-3cb typing-pixels; before: 20.14, 4.31, 43.69 x 27.19 from a capsule fit with a blur bias).
+    static let typingBubble = CGRect(x: 20, y: margin + 4.335, width: 44, height: 27)
+    /// The point the typing bubble grows from (row coordinates): Messages' fitted scale centre,
+    /// 19.1 pt left of and 8.7 pt above the bubble's centre (tools/evidence/ANIMATIONS.md section 6).
+    static var typingAnchor: CGPoint { CGPoint(x: typingBubble.midX - 19.07, y: typingBubble.midY - 8.71) }
+    /// The bubble's two tail discs (row coordinates), large then small: layers of their own
+    /// (RowCell.typingDiscs; on macOS they move apart from the bubble as it appears). Messages at rest: the
+    /// large disc d 9.18 pt, its centre 24.78 pt from the left and 2.27 pt above the bubble's bottom; the
+    /// small one d 4.75 pt at 19.00 pt, 3.40 pt below it (section 6, cx-3cb typing-pixels: exact-coverage
+    /// circles against the bubble's pixel edges; window places within 0.04 pt of cx-3cb typing-breath's).
+    static let typingDiscs = [CGRect(x: 24.78 - 4.59, y: typingBubble.maxY - 2.27 - 4.59, width: 9.18, height: 9.18),
+                              CGRect(x: 19.00 - 2.375, y: typingBubble.maxY + 3.40 - 2.375, width: 4.75, height: 4.75)]
     static func drawTypingBubble(_ ctx: CGContext, top: CGFloat) {
-        let b = CGRect(x: 20, y: top, width: 44, height: 27.5)
-        Fixture.incoming.setFill()
+        let b = CGRect(x: typingBubble.minX, y: top, width: typingBubble.width, height: typingBubble.height)
+        Fixture.typingFill.setFill()
         UIBezierPath(roundedRect: b, cornerRadius: b.height / 2).fill()
-        UIBezierPath(ovalIn: CGRect(x: 20.5, y: b.maxY - 7, width: 9, height: 9)).fill()
-        UIBezierPath(ovalIn: CGRect(x: 16.5, y: b.maxY + 1, width: 5, height: 5)).fill()
     }
     static func typingDotCenter(_ i: Int) -> CGPoint {
         let b = typingBubble
-        return CGPoint(x: b.minX + 12.25 + CGFloat(i) * 9.5, y: b.midY)
+        // Messages at rest: 32.25, 41.75, 51.25 pt (12.25 pt + 9.5 i from the left edge), 0.28 pt above the
+        // bubble's centre (section 6, cx-3cb typing-pixels: centroids against the bubble's pixel edges).
+        return CGPoint(x: 32.25 + CGFloat(i) * 9.5, y: b.midY - 0.28)
     }
 }
 
@@ -160,7 +233,8 @@ enum PartRenderer {
         switch p.part {
         case .text:
             let lines = p.text.map { tl in tl.lines.map { _ in "" } } ?? []
-            BubbleView.drawBubble(ctx, body: body, lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY)
+            BubbleView.drawBubble(ctx, body: RowDraw.balloon(body, row: p), lines: [], outgoing: p.outgoing, tail: p.tail, windowY: windowY,
+                                  cornersOf: body.size)
             _ = lines
             if let md = p.markdown {
                 // Every block, at its scroll offset (thread view, morph and menu copies of the row are
@@ -204,7 +278,7 @@ enum PartRenderer {
         }
         if highlight {
             UIColor(white: 1, alpha: 0.12).setFill()
-            BubblePath.make(body: body, outgoing: p.outgoing, tail: p.tail).fill()
+            BubblePath.make(body: RowDraw.balloon(body, row: p), outgoing: p.outgoing, tail: p.tail, cornersOf: body.size).fill()
         }
         if p.failed {
             let c = CGPoint(x: body.minX - 14, y: body.midY)
@@ -213,7 +287,7 @@ enum PartRenderer {
             let f = HomeFonts.system(ofSize: 12, weight: .bold) // HomeFonts (cx-qpqs)
             TextDraw.line("!", font: f, color: .white, x: c.x - TextDraw.width("!", font: f) / 2, baseline: c.y + 4.5, in: ctx)
         }
-        drawReactions(ctx, p.reactions, body: body, outgoing: p.outgoing, windowY: windowY)
+        drawReactions(ctx, p.reactions, mine: p.myReaction, body: body, outgoing: p.outgoing, windowY: windowY)
     }
 
     static func drawText(_ ctx: CGContext, _ tl: TextLayout, in body: CGRect, outgoing: Bool) {
@@ -440,7 +514,10 @@ enum PartRenderer {
             path.lineWidth = 1
             PreviewStyle.stroke.setStroke()
             path.stroke()
-            TextDraw.line(pv.textLine, font: ThreadPreview.textFont, color: PreviewStyle.textGray, x: box.minX + 8, baseline: box.minY + 16.5, in: ctx)
+            for (i, line) in pv.textLines.enumerated() {
+                TextDraw.line(line, font: ThreadPreview.textFont, color: PreviewStyle.textGray, x: box.minX + 8,
+                              baseline: box.minY + 16.5 + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
+            }
         } else {
             let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: false, tail: true)
             path.lineWidth = 1
@@ -468,6 +545,65 @@ enum PartRenderer {
         if pv.count >= 2 {
             let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
             TextDraw.line(Strings.replies(pv.count), font: f, color: PreviewStyle.repliesBlue, x: 44.5, baseline: box.maxY + (pv.isText ? 12.5 : 11.5), in: ctx,
+                          kern: RowDraw.captionKern)
+        }
+    }
+
+    /// The preview of my own root (macOS 27, outgoing-thread-reply-take4, 2x window capture of
+    /// "Maybe: Instinct", 2026-10-11): the outlined bubble with an outgoing tail at the right edge
+    /// (outline outside 225-608 pt, its colour 44, 77, 121), the text 8.5 pt in from the outline, its
+    /// baseline 16 pt under the outline's top (32 px at 2x in both captures after this), in blue
+    /// (glyph core 48, 102, 203); "N Replies" right-aligned at 6 pt left of the edge (602 pt),
+    /// baseline 13.75 pt under the outline's bottom; no stub. Media and card roots take the same side,
+    /// tail and label (not measured: the take has a text root).
+    static func drawOutgoingThreadPreview(_ ctx: CGContext, _ pv: ThreadPreview, top: CGFloat, rightEdge: CGFloat) {
+        let box = CGRect(x: rightEdge - pv.box.width, y: top, width: pv.box.width, height: pv.box.height)
+        if pv.isThumbnail, case let .attachment(a) = pv.part {
+            ctx.saveGState()
+            BubblePath.make(body: box, outgoing: true, tail: true).addClip()
+            Fixture.incoming.setFill()
+            ctx.fill(box.insetBy(dx: -10, dy: -10))
+            if let ref = a.kind == "video" ? (a.poster ?? a.asset) : a.asset, let img = Images.load(ref) {
+                let s = max(box.width / img.size.width, box.height / img.size.height)
+                let w = img.size.width * s, h = img.size.height * s
+                img.draw(in: CGRect(x: box.midX - w / 2, y: box.midY - h / 2, width: w, height: h + 6))
+            }
+            ctx.restoreGState()
+        } else if pv.isText {
+            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: true, tail: true)
+            path.lineWidth = 1
+            PreviewStyle.outgoingStroke.setStroke()
+            path.stroke()
+            // A long root wraps: the next line's baseline is 11 pt lower (27 pt under the top, measured).
+            for (i, line) in pv.textLines.enumerated() {
+                TextDraw.line(line, font: ThreadPreview.textFont, color: PreviewStyle.outgoingText, x: box.minX + 8.5,
+                              baseline: box.minY + 16 + ThreadPreview.textLinePitch * CGFloat(i), in: ctx)
+            }
+        } else {
+            let path = BubblePath.make(body: box.insetBy(dx: 0.5, dy: 0.75), outgoing: true, tail: true)
+            path.lineWidth = 1
+            PreviewStyle.outgoingStroke.setStroke()
+            path.stroke()
+            let thumb = CGRect(x: box.minX + 6.5, y: box.minY + 10.5, width: 26, height: 26)
+            ctx.saveGState()
+            UIBezierPath(roundedRect: thumb, cornerRadius: 6).addClip()
+            UIColor(white: 0.56, alpha: 1).setFill()
+            ctx.fill(thumb)
+            if case let .link(_, _, _, image?, _) = pv.part, let img = Images.load(image) {
+                let s = max(thumb.width / img.size.width, thumb.height / img.size.height)
+                let w = img.size.width * s, h = img.size.height * s
+                img.draw(in: CGRect(x: thumb.midX - w / 2, y: thumb.midY - h / 2, width: w, height: h))
+            }
+            ctx.restoreGState()
+            let (title, sub) = pv.lines
+            TextDraw.line(title, font: ThreadPreview.titleFont, color: PreviewStyle.title, x: box.minX + 39, baseline: box.minY + 21, in: ctx)
+            TextDraw.line(sub, font: ThreadPreview.subFont, color: PreviewStyle.subtitle, x: box.minX + 39, baseline: box.minY + 34, in: ctx)
+        }
+        if pv.count >= 2 {
+            let f = HomeFonts.system(ofSize: 10, weight: .semibold) // HomeFonts (cx-qpqs)
+            let s = Strings.replies(pv.count)
+            let w = TextDraw.width(s, font: f, kern: RowDraw.captionKern)
+            TextDraw.line(s, font: f, color: PreviewStyle.repliesBlue, x: rightEdge - 6 - w, baseline: box.maxY + (pv.isText ? 13.75 : 12.75), in: ctx,
                           kern: RowDraw.captionKern)
         }
     }
@@ -536,8 +672,6 @@ enum PartRenderer {
         TextDraw.line(subtitle, font: HomeFonts.system(ofSize: 10), color: UIColor(white: 0.68, alpha: 1), x: body.minX + 10, baseline: map.maxY + 32, in: ctx) // HomeFonts (cx-qpqs)
     }
 
-    /// The person whose tapbacks draw blue (the conversation's own participant).
-    static var me: ID = "me"
     /// Tapback badges on the part's top corner (outer side), stacked.
     /// Geometry (measured on macOS 26 Messages, 2x screenshot, unchanged on macOS 27): a 27.5 pt
     /// disc whose center is 2 pt inside the bubble's top outer corner and 8.25 pt above its top
@@ -547,11 +681,12 @@ enum PartRenderer {
     /// window-position gradient of my bubbles ((81, 151, 248) at window y 277 pt, the gradient's
     /// value there). Mine is drawn here only when `windowY` is known; in a cell's bitmap
     /// (`windowY` NaN) the cell's badge layer draws it (RowCell, a window-anchored gradient like
-    /// the outgoing fill, and the badge's pop).
-    static func drawReactions(_ ctx: CGContext, _ rs: [Reaction], body: CGRect, outgoing: Bool, windowY: CGFloat = .nan) {
+    /// the outgoing fill, and the badge's pop). `mine`: the index of my reaction in `rs`
+    /// (PartRow.myReaction).
+    static func drawReactions(_ ctx: CGContext, _ rs: [Reaction], mine myIndex: Int?, body: CGRect, outgoing: Bool, windowY: CGFloat = .nan) {
         let side: CGFloat = outgoing ? -1 : 1
         for (i, r) in rs.enumerated().reversed() {
-            let mine = r.senderId == me
+            let mine = i == myIndex
             if mine && windowY.isNaN { continue }
             let c = badgeCenter(body: body, outgoing: outgoing, index: i)
             let shape = badgePath(center: c, side: side, tails: i == 0)
@@ -907,8 +1042,9 @@ enum Reclaimer {
 
 /// Message bubble fill (outgoing bubbles shade with window position).
 enum BubbleView {
-    static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0) {
-        let shape = BubblePath.make(body: body, outgoing: outgoing, tail: tail)
+    static func drawBubble(_ ctx: CGContext, body: CGRect, lines: [String], outgoing: Bool, tail: Bool, windowY: CGFloat = 0,
+                           cornersOf frame: CGSize? = nil) {
+        let shape = BubblePath.make(body: body, outgoing: outgoing, tail: tail, cornersOf: frame)
         if outgoing {
             if windowY.isNaN { return }     // filled by the row's gradient layer
             ctx.saveGState()
@@ -934,4 +1070,7 @@ enum PreviewStyle {
     static let repliesBlue = Fixture.p3(63, 143, 247)
     /// A text root's line (screencapture -l, macOS 27: glyph core 129).
     static let textGray = UIColor(white: 129 / 255, alpha: 1)
+    /// My root's preview (outgoing-thread-reply-take4, screencapture -l, macOS 27): outline and glyph core.
+    static let outgoingStroke = Fixture.p3(44, 77, 121)
+    static let outgoingText = Fixture.p3(48, 102, 203)
 }

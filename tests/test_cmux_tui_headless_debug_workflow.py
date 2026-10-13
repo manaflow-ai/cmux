@@ -65,6 +65,28 @@ class HeadlessDebugDaemon(unittest.TestCase):
         self.assertIn("vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404'", self.consumer["runs-on"])
         self.assertEqual(self.producer["runs-on"], "${{ vars.LINUX_RUNNER || 'blacksmith-8vcpu-ubuntu-2404' }}")
 
+    def test_a_pull_request_builds_incrementally_from_the_feat_target_dir(self) -> None:
+        # The exact-binary key names the whole cmux-tui tree, so a pull request that
+        # changes cmux-tui never hits it and compiled the workspace and Ghostty cold
+        # (about 309 s of the 7 min job). feat-cmux-next keeps the target dir under one
+        # shared key; conformance restores it read-only and rebuilds only what changed.
+        def target_cache(job: dict) -> dict:
+            names = [s.get("name") for s in job["steps"]]
+            cache = step(job, "Cache the cmux-tui target dir")
+            self.assertTrue(str(cache.get("uses", "")).startswith("Swatinem/rust-cache@"))
+            self.assertLess(names.index("Cache the cmux-tui target dir"), names.index("Build exact headless cmux-tui"))
+            self.assertEqual(cache.get("if"), "${{ steps.headless-cache.outputs.cache-hit != 'true' }}")
+            return cache["with"]
+
+        produced, consumed = target_cache(self.producer), target_cache(self.consumer)
+        for field in ("workspaces", "shared-key", "cache-workspace-crates"):
+            self.assertEqual(produced[field], consumed[field], field)
+        self.assertEqual(produced["workspaces"], "cmux-tui -> target")
+        self.assertEqual(str(produced["cache-workspace-crates"]).lower(), "true")
+        self.assertNotIn("save-if", produced)
+        # Pull request caches stay read-only, like the exact binary's.
+        self.assertIs(consumed["save-if"], False)
+
     def test_only_feat_cmux_next_pushes_and_dispatches_save_it(self) -> None:
         triggers = self.producer_doc[True]  # YAML 1.1 reads `on` as true.
         self.assertEqual(sorted(triggers), ["push", "workflow_dispatch"])

@@ -98,6 +98,12 @@ impl HeadlessServer {
             .arg("--state")
             .arg(&state)
             .env("CMUX_TUI_CONFIG", &config)
+            // A login shell (`--shell` runs `$SHELL -lc`) must not see an SSH
+            // session: a Blacksmith Testbox's /etc/profile.d/blacksmith.sh then
+            // cds into GITHUB_WORKSPACE and overrides the terminal's folder.
+            .env_remove("SSH_CONNECTION")
+            .env_remove("SSH_CLIENT")
+            .env_remove("SSH_TTY")
             .envs(env.iter().copied())
             .stdout(Stdio::null())
             .stderr(Stdio::piped());
@@ -3663,6 +3669,11 @@ mod chief;
 #[path = "cli/closed_delete.rs"]
 mod closed_delete;
 #[cfg(unix)]
+#[path = "cli/cloud_lease_gate.rs"]
+mod cloud_lease_gate;
+#[path = "cli/command_history.rs"]
+mod command_history;
+#[cfg(unix)]
 #[path = "cli/conversation_threads.rs"]
 mod conversation_threads;
 #[cfg(unix)]
@@ -3671,6 +3682,8 @@ mod explicit_socket;
 #[cfg(unix)]
 #[path = "cli/feed_local.rs"]
 mod feed_local;
+#[path = "cli/git_write.rs"]
+mod git_write;
 #[path = "cli/icon_assets.rs"]
 mod icon_assets;
 #[path = "cli/launch_credential.rs"]
@@ -3681,17 +3694,21 @@ mod left_dock_undock;
 #[path = "cli/lone_width.rs"]
 mod lone_width;
 #[cfg(unix)]
+#[path = "cli/new_terminal_cwd.rs"]
+mod new_terminal_cwd;
+#[cfg(unix)]
 #[path = "cli/settings_owner.rs"]
 mod settings_owner;
+#[path = "cli/state_helpers.rs"]
+mod state_helpers;
 #[cfg(unix)]
 #[path = "cli/status.rs"]
 mod status;
+#[path = "cli/tab_group_hex.rs"]
+mod tab_group_hex;
 #[cfg(unix)]
 #[path = "cli/wg_hub.rs"]
 mod wg_hub;
-
-#[path = "cli/state_helpers.rs"]
-mod state_helpers;
 use state_helpers::*;
 
 #[cfg(unix)]
@@ -3817,3 +3834,7 @@ fn state_cli_tab_groups_and_caller_workspace_through_a_real_daemon() {
     state_cli(&server, None, &["tab", "group", "agents", "ungroup"]);
     assert_eq!(state_cli(&server, None, &["tab", "group", "list"]), serde_json::json!([]));
 }
+
+#[cfg(unix)]
+#[path = "cli/history.rs"]
+mod history;

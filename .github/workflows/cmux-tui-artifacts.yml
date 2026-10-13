@@ -630,6 +630,102 @@ jobs:
       # `mac` to that file.
       darwin_builder: ${{ needs.tree-preflight.outputs.darwin_builder }}
 
+  # The Linux cross-link of the macOS targets (darwin_builder=linux) links
+  # against framework stubs (scripts/ci/macos-stubs) that a new framework
+  # import outdates: CFPreferences on 2026-10-10, CFNetwork (#19601) on 10-12.
+  # Both macOS legs failed together each time, so no tree published and
+  # nightly-next stalled until the stub was regenerated. When the build fails
+  # and only macOS artifacts are missing, this run builds those targets on a
+  # Mac (darwin_builder=mac, the real SDK) and publishes with them; a missing
+  # Linux target still fails the run. A rerun would hit the same stub, so the
+  # fallback runs in the same run.
+  darwin-fallback-plan:
+    name: plan the macOS fallback build
+    if: ${{ !cancelled() && needs.build.result == 'failure' && needs.tree-preflight.outputs.darwin_builder == 'linux' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [tree-preflight, build]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      actions: read # this run's artifacts
+    outputs:
+      target_set: ${{ steps.plan.outputs.target_set }}
+      recovered: ${{ steps.plan.outputs.recovered }}
+    steps:
+      - name: Find the macOS targets the build left without artifacts
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          names="$(gh api --paginate "repos/$REPOSITORY/actions/runs/$RUN_ID/artifacts?per_page=100" --jq '.artifacts[].name')"
+          # A target is built when all three of its artifacts are there.
+          have() { for kind in cmux-tui cmux-relay chatmux-relay; do grep -qx "$kind-$1" <<<"$names" || return 1; done; }
+          for linux in x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            if ! have "$linux"; then
+              echo "::error title=no macOS fallback::the $linux build failed too; only a macOS cross-link failure falls back to a Mac"
+              echo "target_set=" >> "$GITHUB_OUTPUT"
+              echo "recovered=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+          arm=missing; intel=missing
+          have aarch64-apple-darwin && arm=present
+          have x86_64-apple-darwin && intel=present
+          case "$arm/$intel" in
+            missing/missing) set=macos ;;
+            missing/present) set=macos-arm64 ;;
+            present/missing) set=macos-x86_64 ;;
+            *) set= ;;
+          esac
+          # Every target is there: an earlier attempt's fallback built the macOS
+          # ones, and "Re-run failed jobs" reran this plan with the build.
+          [[ -z "$set" ]] && recovered=true || recovered=false
+          echo "recovered=$recovered" >> "$GITHUB_OUTPUT"
+          if [[ -n "$set" ]]; then
+            echo "::warning title=macOS fallback build::the Linux cross build of the macOS targets failed (aarch64 $arm, x86_64 $intel); building target_set=$set on a Mac in this run. Regenerate the stubs: scripts/ci/macos_stubs.py"
+          fi
+          echo "target_set=$set" >> "$GITHUB_OUTPUT"
+
+  build-darwin-fallback:
+    if: ${{ !cancelled() && needs.darwin-fallback-plan.outputs.target_set != '' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [tree-preflight, darwin-fallback-plan]
+    concurrency:
+      group: cmux-tui-build-fallback-${{ needs.tree-preflight.outputs.key }}-${{ github.run_id }}
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    uses: ./.github/workflows/cmux-tui-build-package.yml
+    with:
+      version: 0.0.0-r2.sha-${{ github.sha }}
+      package_npm: false
+      package_pypi: false
+      include_windows: false
+      target_set: ${{ needs.darwin-fallback-plan.outputs.target_set }}
+      checkout_ref: ${{ github.event.pull_request.merge_commit_sha || '' }}
+      darwin_builder: mac
+
+  # The publish jobs take the build from here: the matrix build, or that
+  # build with its macOS targets rebuilt by build-darwin-fallback.
+  build-ok:
+    name: build (with any macOS fallback)
+    if: ${{ always() && needs.build.result != 'skipped' && needs.build.result != 'cancelled' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [build, darwin-fallback-plan, build-darwin-fallback]
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || contains(fromJSON('["ubuntu-24.04","blacksmith-2vcpu-ubuntu-2404","blacksmith-4vcpu-ubuntu-2404"]'), vars.CI_TRUSTED_RUNNER) && vars.CI_TRUSTED_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    steps:
+      - name: The build or its macOS fallback succeeded
+        env:
+          BUILD: ${{ needs.build.result }}
+          FALLBACK: ${{ needs.build-darwin-fallback.result }}
+          RECOVERED: ${{ needs.darwin-fallback-plan.outputs.recovered }}
+        run: |
+          echo "build: $BUILD, macOS fallback: $FALLBACK, recovered by an earlier attempt: ${RECOVERED:-false}"
+          [[ "$BUILD" == success || "$FALLBACK" == success || "$RECOVERED" == true ]]
+
   # The daemon tests the cmux-next app relies on (Rust tests named
   # cmux_next_), on the exact commit. publish-tree waits for them.
   cmux-next-daemon-tests:
@@ -753,9 +849,10 @@ jobs:
             exit "$status"
           fi
 
-  # Failed runs are retried by cmux-tui-artifacts-retry.yml after they
-  # complete (a run cannot rerun itself while it is in progress), never for an
-  # immutable R2 conflict.
+  # Failed feat-cmux-next and cmux-tui-pin-* push runs are retried by main's
+  # cmux-tui-artifacts-retry.yml after they complete (workflow_run fires only
+  # from the default branch), unless their tree published or an immutable R2
+  # conflict failed them.
 
   publish-ref-notice:
     # A dispatch from a branch outside main / feat-cmux-next / cmux-tui-pin-*
@@ -786,8 +883,8 @@ jobs:
     # PR runs of this workflow only validate the build. Only the refs the
     # artifacts environment admits publish; a dispatch from any other branch
     # is a green build-only run (publish-ref-notice says how to publish).
-    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
-    needs: build
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: build-ok
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     permissions:
@@ -1127,11 +1224,61 @@ jobs:
           R2_ENDPOINT: "https://${{ secrets.CF_R2_ACCOUNT_ID }}.r2.cloudflarestorage.com"
         run: |
           set -euo pipefail
+          # An earlier run may have published this commit already (a pull
+          # request branch push, then its cmux-tui-pin-* branch after that run
+          # finished). A rebuild is not byte-identical, so uploading it would
+          # stop with immutable-r2-conflict and leave the tree unpublished:
+          # keep the earlier publication instead, and make it this run's local
+          # copy so the rolling latest publish and the verify steps use the
+          # bytes the commit prefix serves. Each prefix's manifest.json sorts
+          # after its binaries (all named c*), so it exists only for a
+          # complete upload; the verify step below checks it.
+          published_before() {
+            local status=0
+            curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 60 -o /dev/null \
+              "https://files.cmux.com/$1/manifest.json?earlier=$GITHUB_RUN_ID" 2>/dev/null || status=$?
+            case "$status" in
+              0) echo "::notice title=commit already published::keeping the earlier publication at https://files.cmux.com/$1/"; return 0 ;;
+              22) return 1 ;;
+              *) echo "could not check https://files.cmux.com/$1/manifest.json (curl exit $status)" >&2; exit 1 ;;
+            esac
+          }
+          # The kept publication's file set, from its manifest: two builds of
+          # one commit can differ in optional binaries (the agent screen
+          # detector), so this run's own file list is not it.
+          adopt_published() {
+            local directory="$1" prefix="$2" name names checksums=""
+            fetch_published() {
+              curl -fsS --proto '=https' --retry 3 --retry-delay 5 --connect-timeout 20 --max-time 300 \
+                -o "$directory/$1" "https://files.cmux.com/$prefix/$1?adopt=$GITHUB_RUN_ID"
+            }
+            for name in "$directory"/*-checksums.txt; do
+              [[ -f "$name" ]] && checksums="$checksums $(basename "$name")"
+            done
+            find "$directory" -mindepth 1 -maxdepth 1 -type f -delete
+            fetch_published manifest.json
+            # Assigned first so a malformed manifest stops the step (set -e).
+            names="$(python3 -c '
+          import json, sys
+          m = json.load(open(sys.argv[1]))
+          names = set(m.get("binaries") or {})
+          for target in (m.get("artifacts") or {}).values():
+              names.update(a["name"] for a in target.values())
+          print(" ".join(sorted(names)))
+          ' "$directory/manifest.json")"
+            for name in $checksums $names; do
+              [[ "$name" == manifest.json ]] || fetch_published "$name"
+            done
+          }
           publish_prefix() {
             local directory="$1"
             local prefix="$2"
             local cache="$3"
             local write_once="$4"
+            if [[ "$write_once" == "true" ]] && published_before "$prefix"; then
+              adopt_published "$directory" "$prefix"
+              return
+            fi
             for file in "$directory"/*; do
               upload_args=()
               if [[ "$write_once" == "true" ]]; then
@@ -1205,6 +1352,10 @@ jobs:
           publish_legacy_prefix() {
             local prefix="$1"
             local cache="$2"
+            if published_before "$prefix"; then
+              adopt_published "$legacy_assets" "$prefix"
+              return
+            fi
             for file in "$legacy_assets"/*; do
               python3 scripts/ci/upload-r2-object.py --write-once \
                 --file "$file" \
@@ -1416,7 +1567,8 @@ jobs:
     needs: [tree-preflight, publish]
     # Only while the Mac builds publish: with darwin_builder=linux the
     # references are this job's own output.
-    if: needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
+    # !cancelled(): publish's chain runs through the skipped macOS fallback jobs.
+    if: ${{ !cancelled() && needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
     # 8 vCPU: the shadow builds both macOS targets of every binary.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-8vcpu-ubuntu-2404' }}
     timeout-minutes: 60
@@ -1543,6 +1695,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # otool and codesign in the run-time check come from the selected Xcode.
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
       - name: Download the Linux-built macOS binaries
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -1588,8 +1744,8 @@ jobs:
   publish-tree:
     environment: artifacts
     name: publish tree-addressed cmux-tui
-    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
-    needs: [build, publish, cmux-next-daemon-tests]
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.publish.result == 'success' && needs.cmux-next-daemon-tests.result == 'success' && github.event_name != 'pull_request' && github.event_name != 'pull_request_target' && (github.event_name == 'push' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/cmux-tui-pin-')) && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [build-ok, publish, cmux-next-daemon-tests]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Ownership is elected before expensive work; publication stays per run
@@ -1691,13 +1847,21 @@ jobs:
             done
           else
             source_commit="$GITHUB_SHA"
+            # The commit's published binaries, not this run's: an earlier run
+            # may have published this commit (the publish job keeps that
+            # publication), and a rebuild's bytes differ from its manifest.
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-companions); do
+              fetch "https://files.cmux.com/cmux-tui/$GITHUB_SHA/$asset" "assets/tree/$asset"
+            done
             python3 - "$KEY" "$GITHUB_SHA" manifest.json > tree/source.json <<'PY'
-          import json, os, subprocess, sys
+          import json, os, re, subprocess, sys
           key, commit, manifest_path = sys.argv[1:]
           manifest = json.load(open(manifest_path))
           names = subprocess.check_output([sys.executable, "scripts/ci/publish-cmux-tui-tree.py", "--list-companions"], text=True).split()
           def rev(spec):
               return subprocess.check_output(["git", "rev-parse", spec], text=True).strip()
+          built = re.search(r"/actions/runs/(\d+)", manifest.get("attestationUrl") or "")
+          built_by = built.group(1) if built else os.environ["GITHUB_RUN_ID"]
           print(json.dumps({
               "key": key,
               "cmuxTuiTree": rev("HEAD:cmux-tui"),
@@ -1708,8 +1872,10 @@ jobs:
               # head) are the R2 pruner's candidates; trunk trees are kept.
               "ref": os.environ["GITHUB_REF"],
               "family": "trunk" if os.environ["GITHUB_REF"] in ("refs/heads/main", "refs/heads/feat-cmux-next") else "branch",
-              "run": os.environ["GITHUB_RUN_ID"],
-              "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
+              # The run that built the published binaries: an earlier run
+              # when the publish job kept that run's publication.
+              "run": built_by,
+              "runUrl": f"{os.environ['GITHUB_SERVER_URL']}/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{built_by}",
               "binaries": {name: manifest["binaries"][name] for name in names},
           }, indent=2))
           PY
@@ -1735,11 +1901,10 @@ jobs:
           if [[ -n "$windows_commit" ]]; then
             [[ "$windows_commit" =~ ^[0-9a-f]{40}$ ]] || { echo "malformed Windows tree source commit; see cmuxterm-hq REPAIR.md#cmux-tui-tree-publication" >&2; exit 1; }
             fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/manifest.json" tree/windows-manifest.json
-            if [[ "$windows_commit" != "$GITHUB_SHA" ]]; then
-              for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
-                fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
-              done
-            fi
+            # Published bytes even for this commit (see the companions above).
+            for asset in $(python3 scripts/ci/publish-cmux-tui-tree.py --list-windows-companions); do
+              fetch "https://files.cmux.com/cmux-tui-windows/$windows_commit/$asset" "assets/tree/$asset"
+            done
             windows_args=(--windows-manifest-file tree/windows-manifest.json --windows-source-commit "$windows_commit")
           else
             echo "::warning title=tree without Windows::tree $KEY is published without the Windows daemon (the optional Windows build made none); a later republication adds it"
@@ -1843,8 +2008,8 @@ jobs:
   publish-pr-tree:
     environment: artifacts
     name: publish pull request tree-addressed cmux-tui
-    if: github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository)
-    needs: [build, cmux-next-daemon-tests]
+    if: ${{ !cancelled() && needs.build-ok.result == 'success' && needs.cmux-next-daemon-tests.result == 'success' && github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name == github.repository && (github.event_name != 'pull_request_target' || github.event.pull_request.head.repo.full_name == github.repository) }}
+    needs: [build-ok, cmux-next-daemon-tests]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 15
     # Per run (cx-73f2): a job group shared by one key holds one pending job

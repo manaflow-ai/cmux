@@ -30,7 +30,7 @@ final class ChromeIconButton: NSButton {
         iconLabel = label
         self.action = action
         self.target = target
-        toolTip = label
+        themedToolTip = label
         setAccessibilityLabel(label)
         wantsLayer = true
         NSLayoutConstraint.activate([
@@ -63,7 +63,7 @@ final class ChromeIconButton: NSButton {
         let icon = NSImage.icon(iconName, size: side)
         icon.accessibilityDescription = label
         image = icon
-        toolTip = label
+        themedToolTip = label
         setAccessibilityLabel(label)
     }
 
@@ -309,7 +309,7 @@ class ChromeTextField: NSTextField {
     private func applyEditorColors() {
         guard let editor = currentEditor() as? NSTextView else { return }
         performWithTheme {
-            editor.insertionPointColor = Palette.textPrimary
+            editor.insertionPointColor = Palette.caret
             editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
         }
     }
@@ -318,18 +318,5 @@ class ChromeTextField: NSTextField {
         let accepted = super.becomeFirstResponder()
         if accepted { applyEditorColors() }
         return accepted
-    }
-}
-
-extension NSTextField {
-    /// The field's setter ends and restarts an active edit, which runs the
-    /// end-editing and focus paths mid-typing; the cell's only redraws.
-    func setPlaceholderKeepingEdit(_ placeholder: NSAttributedString) {
-        guard currentEditor() != nil, let cell = cell as? NSTextFieldCell else {
-            placeholderAttributedString = placeholder
-            return
-        }
-        cell.placeholderAttributedString = placeholder
-        needsDisplay = true
     }
 }

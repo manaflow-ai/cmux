@@ -6,10 +6,11 @@
   "scripts": {
     "build": "bun run verify:tanstack-router && bun run typecheck && vp build",
     "benchmark": "bun run bench/diff-stream.bench.ts",
-    "check": "bun run check:browser-lanes && bun run check:layers && bun run check:type-scale && bun run check:system-blue && vp check",
+    "check": "bun run check:browser-lanes && bun run check:layers && bun run check:type-scale && bun run check:system-blue && bun run check:text-focus && vp check",
     "check:layers": "python3 ../scripts/cmux-next/check-layers.py",
     "check:type-scale": "python3 ../scripts/cmux-next/check-type-scale.py",
     "check:system-blue": "python3 ../scripts/cmux-next/check-system-blue.py",
+    "check:text-focus": "python3 ../scripts/cmux-next/check-text-focus-rings.py",
     "check:browser-lanes": "bun scripts/check-browser-test-lanes.ts",
     "check:fix": "vp check --fix",
     "dev": "vp dev",

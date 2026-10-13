@@ -53,6 +53,16 @@ extension GroupColor {
     /// itself, kept readable over the sidebar. None is the sidebar's tonal step.
     public var headerFill: NSColor { headerRGB(ThemeContext.active ?? ThemeScope.app.tokens).nsColor }
 
+    /// The color as a palette ball in the active theme scope (the app theme outside one): the
+    /// theme's palette color; grey as the app draws it there, the sidebar's neutral step for a
+    /// group (`headerFill`) or the visible mid grey where it marks content (`markColor`).
+    /// theme-scoped
+    public func ballRGB(marksContent: Bool) -> ThemeRGB {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        guard marksContent, themeRGB(tokens) == nil, let grey = swatch.usingColorSpace(.sRGB) else { return headerRGB(tokens) }
+        return ThemeRGB(red: grey.redComponent, green: grey.greenComponent, blue: grey.blueComponent)
+    }
+
     /// Text and glyphs on `headerFill`: black or white, whichever reads
     /// better on the color in this theme.
     public var headerInk: NSColor {

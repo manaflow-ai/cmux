@@ -10,34 +10,7 @@
      /// Marked (IME) text changed. UITextView reports marked text through
      /// `textViewDidChange`, so the draft (and the field height) follows the
      /// composition; NSTextView does not post a text change for it.
-@@ -217,17 +220,21 @@
-         DispatchQueue.main.async { [weak self] in self?.updateCaret(reset: false) }
-         return ok
-     }
-+    // cmux: block observers on queue: .main (inline for AppKit's post on main), not selectors:
-+    // a selector into this main-actor view trapped on a post off main (crash program).
-+    private var keyObservers: [NSObjectProtocol] = []
-+    deinit { keyObservers.forEach { NotificationCenter.default.removeObserver($0) } }
-     override func viewDidMoveToWindow() {
-         super.viewDidMoveToWindow()
-         applyScale()
-         let nc = NotificationCenter.default
--        nc.removeObserver(self, name: NSWindow.didBecomeKeyNotification, object: nil)
--        nc.removeObserver(self, name: NSWindow.didResignKeyNotification, object: nil)
-+        keyObservers.forEach { nc.removeObserver($0) }  // cmux
-+        keyObservers = []
-         guard let window else { return }
--        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didBecomeKeyNotification, object: window)
--        nc.addObserver(self, selector: #selector(keyChanged), name: NSWindow.didResignKeyNotification, object: window)
-+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {  // cmux
-+            keyObservers.append(nc.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in self?.updateCaret() })
-+        }
-     }
--    @objc private func keyChanged() { updateCaret() }
-     override func setFrameSize(_ newSize: NSSize) {
-         let heightChanged = newSize.height != frame.height
-         super.setFrameSize(newSize)
-@@ -306,6 +313,7 @@
+@@ -413,6 +416,7 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
@@ -45,7 +18,7 @@
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
      }
-@@ -747,11 +755,11 @@
+@@ -870,11 +874,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in

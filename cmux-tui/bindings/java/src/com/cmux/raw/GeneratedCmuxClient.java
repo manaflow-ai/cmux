@@ -198,6 +198,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object cloudConversationThread(CloudConversationThreadRequest request) throws CmuxException {
+        Object result = execute(Commands.CLOUD_CONVERSATION_THREAD, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final Object cloudConversationUnsubscribe(CloudConversationUnsubscribeRequest request) throws CmuxException {
         Object result = execute(Commands.CLOUD_CONVERSATION_UNSUBSCRIBE, request.toWire());
         return Wire.immutableJson(result);
@@ -308,6 +313,11 @@ public abstract class GeneratedCmuxClient {
         return ConversationSnapshotResult.fromWire(result);
     }
 
+    public final ConversationThreadResult conversationThread(ConversationThreadRequest request) throws CmuxException {
+        Object result = execute(Commands.CONVERSATION_THREAD, request.toWire());
+        return ConversationThreadResult.fromWire(result);
+    }
+
     public final EmptyResult conversationTyping(ConversationTypingRequest request) throws CmuxException {
         Object result = execute(Commands.CONVERSATION_TYPING, request.toWire());
         return EmptyResult.fromWire(result);
@@ -396,6 +406,11 @@ public abstract class GeneratedCmuxClient {
     public final DeleteSavedTabGroupResult deleteSavedTabGroup(DeleteSavedTabGroupRequest request) throws CmuxException {
         Object result = execute(Commands.DELETE_SAVED_TAB_GROUP, request.toWire());
         return DeleteSavedTabGroupResult.fromWire(result);
+    }
+
+    public final TerminalCommandDeleteResult deleteTerminalCommands(DeleteTerminalCommandsRequest request) throws CmuxException {
+        Object result = execute(Commands.DELETE_TERMINAL_COMMANDS, request.toWire());
+        return TerminalCommandDeleteResult.fromWire(result);
     }
 
     public final Object deleteWorkspaceGroup(DeleteWorkspaceGroupRequest request) throws CmuxException {
@@ -556,6 +571,11 @@ public abstract class GeneratedCmuxClient {
     public final ListTabGroupsResult listTabGroups() throws CmuxException {
         Object result = execute(Commands.LIST_TAB_GROUPS, Map.of());
         return ListTabGroupsResult.fromWire(result);
+    }
+
+    public final TerminalCommandList listTerminalCommands(ListTerminalCommandsRequest request) throws CmuxException {
+        Object result = execute(Commands.LIST_TERMINAL_COMMANDS, request.toWire());
+        return TerminalCommandList.fromWire(result);
     }
 
     public final ListTerminalsResult listTerminals() throws CmuxException {

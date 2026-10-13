@@ -88,7 +88,9 @@ enum WorkspaceGroupHandlers {
         registry.bind("workspaceGroup.ungroup", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.ungroupedToast)
         })
-        registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try edit(invocation, context) { .closeGroup($0) } })
+        registry.bind("workspaceGroup.closeWorkspaces", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
+            try WorkspaceGroupClose.close(invocation, context)
+        })
         registry.bind("workspaceGroup.delete", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             // RECOVERABLE-BY-DEFAULT: deleting a group keeps its workspaces
             // (Close All Workspaces in Group is the verb that closes them).
@@ -109,15 +111,17 @@ enum WorkspaceGroupHandlers {
             let group = try context.group(invocation)
             let history = IconHistory.workspaceGroup(context), id = group.id.rawValue
             if let icon = invocation["icon"]?.stringValue?.trimmingCharacters(in: .whitespaces), !icon.isEmpty {
-                guard WorkspaceIconValue.isValid(icon) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon) }
+                guard WorkspaceIconValue.isValid(icon, assets: true) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.invalidIcon) }
                 return try history.change(id, from: group.icon, to: icon, origin: invocation.origin)
             }
             guard let anchor = context.services.iconPicker.anchor(group: group.id.rawValue) else {
                 throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen)
             }
-            context.services.iconPicker.pick(current: group.icon, target: "workspaceGroup:\(id)", at: anchor) { result in
+            // A stored image or SVG goes to the home daemon, which keeps the group (cx-qno.11.1).
+            context.services.iconPicker.pick(current: group.icon, target: "workspaceGroup:\(id)", at: anchor,
+                                             assets: IconAssetStore.owner(home)) { result in
                 switch result {
-                case .set(let icon) where WorkspaceIconValue.isValid(icon): try? history.change(id, from: group.icon, to: icon, origin: .user)
+                case .set(let icon) where WorkspaceIconValue.isValid(icon, assets: true): try? history.change(id, from: group.icon, to: icon, origin: .user)
                 case .clear: try? history.change(id, from: group.icon, to: nil, origin: .user)
                 case .set, .cancel: break
                 }

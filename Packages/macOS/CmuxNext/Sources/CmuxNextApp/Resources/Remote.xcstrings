@@ -132,137 +132,6 @@
         }
       }
     },
-    "remote.button.forget": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forget"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "نسيان"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zaboravi"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Glem"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Vergessen"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Olvidar"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oublier"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dimentica"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "削除"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បំភ្លេច"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "삭제"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Glem"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zapomnij"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esquecer"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Забыть"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลืม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Unut"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Забути"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quên"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "忘记"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "忘記"
-          }
-        }
-      }
-    },
     "remote.button.install": {
       "extractionState": "manual",
       "localizations": {
@@ -1962,268 +1831,6 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "cmux-tui 沒有適用於 %@ 的版本。它可在 macOS 和 Linux（x86_64 和 arm64）上執行。"
-          }
-        }
-      }
-    },
-    "remote.forget.body": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Removes the machine from the saved list with its personal order, groups and space pins. Nothing on the machine changes."
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "يزيل الجهاز من القائمة المحفوظة مع ترتيبه الشخصي ومجموعاته وتثبيتات المساحات. لا يتغير شيء على الجهاز."
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Uklanja mašinu sa sačuvane liste zajedno s ličnim redoslijedom, grupama i pričvršćenjima u prostorima. Na mašini se ništa ne mijenja."
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fjerner maskinen fra den gemte liste med dens personlige rækkefølge, grupper og områdefastgørelser. Intet på maskinen ændres."
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Entfernt die Maschine mit ihrer persönlichen Reihenfolge, ihren Gruppen und Space-Pins aus der gespeicherten Liste. Auf der Maschine ändert sich nichts."
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quita la máquina de la lista guardada con su orden personal, grupos y fijaciones de espacios. En la máquina no cambia nada."
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Retire la machine de la liste enregistrée avec son ordre personnel, ses groupes et ses épinglages d’espaces. Rien ne change sur la machine."
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Rimuove la macchina dall’elenco salvato con ordine personale, gruppi e fissaggi negli spazi. Sulla macchina non cambia nulla."
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "保存済みリストからマシンを、個人の並び順、グループ、スペースのピン留めと一緒に削除します。マシン上では何も変わりません。"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ដកម៉ាស៊ីនចេញពីបញ្ជីដែលបានរក្សាទុក រួមជាមួយលំដាប់ផ្ទាល់ខ្លួន ក្រុម និងការខ្ទាស់ក្នុងលំហ។ គ្មានអ្វីផ្លាស់ប្ដូរលើម៉ាស៊ីនទេ។"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "저장된 목록에서 머신을 개인 순서, 그룹, 스페이스 고정과 함께 제거합니다. 머신에서는 아무것도 바뀌지 않습니다."
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Fjerner maskinen fra den lagrede listen med personlig rekkefølge, grupper og områdefestinger. Ingenting endres på maskinen."
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Usuwa maszynę z zapisanej listy wraz z osobistą kolejnością, grupami i przypięciami w obszarach. Na maszynie nic się nie zmienia."
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Remove a máquina da lista salva com sua ordem pessoal, grupos e fixações em espaços. Nada muda na máquina."
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Удаляет машину из сохранённого списка вместе с личным порядком, группами и закреплениями в областях. На самой машине ничего не меняется."
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลบเครื่องออกจากรายการที่บันทึกไว้ พร้อมลำดับส่วนตัว กลุ่ม และการปักหมุดในพื้นที่ ไม่มีอะไรเปลี่ยนบนเครื่อง"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Makineyi kişisel sırası, grupları ve alan sabitlemeleriyle birlikte kayıtlı listeden kaldırır. Makinede hiçbir şey değişmez."
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Вилучає машину зі збереженого списку разом з особистим порядком, групами й закріпленнями в просторах. На самій машині нічого не змінюється."
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Xóa máy khỏi danh sách đã lưu cùng thứ tự cá nhân, nhóm và ghim không gian. Không có gì thay đổi trên máy."
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "从已保存列表中移除该机器及其个人排序、分组和空间置顶。机器上不会有任何更改。"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "從已儲存列表中移除該機器及其個人排序、群組和空間釘選。機器上不會有任何變更。"
-          }
-        }
-      }
-    },
-    "remote.forget.title": {
-      "extractionState": "manual",
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Forget %@?"
-          }
-        },
-        "ar": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "نسيان %@؟"
-          }
-        },
-        "bs": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zaboraviti %@?"
-          }
-        },
-        "da": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Glem %@?"
-          }
-        },
-        "de": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ vergessen?"
-          }
-        },
-        "es": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "¿Olvidar %@?"
-          }
-        },
-        "fr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Oublier %@ ?"
-          }
-        },
-        "it": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Dimenticare %@?"
-          }
-        },
-        "ja": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ を削除しますか？"
-          }
-        },
-        "km": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "បំភ្លេច %@ ឬ?"
-          }
-        },
-        "ko": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@을(를) 삭제할까요?"
-          }
-        },
-        "nb": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Glemme %@?"
-          }
-        },
-        "pl": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Zapomnieć %@?"
-          }
-        },
-        "pt-BR": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Esquecer %@?"
-          }
-        },
-        "ru": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Забыть %@?"
-          }
-        },
-        "th": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "ลืม %@ ไหม"
-          }
-        },
-        "tr": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "%@ unutulsun mu?"
-          }
-        },
-        "uk": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Забути %@?"
-          }
-        },
-        "vi": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "Quên %@?"
-          }
-        },
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "要忘记 %@ 吗？"
-          }
-        },
-        "zh-Hant": {
-          "stringUnit": {
-            "state": "needs_review",
-            "value": "要忘記 %@ 嗎？"
           }
         }
       }
@@ -4975,6 +4582,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "已中斷連線。選擇「重新連線機器」以連線。"
+          }
+        }
+      }
+    },
+    "remote.status.reconnecting": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The connection dropped. cmux reconnects on its own; programs keep running on the machine."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "انقطع الاتصال. يعيد cmux الاتصال تلقائيًا، وتستمر البرامج في العمل على الجهاز."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Veza je prekinuta. cmux se sam ponovo povezuje; programi nastavljaju raditi na mašini."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsen blev afbrudt. cmux genopretter den selv; programmer kører videre på maskinen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Die Verbindung wurde unterbrochen. cmux verbindet sich selbst neu; Programme laufen auf der Maschine weiter."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se perdió la conexión. cmux se reconecta solo; los programas siguen ejecutándose en la máquina."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connexion a été interrompue. cmux se reconnecte seul ; les programmes continuent de tourner sur la machine."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La connessione si è interrotta. cmux si riconnette da solo; i programmi continuano a funzionare sulla macchina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "接続が切れました。cmux が自動で再接続します。マシン上のプログラムは動作し続けます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការតភ្ជាប់បានដាច់។ cmux ភ្ជាប់ឡើងវិញដោយខ្លួនឯង កម្មវិធីនៅតែដំណើរការលើម៉ាស៊ីន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "연결이 끊겼습니다. cmux가 자동으로 다시 연결하며, 프로그램은 머신에서 계속 실행됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forbindelsen ble brutt. cmux kobler til på nytt av seg selv; programmer fortsetter å kjøre på maskinen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Połączenie zostało przerwane. cmux połączy się ponownie samodzielnie; programy nadal działają na maszynie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A conexão caiu. O cmux se reconecta sozinho; os programas continuam rodando na máquina."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Соединение прервалось. cmux переподключится сам; программы продолжают работать на машине."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "การเชื่อมต่อขาดหาย cmux จะเชื่อมต่อใหม่เอง โปรแกรมยังคงทำงานบนเครื่อง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bağlantı koptu. cmux kendiliğinden yeniden bağlanır; programlar makinede çalışmaya devam eder."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "З’єднання обірвалося. cmux перепідключиться сам; програми продовжують працювати на машині."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kết nối bị ngắt. cmux tự kết nối lại; các chương trình vẫn tiếp tục chạy trên máy."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "连接已断开。cmux 会自动重新连接；程序会继续在机器上运行。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "連線已中斷。cmux 會自動重新連線；程式會繼續在機器上執行。"
           }
         }
       }
@@ -9036,6 +8774,137 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "%1$@ 上的瀏覽器未能啟動：%2$@"
+          }
+        }
+      }
+    },
+    "remote.forgot.toast": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forgot %@"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تم نسيان %@"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ je zaboravljen"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er glemt"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ vergessen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ olvidado"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ oublié"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ dimenticato"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ を削除しました"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បានបំភ្លេច %@"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ 삭제됨"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ er glemt"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zapomniano %@"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ esquecido"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ забыт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลืม %@ แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ unutuldu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "%@ забуто"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đã quên %@"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已忘记 %@"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已忘記 %@"
           }
         }
       }

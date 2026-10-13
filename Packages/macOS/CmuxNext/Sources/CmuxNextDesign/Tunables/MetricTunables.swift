@@ -63,7 +63,7 @@ public nonisolated enum MetricTunables {
     // MARK: Palette and panels
 
     public static let paletteRowHeight = MetricTunable.make("paletteRowHeight", .palette, "Palette row height", help: "One palette result row.",
-                                                            compact: 32, comfortable: 40, key: .paletteRowHeight)
+                                                            compact: 28, comfortable: 40, key: .paletteRowHeight)
     public static let paletteSearchHeight = MetricTunable.make("paletteSearchHeight", .palette, "Palette search height", help: "The palette search field.",
                                                                compact: 44, comfortable: 52)
     public static let paletteWidth = MetricTunable.make("paletteWidth", .palette, "Palette width", help: "Width of the command palette.",

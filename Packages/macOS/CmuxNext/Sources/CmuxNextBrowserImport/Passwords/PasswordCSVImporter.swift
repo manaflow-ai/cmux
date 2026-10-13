@@ -11,6 +11,8 @@ public struct PasswordCSVImporter: Sendable {
         case storeUnavailable
         case unreadable
         case noPasswordColumns
+        /// The person closed the column sheet.
+        case cancelled
     }
 
     /// Larger than any real export; a bigger file is not a password CSV.
@@ -22,29 +24,45 @@ public struct PasswordCSVImporter: Sendable {
         self.destination = destination
     }
 
-    public func run(file: URL, intoProfile profileID: String) async throws -> PasswordImportReport {
+    /// `columns` is asked, only when the header names no website or password column, to match
+    /// them by the header's names (the column sheet); nil keeps such a file a failure.
+    public func run(file: URL, intoProfile profileID: String,
+                    columns: (@MainActor @Sendable (PasswordCSVHeader) async -> PasswordCSVColumns?)? = nil) async throws -> PasswordImportReport {
         guard destination.isAvailable else { throw Failure.storeUnavailable }
-        // File IO off the caller's actor; the plaintext never leaves this task.
-        let read = try await Task.detached { try Self.parse(Self.read(file)) }.value
+        // File IO and parsing off the caller's actor; the plaintext stays in the locked buffer.
+        let bytes = try await Task.detached { try Self.read(file) }.value
+        let read: (logins: [ImportedLogin], skipped: LoginSkipCounts)
+        do {
+            read = try await Task.detached { try Self.parse(bytes) }.value
+        } catch Failure.noPasswordColumns {
+            guard let columns, let header = bytes.withUnsafeBytes(PasswordCSVHeader.read) else { throw Failure.noPasswordColumns }
+            guard let match = await columns(header) else { throw Failure.cancelled }
+            read = try await Task.detached { try Self.parse(bytes, columns: match) }.value
+        }
         return try await store(read, intoProfile: profileID)
     }
 
     /// The whole file, read into its own locked buffer.
     static func read(_ file: URL) throws(Failure) -> SecretBytes {
+        try read(file, limit: maximumSize)
+    }
+
+    /// The whole file when it is at most `limit` bytes (an export archive's limit is larger).
+    static func read(_ file: URL, limit: Int) throws(Failure) -> SecretBytes {
         let descriptor = open(file.path, O_RDONLY | O_CLOEXEC)
         guard descriptor >= 0 else { throw .unreadable }
         defer { close(descriptor) }
         var info = stat()
         guard fstat(descriptor, &info) == 0, info.st_mode & S_IFMT == S_IFREG else { throw .unreadable }
         let size = Int(info.st_size)
-        guard size <= maximumSize else { throw .unreadable }
+        guard size <= limit else { throw .unreadable }
         var failed = false
         let bytes = SecretBytes(capacity: size) { out in
             guard let base = out.baseAddress else { return 0 }  // an empty buffer reads nothing
             var done = 0
             // Each read returns at least one byte until the end, so this ends within size + 1 steps.
             for _ in 0...size where done < size && !failed {
-                let count = Darwin.read(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached in run(file:intoProfile:)
+                let count = Darwin.read(descriptor, base + done, size - done) // concurrency-allow: called only from Task.detached (run(file:intoProfile:), BrowserFileImport)
                 if count > 0 { done += count } else if count == 0 || errno != EINTR { failed = count < 0; break }
             }
             return done
@@ -53,9 +71,16 @@ public struct PasswordCSVImporter: Sendable {
         return bytes
     }
 
-    static func parse(_ bytes: SecretBytes) throws(Failure) -> (logins: [ImportedLogin], skipped: LoginSkipCounts) {
+    /// Imports a CSV already in memory (an export archive's Passwords.csv).
+    public func run(bytes: SecretBytes, intoProfile profileID: String) async throws -> PasswordImportReport {
+        guard destination.isAvailable else { throw Failure.storeUnavailable }
+        let read = try Self.parse(bytes)
+        return try await store(read, intoProfile: profileID)
+    }
+
+    static func parse(_ bytes: SecretBytes, columns: PasswordCSVColumns? = nil) throws(Failure) -> (logins: [ImportedLogin], skipped: LoginSkipCounts) {
         do {
-            return try bytes.withUnsafeBytes { try PasswordCSVReader().read($0) }
+            return try bytes.withUnsafeBytes { try PasswordCSVReader().read($0, columns: columns) }
         } catch {
             throw .noPasswordColumns
         }

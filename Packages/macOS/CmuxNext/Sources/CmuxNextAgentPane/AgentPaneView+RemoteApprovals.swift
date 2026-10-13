@@ -15,7 +15,7 @@ extension AgentPaneView {
         var views: [NSView] = [title, detail]
         remoteApprovals = approvals
         if approvals != nil {
-            let restart = NSButton(title: Self.remoteApprovalsRestart, target: self, action: #selector(restartWithApprovals(_:)))
+            let restart = ThemedBezelButton(title: Self.remoteApprovalsRestart, target: self, action: #selector(restartWithApprovals(_:)))
             restart.bezelStyle = .rounded
             views.append(restart)
         }
@@ -37,6 +37,24 @@ extension AgentPaneView {
         ])
         remoteApprovalsNotice = notice
     }
+
+    #if DEBUG
+    /// Debug socket (cx-kvmz T2): the notice's text lines and whether it offers the restart; nil
+    /// without a notice. Reads the views a person sees, nothing else.
+    public var remoteApprovalsNoticeLines: (lines: [String], restart: Bool)? {
+        guard let notice = remoteApprovalsNotice else { return nil }
+        let lines = notice.arrangedSubviews.compactMap { ($0 as? NSTextField)?.stringValue }
+        return (lines, notice.arrangedSubviews.contains { ($0 as? NSButton)?.isEnabled == true })
+    }
+
+    /// Debug socket (cx-kvmz T2): presses the notice's restart button as a click would
+    /// (`performClick`, the button's own action); false without an enabled button.
+    public func pressRemoteApprovalsRestart() -> Bool {
+        guard let button = remoteApprovalsNotice?.arrangedSubviews.lazy.compactMap({ $0 as? NSButton }).first, button.isEnabled else { return false }
+        button.performClick(nil)
+        return true
+    }
+    #endif
 
     func hideRemoteApprovalsOff() {
         remoteApprovalsNotice?.removeFromSuperview()

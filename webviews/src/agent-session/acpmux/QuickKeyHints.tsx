@@ -13,6 +13,7 @@ export function QuickKeyHints({ floating = false }: { floating?: boolean }) {
         ["↩", t("floating.key.send")],
         ["⌘J", t("floating.key.compact")],
         ["⌘⇧P", t("floating.key.onTop")],
+        ["⌘⇧I", t("floating.key.include")],
         ["⌘↩", t("floating.key.moveToTab")],
         ["esc", t("quick.close")],
       ]

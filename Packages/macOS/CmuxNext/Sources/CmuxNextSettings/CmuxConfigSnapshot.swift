@@ -42,6 +42,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var browserHibernation: BrowserHibernationSetting = .fallback
     /// `browser.links.*`: what modified link clicks do; Chrome's when unset.
     public var browserLinkClicks: BrowserLinkClickSetting = .fallback
+    /// `browser.openTerminalLinksInCmuxBrowser`, `.hostsToOpenInEmbeddedBrowser`, `.urlsToAlwaysOpenExternally`.
+    public var terminalLinkRouting: TerminalLinkRouting = .fallback
     /// `browser.searchEngine`, `browser.customSearchEngine.*`, `browser.omnibar.*`.
     public var browserOmnibar = BrowserOmnibarSetting.fallback
     /// `agentPane.editedFiles.*`: the agent pane's edited-files card.
@@ -148,6 +150,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `appearance.appTheme`: the theme cmux's own chrome and pages take their tokens from, apart
     /// from the terminal theme. Nil follows the terminal theme (`followTerminal`, the default).
     public var chromeTheme: String?
+    /// `appearance.themeEdits`: per-token color edits to themes; none when unset.
+    public var themeEdits = ThemeEdits.none
     /// `appearance.accent`: where the chrome's accent comes from; neutral when unset or invalid.
     public var accent: ThemeAccent = AccentSetting().fallback
     /// `terminal.fontFamily`; nil (the Ghostty config's font) when unset or invalid.
@@ -160,6 +164,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var navigationHistoryScope: String = NavigationHistoryScopeSetting.fallback
     /// `navigation.history.scope`: what a Back/Forward step is (`workspaces`, `everything`).
     public var navigationHistorySteps: String = NavigationHistoryStepSetting.fallback
+    /// `history.commandRetentionDays` (days each daemon keeps terminal commands).
+    public var commandRetentionDays: Int = CommandRetentionSetting.fallback
     /// The rest of `notifications.*`: dismissal, banners, sounds, quiet hours, mutes.
     public var notifications = NotificationPreferences()
     /// `updates.*`: automatic update behavior (R114).
@@ -208,15 +214,10 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(BookmarksBarSetting.parse(root), \.browserShowBookmarksBar)
         snapshot.take(HomeKeepLocationSetting.parse(root), \.homeKeepLocation)
         snapshot.take(Self.parsePreviewFeatures(root), \.previewFeatures)
-        let (hibernation, hibernationDiagnostics) = BrowserHibernationSetting.parse(root)
-        snapshot.browserHibernation = hibernation
-        snapshot.diagnostics += hibernationDiagnostics
-        let (linkClicks, linkClickDiagnostics) = BrowserLinkClickSetting.parse(root)
-        snapshot.browserLinkClicks = linkClicks
-        snapshot.diagnostics += linkClickDiagnostics
-        let (remoteLocalhost, remoteLocalhostDiagnostics) = RemoteLocalhostSetting.parse(root)
-        snapshot.remoteLocalhost = remoteLocalhost
-        snapshot.diagnostics += remoteLocalhostDiagnostics
+        snapshot.take(BrowserHibernationSetting.parse(root), \.browserHibernation)
+        snapshot.take(BrowserLinkClickSetting.parse(root), \.browserLinkClicks)
+        snapshot.take(TerminalLinkRouting.parse(root), \.terminalLinkRouting)
+        snapshot.take(RemoteLocalhostSetting.parse(root), \.remoteLocalhost)
         let paneChrome = PaneChromeConfigParser.parse(root)
         snapshot.paneChrome = paneChrome.overrides
         snapshot.diagnostics += paneChrome.diagnostics
@@ -249,7 +250,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.statusIndicator = StatusIndicatorConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         DiffViewerSetting.parse(root, diagnostics: &snapshot.diagnostics)
         ChatSettings.validate(root, diagnostics: &snapshot.diagnostics)
-        snapshot.browserOmnibar = BrowserOmnibarSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        CmuxConfigSnapshot.parseBrowser(root, into: &snapshot)
         CmuxConfigSnapshot.parseAgentPane(root, into: &snapshot)
         snapshot.agentPaneZoom = AgentPaneZoomSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.statusBehavior = StatusIndicatorConfigParser.behavior(root, diagnostics: &snapshot.diagnostics)
@@ -304,9 +305,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (tasksLayout, tasksLayoutDiagnostic) = TasksLayoutSetting().parse(root)
         snapshot.tasksLayout = tasksLayout
         if let tasksLayoutDiagnostic { snapshot.diagnostics.append(tasksLayoutDiagnostic) }
-        let (recordsCommands, commandsDiagnostic) = TerminalCommandHistorySetting.parse(root)
-        snapshot.recordsTerminalCommands = recordsCommands
-        if let commandsDiagnostic { snapshot.diagnostics.append(commandsDiagnostic) }
+        snapshot.parseHistory(root)
         snapshot.parseNavigationHistory(root)
         snapshot.notifications = NotificationConfigParser.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.feedGitHub = FeedGitHubSettings.parse(root, diagnostics: &snapshot.diagnostics)
@@ -319,6 +318,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         let (chromeTheme, chromeThemeDiagnostic) = ChromeThemeSetting().parse(root)
         snapshot.chromeTheme = chromeTheme
         if let chromeThemeDiagnostic { snapshot.diagnostics.append(chromeThemeDiagnostic) }
+        snapshot.themeEdits = ThemeEditsSetting().parse(root, diagnostics: &snapshot.diagnostics)
         let (accent, accentDiagnostic) = AccentSetting().parse(root)
         snapshot.accent = accent
         if let accentDiagnostic { snapshot.diagnostics.append(accentDiagnostic) }

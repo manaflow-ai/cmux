@@ -42,6 +42,9 @@ impl Hub {
                         self.append(&session, "mux", "stderr", json!({"text": line}));
                     }
                 }
+                Inbound::Barrier(done) => {
+                    let _ = done.send(());
+                }
                 Inbound::Exited { pid, code, host_seq } => {
                     {
                         let mut slot = session.child.lock().await;
@@ -534,7 +537,10 @@ impl Hub {
         self.append(session, "mux", "permission_decision", decision);
         {
             let state = session.permissions.lock().unwrap();
-            if state.pending.is_empty() && session.status() == SessionStatus::Waiting {
+            if state.pending.is_empty()
+                && session.status() == SessionStatus::Waiting
+                && !self.secrets.waiting_in(&session.id)
+            {
                 let next = if session.turn().is_some() { SessionStatus::Running } else { prev };
                 self.set_status(session, next);
             }
@@ -682,6 +688,8 @@ impl Hub {
         for (_, p) in drained {
             let _ = p.reply.send(json!({"outcome": "cancelled"}));
         }
+        // A secret card waits on the same turn (`secrets.rs`).
+        self.cancel_pending_secrets(session);
     }
 }
 

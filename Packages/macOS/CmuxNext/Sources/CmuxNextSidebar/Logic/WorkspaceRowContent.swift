@@ -28,9 +28,21 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var progress: SidebarProgress?
     /// The agent-working indicator slot (WORKING-AND-LOADING-INDICATORS).
     public var showsWorking: Bool
+    /// An expanded row (`sidebar.density`): its trailing marks sit on the title's line.
+    public var expanded = false
+    /// Expanded rows: the time since the last change, on the title's line.
+    public var time: String?
+    /// Expanded rows: a third line (the computer, the pull request).
+    public var meta: String?
+    /// The status block under the name (classic's): the reported entries
+    /// with `agentStatus` on, the log line with `log` on and the progress
+    /// label with `progress` on. Nil when none of those is reported, so a
+    /// quiet workspace keeps its one-line row.
+    public var status: SidebarWorkspaceStatus?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
-                activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false) {
+                activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
+                status: SidebarWorkspaceStatus? = nil) {
         self.icon = icon
         self.detail = detail
         self.tabCount = tabCount
@@ -38,6 +50,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         self.activity = activity
         self.progress = progress
         self.showsWorking = showsWorking
+        self.status = status
     }
 
     /// Separates second-line items.
@@ -64,8 +77,54 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
             badge: set.shows(.pullRequest) ? Self.nonEmpty(ws.pullRequest) : nil,
             activity: Self.activity(ws.activity, working: working, progress: set.shows(.progress)),
             progress: set.shows(.progress) ? ws.progress : nil,
-            showsWorking: working
+            showsWorking: working,
+            status: Self.status(ws.reported, set)
         )
+    }
+
+    /// An expanded row (`sidebar.density`, cx-13w3; T3 Code / Codex
+    /// style): the kind's icon when the user set none, a dim second line
+    /// (an unread notification's text when `sidebar.workspaceRow.notification` shows it, else the agent chat's last message, else the agent's status line, else
+    /// the folder and branch), the time
+    /// since the last change on the title's line, and a third line for the
+    /// computer and the pull request. `now` is the start of today, so the
+    /// time reads in days; a change today shows its time.
+    public init(expanded ws: SidebarWorkspace, now: Date, machine: String? = nil, showsNotification: Bool = true) {
+        let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
+        let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), Self.nonEmpty(ws.pullRequest)].compactMap { $0 }
+        self.init(
+            icon: ws.icon ?? .symbol(ws.kind.symbol),
+            detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+                ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
+            activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
+            progress: ws.progress,
+            showsWorking: ws.agentWorking
+        )
+        expanded = true
+        time = ws.lastActivity.map { Self.ageText($0, now: now) }
+        self.meta = meta.isEmpty ? nil : meta.joined(separator: Self.separator)
+    }
+
+    /// The age of a change, short: a time today, else days (`3d`), weeks
+    /// (`3w`) or months (`5mo`), as T3 Code and Codex label chats.
+    static func ageText(_ date: Date, now: Date, calendar: Calendar = .current) -> String {
+        let days = calendar.dateComponents([.day], from: calendar.startOfDay(for: date), to: calendar.startOfDay(for: now)).day ?? 0
+        if days <= 0 { return date.formatted(date: .omitted, time: .shortened) }
+        // One unit, from whole days, like All chats' ages (`SidebarChatsDesign.age`): no timer.
+        let formatter = DateComponentsFormatter()
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 1
+        formatter.allowedUnits = [.day, .weekOfMonth, .month]
+        return formatter.string(from: TimeInterval(days) * 86_400) ?? ""
+    }
+
+    /// The part of `reported` the shown elements draw; nil when empty.
+    static func status(_ reported: SidebarWorkspaceStatus?, _ set: WorkspaceRowElements) -> SidebarWorkspaceStatus? {
+        guard let reported else { return nil }
+        let block = SidebarWorkspaceStatus(entries: set.shows(.agentStatus) ? reported.entries : [],
+                                           log: set.shows(.log) ? reported.log : nil,
+                                           progressLabel: set.shows(.progress) ? reported.progressLabel : nil)
+        return block.isEmpty ? nil : block
     }
 
     static func activity(_ state: StatusIndicatorState, working: Bool, progress: Bool) -> StatusIndicatorState {
@@ -82,10 +141,12 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         case .directory: nonEmpty(ws.directory)
         case .branch: nonEmpty(ws.branch)
         case .process: nonEmpty(ws.process)
-        case .agentStatus: nonEmpty(ws.status)
+        // The status block draws the reported entries; the line repeats none.
+        case .agentStatus: ws.reported?.entries.isEmpty == false ? nil : nonEmpty(ws.status)
         case .ports: nonEmpty(ws.ports)
         case .lastActivity: ws.lastActivity.map { activityText($0, now: now) }
-        case .icon, .tabCount, .pullRequest, .progress, .working: nil
+        case .notification: nonEmpty(ws.notificationText)
+        case .icon, .tabCount, .pullRequest, .progress, .working, .log: nil
         }
     }
 

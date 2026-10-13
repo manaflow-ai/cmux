@@ -3,10 +3,17 @@
 // bundled theme), the contrast the derived app tokens reach, and the scope overrides of the
 // active window inline on the setting (no space/workspace/terminal tabs). The theme value stays
 // `appearance.theme`; overrides and the app theme are the host's theme levels.
-import { useCallback, useId, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { ContextMenu } from "../../../ui/ContextMenu";
 import { contrastReport, deriveAppTheme } from "../../../theme/appTheme";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
+import {
+  isEdited,
+  themeEditKey,
+  withAllEdits,
+  type ThemeEditMap,
+  type ThemeEditToken,
+} from "../../../theme/themeEdits";
 import { useSettingsState, useStore } from "../context";
 import { Switch } from "../editors/ToggleEditor";
 import { Icon } from "../icons";
@@ -14,14 +21,19 @@ import { rowsByKey } from "../schema";
 import { managedOf, managedText, valueOf } from "../store";
 import { t, text } from "../strings";
 import { formatThemeSpec, parseThemeSpec, themeFor, type ThemeSpec } from "../themeSpec";
+import { ResetSpacer } from "./ResetButton";
 import { ScopeOverrides } from "./ScopeOverrides";
 import { SettingRow, useRowMenu } from "./SettingRow";
-import { ThemePalette, ThemePreview } from "./ThemePreview";
+import { ThemeFiles } from "./ThemeFiles";
+import { ThemePreview } from "./ThemePreview";
 import { ThemePicker } from "./ThemePicker";
+import { ThemeTokens } from "./ThemeTokens";
 
 export const THEME_KEY = "appearance.theme";
 /** The app theme apart from the terminal theme; `followTerminal` (its default) matches it. */
 export const APP_THEME_KEY = "appearance.appTheme";
+// appearance.themeEdits: per-token color edits, keyed "<theme>/<token>" (ThemeEditsSetting); drawn here, not as a row.
+export const THEME_EDITS_KEY = "appearance.themeEdits";
 const FOLLOW_TERMINAL = "followTerminal";
 const DEFAULT_DARK = "Apple System Colors";
 const DEFAULT_LIGHT = "Apple System Colors Light";
@@ -52,7 +64,50 @@ export function ThemeStudio() {
   const managed = managedOf(state, THEME_KEY);
   const disabled = !state.connected || !state.readable || managed !== null;
   const names = state.domains.themes;
-  const colors = state.themeColors;
+  // Each theme with the user's edits (appearance.themeEdits): what the app shows for it.
+  const edits = valueOf(state, THEME_EDITS_KEY) as ThemeEditMap | null;
+  const colors = useMemo(() => withAllEdits(state.themeColors, edits), [state.themeColors, edits]);
+  const custom = (name: string) => isEdited(edits, name);
+  const editsManaged = managedOf(state, THEME_EDITS_KEY);
+  // A token's live preview, at most every 80 ms: each one reloads the terminals' config.
+  const pendingEdit = useRef<{ timer: ReturnType<typeof setTimeout> | null; next: ThemeEditMap | null }>({
+    timer: null,
+    next: null,
+  });
+  // Leaving the page with a token's tuner open ends its preview: the app goes back to what is saved.
+  useEffect(
+    () => () => {
+      const pending = pendingEdit.current;
+      if (pending.timer) clearTimeout(pending.timer);
+      if (pending.timer || pending.next) store.previewEnd(THEME_EDITS_KEY);
+    },
+    [store],
+  );
+  const withEdit = (theme: string, token: ThemeEditToken, color: string | null): ThemeEditMap => {
+    const next: Record<string, string> = { ...edits };
+    if (color) next[themeEditKey(theme, token)] = color;
+    else delete next[themeEditKey(theme, token)];
+    return next;
+  };
+  const previewEdit = (theme: string, token: ThemeEditToken, color: string | null) => {
+    const pending = pendingEdit.current;
+    if (color === null) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.timer = null;
+      pending.next = null;
+      store.previewEnd(THEME_EDITS_KEY);
+      return;
+    }
+    pending.next = withEdit(theme, token, color);
+    pending.timer ??= setTimeout(() => {
+      pending.timer = null;
+      if (pending.next) store.preview(THEME_EDITS_KEY, pending.next);
+    }, 80);
+  };
+  const commitEdit = (theme: string, token: ThemeEditToken, color: string | null) => {
+    const next = withEdit(theme, token, color);
+    return Object.keys(next).length > 0 ? store.set(THEME_EDITS_KEY, next) : store.reset(THEME_EDITS_KEY);
+  };
   const fallbackName = scheme === "dark" ? DEFAULT_DARK : DEFAULT_LIGHT;
   // The Ghostty config's own colors, from the host while appearance.theme is unset.
   const configLabel = t("settingsWindow.themeUseConfig");
@@ -83,18 +138,21 @@ export function ThemeStudio() {
         : undefined) ?? terminal;
   const app = appSource ? deriveAppTheme(appSource) : null;
 
-  const write = (next: ThemeSpec | null) => {
-    if (next) void store.set(THEME_KEY, formatThemeSpec(next));
-    else void store.reset(THEME_KEY);
-  };
+  const write = (next: ThemeSpec | null) =>
+    next ? store.set(THEME_KEY, formatThemeSpec(next)) : store.reset(THEME_KEY);
   const previewTerminal = (name: string | null) => {
     setPreviewing(name ? { name, target: "terminal" } : null);
     if (name) store.preview(THEME_KEY, name);
     else store.previewEnd(THEME_KEY);
   };
+  const previewApp = (name: string | null) => {
+    setPreviewing(name ? { name, target: "app" } : null);
+    if (name) store.preview(APP_THEME_KEY, name);
+    else store.previewEnd(APP_THEME_KEY);
+  };
   const paired = spec?.kind === "pair";
   const current = (side: "light" | "dark") => (spec ? themeFor(spec, side, fallbackName) : null);
-  const picker = (id: string, value: string | null, onPick: (name: string | null) => void) => (
+  const picker = (id: string, value: string | null, onPick: (name: string | null) => void | Promise<unknown>) => (
     <ThemePicker
       value={value}
       names={names}
@@ -105,13 +163,14 @@ export function ThemeStudio() {
       configColors={configColors}
       onPick={onPick}
       onPreview={previewTerminal}
+      custom={custom}
     />
   );
   const pickSide = (side: "light" | "dark") => (name: string | null) => {
     const other = side === "light" ? "dark" : "light";
     const keep = current(other) ?? (other === "light" ? DEFAULT_LIGHT : DEFAULT_DARK);
     const chosen = name ?? (side === "light" ? DEFAULT_LIGHT : DEFAULT_DARK);
-    write({ kind: "pair", light: side === "light" ? chosen : keep, dark: side === "dark" ? chosen : keep });
+    return write({ kind: "pair", light: side === "light" ? chosen : keep, dark: side === "dark" ? chosen : keep });
   };
   const report = app ? contrastReport(app) : [];
   const lowest = (token: string) =>
@@ -127,7 +186,17 @@ export function ThemeStudio() {
             fontFamily={(valueOf(state, "terminal.fontFamily") as string | null) ?? null}
             label={t("settingsPage.theme.previewOf", terminal.name)}
           />
-          <ThemePalette theme={terminal} separator={app.tokens.separator} />
+          <ThemeTokens
+            theme={terminal}
+            base={state.themeColors?.get(terminal.name) ?? terminal}
+            edits={edits}
+            others={state.themeColors?.values() ?? []}
+            editable={
+              !disabled && editsManaged === null && previewing === null && !!state.themeColors?.has(terminal.name)
+            }
+            onPreview={(token, color) => previewEdit(terminal.name, token, color)}
+            onCommit={(token, color) => commitEdit(terminal.name, token, color)}
+          />
           <figcaption className="theme-caption">
             <span className="theme-caption-name">{terminal.name}</span>
             <span className="theme-caption-contrast" data-contrast="">
@@ -135,6 +204,12 @@ export function ThemeStudio() {
               {t("settingsPage.theme.contrast", lowest("text"), lowest("textSecondary"), lowest("accent"))}
             </span>
           </figcaption>
+          <ThemeFiles
+            base={terminal.name}
+            disabled={disabled || previewing !== null}
+            canSave={!!state.themeColors?.has(terminal.name)}
+            onSaved={(name) => (paired ? pickSide(scheme)(name) : write({ kind: "single", name }))}
+          />
         </figure>
       ) : null}
       <section className="group">
@@ -161,14 +236,15 @@ export function ThemeStudio() {
                       onToggle={(on) => {
                         const name = themeFor(spec, scheme, fallbackName);
                         if (on)
-                          write({
+                          void write({
                             kind: "pair",
                             light: scheme === "light" ? name : DEFAULT_LIGHT,
                             dark: scheme === "dark" ? name : DEFAULT_DARK,
                           });
-                        else write({ kind: "single", name });
+                        else void write({ kind: "single", name });
                       }}
                     />
+                    <ResetSpacer />
                   </div>
                 </div>
               </div>
@@ -181,7 +257,10 @@ export function ThemeStudio() {
                           {side === "light" ? t("settingsPage.theme.light") : t("settingsPage.theme.dark")}
                         </div>
                       </ContextMenu>
-                      <div className="row-control">{picker(ids[side], current(side), pickSide(side))}</div>
+                      <div className="row-control">
+                        {picker(ids[side], current(side), pickSide(side))}
+                        <ResetSpacer />
+                      </div>
                     </div>
                   </div>
                 ))
@@ -192,12 +271,12 @@ export function ThemeStudio() {
                       <div className="row-title" id={ids.theme}>
                         {text(row.title)}
                       </div>
-                      <div className="row-help">{t("settingsPage.theme.terminalHelp", names.length)}</div>
                     </ContextMenu>
                     <div className="row-control">
                       {picker(ids.theme, spec?.kind === "single" ? spec.name : null, (name) =>
                         write(name ? { kind: "single", name } : null),
                       )}
+                      <ResetSpacer />
                     </div>
                   </div>
                 </div>
@@ -223,7 +302,11 @@ export function ThemeStudio() {
                   <div className="row-title" id={ids.app}>
                     {text(row.title)}
                   </div>
-                  <div className="row-help">{text(appRow.help)}</div>
+                  {appRow.summary && (
+                    <div className="row-help" title={text(appRow.summary)}>
+                      {text(appRow.summary)}
+                    </div>
+                  )}
                   {appManaged && (
                     <div className="row-managed" data-managed-reason="">
                       <Icon name="lock" />
@@ -240,9 +323,11 @@ export function ThemeStudio() {
                     disabled={!state.connected || !state.readable || appManaged !== null}
                     configLabel={text(appRow.default_label) || t("settingsPage.theme.matchTerminal")}
                     configColors={terminal}
-                    onPick={(name) => void (name ? store.set(APP_THEME_KEY, name) : store.reset(APP_THEME_KEY))}
-                    onPreview={(name) => setPreviewing(name ? { name, target: "app" } : null)}
+                    onPick={(name) => (name ? store.set(APP_THEME_KEY, name) : store.reset(APP_THEME_KEY))}
+                    onPreview={previewApp}
+                    custom={custom}
                   />
+                  <ResetSpacer />
                 </div>
               </div>
             </div>

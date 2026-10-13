@@ -7,6 +7,11 @@ name: cmux-next guards
 # group (nightly, notarization, nightly-next guard and publication tests) for
 # its pull requests and pushes. It takes under a minute; there is no path
 # filter so a base red shows on the push that caused it.
+#
+# vt-link-graph also runs the nightly's libghostty-vt notices precondition: a
+# ghostty-next gitlink move without a regenerated vt-link-graph.json failed every
+# nightly-next build for 9 hours (10-11), and nothing else checked it before the
+# nightly.
 on:
   pull_request:
     branches: [feat-cmux-next]
@@ -32,3 +37,21 @@ jobs:
       linux_guard_history: ${{ 'false' }}
       linux_guard_cli: ${{ 'false' }}
       linux_guard_source: ${{ 'false' }}
+
+  vt-link-graph:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: vt-link-graph.json is for the libghostty-vt gitlink
+        run: python3 scripts/cmux-next/notices/check_ghostty_vt_notices.py --check-link-graph scripts/cmux-next/notices/vt-link-graph.json
+
+      # The release-path package step's own data check: package-notices.json's
+      # libghostty-vt texts are for the graph's commit (#19508 moved the notices,
+      # the graph followed seven hours later) and the pinned texts match.
+      - name: package-notices.json covers vt-link-graph.json
+        run: python3 cmux-tui/dist/scripts/package_notices.py check-data

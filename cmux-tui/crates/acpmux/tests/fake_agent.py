@@ -7,12 +7,31 @@ Behaviour per prompt text:
   "cursor-question: <q>" / "cursor-plan: <p>" -> Cursor's ask / create-plan requests
   "slow"       -> streams three chunks with delays, honours session/cancel
   "until-cancel" -> streams "running", then waits for session/cancel
+  "until-cancel-then-exit" -> "until-cancel", then the agent exits between turns
+  "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
   anything     -> echoes the text as one agent_message_chunk
 
 FAKE_CODEX_STEER=1: steering as codex-acp 1.10.0 does it. The agent
 advertises steering; a prompt while a turn runs joins that turn, and when
 the turn ends only the last prompt gets an answer (the earlier ones never).
+
+FAKE_SESSION_PREFIX=<p>: session ids are <p><n> instead of fake-<n> (an id as
+long as a real agent's, for checks that refuse short ones).
+
+FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any prompt.
+
+FAKE_CODEX_STORE=1 (with CODEX_HOME): Codex's own store, as codex-acp keeps it:
+each session is <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl,
+a session_meta line, then per prompt task_started, the user message and
+task_complete, written a moment after the turn answers. session/load finds a rollout by the id in its file name (an
+unknown id fails), and "history-probe" replies with the prompts and session
+ids the loaded rollout holds.
+
+FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a remote
+start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
+{"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
+call through the ACP permission flow: announced, asked, run only after an allow.
 """
 import json
 import sys
@@ -30,6 +49,7 @@ known = set()
 
 
 LAST_MCP_SERVERS = None
+SESSION_PREFIX = os.environ.get("FAKE_SESSION_PREFIX", "fake-")
 
 
 def send(obj):
@@ -48,6 +68,66 @@ def request(method, params):
     send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
     ev.wait()
     return pending.pop(rid)[1]
+
+
+CODEX_STORE = os.environ.get("FAKE_CODEX_STORE") == "1" and os.environ.get("CODEX_HOME")
+# FAKE_CODEX_STORE: each session's rollout file.
+rollouts = {}
+
+
+def codex_now():
+    t = time.time()
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t)) + ".%03dZ" % (int(t * 1000) % 1000)
+
+
+def codex_write(sid, kind, payload):
+    with open(rollouts[sid], "a") as f:
+        f.write(json.dumps({"timestamp": codex_now(), "type": kind, "payload": payload}) + "\n")
+
+
+def codex_new():
+    import uuid
+    sid = str(uuid.uuid4())
+    day = os.path.join(os.environ["CODEX_HOME"], "sessions", *time.strftime("%Y %m %d").split())
+    os.makedirs(day, exist_ok=True)
+    rollouts[sid] = os.path.join(day, time.strftime("rollout-%Y-%m-%dT%H-%M-%S-") + sid + ".jsonl")
+    codex_write(sid, "session_meta", {"id": sid, "cwd": os.getcwd()})
+    return sid
+
+
+def codex_load(sid):
+    suffix = "-" + sid + ".jsonl"
+    for root, _, files in os.walk(os.path.join(os.environ["CODEX_HOME"], "sessions")):
+        for name in files:
+            if name.startswith("rollout-") and name.endswith(suffix):
+                rollouts[sid] = os.path.join(root, name)
+                return True
+    return False
+
+
+def codex_store_prompt(rid, params):
+    sid = params["sessionId"]
+    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    codex_write(sid, "event_msg", {"type": "task_started"})
+    codex_write(sid, "response_item", {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]})
+    # A turn takes time: it never ends in the millisecond it started.
+    time.sleep(0.02)
+    reply = "ok: " + text
+    if text.strip() == "history-probe":
+        with open(rollouts[sid]) as f:
+            records = [json.loads(line) for line in f if line.strip()]
+        reply = json.dumps({
+            "prompts": [r["payload"]["content"][0]["text"] for r in records
+                        if r["type"] == "response_item" and r["payload"].get("role") == "user"
+                        and r["payload"]["content"][0]["text"] != "history-probe"],
+            "sessions": sorted({r["payload"]["id"] for r in records if r["type"] == "session_meta"}),
+        })
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
+    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+    # Codex's rollout writer flushes a turn's last records after the turn
+    # answers, so they can be stamped after acpmux logs the turn's end.
+    time.sleep(0.05)
+    codex_write(sid, "event_msg", {"type": "task_complete"})
 
 
 def update(sid, upd):
@@ -84,10 +164,33 @@ def codex_prompt(rid, params):
     send({"jsonrpc": "2.0", "id": ids[-1], "result": {"stopReason": "end_turn"}})
 
 
+def run_hostname(rid, sid):
+    """FAKE_ASK_MODE: `hostname` as a tool call, run only after the person's allow."""
+    call = {"toolCallId": "hostname-1", "title": "hostname", "kind": "execute", "status": "pending",
+            "rawInput": {"command": "hostname"}}
+    update(sid, dict(call, sessionUpdate="tool_call"))
+    res = request("session/request_permission", {"sessionId": sid, "toolCall": call, "options": [
+        {"optionId": "allow", "name": "Allow", "kind": "allow_once"},
+        {"optionId": "reject", "name": "Reject", "kind": "reject_once"},
+    ]})
+    if ((res or {}).get("outcome") or {}).get("optionId") == "allow":
+        import subprocess
+        out = subprocess.run(["hostname"], capture_output=True, text=True).stdout.strip()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "hostname-1", "status": "completed",
+                     "content": [{"type": "content", "content": {"type": "text", "text": out}}]})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hostname: " + out}})
+    else:
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "hostname-1", "status": "failed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "hostname: not run"}})
+    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+
 def handle_prompt(rid, params):
     sid = params["sessionId"]
     blocks = params.get("prompt", [])
     text = "".join(b.get("text", "") for b in blocks)
+    if os.environ.get("FAKE_ASK_MODE") == "1" and "hostname" in text:
+        return run_hostname(rid, sid)
     links = [b for b in blocks if isinstance(b, dict) and b.get("type") == "resource_link"]
     if links:
         text += " " + " ".join(
@@ -383,6 +486,25 @@ def handle_prompt(rid, params):
             time.sleep(0.05)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "answer-then-exit" answers, then the agent exits between turns.
+    if text == "answer-then-exit":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "answered"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        time.sleep(0.3)
+        os._exit(0)
+    # "until-cancel-then-exit" is "until-cancel", then the agent exits between
+    # turns: a chat whose process is gone with no answer.
+    if text == "until-cancel-then-exit":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "running"}})
+        for _ in range(600):
+            if sid in cancelled:
+                cancelled.discard(sid)
+                send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "cancelled"}})
+                time.sleep(0.3)
+                os._exit(0)
+            time.sleep(0.05)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:
@@ -431,6 +553,18 @@ def main():
         params = msg.get("params") or {}
         if m in ("session/new", "session/load", "session/fork"):
             LAST_MCP_SERVERS = params.get("mcpServers")
+        # FAKE_SETSID_CHILD=<path>: on session/new (the session's harness, not a probe),
+        # start a child that leaves this process group (setsid), as a harness that
+        # daemonizes a helper does, and write its pid to that file.
+        if m == "session/new" and os.environ.get("FAKE_SETSID_CHILD"):
+            import subprocess
+            helper = subprocess.Popen(
+                [sys.executable, "-c", "import os, time; os.setsid(); time.sleep(600)"],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            tmp = f"{os.environ['FAKE_SETSID_CHILD']}.{os.getpid()}.tmp"
+            with open(tmp, "w") as f:
+                f.write(str(helper.pid))
+            os.replace(tmp, os.environ["FAKE_SETSID_CHILD"])
         # FAKE_CWD_LOG=<path>: append the process folder and the session/new cwd.
         if m == "session/new" and os.environ.get("FAKE_CWD_LOG"):
             with open(os.environ["FAKE_CWD_LOG"], "a") as log:
@@ -470,17 +604,36 @@ def main():
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000)
             sessions += 1
-            known.add(f"fake-{sessions}")
+            new_sid = codex_new() if CODEX_STORE else f"{SESSION_PREFIX}{sessions}"
+            known.add(new_sid)
             result = {
-                "sessionId": f"fake-{sessions}",
+                "sessionId": new_sid,
                 "modes": {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]},
                 "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1", "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]}],
             }
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
+            # FAKE_ASK_MODE=1: the sample harness's one mode, "ask".
+            if os.environ.get("FAKE_ASK_MODE") == "1":
+                result["modes"] = {"currentModeId": "ask", "availableModes": [{"id": "ask", "name": "Ask"}]}
             send({"jsonrpc": "2.0", "id": rid, "result": result})
+            # FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts,
+            # before any prompt.
+            if os.environ.get("FAKE_EXIT_AFTER_NEW") == "1":
+                os._exit(0)
+        elif m == "session/load" and CODEX_STORE:
+            if codex_load(params["sessionId"]):
+                send({"jsonrpc": "2.0", "id": rid, "result": None})
+            else:
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "Internal error", "data": {"details": "no rollout found for thread id " + params["sessionId"]}}})
         elif m == "session/load":
+            # FAKE_LOAD_ERROR=<details>: the load fails as codex-acp does while
+            # another Codex holds the thread: "Internal error", the reason in data.details.
+            if os.environ.get("FAKE_LOAD_ERROR"):
+                error = {"code": -32603, "message": "Internal error", "data": {"details": os.environ["FAKE_LOAD_ERROR"]}}
+                send({"jsonrpc": "2.0", "id": rid, "error": error})
+                continue
             # FAKE_LOAD_GATE=<path>: the load answers once that file exists, on
             # its own thread, and until then the session is unknown: a prompt
             # for it fails "Session not found", as real adapters answer.
@@ -499,7 +652,7 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "result": None})
         elif m == "session/fork":
             sessions += 1
-            send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"fake-{sessions}"}})
+            send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}"}})
         elif m == "session/set_mode":
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
@@ -510,6 +663,8 @@ def main():
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "Session not found"}})
                 continue
             target = codex_prompt if os.environ.get("FAKE_CODEX_STEER") == "1" else handle_prompt
+            if CODEX_STORE:
+                target = codex_store_prompt
             threading.Thread(target=target, args=(rid, params), daemon=True).start()
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))

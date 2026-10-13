@@ -26,7 +26,9 @@ impl Drop for Home {
 }
 
 fn home(tag: &str) -> Home {
-    let base = std::env::temp_dir().join(format!("acpmux-chats-{tag}-{}", uuid::Uuid::now_v7()));
+    // Under /tmp, not the temp dir: a worker's temp dir may be on another volume (`/Volumes`),
+    // where no chat root is ever listed.
+    let base = PathBuf::from("/tmp").join(format!("acpmux-chats-{tag}-{}", uuid::Uuid::now_v7()));
     std::fs::create_dir_all(&base).unwrap();
     Home(std::fs::canonicalize(&base).unwrap())
 }
@@ -327,6 +329,7 @@ async fn websocket_origins_never_get_chats() {
             "_acpmux/chat_roots",
             "_acpmux/chat_roots_record",
             "_acpmux/chat_open",
+            "_acpmux/chat_transcript",
         ] {
             let reply = c.call(m, json!({})).await;
             assert_eq!(reply["error"]["code"], -32601, "{origin:?} {m}: {reply}");

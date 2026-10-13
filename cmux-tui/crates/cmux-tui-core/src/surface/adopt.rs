@@ -4,7 +4,7 @@
 use super::*;
 
 impl Surface {
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn adopt_hosted(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -22,7 +22,7 @@ impl Surface {
         )
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn adopt_hosted_with_resource_identity(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -51,6 +51,7 @@ impl Surface {
             opts,
             mux,
             HostedSurfaceLaunch {
+                adopted: true,
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,
@@ -62,7 +63,7 @@ impl Surface {
         )
     }
 
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn adopt_hosted_with_terminal_public_id(
         id: SurfaceId,
         opts: SurfaceOptions,
@@ -87,6 +88,7 @@ impl Surface {
             opts,
             mux,
             HostedSurfaceLaunch {
+                adopted: true,
                 attachment,
                 kitty_reservation,
                 terminate_on_error: false,
@@ -244,6 +246,7 @@ impl Surface {
                 dead: AtomicBool::new(true),
                 owner_detaching: AtomicBool::new(false),
                 host_connection_state: AtomicU8::new(TerminalHostConnectionState::Exited as u8),
+                host_fallback: std::sync::OnceLock::new(),
                 dirty: AtomicBool::new(true),
                 title: RankedMutex::new(LockRank::Leaf, "pty.title", String::new()),
                 pwd: Mutex::new(None),

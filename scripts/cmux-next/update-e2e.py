@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real auto-update proof for cmux-next NIGHTLY (R114), socket-driven, no display.
+"""Real auto-update proof for cmux NEXT (R114), socket-driven, no display.
 
 Installs an older published nightly-next build into a scratch folder, starts
 terminals, asks Sparkle to check (the palette action), waits until the update
@@ -12,14 +12,18 @@ is staged (downloaded and verified, delta when the feed has one), then:
      relaunch (its agent host kept the agent) and finishes in the same
      session. The agent is the acpmux test agent (no account, no network);
      it streams "before-gate", waits on a FIFO the script writes after the
-     relaunch, then streams "after-gate";
+     relaunch, then streams "after-gate"; two prompts queued behind that turn
+     run after it in order, each prompt reaches the agent exactly once, and
+     the chat's unsent draft is kept;
   2. (--click) a second older build, staged the same way, installs with the
      one-click action and Sparkle relaunches it by itself.
 
 Rollback refusal is reported PENDING until `cmux update rollback` exists.
 
 Host rules (coordinator 2026-10-04): an Aqua GUI session for this user, no
-com.cmuxterm.app.nightly installed or running, no /tmp/cmux-nightly.sock.
+cmux NEXT (com.cmuxterm.app.nightly.cmux-next) installed or running, no
+/tmp/cmux-nightly-cmux-next.sock. A classic cmux NIGHTLY may run beside it:
+cmux NEXT has its own identity (cx-x7hwx) and this run never touches it.
 Everything this run creates (scratch folder, Sparkle cache, defaults domain,
 state dirs) is removed at the end; anything that existed before is kept.
 
@@ -27,17 +31,20 @@ state dirs) is removed at the end; anything that existed before is kept.
 """
 import argparse, json, os, plistlib, re, shutil, socket, subprocess, sys, tempfile, time, urllib.request
 
-BUNDLE_ID = "com.cmuxterm.app.nightly"
-SOCKET = "/tmp/cmux-nightly.sock"
+# nightly-next ships as cmux NEXT (cx-x7hwx): a tagged nightly id with its
+# own socket, daemon session (cmux-app-cmux-next) and acpmux home.
+BUNDLE_ID = "com.cmuxterm.app.nightly.cmux-next"
+APP_NAME = "cmux NEXT.app"
+SOCKET = "/tmp/cmux-nightly-cmux-next.sock"
 HOME = os.path.expanduser("~")
-# The nightly's acpmux (no tag): its home, socket and config.
-ACPMUX_HOME = os.path.join(HOME, ".acpmux")
+# cmux NEXT's acpmux (tag cmux-next): its home, socket and config.
+ACPMUX_HOME = os.path.join(HOME, ".acpmux", "tags", "cmux-next")
 ACPMUX_CONFIG = os.path.join(ACPMUX_HOME, "config.json")
 FAKE_AGENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../cmux-tui/crates/acpmux/tests/fake_agent.py")
 FAKE_HARNESS = "update-e2e-agent"
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--feed", default="https://files-next.cmux.com/nightly-next/appcast-arm64.xml")
+parser.add_argument("--feed", default="https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
 parser.add_argument("--from", dest="from_build", help="installed build (default: the feed's second item)")
 parser.add_argument("--to", dest="to_build", help="expected build after the update (default: the feed's newest)")
 parser.add_argument("--click", action="store_true", help="also prove the one-click install with an older build")
@@ -72,16 +79,16 @@ def wait(predicate, seconds, step=0.5):
 def preflight():
     if run("launchctl", "print", f"gui/{os.getuid()}").returncode != 0:
         sys.exit("refused: no Aqua GUI session for this user (launchctl print gui/<uid> failed)")
-    running = run("pgrep", "-fl", "cmux NIGHTLY.app/Contents/MacOS").stdout.strip()
+    running = run("pgrep", "-fl", f"{APP_NAME}/Contents/MacOS").stdout.strip()
     if running:
-        sys.exit(f"refused: a cmux NIGHTLY runs here:\n{running}")
+        sys.exit(f"refused: a cmux NEXT runs here:\n{running}")
     installed = [p for p in run("mdfind", f"kMDItemCFBundleIdentifier == '{BUNDLE_ID}'").stdout.splitlines() if p.endswith(".app")]
     if installed:
         sys.exit("refused: an app with bundle id %s is installed: %s" % (BUNDLE_ID, ", ".join(installed)))
     if os.path.exists(SOCKET):
-        sys.exit(f"refused: {SOCKET} exists (another nightly's socket)")
+        sys.exit(f"refused: {SOCKET} exists (another cmux NEXT's socket)")
     if os.path.exists(acpmux_socket()) and Acpmux().answers():
-        sys.exit(f"refused: an acpmux daemon answers at {acpmux_socket()} (another untagged cmux-next's)")
+        sys.exit(f"refused: an acpmux daemon answers at {acpmux_socket()} (another cmux NEXT's)")
 
 
 # What may be created: compared before/after; only new entries are removed.
@@ -134,7 +141,8 @@ def cleanup(before, work):
         if not os.path.lexists(path):
             continue
         name = path.lower()
-        if path.startswith(work) or "nightly" in name or any(h in name for h in hashes):
+        # Only cmux NEXT's paths: a classic cmux NIGHTLY may be writing beside it.
+        if path.startswith(work) or "cmux-next" in name or "cmux next" in name or any(h in name for h in hashes):
             print(f"removing created {path}")
             shutil.rmtree(path, ignore_errors=True) if os.path.isdir(path) and not os.path.islink(path) else os.unlink(path)
     for path in sorted(tops):
@@ -436,6 +444,39 @@ def stage_update(app, label):
     return s, log
 
 
+DRAFT = "DRAFT survives update"
+
+
+def prompts_sent(acp, session):
+    """How many times each prompt text went to the agent (outbound session/prompt)."""
+    import collections
+    try:
+        page = acp.call("_acpmux/events", {"sessionId": session}) or {}
+    except RuntimeError:
+        return {}
+    sent = collections.Counter()
+    for event in page.get("events", []):
+        if event.get("kind") == "session/prompt" and event.get("dir") == "out":
+            prompt = ((event.get("msg") or {}).get("params") or {}).get("prompt") or [{}]
+            sent[(prompt[0].get("text") or "")[:40]] += 1
+    return dict(sent)
+
+
+def queued_count(acp, session):
+    try:
+        page = acp.call("_acpmux/events", {"sessionId": session, "kinds": ["queued"]}) or {}
+    except RuntimeError:
+        return 0
+    return len(page.get("events", []))
+
+
+def draft(acp, session):
+    try:
+        return (acp.call("_acpmux/draft_get", {"sessionId": session}) or {}).get("draft")
+    except RuntimeError as error:
+        return f"error: {error}"
+
+
 def main():
     preflight()
     before = snapshot()
@@ -470,6 +511,18 @@ def main():
         agent_session, gate, agent_pid = start_agent_turn(work)
         record("agent turn running before the update", bool(agent_session and agent_pid),
                f"session {agent_session}, agent pid {agent_pid}")
+        if agent_session:
+            acp = Acpmux()
+            acp.prompt(agent_session, "queued one")
+            wait(lambda: queued_count(acp, agent_session) >= 1, 15)
+            acp.prompt(agent_session, "queued two")
+            try:
+                acp.call("_acpmux/draft_set", {"sessionId": agent_session, "text": DRAFT})
+            except RuntimeError as error:
+                print(f"draft_set: {error}")
+            record("two prompts queued behind the running turn", bool(wait(lambda: queued_count(acp, agent_session) >= 2, 15)),
+                   f"queued events {queued_count(acp, agent_session)}")
+            record("draft set before the update", draft(acp, agent_session) == DRAFT, repr(draft(acp, agent_session)))
 
         s, sparkle_log = stage_update(app, "quit path")
         if to_item["deltas"].get(from_item["build"]):
@@ -500,6 +553,14 @@ def main():
             finished = released and wait(lambda: "after-gate" in acp.text(agent_session) and acp.status(agent_session) != "running", 60)
             record("agent turn finished in the same session after the update", bool(finished),
                    f"streamed {acp.text(agent_session)!r}, status {acp.status(agent_session)}")
+            drained = wait(lambda: "echo: queued two" in acp.text(agent_session) and acp.status(agent_session) != "running", 60)
+            streamed = acp.text(agent_session)
+            first, second = streamed.find("echo: queued one"), streamed.find("echo: queued two")
+            record("queued prompts ran after the update, in order", bool(drained) and 0 <= first < second, f"streamed {streamed!r}")
+            sent = prompts_sent(acp, agent_session)
+            expected = {f"gate: {gate}"[:40], "queued one", "queued two"}
+            record("each prompt reached the agent exactly once", expected <= set(sent) and all(sent[k] == 1 for k in expected), str(sent))
+            record("draft kept across the update", draft(acp, agent_session) == DRAFT, repr(draft(acp, agent_session)))
 
         if opts.click and len(items) > 2:
             app.quit()
