@@ -137,8 +137,7 @@ fn page_policy(host: Option<&str>) -> String {
             !host.is_empty()
                 && host.bytes().all(|byte| byte.is_ascii_alphanumeric() || b".:-[]".contains(&byte))
         })
-        .map(|host| format!(" ws://{host}"))
-        .unwrap_or_default();
+        .map_or_else(String::new, |host| format!(" ws://{host}"));
     format!(
         "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; \
          img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'{websocket}; \
@@ -183,15 +182,15 @@ fn read_file(path: &Path) -> std::io::Result<Vec<u8>> {
 }
 
 fn content_type(path: &Path) -> &'static str {
-    match path.extension().and_then(|extension| extension.to_str()).unwrap_or("") {
-        "html" => "text/html; charset=utf-8",
-        "js" | "mjs" => "text/javascript; charset=utf-8",
-        "css" => "text/css; charset=utf-8",
-        "json" => "application/json",
-        "svg" => "image/svg+xml",
-        "png" => "image/png",
-        "wasm" => "application/wasm",
-        "woff2" => "font/woff2",
+    match path.extension().and_then(|extension| extension.to_str()) {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js" | "mjs") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") => "application/json",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("wasm") => "application/wasm",
+        Some("woff2") => "font/woff2",
         _ => "application/octet-stream",
     }
 }
