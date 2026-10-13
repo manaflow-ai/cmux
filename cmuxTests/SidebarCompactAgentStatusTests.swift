@@ -719,4 +719,28 @@ struct SidebarCompactAgentStatusTests {
         #expect(Set(off.metadataEntries.map(\.key)) == ["claude_code", "deploy"])
         #expect(off.compactStatusGlyph == nil)
     }
+
+    @Test
+    func factoryCanHideProgramStatusWithoutChangingOtherStatusRows() {
+        let defaults = Self.makeDefaults()
+        defaults.set(false, forKey: "sidebarShowProgramStatus")
+        let settings = SidebarTabItemSettingsSnapshot(defaults: defaults)
+        let workspace = Workspace(
+            title: "Project",
+            workingDirectory: FileManager.default.currentDirectoryPath,
+            portOrdinal: 0
+        )
+        defer { workspace.teardownAllPanels() }
+        workspace.statusEntries[Workspace.programStatusKey] = Self.entry("program_status", "Working")
+        workspace.statusEntries["deploy"] = Self.entry("deploy", "green")
+
+        let snapshot = SidebarWorkspaceSnapshotFactory(
+            workspace: workspace,
+            settings: settings,
+            showsAgentActivity: false
+        ).makeSnapshot()
+
+        #expect(snapshot.metadataEntries.map(\.key) == ["deploy"])
+        #expect(workspace.statusEntries[Workspace.programStatusKey] != nil)
+    }
 }
