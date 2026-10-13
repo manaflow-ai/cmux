@@ -67,8 +67,12 @@ struct HermesAgentHookConfigTests {
         let installed = HermesAgentHookConfig.installing(events: events, in: existing)
         #expect(occurrences(of: "cmux hooks hermes-agent session-start", in: installed) == 1)
         #expect(HermesAgentHookConfig.installing(events: events, in: installed) == installed)
-        #expect(HermesAgentHookConfig.uninstalling(from: existing) == "")
-        #expect(HermesAgentHookConfig.uninstalling(from: installed) == "")
+        for config in [existing, installed] {
+            let uninstalled = HermesAgentHookConfig.uninstalling(from: config)
+            #expect(!uninstalled.contains("cmux hooks hermes-agent session-start"))
+            // These keys precede cmux's markers and belong to the user.
+            #expect(uninstalled.hasPrefix("hooks:\n  on_session_start:\n"))
+        }
     }
 
     @Test("Keeps user block commands when another field mentions cmux", arguments: [
