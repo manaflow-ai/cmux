@@ -183,6 +183,8 @@ def load_sections():
         if not SYMBOL.match(entry["symbol"]):
             fail(src, "bad symbol %r" % entry["symbol"])
         check_text(src, entry["id"] + ".title", entry["title"])
+        if entry["title"]["key"] != "settings.section." + entry["id"]:
+            fail(src, "%s: the title key is settings.section.<id> (SettingsSection.titleKey)" % entry["id"])
         ids.append(entry["id"])
     return data["sections"]
 

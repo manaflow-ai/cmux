@@ -11,7 +11,7 @@ public struct PickerPinnedSetting {
         guard let value = root.value(at: pinnedPath) else { return (pinnedDefault, []) }
         let path = pinnedPath.joined(separator: ".")
         guard let items = value.arrayValue else {
-            return ([], [SettingsDiagnostic(kind: .invalidValue, path: path, message: "expected an array of folder paths")])
+            return (pinnedDefault, [SettingsDiagnostic(kind: .invalidValue, path: path, message: "expected an array of folder paths")])
         }
         var pinned: [String] = []
         var diagnostics: [SettingsDiagnostic] = []
