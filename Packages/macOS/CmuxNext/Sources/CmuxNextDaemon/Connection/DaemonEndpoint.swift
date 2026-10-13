@@ -228,6 +228,9 @@ public struct DaemonCapabilities: Sendable {
     /// commands and their `cloud-*` events. Advertised only when the daemon
     /// has the cloud transport installed.
     public let cloudConversations = "cloud-conversations-v1"
+    /// `page-credential`: the verified app gets a credential for its own page, which then gets
+    /// the person's Cloud lease (`ws-cloud-conversations-v1`, cx-hnmbt.4).
+    public let pageCredential = "page-credential-v1"
     /// Groups placed among the loose personal workspaces: `top_index` on
     /// `list-personal` groups and on `workspace_group.update`, and a personal
     /// row for every new workspace (cmux-tui `personal_order.rs`).

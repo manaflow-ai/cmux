@@ -773,6 +773,11 @@ public abstract class GeneratedCmuxClient {
         return NotifyResult.fromWire(result);
     }
 
+    public final Object pageCredential() throws CmuxException {
+        Object result = execute(Commands.PAGE_CREDENTIAL, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final EmptyResult pairingResponse(PairingResponseRequest request) throws CmuxException {
         Object result = execute(Commands.PAIRING_RESPONSE, request.toWire());
         return EmptyResult.fromWire(result);

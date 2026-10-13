@@ -223,6 +223,8 @@ export class DaemonHomeClient implements PageClient {
         const code = (error as DaemonError).code;
         if (code === "conversation_rejected") throw pageError("cmux.page.invalid_params", error.message);
         if (code === "disconnected") throw pageError("cmux.page.unavailable", "the cmux instance is offline", true);
+        // The app signed out (or switched accounts): the cloud inbox is listed again.
+        if (code === "cloud_signed_out") this.cloud.reset();
         throw pageError(`cmux.home.${code}`, error.message);
       }
       throw error;
@@ -429,6 +431,8 @@ export class DaemonHomeClient implements PageClient {
         deliver((batch) => {
           if (cloud.message) (batch.messages ??= []).push(message(cloud.message));
           if (cloud.conversation) (batch.conversations ??= []).push(cloud.conversation);
+          if (cloud.conversations?.length) (batch.conversations ??= []).push(...cloud.conversations);
+          if (cloud.removed?.length) (batch.removed ??= []).push(...cloud.removed);
           if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
           if (cloud.inboxStale) batch.inboxStale = true;
         });

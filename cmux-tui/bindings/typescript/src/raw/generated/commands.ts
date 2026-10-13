@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815. */
+/* cmux-tui mux protocol 12, IR 5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735. */
 
 
 import type * as T from "./types.js";
@@ -1571,6 +1571,12 @@ export interface NotifyRequest extends CmuxRequestBase {
   "title": string;
 }
 
+/** Protocol v12; authority: local-admin. */
+export interface PageCredentialRequest extends CmuxRequestBase {
+  cmd: "page-credential";
+}
+export type PageCredentialResult = T.JsonValue;
+
 /** Protocol v7; authority: local-admin. */
 export interface PairingResponseRequest extends CmuxRequestBase {
   cmd: "pairing-response";
@@ -2669,6 +2675,7 @@ export type CmuxRequest =
   | NewWorkspaceRequest
   | NoteSizeActivityRequest
   | NotifyRequest
+  | PageCredentialRequest
   | PairingResponseRequest
   | PaneNeighborRequest
   | PasteImageRequest
@@ -3988,6 +3995,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "page-credential": {
+    request: PageCredentialRequest;
+    result: PageCredentialResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "page-credential-v1";
     stream: null;
   };
   "pairing-response": {

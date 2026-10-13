@@ -294,6 +294,11 @@ pub(super) struct ClientRecord {
     pub(super) writer: MessageWriter,
     /// Hello role, peer and confirmations (request_origin.rs).
     pub(super) origin: crate::request_origin::ConnectionOrigin,
+    /// A WebSocket connection that authenticated with a pairing-store
+    /// credential (a human-approved pairing or the verified app's
+    /// `page-credential`), not the static or file token: the person's own
+    /// client for the Cloud lease (`ws-cloud-conversations-v1`).
+    pub(super) person: bool,
 }
 
 #[derive(Clone)]
@@ -455,6 +460,7 @@ impl ClientRegistry {
                 announced_attached: false,
                 writer,
                 origin: Default::default(),
+                person: false,
             },
         );
         drop(state);

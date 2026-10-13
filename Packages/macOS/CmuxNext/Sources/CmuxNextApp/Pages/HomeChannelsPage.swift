@@ -38,6 +38,8 @@ extension PageFactory {
 @MainActor
 final class DaemonCredentialPageProvider: PageProvider {
     private weak var daemon: DaemonService?
+    /// The page credential of the current daemon (`page-credential`), reused until it nears its end.
+    private var pageCredential: (generation: DaemonGeneration, token: String, until: ContinuousClock.Instant)?
 
     init(daemon: DaemonService) {
         self.daemon = daemon
@@ -50,7 +52,25 @@ final class DaemonCredentialPageProvider: PageProvider {
         }
         let path = endpoint.socketPath + ".websocket.json"
         // task-owner: one small file read off the main actor per call; ends with the read.
-        return try await Task.detached(priority: .userInitiated) { try Self.read(path) }.value
+        let file = try await Task.detached(priority: .userInitiated) { try Self.read(path) }.value
+        // The file names the endpoint. The page authenticates with a page credential when the
+        // daemon has them: only that one carries the person's Cloud lease (the file token is any
+        // same-user process's). An older daemon keeps the file token: local conversations only.
+        guard case .object(var fields) = file, let token = await pageToken(daemon) else { return file }
+        fields["token"] = .string(token)
+        return .object(fields)
+    }
+
+    private func pageToken(_ daemon: DaemonService) async -> String? {
+        guard daemon.supports(DaemonCapabilities.shared.pageCredential), let identity = daemon.identity,
+              let connection = daemon.connection else { return nil }
+        let now = ContinuousClock.now
+        if let cached = pageCredential, cached.generation == identity.generation, now < cached.until { return cached.token }
+        guard let reply = try? await connection.request(PageCredentialRequest()) else { return nil }
+        // Renewed an hour before its end, so a reconnect never presents an expired one.
+        let life = Duration.seconds(Int64(min(reply.expiresIn, 8 * 3600))) - .seconds(3600)
+        pageCredential = (identity.generation, reply.credential, now + max(life, .seconds(60)))
+        return reply.credential
     }
 
     /// The file must be this user's, mode 0600, and name a live daemon: a stale file (a killed

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815";
+pub const ir_sha256 = "5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6560,6 +6560,23 @@ pub fn notify(client: anytype, request: NotifyRequest) !wire.Decoded(NotifyResul
     );
 }
 
+pub const PageCredentialRequest = struct {};
+
+pub const PageCredentialResult = JsonValue;
+
+pub fn pageCredential(client: anytype, request: PageCredentialRequest) !wire.Decoded(PageCredentialResult) {
+    return client.callTyped(
+        PageCredentialResult,
+        .{
+            .name = "page-credential",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "page-credential-v1",
+        },
+        request,
+    );
+}
+
 pub const PairingResponseRequest = struct {
     approve: bool,
     request: u64,
@@ -10221,7 +10238,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 254;
+pub const command_count: usize = 255;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10375,6 +10392,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "new-workspace", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "note-size-activity", .authority = "control", .since = 12, .capability = "shared-sizing-v1", .stream = null },
     .{ .name = "notify", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "page-credential", .authority = "local-admin", .since = 12, .capability = "page-credential-v1", .stream = null },
     .{ .name = "pairing-response", .authority = "local-admin", .since = 7, .capability = null, .stream = null },
     .{ .name = "pane-neighbor", .authority = "control", .since = 6, .capability = null, .stream = null },
     .{ .name = "paste-image", .authority = "control", .since = 12, .capability = "terminal-image-paste-v1", .stream = null },

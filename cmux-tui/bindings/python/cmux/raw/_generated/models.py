@@ -3530,6 +3530,12 @@ class NotifyRequest:
 
 
 @dataclass(frozen=True)
+class PageCredentialRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/page-credential/request'
+    pass
+
+
+@dataclass(frozen=True)
 class PairingResponseRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/pairing-response/request'
     request: int
@@ -5648,6 +5654,7 @@ __all__ = [
     'NewWorkspaceRequest',
     'NoteSizeActivityRequest',
     'NotifyRequest',
+    'PageCredentialRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',
     'PasteImageRequest',

@@ -3,13 +3,14 @@
 //!
 //! A real owner starts through `server ensure --install-key-stdin
 //! --ws-loopback`, as the app starts it. The app's connection proves itself
-//! (`client-hello`) and leases the signed-in person's Cloud session. The
-//! Channels page then connects to the same daemon over its loopback
-//! WebSocket with the daemon's own credential (the 0600 file) and gets the
+//! (`client-hello`), leases the signed-in person's Cloud session and asks for
+//! a page credential (`page-credential`). The Channels page connects to the
+//! same daemon over its loopback WebSocket with that credential and gets the
 //! cloud conversations through the daemon: the inbox, an op as the user, the
-//! cloud events, and the person's participant id. The token stays in the
-//! daemon; the page can never set or clear a lease. The cloud is a loopback
-//! HTTP server that records each request.
+//! cloud events, and the person's participant id. The Cloud token stays in
+//! the daemon; the page never sets or clears a lease. The file token next to
+//! the socket (any same-user process can read it) never gets the lease. The
+//! cloud is a loopback HTTP server that records each request.
 
 #![cfg(unix)]
 
@@ -21,11 +22,10 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::server::frontend_proof::{NONCE_LEN, hello_proof, unhex};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use tokio_tungstenite::tungstenite::{self, Message, WebSocket};
 
 const KEY_HEX: &str = "5c2e3d4f60718293a4b5c6d7e8f9011223344556677889900aabbccddeeff011";
@@ -178,6 +178,30 @@ impl Page {
         }
     }
 
+    /// The next `cloud-*` event within `wait` (None: none came).
+    fn cloud_event_within(&mut self, wait: Duration) -> Option<Value> {
+        let cloud = |event: &Value| event["event"].as_str().is_some_and(|n| n.starts_with("cloud-"));
+        if let Some(at) = self.events.iter().position(cloud) {
+            return self.events.remove(at);
+        }
+        let deadline = Instant::now() + wait;
+        let mut found = None;
+        while let Some(left) = deadline.checked_duration_since(Instant::now()) {
+            self.socket.get_mut().set_read_timeout(Some(left.max(Duration::from_millis(1)))).unwrap();
+            let event = match self.socket.read() {
+                Ok(Message::Text(text)) => serde_json::from_str::<Value>(&text).unwrap(),
+                Ok(_) => continue,
+                Err(_) => break,
+            };
+            if cloud(&event) {
+                found = Some(event);
+                break;
+            }
+        }
+        self.socket.get_mut().set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        found
+    }
+
     /// The `cloud-*` events before the next `tree-changed` marker.
     fn cloud_events_before_marker(&mut self) -> Vec<Value> {
         let mut cloud = Vec::new();
@@ -278,6 +302,13 @@ fn lease(base: &str, token: &str) -> Value {
            "expires_at":4_102_444_800_000_u64})
 }
 
+/// The verified app's page credential (`page-credential`).
+fn page_credential(app: &mut Unix) -> String {
+    let reply = app.rpc(json!({"cmd":"page-credential"}));
+    assert_eq!(reply["ok"], true, "{reply}");
+    reply["data"]["credential"].as_str().unwrap().to_owned()
+}
+
 #[test]
 fn the_persons_page_gets_cloud_conversations_through_the_daemon() {
     let fixture = Fixture::start("page");
@@ -286,19 +317,30 @@ fn the_persons_page_gets_cloud_conversations_through_the_daemon() {
     let mut app = fixture.app();
     assert_eq!(app.rpc(lease(&cloud.base, &token))["ok"], true);
 
-    let (addr, credential) = fixture.credential();
-    let mut page = Page::open(&addr, &credential);
-    let identity = page.rpc(json!({"cmd":"identify"}));
+    // The file token is any same-user process's: it never gets the person's lease.
+    let (addr, file_token) = fixture.credential();
+    let mut agent = Page::open(&addr, &file_token);
+    let identity = agent.rpc(json!({"cmd":"identify"}));
     let capabilities = identity["data"]["capabilities"].as_array().unwrap();
     assert!(capabilities.iter().any(|v| v == "ws-cloud-conversations-v1"), "{identity}");
+    assert!(capabilities.iter().any(|v| v == "page-credential-v1"), "{identity}");
+    for request in [json!({"cmd":"cloud-session-status"}), json!({"cmd":"cloud-inbox-list"})] {
+        let refused = agent.rpc(request.clone());
+        assert_eq!(refused["ok"], false, "{request}: {refused}");
+    }
+    // Only the verified app gets a page credential.
+    assert_eq!(fixture.plain().rpc(json!({"cmd":"page-credential"}))["ok"], false);
+    assert_eq!(agent.rpc(json!({"cmd":"page-credential"}))["ok"], false);
+    assert!(cloud.requests().is_empty(), "{:?}", cloud.requests());
+
+    let mut page = Page::open(&addr, &page_credential(&mut app));
     assert_eq!(page.rpc(json!({"cmd":"subscribe"}))["ok"], true);
 
     // The person's Worker user id, so the page knows itself in cloud conversations.
     let status = page.rpc(json!({"cmd":"cloud-session-status"}));
     assert_eq!(status["data"]["state"], "active", "{status}");
-    let digest = Sha256::digest(b"stack:stack-project-1:stack-user-1");
-    let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
-    assert_eq!(status["data"]["participant"], format!("user_{}", &hex[..20]), "{status}");
+    // backend domains/user.ts userIdFor("stack-project-1", "stack-user-1").
+    assert_eq!(status["data"]["participant"], "user_63ae3f9fb4418f43e36c", "{status}");
     assert!(!status.to_string().contains(&token), "the status echoed the token");
 
     // The inbox, through the daemon's lease.
@@ -322,10 +364,10 @@ fn the_persons_page_gets_cloud_conversations_through_the_daemon() {
     // The token went only to the cloud, as the bearer.
     assert!(requests.iter().all(|(_, bearer, _)| *bearer == format!("Bearer {token}")));
 
-    // The lease's cloud events reach the page's stream.
+    // The lease's cloud events reach the page's stream (the inbox socket's state).
     assert_eq!(page.rpc(json!({"cmd":"cloud-inbox-subscribe"}))["ok"], true);
-    assert_eq!(fixture.plain().rpc(json!({"cmd":"new-workspace"}))["ok"], true);
-    assert!(!page.cloud_events_before_marker().is_empty(), "the page got no cloud events");
+    let event = page.cloud_event_within(Duration::from_secs(15));
+    assert!(event.is_some(), "the page got no cloud events");
 
     // The page never sets or clears the lease.
     let set = page.rpc(lease("https://cloud-api-staging.cmux.dev", "other.jwt"));
@@ -348,8 +390,14 @@ fn a_page_never_uses_a_lease_another_connection_set() {
     let mut brain = fixture.plain();
     assert_eq!(brain.rpc(lease(&cloud.base, &person_token()))["ok"], true);
 
-    let (addr, credential) = fixture.credential();
-    let mut page = Page::open(&addr, &credential);
+    let (addr, _) = fixture.credential();
+    let mut page = Page::open(&addr, &page_credential(&mut fixture.app()));
+    assert_eq!(page.rpc(json!({"cmd":"subscribe"}))["ok"], true);
+    // The brain's stream events never reach the page.
+    assert_eq!(brain.rpc(json!({"cmd":"cloud-inbox-subscribe"}))["ok"], true);
+    assert_eq!(fixture.plain().rpc(json!({"cmd":"new-workspace"}))["ok"], true);
+    let leaked = page.cloud_events_before_marker();
+    assert!(leaked.is_empty(), "the page got the brain's cloud events: {leaked:?}");
     let status = page.rpc(json!({"cmd":"cloud-session-status"}));
     assert_eq!(status["data"]["state"], "signed_out", "{status}");
     let refused = page.rpc(json!({"cmd":"cloud-inbox-list"}));

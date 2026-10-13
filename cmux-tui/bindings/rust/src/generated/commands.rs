@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815.
+// cmux-tui mux protocol 12, IR 5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2278,6 +2278,14 @@ pub struct NotifyRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct PageCredentialRequest {
+}
+
+#[rustfmt::skip]
+pub type PageCredentialResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PairingResponseRequest {
     pub approve: bool,
@@ -4449,6 +4457,10 @@ impl CmuxClient {
             self.require_capability_field("notify", "notification-source-v1")?;
         }
         self.execute(&NOTIFY_METADATA, &request)
+    }
+
+    pub fn page_credential(&mut self, request: PageCredentialRequest) -> Result<PageCredentialResult> {
+        self.execute(&PAGE_CREDENTIAL_METADATA, &request)
     }
 
     pub fn pairing_response(&mut self, request: PairingResponseRequest) -> Result<PairingResponseResult> {

@@ -512,6 +512,7 @@
       "cloud-session-set",
       "cloud-session-clear",
       "cloud-session-status",
+      "page-credential",
       "cloud-inbox-list",
       "cloud-conversation-snapshot",
       "cloud-conversation-history",

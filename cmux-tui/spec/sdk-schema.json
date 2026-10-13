@@ -21327,6 +21327,24 @@
     "Trusted local connections only. Drops the lease. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
+  "page-credential": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "page-credential-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "The verified cmux app connection only. Returns credential and expires_in: a pairing-store credential for the app's own page. See spec/commands.md."
+   ]
+  },
   "cloud-session-status": {
    "authority": "local-admin",
    "since": 12,
@@ -21342,7 +21360,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. Returns state signed_out, active or expired; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    "Trusted local connections, and with ws-cloud-conversations-v1 paired WebSocket connections. Returns state signed_out, active or expired, and participant for the person's own clients; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
   "cloud-inbox-list": {

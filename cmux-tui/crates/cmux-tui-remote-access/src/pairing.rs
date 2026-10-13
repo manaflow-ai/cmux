@@ -196,6 +196,21 @@ impl PairingBroker {
         Ok(Some(committed))
     }
 
+    /// A credential the verified app asks for its own page (`page-credential`):
+    /// the same store, lifetime and bound as an approved pairing, with no
+    /// human prompt because the app is the human surface.
+    pub fn issue(&self) -> Result<(String, u64), PairingError> {
+        let now = Instant::now();
+        let value = random_credential()?;
+        let mut state = self.state.lock().unwrap();
+        Self::prune(&mut state, now);
+        state.credentials.push_back(Credential { value: value.clone(), expires_at: now + CREDENTIAL_TTL });
+        while state.credentials.len() > MAX_CREDENTIALS {
+            state.credentials.pop_front();
+        }
+        Ok((value, CREDENTIAL_TTL.as_secs()))
+    }
+
     pub fn cancel(&self, id: u64) -> bool {
         self.state.lock().unwrap().pending.remove(&id).is_some()
     }

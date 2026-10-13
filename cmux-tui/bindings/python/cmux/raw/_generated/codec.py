@@ -366,6 +366,7 @@ MODEL_BY_PATH = {
     'commands/new-workspace/request': models.NewWorkspaceRequest,
     'commands/note-size-activity/request': models.NoteSizeActivityRequest,
     'commands/notify/request': models.NotifyRequest,
+    'commands/page-credential/request': models.PageCredentialRequest,
     'commands/pairing-response/request': models.PairingResponseRequest,
     'commands/pane-neighbor/request': models.PaneNeighborRequest,
     'commands/paste-image/request': models.PasteImageRequest,

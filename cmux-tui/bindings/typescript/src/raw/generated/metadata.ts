@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815. */
+/* cmux-tui mux protocol 12, IR 5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815" as const;
+export const SDK_IR_SHA256 = "5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -653,7 +653,7 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": [
-      "Trusted local connections only. Returns state signed_out, active or expired; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+      "Trusted local connections, and with ws-cloud-conversations-v1 paired WebSocket connections. Returns state signed_out, active or expired, and participant for the person's own clients; never the token. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
     ]
   },
   "conversation-agent-token": {
@@ -1894,6 +1894,16 @@ export const COMMAND_METADATA = {
     },
     "stream": null,
     "constraints": []
+  },
+  "page-credential": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "page-credential-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified cmux app connection only. Returns credential and expires_in: a pairing-store credential for the app's own page. See spec/commands.md."
+    ]
   },
   "pairing-response": {
     "authority": "local-admin",
@@ -19994,6 +20004,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "NotifyResult"
+    }
+  },
+  "page-credential": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "pairing-response": {

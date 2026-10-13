@@ -23,12 +23,14 @@ pub(super) use crate::cloud_conversations::CLOUD_CONVERSATIONS_CAPABILITY as CAP
 /// (home-cloud-proxy.md section 3, cmux#13742).
 pub(super) const APP_ONLY_LEASE_CAPABILITY: &str = "cloud-lease-app-only-v1";
 
-/// An authenticated WebSocket client of the instance (the daemon's
-/// credential or an approved pairing: one of the person's own clients, as
-/// for `ws-conversations-v1`) uses the human's lease that the verified app
-/// set: it reads, subscribes, sends with `origin: "user"` and gets the
-/// lease's cloud events. It never sets or clears a lease, and never uses a
-/// lease another connection set (a headless brain's chief token).
+/// A WebSocket client that authenticated with a pairing-store credential (a
+/// human-approved pairing, or the page credential the verified app asked for
+/// with `page-credential`) is the person: it uses the human's lease that the
+/// verified app set (reads, subscribes, sends with `origin: "user"`, the
+/// lease's cloud events). The static or file token never is (any same-user
+/// process can read the file; the lease stays the app's, cmux#13742). It
+/// never sets or clears a lease, and never uses a lease another connection
+/// set (a headless brain's chief token).
 /// (cx-hnmbt, ARCHITECTURE.md section 14.)
 pub(super) const WS_CLOUD_CAPABILITY: &str = "ws-cloud-conversations-v1";
 
@@ -39,10 +41,10 @@ fn is_app(mux: &Mux, client: u64) -> bool {
     matches!(super::origin_gate::connection_actor(mux, client), crate::Actor::Frontend { .. })
 }
 
-/// Whether `client` is an authenticated WebSocket connection: one of the
-/// person's own clients (`ws-cloud-conversations-v1`), never a Unix one.
+/// Whether `client` is a WebSocket connection that authenticated with a
+/// pairing-store credential (`ws-cloud-conversations-v1`), never a Unix one.
 fn is_websocket_person(mux: &Mux, client: u64) -> bool {
-    mux.control_clients.is_owner_client(client) && !mux.control_clients.is_unix(client)
+    mux.control_clients.is_websocket_person(client)
 }
 
 /// Whether `client` acts as the person with the app's lease: the verified
@@ -171,8 +173,8 @@ pub(super) fn error_retryable(error: &anyhow::Error) -> Option<bool> {
 
 fn service(mux: &Mux, client: u64) -> anyhow::Result<&CloudConversations> {
     anyhow::ensure!(
-        mux.control_clients.is_owner_client(client),
-        "cloud conversations require a trusted local or authenticated WebSocket connection"
+        mux.control_clients.is_unix(client) || is_websocket_person(mux, client),
+        "cloud conversations require a trusted local connection or a paired page"
     );
     // The lease is the human's cloud authority. A connection that bound
     // itself to a conversation agent acts as that agent, never as the human.
@@ -334,10 +336,10 @@ pub(super) fn mux_ack(mux: &Mux, client: u64, params: MuxAckParams) -> anyhow::R
 /// events of another connection's lease.
 pub(super) fn delivers(mux: &Mux, client: u64) -> bool {
     mux.cloud_conversations().is_some_and(|service| {
-        if is_websocket_person(mux, client) {
-            service.app_holds_lease()
-        } else {
+        if mux.control_clients.is_unix(client) {
             service.delivers_to(is_app(mux, client))
+        } else {
+            is_websocket_person(mux, client) && service.app_holds_lease()
         }
     })
 }

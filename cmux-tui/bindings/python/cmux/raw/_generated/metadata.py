@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815'
+IR_SHA256 = '5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735'
 
 
 @dataclass(frozen=True)
@@ -2088,6 +2088,16 @@ COMMANDS = {
             'source': CommandFieldMetadata(12, 'notification-source-v1'),
             'surface': CommandFieldMetadata(None, None),
             'title': CommandFieldMetadata(None, None),
+        },
+    ),
+    'page-credential': CommandMetadata(
+        'page-credential',
+        'local-admin',
+        12,
+        'page-credential-v1',
+        ('local-admin',),
+        None,
+        {
         },
     ),
     'pairing-response': CommandMetadata(

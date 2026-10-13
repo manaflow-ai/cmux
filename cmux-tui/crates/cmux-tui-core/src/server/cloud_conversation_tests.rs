@@ -126,28 +126,18 @@ fn session_lease_round_trips_without_echoing_the_token() {
 
 #[test]
 fn every_command_requires_a_trusted_local_connection() {
-    // An authenticated WebSocket client is one of the person's own clients
-    // (ws-cloud-conversations-v1, tests/ws_cloud_conversations.rs): it never
-    // sets a lease, and without the app's lease it is signed out.
     let (mux, _, backend) = cloud_mux();
     let remote = mux.control_clients.register(ClientTransport::WebSocket, writer());
-    let set = json!({"cmd":"cloud-session-set","api_base_url":"https://api.cmux.test","access_token":"t","expires_at":1});
-    let error = run(&mux, remote, set).unwrap_err();
-    assert!(error.to_string().contains("trusted local connection"), "{error}");
-    let status = run(&mux, remote, json!({"cmd":"cloud-session-status"})).unwrap();
-    assert_eq!(status["state"], "signed_out", "{status}");
     for request in [
+        json!({"cmd":"cloud-session-status"}),
+        json!({"cmd":"cloud-session-set","api_base_url":"https://api.cmux.test","access_token":"t","expires_at":1}),
         json!({"cmd":"cloud-inbox-list"}),
         json!({"cmd":"cloud-conversation-subscribe","conversation":CONV}),
         json!({"cmd":"cloud-conversation-op","conversation":CONV,"idempotency_key":"k",
                "op":{"kind":"title.set","title":"t"}}),
     ] {
         let error = run(&mux, remote, request.clone()).unwrap_err();
-        assert_eq!(
-            super::error_code(&error).as_deref(),
-            Some("cloud_signed_out"),
-            "{request}: {error}"
-        );
+        assert!(error.to_string().contains("trusted local connection"), "{request}: {error}");
     }
     assert!(backend.posted().is_empty());
 }

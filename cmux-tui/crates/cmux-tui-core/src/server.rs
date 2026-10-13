@@ -196,6 +196,7 @@ mod cmd_terminals;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod command_history;
+mod page_credential;
 mod page_files;
 pub use page_files::page_bundle_dir;
 mod responses;
@@ -1633,6 +1634,8 @@ enum Command {
     CloudSessionSet(cloud_conversations::SessionSetParams),
     CloudSessionClear,
     CloudSessionStatus,
+    /// `page-credential` (`page-credential-v1`, server/page_credential.rs).
+    PageCredential,
     CloudInboxList(cloud_conversations::InboxListParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
@@ -3474,6 +3477,7 @@ fn handle_command_with_cancellation(
         Command::CloudSessionSet(params) => cloud_conversations::session_set(mux, client, params),
         Command::CloudSessionClear => cloud_conversations::session_clear(mux, client),
         Command::CloudSessionStatus => cloud_conversations::session_status(mux, client),
+        Command::PageCredential => page_credential::page_credential(mux, client),
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)

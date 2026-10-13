@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "2b31f35029949c3688ef91e98f3f120931da6b227b11000d22f7dbb3922de815";
+inline constexpr std::string_view kProtocolIrSha256 = "5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -394,6 +394,7 @@ struct NewTabRequest;
 struct NewWorkspaceRequest;
 struct NoteSizeActivityRequest;
 struct NotifyRequest;
+struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
 struct PasteImageRequest;
@@ -3529,6 +3530,10 @@ struct OverflowEvent {
     std::optional<std::string> scope{};
     std::optional<Id> surface{};
     friend bool operator==(const OverflowEvent&, const OverflowEvent&) = default;
+};
+
+struct PageCredentialRequest {
+    friend bool operator==(const PageCredentialRequest&, const PageCredentialRequest&) = default;
 };
 
 struct PairingRequestedEvent {
@@ -7571,6 +7576,12 @@ template <>
 struct Codec<NotifyRequest> {
     static Result<Json> encode(const NotifyRequest& value);
     static Result<NotifyRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<PageCredentialRequest> {
+    static Result<Json> encode(const PageCredentialRequest& value);
+    static Result<PageCredentialRequest> decode(const Json& value);
 };
 
 template <>
