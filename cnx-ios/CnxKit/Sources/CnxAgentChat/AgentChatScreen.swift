@@ -631,11 +631,7 @@ struct UserBubble: View {
     var body: some View {
         VStack(alignment: .trailing, spacing: 6) {
             if !turn.attachments.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(turn.attachments) { attachment in
-                        AttachmentThumb(attachment: attachment)
-                    }
-                }
+                SentAttachments(attachments: turn.attachments)
             }
             Text(turn.prompt)
                 .font(.body)
@@ -668,6 +664,55 @@ struct UserBubble: View {
             }
             .presentationDetents([.medium, .large])
         }
+    }
+}
+
+/// Sent attachments above the user bubble (SPEC 4.4 "images above text as
+/// a stacked strip, radius 16"): a lone image shows large like ChatGPT and
+/// Messages; several share a row of squares; files stay chips. Trailing
+/// edges line up with the bubble (no remove-badge room).
+struct SentAttachments: View {
+    let attachments: [AgentAttachment]
+
+    var body: some View {
+        let images = attachments.filter { $0.kind == .image }
+        let files = attachments.filter { $0.kind != .image }
+        VStack(alignment: .trailing, spacing: 6) {
+            if images.count == 1, let image = images.first {
+                thumbnail(image, size: CGSize(width: 200, height: 150))
+            } else if !images.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(images.prefix(3)) { image in
+                        thumbnail(image, size: CGSize(width: 96, height: 96))
+                            .overlay {
+                                if image.id == images.prefix(3).last?.id, images.count > 3 {
+                                    Text("+\(images.count - 3)").font(.headline).foregroundStyle(.white)
+                                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                        .background(.black.opacity(0.45), in: .rect(cornerRadius: 16, style: .continuous))
+                                }
+                            }
+                    }
+                }
+            }
+            ForEach(files) { file in
+                AttachmentThumb(attachment: file).padding(.top, -6).padding(.trailing, -6)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func thumbnail(_ attachment: AgentAttachment, size: CGSize) -> some View {
+        Group {
+            if let data = attachment.data, let image = UIImage(data: data) {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Color.cnxFill.overlay { Image(systemName: "photo").font(.title3).foregroundStyle(.secondary) }
+            }
+        }
+        .frame(width: size.width, height: size.height)
+        .clipShape(.rect(cornerRadius: 16, style: .continuous))
+        .accessibilityElement()
+        .accessibilityLabel(Text("Image, \(attachment.name)"))
     }
 }
 
