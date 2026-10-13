@@ -80,7 +80,7 @@ extension AppActions {
     /// also brings that window forward and activates the app
     /// (`NewWorkspaceFocus`).
     private static func newWorkspace(_ services: AppServices, _ invocation: ActionInvocation) {
-        let spawn = WorkspaceSpawn(invocation)
+        var spawn = WorkspaceSpawn(invocation)
         let focus = NewWorkspaceFocus(invocation)
         let show = focus.shows
 
@@ -103,6 +103,7 @@ extension AppActions {
         let opensPage = show && hasOpenWindow && spawn.opensNewTabPage && spawn.command == nil && spawn.firstChat == nil
             && spawn.firstSession == nil && services.agentTabs.opensFirstPage(on: daemon ?? services.daemon)
         let keys = opensPage && target == windows.active?.state.id ? input.beginIncoming(in: windows.active?.window) : nil
+        spawn.inputToken = keys
         services.registry.track(Task {
             var pageMade = false
             defer { input.endIncoming(keys, pageMade: pageMade) }

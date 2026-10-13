@@ -185,21 +185,30 @@ def focus_terminal_tab():
     time.sleep(1)  # test harness: the terminal takes the keyboard
 
 
+def focused_tab():
+    windows = (rpc("debug.focus") or {}).get("windows") or []
+    return ((windows[0].get("model") or {}).get("resolved_tab")) if windows else None
+
+
 def run(name, helper, steps, setup=None):
     if setup:
         setup()
     pid = app_pid()
+    # The field read after must be a NEW page's: the tab focused before (maybe the last run's page,
+    # holding the same text) does not count.
+    before = focused_tab()
     result = subprocess.run([helper, str(pid), json.dumps(plan(steps))], capture_output=True, text=True, timeout=60)
     timing = {}
     try:
         timing = json.loads(result.stdout.strip().splitlines()[-1])
     except (ValueError, IndexError):
         timing = {"error": (result.stdout + result.stderr)[-300:]}
-    got = wait(lambda: (lambda t: t if t == opts.text else None)(field_text()), 6)
+    got = wait(lambda: (lambda t: t if t == opts.text and focused_tab() not in (None, before) else None)(field_text()), 6)
     text = got if got is not None else field_text()
+    after = focused_tab()
     holds = (rpc("debug.focus") or {}).get("new_tab_key_holds")
-    ok = text == opts.text and "error" not in timing
-    row = {"run": name, "field": text, "pass": ok, "holds_after": holds, **timing}
+    ok = got is not None and "error" not in timing
+    row = {"run": name, "field": text, "pass": ok, "tab_before": before, "tab_after": after, "holds_after": holds, **timing}
     print(("PASS" if ok else "FAIL"), json.dumps(row), flush=True)
     return row
 

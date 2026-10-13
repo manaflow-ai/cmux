@@ -72,8 +72,8 @@ final class NewTabInputCoordinator {
         }
     }
 
-    /// The page an incoming hold waits for: its token is handed to the first New Tab page made
-    /// (`claimIncomingToken`), and its tab key arrives with the page's readiness.
+    /// The page an incoming hold waits for: its token rides on the new workspace's first New Tab page
+    /// (`WorkspaceSpawn.inputToken`, `attachIncoming`), and its tab key arrives with its readiness.
     final class IncomingPage {
         var key: String?
         var claimed = false
@@ -89,6 +89,8 @@ final class NewTabInputCoordinator {
             guard let pane, let window, let key = pane.currentTabKey,
                   pane.services.agentTabs.isNewTabPage(key),
                   let view = pane.services.agentTabs.existingView(key), view.window === window else { return false }
+            // A Chromium page window may be key: the shell takes it back, so later keys follow.
+            if !window.isKeyWindow, NSApp.isActive { window.makeKey() }
             return window.makeFirstResponder(view.webView)
         }, deliver: deliver(in: window))
         let entry = Entry(buffer: buffer, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
@@ -97,8 +99,8 @@ final class NewTabInputCoordinator {
     }
 
     /// Cmd-N (a person's new workspace on the New Tab page, shown in `window`): from this moment
-    /// every key of `window` waits for the new page's field. The first New Tab page made takes the
-    /// token (`claimIncomingToken`); its readiness names its tab and sends the keys there. The
+    /// every key of `window` waits for the new page's field. The new workspace's first New Tab page
+    /// carries the token (`WorkspaceSpawn.inputToken`); its readiness names its tab and sends the keys there. The
     /// creation ends the hold when it fails or makes no page (`endIncoming`).
     func beginIncoming(in window: NSWindow?) -> String? {
         guard let router, let window else { return nil }
@@ -110,20 +112,23 @@ final class NewTabInputCoordinator {
             guard let services, let window, let key = target.key, services.agentTabs.isNewTabPage(key),
                   let view = services.agentTabs.existingView(key), view.window === window,
                   !view.isHiddenOrHasHiddenAncestor else { return false }
+            // A Chromium page window may be key: the shell takes it back, so later keys follow.
+            if !window.isKeyWindow, NSApp.isActive { window.makeKey() }
             return window.makeFirstResponder(view.webView)
         }, deliver: deliver(in: window))
         install(Entry(buffer: buffer, limit: incomingHoldLimit, opened: nil, pane: nil, window: window, incoming: target), in: window)
         return buffer.token
     }
 
-    /// The token of the incoming hold that waits for its page, for the New Tab page being made (a
-    /// page made twice, by the tree listing and by the create reply, gets the same token); nil
-    /// when no Cmd-N waits for a page.
-    func claimIncomingToken() -> String? {
-        guard let entry = buffers.values.first(where: { $0.incoming != nil && $0.incoming?.key == nil }),
-              let incoming = entry.incoming else { return nil }
-        incoming.claimed = true
-        return entry.buffer.token
+    /// A New Tab page took the incoming hold's `token` (the page of the workspace its Cmd-N made):
+    /// the creation's end keeps the hold until that page's readiness.
+    func attachIncoming(_ token: String) {
+        buffers.values.first(where: { $0.buffer.token == token })?.incoming?.claimed = true
+    }
+
+    /// Every window's hold tries to drain (a page joined its window: FirstTabHold).
+    func flushAll() {
+        for entry in Array(buffers.values) { flush(in: entry.window) }
     }
 
     /// The creation behind `token` ended. With no page made for it (it failed, or made a terminal),

@@ -38,7 +38,7 @@ extension AgentTabStore {
             chat.cwd = chat.cwd ?? cwd
             seedFirstChat(chat, in: workspace)
         }
-        defer { firstChats[workspace] = nil }
+        defer { firstChats[workspace] = nil; firstPageTokens[workspace] = nil }
         let response = try await connection.request(request)
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
         if chat != nil {
@@ -48,7 +48,16 @@ extension AgentTabStore {
             return response.surface
         }
         seeds[key] = AgentPaneSeedSource(AgentPaneSeed(cwd: cwd))
-        newTabPages[key] = firstPageNewTab?(cwd, nil)
+        let made = firstPage(cwd: cwd, token: firstPageTokens[workspace])
+        // The tree listed the tab first and its view already shows the page (with this
+        // workspace's token): it keeps that page, since a new one remounts the screen and drops
+        // what was typed (cx-kql5h); only the actions take this folder.
+        if let shown = newTabPages[key], let made, views[key]?.model.newTab != nil {
+            newTabPages[key] = (page: shown.page, handler: made.handler)
+            track(key, in: daemon.store)
+            return response.surface
+        }
+        newTabPages[key] = made
         // The tree can list the tab before this reply, and a pane showing it
         // then made a plain chat: it becomes the page now, unless it already has a session.
         if let view = views[key], let page = newTabPages[key]?.page {
@@ -70,6 +79,23 @@ extension AgentTabStore {
     /// built then takes it (``firstChatSeed(of:in:)``).
     func seedFirstChat(_ seed: AgentPaneSeed, in workspace: WorkspaceHandle) {
         firstChats[workspace] = AgentPaneSeedSource(seed)
+    }
+
+    /// A new workspace's first New Tab page, carrying that workspace's key-hold token.
+    func firstPage(cwd: String?, token: String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
+        guard var made = firstPageNewTab?(cwd, nil) else { return nil }
+        if let token {
+            made.page.inputToken = token
+            onFirstPageToken?(token)
+        }
+        return made
+    }
+
+    /// The key-hold token of the new workspace holding tab `key` (kept until its create returns).
+    func firstPageToken(of key: String, in store: DaemonStore) -> String? {
+        guard !firstPageTokens.isEmpty, let tab = store.tab(id: key), let pane = store.pane(containing: tab.surface),
+              let workspace = store.workspace(containing: pane.handle) else { return nil }
+        return firstPageTokens[workspace.handle]
     }
 
     /// The held seed of the new workspace holding tab `key`, taken once.
@@ -105,9 +131,9 @@ extension AgentTabStore {
             let tab = beside.flatMap { services.locateTab($0)?.0 }.flatMap { services.machines.daemon(forTab: $0).isLocal ? nil : $0 }
             var page = NewTabPage.page(services, selected: tab)
             page.cwd = cwd ?? page.cwd
-            // Keys typed since Cmd-N wait for this page's field (NewTabInputCoordinator, cx-kql5h).
+            // Keys typed since Cmd-N wait for this page's field (NewTabInputCoordinator, cx-kql5h);
+            // the token comes per workspace (``firstPage(cwd:token:)``).
             let input = services.keyRouter.newTabInputCoordinator
-            page.inputToken = input.claimIncomingToken()
             var handler = NewTabPage.handler(services, cwd: cwd) { [weak services] key, request in
                 guard let services, let (tab, pane) = services.locateTab(key), let controller = services.paneController(for: pane) else { return }
                 NewTabPage.replace(key, with: request, cwd: request.cwd ?? tab.cwd, in: controller)
@@ -115,6 +141,7 @@ extension AgentTabStore {
             handler.inputReady = { [weak input] key, token in input?.pageReady(token, key: key) }
             return (page, handler)
         }
+        tabs.onFirstPageToken = { [weak services] token in services?.keyRouter.newTabInputCoordinator.attachIncoming(token) }
         tabs.resolveLocalHost = { [weak services] in
             guard let services else { return nil }
             guard let id = try? services.cloud.localDeviceID() else {
