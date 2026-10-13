@@ -25,6 +25,10 @@ public final class TabStripModel {
 
     /// Receives every intent. Set by the App (or the demo).
     @ObservationIgnored public var intentHandler: ((TabStripIntent) -> Void)?
+    /// Tabs taking another tab's place, keyed by the new tab (what a New Tab page turns into): the
+    /// strip shows the new tab in that tab's cell, which leaves with no close, instead of growing
+    /// one in while the other shrinks away (Leo 2026-10-13).
+    @ObservationIgnored public var successors: [TabID: TabID] = [:]
 
     public init(
         stripID: UUID = UUID(),
@@ -47,6 +51,15 @@ public final class TabStripModel {
     /// cleared on pinned tabs and on tabs whose group is unknown.
     public var orderedTabs: [TabItem] {
         TabGroupOrdering.normalized(tabs, groups: Set(groups.map(\.id)))
+    }
+
+    /// The places a sync hands over, new tab to old: a tab with no cell yet (`shown`) taking the
+    /// place of one that has a cell and leaves in this sync (`next`). Stale entries go.
+    func takeSuccessions(shown: Set<TabID>, next: Set<TabID>) -> [TabID: TabID] {
+        let taken = successors.filter { !shown.contains($0.key) && next.contains($0.key) && shown.contains($0.value) && !next.contains($0.value) }
+        // Kept while the new tab has no cell and the old one still has.
+        successors = successors.filter { !shown.contains($0.key) && shown.contains($0.value) && !taken.keys.contains($0.key) }
+        return taken
     }
 
     public func tab(_ id: TabID) -> TabItem? {

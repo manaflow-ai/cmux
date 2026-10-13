@@ -45,6 +45,8 @@ pub(super) async fn handle_notification(hub: &Arc<Hub>, conn: &Arc<Conn>, m: &st
 
 /// The tag the chat lists hide a session by (webviews sessionList.ts `ARCHIVED_TAG`).
 const ARCHIVED_TAG: &str = "archived";
+/// The tag that marks a side chat, valued with its chat's session (sessionList.ts `SIDE_TAG`).
+const SIDE_TAG: &str = "side";
 
 pub(super) async fn handle_request(
     hub: &Arc<Hub>,
@@ -128,7 +130,7 @@ async fn dispatch_request(
                     method::MUX_STATUS, method::MUX_SESSIONS, method::MUX_HARNESSES, method::MUX_RELOAD_CONFIG, method::MUX_ATTACH, method::MUX_WARM, method::MUX_PREWARM,
                     method::MUX_DETACH, method::MUX_WATCH, method::MUX_RENAME, method::MUX_KILL, method::MUX_QUEUE_REMOVE, method::MUX_QUEUE_EDIT,
                     method::MUX_INFO, method::MUX_EVENTS, method::MUX_PERMISSION_RESPOND,
-                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE,
+                    method::MUX_DRAFT_GET, method::MUX_DRAFT_SET, method::MUX_ASK, method::MUX_VIEW, method::MUX_MARK_UNREAD, method::MUX_ARCHIVE, method::MUX_SIDE,
                     method::MUX_SET_POLICY, method::MUX_EXPORT, method::MUX_IMPORT, method::MUX_SHUTDOWN,
                 ], "operations": crate::hub::HANDOFF_OPERATIONS.iter().chain(crate::hub::PERMISSION_GROUP_OPERATIONS.iter()).chain(super::FORK_OPERATIONS.iter()).collect::<Vec<_>>(), "handoff": {"maxCapsuleBytes": crate::hub::MAX_CAPSULE_BYTES},
                 "features": ["promptAccepted", "turnIds", "eventPaging", "eventKinds", "eventStream", "cancelRequest", "messageSuperseded", "turnErrorText", "permissionGroups", "trustGate", "chiefBuiltinPresets", "personChallenge", "queueEdit", "steerInterrupt", "personHolds", "sessionTransfer"], "trustGate": true}}
@@ -882,6 +884,24 @@ async fn dispatch_request(
             } else {
                 hub.set_tags(&s, None, &[ARCHIVED_TAG.to_owned()], None);
             }
+            Ok(hub.session_summary(&s))
+        }
+        // One tag with a session as its value: never another tag (`_acpmux/tag`).
+        method::MUX_SIDE => {
+            let s = hub.resolve(session_key(&params)?)?;
+            let chat = params.get("chat").and_then(Value::as_str).ok_or_else(|| {
+                RpcError::invalid_params("chat (the side chat's chat) is required")
+            })?;
+            // The exact session id, never a name or a prefix.
+            let chat = hub.resolve(chat).ok().filter(|c| c.id == chat).ok_or_else(|| {
+                RpcError::not_found(format!("no chat with the session id {chat:?}"))
+            })?;
+            if chat.id == s.id {
+                return Err(RpcError::invalid_params("a chat is not its own side chat"));
+            }
+            let mut set = serde_json::Map::new();
+            set.insert(SIDE_TAG.into(), Value::String(chat.id.clone()));
+            hub.set_tags(&s, Some(&set), &[], None);
             Ok(hub.session_summary(&s))
         }
         method::MUX_HARNESS_ENABLE => {

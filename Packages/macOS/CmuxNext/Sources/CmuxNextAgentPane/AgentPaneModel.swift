@@ -79,6 +79,9 @@ public final class AgentPaneModel {
     /// A `#turn-<turnId>` link's turn the page has not been handed yet; the
     /// next handshake carries it (`revealTurn`) and clears it.
     @ObservationIgnored public var pendingRevealTurn: String?
+    /// What this chat's last page held when it let go (hibernation); the next handshake
+    /// carries it (`wake`) and clears it.
+    @ObservationIgnored public var pendingWake: AgentPaneWakeState?
     /// Whether the page has asked for a handshake, so its bridge is up and
     /// a turn can be revealed through it directly.
     @ObservationIgnored public internal(set) var hasHandshake = false
