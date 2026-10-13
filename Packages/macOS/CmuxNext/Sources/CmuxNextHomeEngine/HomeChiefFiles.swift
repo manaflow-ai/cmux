@@ -1,5 +1,6 @@
 public import CmuxNextHome
 public import Foundation
+import CmuxNextDaemon
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -13,6 +14,17 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
     var routeConfigured = false
     /// The trace's last `turn.end`s, newest first.
     var turns: [HomeEngineTurn]
+    /// The brain's `offered` lists (empty until the brain answers).
+    var models: [ChiefEngineReport.Model] = []
+    var efforts: [String] = []
+
+    /// This snapshot with `report`'s offered models and efforts.
+    func offering(_ report: ChiefEngineReport) -> HomeChiefSnapshot {
+        var snapshot = self
+        snapshot.models = report.offered.models
+        snapshot.efforts = report.offered.efforts
+        return snapshot
+    }
 }
 
 /// This Chief's files under its mux home: `optchat/engine.json` (the engine
