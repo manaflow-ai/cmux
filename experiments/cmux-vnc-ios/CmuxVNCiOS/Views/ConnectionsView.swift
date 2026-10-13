@@ -71,6 +71,11 @@ struct ConnectionsView: View {
             }
             .task {
                 let autopilot = Autopilot()
+                // `-openSaved <name>`: a saved computer, with its stored sign-in.
+                if session == nil, let name = autopilot.value("-openSaved"), let host = store.hosts.first(where: { $0.name == name }) {
+                    connect(host)
+                    return
+                }
                 guard session == nil, let automatic = autopilot.session() else { return }
                 open(automatic)
                 if autopilot.playsScript { await autopilot.play(on: automatic) }
