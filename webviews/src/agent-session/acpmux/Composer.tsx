@@ -23,7 +23,6 @@ import {
 import type { UploadResult } from "./cloudUploads";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
-import { type ChatMove, moveAttachment } from "./shell/chatMoves";
 import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import { ComposerQueue } from "./ComposerQueue";
@@ -194,10 +193,8 @@ type Props = {
   onConnect?(kind: "ssh" | "cloud"): void;
   /// This Mac's name for the location row.
   localName?: string;
-  /// The folder a started chat moved to (shell/chatMoves.ts).
-  movedTo?: string;
-  /// Moves a started chat to another folder; the next prompt carries the move as a `cd` chip.
-  onMove?(cwd: string): ChatMove;
+  /// A started chat's folder menu: a new chat in `cwd`, in a tab of its own.
+  onNewChat?(cwd: string): void;
   /// Shell mode (`!` first): runs `command` on the chat's machine in its folder, its block in the
   /// transcript; returns the run, which the next prompt carries as a removable chip. Unset, `!` is
   /// plain text.
@@ -249,8 +246,7 @@ export function Composer({
   onBrowseFolder,
   onConnect,
   localName,
-  movedTo,
-  onMove,
+  onNewChat,
   onShell,
   onShellInterrupt,
   onMode,
@@ -414,7 +410,7 @@ export function Composer({
       send: () => submitNow.current(true),
       focus: () => field.current?.focus(),
       wakeState: () => ({
-        attachments: attachmentsRef.current.filter((chip) => !chip.shellRun && !chip.move),
+        attachments: attachmentsRef.current.filter((chip) => !chip.shellRun),
         shell: shellRef.current.shell,
         shellText: shellRef.current.shellText,
       }),
@@ -944,16 +940,7 @@ export function Composer({
         })
       }
       localName={localName}
-      movedTo={movedTo}
-      busy={snapshot.isWorking}
-      onMove={
-        onMove &&
-        ((cwd) => {
-          const move = onMove(cwd);
-          setAttachments((current) => [...current.filter((item) => !item.move), moveAttachment(move)]);
-          field.current?.focus();
-        })
-      }
+      onNewChat={onNewChat}
     />
   );
   return (

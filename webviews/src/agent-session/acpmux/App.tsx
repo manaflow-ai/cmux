@@ -192,9 +192,7 @@ import {
   SubagentNavContext,
   SubagentOfRow,
 } from "./subagents/SubagentGroup";
-import { MOVE_ROW, type ChatMove, withMoveRows } from "./shell/chatMoves";
 import { endedEditRow, markRows, type RowMarks } from "./rowMarks";
-import { MoveRow } from "./shell/MoveRow";
 import { ShellActionsContext, ShellRow, type ShellActions } from "./shell/ShellRow";
 import { SwitchNotice } from "./SwitchNotice";
 import { InstructionsNotice, type InstructionsFailure } from "./header/InstructionsNotice";
@@ -706,7 +704,6 @@ const defaultRegistry: NativeRegistry = {
   typing: NoticeRow,
   permission: PermissionRow,
   [SHELL_ROW]: ShellRow,
-  [MOVE_ROW]: MoveRow,
   [SUBAGENTS]: SubagentGroupRow,
   [SUBAGENT_ROW]: SubagentRow,
   [SUBAGENT_OF]: SubagentOfPillRow,
@@ -2034,8 +2031,6 @@ function AcpmuxPane() {
   /// Shell mode's commands (shell/shellRuns.ts), across the chats this page showed.
   const [shellRuns] = useState(() => new ShellRuns(callNative));
   const allShellRuns = useSyncExternalStore(shellRuns.subscribe, shellRuns.snapshot, shellRuns.snapshot);
-  /// Folders started chats moved to from the location row (shell/chatMoves.ts), oldest first.
-  const [chatMoves, setChatMoves] = useState<ChatMove[]>([]);
   /// This Mac's name, from the handshake.
   const [machineName, setMachineName] = useState<string | undefined>();
   const [scrollAnchor, setScrollAnchor] = useState<(ScrollAnchor & { sessionId: string }) | undefined>();
@@ -2269,15 +2264,9 @@ function AcpmuxPane() {
     snapshot.permission?.pending && !(snapshot.permissionGroups?.supported && snapshot.permission.groupId)
       ? snapshot.permission
       : undefined;
-  const sessionMoves = useMemo(
-    () => chatMoves.filter((move) => move.sessionId === snapshot.sessionId),
-    [chatMoves, snapshot.sessionId],
-  );
-  /// The folder the chat moved to, where its commands run and its files are searched.
-  const movedTo = sessionMoves.at(-1)?.cwd;
   // Search files reads the session's folder through whoever runs the session: the acpmux
   // client (or the mock daemon), else the native host.
-  const fileRoot = movedTo ?? snapshot.summary?.cwd;
+  const fileRoot = snapshot.summary?.cwd;
   // The + menu's Attach Screenshot… and Attach Window… (cx-ncc.71): the host runs macOS
   // screencapture's own pick and answers the PNG; a cancelled pick answers no data, and a capture
   // that would not fit the image cap answers `tooLarge` with its name.
@@ -2343,9 +2332,9 @@ function AcpmuxPane() {
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
       lastTurns.current = { turns, subagents };
-      return withMoveRows(withShellRows(subagents.rows, chatShellRuns), sessionMoves);
+      return withShellRows(subagents.rows, chatShellRuns);
     });
-  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns, sessionMoves]);
+  }, [childRows, sourceRows, expanded, snapshot.isWorking, snapshot.clockOffsetMs, chatShellRuns]);
   /// The summary popover's Lineage: where the shown view sits among the chat's subagents.
   const lineage = useMemo(
     () => ({
@@ -4411,7 +4400,7 @@ function AcpmuxPane() {
       {pendingFolder ? (
         <StartFolderAsk
           ask={pendingFolder.ask}
-          current={freshChat && !snapshot.sessionId ? projectDraft : (movedTo ?? snapshot.summary?.cwd)}
+          current={freshChat && !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd}
           error={pendingFolder.error}
           onUse={() => {
             // The question closes on the click, so a second click cannot use the folder twice.
@@ -4581,14 +4570,11 @@ function AcpmuxPane() {
               ? undefined
               : (command) =>
                   shellRuns.start(command, {
-                    ...((movedTo ?? composerSnapshot.summary?.cwd)
-                      ? { cwd: movedTo ?? composerSnapshot.summary?.cwd }
-                      : {}),
+                    ...(composerSnapshot.summary?.cwd ? { cwd: composerSnapshot.summary.cwd } : {}),
                     ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
                   })
           }
           localName={machineName}
-          movedTo={movedTo}
           onBrowseFolder={
             canMove
               ? () =>
@@ -4597,22 +4583,9 @@ function AcpmuxPane() {
                     .catch(() => undefined)
               : undefined
           }
-          // A started local chat moves to another folder in place; a Cloud chat's folder is a label.
-          onMove={
-            canMove
-              ? (cwd) => {
-                  const move: ChatMove = {
-                    id: `${Date.now().toString(36)}-${chatMoves.length}`,
-                    sessionId: snapshot.sessionId!,
-                    cwd,
-                    machine: machineName ?? t("composer.thisMac"),
-                    at: Date.now(),
-                  };
-                  setChatMoves((current) => [...current, move]);
-                  return move;
-                }
-              : undefined
-          }
+          // A started local chat's folder is fixed (Leo 2026-10-13): its folder menu starts a new chat
+          // in a tab of its own; a Cloud chat's folder is a label.
+          onNewChat={canMove ? (cwd) => ignoreFailure(callNative("chat.newHere", { cwd })) : undefined}
           onShellInterrupt={() => {
             const running = shellRuns.running(snapshot.sessionId);
             if (running) shellRuns.stop(running.id);
