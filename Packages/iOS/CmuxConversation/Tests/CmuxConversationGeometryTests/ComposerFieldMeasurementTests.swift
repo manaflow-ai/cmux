@@ -57,4 +57,17 @@ import Testing
         #expect(ComposerFieldMeasurement.lineCount(textHeight: 3 * Self.lineHeight + 2 * Self.padding + 2, verticalPadding: Self.padding, lineHeight: Self.lineHeight) == 3)
         #expect(ComposerFieldMeasurement.lineCount(textHeight: 0, verticalPadding: Self.padding, lineHeight: Self.lineHeight) == 1)
     }
+
+    /// Messages' field (iOS 26 and 27, iPhone 17 Pro, Large): 40.33 pt for
+    /// one line, then 20 pt a line, 120.33 for five. The tight-leading body
+    /// font is 20.29 pt with -0.29 pt leading; TextKit adds the leading
+    /// between lines (a UITextView with 10 pt insets fits 120.33 for five).
+    @Test func linesAfterTheFirstStepByTheFontsLeadingToo() {
+        let fontLine: CGFloat = 20.2871, leading: CGFloat = -0.2871
+        let oneLine: CGFloat = 40.3333
+        #expect(ComposerFieldMeasurement.lineCount(textHeight: 120.3333, verticalPadding: 10, lineHeight: fontLine, leading: leading) == 5)
+        #expect(abs(ComposerFieldMeasurement.fieldHeight(lines: 5, oneLineHeight: oneLine, lineHeight: fontLine, leading: leading) - 120.3333) < 0.01)
+        #expect(ComposerFieldMeasurement.lineCount(textHeight: 400.3333, verticalPadding: 10, lineHeight: fontLine, leading: leading) == 20)
+        #expect(ComposerFieldMeasurement.fieldHeight(lines: 1, oneLineHeight: oneLine, lineHeight: fontLine, leading: leading) == oneLine)
+    }
 }
