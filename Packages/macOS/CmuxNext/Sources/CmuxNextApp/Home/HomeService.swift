@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHome
+import CmuxNextHomeEngine
 import Foundation
 import Observation
 import os
