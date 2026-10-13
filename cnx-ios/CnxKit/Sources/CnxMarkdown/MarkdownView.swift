@@ -115,7 +115,7 @@ struct MarkdownTableView: View {
 
     var body: some View {
         ScrollView(.horizontal) {
-            Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+            Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
                 GridRow {
                     ForEach(0..<table.columnCount, id: \.self) { column in
                         cell(table.header[safe: column] ?? "", column: column, header: true)
@@ -140,8 +140,14 @@ struct MarkdownTableView: View {
     }
 
     private func cell(_ text: String, column: Int, header: Bool) -> some View {
-        InlineText(source: text, font: header ? .subheadline.weight(.semibold) : .subheadline)
-            .frame(minWidth: 96 - 24, maxWidth: 260 - 24, alignment: alignment(column))
+        // In a horizontal scroll view the grid measures cells with no width
+        // proposal (one line), so a wrapped cell kept a one-line row height
+        // and ran into the row separators. The layout reports the height at
+        // the capped width instead.
+        TableCellLayout(minWidth: 96 - 24, maxWidth: 260 - 24) {
+            InlineText(source: text, font: header ? .subheadline.weight(.semibold) : .subheadline)
+                .frame(maxWidth: .infinity, alignment: alignment(column))
+        }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
     }
@@ -152,6 +158,26 @@ struct MarkdownTableView: View {
         case .center: .center
         case .trailing: .trailing
         }
+    }
+}
+
+/// Sizes one table cell: its ideal width clamped to `minWidth...maxWidth`,
+/// and the height its content needs at that width.
+struct TableCellLayout: Layout {
+    let minWidth: CGFloat
+    let maxWidth: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        guard let content = subviews.first else { return .zero }
+        let ideal = content.sizeThatFits(.unspecified).width
+        let proposed = proposal.width.flatMap { $0.isFinite ? $0 : nil }
+        let width = min(max(proposed.map { min($0, ideal) } ?? ideal, minWidth), maxWidth)
+        let height = content.sizeThatFits(ProposedViewSize(width: width, height: nil)).height
+        return CGSize(width: proposed.map { max(min($0, maxWidth), width) } ?? width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        subviews.first?.place(at: bounds.origin, proposal: ProposedViewSize(width: bounds.width, height: bounds.height))
     }
 }
 

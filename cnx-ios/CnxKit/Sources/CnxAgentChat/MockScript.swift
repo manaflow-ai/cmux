@@ -174,6 +174,7 @@ struct MockScript {
     """
 
     static let beforeQuestion = "Both test suites pass. Two product decisions before I wire Settings:"
+    static let beforeQuestionDenied = "Swift tests pass; I skipped the Rust tests as you asked. Two product decisions before I wire Settings:"
 
     static func question(session: String) -> AgentQuestion {
         AgentQuestion(

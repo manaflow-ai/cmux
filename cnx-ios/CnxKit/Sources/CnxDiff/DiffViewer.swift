@@ -28,10 +28,6 @@ public final class DiffViewerState {
 /// SPEC 12.1: the Changes file list (GitHub mobile style).
 public struct DiffChangesScreen: View {
     @State private var state: DiffViewerState
-    /// The open file. State driven, not `NavigationLink(value:)`: this screen
-    /// is pushed inside stacks with a typed path (the workspace's
-    /// `[Workspace]`), where a value of another type is never pushed.
-    @State private var openFile: DiffFileRoute?
 
     public init(changeSet: DiffChangeSet) {
         _state = State(initialValue: DiffViewerState(changeSet: changeSet))
@@ -43,18 +39,16 @@ public struct DiffChangesScreen: View {
                 summary
                     .listRowSeparator(.hidden, edges: .top)
                 ForEach(visibleFiles) { file in
-                    HStack(spacing: 8) {
+                    // A destination link, not a value link: the chat that pushes this
+                    // screen may sit in a stack with a typed path (Home), where a
+                    // DiffFileRoute value has nowhere to go and the tap did nothing.
+                    NavigationLink {
+                        DiffFileScreen(state: state, fileID: file.id)
+                    } label: {
                         DiffFileRow(file: file, isViewed: state.viewed.contains(file.id)) {
                             withAnimation(.cnxSnap) { state.toggleViewed(file) }
                         }
-                        Image(systemName: "chevron.forward")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.tertiary)
                     }
-                    .contentShape(.rect)
-                    .onTapGesture { openFile = DiffFileRoute(fileID: file.id) }
-                    .accessibilityAddTraits(.isButton)
-                    .accessibilityAction { openFile = DiffFileRoute(fileID: file.id) }
                 }
             }
         }
@@ -65,17 +59,12 @@ public struct DiffChangesScreen: View {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 1) {
                     Text("Changes").font(.headline)
-                    Text("\(state.changeSet.subtitle) · \(Self.files(state.changeSet.files.count))").font(.footnote).foregroundStyle(.secondary)
+                    Text("\(state.changeSet.subtitle) · \(state.changeSet.files.count) \(state.changeSet.files.count == 1 ? "file" : "files")").font(.footnote).foregroundStyle(.secondary)
                 }
             }
             ToolbarItem(placement: .topBarTrailing) { DiffOptionsMenu(state: state) }
         }
-        .navigationDestination(item: $openFile) { route in
-            DiffFileScreen(state: state, fileID: route.fileID)
-        }
     }
-
-    static func files(_ count: Int) -> String { count == 1 ? "1 file" : "\(count) files" }
 
     private var visibleFiles: [DiffFile] {
         state.showViewed ? state.changeSet.files : state.changeSet.files.filter { !state.viewed.contains($0.id) }
@@ -83,7 +72,7 @@ public struct DiffChangesScreen: View {
 
     private var summary: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("\(Self.files(state.changeSet.files.count)) changed").font(.headline)
+            Text("\(state.changeSet.files.count) \(state.changeSet.files.count == 1 ? "file" : "files") changed").font(.headline)
             HStack(spacing: 8) {
                 DiffCounts(additions: state.changeSet.additions, deletions: state.changeSet.deletions)
                 DiffStatBar(additions: state.changeSet.additions, deletions: state.changeSet.deletions)
@@ -94,11 +83,6 @@ public struct DiffChangesScreen: View {
         }
         .padding(.vertical, 6)
     }
-}
-
-struct DiffFileRoute: Hashable, Identifiable {
-    var id: String { fileID }
-    let fileID: String
 }
 
 /// `+12 −4` in diff colors.

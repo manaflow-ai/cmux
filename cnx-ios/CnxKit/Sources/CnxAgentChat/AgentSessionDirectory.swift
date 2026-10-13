@@ -11,7 +11,8 @@ public final class AgentSessionDirectory {
     public static let shared = AgentSessionDirectory()
     private var stores: [String: AgentChatStore] = [:]
     public var makeSource: (AgentSessionSummary) -> any AgentSessionSource = { summary in
-        MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude")
+        // Tabs made on the phone ("New session") start empty.
+        MockAgentSession(summary: summary, richFirstTurn: summary.harness == "claude", history: summary.name != "New session")
     }
 
     public init() {}

@@ -110,7 +110,9 @@ public struct CnxCapsuleButtonStyle: ButtonStyle {
             .font(.headline)
             .lineLimit(1)
             .padding(.horizontal, size == .compact ? 12 : 20)
-            .frame(height: height)
+            // Bar buttons (permission options) may wrap to a second line.
+            .padding(.vertical, size == .bar ? 6 : 0)
+            .frame(minHeight: height, maxHeight: size == .bar ? nil : height)
             .frame(maxWidth: size == .inline ? nil : .infinity)
             .foregroundStyle(foreground)
             .background(background, in: .capsule)

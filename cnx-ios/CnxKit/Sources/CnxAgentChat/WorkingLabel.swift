@@ -58,6 +58,7 @@ struct Shimmer<Content: View>: View {
                                         .offset(x: -width * 0.4 + (width * 1.4) * phase)
                                 }
                             }
+                            .accessibilityHidden(true)
                     }
             }
         } else {
