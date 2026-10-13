@@ -113,6 +113,8 @@ public final class ConversationViewController: UIViewController {
     #if DEBUG
     /// DEBUG lab: the scripted scroll, when the environment asks for one.
     var autoScrollDriver: ConversationAutoScrollDriver?
+    /// DEBUG lab: the per-frame scroll recorder, when the environment asks for one.
+    var scrollProbe: ConversationScrollProbe?
     #endif
     /// A status-bar tap's animated scroll to the top is running. Messages
     /// loads history only once it comes to rest at the spinner, so a page
@@ -332,6 +334,10 @@ public final class ConversationViewController: UIViewController {
         updateViewing()
         focusComposerIfEmpty()
         #if DEBUG
+        if scrollProbe == nil, let probe = ConversationScrollProbe.fromEnvironment(controller: self) {
+            scrollProbe = probe
+            probe.start()
+        }
         if autoScrollDriver == nil, let driver = ConversationAutoScrollDriver.fromEnvironment(controller: self) {
             autoScrollDriver = driver
             driver.start()
@@ -343,6 +349,10 @@ public final class ConversationViewController: UIViewController {
         super.viewWillDisappear(animated)
         isOnScreen = false
         store.endVisit()
+        #if DEBUG
+        scrollProbe?.stop()
+        scrollProbe = nil
+        #endif
     }
 
     public override func viewDidLayoutSubviews() {
