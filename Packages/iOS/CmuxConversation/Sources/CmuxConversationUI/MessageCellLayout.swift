@@ -394,9 +394,9 @@ extension MessageCellLayout {
 
         var senderNameFrame: CGRect?
         if model.showsSenderName, model.senderName != nil {
-            let nameHeight = ceil(t.senderNameFont.lineHeight)
-            senderNameFrame = CGRect(x: incomingBodyLeading + t.senderNameInset, y: y, width: maxBubbleWidth, height: nameHeight)
-            y += nameHeight + 3
+            let name = t.senderNameLine
+            senderNameFrame = CGRect(x: incomingBodyLeading + t.senderNameInset, y: y, width: maxBubbleWidth, height: name.height)
+            y += name.bubbleOffset
         }
 
         if hasReactions { y += t.reactionRowGrowth }

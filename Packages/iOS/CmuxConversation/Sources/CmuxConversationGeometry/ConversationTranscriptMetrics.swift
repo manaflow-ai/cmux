@@ -74,6 +74,16 @@ public enum ConversationTranscriptMetrics {
         min(lineHeight, languageNeutralLineHeight) + leading
     }
 
+    /// A group sender name above an incoming bubble: its line box is the
+    /// caption line height rounded up to the pixel grid, and the bubble
+    /// starts a run's space (`contiguousSpace`) under that box. Fitted to a
+    /// real iPhone 17 Pro Max (iOS 26.4, en-US + ar): the name's cap top
+    /// 15.67-16.0 pt above the bubble.
+    public static func senderNameLine(lineHeight: CGFloat, captionLineSpacing: CGFloat, scale: CGFloat) -> (height: CGFloat, bubbleOffset: CGFloat) {
+        let height = ceilToPixel(lineHeight, scale: scale)
+        return (height, height + space(contiguousSpace, captionLineSpacing: captionLineSpacing, scale: scale))
+    }
+
     /// A transcript space at the reader's text size. ChatKit scales every
     /// space by the caption 2 font's line spacing over its 13 pt at Large and
     /// rounds to the pixel grid; up to Large nothing changes. Logged from

@@ -192,6 +192,11 @@ enum ConversationTheme {
     /// from the bubble's leading edge.
     static var senderNameFont: UIFont { cachedFont(FontRequest(name: "sender")) { .preferredFont(forTextStyle: .caption2) } }
     static let senderNameInset: CGFloat = 14
+    /// The name's line box and the bubble's offset under the name's top
+    /// (`ConversationTranscriptMetrics.senderNameLine`).
+    static var senderNameLine: (height: CGFloat, bubbleOffset: CGFloat) {
+        ConversationTranscriptMetrics.senderNameLine(lineHeight: senderNameFont.lineHeight, captionLineSpacing: captionLineSpacing, scale: displayScale)
+    }
     /// "Delivered"/"Read": caption 2 semibold (11 pt, 13.33 pt tall at Large;
     /// Messages scales it: 20.3 pt tall at XXXL, 48 at AX5), 6 pt under the
     /// body and 20 pt in from its trailing edge.
