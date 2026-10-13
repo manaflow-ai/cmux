@@ -26,6 +26,14 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 
+[features]
+# cnx-fake-backend: the fake backend from cnx-link's test support.
+fake-backend = ["cnx-link/testing"]
+
+[[bin]]
+name = "cnx-fake-backend"
+required-features = ["fake-backend"]
+
 [dev-dependencies]
 cnx-link = { workspace = true, features = ["testing"] }
 tempfile = "3"

@@ -176,10 +176,27 @@ Services (default deny, `unknown_service` otherwise):
   sends its host and STUN-reflexive endpoints in `wg-init` / `wg-resp`. Until
   a UDP datagram from the peer authenticates, every WireGuard datagram goes
   through the backend relay frames and is also sent to each peer endpoint
-  (the hole punch); the first authenticated UDP datagram switches the path to
-  `direct`. A direct path silent for 25 s while relay datagrams arrive falls
-  back to `relay`. The link is a smoltcp TCP stream to `overlayIP:7420`
+  (the hole punch). Receiving the peer's UDP proves only one direction, so a
+  side goes UDP-only (path `direct`) only after the peer confirms, with the
+  `0xff` relay marker, that our UDP reaches it. A refused UDP send, or a
+  direct path silent for 25 s while relay datagrams arrive, falls back to
+  `relay`. The link is a smoltcp TCP stream to `overlayIP:7420`
   (MTU 1280, keepalive 10 s).
+
+## Test binaries (cnx-hostd)
+
+- `cnx-dial`: dials a Mac and prints one JSON line per transport: connect
+  time, path, ping RTT, echo throughput, `daemon` identify.
+  `--transport webrtc|wireguard` (repeatable), `--force-relay` (TURN-only
+  ICE, or WireGuard relay frames only), `--exclude-cgnat` (never offer or use
+  100.64.0.0/10 Tailscale addresses), `--bytes N`, `--daemon`.
+- `cnx-stub-tui <dir> [session]`: a stand-in cmux-tui socket that answers
+  every line `ok`, for Macs without cmux-tui.
+- `cnx-fake-backend <addr>` (`--features fake-backend`): the test fake
+  backend (signaling, relay, `/v1/ice` with STUN only, `/v1/devices`);
+  bearer tokens are `user:<id>`.
+
+`CNX_EXCLUDE_CGNAT=1` gives cnx-hostd the same Tailscale exclusion.
 
 ## Limits (v1)
 

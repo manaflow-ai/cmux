@@ -64,6 +64,12 @@ with 4001 `moved`.
   deviceIds are UUIDs, written as their 16 raw bytes. Relay needs an
   admitted session between exactly those two devices (opened by a `signal`,
   ended by `bye` or after 24 h); datagrams up to 65535 bytes.
+  A relay datagram of the single byte `0xff` is a reachability marker, "your
+  UDP reaches me" (WireGuard messages are at least 32 bytes and start with
+  type 1 to 4). A side sends it when authenticated UDP from its peer arrives
+  (at most every 3 s). A side goes UDP-only only after receiving the marker;
+  until then it sends every datagram through the relay as well, because UDP
+  reachability can be one-way.
 - WireGuard specifics: `publicKey` is base64 Curve25519; `endpoints` are
   `ip:port` strings (host and STUN-reflexive addresses of the tunnel's UDP
   socket); `overlayIP` is the sender's IPv4 address inside the tunnel (the

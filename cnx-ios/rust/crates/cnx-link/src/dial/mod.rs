@@ -60,13 +60,44 @@ pub struct DialOptions {
     pub ice_servers: Vec<IceServer>,
     /// Offer loopback candidates and endpoints (tests and same-host runs).
     pub include_loopback: bool,
+    /// Never offer or use addresses in 100.64.0.0/10 (Tailscale and other
+    /// carrier-grade NAT overlays), so a test measures the public path.
+    pub exclude_cgnat: bool,
+    /// Skip direct paths: WebRTC gathers only TURN relay candidates, and
+    /// WireGuard sends no endpoints and ignores the peer's, so every
+    /// datagram goes through the backend relay frames.
+    pub force_relay: bool,
+    /// Test support: WireGuard silently drops every UDP datagram this side
+    /// sends, as when the OS refuses the route (macOS Local Network
+    /// privacy) or a firewall drops outbound UDP. Inbound UDP still works.
+    #[doc(hidden)]
+    pub drop_outbound_udp: bool,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
 }
 
 impl Default for DialOptions {
     fn default() -> Self {
-        Self { ice_servers: Vec::new(), include_loopback: false, timeout: Duration::from_secs(25) }
+        Self {
+            ice_servers: Vec::new(),
+            include_loopback: false,
+            exclude_cgnat: false,
+            force_relay: false,
+            drop_outbound_udp: false,
+            timeout: Duration::from_secs(25),
+        }
+    }
+}
+
+/// Whether `ip` is in 100.64.0.0/10 (Tailscale and other CGNAT overlays).
+pub fn is_cgnat(ip: std::net::IpAddr) -> bool {
+    match ip {
+        std::net::IpAddr::V4(v4) => {
+            let [a, b, ..] = v4.octets();
+            a == 100 && (64..128).contains(&b)
+        }
+        // Tailscale's IPv6 range, fd7a:115c:a1e0::/48.
+        std::net::IpAddr::V6(v6) => v6.segments()[..3] == [0xfd7a, 0x115c, 0xa1e0],
     }
 }
 

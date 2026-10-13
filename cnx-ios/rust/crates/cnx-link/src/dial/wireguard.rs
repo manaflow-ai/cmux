@@ -77,6 +77,9 @@ fn primary_local_ip() -> Option<IpAddr> {
 
 /// Host and server-reflexive endpoints of `socket`.
 async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Vec<String> {
+    if options.force_relay {
+        return Vec::new();
+    }
     let port = match socket.local_addr() {
         Ok(addr) => addr.port(),
         Err(_) => return Vec::new(),
@@ -122,18 +125,55 @@ async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Vec<Stri
             }
         }
     }
-    endpoints.into_iter().map(|endpoint| endpoint.to_string()).collect()
+    endpoints
+        .into_iter()
+        .filter(|endpoint| !(options.exclude_cgnat && super::is_cgnat(endpoint.ip())))
+        .map(|endpoint| endpoint.to_string())
+        .collect()
 }
 
 /// Sends one datagram through the backend relay.
 type RelaySend = Box<dyn Fn(&[u8]) + Send>;
 
+/// The peer's endpoints this side may use.
+fn usable_endpoints(endpoints: &[String], options: &DialOptions) -> Vec<String> {
+    if options.force_relay {
+        return Vec::new();
+    }
+    endpoints
+        .iter()
+        .filter(|text| {
+            text.parse::<SocketAddr>()
+                .is_ok_and(|addr| !(options.exclude_cgnat && super::is_cgnat(addr.ip())))
+        })
+        .cloned()
+        .collect()
+}
+
+/// The relay datagram that means "your UDP reaches me". WireGuard messages
+/// start with type 1 to 4 and are at least 32 bytes, so it never collides.
+const REACHABLE_MARKER: [u8; 1] = [0xff];
+/// Time between "your UDP reaches me" markers while UDP keeps arriving.
+const MARKER_INTERVAL: Duration = Duration::from_secs(3);
+
 /// The carrier: one UDP socket for direct paths plus the backend relay.
+///
+/// Reachability can be one-way (one side's OS or firewall drops its
+/// outbound UDP), so receiving the peer's UDP proves only the peer→us
+/// direction. Until the peer confirms it receives *our* UDP, every datagram
+/// goes through the relay as well as UDP. The confirmation is a relay frame
+/// whose datagram is the single byte `0xff` (PROTOCOL.md), sent by a side whenever
+/// authenticated UDP from its peer arrives (at most every 3 s).
 struct HybridUnderlay {
     socket: UdpSocket,
+    drop_outbound_udp: bool,
     candidates: Vec<SocketAddr>,
+    /// The peer's address as seen on authenticated UDP (peer→us works).
     direct: Option<SocketAddr>,
     last_direct: Option<Instant>,
+    /// The peer said it receives our UDP (us→peer works).
+    confirmed: bool,
+    last_marker: Option<Instant>,
     relay_out: RelaySend,
     relay_in: mpsc::UnboundedReceiver<Bytes>,
     path: watch::Sender<LinkPath>,
@@ -143,25 +183,61 @@ const UDP_PATH: PathId = PathId(0);
 const RELAY_PATH: PathId = PathId(1);
 
 impl HybridUnderlay {
-    fn send_udp(&self, datagram: &[u8], target: SocketAddr) {
-        // A full socket drops the datagram; WireGuard and TCP retransmit.
-        if let Err(error) = self.socket.try_send_to(datagram, target)
-            && error.kind() != io::ErrorKind::WouldBlock
-        {
-            tracing::trace!(%error, %target, "UDP send failed");
+    /// Send one UDP datagram; `false` when the OS refused it.
+    fn send_udp(&self, datagram: &[u8], target: SocketAddr) -> bool {
+        if self.drop_outbound_udp {
+            return true;
         }
+        // A full socket drops the datagram; WireGuard and TCP retransmit.
+        match self.socket.try_send_to(datagram, target) {
+            Ok(_) => true,
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => true,
+            Err(error) => {
+                tracing::trace!(%error, %target, "UDP send failed");
+                false
+            }
+        }
+    }
+
+    fn direct_only(&self) -> bool {
+        self.confirmed && self.direct.is_some()
+    }
+
+    fn publish_path(&self) {
+        let path = if self.direct_only() { LinkPath::Direct } else { LinkPath::Relay };
+        self.path.send_if_modified(|current| std::mem::replace(current, path) != path);
+    }
+
+    fn demote(&mut self, why: &str) {
+        if self.confirmed {
+            tracing::debug!(why, "WireGuard direct path lost; using the relay again");
+        }
+        self.confirmed = false;
+        self.publish_path();
     }
 }
 
 impl Underlay for HybridUnderlay {
     fn send(&mut self, datagram: &[u8]) {
-        if let Some(direct) = self.direct {
-            self.send_udp(datagram, direct);
+        if self.direct_only()
+            && let Some(direct) = self.direct
+        {
+            if !self.send_udp(datagram, direct) {
+                self.demote("send refused");
+                (self.relay_out)(datagram);
+            }
             return;
         }
         (self.relay_out)(datagram);
-        for candidate in &self.candidates {
-            self.send_udp(datagram, *candidate);
+        match self.direct {
+            Some(direct) => {
+                self.send_udp(datagram, direct);
+            }
+            None => {
+                for candidate in &self.candidates {
+                    self.send_udp(datagram, *candidate);
+                }
+            }
         }
     }
 
@@ -184,13 +260,26 @@ impl Underlay for HybridUnderlay {
                 Poll::Pending => break,
             }
         }
-        match self.relay_in.poll_recv(cx) {
-            Poll::Ready(Some(datagram)) => {
-                let len = datagram.len().min(buffer.len());
-                buffer[..len].copy_from_slice(&datagram[..len]);
-                Poll::Ready(Ok(Received { len, origin: Origin { path: RELAY_PATH, addr: None } }))
+        loop {
+            match self.relay_in.poll_recv(cx) {
+                // The peer receives our UDP.
+                Poll::Ready(Some(datagram)) if datagram[..] == REACHABLE_MARKER => {
+                    if !self.confirmed {
+                        tracing::debug!("peer confirmed our UDP reaches it");
+                    }
+                    self.confirmed = true;
+                    self.publish_path();
+                }
+                Poll::Ready(Some(datagram)) => {
+                    let len = datagram.len().min(buffer.len());
+                    buffer[..len].copy_from_slice(&datagram[..len]);
+                    return Poll::Ready(Ok(Received {
+                        len,
+                        origin: Origin { path: RELAY_PATH, addr: None },
+                    }));
+                }
+                Poll::Ready(None) | Poll::Pending => return Poll::Pending,
             }
-            Poll::Ready(None) | Poll::Pending => Poll::Pending,
         }
     }
 
@@ -201,16 +290,18 @@ impl Underlay for HybridUnderlay {
         {
             self.direct = Some(addr);
             self.last_direct = Some(now);
-            self.path.send_if_modified(|path| std::mem::replace(path, LinkPath::Direct) != LinkPath::Direct);
-        } else if origin.path == RELAY_PATH {
-            if self.last_direct.is_some_and(|last| now.duration_since(last) > DIRECT_STALE) {
-                self.direct = None;
-                self.last_direct = None;
+            if self.last_marker.is_none_or(|last| now.duration_since(last) >= MARKER_INTERVAL) {
+                self.last_marker = Some(now);
+                (self.relay_out)(&REACHABLE_MARKER);
             }
-            if self.direct.is_none() {
-                self.path
-                    .send_if_modified(|path| std::mem::replace(path, LinkPath::Relay) != LinkPath::Relay);
-            }
+            self.publish_path();
+        } else if origin.path == RELAY_PATH
+            && self.last_direct.is_some_and(|last| now.duration_since(last) > DIRECT_STALE)
+        {
+            // The peer still talks, but not over UDP any more.
+            self.direct = None;
+            self.last_direct = None;
+            self.demote("direct path silent");
         }
     }
 
@@ -256,6 +347,7 @@ fn start_tunnel(
     own_ip: Ipv4Addr,
     peer_ip: Ipv4Addr,
     peer_endpoints: &[String],
+    options: &DialOptions,
 ) -> Result<Tunnel, DialError> {
     let session_uuid =
         Uuid::parse_str(session_id).map_err(|_| DialError::Unexpected("sessionId is not a UUID".into()))?;
@@ -274,9 +366,12 @@ fn start_tunnel(
     let (path_tx, path_rx) = watch::channel(LinkPath::Relay);
     let underlay = HybridUnderlay {
         socket,
+        drop_outbound_udp: options.drop_outbound_udp,
         candidates: peer_endpoints.iter().filter_map(|text| text.parse().ok()).collect(),
         direct: None,
         last_direct: None,
+        confirmed: false,
+        last_marker: None,
         relay_out,
         relay_in: relay_rx,
         path: path_tx,
@@ -385,7 +480,8 @@ impl Dialer for WireGuardDialer {
                 peer_key,
                 DIALER_OVERLAY,
                 peer_ip,
-                &peer_endpoints,
+                &usable_endpoints(&peer_endpoints, options),
+                options,
             )?;
             for datagram in early_relay {
                 let _ = tunnel.relay_in.send(datagram);
@@ -436,7 +532,8 @@ impl Dialer for WireGuardDialer {
                 peer_key,
                 own_ip,
                 peer_ip,
-                &peer_endpoints,
+                &usable_endpoints(&peer_endpoints, options),
+                options,
             )?;
             let task = follow(events, &tunnel);
             let guard = Guard {

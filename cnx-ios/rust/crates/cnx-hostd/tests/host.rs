@@ -101,6 +101,7 @@ async fn fixture(fake: FakeOptions) -> Fixture {
             services: Arc::new(services),
             ice: IceSource::Fixed(Vec::new()),
             include_loopback: true,
+            exclude_cgnat: false,
         },
     ));
     let phone =

@@ -38,6 +38,8 @@ pub struct HostConfig {
     /// The Stack user whose phones may dial; defaults to the token's `sub`.
     pub owner_user_id: Option<String>,
     pub include_loopback: bool,
+    /// Never offer or use 100.64.0.0/10 (Tailscale) addresses.
+    pub exclude_cgnat: bool,
     pub services: ServiceConfig,
 }
 
@@ -133,6 +135,7 @@ impl HostConfig {
             tokens,
             owner_user_id: env("CNX_OWNER_USER_ID"),
             include_loopback: env("CNX_INCLUDE_LOOPBACK").is_some_and(|v| v == "1"),
+            exclude_cgnat: env("CNX_EXCLUDE_CGNAT").is_some_and(|v| v == "1"),
             services: ServiceConfig {
                 tui_socket_dir: env("CNX_TUI_SOCKET_DIR")
                     .map(PathBuf::from)
