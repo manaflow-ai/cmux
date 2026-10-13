@@ -783,7 +783,10 @@ impl Hub {
 
     /// Personal stats over every session log (`crate::stats`): blocking,
     /// one pass over the store.
-    pub fn stats(&self, options: &crate::stats::StatsOptions) -> Result<crate::stats::StatsSummary> {
+    pub fn stats(
+        &self,
+        options: &crate::stats::StatsOptions,
+    ) -> Result<crate::stats::StatsSummary> {
         crate::stats::summarize(&*self.store, options)
     }
 
