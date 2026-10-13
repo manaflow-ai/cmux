@@ -180,6 +180,14 @@ class App:
         except ValueError:
             return {"error": (out.stdout + out.stderr).strip()[:300]}
 
+    def identify(self) -> dict:
+        try:
+            out = subprocess.run([self.cli, "--app-socket", self.socket, "--json", "app", "identify"],
+                                 capture_output=True, text=True, timeout=10)
+            return json.loads(out.stdout or "{}")
+        except (subprocess.TimeoutExpired, ValueError):
+            return {}
+
     def ping(self) -> bool:
         out = subprocess.run([self.cli, "--app-socket", self.socket, "app", "ping"],
                              capture_output=True, text=True, timeout=30)
@@ -244,11 +252,26 @@ def end_processes(pids: set[int]):
             return
 
 
-def listening_sockets(pid: int) -> list[str]:
-    """Unix socket paths process `pid` has open (its control socket among them)."""
-    out = subprocess.run(["lsof", "-a", "-p", str(pid), "-U", "-Fn"], capture_output=True, text=True).stdout
-    paths = [line[1:] for line in out.splitlines() if line.startswith("n/")]
-    return [path for path in paths if path.endswith(".sock") and os.path.basename(path).startswith("cmux")]
+def control_socket(bundle: str, pid: int, dirs: list[str]) -> str | None:
+    """The control socket whose app answers `identify` with `pid`: another
+    cmux on this Mac may bind one meanwhile. (lsof shows the app's bind
+    path, not the name it is reached by.)"""
+    for directory in dirs:
+        for name in os.listdir(directory):
+            path = os.path.join(directory, name)
+            if name.startswith("cmux") and name.endswith(".sock") and App(bundle, path).identify().get("pid") == pid:
+                return path
+    return None
+
+
+def end_bundle(bundle: str):
+    """Ends every process of the bundle, the app first: a live app (it can
+    ignore SIGTERM) respawns daemons ended before it. No process of this
+    bundle ran before the launch (`launch`), so every one is this run's."""
+    binary_dir = os.path.join(bundle, "Contents/MacOS")
+    apps = {pid for pid, _, cmd in process_table() if cmd.startswith(binary_dir + "/")}
+    end_processes(apps)
+    end_processes(bundle_pids(bundle))
 
 
 def wait_gone(pid: int, seconds: float) -> bool:
@@ -295,14 +318,13 @@ def launch(bundle: str):
             pid = next((p for p, _, cmd in process_table() if is_binary(cmd, binary)), None)
             # Only a socket the launched app itself holds: another cmux on
             # this Mac may bind one meanwhile.
-            for path in listening_sockets(pid) if pid else []:
-                app = App(bundle, path)
-                if app.ping():
-                    return pid, app.socket, scratch
+            path = control_socket(bundle, pid, ["/tmp", env["TMPDIR"]]) if pid else None
+            if path:
+                return pid, path, scratch
             time.sleep(1)  # test script: waiting for the launched app's socket
         raise SystemExit("bench-memory: the launched app opened no socket within 90 s")
     except BaseException:
-        end_processes(bundle_pids(bundle))
+        end_bundle(bundle)
         shutil.rmtree(scratch, ignore_errors=True)
         raise
 
@@ -390,12 +412,8 @@ def main():
             app.run("quit")
             # A quit the app holds (a confirmation) and SIGTERM can both leave
             # it running, and a live app respawns its daemons: end it first.
-            if not wait_gone(launched, 20):
-                end_processes({launched})
-            # Its daemons (cmux-tui, acpmux, terminal hosts) detach and outlive
-            # it. No process of this bundle ran before the launch (`launch`),
-            # so every one now is this run's.
-            end_processes(bundle_pids(bundle))
+            wait_gone(launched, 20)
+            end_bundle(bundle)
         if args.out:
             with open(args.out, "w") as handle:
                 json.dump(report, handle, indent=2)
