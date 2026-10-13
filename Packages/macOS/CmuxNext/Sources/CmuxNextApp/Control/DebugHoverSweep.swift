@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextBridge
 import CmuxNextSettings
 import CmuxNextTabs
 
