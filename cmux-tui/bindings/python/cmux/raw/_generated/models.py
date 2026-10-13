@@ -4012,6 +4012,13 @@ class SetScreenPinnedRequest:
 
 
 @dataclass(frozen=True)
+class SetSessionIconRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/set-session-icon/request'
+    icon: Union[str, None]
+    session_id: str
+
+
+@dataclass(frozen=True)
 class SetSizeCountsRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/set-size-counts/request'
     surface: Id
@@ -5698,6 +5705,7 @@ __all__ = [
     'SetRowHeightsRequest',
     'SetScreenMetadataRequest',
     'SetScreenPinnedRequest',
+    'SetSessionIconRequest',
     'SetSizeCountsRequest',
     'SetSizePolicyRequest',
     'SetSplitRatioRequest',

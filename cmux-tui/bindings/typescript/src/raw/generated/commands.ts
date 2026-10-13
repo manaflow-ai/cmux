@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa. */
+/* cmux-tui mux protocol 12, IR 3252d9899fd9231b78633c52b7e91dd7b7765d0dfb52a2a3f021051056b3c67a. */
 
 
 import type * as T from "./types.js";
@@ -2082,6 +2082,15 @@ export interface SetScreenPinnedRequest extends CmuxRequestBase {
 export type SetScreenPinnedResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
+export interface SetSessionIconRequest extends CmuxRequestBase {
+  cmd: "set-session-icon";
+  /** An icon value sets the session's (machine's) icon; null clears it. */
+  "icon": (string) | null;
+  "session_id": string;
+}
+export type SetSessionIconResult = T.JsonValue;
+
+/** Protocol v12; authority: control. */
 export interface SetSizeCountsRequest extends CmuxRequestBase {
   cmd: "set-size-counts";
   "client"?: (bigint) | null;
@@ -2712,6 +2721,7 @@ export type CmuxRequest =
   | SetRowHeightsRequest
   | SetScreenMetadataRequest
   | SetScreenPinnedRequest
+  | SetSessionIconRequest
   | SetSizeCountsRequest
   | SetSizePolicyRequest
   | SetSplitRatioRequest
@@ -4415,6 +4425,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "screen-metadata-v1";
+    stream: null;
+  };
+  "set-session-icon": {
+    request: SetSessionIconRequest;
+    result: SetSessionIconResult;
+    authority: "control";
+    since: 12;
+    capability: "session-icon-v1";
     stream: null;
   };
   "set-size-counts": {

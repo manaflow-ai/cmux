@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa'
+IR_SHA256 = '3252d9899fd9231b78633c52b7e91dd7b7765d0dfb52a2a3f021051056b3c67a'
 
 
 @dataclass(frozen=True)
@@ -2814,6 +2814,18 @@ COMMANDS = {
         {
             'pinned': CommandFieldMetadata(None, None),
             'screen': CommandFieldMetadata(None, None),
+        },
+    ),
+    'set-session-icon': CommandMetadata(
+        'set-session-icon',
+        'control',
+        12,
+        'session-icon-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'icon': CommandFieldMetadata(None, None),
+            'session_id': CommandFieldMetadata(None, None),
         },
     ),
     'set-size-counts': CommandMetadata(

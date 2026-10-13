@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa. */
+/* cmux-tui mux protocol 12, IR 3252d9899fd9231b78633c52b7e91dd7b7765d0dfb52a2a3f021051056b3c67a. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "7965f3ce5e9a66db2d5fbc15ea8d1909cf51bcf705a608169cf5ec2924fb1baa" as const;
+export const SDK_IR_SHA256 = "3252d9899fd9231b78633c52b7e91dd7b7765d0dfb52a2a3f021051056b3c67a" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2521,6 +2521,16 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "screen-metadata-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "See spec/commands.md for the result object."
+    ]
+  },
+  "set-session-icon": {
+    "authority": "control",
+    "since": 12,
+    "capability": "session-icon-v1",
     "fields": {},
     "stream": null,
     "constraints": [
@@ -22416,6 +22426,35 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "type": {
             "kind": "ref",
             "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
+    }
+  },
+  "set-session-icon": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "icon": {
+          "description": "An icon value sets the session's (machine's) icon; null clears it.",
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "session_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
           }
         }
       },
