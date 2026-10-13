@@ -299,7 +299,7 @@ try:
     quit_app(app)
     app = launch()
     state = loaded_tips(start)
-    check(state.get("tip") is None and first in (state.get("seen") or ""), f"after a restart the same hint does not come back: {state}")
+    check(state.get("tip") is None and first in (state.get("seen") or "").split(","), f"after a restart the same hint does not come back: {state}")
     shown = [first]
     for day in range(1, 16):
         state = tips(at=start + day * DAY)
@@ -308,13 +308,14 @@ try:
         hint = state["tip"]
         wait_for(lambda: hint in (tips(at=start + day * DAY).get("seen") or "").split(","), f"hint {hint} recorded seen")
         shown.append(hint)
-    check(len(shown) == len(set(shown)) and len(shown) >= 2, f"day after day each hint shows once, all different: {shown}")
+    check(len(shown) == len(set(shown)) and len(shown) >= 5, f"day after day each hint shows once, all different: {shown}")
+    check(sorted(shown) == sorted((tips(at=start + 20 * DAY).get("seen") or "").split(",")), f"every hint shown is recorded seen: {shown}")
     state = tips(at=start + 30 * DAY)
     check(state.get("tip") is None, f"every hint seen: none picked a month later: {state}")
     rpc("action.run", {"action": "hints.show", "origin": "script"})
     labels = [h.get("title") for h in (wait_for(lambda: (rpc("debug.hints") or {}).get("hints"), "hint labels", 10) or [])]
     rpc("debug.key", {"key": "Escape", "modifiers": []})
-    check(X_LABEL not in labels, f"every hint seen: no hints card on screen (no '{X_LABEL}' control): {labels[:30]}")
+    check(bool(labels) and X_LABEL not in labels, f"every hint seen: no hints card on screen (no '{X_LABEL}' control): {labels[:30]}")
 
     focus = rpc("debug.focus")
     check(not focus.get("app_active"), f"no activation: {focus}")

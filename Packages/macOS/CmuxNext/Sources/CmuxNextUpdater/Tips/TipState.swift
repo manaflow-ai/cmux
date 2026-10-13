@@ -40,7 +40,13 @@ nonisolated public struct TipState: Equatable, Sendable {
         shownTip = defaults.string(forKey: Self.shownTipKey)
         shownDay = defaults.string(forKey: Self.shownDayKey)
         mutedUntil = defaults.object(forKey: Self.mutedUntilKey) as? Date
-        seen = Set(defaults.stringArray(forKey: Self.seenKey) ?? [])
+        if let seen = defaults.stringArray(forKey: Self.seenKey) {
+            self.seen = Set(seen)
+        } else if let shown = shownTip, let index = TipCatalog.all.firstIndex(where: { $0.id == shown }) {
+            // State from before seen hints were recorded: the rotation went in catalog order, so
+            // every hint up to the last one shown was seen.
+            self.seen = Set(TipCatalog.all[...index].map(\.id))
+        }
     }
 
     public func save(to defaults: UserDefaults) {
