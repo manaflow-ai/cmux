@@ -140,10 +140,10 @@ def main():
         if "pane" in phases:
             for lap in (1, 2):
                 for index in range(len(tabs)):
-                    steps.append(strip(f"pane-lap{lap}-{index}", action="nextSurface"))
+                    steps.append(strip(f"pane-lap{lap}-{index}", perform="nextSurface"))
         if "close" in phases:
             for index in range(max(0, len(tabs) - 1)):
-                steps.append(strip(f"close-{index}", action="closeTab"))
+                steps.append(strip(f"close-{index}", perform="closeTab"))
 
     if "sidebar" in phases:
         for index in range(3):
@@ -153,10 +153,12 @@ def main():
         items = len(topology().get("workspaces", []))
         for lap in (1, 2):
             for index in range(items):
-                steps.append(strip(f"sidebar-lap{lap}-{index}", action="nextSidebarTab", region="workspace"))
+                steps.append(strip(f"sidebar-lap{lap}-{index}", perform="nextSidebarTab", region="workspace"))
 
     if "newtab" in phases:
         for index in range(3):
+            run("tab new-terminal")  # from a terminal: the New Tab page replaces its content
+            time.sleep(1.0)  # test harness: the terminal draws its prompt
             steps.append(strip(f"newtab-{index}", key="t"))
 
     failures = []

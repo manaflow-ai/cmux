@@ -20,7 +20,7 @@ import UniformTypeIdentifiers
 /// the content area blank, one flat color that was not there before the key (`blank`). PNGs of every frame and
 /// one strip (`strip.png`, the frames side by side) go to `dir`.
 ///
-/// `action` runs that action by name instead of a key (`target`: a tab id).
+/// `perform` runs that action by name instead of a key (`target`: a tab id).
 /// `modifiers` (default `["command"]`) sends another chord, for tab switches
 /// and closes (Control-Tab, Command-Shift-], Command-W). Inside the content
 /// area, `settled_ms` is the first frame from which it equals the last frame
@@ -54,7 +54,7 @@ enum DebugFrameStrip {
             lead.schedule(after: .milliseconds(120)) { @MainActor in done.resume() }
         }
         let sent: JSONValue
-        if let action = params["action"]?.stringValue {
+        if let action = params["perform"]?.stringValue {
             // The action a key runs, by name (`nextSurface`, `nextSidebarTab`), whatever the keymap binds.
             let target = params["target"]?.stringValue.map { ActionTargetRef(kind: .tab, id: $0) }
             let ran = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(target: target, origin: .user))
