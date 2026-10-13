@@ -175,6 +175,9 @@ print((d / "vm-kind").read_text().strip() if (d / "vm-kind").exists() else "none
     // Owner, then an outage that outlasts five minutes: the record is gone.
     result = await run(`["owner"] + [${outage}] * 12`);
     expect(result.stdout.trim()).toBe("none");
+    // A rate limit is transient, not a refusal: the record stays.
+    result = await run(`["owner", urllib.error.HTTPError("u", 429, "slow down", {}, io.BytesIO())]`);
+    expect(result.stdout.trim()).toBe("owner");
     // An exception outside OSError/ValueError backs off instead of crashing the unit.
     result = await run(`["owner", RuntimeError("http.client.IncompleteRead"), "team"]`);
     expect(result.stderr).toBe("");

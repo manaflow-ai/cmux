@@ -57,7 +57,8 @@ def retry_delay(previous, error):
 
 
 def refused(error):
-    return isinstance(error, urllib.error.HTTPError) and 400 <= error.code < 500
+    """A 4xx other than a rate limit: the control plane says this machine gets no answer."""
+    return isinstance(error, urllib.error.HTTPError) and 400 <= error.code < 500 and error.code != 429
 
 
 def forget(directory):
@@ -178,6 +179,7 @@ def main():
                     pass
             delay = retry_delay(delay, error)
             time.sleep(delay)
+
 
 if __name__ == "__main__":
     main()
