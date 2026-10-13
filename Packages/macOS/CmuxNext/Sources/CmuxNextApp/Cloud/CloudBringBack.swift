@@ -131,6 +131,7 @@ struct CloudBringBack {
         guard pulled.ok else {
             // A conflict changed nothing here: the chat stays on the machine until the files are settled.
             if pulled.errorCode == "sync_conflict" { throw Failure(message: CloudBringBackStrings.conflict(pulled.conflicts), retry: again) }
+            if pulled.errorCode == CloudMoveStrings.outdatedCode { throw Failure(message: CloudBringBackStrings.outdatedMachine(name), retry: again) }
             throw Failure(message: CloudBringBackStrings.syncFailed(name, pulled.error ?? pulled.errorCode ?? ""), retry: again)
         }
         let moved: CloudMoveCLI.Answer
@@ -229,6 +230,7 @@ struct CloudBringBack {
         case "move_unresolved", CloudMoveCLI.badAnswer: return Failure(message: CloudBringBackStrings.unresolved, retry: retry)
         case "move_in_progress": return Failure(message: CloudMoveStrings.inProgress, retry: retry)
         case "source_unreachable", "target_unreachable": return Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
+        case CloudMoveStrings.outdatedCode: return Failure(message: CloudBringBackStrings.outdatedMachine(machine), retry: retry)
         default: return Failure(message: CloudBringBackStrings.failed(answer.error ?? answer.errorCode ?? ""))
         }
     }

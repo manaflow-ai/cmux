@@ -1,0 +1,99 @@
+//! Whether a machine daemon is too old for a link verb (cx-rppd.13).
+//!
+//! A Cloud machine runs the cmux-tui its image baked, which can be older
+//! than this client: it then lacks a verb Move to Cloud, Bring Back Local or
+//! local access needs, and the verb fails with a parse error from the old
+//! daemon. Before a move, a sync or an access verb runs, the link CLIs ask
+//! the machine daemon's `identify` which capabilities it serves. A daemon
+//! of another build that lacks one this verb needs is `machine_outdated`, so
+//! the app can say "update the machine" instead of showing the parse error.
+//!
+//! A daemon of this client's own build that lacks the capability is not
+//! outdated (updating would change nothing; on a host that is not a Cloud
+//! machine the verb's own refusal says why), and neither is a daemon whose
+//! `identify` does not answer: the gate only names a cause, it never decides
+//! access, so anything it cannot read leaves the verb's own error.
+
+use std::io::{BufRead as _, BufReader, Read as _, Write as _};
+use std::os::unix::net::UnixStream;
+use std::path::Path;
+use std::time::Duration;
+
+use serde_json::{Value, json};
+
+/// The error code of a machine whose cmux-tui is too old for a verb.
+pub(super) const OUTDATED: &str = "machine_outdated";
+/// How long the `identify` may take.
+const IDENTIFY_TIMEOUT: Duration = Duration::from_secs(15);
+/// Most bytes of one answer line.
+const MAX_ANSWER_BYTES: u64 = 1 << 20;
+/// Most lines for other requests (events) skipped before giving up.
+const MAX_OTHER_ANSWERS: usize = 16;
+
+/// A machine daemon that lacks capabilities this client's verb needs.
+#[derive(Debug)]
+pub(super) struct Outdated {
+    pub(super) missing: Vec<String>,
+    /// The daemon's `build_id`; None for a build before `daemon-build-v1`.
+    pub(super) build: Option<String>,
+}
+
+impl Outdated {
+    pub(super) fn message(&self) -> String {
+        format!(
+            "the machine runs an older cmux-tui ({}) without {}; update the machine",
+            self.build.as_deref().unwrap_or("unknown build"),
+            self.missing.join(", ")
+        )
+    }
+
+    /// The CLI's answer line.
+    pub(super) fn line(&self) -> Value {
+        json!({"ok": false, "error": self.message(), "error_code": OUTDATED,
+               "missing": self.missing, "machine_build": self.build})
+    }
+}
+
+/// The capabilities of `needed` the daemon at `socket` lacks, when it is of
+/// another build than this client; None when it serves them all, is this
+/// build, or does not answer `identify`.
+pub(super) fn outdated(socket: &Path, needed: &[&str]) -> Option<Outdated> {
+    let identity = identify(socket)?;
+    let served: Vec<&str> =
+        identity["capabilities"].as_array()?.iter().filter_map(Value::as_str).collect();
+    let missing: Vec<String> = needed
+        .iter()
+        .filter(|capability| !served.contains(capability))
+        .map(|capability| (*capability).to_owned())
+        .collect();
+    if missing.is_empty() {
+        return None;
+    }
+    let build = identity["build_id"].as_str().filter(|id| !id.is_empty()).map(str::to_owned);
+    if build.as_deref() == Some(cmux_remote::ssh_bootstrap::BUILD_IDENTITY) {
+        return None;
+    }
+    Some(Outdated { missing, build })
+}
+
+/// `identify`'s `data`, or None when the daemon does not answer it.
+fn identify(socket: &Path) -> Option<Value> {
+    let stream = UnixStream::connect(socket).ok()?;
+    stream.set_read_timeout(Some(IDENTIFY_TIMEOUT)).ok()?;
+    stream.set_write_timeout(Some(IDENTIFY_TIMEOUT)).ok()?;
+    let mut reader = BufReader::new(stream);
+    reader.get_mut().write_all(b"{\"id\":1,\"cmd\":\"identify\"}\n").ok()?;
+    for _ in 0..=MAX_OTHER_ANSWERS {
+        let mut line = Vec::new();
+        let read = (&mut reader).take(MAX_ANSWER_BYTES + 1).read_until(b'\n', &mut line).ok()?;
+        if read == 0 || line.last() != Some(&b'\n') {
+            return None;
+        }
+        let answer: Value = serde_json::from_slice(&line).ok()?;
+        if answer["id"] != json!(1) {
+            continue;
+        }
+        return (answer["ok"] == json!(true)).then(|| answer["data"].clone());
+    }
+    None
+}

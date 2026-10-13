@@ -241,6 +241,14 @@ fn resolve(args: &Args, records: &Records, mut record: Record) -> Result<Option<
 
 /// A new move: begin, receive, copy, finish, then commit or abort.
 fn fresh(args: &Args, records: &Records) -> Result<Moved, Failed> {
+    // Before the chat freezes: a daemon too old for the move says so
+    // (`machine_outdated`) instead of failing the receive or the begin.
+    for socket in [&args.to, &args.from] {
+        let capability = cmux_tui_core::server::agent_transfer::AGENT_TRANSFER_CAPABILITY;
+        if let Some(outdated) = super::machine_gate::outdated(socket, &[capability]) {
+            return Err(Failed::new(super::machine_gate::OUTDATED, outdated.message()));
+        }
+    }
     let mut source = Daemon::connect(&args.from).map_err(|e| Failed::call("source", &e))?;
     let mut params = json!({"surface": args.surface, "interrupt": args.interrupt});
     if args.ask_first {
