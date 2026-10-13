@@ -31,9 +31,14 @@ public nonisolated struct BookmarkNode: Sendable, Hashable, Identifiable, Codabl
     public var sourceKey: String?
     public var created: Date
     public var lastUsed: Date?
+    /// A folder's own icon (`bookmark-icon-v1`): one emoji, an SF Symbol name,
+    /// or a stored `image:`/`svg:sha256-<hex>` asset of the home daemon. Nil
+    /// draws the folder symbol; a URL bookmark never has one.
+    public var icon: String?
 
     public init(id: String = BookmarkID.make(), parent: String, kind: Kind, title: String, url: URL? = nil,
-                faviconKey: String? = nil, sourceKey: String? = nil, created: Date = Date(), lastUsed: Date? = nil) {
+                faviconKey: String? = nil, sourceKey: String? = nil, created: Date = Date(), lastUsed: Date? = nil,
+                icon: String? = nil) {
         self.id = id
         self.parent = parent
         self.kind = kind
@@ -43,6 +48,7 @@ public nonisolated struct BookmarkNode: Sendable, Hashable, Identifiable, Codabl
         self.sourceKey = sourceKey
         self.created = created
         self.lastUsed = lastUsed
+        self.icon = icon
     }
 
     public static func folder(_ title: String, in parent: String, id: String = BookmarkID.make(), created: Date = Date()) -> BookmarkNode {
@@ -65,7 +71,7 @@ public nonisolated struct BookmarkNode: Sendable, Hashable, Identifiable, Codabl
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, parent, kind, title, url
+        case id, parent, kind, title, url, icon
         case faviconKey = "favicon_key"
         case sourceKey = "source_key"
         case created = "created_ms"
@@ -83,6 +89,7 @@ public nonisolated struct BookmarkNode: Sendable, Hashable, Identifiable, Codabl
         sourceKey = try c.decodeIfPresent(String.self, forKey: .sourceKey)
         created = BookmarkTime.date(ms: try c.decodeIfPresent(Int64.self, forKey: .created) ?? 0)
         lastUsed = try c.decodeIfPresent(Int64.self, forKey: .lastUsed).map(BookmarkTime.date(ms:))
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -96,5 +103,6 @@ public nonisolated struct BookmarkNode: Sendable, Hashable, Identifiable, Codabl
         try c.encodeIfPresent(sourceKey, forKey: .sourceKey)
         try c.encode(BookmarkTime.ms(created), forKey: .created)
         try c.encodeIfPresent(lastUsed.map(BookmarkTime.ms), forKey: .lastUsed)
+        try c.encodeIfPresent(icon, forKey: .icon)
     }
 }

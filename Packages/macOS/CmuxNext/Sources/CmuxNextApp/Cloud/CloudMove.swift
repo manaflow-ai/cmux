@@ -57,7 +57,12 @@ struct CloudMove {
     func start(_ invocation: ActionInvocation, context: AppActionContext) throws {
         guard let (tab, pane) = context.daemonTab(invocation) else { return }
         let retries = services.cloud.moveRetries
-        let left = retries[tab.id]
+        var left = retries[tab.id]
+        // Kept across launches: a pin to a machine that no longer exists would refuse every move of
+        // this tab, so it goes, and so does a retry kept for a tab that is no chat.
+        if case .move(let machineID) = left, services.cloud.hasLoadedMachines, services.machines.session(machineID) == nil { left = nil }
+        if tab.agentSession == nil { left = nil }
+        if left != retries[tab.id] { retries[tab.id] = left }
         if case .show(let shown) = left { return perform(tab: tab, invocation: invocation) { try await reshow(shown, tab: tab, invocation: invocation) } }
         guard let record = tab.agentSession else { throw ActionFailure(message: CloudMoveStrings.notAChat) }
         let tabs = services.agentTabs
@@ -130,6 +135,9 @@ struct CloudMove {
         guard !folder.isTooBroad else { throw Failure(message: CloudMoveStrings.homeFolder) }
         let machine = try await self.machine(invocation)
         let name = machine.machine.title, again = CloudMoveRetries.Retry.move(machineID: machine.machineID)
+        // From here the chat may move to this machine: a quit or a crash before the move ends
+        // leaves Retry pinned to it, and the relaunched app finishes the move there.
+        services.cloud.moveRetries[tab.id] = again
         guard let machineSocket = await machine.daemon.connection?.endpoint?.socketPath,
               let localSocket = await services.daemon.connection?.endpoint?.socketPath else {
             throw Failure(message: CloudMoveStrings.notConnected(name), retry: again)
@@ -155,6 +163,8 @@ struct CloudMove {
         // The move committed: from here Retry only opens the chat's tab on the machine.
         let shown = CloudMoveRetries.Shown(session: movedSession, harness: record.harness, machineID: machine.machineID, folder: remote.chat,
                                            name: workspace?.name, key: moved.transferID ?? movedSession)
+        // A quit or a crash before the tab opens leaves the relaunched app only opening it.
+        services.cloud.moveRetries[tab.id] = .show(shown)
         try await finish(shown, on: machine, tab: tab)
         return name
     }
@@ -206,6 +216,7 @@ struct CloudMove {
             // Not this machine's home (an image without the work user): the next root.
             guard last.errorCode == "fs.permission_denied" else { break }
         }
+        if last.errorCode == CloudMoveStrings.outdatedCode { throw Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry) }
         throw Failure(message: CloudMoveStrings.syncFailed(machine, last.error ?? last.errorCode ?? ""), retry: retry)
     }
 
@@ -284,6 +295,8 @@ struct CloudMove {
         case "move_in_progress": Failure(message: CloudMoveStrings.inProgress, retry: retry)
         case "agent_session.team_vm_blocked": Failure(message: CloudMoveStrings.teamMachine(machine))
         case "agent_session.host_unverified": Failure(message: CloudMoveStrings.unknownMachine(machine))
+        // This Mac's own daemon (the source) is never the machine to update.
+        case CloudMoveStrings.outdatedCode where answer.side != "source": Failure(message: CloudMoveStrings.outdatedMachine(machine), retry: retry)
         case "source_unreachable", "target_unreachable": Failure(message: CloudMoveStrings.unreachable(machine), retry: retry)
         default: Failure(message: CloudMoveStrings.moveFailed(answer.error ?? answer.errorCode ?? ""))
         }

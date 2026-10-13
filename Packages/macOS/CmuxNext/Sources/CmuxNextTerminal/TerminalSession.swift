@@ -302,6 +302,7 @@ public final class TerminalSession {
         fresh.mirrorDemand = mirrorDemand
         surfaceView = fresh
         fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
+        fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
         applyTheme(to: fresh, clearing: false)
         // Nothing was parsed into the fresh surface yet: no drain needed.

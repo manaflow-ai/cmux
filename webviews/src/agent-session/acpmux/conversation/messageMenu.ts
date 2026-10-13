@@ -37,9 +37,9 @@ export const canFork = (snapshot: AcpmuxSnapshot) =>
   snapshot.connection !== "disconnected" &&
   !snapshot.connection.startsWith("connecting");
 
-/// Whether every completed turn can be forked: acpmux forks a Claude chat through any of them
-/// (`hub/fork_at.rs`, cx-yqiv); other agents fork only at a chat's end.
-export const forksAnyTurn = (family: string | undefined) => family === "claude";
+/// Whether every completed turn can be forked: acpmux forks a Claude or Codex chat through any of
+/// them (`hub/fork_at.rs`, cx-yqiv, cx-a7r); other agents fork only at a chat's end.
+export const forksAnyTurn = (family: string | undefined) => family === "claude" || family === "codex";
 
 /// The latest completed turn's summary event: the one turn a fork goes through unless the chat
 /// `forksAnyTurn` (`acp.session.fork` refuses another agent's earlier turn).

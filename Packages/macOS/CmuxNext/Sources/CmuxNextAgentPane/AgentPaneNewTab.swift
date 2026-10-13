@@ -25,17 +25,11 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var omnibar: AgentPaneOmnibar
     /// Recent local project folders from agent history, classic sessions and git roots.
     public var projects: [String]
-    /// What Cmd-T opens (`tabs.newTabKind`: "same-kind", "terminal",
-    /// "browser", "agent", "page" or "auto"), for the "default: X" toggle.
-    public var defaultKind: String?
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
     /// The template (`tabs.newTabTemplate`: "default", "composer", "threads", "console",
     /// "classic" or "terminal"); nil follows `layout`. The page validates it.
     public var template: String?
-    /// true shows the template dots (Debug Settings `newTab.templateSwitcher`, on by default
-    /// since cx-l1jv); nil hides them.
-    public var templateSwitcher: Bool?
     /// The agent last picked.
     public var lastAgent: String?
     /// The harness and model picked last, anywhere and per folder; nil when none was.
@@ -50,15 +44,15 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The workspace's tabs to move into this page's pane (`tab.jump` `here`): set when a split
     /// opened the page (cx-jfo7); nil shows no Open Tabs list.
     public var openTabs: [AgentPaneOmnibar.Tab]?
-    /// true: the page is agent history (the sidebar's History dot, cx-zlnl), every chat on this
+    /// true: the page is agent history (Show Agent History, `agentHistory.show`, cx-zlnl), every chat on this
     /// device with nothing to type; nil is the New Tab page.
     public var history: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
-                defaultKind: String? = nil, layout: AgentPaneNewTabLayout? = nil,
+                layout: AgentPaneNewTabLayout? = nil,
                 lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
-                template: String? = nil, templateSwitcher: Bool? = nil) {
+                template: String? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -67,10 +61,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         // Keep the host DTO lossless. The web page owns presentation limits and
         // validation after the Codable handshake crosses the bridge.
         self.projects = projects
-        self.defaultKind = defaultKind
         self.layout = layout
         self.template = template
-        self.templateSwitcher = templateSwitcher
         self.lastAgent = lastAgent
         self.lastPicks = lastPicks
         self.home = home

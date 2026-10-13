@@ -249,10 +249,14 @@ fn user_origin_allowed(mux: &Mux, client: u64) -> bool {
     {
         apps::user_origin_allowed(mux, client)
     }
+    // No apps supervisor here (crate::apps is Unix only); the same rule as
+    // `crate::apps::hosting_app_connection` over the same facts. The peer
+    // was checked at accept like on Unix (cmux-sdk local_socket: our token
+    // user, not an AppContainer, Medium integrity or above).
     #[cfg(not(unix))]
     {
-        let _ = (mux, client);
-        false
+        let facts = origin_gate::app_connection(mux, client);
+        !facts.agent && facts.verified_app
     }
 }
 

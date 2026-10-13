@@ -350,7 +350,6 @@ final class AgentTabStore {
         model.onSessionChange = { [weak self] session in
             guard let self else { return }
             let key = resolve(provisional)
-            newTabPages[key]?.handler.becameChat()
             newTabPages[key] = nil
             views[key]?.applyTheme() // now the agent chat surface (R55)
             sessions[key] = session
@@ -374,7 +373,6 @@ final class AgentTabStore {
         model.onRememberNewTab = { [weak self] pick in self?.pageHandler(provisional)?.remember(pick) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
-        model.onNewTabSetting = { [weak self] setting in self?.newTabPage(provisional)?.handler.write(setting) }
         model.onRunAction = { [weak self] id in
             guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.
@@ -444,6 +442,10 @@ final class AgentTabStore {
 
     /// The tab still shows the new tab page (it has not become a chat).
     func isNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)] != nil }
+
+    /// A New Tab page whose selected kind is an agent chat: it becomes that chat in place, so it
+    /// takes the chat's chrome from its first frame (cx-ncc.58).
+    func isAgentNewTabPage(_ key: String) -> Bool { newTabPages[resolve(key)]?.page.kind == .agent }
 
     /// A chat outside any pane (onboarding's first task, Start Agent's panel), new or on `session`,
     /// on the same daemon and page as the tabs. The caller owns it and closes it.

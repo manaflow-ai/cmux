@@ -8,6 +8,8 @@ use std::os::fd::FromRawFd;
 
 #[path = "chief_autostart.rs"]
 mod autostart;
+#[path = "conversation_link_preview.rs"]
+mod link_preview;
 
 /// A JSON-lines client of the daemon; events read while waiting for an
 /// answer are kept in `events`.

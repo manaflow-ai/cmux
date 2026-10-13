@@ -231,6 +231,25 @@ pub fn derive_family(name: &str, profile: &HarnessProfile) -> String {
     name.split(['-', '_', '.']).next().unwrap_or(name).to_lowercase()
 }
 
+/// Which agent store a fork through an earlier turn copies (`hub/fork_at.rs`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TurnCut {
+    /// Claude Code's transcript (`claude -p`, Claude Code's own protocol).
+    Claude,
+    /// Codex's rollout (codex-acp, which forks a thread only at its end).
+    Codex,
+}
+
+/// How profile `name` forks through an earlier turn; None when its agent
+/// forks only at a chat's end.
+pub fn turn_cut(name: &str, profile: &HarnessProfile) -> Option<TurnCut> {
+    match profile.kind {
+        HarnessKind::ClaudeStdio => Some(TurnCut::Claude),
+        HarnessKind::Acp if derive_family(name, profile) == "codex" => Some(TurnCut::Codex),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 #[derive(Default)]

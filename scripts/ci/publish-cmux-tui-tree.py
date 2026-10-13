@@ -52,6 +52,12 @@ GATE_NAMES = COMPANION_NAMES[:3]
 # commit's build of the same tree, and completion-windows.json names that
 # commit. The workflow reads this list with --list-windows-companions.
 WINDOWS_NAMES = ("cmux-tui-x86_64-pc-windows-gnu.exe",)
+# The small per-terminal host the Windows daemon spawns beside itself
+# (cx-1vlzr; fetched as cmux-tui-host.exe next to cmux-tui.exe). Optional:
+# published when the Windows commit manifest attests it, skipped when that
+# manifest predates it, so republishing an older tree writes the same
+# completion-windows.json bytes. --list-windows-optional-companions lists it.
+WINDOWS_OPTIONAL_NAMES = ("cmux-tui-host-x86_64-pc-windows-gnu.exe",)
 REPAIR_POINTER = "cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
 
 
@@ -209,6 +215,19 @@ def publish_tree(
                     f"companion {name} digest {actual} does not match commit manifest {expected}"
                 )
             windows_digests[name] = actual
+        for name in WINDOWS_OPTIONAL_NAMES:
+            if windows_binaries.get(name) is None:
+                continue
+            expected = _require_sha(windows_binaries.get(name), f"Windows manifest binary {name}")
+            path = assets_dir / name
+            if not path.is_file():
+                raise PublicationError(f"missing companion {name} in {assets_dir}")
+            actual = _sha256(path)
+            if actual != expected:
+                raise PublicationError(
+                    f"companion {name} digest {actual} does not match commit manifest {expected}"
+                )
+            windows_digests[name] = actual
 
     if publish_source:
         if source_file is None or not source_file.is_file():
@@ -304,11 +323,16 @@ def main(argv: list[str] | None = None) -> int:
     if argv == ["--list-windows-companions"]:
         print("\n".join(WINDOWS_NAMES))
         return 0
+    if argv == ["--list-windows-optional-companions"]:
+        print("\n".join(WINDOWS_OPTIONAL_NAMES))
+        return 0
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--list-companions", action="store_true",
                         help="print the companion names, one per line, and exit")
     parser.add_argument("--list-windows-companions", action="store_true",
                         help="print the Windows companion names, one per line, and exit")
+    parser.add_argument("--list-windows-optional-companions", action="store_true",
+                        help="print the optional Windows companion names, one per line, and exit")
     parser.add_argument("--key", required=True)
     parser.add_argument("--source-commit", required=True)
     parser.add_argument("--assets-dir", type=Path, required=True)

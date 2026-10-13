@@ -10,10 +10,15 @@ enum AddHarnessHandler {
         registry.bind("palette.addHarness", run: { invocation in
             // A new tab takes the focus: automation runs `cmux harness guide` itself.
             guard invocation.allowsViewChange else { return context.refuse(AddHarnessStrings.needsFocus) }
-            // The same pane path as New Agent Chat: from Home or a settling workspace it makes the
-            // first pane, then opens the chat there.
-            AgentHandlers.withAgentPane(invocation, context: context) { pane in
-                if invocation.origin == .user { context.services.newTabKinds.record(.agent, folder: nil) }
+            // A focused New Tab page shows the page in place, as its own button does (cx-9fqw).
+            if let pane = context.scope(invocation).pane, let key = pane.currentTabKey, context.services.agentTabs.isNewTabPage(key),
+               let view = context.services.agentTabs.existingView(key) {
+                // No tab opens: a chat the page then starts records its own kind.
+                return AgentPaneHarnessesPage(view).show()
+            }
+            // The same pane path as New Agent Chat: from Home a new workspace on the Harnesses
+            // page; from a settling workspace its first pane, then the tab there.
+            AgentHandlers.withAgentPane(invocation, context: context, seed: seed) { pane in
                 pane.openAgentTab(seed: AgentPaneSeedSource(seed))
             }
         })

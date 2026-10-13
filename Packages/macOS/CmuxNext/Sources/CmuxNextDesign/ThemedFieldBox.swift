@@ -2,12 +2,22 @@ public import AppKit
 
 /// A text field on the theme's field fill (`Palette.chromeBackground`, a `Palette.separator`
 /// hairline) instead of AppKit's bezel, which draws the system's colors whatever the room's
-/// theme: dialog fields and Home's sheet and settings fields. While its field edits, the hairline
-/// is the theme's focus ring (`Palette.focusRing`); a click anywhere in the box, padding included,
-/// gives the field the keyboard. Callers set its width; it sets its own height.
+/// theme: dialog fields and Home's sheet and settings fields. While its field edits, the border is
+/// the theme's focus ring (`Palette.focusRing`) at 1.5 pt (2 pt under Increase Contrast), on the
+/// box's rounded corners: the Tab cue of a form with several fields, never AppKit's square blue
+/// ring (cx-ncc.88). It shows under `appearance.borders` none too. A click anywhere in the box,
+/// padding included, gives the field the keyboard. Callers set its width; it sets its own height.
+/// Without chrome (`drawsChrome` false) it is the bare themed field, for a caller that draws its
+/// own container (a row, a capsule search, a filled reply box).
 public final class ThemedFieldBox: NSView {
     public let field: NSTextField
+    /// The field fill and hairline; false leaves them to the caller's container.
+    public let drawsChrome: Bool
+    /// Called with true when the field takes the keyboard and false when its edit ends.
+    public var onEditingChange: ((Bool) -> Void)?
     private var editing = false
+    /// Increase Contrast changes the focus border's width; the setting is not observable otherwise.
+    private var contrastObserver: (any NSObjectProtocol)?
     private var heightConstraint: NSLayoutConstraint?
 
     /// The box's height; a change (a live density change) resizes it.
@@ -16,8 +26,9 @@ public final class ThemedFieldBox: NSView {
         set { if heightConstraint?.constant != newValue { heightConstraint?.constant = newValue } }
     }
 
-    public init(field: NSTextField, height: CGFloat) {
+    public init(field: NSTextField, height: CGFloat, drawsChrome: Bool = true) {
         self.field = field
+        self.drawsChrome = drawsChrome
         super.init(frame: .zero)
         field.isBezeled = false
         field.isBordered = false
@@ -30,20 +41,20 @@ public final class ThemedFieldBox: NSView {
         wantsLayer = true
         layer?.cornerRadius = Metrics.itemCornerRadius
         layer?.cornerCurve = .continuous
-        layer?.borderWidth = Metrics.dividerThickness
         translatesAutoresizingMaskIntoConstraints = false
         addSubview(field)
         (field as? any ThemedTextInput)?.onEditingChange = { [weak self] editing in
             guard let self else { return }
             self.editing = editing
             applyTheme()
+            onEditingChange?(editing)
         }
         let heightConstraint = heightAnchor.constraint(equalToConstant: height)
         self.heightConstraint = heightConstraint
         NSLayoutConstraint.activate([
             heightConstraint,
-            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Metrics.space2),
-            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Metrics.space2),
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: drawsChrome ? Metrics.space2 : 0),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: drawsChrome ? -Metrics.space2 : 0),
             field.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         applyTheme()
@@ -62,6 +73,16 @@ public final class ThemedFieldBox: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if let contrastObserver {
+            NSWorkspace.shared.notificationCenter.removeObserver(contrastObserver)
+            self.contrastObserver = nil
+        }
+        if window != nil {
+            contrastObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor [weak self] in self?.applyTheme() }
+            }
+        }
         applyTheme()
     }
 
@@ -70,10 +91,18 @@ public final class ThemedFieldBox: NSView {
         applyTheme()
     }
 
+    /// The focus border's width: wider under Increase Contrast. Not `Metrics.lineWidth`: the focus
+    /// cue stays when `appearance.borders` hides decorative lines.
+    private var focusBorderWidth: CGFloat {
+        NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast ? 2 : 1.5
+    }
+
     private func applyTheme() {
+        guard drawsChrome else { return }
         performWithTheme {
             layer?.backgroundColor = Palette.chromeBackground.cgColor
             layer?.borderColor = (editing ? Palette.focusRing : Palette.separator).cgColor
+            layer?.borderWidth = editing ? focusBorderWidth : Metrics.dividerThickness
         }
     }
 }

@@ -1,5 +1,6 @@
 import CmuxHomeCore
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import Foundation
 
 /// The Chief owner as the migration sees it: its Chief conversation (the

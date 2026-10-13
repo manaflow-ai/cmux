@@ -77,8 +77,8 @@ struct AgentTabContent {
         BenchSpans.mark("newTab.cover")
         paneView.showLaunchImage(image)
         // The image's deadline shows the page too, should its frame never be reported.
-        paneView.onLaunchImageCleared = { [weak view] in if let view { AgentPageMoveCover.reveal(view) } }
-        AgentPageMoveCover.hide(view) { [weak paneView] in
+        paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() }
+        view.hideMovedPage { [weak paneView] in
             BenchSpans.mark("newTab.cover.cleared")
             paneView?.clearLaunchImage()
         }

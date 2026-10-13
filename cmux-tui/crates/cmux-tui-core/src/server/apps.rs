@@ -100,6 +100,10 @@ enum Command {
         #[serde(default)]
         follow: bool,
     },
+    /// The link registration changed (`cmux link ensure` or `stop` ran):
+    /// tell every app server that reads the link (`cmux.host.link.changed`).
+    #[serde(rename = "apps-link-changed")]
+    LinkChanged,
     /// The Mac app serves ops the daemon does not own (app-op-routing.md).
     #[serde(rename = "apps-provider-register")]
     ProviderRegister { families: Vec<String> },
@@ -183,22 +187,8 @@ pub(super) fn user_origin_allowed(mux: &Mux, client: u64) -> bool {
 
 /// What the daemon knows about `client` for the hosting-app check.
 fn claim_for(mux: &Mux, client: u64) -> crate::apps::ProviderClaim {
-    // Proved, never declared: the install-key hello or the app's code
-    // signature (P8, server/app_trust.rs). `set-client-info kind` and a
-    // page relay never count.
-    let verified_app = {
-        let state =
-            mux.control_clients.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.clients.get(&client).is_some_and(|record| {
-            record.origin.derive() == crate::request_origin::RequestOrigin::User
-        })
-    };
-    crate::apps::ProviderClaim {
-        // An agent's conversation binding; switches to the identity lane's
-        // terminal/acp_session actor with `agent` once it lands.
-        agent: mux.conversation_principal(client) != crate::conversation_store::LOCAL_USER,
-        verified_app,
-    }
+    let facts = super::origin_gate::app_connection(mux, client);
+    crate::apps::ProviderClaim { agent: facts.agent, verified_app: facts.verified_app }
 }
 
 #[derive(Deserialize)]
@@ -282,6 +272,8 @@ pub(super) fn try_handle(
     let changes_apps = match &request.command {
         Command::Set { .. } => true,
         Command::Store { op, .. } => crate::apps::store_op_mutates(op),
+        // Only the app that runs the link reports its changes (cx-rtipa).
+        Command::LinkChanged => true,
         _ => false,
     };
     let user_authority = changes_apps || request.origin == crate::apps::Origin::User;
@@ -293,6 +285,20 @@ pub(super) fn try_handle(
     let origin_claim = claim_for(mux, client);
     if let Err(e) = crate::apps::admit_origin(request.origin, &origin_claim) {
         return Some(reply(writer, request.id, Err(e)));
+    }
+    // An agent-bound connection never reports a link change, also when it
+    // is the verified app's (as `apps-provider-register`).
+    if matches!(request.command, Command::LinkChanged)
+        && !crate::apps::hosting_app_connection(&origin_claim)
+    {
+        return Some(reply(
+            writer,
+            request.id,
+            Err(crate::apps::ApiError::new(
+                "apps.origin_forbidden",
+                "only the verified cmux app connection reports a link change",
+            )),
+        ));
     }
     if crate::apps::advertised().is_none() {
         return Some(reply(
@@ -312,6 +318,7 @@ pub(super) fn try_handle(
     let result = match command {
         Command::List => Ok(supervisor.list()),
         Command::TerminalLinks => Ok(supervisor.terminal_links_list()),
+        Command::LinkChanged => Ok(json!({ "servers": supervisor.host_link_changed() })),
         Command::Set {
             idempotency_key,
             app,
