@@ -49,9 +49,9 @@ export type VmHealthAlertOutcome = "none" | "sent" | "suppressed" | "unconfigure
  * Send the sweep's alert through the shared Slack path, deduplicated by the
  * same durable state the other VM alerts use: one page when it starts, a
  * reminder every 24 hours, and an immediate re-page only on escalation to
- * critical. A clean sweep clears the state only when the last page is at
- * least an hour old, so a VM flapping between hung and healthy pages at most
- * once an hour instead of on every five-minute run.
+ * critical. Only a clean sweep that saw the whole fleet clears the state, and
+ * only when the last page is at least an hour old, so a VM flapping between
+ * hung and healthy pages at most once an hour instead of on every run.
  */
 export async function deliverVmHealthAlert(
   report: VmHealthReport,
@@ -68,6 +68,9 @@ export async function deliverVmHealthAlert(
   const alert = vmHealthAlert(report, options.pageUrl ?? null);
   try {
     if (!alert) {
+      // A sweep that could not see the fleet is not evidence the incident is
+      // over: keep the state so recovery from a blind sweep does not re-page.
+      if (!sweepSawFleet(report)) return "none";
       const lastSentAt = await (options.lastSentAt ?? readLastSentAt)(VM_HEALTH_ALERT_KEY);
       if (!lastSentAt || now.getTime() - lastSentAt.getTime() >= VM_HEALTH_ALERT_MIN_INTERVAL_MS) {
         await store.clear(VM_HEALTH_ALERT_KEY, now);
@@ -86,6 +89,11 @@ export async function deliverVmHealthAlert(
     });
     return "failed";
   }
+}
+
+/** True when the sweep listed every VM, probed every running one it could, and hit no stage error. */
+export function sweepSawFleet(report: VmHealthReport): boolean {
+  return report.errors.length === 0 && report.coverage.inventoryComplete && report.coverage.skippedBudget === 0;
 }
 
 async function readLastSentAt(key: string): Promise<Date | null> {

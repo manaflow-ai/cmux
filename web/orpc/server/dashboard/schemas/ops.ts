@@ -92,6 +92,7 @@ const reportSchema = z.object({
     probeErrors: z.number(),
     skippedBudget: z.number(),
     skippedIdle: z.number(),
+    skippedNotRunning: z.number().optional(),
   }),
   hung: z.array(hungSchema),
   stuck: z.array(stuckSchema),

@@ -28,9 +28,12 @@ export async function handleVmHealthCron(request: Request, deps: VmHealthCronDep
   const origin = deps.env.CMUX_PUBLIC_ORIGIN?.trim() || new URL(request.url).origin;
   const alert = await deps.alert(result.report, `${origin}${VM_HEALTH_PAGE_PATH}`);
   const { report } = result;
+  // A failed store still alerts on what the sweep found, then answers 500 so
+  // the cron monitor shows the page is going stale.
   return Response.json({
-    ok: true,
+    ok: result.storeError === null,
     snapshotId: result.snapshotId,
+    storeError: result.storeError,
     durationMs: report.durationMs,
     attentionNeeded: report.attention.needed,
     reasons: report.attention.reasons.map((reason) => reason.code),
@@ -42,7 +45,7 @@ export async function handleVmHealthCron(request: Request, deps: VmHealthCronDep
     errors: report.errors.map((error) => error.stage),
     pruned: result.pruned,
     alert,
-  });
+  }, { status: result.storeError === null ? 200 : 500 });
 }
 
 /** Operator overrides; anything unparseable keeps the default. */

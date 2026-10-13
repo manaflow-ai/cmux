@@ -128,11 +128,11 @@ function classifyHung(
   rowByProviderId: ReadonlyMap<string, VmHealthDbRow>,
 ): HungVm[] {
   const firstSeen = new Map(input.previousHung.map((entry) => [entry.vmId, entry.firstSeenHungAt]));
+  const probeByVm = new Map(input.probes.map((probe) => [probe.vmId, probe]));
   const hung: HungVm[] = [];
-  for (const probe of input.probes) {
-    if (probe.outcome !== "hung") continue;
-    const vm = vmById.get(probe.vmId);
-    if (!vm) continue;
+  for (const vm of vmById.values()) {
+    const detail = hungDetail(probeByVm.get(vm.id), firstSeen.has(vm.id));
+    if (detail === null) continue;
     const row = rowByProviderId.get(vm.id);
     hung.push({
       vmId: vm.id,
@@ -143,7 +143,7 @@ function classifyHung(
       firstSeenHungAt: firstSeen.get(vm.id) ?? input.now.toISOString(),
       providerUpdatedAt: vm.updatedAt,
       dbUpdatedAt: row ? row.updatedAt.toISOString() : null,
-      detail: probe.detail,
+      detail,
     });
   }
   // Longest-hung first: those are the ones an operator should look at.
@@ -151,10 +151,24 @@ function classifyHung(
 }
 
 /**
- * When each VM entered its current transition. Freestyle refreshes a live
- * VM's `updatedAt` with activity, so it cannot date a transition by itself:
- * the earlier of that timestamp and the first sweep that saw the VM in the
- * same state is used, and the sighting is carried to the next sweep.
+ * Why a VM counts as hung this sweep, or null. A VM hung last sweep that this
+ * sweep could not re-probe (time budget, probe error) stays hung with its
+ * first-seen time; only an answer, a pause, or its deletion clears it.
+ */
+function hungDetail(probe: VmProbeRecord | undefined, wasHung: boolean): string | null {
+  if (probe?.outcome === "hung") return probe.detail;
+  if (!wasHung) return null;
+  if (probe?.outcome === "skipped_budget") return "not re-probed this sweep (time budget)";
+  if (probe?.outcome === "error") return `not re-probed this sweep (${probe.detail})`;
+  return null;
+}
+
+/**
+ * When each VM entered its current transition, by the first sweep that saw
+ * it there. Provider timestamps are not used: Freestyle refreshes a live VM's
+ * `updatedAt` with activity and may not move it when a transition starts, so
+ * it could make a fresh transition look days old. Detection lags by at most
+ * one sweep.
  */
 function transitionSightings(
   now: Date,
@@ -165,10 +179,7 @@ function transitionSightings(
   const sightings: VmTransitionSighting[] = [];
   for (const vm of vms) {
     if (!PROVIDER_TRANSITION_STATES.has(vm.state)) continue;
-    const candidates = [seen.get(`${vm.id}:${vm.state}`), vm.updatedAt, now.toISOString()]
-      .filter((value): value is string => typeof value === "string" && Number.isFinite(Date.parse(value)));
-    const firstSeenAt = candidates.reduce((earliest, value) => (Date.parse(value) < Date.parse(earliest) ? value : earliest));
-    sightings.push({ vmId: vm.id, state: vm.state, firstSeenAt });
+    sightings.push({ vmId: vm.id, state: vm.state, firstSeenAt: seen.get(`${vm.id}:${vm.state}`) ?? now.toISOString() });
   }
   return sightings;
 }
@@ -344,15 +355,32 @@ function pausedHolderOf(
 }
 
 function probeCoverage(inventory: ProviderVmInventory | null, probes: readonly VmProbeRecord[]): VmHealthCoverage {
-  const count = (outcome: VmProbeRecord["outcome"]) => probes.filter((probe) => probe.outcome === outcome).length;
+  const counts: Partial<Record<VmProbeRecord["outcome"], number>> = {};
+  for (const probe of probes) counts[probe.outcome] = (counts[probe.outcome] ?? 0) + 1;
+  const skippedBudget = counts.skipped_budget ?? 0;
+  const skippedIdle = counts.skipped_idle ?? 0;
+  const skippedNotRunning = counts.not_running ?? 0;
   return {
     inventoryComplete: inventory?.complete ?? false,
     running: inventory?.vms.filter((vm) => vm.state === "running").length ?? 0,
-    probed: probes.filter((probe) => probe.outcome !== "skipped_budget" && probe.outcome !== "skipped_idle").length,
-    probeErrors: count("error"),
-    skippedBudget: count("skipped_budget"),
-    skippedIdle: count("skipped_idle"),
+    probed: probes.length - skippedBudget - skippedIdle - skippedNotRunning,
+    probeErrors: counts.error ?? 0,
+    skippedBudget,
+    skippedIdle,
+    skippedNotRunning,
   };
+}
+
+/**
+ * Probe errors (401, 429, a refused state read) say nothing about VMs. A few
+ * are noise from a busy shared account; past this share of running VMs the
+ * sweep cannot vouch for the fleet.
+ */
+const PROBE_ERROR_ATTENTION_FRACTION = 0.05;
+
+function unprobedForAttention(coverage: VmHealthCoverage): number {
+  const errorsMatter = coverage.probeErrors > Math.max(2, coverage.running * PROBE_ERROR_ATTENTION_FRACTION);
+  return coverage.skippedBudget + (errorsMatter ? coverage.probeErrors : 0);
 }
 
 function attentionReasons(input: {
@@ -366,14 +394,17 @@ function attentionReasons(input: {
   const reasons: VmAttentionReason[] = [];
   if (input.hung.length > 0) reasons.push({ code: "hung_vms", count: input.hung.length });
   if (input.stuck.length > 0) reasons.push({ code: "stuck_transitions", count: input.stuck.length });
-  if (input.drift.length > 0) reasons.push({ code: "drift", count: input.drift.length });
+  // A cmux-tagged VM with no row here may belong to another environment on
+  // the shared account; it is listed, but does not by itself page anyone.
+  const drift = input.drift.filter((entry) => entry.kind !== "provider_untracked").length;
+  if (drift > 0) reasons.push({ code: "drift", count: drift });
   const tls = input.tls;
   if (tls && tls.totalCount >= tls.limit) {
     reasons.push({ code: "tls_over_limit", count: tls.totalCount, limit: tls.limit });
   } else if (tls && tls.totalCount >= tls.limit * TLS_WARNING_FRACTION) {
     reasons.push({ code: "tls_near_limit", count: tls.totalCount, limit: tls.limit });
   }
-  const unprobed = input.coverage.skippedBudget + input.coverage.probeErrors;
+  const unprobed = unprobedForAttention(input.coverage);
   if (unprobed > 0 || !input.coverage.inventoryComplete) reasons.push({ code: "sweep_incomplete", unprobed });
   if (input.errors.length > 0) reasons.push({ code: "sweep_errors", count: input.errors.length });
   return reasons;

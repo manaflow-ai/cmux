@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { classifyVmHealth, tlsRuleOwner, vmWorkload } from "../services/vms/health/classify";
-import { sanitizeDetail, tlsRuleRef } from "../services/vms/drivers/freestyleHealthInventory";
+import { tlsRuleRef } from "../services/vms/drivers/freestyleHealthInventory";
+import { sanitizeDetail } from "../services/vms/health/sanitize";
 import type { ProviderInventoryVm, ProviderTlsRuleRef, VmHealthDbRow, VmProbeRecord } from "../services/vms/health/types";
 
 const NOW = new Date("2026-10-12T12:00:00.000Z");
@@ -98,7 +99,7 @@ describe("hung VMs", () => {
     expect(report.hung[0]!.firstSeenHungAt).toBe(minutesAgo(45));
   });
 
-  test("probe errors and gone VMs are not hung, and errors make coverage incomplete", () => {
+  test("probe errors and gone VMs are not hung; a few errors are noise, many make the sweep incomplete", () => {
     const report = classify({
       vms: [vm("vm-a"), vm("vm-b")],
       probes: [
@@ -108,7 +109,35 @@ describe("hung VMs", () => {
     });
     expect(report.hung).toEqual([]);
     expect(report.coverage.probeErrors).toBe(1);
-    expect(report.attention.reasons).toContainEqual({ code: "sweep_incomplete", unprobed: 1 });
+    expect(report.attention).toEqual({ needed: false, reasons: [] });
+
+    const vms = Array.from({ length: 20 }, (_, index) => vm(`vm-${index}`));
+    const many = classify({ vms, probes: vms.slice(0, 5).map((entry) => ({ vmId: entry.id, outcome: "error", latencyMs: 3, detail: "state read: 503" })) });
+    expect(many.attention.reasons).toContainEqual({ code: "sweep_incomplete", unprobed: 5 });
+  });
+
+  test("a VM paused after the listing is not probed, not hung, and not counted as probed", () => {
+    const report = classify({
+      vms: [vm("vm-a")],
+      probes: [{ vmId: "vm-a", outcome: "not_running", latencyMs: 20 }],
+      previousHung: [{ vmId: "vm-a", firstSeenHungAt: minutesAgo(30) }],
+    });
+    expect(report.hung).toEqual([]);
+    expect(report.coverage).toMatchObject({ probed: 0, skippedNotRunning: 1 });
+  });
+
+  test("a hung VM this sweep could not re-probe stays hung with its first-seen time", () => {
+    const report = classify({
+      vms: [vm("vm-a"), vm("vm-b"), vm("vm-c")],
+      probes: [
+        { vmId: "vm-a", outcome: "skipped_budget" },
+        { vmId: "vm-b", outcome: "error", latencyMs: 1, detail: "429" },
+        { vmId: "vm-c", outcome: "ok", latencyMs: 1 },
+      ],
+      previousHung: ["vm-a", "vm-b", "vm-c"].map((vmId) => ({ vmId, firstSeenHungAt: minutesAgo(30) })),
+    });
+    expect(report.hung.map((entry) => `${entry.vmId}:${entry.firstSeenHungAt === minutesAgo(30)}`)).toEqual(["vm-a:true", "vm-b:true"]);
+    expect(report.hung[0]!.detail).toContain("not re-probed");
   });
 
   test("a healthy fleet needs no attention", () => {
@@ -124,12 +153,17 @@ describe("hung VMs", () => {
 });
 
 describe("stuck transitions", () => {
-  test("provider starting or pausing past the threshold and old DB provisioning rows are stuck", () => {
+  test("transitions seen past the threshold and old DB provisioning rows are stuck", () => {
     const report = classify({
       vms: [
-        vm("vm-pausing", { state: "pausing", updatedAt: minutesAgo(40) }),
-        vm("vm-starting-fresh", { state: "starting", updatedAt: minutesAgo(2) }),
-        vm("vm-starting", { state: "starting", updatedAt: minutesAgo(16) }),
+        vm("vm-pausing", { state: "pausing" }),
+        vm("vm-starting-fresh", { state: "starting" }),
+        vm("vm-starting", { state: "starting" }),
+      ],
+      previousTransitions: [
+        { vmId: "vm-pausing", state: "pausing", firstSeenAt: minutesAgo(40) },
+        { vmId: "vm-starting-fresh", state: "starting", firstSeenAt: minutesAgo(2) },
+        { vmId: "vm-starting", state: "starting", firstSeenAt: minutesAgo(16) },
       ],
       dbRows: [
         row("vm-prov", { status: "provisioning", updatedAt: new Date(minutesAgo(30)) }),
@@ -145,22 +179,24 @@ describe("stuck transitions", () => {
     expect(report.transitions.map((entry) => entry.vmId).sort()).toEqual(["vm-pausing", "vm-starting", "vm-starting-fresh"]);
   });
 
-  test("a transition whose provider timestamp keeps moving is dated by the first sweep that saw it", () => {
-    // Freestyle refreshes updatedAt with activity, so it is always recent here.
-    const vms = [vm("vm-pausing", { state: "pausing", updatedAt: minutesAgo(1) })];
+  test("a transition is dated by sightings, never by the provider timestamp", () => {
+    // A paused VM that starts may keep its days-old pause time as updatedAt;
+    // that must not make a fresh transition look stuck on its first sighting.
+    const vms = [vm("vm-starting", { state: "starting", updatedAt: daysAgo(9) })];
     const first = classify({ vms });
     expect(first.stuck).toEqual([]);
-    expect(first.transitions).toEqual([{ vmId: "vm-pausing", state: "pausing", firstSeenAt: minutesAgo(1) }]);
-    const later = classify({ vms, previousTransitions: [{ vmId: "vm-pausing", state: "pausing", firstSeenAt: minutesAgo(20) }] });
-    expect(later.stuck.map((entry) => `${entry.vmId}:${entry.minutes}`)).toEqual(["vm-pausing:20"]);
+    expect(first.transitions).toEqual([{ vmId: "vm-starting", state: "starting", firstSeenAt: NOW.toISOString() }]);
+    const later = classify({ vms, previousTransitions: [{ vmId: "vm-starting", state: "starting", firstSeenAt: minutesAgo(20) }] });
+    expect(later.stuck.map((entry) => `${entry.vmId}:${entry.minutes}`)).toEqual(["vm-starting:20"]);
     // A different transition of the same VM starts a new clock.
-    const restarted = classify({ vms, previousTransitions: [{ vmId: "vm-pausing", state: "starting", firstSeenAt: minutesAgo(20) }] });
+    const restarted = classify({ vms, previousTransitions: [{ vmId: "vm-starting", state: "pausing", firstSeenAt: minutesAgo(20) }] });
     expect(restarted.stuck).toEqual([]);
   });
 
   test("the threshold is configurable", () => {
     const report = classify({
-      vms: [vm("vm-pausing", { state: "pausing", updatedAt: minutesAgo(6) })],
+      vms: [vm("vm-pausing", { state: "pausing" })],
+      previousTransitions: [{ vmId: "vm-pausing", state: "pausing", firstSeenAt: minutesAgo(6) }],
       thresholds: { stuckAfterMs: 5 * 60_000 },
     });
     expect(report.stuck).toHaveLength(1);
@@ -205,6 +241,13 @@ describe("drift", () => {
       "vm-destroyed:db_destroyed_provider_present",
       "vm-untracked:provider_untracked",
     ]);
+  });
+
+  test("untracked cmux VMs are listed but do not by themselves need attention", () => {
+    // Another environment on the shared account tags its VMs cmux=cloud too.
+    const report = classify({ vms: [vm("vm-staging")] });
+    expect(report.drift.map((entry) => entry.kind)).toEqual(["provider_untracked"]);
+    expect(report.attention).toEqual({ needed: false, reasons: [] });
   });
 
   test("recent changes are in-flight lifecycle calls, not drift", () => {

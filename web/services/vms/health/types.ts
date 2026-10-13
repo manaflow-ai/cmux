@@ -54,6 +54,8 @@ export type ProviderTlsRuleInventory = {
 export type VmControlProbe =
   | { readonly outcome: "ok"; readonly latencyMs: number }
   | { readonly outcome: "gone"; readonly latencyMs: number }
+  /** Paused or moving since the inventory was read; not probed, so not woken. */
+  | { readonly outcome: "not_running"; readonly latencyMs: number }
   | { readonly outcome: "hung"; readonly latencyMs: number; readonly detail: string }
   | { readonly outcome: "error"; readonly latencyMs: number; readonly detail: string };
 
@@ -180,6 +182,8 @@ export type VmHealthCoverage = {
   readonly probeErrors: number;
   readonly skippedBudget: number;
   readonly skippedIdle: number;
+  /** Paused or in transition by the time its probe ran; absent on older snapshots. */
+  readonly skippedNotRunning?: number;
 };
 
 export type VmHealthReport = {

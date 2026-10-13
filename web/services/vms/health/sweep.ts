@@ -3,13 +3,11 @@ import * as Effect from "effect/Effect";
 import type { ProviderId } from "../drivers";
 import type { VmWorkflowError } from "../errors";
 import { VmProviderGateway } from "../providerGateway";
-import { VmRepository } from "../repository";
+import { VmRepository, type VmRepositoryShape } from "../repository";
+import { sanitizeDetail } from "./sanitize";
 import { classifyVmHealth, vmWorkload, type VmHealthThresholds } from "./classify";
 import type {
   ProviderInventoryVm,
-  ProviderTlsRuleInventory,
-  ProviderVmInventory,
-  VmHealthDbRow,
   VmHealthReport,
   VmHealthSweepError,
   VmProbeRecord,
@@ -26,7 +24,6 @@ export const VM_HEALTH_DEFAULT_BUDGET_MS = 200_000;
 export const VM_HEALTH_DEFAULT_PROBE_TIMEOUT_MS = 10_000;
 export const VM_HEALTH_DEFAULT_PROBE_CONCURRENCY = 16;
 export const VM_HEALTH_SNAPSHOT_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
-const ERROR_MESSAGE_MAX = 200;
 const PROBE_GUARD_SLACK_MS = 2_000;
 
 export type VmHealthSweepOptions = {
@@ -45,6 +42,8 @@ export type VmHealthSweepOptions = {
 
 export type VmHealthSweepResult = {
   readonly snapshotId: string | null;
+  /** Why the snapshot was not stored, when the insert failed. */
+  readonly storeError: string | null;
   readonly report: VmHealthReport;
   readonly pruned: number;
 };
@@ -56,34 +55,22 @@ export function sweepVmHealth(
     const repo = yield* VmRepository;
     const providers = yield* VmProviderGateway;
     const startedAtMs = yield* Clock.currentTimeMillis;
-    const budgetMs = options.budgetMs ?? VM_HEALTH_DEFAULT_BUDGET_MS;
-    const probeTimeoutMs = options.probeTimeoutMs ?? VM_HEALTH_DEFAULT_PROBE_TIMEOUT_MS;
-    const deadlineAtMs = startedAtMs + budgetMs;
+    const deadlineAtMs = startedAtMs + (options.budgetMs ?? VM_HEALTH_DEFAULT_BUDGET_MS);
     const errors: VmHealthSweepError[] = [];
-    const record = (stage: VmHealthSweepError["stage"]) => (cause: unknown) =>
-      Effect.sync(() => {
-        errors.push({ stage, message: errorMessage(cause) });
-        return null;
-      });
+    const step = <A>(stage: VmHealthSweepError["stage"], run: (() => Effect.Effect<A, unknown>) | undefined) =>
+      run ? recordFailure(run(), stage, errors) : Effect.succeed(null);
+    const bounded = <A>(stage: VmHealthSweepError["stage"], run: (() => Effect.Effect<A, unknown>) | undefined) =>
+      step(stage, run && (() => untilDeadline(run(), deadlineAtMs)));
 
-    const previous = repo.latestVmHealthSnapshot
-      ? yield* repo.latestVmHealthSnapshot().pipe(Effect.catchAll(record("previous_snapshot")))
-      : null;
-    const inventory: ProviderVmInventory | null = providers.listAccountVms
-      ? yield* providers.listAccountVms(VM_HEALTH_PROVIDER, { deadlineAtMs }).pipe(Effect.catchAll(record("inventory")))
-      : null;
-    const tlsRules: ProviderTlsRuleInventory | null = providers.listAccountTlsRules
-      ? yield* providers.listAccountTlsRules(VM_HEALTH_PROVIDER, { deadlineAtMs }).pipe(Effect.catchAll(record("tls_rules")))
-      : null;
+    const previous = yield* step("previous_snapshot", repo.latestVmHealthSnapshot);
+    const inventory = yield* bounded("inventory", providers.listAccountVms && (() => providers.listAccountVms!(VM_HEALTH_PROVIDER, { deadlineAtMs })));
+    const tlsRules = yield* bounded("tls_rules", providers.listAccountTlsRules && (() => providers.listAccountTlsRules!(VM_HEALTH_PROVIDER, { deadlineAtMs })));
     const cmuxIds = (inventory?.vms ?? []).filter((vm) => vmWorkload(vm.metadata) === "cmux_cloud").map((vm) => vm.id);
-    const dbRows: VmHealthDbRow[] = repo.vmHealthDbRows
-      ? (yield* repo.vmHealthDbRows({ provider: VM_HEALTH_PROVIDER, providerVmIds: cmuxIds })
-        .pipe(Effect.catchAll(record("db_rows")))) ?? []
-      : [];
+    const dbRows = yield* step("db_rows", repo.vmHealthDbRows && (() => repo.vmHealthDbRows!({ provider: VM_HEALTH_PROVIDER, providerVmIds: cmuxIds })));
 
     const probes = yield* probeRunningVms(inventory?.vms ?? [], {
       deadlineAtMs,
-      probeTimeoutMs,
+      probeTimeoutMs: options.probeTimeoutMs ?? VM_HEALTH_DEFAULT_PROBE_TIMEOUT_MS,
       concurrency: Math.max(1, options.probeConcurrency ?? VM_HEALTH_DEFAULT_PROBE_CONCURRENCY),
       probeIdleVms: options.probeIdleVms ?? false,
     });
@@ -94,21 +81,62 @@ export function sweepVmHealth(
       startedAt: new Date(startedAtMs),
       inventory,
       tlsRules,
-      dbRows,
+      dbRows: dbRows ?? [],
       probes,
       previousHung: previous?.report.hung ?? [],
       previousTransitions: previous?.report.transitions ?? [],
       errors,
       thresholds: options.thresholds,
     });
+    return { report, ...yield* storeReport(repo, report, nowMs) };
+  });
+}
 
-    const stored = repo.insertVmHealthSnapshot ? yield* repo.insertVmHealthSnapshot(report) : null;
+/** Run one optional sweep stage; a failure is recorded on the report and the sweep goes on. */
+function recordFailure<A>(
+  effect: Effect.Effect<A, unknown>,
+  stage: VmHealthSweepError["stage"],
+  errors: VmHealthSweepError[],
+): Effect.Effect<A | null> {
+  return effect.pipe(Effect.catchAll((cause) => Effect.sync(() => {
+    errors.push({ stage, message: errorMessage(cause) });
+    return null;
+  })));
+}
+
+/**
+ * Bound a provider listing by the sweep deadline. Paging checks the deadline
+ * only between pages, and one SDK request can poll a backgrounded result for
+ * a long time; interruption aborts its signal.
+ */
+function untilDeadline<A, E>(effect: Effect.Effect<A, E>, deadlineAtMs: number): Effect.Effect<A, E | Error> {
+  return Effect.flatMap(Clock.currentTimeMillis, (nowMs) => effect.pipe(Effect.timeoutFail({
+    duration: Math.max(0, deadlineAtMs - nowMs),
+    onTimeout: () => new Error("listing did not finish inside the sweep budget"),
+  })));
+}
+
+/**
+ * Store the report and prune old ones. A failed insert still returns the
+ * report, so the cron can alert on what this sweep found.
+ */
+function storeReport(
+  repo: VmRepositoryShape,
+  report: VmHealthReport,
+  nowMs: number,
+): Effect.Effect<Omit<VmHealthSweepResult, "report">> {
+  return Effect.gen(function* () {
+    const insert = repo.insertVmHealthSnapshot;
+    const stored = insert
+      ? yield* insert(report).pipe(Effect.either)
+      : null;
     const pruned = repo.pruneVmHealthSnapshots
       ? yield* repo.pruneVmHealthSnapshots({ before: new Date(nowMs - VM_HEALTH_SNAPSHOT_RETENTION_MS) }).pipe(
         Effect.catchAll(() => Effect.succeed(0)),
       )
       : 0;
-    return { snapshotId: stored?.id ?? null, report, pruned };
+    if (stored && stored._tag === "Left") return { snapshotId: null, storeError: errorMessage(stored.left), pruned };
+    return { snapshotId: stored?.right.id ?? null, storeError: null, pruned };
   });
 }
 
@@ -170,5 +198,5 @@ function errorMessage(cause: unknown): string {
   const base = typeof tagged?._tag === "string"
     ? `${tagged._tag}${typeof tagged.operation === "string" ? ` ${tagged.operation}` : ""}${inner ? `: ${inner}` : ""}`
     : cause instanceof Error ? cause.message : String(cause);
-  return base.replace(/\s+/g, " ").slice(0, ERROR_MESSAGE_MAX);
+  return sanitizeDetail(base);
 }

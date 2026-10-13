@@ -163,6 +163,48 @@ describe("sweepVmHealth", () => {
   });
 });
 
+describe("sweep storage and listing deadlines", () => {
+  test("a failed snapshot store still returns the report, so the cron can alert", async () => {
+    const repo = {
+      insertVmHealthSnapshot: () => Effect.fail({ _tag: "VmDatabaseError", operation: "insertVmHealthSnapshot", cause: new Error("relation does not exist") }),
+    } as unknown as VmRepositoryShape;
+    const gateway = {
+      listAccountVms: () => Effect.succeed({ vms: [vm("vm-hung")], complete: true }),
+      probeVmControl: () => Effect.succeed({ outcome: "hung", latencyMs: 1, detail: "timeout" }),
+    } as unknown as VmProviderGatewayShape;
+    const result = await Effect.runPromise(sweepVmHealth({}).pipe(
+      Effect.provide(Layer.merge(Layer.succeed(VmProviderGateway, gateway), Layer.succeed(VmRepository, repo))),
+    ));
+    expect(result.snapshotId).toBeNull();
+    expect(result.storeError).toContain("insertVmHealthSnapshot");
+    expect(result.report.hung).toHaveLength(1);
+  });
+
+  test("a listing that never answers is cut at the sweep deadline and recorded", async () => {
+    const gateway = {
+      listAccountVms: () => Effect.never,
+      listAccountTlsRules: () => Effect.never,
+    } as unknown as VmProviderGatewayShape;
+    const started = performance.now();
+    const result = await Effect.runPromise(sweepVmHealth({ budgetMs: 200 }).pipe(
+      Effect.provide(Layer.merge(Layer.succeed(VmProviderGateway, gateway), Layer.succeed(VmRepository, {} as VmRepositoryShape))),
+    ));
+    expect(performance.now() - started).toBeLessThan(600);
+    expect(result.report.errors.map((error) => error.stage)).toEqual(["inventory", "tls_rules"]);
+    expect(result.report.attention.needed).toBe(true);
+  });
+
+  test("the stored report parses with the staff page schema", async () => {
+    const { cloudVmHealthSchema } = await import("../orpc/server/dashboard/schemas/ops");
+    const h = harness({ vms: [vm("vm-ok"), vm("vm-hung")], probe: (vmId) => Effect.succeed(vmId === "vm-hung"
+      ? { outcome: "hung", latencyMs: 1, detail: "timeout" }
+      : { outcome: "ok", latencyMs: 1 }) });
+    const { report } = await h.run({});
+    const parsed = cloudVmHealthSchema.parse({ snapshot: { id: "s", createdAt: report.generatedAt, ageSeconds: 1, stale: false }, report, owners: {} });
+    expect(parsed.report?.hung[0]?.vmId).toBe("vm-hung");
+  });
+});
+
 describe("GET /api/cron/vm-health", () => {
   const previousSecret = process.env.CRON_SECRET;
   beforeEach(() => {
@@ -197,7 +239,7 @@ describe("GET /api/cron/vm-health", () => {
     const alerts: Array<{ hung: number; pageUrl: string | null }> = [];
     const started = performance.now();
     const response = await handleVmHealthCron(cronRequest("test-cron-secret"), {
-      sweep: (options) => h.run(options).then((result) => ({ ...result, pruned: 0 })),
+      sweep: (options) => h.run(options).then((result) => ({ ...result, storeError: null, pruned: 0 })),
       alert: async (report, pageUrl) => {
         alerts.push({ hung: report.hung.length, pageUrl });
         return "sent";
@@ -216,6 +258,21 @@ describe("GET /api/cron/vm-health", () => {
     expect(h.forbiddenCalls).toEqual([]);
     // The cron response carries counts, never VM owners.
     expect(JSON.stringify(body)).not.toContain("user-");
+  });
+
+  test("a failed snapshot store answers 500 after alerting", async () => {
+    const h = harness({ vms: [vm("vm-1")], probe: () => Effect.succeed({ outcome: "hung", latencyMs: 1, detail: "timeout" }) });
+    let alerted = 0;
+    const response = await handleVmHealthCron(cronRequest("test-cron-secret"), {
+      sweep: (options) => h.run(options).then((result) => ({ ...result, snapshotId: null, storeError: "VmDatabaseError insertVmHealthSnapshot", pruned: 0 })),
+      alert: async () => {
+        alerted += 1;
+        return "sent";
+      },
+      env: {},
+    });
+    expect(response.status).toBe(500);
+    expect(alerted).toBe(1);
   });
 
   test("operator budget overrides are capped inside the route's maxDuration", async () => {

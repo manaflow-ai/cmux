@@ -89,6 +89,24 @@ describe("vm health alert", () => {
     expect(sent).toHaveLength(2);
   });
 
+  test("a blind sweep never clears a live alert", async () => {
+    const { state, store } = memoryStore();
+    const send = async () => ({ sent: true, configured: true });
+    const lastSentAt = async () => state.lastSentAt;
+    const at = (minutes: number) => new Date(Date.UTC(2026, 9, 12, 12, minutes));
+    await deliverVmHealthAlert(hungReport, { now: at(0), store, send, lastSentAt });
+    const blind = [
+      report({ errors: [{ stage: "inventory", message: "503" }], coverage: { ...report().coverage, inventoryComplete: false } }),
+      report({ coverage: { ...report().coverage, skippedBudget: 30 } }),
+    ];
+    for (const sweep of blind) {
+      expect(await deliverVmHealthAlert(sweep, { now: at(120), store, send, lastSentAt })).toBe("none");
+    }
+    expect(state.clears).toBe(0);
+    expect(await deliverVmHealthAlert(report(), { now: at(125), store, send, lastSentAt })).toBe("none");
+    expect(state.clears).toBe(1);
+  });
+
   test("a failing alert path never fails the sweep", async () => {
     const { store } = memoryStore();
     const outcome = await deliverVmHealthAlert(hungReport, {

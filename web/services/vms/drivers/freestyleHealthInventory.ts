@@ -6,6 +6,7 @@ import type {
   ProviderVmInventory,
   VmControlProbe,
 } from "../health/types";
+import { sanitizeDetail } from "../health/sanitize";
 import type { VmHealthInventory } from "./types";
 
 /**
@@ -18,7 +19,6 @@ const PAGE_SIZE = 100;
 /** 50 pages covers 5000 VMs or rules; past that the listing reports itself partial. */
 const MAX_PAGES = 50;
 const LIST_REQUEST_TIMEOUT_MS = 20_000;
-const DETAIL_MAX_LENGTH = 200;
 
 type ClientFactory = (timeoutMs?: number, signal?: AbortSignal) => Freestyle;
 
@@ -45,7 +45,9 @@ async function listAccountVms(client: ClientFactory, options: ListOptions): Prom
       vms.push(inventoryVm(vm));
     }
     if (result.vms.length < PAGE_SIZE || (page + 1) * PAGE_SIZE >= result.totalCount) {
-      return { vms, complete: true };
+      // A delete during offset paging shifts a VM onto a page already read;
+      // a short count means some VM was never seen, so missing is unknown.
+      return { vms, complete: seen.size >= result.totalCount };
     }
   }
   return { vms, complete: false };
@@ -69,16 +71,24 @@ export function inventoryVm(vm: VmData): ProviderInventoryVm {
 
 async function listAccountTlsRules(client: ClientFactory, options: ListOptions): Promise<ProviderTlsRuleInventory> {
   const rules: ProviderTlsRuleRef[] = [];
-  let totalCount = 0;
+  const seen = new Set<string>();
+  let totalCount: number | null = null;
   for (let page = 0; page < MAX_PAGES; page += 1) {
-    if (Date.now() >= options.deadlineAtMs) return { totalCount, rules, complete: false };
+    if (Date.now() >= options.deadlineAtMs) break;
     const result = await client(LIST_REQUEST_TIMEOUT_MS, options.signal).tls.rules.list({ limit: PAGE_SIZE, offset: page * PAGE_SIZE });
     totalCount = result.totalCount;
-    rules.push(...result.rules.map(tlsRuleRef));
-    if (result.rules.length < PAGE_SIZE || rules.length >= totalCount) {
-      return { totalCount, rules, complete: true };
+    for (const rule of result.rules) {
+      // Newest-first paging repeats a rule when one is created mid-walk.
+      if (seen.has(rule.id)) continue;
+      seen.add(rule.id);
+      rules.push(tlsRuleRef(rule));
+    }
+    if (result.rules.length < PAGE_SIZE || (page + 1) * PAGE_SIZE >= result.totalCount) {
+      return { totalCount: result.totalCount, rules, complete: seen.size >= result.totalCount };
     }
   }
+  // No page at all is a failed read, not an account with zero rules.
+  if (totalCount === null) throw new Error("TLS rule listing ran out of time before its first page");
   return { totalCount, rules, complete: false };
 }
 
@@ -97,6 +107,13 @@ export function tlsRuleRef(rule: TlsRuleData): ProviderTlsRuleRef {
   return { id: rule.id, managed: rule.managed === true, vmIds: [...vmIds], vpcIds: [...vpcIds] };
 }
 
+/**
+ * One bounded control-path probe. The VM's state is re-read first with a plain
+ * GET that never wakes it: the inventory can be minutes old by the time a
+ * probe runs, and a file system call on a VM paused since then would resume
+ * it. A failed state read is a probe error (the API, not the VM, is in
+ * trouble), so a provider outage is never reported as a fleet of hung VMs.
+ */
 async function probeControl(
   client: ClientFactory,
   vmId: string,
@@ -105,29 +122,40 @@ async function probeControl(
   const started = Date.now();
   const timeout = AbortSignal.timeout(options.timeoutMs);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  const api = client(options.timeoutMs, signal);
+  const elapsed = () => Date.now() - started;
+  let stateResponse: Response;
+  try {
+    stateResponse = await api.fetch(`/v5/vms/${encodeURIComponent(vmId)}`, { method: "GET", signal });
+  } catch (error) {
+    return { outcome: "error", latencyMs: elapsed(), detail: sanitizeDetail(`state read: ${timeout.aborted ? "timeout" : errorName(error)}`) };
+  }
+  if (stateResponse.status === 404) return { outcome: "gone", latencyMs: elapsed() };
+  if (!stateResponse.ok) return { outcome: "error", latencyMs: elapsed(), detail: `state read: ${await errorDetail(stateResponse)}` };
+  const state = await stateResponse.json().then((body: unknown) => (body as { state?: unknown })?.state).catch(() => undefined);
+  if (state !== "running") return { outcome: "not_running", latencyMs: elapsed() };
   let response: Response;
   try {
-    response = await client(options.timeoutMs, signal).fetch(
-      `/v5/vms/${encodeURIComponent(vmId)}/fs/stat?path=${encodeURIComponent("/")}`,
-      { method: "GET", signal },
-    );
+    response = await api.fetch(`/v5/vms/${encodeURIComponent(vmId)}/fs/stat?path=${encodeURIComponent("/")}`, { method: "GET", signal });
   } catch (error) {
-    const latencyMs = Date.now() - started;
-    if (timeout.aborted) return { outcome: "hung", latencyMs, detail: `timeout after ${options.timeoutMs}ms` };
-    return { outcome: "error", latencyMs, detail: sanitizeDetail(error instanceof Error ? error.name : "fetch_failed") };
+    if (timeout.aborted) return { outcome: "hung", latencyMs: elapsed(), detail: `timeout after ${options.timeoutMs}ms` };
+    return { outcome: "error", latencyMs: elapsed(), detail: sanitizeDetail(errorName(error)) };
   }
-  const latencyMs = Date.now() - started;
   if (response.ok) {
     await response.body?.cancel().catch(() => undefined);
-    return { outcome: "ok", latencyMs };
+    return { outcome: "ok", latencyMs: elapsed() };
   }
-  if (response.status === 404) return { outcome: "gone", latencyMs };
+  if (response.status === 404) return { outcome: "gone", latencyMs: elapsed() };
   const detail = await errorDetail(response);
-  // 409 is the stale-runtime conflict seen in the incident; 5xx and 504 are a
-  // provider that took the request and could not reach the VM. 401, 403 and
-  // 429 say nothing about the VM, so they are probe errors, not hangs.
-  if (response.status === 409 || response.status >= 500) return { outcome: "hung", latencyMs, detail };
-  return { outcome: "error", latencyMs, detail };
+  // 409 is the stale-runtime conflict seen in the incident; 5xx is a provider
+  // that reached for the VM and could not get an answer. 401, 403 and 429 say
+  // nothing about the VM, so they are probe errors, not hangs.
+  if (response.status === 409 || response.status >= 500) return { outcome: "hung", latencyMs: elapsed(), detail };
+  return { outcome: "error", latencyMs: elapsed(), detail };
+}
+
+function errorName(error: unknown): string {
+  return error instanceof Error ? error.name : "fetch_failed";
 }
 
 async function errorDetail(response: Response): Promise<string> {
@@ -136,16 +164,6 @@ async function errorDetail(response: Response): Promise<string> {
   const code = typeof record.code === "string" ? record.code : "";
   const message = typeof record.message === "string" ? record.message : "";
   return sanitizeDetail([`${response.status}`, code, message].filter(Boolean).join(" "));
-}
-
-/** Provider prose only, bounded, with anything token-shaped removed. */
-export function sanitizeDetail(text: string): string {
-  return text
-    .replace(/\b(bearer|token|key|secret)[=:\s]+\S+/gi, "$1=[redacted]")
-    .replace(/\b[A-Za-z0-9_-]{32,}\b/g, "[redacted]")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, DETAIL_MAX_LENGTH);
 }
 
 function finiteOrNull(value: number | null | undefined): number | null {
