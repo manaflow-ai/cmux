@@ -48,10 +48,7 @@ public struct ControlPeerClient {
         defer { close(descriptor) }
         var timeout = timeval(tv_sec: timeoutMilliseconds / 1_000,
                               tv_usec: Int32(clamping: (timeoutMilliseconds % 1_000) * 1_000))
-        // A peer that closes mid-write must fail the write, not end the app with SIGPIPE.
-        var noSigPipe: Int32 = 1
-        guard setsockopt(descriptor, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size)) == 0,
-              setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0,
+        guard setsockopt(descriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0,
               setsockopt(descriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size)) == 0 else {
             throw Failure.socket(String(cString: strerror(errno)))
         }

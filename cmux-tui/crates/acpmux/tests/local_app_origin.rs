@@ -59,7 +59,7 @@ impl Daemon {
             .env("ACPMUX_HOME", &self.home)
             .env("ACPMUX_SOCKET", self.home.join("s.sock"))
             .env_remove("ACPMUX_AGENT_HOSTS")
-            .env_remove("ACPMUX_LOGIN_ENV")
+            .env("ACPMUX_LOGIN_ENV", "0")
             .env_remove("XPC_SERVICE_NAME")
             .envs(self.env.iter().copied())
             .stdin(Stdio::null())

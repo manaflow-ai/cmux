@@ -83,7 +83,6 @@ import Testing
         await settle { harness.scope.backdropSelection == .art(.daily(on: today)) }
         let tomorrow = BackdropArt.nextDay(after: today).addingTimeInterval(60)
         harness.terminal.now = { tomorrow }
-        // global-notice-allow: the system's clock-change notice, which the theme observes on .default; posted on the main actor, in a serialized suite.
         NotificationCenter.default.post(name: .NSSystemClockDidChange, object: nil)
         await settle { harness.scope.backdropSelection == .art(.daily(on: tomorrow)) }
         #expect(harness.scope.backdropSelection == .art(.daily(on: tomorrow)))

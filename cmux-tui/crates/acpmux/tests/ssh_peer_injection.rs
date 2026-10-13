@@ -48,7 +48,7 @@ fn start(tag: &str, peers: Value) -> Daemon {
         ])
         .env("ACPMUX_HOME", &home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
-        .env_remove("ACPMUX_LOGIN_ENV")
+        .env("ACPMUX_LOGIN_ENV", "0")
         .env_remove("XPC_SERVICE_NAME")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

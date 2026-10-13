@@ -737,12 +737,27 @@ picking one starts the session there. Peers reconnect with backoff, the tunnel i
 one is down its sessions show `unreachable`, and a purge on either side removes the session
 everywhere. Peers are saved in `config.json` under `peers`.
 
-A remote daemon needs a working harness. launchd starts the daemon with a bare environment, so
-the daemon reads the login shell's environment once at start (`zsh -lic env`) and fills in
-what launchd left out: PATH, `ANTHROPIC_*` proxies, tool settings. The same `claude` that works
-in an ssh shell then works under the daemon. `ACPMUX_LOGIN_ENV=0` in the plist turns this off,
-`=1` forces it for a daemon started by hand. Claude Code keeps its login in the macOS keychain,
-so on a headless Mac without an API proxy run `claude` once in a terminal and log in. A
+A daemon needs a working harness. launchd, the app, the Chief and a non-login ssh shell start the
+daemon with a bare environment, so every daemon reads the login shell's environment
+(`$SHELL -l -i -c env -0`, no terminal, at most 3 s) and passes on only an allow-list of what its
+own environment lacks. Every child: PATH (login PATH first), MISE_*, ASDF_*, NVM_*, VOLTA_*,
+BUN_INSTALL, HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY (both cases),
+NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR. Claude harnesses also: ANTHROPIC_*, CLAUDE_*,
+DISABLE_*, *_TELEMETRY; AWS_* only with the person's own CLAUDE_CODE_USE_BEDROCK (a profile's switch unlocks only AWS_PROFILE, AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE, AWS_SHARED_CREDENTIALS_FILE); GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION, VERTEX_REGION_* (non-secret ones only from a profile's switch) only
+with CLAUDE_CODE_USE_VERTEX. Codex harnesses also: OPENAI_*, CODEX_*. Nothing else (GITHUB_TOKEN,
+GH_TOKEN, NPM_TOKEN, ...) unless `loginEnvAllow` in config.json names it (exact names or `PREFIX_*`;
+default empty). A daemon started inside a Claude Code session drops that session's `CLAUDE*` and
+`ANTHROPIC_*` keys from its agents and gives them the login shell's values instead, within the
+same allow-list. Precedence: profile, preset and session env, then the daemon's own environment,
+then the login shell's.
+`<ACPMUX_HOME>/login-env.json` (0600) caches the result by a fingerprint of the shell's startup
+files: non-secret values and the names of secret ones (their values stay in memory), so a start
+with a matching cache and no secret to fetch never runs the shell, and agent spawns wait for the
+shell (at most 3 s) only when Claude has no sign-in without it. `ACPMUX_LOGIN_ENV=0` turns this
+off. Claude Code keeps its login in the macOS keychain, so on a headless Mac without an API proxy
+run `claude` once in a terminal and log in. A Claude turn that fails because Claude is not signed
+in says what the agent had, how the terminal signs in (the Claude home, keys, settings files,
+keychain) and the fix, ending with Claude's own words. A
 discovered `claude-cr` or `claude-sr` launcher is checked at daemon start (`--version`) and
 dropped, with a log line, when the installed CLI cannot run it; `claude` then has no
 fallback instead of failing over into a launcher that dies at once. When a subrouter server is
@@ -901,7 +916,7 @@ newMessageId}` before the redelivery. Other harnesses send no such signal.
 
 The daemon binds its socket and `--listen` address (`127.0.0.1:0` picks a free port) before it
 imports the login shell environment, so `_acpmux/status` answers at once; session creation waits
-for the import. `daemon run --ready-fd N` writes `{"ready":true,"pid","socket","listen","webUrl"}`
+for the import only when it must (see above), at most 3 s. `daemon run --ready-fd N` writes `{"ready":true,"pid","socket","listen","webUrl"}`
 to descriptor N when bound. SIGTERM (even when the launcher left it blocked) sends SIGTERM to every agent's process
 group, SIGKILL after 2 s, saves sessions and exits within 5 s.
 `acpmux daemon schema` prints the full RPC schema.
