@@ -1,6 +1,7 @@
 #if os(iOS)
 import CnxDesign
 import CnxModel
+import CnxTerminal
 import SwiftUI
 
 /// Leading toolbar item every root tab shares: the hamburger that opens the team sidebar.
@@ -141,6 +142,14 @@ struct WorkspaceDetailPlaceholder: View {
 
     var body: some View {
         let tab = store.openingTab(for: workspace)
+        if let tab, tab.kind == .terminal {
+            TerminalScreen(mockTitle: tab.title)
+        } else {
+            placeholder(tab)
+        }
+    }
+
+    private func placeholder(_ tab: WorkspaceTab?) -> some View {
         ContentUnavailableView(tab?.title ?? workspace.title, systemImage: tab?.systemImage ?? "square.stack", description: Text(tab?.subtitle ?? ""))
             .navigationTitle(workspace.title)
             .navigationBarTitleDisplayMode(.inline)
