@@ -678,8 +678,11 @@ extension DockSplitStore {
            relevantObservation == nil,
            confirmedRuntimeIdentities.isEmpty {
             // An incomplete index (for example the cached index a quit
-            // falls back to) may predate this session (#20186).
-            return observationIsAuthoritative ? false : nil
+            // falls back to) may predate this session (#20186). A shell
+            // back at its prompt still shows the agent has exited.
+            guard !observationIsAuthoritative,
+                  terminal.shellActivity.state != .promptIdle else { return false }
+            return nil
         }
         if restorableAgent?.resumeCommand == nil,
            terminal.shellActivity.state == .commandRunning {
