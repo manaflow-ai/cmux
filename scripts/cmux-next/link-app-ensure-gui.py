@@ -205,9 +205,11 @@ try:
     # machine list starts it), the link stops behind the app's back, and the
     # app's own ensure starts it again and tells the daemon on its verified
     # connection, which answers how many app servers it told.
-    listed = rpc("cloud.machines")
-    record("the Cloud app server answers the machine list", isinstance(listed, dict) and "error" not in listed,
-           json.dumps(listed)[:200])
+    # The app's own daemon connection must be up before its call can pass:
+    # the machine list says so (`last_error` names a missing connection).
+    listed = wait(lambda: (lambda m: m if isinstance(m, dict) and "error" not in m and not m.get("last_error") else None)(rpc("cloud.machines")), 120, 2) or rpc("cloud.machines")
+    record("the Cloud app server answers the machine list on a connected daemon",
+           isinstance(listed, dict) and "error" not in listed and not listed.get("last_error"), json.dumps(listed)[:200])
     record("the link stops behind the app (CLI link stop)", link("stop").get("stopped") is True, "")
     report = rpc("debug.cloud.link_ensure", timeout=60) or {}
     changed = report.get("link_changed") or {}
