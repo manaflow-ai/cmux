@@ -780,23 +780,18 @@ impl WorkspaceRegistry {
                 params![session, key, next_workspace_position(tx)?],
             )?;
         }
-        if let Some(group) = &update.group {
-            tx.execute(
-                "UPDATE personal_workspaces SET group_id = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
-                params![session, key, group],
-            )?;
-        }
-        if let Some(browser) = &update.browser_profile_id {
-            tx.execute(
-                "UPDATE personal_workspaces SET browser_profile_id = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
-                params![session, key, browser],
-            )?;
-        }
-        if let Some(theme) = &update.theme {
-            tx.execute(
-                "UPDATE personal_workspaces SET theme = ?3 WHERE session_id = ?1 AND workspace_key = ?2",
-                params![session, key, theme],
-            )?;
+        let columns: [(&str, Option<&dyn rusqlite::ToSql>); 4] = [
+            ("group_id", update.group.as_ref().map(|value| value as _)),
+            ("browser_profile_id", update.browser_profile_id.as_ref().map(|value| value as _)),
+            ("theme", update.theme.as_ref().map(|value| value as _)),
+            ("remote_localhost", update.remote_localhost.as_ref().map(|value| value as _)),
+        ];
+        for (column, value) in columns {
+            let Some(value) = value else { continue };
+            let sql = format!(
+                "UPDATE personal_workspaces SET {column} = ?3 WHERE session_id = ?1 AND workspace_key = ?2"
+            );
+            tx.execute(&sql, params![session, key, value])?;
         }
         if let Some(index) = update.index {
             Self::move_personal_row_in(tx, session, key, index)?;

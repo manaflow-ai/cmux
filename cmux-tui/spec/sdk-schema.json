@@ -19821,6 +19821,20 @@
       "presence": "optional",
       "nullable": true,
       "default": null
+     },
+     "remote_localhost": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null,
+      "since": 12,
+      "capability": "personal-remote-localhost-v1",
+      "constraints": [
+       "The workspace's own remote-localhost choice; null follows the app's browser.remoteLocalhost setting."
+      ]
      }
     },
     "additional_properties": false
