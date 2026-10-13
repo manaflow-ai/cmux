@@ -149,13 +149,14 @@ public final class ScrollEdgeFadeView: NSView {
         guard let layer else { return }
         observeDocument(scrollView.documentView)
         let next = Self.hiddenEdges(of: scrollView)
-        let fade = min(Metrics.scrollEdgeFade / max(layer.bounds.height, 1), CGFloat(ChromeTunables.scrollFadeMaxFraction.value))
+        let fade = min(Metrics.scrollEdgeFade / max(bounds.height, 1), CGFloat(ChromeTunables.scrollFadeMaxFraction.value))
         // The mask follows the view's bounds: in a layout that animates them (a band resizing
         // with its rows, cx-y2uf5) it animates with them, else it never animates.
         CATransaction.begin()
         CATransaction.setDisableActions(!NSAnimationContext.current.allowsImplicitAnimation)
         if layer.mask !== fadeMask { layer.mask = fadeMask }
-        fadeMask.frame = layer.bounds
+        // The view's size, not the layer's: AppKit hands the layer its new size later, outside the animation.
+        fadeMask.frame = CGRect(origin: .zero, size: bounds.size)
         // Gradient location 0 is the list's top on screen.
         let top: CGFloat = Self.rendersTopDown(layer) ? 0 : 1
         fadeMask.startPoint = CGPoint(x: 0.5, y: top)
