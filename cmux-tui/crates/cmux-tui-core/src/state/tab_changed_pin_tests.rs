@@ -57,5 +57,9 @@ fn a_tab_changed_delta_in_flight_during_a_pin_reports_the_tab_pinned() {
         }
     }
     let last = last.expect("no tab-changed delta for the tab");
-    assert_eq!(last["pinned"], json!(true), "the last tab-changed delta has the tab unpinned: {last}");
+    assert_eq!(
+        last["pinned"],
+        json!(true),
+        "the last tab-changed delta has the tab unpinned: {last}"
+    );
 }

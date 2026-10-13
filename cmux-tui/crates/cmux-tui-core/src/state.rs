@@ -56,8 +56,6 @@ pub(crate) mod layout_bulk;
 mod layout_bulk_tests;
 #[cfg(test)]
 mod mixed_order_tests;
-#[cfg(test)]
-mod tab_changed_pin_tests;
 pub(crate) mod palette_usage;
 pub(crate) mod palette_usage_ops;
 #[cfg(test)]
@@ -83,6 +81,8 @@ pub(crate) mod router;
 mod screen_group_icon_tests;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
+#[cfg(test)]
+mod tab_changed_pin_tests;
 pub(crate) use cmux_layout_reducer::sidebar_layout;
 pub(crate) mod sidebar_layout_ops;
 #[cfg(test)]
