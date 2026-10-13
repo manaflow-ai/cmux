@@ -52,6 +52,15 @@ nonisolated enum AcpmuxPaneMethods {
         // `archived` tag: never `_acpmux/tag`, which may set any tag (the handoff target among
         // them). The app's tab close stays a host call (`pane.action closeTab`).
         "_acpmux/archive", "_acpmux/markUnread",
+        // This Mac's agent CLI health for the chat notice and the Harnesses page (direct.ts
+        // harnessHealth, cx-jlzsf): `refresh` runs the configured harnesses' version and sign-in
+        // checks (and the auto-updates the person opted into), as acpmux does every few hours;
+        // `rescan` has acpmux look on PATH and in its profiles again first (after an install from
+        // the page); never `checkLatest` or `autoUpdate` (that choice turns updates on).
+        "_acpmux/harness/health",
+        // New side chat (direct.ts markSide, cx-jlzsf): tags the fork the pane made (in its scope)
+        // `side` with its chat; only that tag, never `_acpmux/tag`.
+        "_acpmux/side",
     ]
 
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.
@@ -188,8 +197,12 @@ nonisolated enum AcpmuxPaneMethods {
     public static let sessionScoped: Set<String> = [
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/ask", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
-        "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread",
+        "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side",
     ]
+
+    /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
+    /// side chat names the chat it is beside (cx-jlzsf).
+    public static let scopedSessionParams: [String: Set<String>] = ["_acpmux/side": ["chat"]]
 
     /// The folder trust question may name its chat (`sessionId`, so acpmux asks the chat's peer):
     /// a named session must be in the pane's scope (``sessionScoped``'s rule); none is fine.

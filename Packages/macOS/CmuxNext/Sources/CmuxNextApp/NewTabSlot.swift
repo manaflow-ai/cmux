@@ -1,6 +1,6 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
-import Observation
 import CmuxNextWakeups
 
 /// Where a new tab the user opens goes (cx-d0d.58). As in Chrome and Edge,
@@ -75,7 +75,7 @@ enum NewTabSlot {
         let locate = { @MainActor () -> (TabModel, PaneModel)? in pane().flatMap { pane in find(pane).map { ($0, pane) } } }
         services.registry.track(Task { @MainActor in
             let listed = Task { @MainActor () -> Bool in
-                for await found in Observations({ locate() != nil }) where found { return true }
+                for await found in ObservationStream({ locate() != nil }) where found { return true }
                 return false
             }
             let bound = DemandTimer(owner: "NewTabSlot.listed")

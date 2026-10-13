@@ -427,6 +427,20 @@ export class MockAcpmuxSocket {
         this.touch(target, { tags, archived: undefined }, false);
         return this.sessions.find((session) => session.sessionId === target);
       }
+      case "_acpmux/side": {
+        if (
+          !this.sessions.some((session) => session.sessionId === target) ||
+          !this.sessions.some((session) => session.sessionId === params.chat) ||
+          params.chat === target
+        )
+          throw Object.assign(new Error("not a side chat"), { code: -32602 });
+        const entry = this.sessions.find((session) => session.sessionId === target)!;
+        this.touch(target, { tags: { ...(entry.tags && !Array.isArray(entry.tags) ? entry.tags : {}), side: String(params.chat) } }, false);
+        return this.sessions.find((session) => session.sessionId === target);
+      }
+      // This Mac's agent CLIs as last checked: every listed harness signed in.
+      case "_acpmux/harness/health":
+        return { harnesses: harnesses.map((harness) => ({ id: harness.id, auth: "signedIn" })) };
       case "_acpmux/markUnread":
         if (!this.sessions.some((session) => session.sessionId === target))
           throw Object.assign(new Error("no such session"), { code: -32001 });
