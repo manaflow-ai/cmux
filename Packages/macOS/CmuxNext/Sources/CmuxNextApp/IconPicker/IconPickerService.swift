@@ -27,7 +27,7 @@ final class IconPickerService {
         let panel: IconPickerPanel
         let provider: IconPickerProvider
         let page: PageWebView
-        /// `workspace:<id>`, `screen:<id>`, `screenGroup:<id>`, `tabGroup:<id>`, `space:<id>`, `browserProfile:<id>`.
+        /// `workspace:<id>`, `screen:<id>`, `screenGroup:<id>`, `tabGroup:<id>`, `space:<id>`, `browserProfile:<id>`, `machine:<id>`.
         let target: String
         /// The anchor in screen coordinates.
         let anchor: NSRect

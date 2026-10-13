@@ -202,3 +202,52 @@ fn only_the_programs_own_report_says_working_then_done() {
     assert_eq!(status.len(), 1, "done survives the prompt: {extra}");
     assert_eq!(status[0]["state"], "done", "{extra}");
 }
+
+/// Waits until the daemon's agent record is in `state`.
+fn wait_for_agent_state(harness: &RecoveryHarness, state: &str) -> serde_json::Value {
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let agents = request(&harness.socket, serde_json::json!({"id": 3, "cmd": "list-agents"}));
+        if agents["agents"].as_array().into_iter().flatten().any(|agent| agent["state"] == state) {
+            return agents;
+        }
+        assert!(Instant::now() < deadline, "the agent never became {state}: {agents}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn an_agent_hook_turn_is_working_then_waiting_then_idle() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("command-activity-agent");
+    let helper = env!("CARGO_BIN_EXE_cmux-tui");
+    // Claude Code runs its hooks in the terminal it works in, with the
+    // event's JSON on stdin.
+    let hook = |event: &str, extra: &str| {
+        format!(
+            "printf '%s' '{{\"session_id\":\"activity-1\",\"hook_event_name\":\"{event}\",\
+             \"cwd\":\"/tmp\"{extra}}}' | '{helper}' __agent-hook claude {event}; "
+        )
+    };
+    let script = format!(
+        "[ -n \"$CMUX_TUI_TERMINAL_ID\" ] && printf 'agent\\r\\n'; read step; {}\
+         printf 'turn\\r\\n'; read step; {}printf 'asked\\r\\n'; read step; {}\
+         printf 'done\\r\\n'; sleep 600",
+        hook("UserPromptSubmit", ",\"prompt\":\"hi\""),
+        hook("PermissionRequest", ",\"tool_name\":\"Bash\""),
+        hook("Stop", ""),
+    );
+    let (surface, _) = run_script(&harness, "command-activity-agent", &script, "agent");
+
+    step(&harness, surface);
+    assert!(wait_for_screen(&harness.socket, surface, "turn").contains("turn"));
+    wait_for_agent_state(&harness, "working");
+    let extra = terminal_extra(&harness);
+    assert!(extra.get("activity").is_none(), "the agent's state, not a command: {extra}");
+
+    step(&harness, surface);
+    wait_for_agent_state(&harness, "blocked");
+
+    step(&harness, surface);
+    wait_for_agent_state(&harness, "idle");
+}

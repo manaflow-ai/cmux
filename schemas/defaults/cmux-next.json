@@ -507,7 +507,7 @@
     "setting.sidebar.workspaceRow.terminal.tabCount": null,
     "setting.sidebar.workspaceRow.terminal.working": null,
     "setting.sidebar.workspaceRow.working": true,
-    "setting.status.inferCommandBusy": true,
+    "setting.status.inferCommandBusy": false,
     "setting.status.inferCommandBusyAfter": 3,
     "setting.status.runNotifyMinimumSeconds": 10,
     "setting.status.runNotifyWhenVisible": false,
