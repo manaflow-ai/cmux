@@ -1769,6 +1769,7 @@ export function VirtualTranscript({
   const jumpToLatest = (focused: boolean) => {
     const node = ref.current;
     if (!node) return;
+    follow(true);
     if (focused) focusComposer?.();
     const reduce = globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const target = Math.max(0, layout.totalHeight - node.clientHeight);
