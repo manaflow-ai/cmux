@@ -301,10 +301,12 @@ struct ShellView: View {
     /// which ignores it outside DEBUG builds.
     @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnlyPreference = false
     private let options: ShellLaunchOptions
+    /// RootView's coordinator; it can arrive after the shell is built.
+    private let live: LiveCoordinator?
 
     init(store: AppStore, auth: CnxAuthModel, settings: SettingsStore, sidebar: SidebarModel, live: LiveCoordinator?, options: ShellLaunchOptions) {
         let shell = ShellModel(store: store, auth: auth, settings: settings, sidebar: sidebar)
-        shell.live = live
+        shell.attach(live: live)
         if let tab = options.initialTab.flatMap(RootTab.init(rawValue:)) { shell.tab = tab }
         if let page = options.settingsPage.flatMap(SettingsRoute.init(name:)) {
             shell.tab = .settings
@@ -312,6 +314,7 @@ struct ShellView: View {
         }
         _shell = State(initialValue: shell)
         self.options = options
+        self.live = live
     }
 
     var body: some View {
@@ -356,24 +359,16 @@ struct ShellView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { shell.live?.foreground() }
         }
+        .onChange(of: live.map(ObjectIdentifier.init)) { _, _ in
+            shell.attach(live: live)
+        }
         .task {
-            startLive()
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
             await DebugLaunch.run(selectTab: { shell.tab = $0 })
             #endif
         }
-    }
-}
-
-extension ShellView {
-    /// Live data (started by `RootView` at sign-in) backs terminal tabs and new workspaces.
-    @MainActor
-    private func startLive() {
-        guard let live = shell.live else { return }
-        shell.terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
-        shell.creator.backend = LiveWorkspaceCreationBackend(sync: live.workspaces, link: live.link)
     }
 }
 

@@ -16,6 +16,12 @@ private let log = Logger(subsystem: "dev.cmux.cnx", category: "terminal")
 /// - Size: `resize-surface {surface, cols, rows}` with the phone's TUI grid.
 ///
 /// The alternate screen flag is derived from the bytes (no event carries it).
+///
+/// A channel that ends without `detached` is a dropped link (background,
+/// transport switch, Mac restart), not the end of the terminal: the session
+/// waits, and ``reconnect()`` (the coordinator calls it on every new link)
+/// attaches again, resetting the mirror before the replay and restoring the
+/// size.
 @MainActor
 public final class DaemonTerminalSession: TerminalSession {
     public let surface: Int
@@ -38,7 +44,16 @@ public final class DaemonTerminalSession: TerminalSession {
     }
     private var draining = false
     private var pendingSize: (columns: Int, rows: Int)?
+    /// The grid last asked for, put back after a reattach.
+    private var lastSize: (columns: Int, rows: Int)?
     private var attached = false
+    private var attaching = false
+    /// The mirror has content from an earlier attach: reset it before a replay.
+    private var hasAttachedBefore = false
+    /// The daemon said the surface is gone (`detached`): never reattach.
+    private var ended = false
+    /// Attached to the surface now.
+    public var isAttached: Bool { attached }
 
     /// `open` returns a client on a fresh `daemon` channel to the Mac.
     public init(surface: Int, programName: String = "zsh", open: @escaping @Sendable () async throws -> DaemonClient) {
@@ -60,6 +75,7 @@ public final class DaemonTerminalSession: TerminalSession {
 
     public func resize(columns: Int, rows: Int) {
         guard columns > 0, rows > 0 else { return }
+        lastSize = (columns, rows)
         if attached {
             enqueue(.size(columns: columns, rows: rows))
         } else {
@@ -75,29 +91,50 @@ public final class DaemonTerminalSession: TerminalSession {
         outbox.removeAll()
     }
 
+    /// Attaches again after a dropped link. A no-op while attached or
+    /// attaching, before `start`, and after the surface ended.
+    public func reconnect() {
+        guard handler != nil, !attached, !attaching, !ended else { return }
+        Task { await attach() }
+    }
+
     // MARK: Attach
 
     private func attach() async {
+        guard !attaching else { return }
+        attaching = true
+        defer { attaching = false }
         do {
             let client = try await open()
             guard handler != nil else { return }
             self.client = client
             await client.start()
             let events = client.events
+            eventTask?.cancel()
             eventTask = Task { [weak self] in
                 for await line in events {
                     guard let self else { return }
                     self.handle(line)
                 }
-                self?.ended(reason: nil)
+                self?.channelEnded(client)
             }
             _ = try? await client.request("identify")
+            if hasAttachedBefore {
+                // The replay that follows rebuilds the screen and scrollback.
+                detector = AlternateScreenDetector()
+                setAlternate(false)
+                handler?(.output(Data("\u{1B}c".utf8)))
+            }
             let reply = try await client.request("attach-surface", params: ["surface": surface])
             if let error = Self.error(in: reply) { throw LinkError(code: "attach", message: error) }
+            guard self.client === client else { return }
             attached = true
-            if let size = pendingSize {
-                pendingSize = nil
-                enqueue(.size(columns: size.columns, rows: size.rows))
+            hasAttachedBefore = true
+            lastError = nil
+            pendingSize = nil
+            if let size = lastSize {
+                outbox.removeAll { if case .size = $0 { true } else { false } }
+                outbox.insert(.size(columns: size.columns, rows: size.rows), at: 0)
             }
             drain()
         } catch {
@@ -105,6 +142,17 @@ public final class DaemonTerminalSession: TerminalSession {
             log.error("attach surface \(self.surface): \(String(describing: error), privacy: .public)")
             emitText("\r\n\u{1B}[2m[\(lastError ?? "Can't attach to this terminal")]\u{1B}[0m\r\n")
         }
+    }
+
+    /// The channel ended. After `detached` that is the end; otherwise the link
+    /// dropped and the session waits for ``reconnect()``.
+    private func channelEnded(_ client: DaemonClient) {
+        guard self.client === client else { return }
+        self.client = nil
+        attached = false
+        draining = false
+        guard handler != nil, !ended else { return }
+        log.info("surface \(self.surface): link dropped, waiting to reattach")
     }
 
     /// One event line from the daemon channel (attach stream events for this surface).
@@ -153,7 +201,8 @@ public final class DaemonTerminalSession: TerminalSession {
     }
 
     private func ended(reason: String?) {
-        guard handler != nil else { return }
+        guard handler != nil, !ended else { return }
+        ended = true
         emitText("\r\n\u{1B}[2m[Detached\(reason.map { ": \($0)" } ?? "")]\u{1B}[0m\r\n")
         handler?(.exited(code: 0))
         attached = false
@@ -171,7 +220,8 @@ public final class DaemonTerminalSession: TerminalSession {
         draining = true
         let next = outbox.removeFirst()
         let surface = surface
-        Task {
+        Task { [weak self] in
+            guard let self else { return }
             do {
                 let cmd: String
                 let reply: Data

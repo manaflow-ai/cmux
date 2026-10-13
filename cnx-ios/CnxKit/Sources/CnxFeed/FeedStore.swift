@@ -92,6 +92,8 @@ public enum FeedFilter: String, CaseIterable, Hashable, Sendable {
 public protocol FeedActions: AnyObject {
     func answer(_ item: FeedItem, question: AgentQuestion, with answer: AgentQuestionAnswer) async throws
     func respond(_ item: FeedItem, request: ACPPermissionRequest, option: ACPPermissionOption) async throws
+    /// Declines a question: the one reply a phone can always send.
+    func decline(_ item: FeedItem, question: AgentQuestion) async throws
     /// Display copy for a refused answer.
     func message(for error: any Error) -> String
 }
@@ -205,6 +207,34 @@ public final class FeedStore {
             return
         }
         applyAnswer(id, answer: answer)
+    }
+
+    /// Declines a pending question (the agent continues without an answer).
+    public func decline(_ id: String) {
+        guard let item = item(id: id), case .question(let question) = item.kind, question.isPending else { return }
+        let attempt = item.attempt + 1
+        mutate(id) {
+            $0.error = nil
+            $0.attempt = attempt
+            var declined = question
+            declined.state = .cancelled
+            $0.kind = .question(declined)
+            $0.resolution = "Declined"
+            $0.isRead = true
+        }
+        guard let actions else { return }
+        Task {
+            do {
+                try await actions.decline(item, question: question)
+            } catch {
+                mutate(id) {
+                    guard $0.attempt == attempt else { return }
+                    $0.kind = .question(question)
+                    $0.resolution = nil
+                    $0.error = actions.message(for: error)
+                }
+            }
+        }
     }
 
     private func applyAnswer(_ id: String, answer: AgentQuestionAnswer) {

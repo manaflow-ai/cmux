@@ -56,6 +56,14 @@ struct FeedCell: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .transition(.opacity)
+                    // The answer was refused (a phone can only decline): offer the decline.
+                    if case .question(let question) = item.kind, question.isPending {
+                        Button("Decline", role: .destructive) {
+                            withAnimation(.cnxSmooth) { store.decline(item.id) }
+                        }
+                        .buttonStyle(.bordered)
+                        .transition(.opacity)
+                    }
                 }
                 if !item.replies.isEmpty {
                     replies

@@ -84,6 +84,24 @@ import Testing
         #expect(call.diffs.first?.path == "a.swift")
     }
 
+    /// A phone's Allow is refused ("Approve this on your Mac"); the decline
+    /// that follows resolves the ask, so the refusal must not stay on screen.
+    @Test func answeringAgainClearsTheLastRefusal() async throws {
+        let mock = MockAgentSession(
+            summary: AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m"),
+            sleep: { _ in await Task.yield() }
+        )
+        mock.chunkSize = 4000
+        let store = AgentChatStore(source: mock)
+        while store.turns.isEmpty { await Task.yield() }
+        store.send(prompt: "go")
+        while store.pendingPermission == nil { await Task.yield() }
+        let permission = try #require(store.pendingPermission)
+        store.clientError = "Approve this on your Mac. A phone can only decline."
+        store.respond(to: permission.request, option: permission.request.options.last)
+        #expect(store.clientError == nil)
+    }
+
     @Test func mockStreamsFullTurn() async throws {
         let mock = MockAgentSession(
             summary: AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m"),

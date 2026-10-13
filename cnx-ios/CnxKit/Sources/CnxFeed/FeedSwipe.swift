@@ -242,7 +242,10 @@ extension FeedItem {
             return (leading, trailing)
         case .question(let question) where question.isPending:
             let answer = FeedSwipeAction(id: "answer", title: "Answer", systemImage: "bubble.left.and.text.bubble.right", tint: .blue, action: open)
-            return ([answer], [done, openAction])
+            let decline = FeedSwipeAction(id: "decline", title: "Decline", systemImage: "xmark.bubble", tint: .red) {
+                withAnimation(.cnxSmooth) { store.decline(id) }
+            }
+            return ([answer], [decline, openAction])
         default:
             return ([read], [done, openAction])
         }

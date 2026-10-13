@@ -530,6 +530,13 @@ struct TurnView: View {
         case .question(let id):
             if let question = turn.question(id) {
                 QuestionCard(question: question) { store.answer(question, with: $0) }
+                if question.isPending, question.source.rejectOption != nil {
+                    // A phone's answer can be refused (only the Mac may answer); a decline always goes through.
+                    Button("Decline") { store.decline(question) }
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .padding(.top, 4)
+                }
             }
         case .subagents(_, let ids):
             SubagentGroupCard(ids: ids, store: store) { surface?.parityRoute = .subagent($0) }

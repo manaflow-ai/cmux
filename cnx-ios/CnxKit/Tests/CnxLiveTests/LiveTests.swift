@@ -422,7 +422,7 @@ final class Counter: @unchecked Sendable {
 /// an allow is refused as for a remote connection.
 @MainActor
 @Suite struct AcpmuxSourceTests {
-    static func fakeAcpmux() -> MockMacLink {
+    static func fakeAcpmux(_ log: CommandLog? = nil) -> MockMacLink {
         MockMacLink { _, data in
             guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let method = object["method"] as? String else { return [] }
@@ -438,7 +438,8 @@ final class Counter: @unchecked Sendable {
                 ]
             case "_acpmux/permission_respond":
                 let params = object["params"] as? [String: Any]
-                if params?["optionId"] as? String == "allow" {
+                log?.append("respond:\(params?["optionId"] as? String ?? "-")", nil)
+                if ["allow", "allow_once"].contains(params?["optionId"] as? String) {
                     return [Data(#"{"jsonrpc":"2.0","id":\#(id),"error":{"code":-32000,"message":"person required","data":{"reason":"permission.person_required"}}}"#.utf8)]
                 }
                 return [reply("{}"), Data(#"{"jsonrpc":"2.0","method":"_acpmux/event","params":{"sessionId":"s1","seq":5,"at":5,"dir":"mux","kind":"permission_decision","msg":{"permissionId":"perm","outcome":{"outcome":"selected","optionId":"deny"}}}}"#.utf8)]
@@ -496,6 +497,36 @@ final class Counter: @unchecked Sendable {
         feedStore.respond(item.id, option: permission.options[1])
         for _ in 0..<100 { await Task.yield() }
         #expect(feedStore.items.first?.resolution == "Denied")
+        #expect(feedStore.items.first?.error == nil)
+    }
+}
+
+@MainActor
+@Suite struct FeedQuestionDeclineTests {
+    /// A phone's answer to a question is refused (only the Mac may answer);
+    /// Decline sends the question's reject option and resolves the card.
+    @Test func refusedAnswerThenDeclineReachesTheMac() async throws {
+        let log = CommandLog()
+        let link = AcpmuxSourceTests.fakeAcpmux(log)
+        let hub = AcpmuxHub()
+        await hub.bind(try await link.openChannel(service: "acpmux", args: [:]))
+        let feedStore = FeedStore(items: [])
+        let feed = LiveFeed(store: feedStore, hub: hub, place: { _ in LiveFeed.Place(workspaceID: "ws", tabID: "s7", workspaceTitle: "cmux") })
+        feedStore.actions = feed
+        let request = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"toolCall":{"toolCallId":"q1","title":"Question","kind":"other","_meta":{"claude":{"tool":"AskUserQuestion"}},"rawInput":{"questions":[{"question":"Which?","header":"Pick","options":[{"label":"A"},{"label":"B"}],"multiSelect":false}]}},"options":[{"optionId":"allow_once","name":"Answer","kind":"allow_once"},{"optionId":"reject_once","name":"Reject","kind":"reject_once"}]}"#.utf8))
+        feed.handle(.permissionPending(sessionID: "s1", permissionID: "pq", request: request), sessions: hub.sessions)
+        let item = try #require(feedStore.items.first)
+        guard case .question(let question) = item.kind else { Issue.record("not a question"); return }
+        let first = try #require(question.items.first?.options.first)
+        feedStore.answer(item.id, answer: AgentQuestionAnswer(selections: [question.items[0].id: .init(optionIDs: [first.id])]))
+        for _ in 0..<500 where feedStore.items.first?.error == nil { await Task.yield() }
+        #expect(feedStore.items.first?.needsYou == true)
+
+        feedStore.decline(item.id)
+        #expect(feedStore.items.first?.resolution == "Declined")
+        #expect(feedStore.items.first?.needsYou == false)
+        for _ in 0..<500 where !log.contains("respond:reject_once") { await Task.yield() }
+        #expect(log.contains("respond:reject_once"))
         #expect(feedStore.items.first?.error == nil)
     }
 }

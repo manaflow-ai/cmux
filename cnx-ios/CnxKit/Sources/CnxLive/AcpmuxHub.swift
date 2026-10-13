@@ -134,6 +134,16 @@ public final class AcpmuxHub {
         _ = try await request("_acpmux/permission_respond", params)
     }
 
+    /// Declines a question (its reject option). A phone may always decline,
+    /// while an answer needs the Mac's person proof.
+    public func decline(_ question: AgentQuestion) async throws {
+        guard let reply = question.declineReply() else {
+            throw AcpmuxConnection.RPCError(code: 0, message: "This question can't be declined", reason: nil)
+        }
+        let params = try AcpmuxRecords.convert(reply.params, to: JSONValue.self)
+        _ = try await request("_acpmux/permission_respond", params)
+    }
+
     private func handle(_ notification: AcpmuxConnection.Notification) {
         let params = notification.params
         let sessionID = params["sessionId"]?.stringValue

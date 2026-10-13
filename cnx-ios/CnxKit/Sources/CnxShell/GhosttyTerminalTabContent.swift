@@ -12,25 +12,43 @@ import SwiftUI
 @MainActor
 final class GhosttyTerminalTabContent: TerminalTabContent {
     private var hosts: [String: TerminalTabHost] = [:]
+    /// Tabs whose host runs on a live session (the rest are mock hosts).
+    private var liveTabs: Set<String> = []
     private var workspaceOwner: [String: String] = [:]
     /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
     /// or nil to fall back to the mock.
     var sessionProvider: (@MainActor (WorkspaceTab) -> (any TerminalSession)?)?
+    /// Live mode: Files and Links previews from the Mac (else the mock files).
+    var artifactSourceProvider: (@MainActor (WorkspaceTab) -> (any ArtifactSource)?)?
 
     private func host(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabHost {
-        if let host = hosts[tab.id] { return host }
+        // A mock host built before live data arrived (no coordinator or no
+        // tree yet) is replaced once the tab has a live session.
+        if let host = hosts[tab.id], liveTabs.contains(tab.id) || sessionProvider == nil { return host }
         // Closed tabs release their surface.
         let open = Set(workspace.tabs.map(\.id))
         for (id, owner) in workspaceOwner where owner == workspace.id && !open.contains(id) {
             hosts[id] = nil
             workspaceOwner[id] = nil
+            liveTabs.remove(id)
         }
-        let session = sessionProvider?(tab) ?? MockTerminalSession()
-        let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: tab.title)
+        let live = sessionProvider?(tab)
+        if let host = hosts[tab.id], live == nil { return host }
+        if live != nil { liveTabs.insert(tab.id) }
+        let session = live ?? MockTerminalSession()
+        let artifacts = live == nil ? nil : artifactSourceProvider?(tab)
+        let model = TerminalModel(session: session, artifactSource: artifacts ?? MockArtifactSource(), title: tab.title)
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
         workspaceOwner[tab.id] = workspace.id
         return host
+    }
+
+    /// Drops every host (another account or live data stopped).
+    func reset() {
+        hosts = [:]
+        workspaceOwner = [:]
+        liveTabs = []
     }
 
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {

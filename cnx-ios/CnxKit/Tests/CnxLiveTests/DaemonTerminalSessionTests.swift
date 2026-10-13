@@ -98,10 +98,63 @@ final class FakeTerminalDaemon: @unchecked Sendable {
         #expect(events.contains { if case .output = $0 { true } else { false } })
     }
 
+    /// The link dropped (background, transport switch, Mac restart): the
+    /// channel ends with no `detached` event. The tab must not die; when the
+    /// link is back it attaches again, resets the mirror before the replay,
+    /// and puts its size back.
+    @Test func reattachesAfterTheLinkDrops() async throws {
+        let daemon = FakeTerminalDaemon()
+        let link = MockMacLink { service, line in daemon.respond(service, line) }
+        let channels = ChannelLog()
+        let session = DaemonTerminalSession(surface: 7) {
+            let channel = try await link.openChannel(service: "daemon", args: [:])
+            channels.append(channel)
+            return DaemonClient(channel: channel)
+        }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        session.resize(columns: 54, rows: 42)
+        try await waitUntil { session.isAttached }
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "resize-surface" } }
+
+        await channels.last?.close(code: "link_closed", reason: "link dropped")
+        try await waitUntil { !session.isAttached }
+        #expect(!events.contains(.exited(code: 0)), "a dropped link is not the end of the terminal")
+
+        let before = events.count
+        session.reconnect()
+        try await waitUntil { session.isAttached }
+        try await waitUntil { daemon.recorded.filter { $0["cmd"] as? String == "resize-surface" }.count == 2 }
+        let after = Array(events[before...])
+        let reset = after.firstIndex(of: .output(Data("\u{1B}c".utf8)))
+        let replay = after.firstIndex(of: .output(Data("hello\r\n$ ".utf8)))
+        #expect(reset != nil && replay != nil && reset! < replay!)
+        #expect(daemon.recorded.filter { $0["cmd"] as? String == "attach-surface" }.count == 2)
+
+        // Input typed after the reconnect goes out on the new channel.
+        session.send(Data("x".utf8))
+        try await waitUntil { daemon.recorded.contains { $0["cmd"] as? String == "send" } }
+    }
+
+    @Test func detachedEventEndsTheTerminal() async throws {
+        let session = DaemonTerminalSession(surface: 7) { throw LinkError(code: "unused", message: "") }
+        var events: [TerminalSessionEvent] = []
+        session.start { events.append($0) }
+        session.handle(FakeTerminalDaemon.line(["event": "detached", "surface": 7, "reason": "closed"]))
+        #expect(events.contains(.exited(code: 0)))
+    }
+
     private func waitUntil(_ condition: @MainActor () -> Bool) async throws {
         for _ in 0..<200 where !condition() {
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(condition())
     }
+}
+
+final class ChannelLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var channels: [any LinkChannel] = []
+    func append(_ channel: any LinkChannel) { lock.withLock { channels.append(channel) } }
+    var last: (any LinkChannel)? { lock.withLock { channels.last } }
 }

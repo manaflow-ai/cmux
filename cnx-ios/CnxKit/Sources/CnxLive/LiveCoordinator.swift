@@ -60,6 +60,9 @@ public final class LiveCoordinator {
     @ObservationIgnored private var tree: DaemonTree?
     /// The link to the targeted Mac, for terminal tabs (each attaches on its own channel).
     @ObservationIgnored private var currentLink: (any MacLink)?
+    /// Terminal tabs handed out, reattached on every new link.
+    @ObservationIgnored private var terminals: [WeakTerminal] = []
+    private struct WeakTerminal { weak var session: DaemonTerminalSession? }
     @ObservationIgnored private var chiefLive = false
     @ObservationIgnored private var discoveryTask: Task<Void, Never>?
     /// The account's Macs that were online at the last look (nil before the first).
@@ -354,18 +357,33 @@ public final class LiveCoordinator {
             await self.startChief(link)
         }
         // Terminal tabs attach lazily (`terminalSession(tabID:)`), each on its
-        // own `daemon` channel of this link.
+        // own `daemon` channel of this link; open ones reattach now.
+        terminals.removeAll { $0.session == nil }
+        for terminal in terminals { terminal.session?.reconnect() }
     }
 
-    /// A live session for a terminal tab of the linked Mac (`s<surface>`), or
-    /// nil when the tab is not a daemon surface or there is no link. The
-    /// channel opens when the screen starts the session.
+    /// A live session for a terminal tab of the Mac (`s<surface>`), or nil
+    /// when the tab is not a daemon surface. The channel opens when the screen
+    /// starts the session; without a link it says so and attaches when the
+    /// link comes back (as after any drop).
     public func terminalSession(tabID: String, programName: String) -> DaemonTerminalSession? {
-        guard currentLink != nil, let surface = workspaces.tree?.surfaces[tabID] else { return nil }
-        return DaemonTerminalSession(surface: surface, programName: programName) { [weak self] in
+        guard let surface = workspaces.tree?.surfaces[tabID] else { return nil }
+        let session = DaemonTerminalSession(surface: surface, programName: programName) { [weak self] in
             guard let link = await self?.currentLink else { throw LinkError(code: "no-link", message: "Not connected to the Mac") }
             let channel = try await link.openChannel(service: "daemon", args: [:])
             return DaemonClient(channel: channel)
+        }
+        terminals.removeAll { $0.session == nil }
+        terminals.append(WeakTerminal(session: session))
+        return session
+    }
+
+    /// Files and Links previews for a terminal tab: real files on the linked
+    /// Mac over the `file` service, relative paths resolved against the tab's
+    /// directory.
+    public func terminalArtifactSource(tabID: String) -> any ArtifactSource {
+        LinkFileArtifactSource(macName: link.target?.name ?? "your Mac", baseDirectory: workspaces.tree?.directories[tabID]) { [weak self] in
+            await self?.currentLink
         }
     }
 
