@@ -60,11 +60,13 @@ nonisolated public struct UpdateChangelog: Codable, Equatable, Sendable {
     }
 
     /// "1.0.0-nightly.3845050428001" reads "nightly 3845050" (the channel and the build tell
-    /// nightlies apart; every one is 1.0.0); a release keeps its version ("1.0.1").
+    /// nightlies apart; every one is 1.0.0). Any other version reads as ``shortVersion(_:)``:
+    /// "1.0.1", "1.0.1 beta 3".
     public static func cardVersion(_ version: String) -> String {
         let short = shortVersion(version)
-        guard short != version, let space = short.firstIndex(of: " ") else { return version }
-        return String(short[short.index(after: space)...])
+        let words = short.split(separator: " ", maxSplits: 1)
+        guard words.count == 2, words[1].hasPrefix("nightly ") else { return short }
+        return String(words[1])
     }
 
     /// "1.0.0-nightly.3801702344901" reads "1.0.0 nightly 3801702": the

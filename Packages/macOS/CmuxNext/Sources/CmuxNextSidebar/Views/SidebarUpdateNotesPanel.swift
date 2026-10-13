@@ -4,8 +4,10 @@ import CmuxNextDesign
 /// The update card's highlights popup (Leo 2026-10-13): the popup every cmux popover is, not
 /// AppKit's NSPopover with its stock arrow. A borderless child window of the sidebar's window
 /// holding the solid popup surface with its hairline and shadow (`Glass.makeOverlayPanel`,
-/// `PopupStyle`), beside the card and top-aligned with it, in the card's theme. It takes clicks
-/// ("See all changes") and never becomes key, so the keys stay with the window.
+/// `PopupStyle`), beside the card toward the content (left of it for a sidebar on the right, or
+/// with no room on the right) and top-aligned with it, in the card's theme. It takes clicks
+/// ("See all changes") and never becomes key, so the keys stay with the window. The app going
+/// inactive closes it (a no-activate run is never active, so there it stays).
 @MainActor
 final class SidebarUpdateNotesPanel: NSPanel {
     /// The highlights page's host: the pointer leaving it closes the popup.
@@ -22,6 +24,7 @@ final class SidebarUpdateNotesPanel: NSPanel {
     /// Bumped by every open and close, so a close that a reopen overtook keeps the panel.
     private var generation = 0
     private weak var adoptedScope: ThemeScope?
+    private var resignObserver: (any NSObjectProtocol)?
 
     init(width: CGFloat) {
         self.width = width
@@ -30,10 +33,24 @@ final class SidebarUpdateNotesPanel: NSPanel {
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
         adoptPopupStyle(card: glass)
         isReleasedWhenClosed = false
-        hidesOnDeactivate = true
+        // Closed on deactivation instead (below): a hidden panel AppKit shows again on
+        // reactivation would stay open with no pointer exit to close it.
+        hidesOnDeactivate = false
         animationBehavior = .none
         acceptsMouseMovedEvents = true
         collectionBehavior = [.transient, .ignoresCycle, .fullScreenAuxiliary]
+        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
+                                                                object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { if !WindowPlacement.noActivate { self?.dismiss() } } // main-proof: observer on queue: .main
+        }
+    }
+
+    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated {
+            if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        }
     }
 
     override var canBecomeKey: Bool { false }
@@ -63,7 +80,8 @@ final class SidebarUpdateNotesPanel: NSPanel {
             parent.addChildWindow(self, ordered: .above)
         }
         place()
-        guard !isVisible || reopening || alphaValue < 1 else { return }
+        // Already showing or fading in: it stays as it is (a second hover never restarts the fade).
+        guard !isVisible || reopening else { return }
         if !reopening { alphaValue = 0 }
         orderFront(nil)
         openPopup(pivot: popupPivot(toward: anchor))
@@ -91,13 +109,16 @@ final class SidebarUpdateNotesPanel: NSPanel {
         }
     }
 
-    /// Beside the card toward the content, its top on the card's top, kept on the screen.
+    /// Beside the card toward the content, its top on the card's top, kept on the screen: right
+    /// of the card, or left of it when the right has no room (a sidebar on the right), as
+    /// NSPopover flipped. It never covers the card.
     private func place() {
         let size = CGSize(width: width, height: height)
         var origin = CGPoint(x: anchor.maxX + Metrics.space2, y: anchor.maxY - size.height)
         if let screen = parent?.screen ?? NSScreen.main {
             let visible = screen.visibleFrame, margin = Metrics.space2
-            origin.x = min(max(origin.x, visible.minX + margin), visible.maxX - size.width - margin)
+            if origin.x + size.width > visible.maxX - margin { origin.x = anchor.minX - Metrics.space2 - size.width }
+            origin.x = max(origin.x, visible.minX + margin)
             origin.y = min(max(origin.y, visible.minY + margin), visible.maxY - size.height - margin)
         }
         setFrame(PopupStyle.standard.windowFrame(forCard: CGRect(origin: origin, size: size)), display: true)

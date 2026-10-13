@@ -5,11 +5,16 @@ public import Foundation
 /// date ("nightly 3845050 · Oct 13"), the Automatic Updates checkbox
 /// (`updates.downloadAutomatically`) and one Restart to Update button; while the click installs,
 /// the button reads Installing… and is disabled. Its hover popover adds what the card lacks: the
-/// full build, the changelog highlights and "See all changes", once. Pure and localized.
+/// full build, the changelog highlights and "See all changes", once (the card keeps "See all
+/// changes" only as an accessibility action). Pure and localized.
 nonisolated public struct UpdateReadyCard: Equatable, Sendable {
     public var title: String
     /// "nightly 3845050 · Oct 13" (``UpdateChangelog/cardDetail``), nil when unknown.
     public var detail: String?
+    /// "See all changes", the What's New page for the staged update
+    /// (`UpdaterService.openStagedChangelog()`): the popup's link, and the card's
+    /// accessibility action (the popup opens on hover only).
+    public var seeAllTitle: String
     public var buttonTitle: String
     /// The click was taken: the button is disabled until the relaunch.
     public var isInstalling: Bool
@@ -22,6 +27,7 @@ nonisolated public struct UpdateReadyCard: Equatable, Sendable {
                 changelog: UpdateChangelog? = nil) {
         title = UpdaterStrings.readyToInstall
         detail = (changelog ?? version.map { UpdateChangelog(version: $0, date: nil, lines: []) })?.cardDetail
+        seeAllTitle = UpdaterStrings.seeAllChanges
         buttonTitle = isInstalling ? UpdaterStrings.installing : UpdaterStrings.restartToUpdate
         self.isInstalling = isInstalling
         automaticUpdatesTitle = UpdaterStrings.automaticUpdates

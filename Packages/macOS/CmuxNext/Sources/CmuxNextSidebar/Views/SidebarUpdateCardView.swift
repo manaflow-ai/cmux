@@ -14,6 +14,8 @@ import QuartzCore
 final class SidebarUpdateCardView: NSView {
     var onInstall: (() -> Void)?
     var onAutomaticUpdates: ((Bool) -> Void)?
+    /// "See all changes" (the button's accessibility action): the What's New page.
+    var onOpenChanges: (() -> Void)?
     private(set) var card: SidebarUpdateCard?
     private let titleLabel = NSTextField(labelWithString: "")
     /// The short version and build date.
@@ -25,6 +27,9 @@ final class SidebarUpdateCardView: NSView {
         didSet {
             // A new page gets a new popup (the old one held the old page).
             if let notesPanel {
+                // Its close must not park the new page or close the new popup.
+                notesPanel.onClosed = nil
+                notesPanel.host.onPointerExit = nil
                 notesPanel.parent?.removeChildWindow(notesPanel)
                 notesPanel.orderOut(nil)
             }
@@ -112,6 +117,13 @@ final class SidebarUpdateCardView: NSView {
         checkbox.configure(title: card.automaticUpdatesTitle, isOn: card.automaticUpdates)
         button.configure(title: card.buttonTitle, enabled: card.isEnabled,
                          help: [card.notes.headline, card.notes.keepsRunning].joined(separator: " "))
+        // The popup with "See all changes" opens on hover only: VoiceOver reaches it here.
+        button.setAccessibilityCustomActions(card.seeAllTitle.map { title in
+            [NSAccessibilityCustomAction(name: title) { [weak self] in
+                self?.onOpenChanges?()
+                return true
+            }]
+        } ?? [])
         needsLayout = true
         needsDisplay = true
     }
