@@ -562,9 +562,6 @@ struct Args {
     /// Private launch contract of `local_owner`: readiness and install key pipes.
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
-    /// Windows: the install key came on stdin.
-    #[cfg(windows)]
-    owner_install_key_stdin: bool,
     terminal_reap_grace: Option<std::time::Duration>,
 }
 
@@ -675,8 +672,6 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_host_bg: None,
         owner_ready_fd: None,
         owner_install_key_fd: None,
-        #[cfg(windows)]
-        owner_install_key_stdin: false,
         terminal_reap_grace: None,
     };
     let mut args = args.into_iter().peekable();
@@ -928,12 +923,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     return Err(format!("{arg} may be supplied only once"));
                 }
             }
-            local_owner::OWNER_READY_FD_ARG | local_owner::OWNER_INSTALL_KEY_FD_ARG => {
-                local_owner::claim_fd_arg(&arg, args.next(), &mut out)?;
-            }
-            #[cfg(windows)]
-            local_owner::OWNER_INSTALL_KEY_STDIN_ARG => {
-                local_owner::claim_install_key_stdin(&mut out)?;
+            owner_arg if local_owner::is_owner_arg(owner_arg) => {
+                local_owner::claim_owner_arg(&arg, &mut args, &mut out)?;
             }
             // Private launch contract used by cmux-browser. It configures
             // Vercel agent-browser to attach through the local provider
