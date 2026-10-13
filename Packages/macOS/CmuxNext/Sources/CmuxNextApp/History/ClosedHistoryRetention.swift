@@ -14,7 +14,7 @@ import Foundation
 /// refuses the fields), or hourly while its mirror is full (it then cannot
 /// see the oldest groups); nothing wakes in between.
 final class ClosedHistoryRetention {
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     private var observation: Task<Void, Never>?
     private var deadlines: [String: DemandTimer] = [:]
     private var lastPrune: [String: ContinuousClock.Instant] = [:]
@@ -28,7 +28,7 @@ final class ClosedHistoryRetention {
 
     /// Starts applying the limits in `settings`.
     func start(settings: SettingsController) {
-        let machines = services.machines
+        guard let machines = services?.machines else { return }
         observation = Task { [weak self] in
             for await state in ObservationStream({ Self.state(settings: settings, daemons: machines.daemons) }) {
                 self?.sync(state)
@@ -71,6 +71,7 @@ final class ClosedHistoryRetention {
     }
 
     private func check(_ machines: Set<String>) {
+        guard let services else { return }
         let nowMs = UInt64(max(0, Date().timeIntervalSince1970 * 1000))
         for daemon in services.machines.daemons where machines.contains(daemon.machineID) {
             guard daemon.store.servesStateResources, case .connected = daemon.store.connectionState else { continue }
