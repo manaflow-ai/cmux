@@ -24,8 +24,10 @@ extension BookmarkTree {
             try validateNew(node, extra: 1)
             insert(node, at: index)
             change.created = [node.id]
-        case .update(let id, let title, let url, let favicon, let lastUsed):
+        case .update(let id, let title, let url, let favicon, let lastUsed, let icon):
             guard var node = nodes[id] else { throw BookmarkError.notFound(id) }
+            // Only a folder has an icon; the daemon refuses one on a URL bookmark, a clear included.
+            if icon != .unchanged, !node.isFolder { throw BookmarkError.invalidKind }
             if let title { node.title = try Self.checkedTitle(title) }
             if let url {
                 guard !node.isFolder else { throw BookmarkError.invalidKind }
@@ -41,6 +43,11 @@ extension BookmarkTree {
             case .unchanged: break
             case .set(let value): node.lastUsed = value
             case .clear: node.lastUsed = nil
+            }
+            switch icon {
+            case .unchanged: break
+            case .set(let value): node.icon = value
+            case .clear: node.icon = nil
             }
             guard node != nodes[id] else { return change }
             replace(node)
