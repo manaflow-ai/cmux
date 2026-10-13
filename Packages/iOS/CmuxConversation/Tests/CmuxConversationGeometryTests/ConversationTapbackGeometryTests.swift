@@ -59,3 +59,32 @@ import Testing
         #expect(ConversationTapbackGeometry.badgeOwner(at: CGPoint(x: 200, y: 500), badges: badges) == nil)
     }
 }
+
+/// Messages 27 reaction detail (iOS 27.0 sim, iPhone 17 Pro, light, one
+/// reactor "KB" with a heart): a glass card 138.33...262 x 61.67...184.33
+/// (radius ~31) under the status bar, a white 50 pt thought bubble 176...226
+/// x 71...121 with the 32 pt-box tapback, a dot trailing below it, and a
+/// 30.67 pt avatar at 185.67, 140.67.
+@Suite struct ReactionDetailCardGeometryTests {
+    @Test func oneReactorCardMatchesMessages27() {
+        let card = ReactionDetailCardGeometry.card(reactorCount: 1, maxWidth: 370, width: 402, safeTop: 62)
+        #expect(abs(card.minX - 138.33) < 0.5)
+        #expect(abs(card.maxX - 262) < 0.5)
+        #expect(abs(card.minY - 61.67) < 0.5)
+        #expect(abs(card.height - 122.67) < 0.5)
+        let column = ReactionDetailCardGeometry.column(index: 0, reactorCount: 1, cardWidth: card.width)
+        #expect(abs(card.minX + column.bubble.minX - 176) < 0.5)
+        #expect(abs(card.minY + column.bubble.minY - 71) < 0.5)
+        #expect(column.bubble.width == 50)
+        #expect(abs(card.minX + column.avatar.minX - 185.67) < 0.5)
+        #expect(abs(card.minY + column.avatar.minY - 140.67) < 0.5)
+        #expect(abs(column.avatar.width - 30.67) < 0.05)
+        #expect(ReactionDetailCardGeometry.cornerRadius >= 30 && ReactionDetailCardGeometry.cornerRadius <= 32)
+    }
+
+    @Test func manyReactorsScrollWithinTheScreen() {
+        let card = ReactionDetailCardGeometry.card(reactorCount: 12, maxWidth: 370, width: 402, safeTop: 62)
+        #expect(card.width == 370)
+        #expect(abs(card.midX - 201) < 0.01)
+    }
+}
