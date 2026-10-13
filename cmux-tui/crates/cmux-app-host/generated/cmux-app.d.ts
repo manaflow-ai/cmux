@@ -317,7 +317,7 @@ declare namespace Cmux {
   type SidebarLayoutOpItemMove = { kind: "item.move"; id: string; section: string; index: number }
   type SidebarLayoutOpItemRemove = { kind: "item.remove"; id: string }
   type SidebarLayoutOpItemRemoveRef = { kind: "item.remove_ref"; ref: Cmux.SidebarItemRef }
-  type SidebarLayoutOpItemUpdate = { kind: "item.update"; id: string; shows_label: boolean }
+  type SidebarLayoutOpItemUpdate = { kind: "item.update"; id: string; shows_label?: boolean; icon?: string | null }
   type SidebarLayoutOpReset = { kind: "layout.reset" }
   type SidebarLayoutOpSectionAdd = { kind: "section.add"; section: Cmux.JsonValue; index: number }
   type SidebarLayoutOpSectionMove = { kind: "section.move"; id: string; region: "top" | "middle" | "bottom"; index: number }

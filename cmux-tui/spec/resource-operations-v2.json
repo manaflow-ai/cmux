@@ -9092,7 +9092,7 @@
             "kind": "ref",
             "name": "JsonValue"
           },
-          "description": "An item object: id (itm_..., unique across sections and items), ref {kind, value} (kinds built_in, app, workspace, tab, room, saved_group, url; unknown kinds and built-in ids are kept), shows_label? (default true), span? 1-12 (grid columns). A JSON object rather than a closed type so a newer app's keys are stored verbatim (L5); the reducer validates it."
+          "description": "An item object: id (itm_..., unique across sections and items), ref {kind, value} (kinds built_in, app, workspace, tab, room, saved_group, url; unknown kinds and built-in ids are kept), shows_label? (default true), span? 1-12 (grid columns), icon? (the item's own icon, as item.update takes it). A JSON object rather than a closed type so a newer app's keys are stored verbatim (L5); the reducer validates it."
         },
         "section": {
           "required": true,
@@ -9219,11 +9219,23 @@
           }
         },
         "shows_label": {
-          "required": true,
+          "required": false,
           "type": {
             "kind": "primitive",
             "name": "boolean"
           }
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1
+            }
+          },
+          "description": "The item's own icon: an SF Symbol name, one emoji, or image:/svg:sha256-<hex> of an asset this daemon stores (icon-assets-v1); null clears it, absent keeps it."
         }
       },
       "extra": false
