@@ -8,6 +8,8 @@ import CmuxNextSettings
 /// its daemon). `{open: true}` starts a quit exactly as Cmd-Q does
 /// (interactive origin); `{remember: bool}` sets "Don't ask again";
 /// `{open: true, inactive: true}` does it as a Dock quit of an inactive app;
+/// `{fixture_quit: "keep" | "end-sessions" | "end-everything"}` quits with
+/// that choice without showing the interactive sheet (DEBUG-only test fixture);
 /// `{press: "keep" | "confirm-quit-everything" | "end-everything" | "quit" | "cancel"}`
 /// clicks that button. While "Some sessions did not end" shows, the report
 /// carries `failure` (its lines and buttons) and `press: "retry" |
@@ -16,6 +18,21 @@ import CmuxNextSettings
 enum DebugQuit {
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
         let quit = services.quit
+        // DEBUG-only fixture for tagged app behavior checks. The corresponding
+        // socket actions are user-only, so a behavior test cannot tear down its
+        // own app and sessions through action.run.
+        if let choice = params["fixture_quit"]?.stringValue {
+            let choices: [String: QuitSessionsChoice] = [
+                "keep": .keep,
+                "end-sessions": .endKeepLayout,
+                "end-everything": .endEverything,
+            ]
+            guard let picked = choices[choice] else {
+                return .object(["error": .string("fixture_quit: keep, end-sessions or end-everything")])
+            }
+            quit.requestQuit(.explicit(picked))
+            return .object(["quitting": .string(choice)])
+        }
         if params["open"]?.boolValue == true {
             let started = !quit.isQuitting
             // `inactive`: as a quit from the Dock while cmux is in the background.
