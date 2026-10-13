@@ -625,10 +625,6 @@ struct BrowserScreen: View {
                 }),
             ],
             [
-                PageMenuItem(title: "Back", symbol: "chevron.backward", enabled: tab?.canGoBack == true, action: menuAction(model.goBack)),
-                PageMenuItem(title: "Forward", symbol: "chevron.forward", enabled: tab?.canGoForward == true, action: menuAction(model.goForward)),
-            ],
-            [
                 PageMenuItem(title: desktop ? "Request Mobile Website" : "Request Desktop Website",
                              symbol: desktop ? "iphone" : "desktopcomputer", action: menuAction(model.toggleDesktop)),
                 PageMenuItem(title: "Open on Mac", symbol: "macbook", action: menuAction(model.openOnMac)),

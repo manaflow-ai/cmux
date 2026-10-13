@@ -144,14 +144,21 @@ struct BrowserToolbar: View {
             // it slides and fades with the capsule; the button over it only
             // exists while there is forward history (a hidden, scaled-down
             // button stayed in the hit and accessibility trees).
-            Image(systemName: "chevron.right").font(.system(size: 19, weight: .medium))
-                .foregroundStyle(style.colors.label)
-                .frame(width: max(1, r.width / 2), height: r.height)
-                .opacity(splitBack ? 1 : 0)
-                .scaleEffect(splitBack ? 1 : 0.6, anchor: .leading)
-                .offset(x: splitBack ? r.width / 2 : control / 2)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+            if splitBack {
+                // Inserted and removed with the capsule's animation (fade,
+                // scale and slide from the back circle's center): a
+                // transparent symbol kept in place stayed in the
+                // accessibility tree as a stray "Forward".
+                Image(systemName: "chevron.right").font(.system(size: 19, weight: .medium))
+                    .foregroundStyle(style.colors.label)
+                    .frame(width: max(1, r.width / 2), height: r.height)
+                    .offset(x: r.width / 2)
+                    .transition(.asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.6, anchor: .leading)).combined(with: .offset(x: control / 2 - r.width / 2)),
+                        removal: .opacity.combined(with: .scale(scale: 0.6, anchor: .leading)).combined(with: .offset(x: control / 2 - r.width / 2))))
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
             Button(action: onBack) {
                 Image(systemName: "chevron.left").font(.system(size: 19, weight: .medium))
                     .frame(width: half, height: r.height)
@@ -189,12 +196,15 @@ struct BrowserToolbar: View {
             if chrome.editing { onEndEditing() } else { onTabs() }
         } label: {
             ZStack {
-                Image(systemName: "square.on.square").font(.system(size: 22.2, weight: .regular))
-                    .opacity(chrome.editing ? 0 : 1)
-                    .accessibilityHidden(chrome.editing)
-                Image(systemName: "xmark").font(.system(size: 19, weight: .regular))
-                    .opacity(chrome.editing ? 1 : 0)
-                    .accessibilityHidden(!chrome.editing)
+                // One glyph at a time, cross-faded by the transition (a
+                // transparent one stayed in the accessibility tree).
+                if chrome.editing {
+                    Image(systemName: "xmark").font(.system(size: 19, weight: .regular))
+                        .transition(.opacity)
+                } else {
+                    Image(systemName: "square.on.square").font(.system(size: 22.2, weight: .regular))
+                        .transition(.opacity)
+                }
             }
             .foregroundStyle(style.colors.label)
             .opacity(chrome.menuOpen ? 0.3 : 1)
@@ -254,10 +264,11 @@ struct BrowserToolbar: View {
             // Trailing reload / stop.
             Button(action: onReload) {
                 ZStack {
-                    Image(systemName: "arrow.clockwise").opacity(tab?.loading == true ? 0 : 1)
-                        .accessibilityHidden(tab?.loading == true)
-                    Image(systemName: "xmark").opacity(tab?.loading == true ? 1 : 0)
-                        .accessibilityHidden(tab?.loading != true)
+                    if tab?.loading == true {
+                        Image(systemName: "xmark").transition(.opacity)
+                    } else {
+                        Image(systemName: "arrow.clockwise").transition(.opacity)
+                    }
                 }
                 .offset(y: -1)
                 .font(.system(size: 17, weight: .medium))
