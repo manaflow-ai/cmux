@@ -33,18 +33,21 @@ type PermissionCardFrameProps = {
   className?: string;
 };
 
-export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, PermissionCardFrameProps>(function PermissionCardFrame(
-  { title, children, className },
-  ref,
-) {
-  const titleId = React.useId();
-  return (
-    <fieldset ref={ref} className={`acpmux-permission-card${className ? ` ${className}` : ""}`} aria-labelledby={title ? titleId : undefined}>
-      {title && <strong id={titleId}>{title}</strong>}
-      {children}
-    </fieldset>
-  );
-});
+export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, PermissionCardFrameProps>(
+  function PermissionCardFrame({ title, children, className }, ref) {
+    const titleId = React.useId();
+    return (
+      <fieldset
+        ref={ref}
+        className={`acpmux-permission-card${className ? ` ${className}` : ""}`}
+        aria-labelledby={title ? titleId : undefined}
+      >
+        {title && <strong id={titleId}>{title}</strong>}
+        {children}
+      </fieldset>
+    );
+  },
+);
 
 /** Shared action button so grouped and legacy cards present the same localized label and key hint. */
 export function PermissionActionButton({
@@ -124,7 +127,15 @@ export function PermissionCard({
       return [event, handler] as const;
     });
     return () => handlers.forEach(([event, handler]) => window.removeEventListener(event, handler));
-  }, [permission.pending, permission.permissionId, permission.options, onAnswer, allowOnceShortcut, allowChatShortcut, denyShortcut]);
+  }, [
+    permission.pending,
+    permission.permissionId,
+    permission.options,
+    onAnswer,
+    allowOnceShortcut,
+    allowChatShortcut,
+    denyShortcut,
+  ]);
 
   return (
     <PermissionCardFrame ref={group} title={title}>

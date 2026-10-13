@@ -4282,70 +4282,67 @@ function AcpmuxPane() {
   const trustPending = Boolean(trustAsk.blocked);
   const hasPermissionGroups = Boolean(
     snapshot.permissionGroups?.supported &&
-      (snapshot.permissionGroups.groups.length > 0 ||
-        snapshot.permissionGroups.chatAllowance ||
-        snapshot.permissionGroups.error),
+    (snapshot.permissionGroups.groups.length > 0 ||
+      snapshot.permissionGroups.chatAllowance ||
+      snapshot.permissionGroups.error),
   );
   const hasBottomAsk = Boolean(
     trustAsk.ask ||
-      (!trustPending &&
-        (hasPermissionGroups || individualPermission || snapshot.secret || toolCards.length > 0)),
+    (!trustPending && (hasPermissionGroups || individualPermission || snapshot.secret || toolCards.length > 0)),
   );
-  const asks = (
-    hasBottomAsk ? (
-      <div className="acpmux-permission acpmux-asks-stack">
-        {trustAsk.ask && (
-          <TrustAsk
-            ask={trustAsk.ask}
-            agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-            onTrust={trustAsk.trust}
-            onDistrust={trustAsk.distrust}
-            onUndo={trustAsk.undo}
+  const asks = hasBottomAsk ? (
+    <div className="acpmux-permission acpmux-asks-stack">
+      {trustAsk.ask && (
+        <TrustAsk
+          ask={trustAsk.ask}
+          agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+          onTrust={trustAsk.trust}
+          onDistrust={trustAsk.distrust}
+          onUndo={trustAsk.undo}
+        />
+      )}
+      {!trustPending && hasPermissionGroups && snapshot.permissionGroups && (
+        <PermissionPanel
+          state={snapshot.permissionGroups}
+          working={snapshot.isWorking}
+          onRespond={(groupId, revision, decision) => {
+            void callNative("chat.permission_group.respond", { groupId, revision, decision });
+          }}
+          onRetry={() => {
+            void callNative("chat.permission_group.retry", {});
+          }}
+          onRevoke={() => {
+            void callNative("chat.permission_chat.revoke", {});
+          }}
+          onRefresh={() => {
+            void callNative("chat.permission_groups.refresh", {});
+          }}
+        />
+      )}
+      {!trustPending && (individualPermission || snapshot.secret || toolCards.length > 0) && (
+        <>
+          <ToolCards
+            cards={toolCards}
+            onAnswer={(id, action, value) =>
+              void callNative(
+                "chat.toolCard.respond",
+                value === undefined ? { id, action } : { id, action, value },
+              ).catch(() => undefined)
+            }
           />
-        )}
-        {!trustPending && hasPermissionGroups && snapshot.permissionGroups && (
-          <PermissionPanel
-            state={snapshot.permissionGroups}
-            working={snapshot.isWorking}
-            onRespond={(groupId, revision, decision) => {
-              void callNative("chat.permission_group.respond", { groupId, revision, decision });
-            }}
-            onRetry={() => {
-              void callNative("chat.permission_group.retry", {});
-            }}
-            onRevoke={() => {
-              void callNative("chat.permission_chat.revoke", {});
-            }}
-            onRefresh={() => {
-              void callNative("chat.permission_groups.refresh", {});
-            }}
-          />
-        )}
-        {!trustPending && (individualPermission || snapshot.secret || toolCards.length > 0) && (
-          <>
-            <ToolCards
-              cards={toolCards}
-              onAnswer={(id, action, value) =>
-                void callNative(
-                  "chat.toolCard.respond",
-                  value === undefined ? { id, action } : { id, action, value },
-                ).catch(() => undefined)
-              }
+          {individualPermission && <PermissionAsk permission={individualPermission} />}
+          {snapshot.secret && (
+            <SecretCard
+              key={snapshot.secret.secretId}
+              ask={snapshot.secret}
+              agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
+              onAnswer={answerSecret(snapshot.secret)}
             />
-            {individualPermission && <PermissionAsk permission={individualPermission} />}
-            {snapshot.secret && (
-              <SecretCard
-                key={snapshot.secret.secretId}
-                ask={snapshot.secret}
-                agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
-                onAnswer={answerSecret(snapshot.secret)}
-              />
-            )}
-          </>
-        )}
-      </div>
-    ) : null
-  );
+          )}
+        </>
+      )}
+    </div>
+  ) : null;
   // A failed start of a folder harness says what it waits for, in place of the switch's Retry
   // card: Enable (sent from the button's click, then the chat starts again), or the Trust answer.
   const block =
