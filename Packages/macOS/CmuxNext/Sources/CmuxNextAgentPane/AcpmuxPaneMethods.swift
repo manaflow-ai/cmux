@@ -52,6 +52,12 @@ nonisolated enum AcpmuxPaneMethods {
         // `archived` tag: never `_acpmux/tag`, which may set any tag (the handoff target among
         // them). The app's tab close stays a host call (`pane.action closeTab`).
         "_acpmux/archive", "_acpmux/markUnread",
+        // This Mac's agent CLI health for the chat notice and the Harnesses page (direct.ts
+        // harnessHealth, cx-jlzsf): `refresh` runs the configured harnesses' version and sign-in
+        // checks (and the auto-updates the person opted into), as acpmux does every few hours;
+        // `rescan` has acpmux look on PATH and in its profiles again first (after an install from
+        // the page); never `checkLatest` or `autoUpdate` (that choice turns updates on).
+        "_acpmux/harness/health",
     ]
 
     /// The shape of a reply the relay filters itself, without relying on the daemon's redaction.

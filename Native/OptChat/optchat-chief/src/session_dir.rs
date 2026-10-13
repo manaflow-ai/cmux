@@ -189,13 +189,14 @@ pub const SUBAGENT_DENIED_TOOLS: [&str; 5] = [
 /// A turn session's denied tools (parity item 5): the above, and every
 /// other built-in tool of Claude Code 2.1.287 the Chief does not work with,
 /// so the turn's prefix stays small (measured 2026-10-08: 20.7k to 12.1k
-/// tokens bare). A turn keeps Bash, Read, Edit, Write, WebFetch, WebSearch,
-/// and ToolSearch (it loads the MCP tools on demand); work beyond those goes
-/// to subagents. The turn preset's `--tools` allowlist (`host::TURN_TOOLS`)
-/// is the main guard: a tool a later Claude Code adds is not offered. This
+/// tokens bare). A turn keeps Bash, Read, Edit, Write, WebFetch and
+/// WebSearch, and the Chief's MCP tools load with it (no ToolSearch,
+/// `TURN_SETTINGS_ENV`); work beyond those goes to subagents. The turn
+/// preset's `--tools` allowlist (`host::TURN_TOOLS`) is the main guard: a
+/// tool a later Claude Code adds is not offered. This
 /// list stays as the second guard, for an acpmux older than that preset
 /// arg (the preset is then installed without it).
-pub const TURN_DENIED_TOOLS: [&str; 25] = [
+pub const TURN_DENIED_TOOLS: [&str; 26] = [
     "Task",
     "Agent",
     "AskUserQuestion",
@@ -220,8 +221,18 @@ pub const TURN_DENIED_TOOLS: [&str; 25] = [
     "TaskList",
     "TaskStop",
     "TaskUpdate",
+    "ToolSearch",
     "Workflow",
 ];
+
+/// The Claude Code env of every turn, in the turn directory's project
+/// settings (over the user's settings env; acpmux's built-in Chief presets
+/// take no env from the host): no tool search, so the Chief's MCP tools
+/// (`spawn`, `zoom`, ...) load with the turn. With tool search on (Claude
+/// Code's default on the first-party route) every subagent turn first
+/// called ToolSearch to load `spawn`: one more request, 8.1 s against
+/// 5.6 s for capture s12 (2026-10-13).
+pub const TURN_SETTINGS_ENV: [(&str, &str); 1] = [("ENABLE_TOOL_SEARCH", "false")];
 
 /// Days Claude Code keeps a turn session's transcript in the isolated
 /// configuration (the memory is the record; these only help debugging).
@@ -300,7 +311,11 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
         pretty(&mcp_json(setup, paths))?.as_bytes(),
     )?;
     // Private: they may hold the user's settings env (an API token).
-    let settings = pretty(&settings_json(setup, paths, &TURN_DENIED_TOOLS))?;
+    let mut settings = settings_json(setup, paths, &TURN_DENIED_TOOLS);
+    for (key, value) in TURN_SETTINGS_ENV {
+        settings["env"][key] = json!(value);
+    }
+    let settings = pretty(&settings)?;
     write_private(
         &paths.session.join(".claude").join("settings.json"),
         settings.as_bytes(),
