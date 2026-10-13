@@ -85,7 +85,9 @@ fn query(db: &std::path::Path, sql: &str) -> Option<Vec<Observation>> {
 
 fn text(value: rusqlite::types::ValueRef<'_>) -> Option<String> {
     match value {
-        rusqlite::types::ValueRef::Text(bytes) => std::str::from_utf8(bytes).ok().map(str::to_string),
+        rusqlite::types::ValueRef::Text(bytes) => {
+            std::str::from_utf8(bytes).ok().map(str::to_string)
+        }
         _ => None,
     }
 }
