@@ -303,8 +303,16 @@ function resolveRequested(
   callerUserId: string | undefined,
 ): VmImageSelection {
   const entry = findVmImageManifestEntry(provider, image, kind);
-  if (entry?.restricted === true && !vmRestrictedImageAllowed(callerUserId, env)) {
-    // The same refusal as an unknown id, so a test image's existence does not leak.
+  // Any entry naming this image counts: one image is often listed once per
+  // kind, and an unrestricted twin must not open a restricted one.
+  const restricted = typedManifest.images.some((candidate) =>
+    candidate.provider === provider && candidate.restricted === true &&
+    (candidate.imageId === image || candidate.version === image)
+  );
+  if (restricted && !vmRestrictedImageAllowed(callerUserId, env)) {
+    // The refusal an unknown id gets in a deployed runtime, so a test image's
+    // existence does not leak (local dev, which accepts unknown ids, still
+    // refuses this one).
     throw new VmImageConfigError({
       provider,
       image,

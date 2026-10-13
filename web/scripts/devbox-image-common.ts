@@ -1268,7 +1268,15 @@ export function promoteImageManifestEntry(
 export function imageManifestProblems(manifest: DevboxImageManifest): string[] {
   const problems: string[] = [];
   const defaults = new Map<string, DevboxManifestEntry[]>();
+  const restrictedById = new Map<string, boolean>();
   for (const entry of manifest.images) {
+    if (entry.restricted === true && entry.defaultForKind) problems.push(`${entry.version}: a restricted test image cannot be a default`);
+    const twinKey = `${entry.provider}/${entry.imageId}`;
+    const restricted = entry.restricted === true;
+    if (restrictedById.has(twinKey) && restrictedById.get(twinKey) !== restricted) {
+      problems.push(`${entry.imageId}: every entry for one image must agree on restricted`);
+    }
+    restrictedById.set(twinKey, restricted);
     for (const field of ["provider", "version", "imageId", "envVar", "builtAt", "validationStatus"] as const) {
       if (!entry[field]) problems.push(`${entry.version ?? entry.imageId ?? "?"}: missing ${field}`);
     }
@@ -1324,9 +1332,6 @@ export function devboxImageLadderProblems(
   provider: DevboxProvider = "freestyle",
 ): string[] {
   const problems: string[] = devboxUnifiedSnapshotProblems(manifest, provider);
-  for (const entry of manifest.images) {
-    if (entry.restricted === true && entry.defaultForKind) problems.push(`${entry.version}: a restricted test image cannot be a default`);
-  }
   for (const kind of ["base", "desktop"] as const) {
     const defaults = manifest.images.filter(
       (entry) => entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind,

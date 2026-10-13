@@ -1,4 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import realManifest from "../services/vms/images/manifest.json";
 
 // A restricted (test) manifest image: never a default, and only a caller whose
@@ -15,13 +17,16 @@ const restrictedEntry = {
   defaultForKind: false,
   restricted: true,
 };
+// The same image listed again under the other kind without the flag: the
+// unrestricted twin must not open it.
+const unrestrictedTwin = { ...restrictedEntry, version: "freestyle-cmux-devbox-restricted-test-base", kind: "base", restricted: undefined };
 mock.module("../services/vms/images/manifest.json", () => ({
-  default: { ...realManifest, images: [...realManifest.images, restrictedEntry] },
+  default: { ...realManifest, images: [...realManifest.images, restrictedEntry, unrestrictedTwin] },
 }));
 
 const { findVmImageKindDefault, listVmImageKindDefaults, resolveVmImage, vmRestrictedImageAllowed } = await import("../services/vms/images/resolver");
 const { VmImageConfigError } = await import("../services/vms/errors");
-const { devboxImageLadderProblems } = await import("../scripts/devbox-image-common");
+const { imageManifestProblems } = await import("../scripts/devbox-image-common");
 
 const deployed = { VERCEL_ENV: "production", NODE_ENV: "production" };
 const allow = (ids: string) => ({ ...deployed, CMUX_VM_RESTRICTED_IMAGE_USER_IDS: ids });
@@ -56,6 +61,19 @@ describe("restricted manifest images", () => {
     expect(refusal(() => resolveVmImage("freestyle", RESTRICTED_ID, { CMUX_VM_ALLOW_UNMANIFESTED_IMAGES: "1" }, { callerUserId: "user-leo" }))).toContain("not listed");
   });
 
+  test("an unrestricted twin of the same image does not open it", () => {
+    expect(refusal(() => resolveVmImage("freestyle", RESTRICTED_ID, allow("user-leo"), { kind: "base", callerUserId: "user-mallory" }))).toContain("not listed");
+    expect(resolveVmImage("freestyle", RESTRICTED_ID, allow("user-leo"), { kind: "base", callerUserId: "user-leo" }).image).toBe(RESTRICTED_ID);
+  });
+
+  test("both create paths hand the authenticated user to the resolver", () => {
+    const read = (file: string) => readFileSync(path.join(import.meta.dirname, "..", file), "utf8");
+    const create = read("app/api/vm/route.ts");
+    expect(create).toContain("const selected = resolveCreateImage(provider, body, memoryMb, user.id);");
+    expect(create).toContain("resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb, callerUserId });");
+    expect(read("app/api/vm/base/routeShared.ts")).toMatch(/resolveVmImage\(provider, parsed\.body\.image, process\.env, \{[^}]*callerUserId: user\.id,[^}]*\}\)/);
+  });
+
   test("the allowlist matches whole ids only", () => {
     expect(vmRestrictedImageAllowed("user-leo", allow("user-leo2,xuser-leo"))).toBe(false);
     expect(vmRestrictedImageAllowed("user-leo", allow(" user-leo "))).toBe(true);
@@ -69,10 +87,13 @@ describe("restricted manifest images", () => {
     expect(resolveVmImage("freestyle", undefined, allow("user-leo"), { callerUserId: "user-leo" }).image).not.toBe(RESTRICTED_ID);
   });
 
-  test("the ladder check refuses a restricted entry flagged as a default", () => {
+  test("the manifest check refuses a restricted default and a twin that disagrees", () => {
     const manifest = { schemaVersion: 1, images: [...realManifest.images, { ...restrictedEntry, defaultForKind: true }] };
-    expect(devboxImageLadderProblems(manifest as Parameters<typeof devboxImageLadderProblems>[0])).toContain(
+    expect(imageManifestProblems(manifest as Parameters<typeof imageManifestProblems>[0])).toContain(
       "freestyle-cmux-devbox-restricted-test: a restricted test image cannot be a default",
+    );
+    expect(imageManifestProblems({ schemaVersion: 1, images: [...realManifest.images, restrictedEntry, unrestrictedTwin] } as Parameters<typeof imageManifestProblems>[0])).toContain(
+      `${RESTRICTED_ID}: every entry for one image must agree on restricted`,
     );
   });
 });
