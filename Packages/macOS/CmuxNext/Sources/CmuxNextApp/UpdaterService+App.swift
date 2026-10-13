@@ -1,9 +1,7 @@
 import AppKit
-import CoreGraphics
 import CmuxNextActions
 import CmuxNextCompat
-import CmuxNextBridge
-import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextSettings
@@ -18,10 +16,7 @@ extension UpdaterService {
     func attach(sheet: UpdateSheetController, services: AppServices) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
-        relaunchBlockers = { [weak services] in
-            guard let services else { return .daemonUnavailable }
-            return Self.currentRelaunchBlockers(in: services)
-        }
+        relaunchBlockers = { [weak services] in services.map { DaemonRelaunchBlockers.current(for: $0.machines.local) } ?? .daemonUnavailable }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.
         let handoff = UpdateWindowHandoff()
@@ -47,50 +42,6 @@ extension UpdaterService {
         #if DEBUG
         UpdateHarnessProbe.install(updater: self)
         #endif
-    }
-
-    /// Reads the daemon's confirmed tab mirror and the acpmux/status overlays.
-    /// A relaunch may wait for active agent turns and foreground commands, while
-    /// a short hardware-input quiet window protects a focused typing session.
-    private static func currentRelaunchBlockers(in services: AppServices) -> UpdateRelaunchBlockers {
-        let daemon = services.machines.local
-        guard daemon.store.isLoaded,
-              case .connected = daemon.store.connectionState,
-              daemon.connection != nil else {
-            return .daemonUnavailable
-        }
-        let tabs = daemon.store.workspaces.flatMap { workspace in
-            workspace.screens.flatMap { screen in
-                screen.panes.flatMap(\.tabs)
-            }
-        }
-        var busyAgents = Set<String>()
-        var runningCommands = Set<String>()
-        for tab in tabs {
-            for report in StatusMapping.shared.reports(tab) {
-                switch report.source {
-                case .agent where report.state.isWorking:
-                    busyAgents.insert(tab.id)
-                case .command, .run, .program, .terminalProgress
-                    where report.state.isLoading || report.state.isWorking:
-                    runningCommands.insert(tab.id)
-                default:
-                    break
-                }
-            }
-        }
-        let inputTimes = [
-            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .keyDown),
-            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .mouseMoved),
-            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .scrollWheel),
-            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .leftMouseDown),
-            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .rightMouseDown),
-            CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: .otherMouseDown),
-        ]
-        let userInputActive = inputTimes.min() ?? .infinity < 60
-        return UpdateRelaunchBlockers(busyAgentCount: busyAgents.count,
-                                      runningCommandCount: runningCommands.count,
-                                      userInputActive: userInputActive)
     }
 
     /// The tips card (BOTTOM-LEFT-CARDS K1): "Try It" runs the catalog
@@ -150,8 +101,5 @@ extension UpdaterService {
         configure(checkAutomatically: updates.checkAutomatically, checkInterval: updates.checkIntervalSeconds,
                   downloadAutomatically: updates.downloadAutomatically,
                   metered: UpdateMeteredMode(rawValue: updates.meteredNetwork.rawValue) ?? .deferLowData)
-        // Automatic idle installation for NIGHTLY-next remains behind the proposed
-        // needs-a-call defaults decision. The driver property is intentionally left
-        // available for that approved setting, but existing defaults must not change here.
     }
 }
