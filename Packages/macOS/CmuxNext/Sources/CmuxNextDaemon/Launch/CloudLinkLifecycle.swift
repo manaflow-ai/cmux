@@ -22,20 +22,18 @@ public final class CloudLinkLifecycle {
 
     private let installID: @MainActor () async -> String?
     /// Cloud may be called: allowed for this build, not turned off by
-    /// policy, signed in.
-    private let isAvailable: @MainActor () -> Bool
-    private let isSignedIn: @MainActor () -> Bool
+    /// policy, signed in. Set by the owner after its own init (it reads the
+    /// owner); until then nothing is available.
+    public var isAvailable: @MainActor () -> Bool = { false }
+    public var isSignedIn: @MainActor () -> Bool = { false }
     /// The app's verified local daemon connection.
     private let connection: @MainActor () -> DaemonConnection?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.cloud")
 
     public init(launcher: CloudLinkLauncher?, installID: @escaping @MainActor () async -> String?,
-                isAvailable: @escaping @MainActor () -> Bool, isSignedIn: @escaping @MainActor () -> Bool,
                 connection: @escaping @MainActor () -> DaemonConnection?) {
         self.linkLauncher = launcher
         self.installID = installID
-        self.isAvailable = isAvailable
-        self.isSignedIn = isSignedIn
         self.connection = connection
     }
 

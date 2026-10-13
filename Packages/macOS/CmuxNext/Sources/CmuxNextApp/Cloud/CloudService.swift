@@ -25,7 +25,7 @@ final class CloudService {
     @ObservationIgnored private let machines: MachineRegistry
     @ObservationIgnored private let binary: URL?
     /// This Mac's `cmux link` across the session (cx-rtipa S3).
-    @ObservationIgnored private var link: CloudLinkLifecycle!
+    @ObservationIgnored private let link: CloudLinkLifecycle
     @ObservationIgnored private var lastRefresh: ContinuousClock.Instant?
     @ObservationIgnored private var observers: [Task<Void, Never>] = []
     /// The local side event subscription for `cloud.link.changed` (app link).
@@ -83,6 +83,9 @@ final class CloudService {
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
         )
         let identity = installIdentity
+        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(tag: LaunchIdentity.current().tag) : nil
+        link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
+                                  connection: { [machines] in machines.local.connection })
         let transport = InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL())
         let clientHeaders = identity.requestHeaders
         credentialProvider = CloudCredentialProvider(relay: CloudCredentialRelay(
@@ -107,11 +110,8 @@ final class CloudService {
         movedChats.defaults = { [weak self] in self?.move.ledger }
         moveAsks.defaults = { [weak self] in self?.move.ledger }
         CloudMovedChats.app = movedChats
-        let launcher = configuration.linkSource == .appServer ? CloudLinkLauncher.forApp(tag: LaunchIdentity.current().tag) : nil
-        link = CloudLinkLifecycle(launcher: launcher, installID: { [identity] in await identity.installID() },
-                                  isAvailable: { [weak self] in self.map { $0.mayCallCloud && !$0.policyDisabled && $0.auth.isSignedIn } ?? false },
-                                  isSignedIn: { [weak self] in self?.auth.isSignedIn ?? false },
-                                  connection: { [machines] in machines.local.connection })
+        link.isAvailable = { [weak self] in self.map { $0.mayCallCloud && !$0.policyDisabled && $0.auth.isSignedIn } ?? false }
+        link.isSignedIn = { [weak self] in self?.auth.isSignedIn ?? false }
     }
 
     /// `cmux-<host>`, as the old app named its link device. Reads the kernel
