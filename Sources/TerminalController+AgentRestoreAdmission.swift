@@ -83,7 +83,8 @@ extension TerminalController {
             indexComplete = evidence.isComplete
         } else {
             switch await SharedLiveAgentIndex.shared.indexForOwnershipDecision(
-                timeoutNanoseconds: Self.agentRestoreAdmissionIndexTimeoutNanoseconds
+                timeoutNanoseconds: Self.agentRestoreAdmissionIndexTimeoutNanoseconds,
+                freshAfterUptimeNanoseconds: AgentRestoreAdmissionFreshnessAnchors.shared.anchor(for: inputs)
             ) {
             case .index(let index):
                 liveOwner = index.liveSessionOwner(
@@ -184,6 +185,9 @@ extension TerminalController {
             case .admitted, .targetChanged, .liveOwner, .concurrentLaunch:
                 break
             }
+        }
+        if case .recovering = decision {} else {
+            AgentRestoreAdmissionFreshnessAnchors.shared.finish(inputs)
         }
         return Self.agentRestoreAdmissionResponse(
             request: request,
