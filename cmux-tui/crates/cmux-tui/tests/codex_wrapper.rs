@@ -84,7 +84,10 @@ impl Launch {
                     "protocol":"cmux.protocol/2", "type":"response", "id":request["id"],
                     "ok":true, "result":[]
                 });
-                writeln!(stream, "{response}").unwrap();
+                // run_hook waits for the hook before this reads its requests,
+                // so the hook's bounded message lookup may have given up
+                // already; a closed connection here is expected.
+                let _ = writeln!(stream, "{response}");
                 continue;
             }
             assert_eq!(request["operation"], "session.journal.append");
