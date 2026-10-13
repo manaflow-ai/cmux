@@ -711,7 +711,21 @@ fn a_closed_terminal_reopens_as_a_tab() {
     let (harness, mut app, pane) = start("reopen-path-terminal");
     let surface =
         app.send(serde_json::json!({"cmd":"new-tab","pane":pane}))["surface"].as_u64().unwrap();
-    let terminal = app.tab(surface)["terminal_id"].as_str().expect("a terminal").to_string();
+    let tab = app.tab(surface)["tab_resource_id"].clone();
+    let terminals = resource_request(
+        &harness.socket,
+        "path-terminal-list",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let terminal = terminals
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|terminal| terminal["tab_ids"].as_array().is_some_and(|tabs| tabs.contains(&tab)))
+        .and_then(|terminal| terminal["id"].as_str().map(str::to_string))
+        .unwrap_or_else(|| panic!("no terminal shows tab {tab}: {terminals}"));
     let (item, reopened) = close_records_and_reopens(
         &harness,
         "terminal.close",
