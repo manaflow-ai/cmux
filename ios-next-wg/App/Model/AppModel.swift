@@ -32,6 +32,7 @@ final class AppModel {
             selectedHostID = connections.first?.id
         } catch {
             startupError = HostConnection.describe(error)
+            logger.error("identity key unavailable: \(String(describing: error), privacy: .public)")
         }
     }
 
@@ -71,7 +72,10 @@ final class AppModel {
     }
 
     private func pair(_ invitation: PairingInvitation) async {
-        guard let identity else { return }
+        guard let identity else {
+            pairing = .failed(startupError ?? String(localized: "This iPhone's key is unavailable."))
+            return
+        }
         pairing = .pairing(hostName: invitation.hostName)
         do {
             let host = try await WireGuardPairingClient().pair(
