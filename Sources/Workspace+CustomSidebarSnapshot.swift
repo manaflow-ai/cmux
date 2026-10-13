@@ -143,8 +143,19 @@ extension Workspace {
         agentSource: String,
         panelLifecycles: [String: AgentHibernationLifecycleState]?
     ) -> String? {
-        // The implementation is completed in the repair commit.
-        nil
+        // A lifecycle belongs to the currently bound session. Avoid exposing
+        // a newer session's panel state on an ended record.
+        if case .ended = state { return nil }
+
+        let key = FeedCoordinator.lifecycleStatusKey(forSource: agentSource)
+        guard let lifecycle = panelLifecycles?[key] else { return nil }
+        switch lifecycle {
+        case .unknown: return "unknown"
+        case .running: return "running"
+        case .backgroundWorkPending: return "background_work_pending"
+        case .needsInput: return "needs_input"
+        case .idle: return "idle"
+        }
     }
 
     private func customSidebarSurfaceSnapshots(focusedPanelId: UUID?) -> [CustomSidebarSurfaceSnapshot] {
