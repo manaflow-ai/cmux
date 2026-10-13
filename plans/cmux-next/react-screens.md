@@ -42,7 +42,7 @@ Size = lines of SwiftUI/AppKit view code (view, window and controller files; mod
 | Server menubar popover (dashboard, pairing, approver) | 1306 | medium | MOVE the content; the popover shell stays native |
 | App Permissions UI (consent sheet, installed apps) | 1112 | medium | not hosted anywhere: delete (React apps page covers grants) |
 | Agent Activity page | 906 | medium-high | MOVE |
-| App Store, native | 889 | medium | ALREADY React (`apps.store.surface`, default web since 2026-10-13, cx-hnmbt.11): delete Swift when hq-6d says |
+| App Store, native | 889 | medium | ALREADY React (`apps.store.surface`, default native again since 2026-10-13: the React page lacks Hide/Show, update, grants, logs, icons, cx-hnmbt.13): flip when the parity table is green, delete Swift when hq-6d says |
 | Tasks page | 862 | medium | MOVE |
 | Agent pane, New Tab | 834 | — | ALREADY React (`cmux.agent`) |
 | Notifications panel | 711 | medium | MOVE |
