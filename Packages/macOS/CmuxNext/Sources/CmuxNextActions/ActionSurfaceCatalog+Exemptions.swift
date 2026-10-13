@@ -117,7 +117,7 @@ nonisolated extension ActionSurfaceCatalog {
         "layout.undo", "bookmark.addPage", "bookmark.addAllTabs", "bookmark.add", "bookmark.newFolder",
         "bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll", "bookmark.edit",
         "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export",
-        "bookmark.setIcon", "bookmark.clearIcon",
+        "bookmark.setIcon", "bookmark.clearIcon", "machine.setIcon", "machine.clearIcon",
     ]
 
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
