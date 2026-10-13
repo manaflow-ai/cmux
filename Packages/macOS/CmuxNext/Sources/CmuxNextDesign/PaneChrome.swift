@@ -24,11 +24,15 @@ public nonisolated enum PaneSeparation: String, Sendable, CaseIterable, Codable 
     case cards
 
     /// What `overrides` resolve to: an explicit separation, else the legacy
-    /// `layout.paneBorder` (none) and padding (0 means edge to edge).
-    public static func resolve(_ overrides: PaneChromeOverrides) -> PaneSeparation {
+    /// `layout.paneBorder` (none) and padding (0 means edge to edge), else
+    /// `unset` (`Metrics.defaultPaneSeparation`).
+    public static func resolve(_ overrides: PaneChromeOverrides, unset: PaneSeparation = .borders) -> PaneSeparation {
         if let separation = overrides.separation { return separation }
-        guard overrides.border == PaneBorderStyle.none else { return .borders }
-        return overrides.padding == 0 ? .dividers : .cards
+        switch overrides.border {
+        case .some(.none): return overrides.padding == 0 ? .dividers : .cards
+        case .some(.subtle): return .borders
+        case nil: return overrides.padding == nil ? unset : .borders
+        }
     }
 
     /// The pane padding this separation implies; nil keeps the density's.

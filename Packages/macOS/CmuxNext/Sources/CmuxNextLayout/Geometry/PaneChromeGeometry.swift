@@ -10,8 +10,12 @@ extension LayoutStyle {
     /// already brings `panePadding` on every side, so the strip adds only
     /// what the padding does not cover: the visible space between two
     /// columns' panes is `max(columnGap, 2 * panePadding)`, never both.
+    /// Edge-to-edge separations (dividers, none) have no gap: columns meet
+    /// at one line, as split panes do, and the strip adds no inset of its
+    /// own at its edges.
     public nonisolated var stripGap: CGFloat {
-        max(0, columnGap - panePadding * 2)
+        guard paneSeparation == .borders || paneSeparation == .cards else { return 0 }
+        return max(0, columnGap - panePadding * 2)
     }
 
     /// Width of a split divider's drag area: at least the visible space

@@ -119,12 +119,18 @@ extension WindowRootView {
         }
     }
 
-    /// Insets the content host by the gutter on every side (beside the
-    /// sidebar, under the titlebar, from the window edges, also with the
-    /// sidebar hidden or in fullscreen), rounds it, and reshades the chrome.
+    /// Insets the content host by the gutter from the titlebar and the
+    /// window edges (also with the sidebar hidden or in fullscreen; beside a
+    /// shown sidebar the sidebar's row inset is the one gap), rounds it, and
+    /// reshades the chrome.
     func applyMainPane() {
         let gutter = Metrics.mainPaneGutter
         for constraint in mainPaneInsetConstraints {
+            // Beside the sidebar its row inset is the gap: no gutter on top.
+            if constraint.secondItem === sidebar {
+                constraint.constant = 0
+                continue
+            }
             switch constraint.firstAttribute {
             case .leading, .top: constraint.constant = gutter
             case .trailing, .bottom: constraint.constant = -gutter
