@@ -1,5 +1,6 @@
 // Every internal page the app ships (the agent pane, each React page, Agent Activity) loads the
-// shared stylesheet: its body computes the app's system font stack, not the engine default serif.
+// shared stylesheet: its body computes a system font stack, not the engine default serif
+// (WebKit reports that as `-webkit-standard`).
 // Agent Activity shipped with its shared desktop.css dropped from the bundle and rendered in Times
 // (Leo, 2026-10-13).
 //
@@ -59,8 +60,8 @@ await requireBrowserLane("internal-pages-app-font.test.ts", async () => {
       try {
         await page.goto(pathToFileURL(file).href, { waitUntil: "load" });
         const font = await page.evaluate(() => getComputedStyle(document.body).fontFamily);
-        expect(font).toContain("system-ui");
-        expect(font).not.toMatch(/^\s*"?(Times|serif)/i);
+        expect(font).toMatch(/system-ui|-apple-system/);
+        expect(font).not.toMatch(/^\s*"?(-webkit-standard|Times|serif)/i);
       } finally {
         await page.close();
       }
