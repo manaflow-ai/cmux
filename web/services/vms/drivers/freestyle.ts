@@ -454,7 +454,7 @@ export function freestyleDesktopHealCommand(): string {
   return (
     `[ -x ${DEVBOX_DESKTOP_START_SCRIPT} ] || exit 3; ` +
     `if [ -d /run/systemd/system ]; then systemctl start ${DEVBOX_DESKTOP_UNIT} || exit 1; fi; ` +
-    `ss -tln 2>/dev/null | grep -q ':${DEVBOX_DESKTOP_NOVNC_PORT} '`
+    `ss -tln 2>/dev/null | grep -q '127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT} '`
   );
 }
 

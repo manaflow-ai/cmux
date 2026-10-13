@@ -321,6 +321,7 @@ describe("devbox desktop layer", () => {
     expect(driver).toContain("freestyleDesktopHealCommand");
     expect(driver).toContain("systemctl start ${DEVBOX_DESKTOP_UNIT} || exit 1");
     expect(driver).toContain("[ -x ${DEVBOX_DESKTOP_START_SCRIPT} ] || exit 3");
+    expect(driver).toContain("127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}");
     expect(driver).not.toContain("sleep 1; done");
     expect(driver).toContain("devboxDesktopOpenUrl(address)");
   });
