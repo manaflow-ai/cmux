@@ -120,4 +120,68 @@ import Testing
         let r33 = gate.finishMeasuring()
         #expect(r33 == .typing)
     }
+
+    /// A status reaching my message while its send flight is in the air
+    /// waits for the landing, as it does when it arrives later: the row
+    /// hides its status under the flight, so applied mid-flight it grew
+    /// unseen and popped in at full size when the flight landed (about 1 s
+    /// after the send), and the previous message lost its status before the
+    /// new bubble arrived. Measured in the iOS 26.5 simulator: "Delivered"
+    /// arrives 85 ms after the send on the conversation simulator's quiet
+    /// latency (0.05), 1.5 to 1.8 s after it on its default latency.
+    @Test func arrivalsWaitForMySendToLand() {
+        var gate = ConversationLiveChangeGate()
+        gate.beginFlight()
+        let delivered = gate.hold(.live(insertedRowIDs: [], sentByMe: false))
+        #expect(delivered)
+        let typing = gate.hold(.typing)
+        #expect(typing)
+        // My own changes (the send's ack) never wait.
+        let ack = gate.hold(.live(insertedRowIDs: [], sentByMe: true))
+        #expect(!ack)
+        let landed = gate.endFlight()
+        #expect(landed == .live(insertedRowIDs: [], sentByMe: false))
+        #expect(gate.flightsInAir == 0)
+        let after = gate.hold(.typing)
+        #expect(!after)
+    }
+
+    /// Rapid sends fly together: what waited applies once the last one
+    /// lands, and not while a page measures or the finger drags.
+    @Test func heldChangesWaitForEveryFlight() {
+        var gate = ConversationLiveChangeGate()
+        gate.beginFlight()
+        gate.beginFlight()
+        let r1 = gate.hold(.live(insertedRowIDs: ["a"], sentByMe: false))
+        #expect(r1)
+        let first = gate.endFlight()
+        #expect(first == nil)
+        let second = gate.endFlight()
+        #expect(second == .live(insertedRowIDs: ["a"], sentByMe: false))
+
+        gate.beginFlight()
+        gate.beginDragging()
+        let r2 = gate.hold(.typing)
+        #expect(r2)
+        let underTheFinger = gate.endFlight()
+        #expect(underTheFinger == nil)
+        let lift = gate.endDragging()
+        #expect(lift == .typing)
+
+        gate.beginMeasuring()
+        gate.beginFlight()
+        let r3 = gate.hold(.typing)
+        #expect(r3)
+        let measured = gate.finishMeasuring()
+        #expect(measured == nil)
+        let landed = gate.endFlight()
+        #expect(landed == .typing)
+
+        // A landing with nothing in the air changes nothing.
+        let extra = gate.endFlight()
+        #expect(extra == nil)
+        #expect(gate.flightsInAir == 0)
+        let r4 = gate.hold(.typing)
+        #expect(!r4)
+    }
 }

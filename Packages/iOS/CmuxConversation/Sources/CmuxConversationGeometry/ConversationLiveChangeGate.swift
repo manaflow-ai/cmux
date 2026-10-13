@@ -29,6 +29,8 @@ public struct ConversationLiveChangeGate: Sendable, Equatable {
     public private(set) var isDragging = false
     /// The live changes held meanwhile, merged into one.
     public private(set) var held: ConversationStoreChange?
+    /// My send flights in the air.
+    public private(set) var flightsInAir = 0
 
     public init() {}
 
@@ -40,6 +42,14 @@ public struct ConversationLiveChangeGate: Sendable, Equatable {
     /// The finger started dragging the transcript.
     public mutating func beginDragging() {
         isDragging = true
+    }
+
+    /// One of my sends took off.
+    public mutating func beginFlight() {}
+
+    /// A send flight landed; returns what to apply now.
+    public mutating func endFlight() -> ConversationStoreChange? {
+        nil
     }
 
     /// Whether `change` waits; if it does, the gate keeps it.
