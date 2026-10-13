@@ -65,7 +65,7 @@ export type NewTabScreenActions = {
   harnessesListed?: boolean;
   /// Integrate a harness was dismissed for good (the app keeps it across relaunches).
   harnessHintDismissed?: boolean;
-  /// Dismisses Integrate a harness for every later page (`newTab.dismissHarnessHint`).
+  /// Dismisses Integrate a harness for every later page (`newTab.remember` `harnessHint: "dismissed"`).
   onDismissHarnessHint?(): void;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
