@@ -46,6 +46,7 @@ final class EmptyWorkspaceView: NSView {
         detail.font = Typography.body
         detail.alignment = .center
         detail.isSelectable = true
+        detail.focusRingType = .none
         detail.isHidden = true
         detail.preferredMaxLayoutWidth = 520
 
