@@ -110,6 +110,8 @@ def codex_store_prompt(rid, params):
     text = "".join(b.get("text", "") for b in params.get("prompt", []))
     codex_write(sid, "event_msg", {"type": "task_started"})
     codex_write(sid, "response_item", {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]})
+    # A turn takes time: it never ends in the millisecond it started.
+    time.sleep(0.02)
     reply = "ok: " + text
     if text.strip() == "history-probe":
         with open(rollouts[sid]) as f:
