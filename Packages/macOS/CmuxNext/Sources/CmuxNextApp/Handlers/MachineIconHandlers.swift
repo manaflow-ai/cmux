@@ -47,7 +47,8 @@ enum MachineIconHandlers {
 
     /// The machine an invocation names: the right-clicked header's (or
     /// `--target machine:<id>`), else the active window's machine. Refused
-    /// while the machine's daemon has not loaded its session id yet.
+    /// until the home registry records the machine (`set-session-icon`
+    /// answers `unknown session` before `put-session` lands).
     static func machineID(_ invocation: ActionInvocation, _ services: AppServices) throws -> String {
         let machines = services.machines
         let id: String
@@ -59,7 +60,8 @@ enum MachineIconHandlers {
         } else {
             id = services.windows.active?.state.machineID ?? MachineRegistry.localID
         }
-        guard machines.sessionID(machine: id) != nil else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.machineNotConnected) }
+        guard let session = machines.sessionID(machine: id) else { throw ActionFailure.invalidTarget(WorkspaceVerbStrings.machineNotConnected) }
+        guard machines.local.store.personal.session(session) != nil else { throw ActionFailure.invalidTarget(RefusalStrings.personalStateLoading) }
         return id
     }
 }

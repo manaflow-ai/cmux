@@ -34,6 +34,9 @@ enum SidebarContextMenus {
             return menu
         case .group(let id):
             return registry.makeContextMenu(for: .workspaceGroup, target: ActionTargetRef(kind: .workspaceGroup, id: id.rawValue))
+        case .section(.machine(let machine)) where machine.rawValue == MachineRegistry.localID && SidebarSection.machineCount(model.sections) == 1:
+            // This Mac alone: its header is the list's "Projects" title and draws no machine icon.
+            return registry.makeContextMenu(for: .sidebarBackground)
         case .section(.machine(let machine)):
             return machineMenu(machine.rawValue, services: services)
         case .section, .background:

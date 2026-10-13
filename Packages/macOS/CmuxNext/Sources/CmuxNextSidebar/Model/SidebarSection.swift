@@ -105,4 +105,11 @@ public nonisolated struct SidebarSection: Identifiable, Hashable, Sendable {
 
     /// Every workspace in this section, in visual order.
     public var workspaces: [SidebarWorkspace] { nodes.flatMap(\.workspaces) }
+
+    /// How many machine sections `sections` hold. With one, its header (when
+    /// shown) is the list's "Projects" title, not the machine's, and draws
+    /// no machine icon (`SidebarRow.titlesProjects`).
+    public static func machineCount(_ sections: [SidebarSection]) -> Int {
+        sections.reduce(0) { $0 + ($1.machine == nil ? 0 : 1) }
+    }
 }
