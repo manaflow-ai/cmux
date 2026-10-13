@@ -42,9 +42,23 @@ public enum ComposerBarGeometry {
     /// has been sent; Messages 27.0 keeps dictation on the keyboard and shows
     /// the waveform (New Message, iOS 27.0 simulator).
     public static func showsRecordGlyph(iOS27: Bool, sentAudio: Bool) -> Bool { iOS27 || sentAudio }
-    /// The disabled plus's ink opacity (New Message before a recipient):
-    /// 190 (26.5) and 176 (27.0) on the light glass.
-    public static func disabledPlusAlpha(iOS27: Bool) -> CGFloat { iOS27 ? 0.3 : 0.24 }
+    /// The disabled plus's ink (New Message before a recipient).
+    public enum DisabledPlusInk: Equatable, Sendable {
+        /// The label color at this opacity.
+        case label(alpha: CGFloat)
+        /// tertiaryLabel's hues (60,60,67 light, 235,235,245 dark) at these
+        /// opacities.
+        case tertiaryHue(lightAlpha: CGFloat, darkAlpha: CGFloat)
+    }
+
+    /// 26.5: the label at 24 % (190 on the light glass). 27.0: Messages
+    /// tints the glyph tertiaryLabel (read from its image view), but on its
+    /// glass the stroke reads 188 over 252 light and 96 over 59 dark, a
+    /// third of the hue in light and a fifth in dark; plain tertiaryLabel
+    /// reads 195 and 112 on ours.
+    public static func disabledPlusInk(iOS27: Bool) -> DisabledPlusInk {
+        iOS27 ? .tertiaryHue(lightAlpha: 0.335, darkAlpha: 0.21) : .label(alpha: 0.24)
+    }
     /// The send glyph: SF Symbol `arrow.up`, bold, medium scale: 13 by 16 pt
     /// of ink with a 2.33 pt stroke. The size is the best pixel fit to
     /// Messages' arrow in place (16.6 to 18 pt searched in 0.1 pt steps).

@@ -174,7 +174,15 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         plusButton.tintColor = .label
         // Disabled (New Message before a recipient) Messages draws the plus
         // lighter than UIKit's own dimming (137 on the light glass).
-        plusButton.setImage(UIImage(systemName: "plus", withConfiguration: Self.plusSymbolConfiguration)?.withTintColor(UIColor.label.withAlphaComponent(ComposerBarGeometry.disabledPlusAlpha(iOS27: Self.isIOS27)), renderingMode: .alwaysOriginal), for: .disabled)
+        let disabledInk: UIColor = switch ComposerBarGeometry.disabledPlusInk(iOS27: Self.isIOS27) {
+        case .label(let alpha): UIColor.label.withAlphaComponent(alpha)
+        case .tertiaryHue(let lightAlpha, let darkAlpha): UIColor { traits in
+            traits.userInterfaceStyle == .dark
+                ? UIColor(red: 235 / 255, green: 235 / 255, blue: 245 / 255, alpha: darkAlpha)
+                : UIColor(red: 60 / 255, green: 60 / 255, blue: 67 / 255, alpha: lightAlpha)
+        }
+        }
+        plusButton.setImage(UIImage(systemName: "plus", withConfiguration: Self.plusSymbolConfiguration)?.withTintColor(disabledInk, renderingMode: .alwaysOriginal), for: .disabled)
         plusButton.addAction(UIAction { [weak self] _ in
             guard let self else { return }
             self.delegate?.composerDidTapPlus(self)
