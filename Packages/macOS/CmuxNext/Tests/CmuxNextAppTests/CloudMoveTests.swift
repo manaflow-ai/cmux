@@ -104,6 +104,32 @@ struct CloudMoveTests {
         }
     }
 
+    /// A machine whose cmux-tui is too old for the move (cx-rppd.13) is named as one in plain words,
+    /// whether the folder copy or the chat move found it, and nothing moves: this Mac's tab stays and
+    /// Retry runs the move again on that machine once it is updated.
+    @Test(arguments: ["syncOutdated", "outdated"])
+    func anOutdatedMachineIsNamedAndTheChatStaysHere(_ mode: String) async throws {
+        try await Self.withMove(mode) { move in
+            let error = try #require(await move.run(), "the move did not report the older machine")
+            #expect(error.message == CloudMoveStrings.outdatedMachine("Move VM"), "\(error.message)")
+            #expect(move.calls().count == (mode == "syncOutdated" ? 1 : 2), "\(move.calls())")
+            #expect(move.services.locateTab(move.tabID) != nil, "this Mac's tab closed though its chat did not move")
+            #expect(move.services.cloud.moveRetries[move.key] == .move(machineID: "vm-move"))
+        }
+    }
+
+    /// When this Mac's own daemon is the one too old for the move, the machine is not blamed: the
+    /// move fails with the CLI's own words and no machine update is suggested.
+    @Test func anOutdatedDaemonOnThisMacIsNotBlamedOnTheMachine() async throws {
+        try await Self.withMove("macOutdated") { move in
+            let error = try #require(await move.run(), "the move did not stop")
+            #expect(error.message != CloudMoveStrings.outdatedMachine("Move VM"), "\(error.message)")
+            #expect(error.message.hasPrefix(CloudMoveStrings.moveFailed("")), "\(error.message)")
+            #expect(!error.message.contains("update the machine"), "\(error.message)")
+            #expect(move.services.locateTab(move.tabID) != nil)
+        }
+    }
+
     /// An agent's Move to Cloud (cmuxterm-hq#1874 slice 5): `cmux cloud move` from the chat's own
     /// agent moves nothing. It shows a card in that chat (Move, Not now, Always); a click that is no
     /// real gesture in the pane moves nothing either, and the person's Move runs the move above.
@@ -384,6 +410,10 @@ struct CloudMoveTests {
             case "$1 $2 $3" in
             "link sync push")
                 [ '\(mode)' = syncTimeout ] && exec sleep 30
+                if [ '\(mode)' = syncOutdated ]; then
+                    echo '{"ok":false,"error":"the machine runs an older cmux-tui (0000old) without fs-v1; update the machine","error_code":"machine_outdated"}'
+                    exit 1
+                fi
                 for target in "$@"; do :; done
                 [ '\(mode)' = tabFailed ] || mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
@@ -394,6 +424,8 @@ struct CloudMoveTests {
                 badAnswer) echo 'thread main panicked'; exit 101 ;;
                 timeout) exec sleep 30 ;;
                 teamMachine) echo '{"ok":false,"error":"a team machine","error_code":"agent_session.team_vm_blocked"}'; exit 1 ;;
+                outdated) echo '{"ok":false,"error":"the target daemon runs an older cmux-tui (0000old) without agent-transfer-v1","error_code":"machine_outdated","side":"target"}'; exit 1 ;;
+                macOutdated) echo '{"ok":false,"error":"the source daemon runs an older cmux-tui (0000old) without agent-transfer-v1","error_code":"machine_outdated","side":"source"}'; exit 1 ;;
                 *)
                     registry=$(find '\(vmState.path)' -name workspace-registry.sqlite3 -print | head -n 1)
                     [ -n "$registry" ] || exit 70

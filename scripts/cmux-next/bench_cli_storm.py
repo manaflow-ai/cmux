@@ -191,21 +191,24 @@ class NextProfile:
         topology = self.topology(control)
         self.left = topology["focus"]["pane"]
         self.keep = {tab["id"] for tab in self.tabs_in(topology, self.left)}
-        result(self.action(control, "pane split-right"))
+        # The reply names the split's new tab; an automation split need not move focus.
+        created = set(result(self.action(control, "pane split-right")).get("created") or [])
         self.stream_tab = None
         for _ in range(100):
             topology = self.topology(control)
-            focus = topology["focus"]
-            if focus.get("pane") and focus["pane"] != self.left and focus.get("tab"):
-                self.stream_tab = next(tab for tab in self.tabs_in(topology, focus["pane"]) if tab["id"] == focus["tab"])
+            self.stream_tab = next((tab for pane in self.panes(topology) if pane["id"] != self.left
+                                    for tab in pane.get("tabs", []) if tab["id"] in created), None)
+            if self.stream_tab:
                 break
             time.sleep(0.05)
         if self.stream_tab is None:
-            raise SystemExit("bench: split-right did not produce a focused stream pane")
+            raise SystemExit("bench: split-right did not produce a stream pane")
         self.daemon_path = daemon_socket(self.tui_binary, self.tag)
+        if topology["focus"].get("pane") == self.left:
+            return
         # The new pane needs a layout pass before it has a left neighbor.
         for _ in range(40):
-            if ok(self.action(control, "pane focus-left")):
+            if ok(self.action(control, "pane focus-left")) and self.topology(control)["focus"].get("pane") == self.left:
                 return
             time.sleep(0.05)
         raise SystemExit("bench: could not focus the left pane after the split")
