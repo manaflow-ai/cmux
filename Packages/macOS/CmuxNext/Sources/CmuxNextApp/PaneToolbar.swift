@@ -100,7 +100,7 @@ final class PaneToolbar {
         view.show(more: target != nil && kind != nil, lit: zoomed && target != nil && kind != nil)
     }
 
-    /// The tab's actions "…" offers: those it can run.
+    /// The tab's actions "…" offers: those it can run; the New Tab page's leave out the splits (#20128).
     func tabActions() -> [ActionID] {
         guard let registry = registry(), let target, let kind else { return [] }
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target))
