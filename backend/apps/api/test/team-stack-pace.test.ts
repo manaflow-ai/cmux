@@ -164,4 +164,71 @@ describe("Stack webhook: queued syncs under the shared pace (cx-f5tk4)", { timeo
     expect(s.requests()).toBe(0)
     expect((await pending(stackTeam)).length).toBe(1)
   })
+
+  it("memberships merged while a read runs are all synced: one full team sync covers the second member", async () => {
+    const s = stackHttp(1000)
+    const p = pace(1000)
+    const stackTeam = crypto.randomUUID()
+    const u1 = crypto.randomUUID()
+    const u2 = crypto.randomUUID()
+    s.teams.set(stackTeam, u1)
+    await wire([stackTeam], s, p)
+    // Both are members in Stack; the faked member list answers both.
+    const both = s.http
+    let release: (() => void) | undefined
+    const gate = new Promise<void>((r) => (release = r))
+    let held = false
+    let onHeld: (() => void) | undefined
+    const heldNow = new Promise<void>((r) => (onHeld = r))
+    const client = stackServer({ ...testEnv, STACK_SECRET_SERVER_KEY: "test-server-key", STACK_PROJECT_ID: PROJECT } as Env, async (req) => {
+      const url = new URL(req.url)
+      if (!held && url.pathname.startsWith("/api/v1/teams/")) {
+        held = true
+        onHeld!()
+        await gate
+      }
+      if (url.pathname === "/api/v1/team-member-profiles") return Response.json({ is_paginated: false, items: [u1, u2].map((u) => ({ team_id: stackTeam, user_id: u, display_name: "Member" })) })
+      if (url.pathname === "/api/v1/team-permissions") return Response.json({ is_paginated: false, items: [u1, u2].map((u) => ({ id: "team_member", user_id: u, team_id: stackTeam })) })
+      return both(req)
+    }, async () => undefined)!
+    await inDO(teamStub(teamIdOf(stackTeam)), async (instance) => {
+      instance.stack = client
+    })
+    // D0 (a team event) holds its read; D1 and D2 (memberships) arrive and merge into the team's row.
+    const d0 = deliver("team.created", { id: stackTeam, display_name: "T", profile_image_url: null, created_at_millis: 0 })
+    await heldNow
+    // D1 and D2 wait behind D0's read; past their deadline they answer 200 `queued` (their row stays).
+    const d1 = await deliver("team_membership.created", { team_id: stackTeam, user_id: u1 })
+    const d2 = await deliver("team_membership.created", { team_id: stackTeam, user_id: u2 })
+    expect([d1.status, d2.status]).toEqual([200, 200])
+    release!()
+    await d0
+    // The merged row runs again at once (inline or from the alarm): both members end up there.
+    for (let i = 0; i < 5 && (await pending(stackTeam)).length > 0; i++) await step([stackTeam], s, p, Date.now() + 10 * 60_000)
+    expect(await pending(stackTeam)).toEqual([])
+    for (const u of [u1, u2]) expect(await memberRow(teamIdOf(stackTeam), userIdFor(PROJECT, u))).toMatchObject({ role: "member" })
+  })
+
+  it("a sync that never gets a token is abandoned after 50 failures, logged with a stable message", async () => {
+    const s = stackHttp(1000)
+    const p = pace(0)
+    const stackTeam = crypto.randomUUID()
+    s.teams.set(stackTeam, crypto.randomUUID())
+    await wire([stackTeam], s, p)
+    const logged: Array<string> = []
+    const original = console.error
+    console.error = (line: unknown) => void logged.push(String(line))
+    try {
+      expect((await deliver("team.created", { id: stackTeam, display_name: "T", profile_image_url: null, created_at_millis: 0 })).body.outcome).toBe("queued")
+      for (let i = 0; i < 60 && (await pending(stackTeam)).length > 0; i++) {
+        const [row] = await pending(stackTeam)
+        await step([stackTeam], s, p, row!.due_at)
+      }
+    } finally {
+      console.error = original
+    }
+    expect(await pending(stackTeam)).toEqual([])
+    expect(logged.some((l) => l.includes('"msg":"stack team sync abandoned"'))).toBe(true)
+    expect(s.requests()).toBe(0)
+  })
 })

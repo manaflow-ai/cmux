@@ -65,8 +65,9 @@ const readOnlyPlan = (metadata: unknown): string | null => {
 /**
  * One retry after a 429 (cx-f5tk4): the sign-in service rate-limits our server reads. The wait is
  * its Retry-After (seconds), 1 s when absent, and never more than RETRY_429_MAX_MS, so a retry stays
- * inside a webhook delivery's deadline; a longer Retry-After or a second 429 throws (the delivery
- * answers a retryable 503).
+ * inside a webhook delivery's deadline; a longer Retry-After or a second 429 throws (a webhook sync
+ * then backs off in TeamDO, team-stack-sync.ts). It applies to every caller (SSO sign-in and the plan
+ * check included); a 429 means Stack did not do the work, so a retried POST makes nothing twice.
  */
 export const RETRY_429_MAX_MS = 2000
 export const retryAfterMs = (res: Response): number | null => {
@@ -221,7 +222,9 @@ export const stackServer = (
 /**
  * The shared pace of Stack webhook syncs (cx-f5tk4): one token per sync of a team (its reads of the team,
  * the member list and the permissions). Without the binding (local runs) every sync passes; a limiter error
- * is "not now" (fail closed). STACK_READ_LIMIT is 4 syncs per 60 s per project: a sync makes 3 or more
+ * is "not now" (fail closed). STACK_READ_LIMIT is 4 syncs per 60 s per project and per Cloudflare location
+ * (the binding counts per location, approximately), so N locations allow about 4 x N; the backoff absorbs
+ * any 429 that leaves. A sync makes 3 or more
  * reads, so about 12 to 20 reads a minute, below the about 27 a minute at which production got 429s.
  */
 export const stackReadPace = (env: Env): Promise<boolean> =>

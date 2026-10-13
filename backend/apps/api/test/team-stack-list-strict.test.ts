@@ -35,6 +35,8 @@ describe("Stack member list answers are read strictly", { timeout: 60_000 }, () 
       const r = await deliver("team.updated", { id: t.stackTeam, display_name: "Acme", profile_image_url: null, created_at_millis: 0 })
       expect(r.status).toBe(200)
       expect(r.body.outcome).toBe("queued")
+      // The sync waits with backoff (cx-f5tk4): one pending row with one failure.
+      expect(await inDO(teamStub(t.team), async (_i, st) => st.storage.sql.exec<{ fails: number }>(`SELECT fails FROM stack_team_recheck WHERE k LIKE 'sync|%'`).toArray())).toEqual([{ fails: 1 }])
       expect(await memberRow(t.team, t.user)).toMatchObject({ user: t.user, role: "member" })
       expect((await teamState(t.team)).member_count).toBe(before.member_count)
     })
