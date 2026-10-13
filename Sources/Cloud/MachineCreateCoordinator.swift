@@ -215,7 +215,8 @@ final class MachineCreateCoordinator {
             let completion = CloudMachineCreateCompletion(
                 succeeded: result.succeeded, wasCancelled: result.wasCancelled, output: result.output,
                 failureOutput: Self.displayableFailureOutput(result.output),
-                machineID: result.machineId, workspaceID: result.workspaceId
+                machineID: result.machineId, workspaceID: result.workspaceId,
+                refusalCode: result.refusalCode
             )
             self.apply(self.lifecycle.finish(completion, from: attempt))
         })
@@ -302,7 +303,8 @@ final class MachineCreateCoordinator {
         guard let request = requests[operation.id] else { return nil }
         return MachineCreateOperation(
             id: operation.id, request: request, startedAt: operation.startedAt,
-            createdMachineID: operation.createdMachineID, phase: operation.phase
+            createdMachineID: operation.createdMachineID, phase: operation.phase,
+            refusalCode: operation.refusalCode
         )
     }
 

@@ -122,16 +122,20 @@ public struct CloudPlanRefusal: Equatable, Sendable {
     /// - Parameter code: The server's `error` code.
     public static func reference(code: String) -> String { "(HTTP 402: \(code))" }
 
-    /// The code of the first exact `(HTTP 402: <code>)` reference in a
-    /// failure transcript; nil when there is none. The whole code is read, so
-    /// a longer code never matches a shorter one by prefix.
-    /// - Parameter output: The failure transcript.
-    public static func code(inFailureOutput output: String) -> String? {
-        guard let match = output.range(of: #"\(HTTP 402: [A-Za-z0-9_.-]+\)"#, options: .regularExpression) else {
+    /// The refusal code the `cmux` CLI named in its own error header, the
+    /// `Error: <title> (HTTP 402: <code>)` line it writes when a request
+    /// fails; nil when the transcript has no such header. Only the first
+    /// `Error:` line is read and only the reference that ends it, so the
+    /// server's message on the lines after it can never stand in for the code.
+    /// - Parameter output: The CLI's failure transcript.
+    public static func code(inCLIFailureOutput output: String) -> String? {
+        guard let header = output.split(whereSeparator: \.isNewline)
+            .first(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("Error:") }) else { return nil }
+        let line = header.trimmingCharacters(in: .whitespaces)
+        guard let match = line.range(of: #"\(HTTP 402: [A-Za-z0-9_.-]+\)$"#, options: .regularExpression) else {
             return nil
         }
-        let reference = output[match]
-        return String(reference.dropFirst("(HTTP 402: ".count).dropLast())
+        return String(line[match].dropFirst("(HTTP 402: ".count).dropLast())
     }
 
     /// A full pool whose answer did not name the numbers.

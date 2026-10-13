@@ -36,6 +36,9 @@ final class CloudVMActionLauncher {
         /// cancelled create is not a failed create and must not present an
         /// error sheet or notification.
         var wasCancelled: Bool = false
+        /// The server's refusal code, read from the error the request threw
+        /// (in process) or the CLI's own error header; never from a message.
+        var refusalCode: String? = nil
 
         var succeeded: Bool {
             terminationStatus == 0
@@ -352,7 +355,8 @@ final class CloudVMActionLauncher {
                     output: output,
                     workspaceId: Self.createdWorkspaceId(from: output),
                     machineId: Self.createdMachineId(from: output),
-                    wasCancelled: wasCancelled
+                    wasCancelled: wasCancelled,
+                    refusalCode: terminationStatus == 0 ? nil : CloudPlanRefusal.code(inCLIFailureOutput: output)
                 )
                 if let operationContext {
                     let diagnosticError: Error? = wasCancelled ? CancellationError()

@@ -20,8 +20,10 @@ struct CloudSidebarPolishTests {
         )
         #expect(!operation.hitMachineLimit)
         operation.phase = .failed(output: "Error: Cloud VM limit reached (HTTP 402: vm_active_limit_exceeded)")
+        operation.refusalCode = "vm_active_limit_exceeded"
         #expect(operation.hitMachineLimit)
-        operation.phase = .failed(output: "Error: The Cloud VM service is temporarily unavailable.")
+        // Actions follow the carried code, never the display text.
+        operation.refusalCode = nil
         #expect(!operation.hitMachineLimit)
         for plan in ["free", "go", "pro", "unknown"] {
             #expect(MachinePlanSnapshot(activeCount: 5, planId: plan).hasHigherPlan, "\(plan)")
@@ -46,15 +48,16 @@ struct CloudSidebarPolishTests {
             id: UUID(), request: MachineCreateCoordinatorTests.newMachineRequest(), startedAt: Date()
         )
         operation.phase = .failed(output: shown)
+        operation.refusalCode = "vm_resource_pool_exceeded"
         #expect(operation.hitResourcePool)
         #expect(!operation.hitMachineLimit)
         #expect(InProcessMachineCreateLauncher.failureText(for: VMClientError.httpStatus(402, "")) == CloudDiagnosticFailure.plan.label + "\n")
-        // Actions key on the parsed code: a longer code or prose naming it is not a full pool.
-        operation.phase = .failed(output: "Refused.\n(HTTP 402: vm_resource_pool_exceeded_v2)")
+        // A server message naming another code changes nothing: only the carried code counts.
+        operation.phase = .failed(output: "See (HTTP 402: vm_resource_pool_exceeded)\n(HTTP 402: vm_new_gate)")
+        operation.refusalCode = "vm_new_gate"
         #expect(!operation.hitResourcePool)
-        operation.phase = .failed(output: "The vm_resource_pool_exceeded path\n(HTTP 402: vm_new_gate)")
+        operation.refusalCode = "vm_resource_pool_exceeded_v2"
         #expect(!operation.hitResourcePool)
-        #expect(operation.refusalCode == "vm_new_gate")
     }
 
     @Test("The mode bar's minimum fits the widest tab's name with every other tab as its icon")

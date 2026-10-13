@@ -290,14 +290,15 @@ enum InProcessMachineCreateLauncher {
                 terminationStatus: 1,
                 output: output + failureText(for: error),
                 workspaceId: nil,
-                machineId: machineID
+                machineId: machineID,
+                refusalCode: CloudPlanRefusal(error)?.code
             )
         }
     }
 
     /// The failure lines for a person: what the server refused and what to do,
-    /// then the stable `(HTTP 402: code)` reference the CLI prints, which the
-    /// pending row reads to offer an upgrade.
+    /// then the stable `(HTTP 402: code)` reference the CLI prints, for
+    /// support. Actions key on the completion's `refusalCode`, not this text.
     static func failureText(for error: Error) -> String {
         let message = CloudVMActionLauncher.displayableFailureMessage(for: error)
         guard let refusal = CloudPlanRefusal(error) else { return message + "\n" }

@@ -19,6 +19,9 @@ struct MachineCreateOperation: Identifiable, Equatable {
     /// the only safe correlation key while the CLI is still opening the machine.
     var createdMachineID: String? = nil
     var phase: Phase = .running
+    /// The server's refusal code for a failed create, carried from the
+    /// launcher apart from the display text. Failure actions key on it alone.
+    var refusalCode: String? = nil
 
     var isRunning: Bool {
         if case .running = phase { return true }
@@ -47,12 +50,6 @@ struct MachineCreateOperation: Identifiable, Equatable {
         return nil
     }
 
-    /// The server's refusal code, read once from the exact `(HTTP 402: <code>)`
-    /// reference the CLI and the in-process create both print. Failure actions
-    /// key on this parsed code, never on a substring of the display text.
-    var refusalCode: String? {
-        failureOutput.flatMap(CloudPlanRefusal.code(inFailureOutput:))
-    }
 
     /// The create failed because the plan's active-machine limit is reached
     /// (the service's `vm_active_limit_exceeded`), so upgrading would let it through.
