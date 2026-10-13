@@ -59,6 +59,8 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          # The freshness guard needs the true merge base, not a depth-1 head.
+          fetch-depth: 0
           persist-credentials: false
 
       - name: Autofix scripts from the base
@@ -66,9 +68,14 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
-          git fetch --quiet --depth=1 origin "refs/heads/$BASE_REF"
+          git fetch --quiet --no-tags origin "refs/heads/$BASE_REF"
           mkdir -p "$RUNNER_TEMP/autofix"
           git archive FETCH_HEAD scripts/cmux-next | tar -x -C "$RUNNER_TEMP/autofix"
+
+      - name: Refuse stale generator inputs
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/autofix/scripts/cmux-next/check-generator-inputs.sh" --base-ref FETCH_HEAD
 
       # The same paths as repair's Changed areas step (the files API, an
       # autofix head repairs nothing); only the actions key is used.
@@ -119,6 +126,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
           persist-credentials: false
           submodules: false
 
@@ -130,9 +138,14 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
-          git fetch --quiet --depth=1 origin "refs/heads/$BASE_REF"
+          git fetch --quiet --no-tags origin "refs/heads/$BASE_REF"
           mkdir -p "$RUNNER_TEMP/autofix"
           git archive FETCH_HEAD scripts/cmux-next | tar -x -C "$RUNNER_TEMP/autofix"
+
+      - name: Refuse stale generator inputs
+        run: |
+          set -euo pipefail
+          "$RUNNER_TEMP/autofix/scripts/cmux-next/check-generator-inputs.sh" --base-ref FETCH_HEAD
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -214,6 +227,7 @@ jobs:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
           persist-credentials: false
 
       # The autofix's own scripts come from the base branch's tip, so a branch
@@ -226,10 +240,15 @@ jobs:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
-          git fetch --quiet --depth=1 origin "refs/heads/$BASE_REF"
+          git fetch --quiet --no-tags origin "refs/heads/$BASE_REF"
           mkdir -p "$RUNNER_TEMP/autofix"
           git archive FETCH_HEAD scripts/cmux-next scripts/ci | tar -x -C "$RUNNER_TEMP/autofix"
           echo "AUTOFIX=$RUNNER_TEMP/autofix/scripts/cmux-next" >> "$GITHUB_ENV"
+
+      - name: Refuse stale generator inputs
+        run: |
+          set -euo pipefail
+          "$AUTOFIX/check-generator-inputs.sh" --base-ref FETCH_HEAD
 
       - name: Changed areas
         id: areas
