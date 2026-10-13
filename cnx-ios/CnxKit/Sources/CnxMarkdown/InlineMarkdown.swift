@@ -41,7 +41,9 @@ public final class InlineMarkdownCache {
                 continue
             }
             if intent.contains(.code) {
-                result[run.range].font = .system(.callout, design: .monospaced)
+                // No explicit font: Text draws the code intent in the
+                // monospaced variant of the surrounding font, so code in a
+                // plan step or table cell matches its text size.
                 result[run.range].backgroundColor = Color.cnxFill
             }
             if run.link != nil {

@@ -22,6 +22,8 @@ public final class MockAgentSession: AgentSessionSource {
     private var effort = "medium"
     private var mode = "default"
     private let richFirstTurn: Bool
+    /// false: a brand-new session (no earlier turns to replay).
+    private let history: Bool
     /// Checkpoints recorded around turns (newest last).
     var checkpointLog: [AgentCheckpoint] = []
     /// Characters per streamed chunk and the delay between chunks (≈ 40 chars / 50 ms).
@@ -29,11 +31,12 @@ public final class MockAgentSession: AgentSessionSource {
     public var chunkDelay: Duration = .milliseconds(16)
 
     public init(
-        summary: AgentSessionSummary, richFirstTurn: Bool = true,
+        summary: AgentSessionSummary, richFirstTurn: Bool = true, history: Bool = true,
         sleep: @escaping @Sendable (Duration) async throws -> Void = { try await Task.sleep(for: $0) }
     ) {
         self.summary = summary
         self.richFirstTurn = richFirstTurn
+        self.history = history
         self.sleep = sleep
     }
 
@@ -124,7 +127,8 @@ public final class MockAgentSession: AgentSessionSource {
             ACPAvailableCommand(name: "init", description: "Create a CLAUDE.md for this project"),
             ACPAvailableCommand(name: "test", description: "Run the test suite", hint: "filter"),
         ])))
-        emit(.update(.usage(used: 48_000, size: 200_000)))
+        emit(.update(.usage(used: history ? 48_000 : 0, size: 200_000)))
+        guard history else { return }
         let start = Date().addingTimeInterval(-3600)
         let turnID = "history-1"
         emit(.userMessage(text: "What does the link framing look like today?", promptId: "p-h1", turnId: turnID, attachments: [], at: start))

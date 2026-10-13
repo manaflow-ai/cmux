@@ -286,9 +286,7 @@ public struct AgentChatTranscript: View {
             // bottom anchor settled past the content on iOS 26, leaving the
             // page blank after a workspace opened or a tab zoomed in.
             VStack(alignment: .leading, spacing: 0) {
-                if store.turns.isEmpty {
-                    emptyState
-                } else {
+                if !store.turns.isEmpty {
                     if let first = store.turns.first {
                         Text("Session started \(first.promptAt.formatted(date: .abbreviated, time: .shortened))")
                             .font(.footnote)
@@ -304,12 +302,38 @@ public struct AgentChatTranscript: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 20)
             .scrollTargetLayout()
         }
         .contentMargins(.top, topInset ?? 0, for: .scrollContent)
         .contentMargins(.bottom, bottomInset ?? 0, for: .scrollContent)
         .contentMargins(.bottom, bottomInset ?? 0, for: .scrollIndicators)
+        .overlay {
+            // Centered in the visible transcript (SPEC 6.2, 7.2) rather than
+            // inside the bottom-anchored content, which pinned it to the composer.
+            if store.turns.isEmpty {
+                emptyState
+                    .padding(.top, topInset ?? 0)
+                    .padding(.bottom, bottomInset ?? 0)
+                    .transition(.opacity)
+            }
+        }
+        .overlay(alignment: .top) {
+            // Under foreign chrome (a workspace tab) there is no navigation
+            // bar to draw the scroll edge effect, and text ran under the
+            // status bar's clock. Fade it out the way the bar would.
+            if let topInset {
+                LinearGradient(stops: [
+                    .init(color: Color.cnxBackground, location: 0),
+                    .init(color: Color.cnxBackground, location: 0.6),
+                    .init(color: Color.cnxBackground.opacity(0), location: 1),
+                ], startPoint: .top, endPoint: .bottom)
+                .frame(height: topInset + 16)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+            }
+        }
         .scrollPosition($surface.position)
         .defaultScrollAnchor(.bottom)
         .scrollDismissesKeyboard(.interactively)
@@ -369,7 +393,7 @@ public struct AgentChatTranscript: View {
             Text("\(store.summary.workspaceTitle) on \(store.summary.macName)").font(.subheadline).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
-        .padding(.top, 220)
+        .accessibilityElement(children: .combine)
     }
 }
 
