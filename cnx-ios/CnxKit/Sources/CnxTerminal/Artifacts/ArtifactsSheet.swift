@@ -50,7 +50,7 @@ struct ArtifactsSheet: View {
             .navigationTitle("Files and links")
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: TerminalArtifact.self) { artifact in
-                ArtifactPreview(artifact: artifact, model: model)
+                ArtifactPreview(artifact: artifact, source: model.artifactSource, showSource: $model.previewShowsSource)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -84,29 +84,6 @@ struct ArtifactsSheet: View {
         .scrollIndicators(.hidden)
         .textCase(nil)
         .foregroundStyle(.primary)
-    }
-}
-
-struct ArtifactRow: View {
-    let artifact: TerminalArtifact
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: artifact.systemImage)
-                .font(.system(size: 18))
-                .foregroundStyle(artifact.kind == .directory ? Color.secondary : Color.primary)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(artifact.name).font(.body).lineLimit(1)
-                Text(artifact.reference + (artifact.line.map { ":\($0)" } ?? ""))
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-        }
-        .frame(minHeight: 44)
-        .accessibilityElement(children: .combine)
     }
 }
 #endif

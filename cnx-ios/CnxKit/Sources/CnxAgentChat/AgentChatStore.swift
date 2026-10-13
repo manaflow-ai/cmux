@@ -17,6 +17,8 @@ public struct AgentTurn: Identifiable, Hashable, Sendable {
     public var startedAt: Date?
     public var endedAt: Date?
     public var errorText: String?
+    /// Tool calls drawn by something else (the subagent row that a spawn call started).
+    public var hiddenToolCalls: Set<String> = []
 
     public init(id: String, prompt: String, attachments: [AgentAttachment] = [], promptAt: Date) {
         self.id = id
@@ -70,9 +72,12 @@ public enum TurnItem: Hashable, Sendable, Identifiable {
     case plan(id: String, entries: [ACPPlanEntry])
     case permission(PermissionRecord)
     case question(AgentQuestion)
+    /// Subagents started together (ids into `AgentChatStore.subagents`).
+    case subagents(id: String, ids: [String])
 
     public var id: String {
         switch self {
+        case .subagents(let id, _): "s-\(id)"
         case .message(let id, _): "m-\(id)"
         case .thought(let id, _): "t-\(id)"
         case .tool(let call): "c-\(call.id)"
@@ -119,6 +124,8 @@ public final class AgentChatStore {
     public private(set) var modes: [ACPMode] = []
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
+    /// Every subagent seen, nested ones included, in start order.
+    public private(set) var subagents: [AgentSubagent] = []
     /// The newest refused intent, shown over the composer until the next send.
     public var clientError: String?
     /// Bumps on every streamed change (follow-mode scroll keys off it).
@@ -266,6 +273,54 @@ public final class AgentChatStore {
             summary.status = status
         case .clientError(let message):
             clientError = message
+        case .subagent(let change):
+            applySubagent(change)
+        case .subagentUpdate(let id, let update):
+            guard let index = subagents.firstIndex(where: { $0.id == id }) else { return }
+            subagents[index].items.apply(update)
+            if case .toolCall(let call) = update { subagents[index].action = call.title }
+            if case .toolCallUpdate(let call) = update, let title = call.title { subagents[index].action = title }
+        }
+    }
+
+    public func subagent(_ id: String) -> AgentSubagent? { subagents.first { $0.id == id } }
+
+    private func applySubagent(_ change: AgentSubagentChange) {
+        if let index = subagents.firstIndex(where: { $0.id == change.id }) {
+            if let name = change.name { subagents[index].name = name }
+            if let task = change.task { subagents[index].task = task }
+            if let state = change.state, state != subagents[index].state {
+                subagents[index].state = state
+                subagents[index].endedAt = state == .running ? nil : change.at
+            }
+            return
+        }
+        var agent = AgentSubagent(id: change.id, parent: change.parent, name: change.name ?? change.task ?? change.id,
+                                  task: change.task, state: change.state ?? .running, startedAt: change.at, turnID: turns.last?.id)
+        if agent.state != .running { agent.endedAt = change.at }
+        subagents.append(agent)
+        if let parent = change.parent, let index = subagents.firstIndex(where: { $0.id == parent }) {
+            if case .subagents(let group, let ids)? = subagents[index].items.last {
+                subagents[index].items[subagents[index].items.count - 1] = .subagents(id: group, ids: ids + [change.id])
+            } else {
+                subagents[index].items.append(.subagents(id: change.id, ids: [change.id]))
+            }
+            return
+        }
+        guard !turns.isEmpty else { return }
+        let last = turns.count - 1
+        if let call = change.toolCallID { turns[last].hiddenToolCalls.insert(call) }
+        // Subagents spawned with no prose between them share one group; their
+        // spawn tool calls are drawn by the group, so they don't split it.
+        let hidden = turns[last].hiddenToolCalls
+        let anchor = turns[last].items.lastIndex { item in
+            if case .tool(let call) = item, hidden.contains(call.id) { return false }
+            return true
+        }
+        if let anchor, case .subagents(let group, let ids) = turns[last].items[anchor] {
+            turns[last].items[anchor] = .subagents(id: group, ids: ids + [change.id])
+        } else {
+            turns[last].items.append(.subagents(id: change.id, ids: [change.id]))
         }
     }
 

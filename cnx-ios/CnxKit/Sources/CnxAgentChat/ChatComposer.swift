@@ -15,6 +15,7 @@ struct ChatComposer: View {
     var collapsible: Bool
     @State private var showPhotos = false
     @State private var showFiles = false
+    @State private var showCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var sendCount = 0
     @State private var planMode = false
@@ -43,6 +44,14 @@ struct ChatComposer: View {
             if case .success(let urls) = result {
                 attachments += urls.map { AgentAttachment(kind: .file, name: $0.lastPathComponent) }
             }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { image in
+                if let data = image.jpegData(compressionQuality: 0.85) {
+                    attachments.append(AgentAttachment(kind: .image, name: "Camera \(Date().formatted(date: .omitted, time: .shortened))", data: data))
+                }
+            }
+            .ignoresSafeArea()
         }
         .onChange(of: photoItems) { _, items in
             Task { await loadPhotos(items) }
@@ -77,7 +86,8 @@ struct ChatComposer: View {
                     if store.currentModelName != nil { modelPill }
                     Spacer(minLength: 0)
                 }
-                micButton
+                // No mic button: iOS has no API to start keyboard dictation, and the
+                // keyboard's own mic dictates into this field (SPEC open decision).
                 primaryButton
             }
             .padding(.horizontal, 8)
@@ -96,7 +106,16 @@ struct ChatComposer: View {
     private var plusMenu: some View {
         Menu {
             Section {
-                Button("Camera", systemImage: "camera") {}
+                if CameraPicker.isAvailable {
+                    Button("Camera", systemImage: "camera") { showCamera = true }
+                } else {
+                    // Simulators and devices without a camera: say why instead of failing on tap.
+                    Button {} label: {
+                        Label("Camera", systemImage: "camera")
+                        Text("No camera on this device")
+                    }
+                    .disabled(true)
+                }
                 Button("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
                 Button("Files", systemImage: "paperclip") { showFiles = true }
             }
@@ -176,20 +195,6 @@ struct ChatComposer: View {
             .background(Color.cnxFill, in: .capsule)
         }
         .accessibilityLabel("Model")
-    }
-
-    private var micButton: some View {
-        Button {
-            focus.wrappedValue = true
-        } label: {
-            Image(systemName: "mic")
-                .font(.system(size: 17))
-                .foregroundStyle(.primary)
-                .frame(width: 36, height: 36)
-                .background(collapsed ? Color.clear : Color.cnxFill, in: .circle)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Dictate")
     }
 
     private enum PrimaryState { case empty, send, stop, queue }
@@ -360,6 +365,36 @@ struct AttachmentThumb: View {
         }
         .padding(.top, 6)
         .padding(.trailing, 6)
+    }
+}
+/// UIImagePickerController's camera (SwiftUI has no camera picker).
+struct CameraPicker: UIViewControllerRepresentable {
+    static var isAvailable: Bool { UIImagePickerController.isSourceTypeAvailable(.camera) }
+
+    let onImage: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraPicker
+        init(_ parent: CameraPicker) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage { parent.onImage(image) }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }
 #endif

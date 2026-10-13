@@ -139,10 +139,7 @@ private struct TeamStep: View {
                         ForEach(store.teams) { team in
                             let presence = team.macDots()
                             Button {
-                                store.selectTeam(team.id)
-                                theme.haptics.selection()
-                                Task { await auth.selectTeam(team.id) }
-                                next()
+                                pick(team)
                             } label: {
                                 SidebarTeamRow(
                                     name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji,
@@ -157,7 +154,21 @@ private struct TeamStep: View {
                 }
             }
             .background(theme.colors.bg.color.ignoresSafeArea())
+            #if DEBUG
+            .onChange(of: DemoDirector.shared.serial) {
+                if case .setupPickTeam(let index) = DemoDirector.shared.command, store.teams.indices.contains(index) {
+                    pick(store.teams[index])
+                }
+            }
+            #endif
         }
+    }
+
+    private func pick(_ team: Team) {
+        store.selectTeam(team.id)
+        theme.haptics.selection()
+        Task { await auth.selectTeam(team.id) }
+        next()
     }
 
     private func create() {
@@ -193,6 +204,9 @@ private struct PairMacStep: View {
             SecondaryCapsule("Email me a download link", action: next)
             TextCTA("Not now", action: next)
         }
+        #if DEBUG
+        .onChange(of: DemoDirector.shared.serial) { if DemoDirector.shared.command == .setupNotNow { next() } }
+        #endif
     }
 }
 
@@ -216,6 +230,9 @@ private struct NotificationsStep: View {
             }
             TextCTA("Not now", action: next)
         }
+        #if DEBUG
+        .onChange(of: DemoDirector.shared.serial) { if DemoDirector.shared.command == .setupNotNow { next() } }
+        #endif
     }
 }
 #endif

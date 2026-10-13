@@ -80,6 +80,14 @@ public struct WelcomeView: View {
             if initialEmail != nil { showsEmail = true }
         }
         .cnxSensoryFeedback(.error, trigger: auth.errorMessage)
+        #if DEBUG
+        .onChange(of: DemoDirector.shared.serial) {
+            if DemoDirector.shared.command == .onboardingOpenEmail { showsEmail = true }
+        }
+        .task {
+            if OnboardingDemoScript.isRequested { OnboardingDemoScript.start() }
+        }
+        #endif
     }
 
     private var buttons: some View {

@@ -1,26 +1,34 @@
 #if os(iOS)
 import AVKit
+import PDFKit
 import SwiftUI
 import WebKit
 
 /// The best preview for each kind: rendered HTML and Markdown with a Source
-/// toggle, syntax-colored code, zoomable images, a video player, web links,
-/// folder listings.
-struct ArtifactPreview: View {
+/// toggle, syntax-colored code, zoomable images, a video player, PDFs, web
+/// links, folder listings. Folder rows push `TerminalArtifact` values, so the
+/// enclosing stack registers `navigationDestination(for: TerminalArtifact.self)`.
+public struct ArtifactPreview: View {
     let artifact: TerminalArtifact
-    let model: TerminalModel
+    let source: any ArtifactSource
+    @Binding var showSource: Bool
     @State private var content: Result<ArtifactContent, any Error>?
+    @Environment(\.openURL) private var openURL
 
-    private var source: any ArtifactSource { model.artifactSource }
-    private var showSource: Bool { model.previewShowsSource }
+    public init(artifact: TerminalArtifact, source: any ArtifactSource, showSource: Binding<Bool>) {
+        self.artifact = artifact
+        self.source = source
+        _showSource = showSource
+    }
 
     private var rendersAsWeb: Bool { artifact.kind == .html || artifact.kind == .markdown }
 
-    var body: some View {
+    public var body: some View {
         Group {
             switch content {
             case nil:
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .accessibilityIdentifier("artifact.loading")
             case .failure(let error):
                 ContentUnavailableView("Can't open \(artifact.name)", systemImage: "exclamationmark.triangle",
                                        description: Text(error.localizedDescription))
@@ -33,7 +41,7 @@ struct ArtifactPreview: View {
         .toolbar {
             if rendersAsWeb {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Picker("View", selection: Bindable(model).previewShowsSource) {
+                    Picker("View", selection: $showSource) {
                         Image(systemName: "eye").tag(false).accessibilityLabel("Preview")
                         Image(systemName: "chevron.left.forwardslash.chevron.right").tag(true).accessibilityLabel("Source")
                     }
@@ -41,6 +49,23 @@ struct ArtifactPreview: View {
                     .frame(width: 110)
                     .accessibilityIdentifier("artifact.sourceToggle")
                 }
+            }
+            if artifact.kind == .link, let url = URL(string: artifact.reference) {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Open in Safari", systemImage: "safari") { openURL(url) }
+                }
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = artifact.reference }
+                    if case .success(.text(let text)) = content {
+                        Button("Copy contents", systemImage: "text.document") { UIPasteboard.general.string = text }
+                        ShareLink(item: text, preview: SharePreview(artifact.name)) { Label("Share", systemImage: "square.and.arrow.up") }
+                    }
+                } label: {
+                    Image(systemName: "ellipsis")
+                }
+                .accessibilityLabel("More")
             }
         }
         .task(id: artifact) {
@@ -63,10 +88,11 @@ struct ArtifactPreview: View {
         case .image(let data):
             ZoomableImage(image: UIImage(data: data))
         case .file(let url):
-            VideoPlayer(player: AVPlayer(url: url))
-                .background(.black)
+            AutoplayVideo(url: url)
         case .web(let url):
             WebPreview(mode: .url(url))
+        case .pdf(let data):
+            PDFPreview(data: data)
         case .directory(let children):
             List(children) { child in
                 NavigationLink(value: child) { ArtifactRow(artifact: child) }
@@ -82,12 +108,47 @@ struct ArtifactPreview: View {
     }
 }
 
+/// A video that starts playing when it opens (system controls on tap).
+struct AutoplayVideo: View {
+    let url: URL
+    @State private var player: AVPlayer?
+
+    var body: some View {
+        VideoPlayer(player: player)
+            .background(.black)
+            .onAppear {
+                let player = AVPlayer(url: url)
+                self.player = player
+                player.play()
+            }
+            .onDisappear { player?.pause() }
+    }
+}
+
+/// PDFKit with continuous vertical pages.
+struct PDFPreview: UIViewRepresentable {
+    let data: Data
+
+    func makeUIView(context: Context) -> PDFView {
+        let view = PDFView()
+        view.autoScales = true
+        view.displayDirection = .vertical
+        view.backgroundColor = .secondarySystemBackground
+        view.document = PDFDocument(data: data)
+        return view
+    }
+
+    func updateUIView(_ view: PDFView, context: Context) {}
+}
+
 /// WKWebView for HTML artifacts (JavaScript off) and links.
-struct WebPreview: UIViewRepresentable {
-    enum Mode: Equatable { case html(String), url(URL) }
+public struct WebPreview: UIViewRepresentable {
+    public enum Mode: Equatable { case html(String), url(URL) }
     let mode: Mode
 
-    func makeUIView(context: Context) -> WKWebView {
+    public init(mode: Mode) { self.mode = mode }
+
+    public func makeUIView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         if case .html = mode {
             configuration.defaultWebpagePreferences.allowsContentJavaScript = false
@@ -101,15 +162,15 @@ struct WebPreview: UIViewRepresentable {
         return web
     }
 
-    func updateUIView(_ web: WKWebView, context: Context) {
+    public func updateUIView(_ web: WKWebView, context: Context) {
         guard context.coordinator.mode != mode else { return }
         context.coordinator.mode = mode
         load(web)
     }
 
-    func makeCoordinator() -> Coordinator { Coordinator() }
+    public func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator { var mode: Mode? }
+    public final class Coordinator { var mode: Mode? }
 
     private func load(_ web: WKWebView) {
         switch mode {
@@ -177,6 +238,7 @@ struct CodeView: View {
                 .padding(.trailing, 16)
                 .textSelection(.enabled)
             }
+            .defaultScrollAnchor(.topLeading)
             .onAppear { if let highlightLine { proxy.scrollTo(highlightLine, anchor: .center) } }
         }
         .background(Color(uiColor: .secondarySystemBackground))

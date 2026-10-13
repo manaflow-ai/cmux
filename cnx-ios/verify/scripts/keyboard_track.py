@@ -17,6 +17,9 @@ TUI frame moves with the composer on the same curve).
 """
 import glob, os, sys
 import numpy as np
+# Embedded terminal (a workspace tab): STACK_FLOOR=<pt> starts the stack scan
+# above TabsKit's toolbar, which is not black.
+FLOOR = float(os.environ.get("STACK_FLOOR", "10000"))
 
 
 def footer_bottom(rows, pt):
@@ -50,7 +53,7 @@ for path in frames:
             y -= 1
         kb = y + 1
     xs = int(67 * pt)
-    y = min(kb, h - int(40 * pt)) - 1
+    y = min(kb, h - int(40 * pt), int(FLOOR * pt)) - 1
     while y > 0 and lum[y, xs] < 6:
         y -= 1
     stack = y + 1
@@ -69,6 +72,10 @@ print("   ms    kb_pt  stack_pt  p_kb   p_stack  lag_pt  tui_gap_pt")
 ft0, ft1 = data[0][3], data[-1][3]
 tui_errs = []
 lags, gaps, not_drawn = [], [], 0
+# Embedded: while the keyboard's top is behind TabsKit's toolbar (glass, not
+# black) the column scan stops at the toolbar instead; those frames are
+# counted as occluded, not measured.
+occluded = 0
 for ms, kb, st, ft in data:
     pk = (kb - kb0) / (kb1 - kb0) if kb1 != kb0 else 0
     ps = (st - st0) / (st1 - st0) if st1 != st0 else 0
@@ -79,6 +86,9 @@ for ms, kb, st, ft in data:
         # this frame (it appears a few ms after its animation starts).
         not_drawn += 1
         moving = False
+    if moving and FLOOR < 10000 and FLOOR - 5 < kb < FLOOR + 60:
+        occluded += 1
+        moving = False
     if moving: lags.append(lag)
     g = st - ft if ft else None
     if ft and ft0 and ft1 and st1 != st0:
@@ -88,7 +98,7 @@ for ms, kb, st, ft in data:
     if g is not None: gaps.append(g)
     print(f"{ms:6d} {kb:7.1f} {st:8.1f} {pk:6.3f} {ps:7.3f} {lag:7.2f} {'' if g is None else f'{g:8.1f}'}")
 if lags:
-    print(f"moving frames={len(lags)} keyboard-not-drawn={not_drawn} lag_pt min={min(lags):.2f} max={max(lags):.2f}")
+    print(f"moving frames={len(lags)} keyboard-not-drawn={not_drawn} toolbar-occluded={occluded} lag_pt min={min(lags):.2f} max={max(lags):.2f}")
 if gaps:
     print(f"tui_gap_pt min={min(gaps):.1f} max={max(gaps):.1f}")
 if tui_errs:

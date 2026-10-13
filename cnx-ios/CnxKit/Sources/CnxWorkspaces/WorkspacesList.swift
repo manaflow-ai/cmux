@@ -5,20 +5,6 @@ import SwiftUI
 
 private let theme = CnxTheme.standard
 
-/// How the Workspaces list orders rows inside each Mac.
-public enum WorkspaceSort: String, CaseIterable, Identifiable, Sendable {
-    case recent, name
-    public var id: String { rawValue }
-    var title: LocalizedStringKey { self == .recent ? "Recent" : "Name" }
-
-    func ordered(_ items: [Workspace]) -> [Workspace] {
-        switch self {
-        case .recent: items.sorted { $0.lastActivityAt > $1.lastActivityAt }
-        case .name: items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        }
-    }
-}
-
 /// SPEC 11.1: the Workspaces tab's content. One plain section per Mac
 /// (presence dot, name, "Online" / "Last seen"), workspace rows with icon,
 /// branch, tab count, relative time and status. Rows push `Workspace`

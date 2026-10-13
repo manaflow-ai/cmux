@@ -1,6 +1,8 @@
 import Foundation
 
-/// A file, directory or link the session's output referenced.
+/// A file, directory or link a session referenced: terminal output, or an
+/// agent session's tool calls, attachments and answers. (The name predates
+/// agent sessions; `SessionArtifact` is the same type.)
 public struct TerminalArtifact: Identifiable, Hashable, Sendable {
     public enum Kind: String, Hashable, Sendable, CaseIterable {
         case directory, image, video, html, markdown, code, text, pdf, binary, link
@@ -14,12 +16,15 @@ public struct TerminalArtifact: Identifiable, Hashable, Sendable {
     public var line: Int?
     /// Order of first appearance.
     public var order: Int
+    /// How the session referenced it ("Edited · +12 −4", "Attached", "Linked in the answer"); nil for terminal output.
+    public var detail: String?
 
-    public init(reference: String, kind: Kind, line: Int? = nil, order: Int = 0) {
+    public init(reference: String, kind: Kind, line: Int? = nil, order: Int = 0, detail: String? = nil) {
         self.reference = reference
         self.kind = kind
         self.line = line
         self.order = order
+        self.detail = detail
     }
 
     public var name: String {
@@ -48,7 +53,7 @@ public struct TerminalArtifact: Identifiable, Hashable, Sendable {
         }
     }
 
-    static func kind(forExtension ext: String) -> Kind? {
+    public static func kind(forExtension ext: String) -> Kind? {
         switch ext.lowercased() {
         case "png", "jpg", "jpeg", "gif", "heic", "webp", "svg": .image
         case "mp4", "mov", "m4v", "webm": .video
@@ -71,17 +76,29 @@ public enum ArtifactContent: Sendable {
     case file(URL)
     case web(URL)
     case directory([TerminalArtifact])
+    case pdf(Data)
     case binary(description: String)
 }
 
-/// Loads artifact contents from the Mac (the `file` link service later; a mock now).
+public typealias SessionArtifact = TerminalArtifact
+
+/// Loads artifact contents: from the Mac over the `file` link service
+/// (`LinkFileArtifactSource`), from inline data, or from the mock.
 public protocol ArtifactSource: Sendable {
     func load(_ artifact: TerminalArtifact) async throws -> ArtifactContent
 }
 
 public struct ArtifactNotFound: Error, LocalizedError {
     public let reference: String
+    public init(reference: String) { self.reference = reference }
     public var errorDescription: String? { "\(reference) is not available from this Mac." }
+}
+
+/// A preview that can't load, with the sentence to show.
+public struct ArtifactUnavailable: Error, LocalizedError, Equatable {
+    public let message: String
+    public init(_ message: String) { self.message = message }
+    public var errorDescription: String? { message }
 }
 
 /// Finds paths and URLs in terminal output: strips escape sequences, keeps a
@@ -148,7 +165,7 @@ public struct ArtifactExtractor: Sendable {
 
     /// Paths with a known extension, or slash paths with a letter in every
     /// component (directories and binaries). Versions, times and ratios fail both.
-    static func classify(_ reference: String) -> TerminalArtifact.Kind? {
+    public static func classify(_ reference: String) -> TerminalArtifact.Kind? {
         let trimmed = reference.hasSuffix("/") ? String(reference.dropLast()) : reference
         guard !trimmed.isEmpty, trimmed.contains(where: \.isLetter) else { return nil }
         let name = trimmed.split(separator: "/").last.map(String.init) ?? trimmed

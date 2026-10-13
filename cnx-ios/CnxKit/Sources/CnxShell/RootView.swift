@@ -219,6 +219,7 @@ extension ShellView {
             dialer: FFIMacLinkDialer()
         )
         shell.live = live
+        shell.terminalTabs.sessionProvider = { [weak live] tab in live?.terminalSession(tabID: tab.id, programName: tab.title) }
         live.applyAccountTeams(auth.teams, selectedID: auth.selectedTeamID)
         log.info("live data on \(base.host() ?? "", privacy: .public)")
     }
@@ -268,7 +269,8 @@ struct ShellTabs: View {
 }
 
 #if DEBUG
-/// DEBUG launch arguments: `-CnxDemo chat-feed` runs the Feed + agent chat demo driver.
+/// DEBUG launch arguments: `-CnxDemo chat-feed` runs the Feed + agent chat demo driver;
+/// `-CnxDemo acp-parity` the Feed swipe, artifacts, subagents, checkpoints and handoff driver.
 struct DebugLaunch {
     @MainActor
     static func run(selectTab: (RootTab) -> Void) async {
@@ -285,6 +287,9 @@ struct DebugLaunch {
         case "chat-feed":
             selectTab(.feed)
             await FeedDemoScript().run()
+        case "acp-parity":
+            selectTab(.feed)
+            await ParityDemoScript().run()
         default:
             break
         }
