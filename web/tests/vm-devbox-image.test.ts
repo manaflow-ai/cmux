@@ -114,9 +114,12 @@ describe("devbox image template", () => {
     expect(readdirSync(templateDir).sort()).toEqual([
       "Dockerfile",
       "README.md",
+      "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
       "cmux-bashrc",
+      "cmux-claude",
+      "cmux-codex",
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-opencode",
@@ -134,9 +137,12 @@ describe("devbox image template", () => {
     // The bake scripts' preflight covers the same set (minus the README).
     expect([...DEVBOX_TEMPLATE_FILES].sort()).toEqual([
       "Dockerfile",
+      "agent-auth.sh",
       "agent-config.sh",
       "chrome-managed-policy.json",
       "cmux-bashrc",
+      "cmux-claude",
+      "cmux-codex",
       "cmux-devbox-boot",
       "cmux-motd",
       "cmux-opencode",
@@ -1048,7 +1054,7 @@ describe("devbox image template", () => {
       // claude: env only, nothing generated.
       expect(existsSync(path.join(home, ".claude"))).toBe(false);
       // opencode config is lazy; a normal shell never contacts the endpoint.
-      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+      expect(existsSync(path.join(home, ".config/cmux/opencode-team.json"))).toBe(false);
     } finally {
       rmSync(home, { recursive: true, force: true });
     }
@@ -1081,7 +1087,7 @@ describe("devbox image template", () => {
       await sourceAgentConfig(home, server.origin, true);
       // The guest sends only the placeholder; the edge adds the route token.
       expect(authorization).toBe("Bearer cmux-vm-edge-placeholder");
-      const configPath = path.join(home, ".config/opencode/opencode.json");
+      const configPath = path.join(home, ".config/cmux/opencode-team.json");
       const written = readFileSync(configPath, "utf8");
       // A route token the endpoint inlined is swapped for a runtime env
       // reference (as is the placeholder itself), so no token lands on disk.
@@ -1124,7 +1130,7 @@ describe("devbox image template", () => {
         if (++started === 4) releaseResponse();
       })));
       expect(requests).toBe(1);
-      const config = path.join(home, ".config/opencode/opencode.json");
+      const config = path.join(home, ".config/cmux/opencode-team.json");
       expect(JSON.parse(readFileSync(config, "utf8")).provider.go.options.apiKey).toBe("{env:OPENAI_API_KEY}");
       writeFileSync(config, '{"provider":{"mine":{}}}');
       await sourceAgentConfig(home, server.origin, true);
@@ -1149,7 +1155,7 @@ describe("devbox image template", () => {
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(requests).toBe(1);
-      expect(existsSync(path.join(home, ".config/opencode/opencode.json"))).toBe(false);
+      expect(existsSync(path.join(home, ".config/cmux/opencode-team.json"))).toBe(false);
     } finally {
       await server.close();
       rmSync(home, { recursive: true, force: true });
@@ -1166,7 +1172,7 @@ describe("devbox image template", () => {
       response.end(body);
     });
     try {
-      const configPath = path.join(home, ".config/opencode/opencode.json");
+      const configPath = path.join(home, ".config/cmux/opencode-team.json");
       // 503 no_usable_account: nothing written, the shell exits clean.
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
@@ -1176,6 +1182,28 @@ describe("devbox image template", () => {
       status = 200;
       await expect(sourceAgentConfig(home, server.origin, true)).rejects.toThrow();
       expect(existsSync(configPath)).toBe(false);
+    } finally {
+      await server.close();
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  test("opencode config names the way out when the team has no OpenCode account", async () => {
+    const home = mkdtempSync(path.join(tmpdir(), "cmux-devbox-opencode-403-"));
+    const message = "No OpenCode account is shared with this Cloud machine's team. Or use your own provider sign-in on this machine: run `cr use own opencode`.";
+    const server = await listen((_request, response) => {
+      response.statusCode = 403;
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ error: { message, type: "invalid_request_error", code: "no_account_configured" } }));
+    });
+    try {
+      const result = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; cmux_ensure_opencode_config`], {
+        env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, CMUX_CODEROUTER_URL: server.origin, OPENAI_API_KEY: "cmux-vm-edge-placeholder" },
+      });
+      expect(result.status).toBe(78);
+      expect(result.stderr).toBe(`cmux: ${message}\n`);
+      expect(result.stderr).not.toContain("retry");
+      expect(existsSync(path.join(home, ".config/cmux/opencode-team.json"))).toBe(false);
     } finally {
       await server.close();
       rmSync(home, { recursive: true, force: true });
