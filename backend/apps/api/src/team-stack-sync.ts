@@ -127,23 +127,25 @@ export class StackTeamSync {
    * leased, never deleted, while Stack is read: a restart mid-read leaves it for the alarm after the lease.
    * `ev` is the delivery that runs it at once; it runs as itself only while no other delivery merged in.
    */
-  private async runRow(deps: StackSyncDeps, k: string, ev: StackEvent | undefined): Promise<string | undefined> {
+  private async runRow(deps: StackSyncDeps, k: string, ev: StackEvent | undefined, clock?: number): Promise<string | undefined> {
+    // The alarm's time (tests inject it) or now, whichever is later: a long alarm batch never backs off into the past.
+    const at = () => Math.max(clock ?? 0, Date.now())
     const paced = deps.pace ? await deps.pace().catch(() => false) : true
     // Read again after the await: a delivery may have merged in, or another run synced it.
     const row = readRow(deps.sql, k)
     if (!row) return undefined
-    if (!paced) return void backoff(deps, row, "paced")
+    if (!paced) return void backoff(deps, row, "paced", at())
     const own = ev !== undefined && row.merged === 0
     const event: StackEvent = own
       ? ev
       : {
-          svix_id: `${row.type}:${row.k}:${row.attempts}:${Date.now()}`,
+          svix_id: `${row.type}:${row.k}:${row.attempts}:${at()}`,
           // A merged sync reads the whole team and its member list (a team event); a re-check keeps its shape.
           type: row.type === "sync" ? "team.updated" : row.type,
           stack_team: row.stack_team,
           ...(row.stack_user ? { stack_user: row.stack_user } : {})
         }
-    deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ? WHERE k = ?`, Date.now() + SYNC_LEASE_MS, k)
+    deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ? WHERE k = ?`, at() + SYNC_LEASE_MS, k)
     let out: string
     try {
       out = await this.reconcile(deps, deps.stack!, event, row.type === "sync" ? -1 : row.attempts)
@@ -151,7 +153,7 @@ export class StackTeamSync {
       // A Stack failure (never its body, never a user id): the row waits and tries again.
       console.error(JSON.stringify({ msg: "stack webhook lookup failed", team: deps.team, type: row.type, error: String(e).slice(0, 200) }))
       const current = readRow(deps.sql, k)
-      if (current) backoff(deps, current, "lookup")
+      if (current) backoff(deps, current, "lookup", at())
       return undefined
     }
     // A reject ends this sync (logged with its code); a later delivery syncs the team again.
@@ -159,7 +161,7 @@ export class StackTeamSync {
     // Done: remove the row unless something changed it meanwhile (a merged delivery or a re-check that
     // reconcile scheduled bumps gen). A merged delivery's row runs again at once, as a full sync.
     const changed = deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ? AND gen = ?`, k, row.gen).rowsWritten === 0
-    if (changed) deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ? WHERE k = ? AND merged = 1 AND type = 'sync'`, Date.now(), k)
+    if (changed) deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ? WHERE k = ? AND merged = 1 AND type = 'sync'`, at(), k)
     return out
   }
 
@@ -173,7 +175,7 @@ export class StackTeamSync {
     for (const r of due) {
       const run = async () => {
         // Run only if it is still there and still due (another run may have synced or rescheduled it).
-        if (deps.sql.exec(`SELECT 1 FROM stack_team_recheck WHERE k = ? AND due_at <= ?`, r.k, now).toArray().length > 0) await this.runRow(deps, r.k, undefined)
+        if (deps.sql.exec(`SELECT 1 FROM stack_team_recheck WHERE k = ? AND due_at <= ?`, r.k, now).toArray().length > 0) await this.runRow(deps, r.k, undefined, now)
       }
       if (deps.stack) await (this.queue = this.queue.then(run, run))
     }
@@ -345,7 +347,7 @@ const enqueue = (sql: SqlStorage, ev: StackEvent, now: number): string => {
 }
 
 /** A pending row that could not read Stack now: back with backoff, or abandoned (logged) after SYNC_MAX_FAILS. */
-const backoff = (deps: StackSyncDeps, row: QueueRow, why: "paced" | "lookup") => {
+const backoff = (deps: StackSyncDeps, row: QueueRow, why: "paced" | "lookup", at: number) => {
   const fails = row.fails + 1
   if (fails > SYNC_MAX_FAILS) {
     deps.sql.exec(`DELETE FROM stack_team_recheck WHERE k = ?`, row.k)
@@ -353,7 +355,7 @@ const backoff = (deps: StackSyncDeps, row: QueueRow, why: "paced" | "lookup") =>
     console.error(JSON.stringify({ msg: "stack team sync abandoned", team: deps.team, type: row.type, code: why, fails: row.fails }))
     return
   }
-  deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ?, fails = ? WHERE k = ?`, Date.now() + syncBackoffMs(fails), fails, row.k)
+  deps.sql.exec(`UPDATE stack_team_recheck SET due_at = ?, fails = ? WHERE k = ?`, at + syncBackoffMs(fails), fails, row.k)
 }
 
 /** Asks Stack again later (attempt+1); false once the schedule is spent (logged). */
