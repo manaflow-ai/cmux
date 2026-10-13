@@ -99,6 +99,44 @@ struct StackRateLimitBoundaryTests {
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
     }
 
+    /// A 429 on the team list after a session check keeps the session,
+    /// suppresses the extra checks that app activation and wake would start,
+    /// and retries once after Retry-After.
+    @Test func rateLimitedSessionCheckBacksOffAndIgnoresActivation() async throws {
+        let server = try LocalStackHTTPServer()
+        try await server.start()
+        defer { server.stop() }
+        server.script("GET", "/api/v1/users/me", [.json(200, Self.userJSON)])
+        server.script("GET", "/api/v1/teams", [
+            .html(429, Self.edgeRateLimitPage, headers: ["Retry-After": "2"]),
+            .json(200, #"{"items":[{"id":"team-1","display_name":"Team One"}]}"#),
+        ])
+        let harness = try RealStackSignInHarness(server: server)
+        await harness.tokenStore.seed(accessToken: harness.accessToken, refreshToken: "refresh-1")
+
+        let started = ContinuousClock.now
+        await harness.coordinator.checkExistingSession()
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.availableTeams.isEmpty)
+        #expect(harness.coordinator.teamScopeRateLimit != nil)
+        #expect(harness.coordinator.hasPendingTeamScopeRecovery)
+        let userFetches = server.requestCount("GET", "/api/v1/users/me")
+
+        // App activation, wake, and network-path signals during the backoff.
+        for _ in 0..<5 {
+            await harness.coordinator.recoverTeamScopeIfNeeded()
+        }
+        #expect(server.requestCount("GET", "/api/v1/users/me") == userFetches)
+        #expect(server.requestCount("GET", "/api/v1/teams") == 1)
+
+        await harness.waitFor { !harness.coordinator.availableTeams.isEmpty }
+        #expect(ContinuousClock.now - started >= .seconds(2))
+        #expect(harness.coordinator.availableTeams.map(\.id) == ["team-1"])
+        #expect(harness.coordinator.teamScopeRateLimit == nil)
+        #expect(server.responseCount("GET", "/api/v1/teams", status: 429) == 1)
+        #expect(harness.coordinator.isAuthenticated)
+    }
+
     /// Sign-out during the rate-limit wait ends the wait at once and the
     /// retry never reaches the server.
     @Test func signOutCancelsTheRateLimitWait() async throws {

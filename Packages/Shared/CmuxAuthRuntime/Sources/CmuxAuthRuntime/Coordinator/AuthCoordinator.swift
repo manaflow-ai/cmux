@@ -121,6 +121,11 @@ public final class AuthCoordinator {
     /// The retry loop that restores a missing team scope; see
     /// ``scheduleTeamScopeRecoveryIfNeeded()``.
     @ObservationIgnored var teamScopeRecovery: (id: UUID, task: Task<Void, Never>)?
+    /// Set while the sign-in service answers the session check with 429:
+    /// the consecutive count and the server's Retry-After. Recovery then
+    /// waits longer, and app activation, wake, and network changes do not
+    /// start an extra check. Cleared by a successful team load.
+    @ObservationIgnored var teamScopeRateLimit: (streak: Int, retryAfter: Duration?)?
     /// Team-list fetches in flight. A refresh that is still running owns the
     /// outcome, so recovery waits for it instead of starting a second fetch.
     @ObservationIgnored var activeTeamRefreshCount = 0
@@ -719,6 +724,7 @@ public final class AuthCoordinator {
         switch result {
         case let .success((teams, serverSelectedTeamID)):
             guard generation == sessionGeneration else { return }
+            teamScopeRateLimit = nil
             authenticatedTeamsSessionGeneration = generation
             availableTeams = teams
             selectedTeamID = Self.resolveTeamID(
@@ -728,6 +734,7 @@ public final class AuthCoordinator {
         case let .failure(error):
             authLog.error("Failed to list teams: \(error.localizedDescription, privacy: .private)")
             guard generation == sessionGeneration else { return }
+            noteTeamScopeFailure(error)
             scheduleTeamScopeRecoveryIfNeeded()
         }
     }
