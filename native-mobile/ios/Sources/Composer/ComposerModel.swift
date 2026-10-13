@@ -28,8 +28,26 @@ final class ComposerModel {
     var text = ""
     var attachments: [ComposerAttachment] = []
     private(set) var isSending = false
-    private(set) var uploadProgress: Double?
+    /// Per attachment while a send uploads: 0...1 (ChatGPT and Claude ring
+    /// each chip instead of one bar for all of them).
+    private(set) var uploadProgress: [UUID: Double] = [:]
+    /// The attachment whose upload failed last; its chip shows a badge.
+    private(set) var failedUpload: UUID?
+    /// Already on the Mac: a retry after a later file fails skips these.
+    @ObservationIgnored private var uploadedPaths: [UUID: String] = [:]
     var error: String?
+
+    init() {
+        #if DEBUG
+        // QA: `CMUX_NATIVE_QA_ATTACH=1,25` seeds attachments of 1 MB and 25 MB
+        // (the system pickers can't be driven by UI automation).
+        if let sizes = ProcessInfo.processInfo.environment["CMUX_NATIVE_QA_ATTACH"] {
+            for (i, mb) in sizes.split(separator: ",").compactMap({ Int($0) }).enumerated() {
+                attachments.append(ComposerAttachment(name: "qa-\(i + 1)-\(mb)mb.bin", data: Data(count: mb << 20), kind: .file))
+            }
+        }
+        #endif
+    }
 
     var canSend: Bool { !isSending && (!text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty) }
 
@@ -51,6 +69,8 @@ final class ComposerModel {
 
     func remove(_ attachment: ComposerAttachment) {
         attachments.removeAll { $0.id == attachment.id }
+        uploadedPaths[attachment.id] = nil
+        if failedUpload == attachment.id { failedUpload = nil }
     }
 
     @ObservationIgnored private var sendTask: Task<Void, Never>?
@@ -81,30 +101,37 @@ final class ComposerModel {
             return false
         }
         isSending = true
-        defer { isSending = false; uploadProgress = nil }
+        defer { isSending = false; uploadProgress = [:] }
         var paths: [String] = []
         if !attachments.isEmpty {
             guard let services else {
                 error = String(localized: "Attachments need a connection to your Mac.")
                 return false
             }
-            // Progress by bytes across every attachment (a video dominates).
-            let total = max(1, attachments.reduce(0) { $0 + $1.data.count })
-            var done = 0
-            uploadProgress = 0
+            failedUpload = nil
+            for attachment in attachments where uploadedPaths[attachment.id] == nil {
+                uploadProgress[attachment.id] = 0
+            }
             for attachment in attachments {
+                if let path = uploadedPaths[attachment.id] {
+                    paths.append(path)
+                    continue
+                }
                 do {
-                    let base = done
+                    let id = attachment.id
+                    let size = max(1, attachment.data.count)
                     let path = try await services.upload(name: attachment.name, data: attachment.data) { [weak self] sent in
-                        Task { @MainActor in self?.uploadProgress = Double(base + sent) / Double(total) }
+                        Task { @MainActor in self?.uploadProgress[id] = min(1, Double(sent) / Double(size)) }
                     }
                     try Task.checkCancellation()
+                    uploadedPaths[id] = path
+                    uploadProgress[id] = 1
                     paths.append(path)
-                    done += attachment.data.count
                 } catch is CancellationError {
                     return false
                 } catch {
                     if Task.isCancelled { return false }
+                    failedUpload = attachment.id
                     self.error = String(localized: "Couldn't upload \(attachment.name): \(error.localizedDescription)")
                     return false
                 }
@@ -124,6 +151,7 @@ final class ComposerModel {
         if submit { session.sendKeys(["enter"]) }
         text = ""
         attachments = []
+        uploadedPaths = [:]
         Haptics.tap()
         return true
     }

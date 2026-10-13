@@ -120,7 +120,7 @@ owner-handoff (written up for the owning agent).
 
 | # | Idea | Why | Cost |
 | --- | --- | --- | --- |
-| I1 | Attachment chips show their own upload ring and a retry badge on failure (ChatGPT, Claude). Today one progress bar sits in the text box. | Several attachments: which one is slow or failed. | S |
+| I1 | Attachment chips show their own upload ring and a retry badge on failure (ChatGPT, Claude). Today one progress bar sits in the text box. Done in qa5: per-chip ring, red badge on the failed file, a retry skips files already on the Mac (verified with a 150 MB upload and a host kill on the mini). | Several attachments: which one is slow or failed. | done |
 | I2 | Context menu on Home and sidebar terminal rows: Rename, Pin, Close (red), like ChatGPT's Pin / Rename / Delete. Rename and a confirmed destructive Close exist (qa5 check); Pin remains. | Managing many agents from the phone. | S |
 | I3 | Feed post "..." menu with a timestamp header, Copy, Open terminal, Mark unread (ChatGPT answer menu). | Parity with the answer menus in REFERENCES.md. | S |
 | I4 | Diff: show "Diff truncated on the Mac" note and a per-file "Open on Mac" fallback (O6). The truncation note exists (qa5 check). | A cut diff currently looks complete. | done |

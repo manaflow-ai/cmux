@@ -74,7 +74,12 @@ struct ComposerBar: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(model.attachments) { attachment in
-                                AttachmentChip(attachment: attachment) { model.remove(attachment) }
+                                AttachmentChip(
+                                    attachment: attachment,
+                                    progress: model.uploadProgress[attachment.id],
+                                    failed: model.failedUpload == attachment.id,
+                                    removable: !model.isSending
+                                ) { model.remove(attachment) }
                             }
                         }
                         .padding(.horizontal, 2)
@@ -120,9 +125,6 @@ struct ComposerBar: View {
                     }
                     return .handled
                 }
-            if let progress = model.uploadProgress {
-                ProgressView(value: progress).frame(width: 36).tint(.secondary).padding(.bottom, 17)
-            }
             keyboardToggle
         }
         .frame(minHeight: 44)
@@ -335,6 +337,11 @@ struct ComposerBar: View {
 /// A thumbnail (or file icon) with a remove button, like Claude's composer.
 struct AttachmentChip: View {
     let attachment: ComposerAttachment
+    /// 0...1 while this file uploads; nil when idle.
+    var progress: Double? = nil
+    /// The last send failed on this file.
+    var failed = false
+    var removable = true
     let onRemove: () -> Void
 
     var body: some View {
@@ -355,7 +362,30 @@ struct AttachmentChip: View {
             }
             .frame(width: 64, height: 64)
             .clipShape(.rect(cornerRadius: 12))
-            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.white.opacity(0.08)))
+            .overlay {
+                if let progress, progress < 1 {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12).fill(.black.opacity(0.45))
+                        UploadRing(progress: progress)
+                    }
+                    .transition(.opacity)
+                }
+            }
+            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(failed ? Theme.danger : .white.opacity(0.08), lineWidth: failed ? 1.5 : 1))
+            .overlay(alignment: .bottomLeading) {
+                if failed {
+                    Image(systemName: "exclamationmark")
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundStyle(.white)
+                        .frame(width: 18, height: 18)
+                        .background(Circle().fill(Theme.danger))
+                        .offset(x: -5, y: 5)
+                        .accessibilityLabel(String(localized: "Upload failed"))
+                }
+            }
+            .animation(.smooth(duration: 0.2), value: progress)
+            .accessibilityValue(progress.map { String(localized: "Uploading, \(Int($0 * 100)) percent") } ?? "")
+            if removable {
             Button(action: onRemove) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .bold))
@@ -366,8 +396,25 @@ struct AttachmentChip: View {
             .buttonStyle(.plain)
             .offset(x: 6, y: -6)
             .accessibilityLabel(String(localized: "Remove \(attachment.name)"))
+            }
         }
         .transition(.scale(scale: 0.8).combined(with: .opacity))
+    }
+}
+
+/// A determinate ring over an uploading attachment.
+private struct UploadRing: View {
+    let progress: Double
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(.white.opacity(0.3), lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: max(0.03, progress))
+                .stroke(.white, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+        }
+        .frame(width: 26, height: 26)
     }
 }
 
