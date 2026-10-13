@@ -94,8 +94,8 @@ enum DebugAgentPane {
         }
         if action == "crash_notice" {
             // The notice a page that keeps crashing shows; {"press": "reload"} presses its Reload first.
-            let pressed = params["press"]?.stringValue == "reload" && AgentPaneCrashNoticeDebug.pressReload(view)
-            let texts = AgentPaneCrashNoticeDebug.texts(view)
+            let pressed = params["press"]?.stringValue == "reload" && view.debugPressCrashNoticeReload()
+            let texts = view.debugCrashNoticeTexts
             return .object(["pane": .string(pane), "shown": .bool(texts != nil), "texts": .array((texts ?? []).map(JSONValue.string)),
                             "pressed": .bool(pressed)])
         }

@@ -113,13 +113,13 @@ public nonisolated enum SettingsSchema {
                 keywords: ["history", "back", "forward", "navigation", "workspace", "tab", "pane"]
             ),
             SettingDescriptor(
-                CommandRetentionSetting.configPath, section: .general, group: history,
+                CmuxConfigSnapshot.commandRetentionConfigPath, section: .general, group: history,
                 title: SettingsText.keyed("settings.history.commandRetentionDays", "Keep Terminal Commands For"),
                 help: SettingsText.keyed("settings.history.commandRetentionDays.help",
                                         "Each machine deletes recorded commands that are older."),
-                kind: .number(SettingNumber(Double(CommandRetentionSetting.range.lowerBound)...Double(CommandRetentionSetting.range.upperBound),
+                kind: .number(SettingNumber(Double(CmuxConfigSnapshot.commandRetentionRange.lowerBound)...Double(CmuxConfigSnapshot.commandRetentionRange.upperBound),
                                             step: 1, unit: .days)),
-                default: .number(Double(CommandRetentionSetting.fallback)),
+                default: .number(Double(CmuxConfigSnapshot.commandRetentionFallback)),
                 keywords: ["history", "commands", "retention", "delete", "privacy", "days"]
             ),
             SettingDescriptor(

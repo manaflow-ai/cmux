@@ -1092,9 +1092,9 @@ impl Brain {
             Some(conversation) if !text.is_empty() => {
                 // Every mention of a subagent is its link (Lawrence 2026-10-10).
                 let text = self.link_subagents(&text);
-                self.state
-                    .outbox
-                    .push(answer_entry(conversation, key, &text, answers, pending));
+                let entry = answer_entry(conversation, key, &text, answers, pending);
+                let entry = self.reply_with_previews(entry);
+                self.state.outbox.push(entry);
             }
             Some(conversation) if closes => {
                 (self.log)(&format!(

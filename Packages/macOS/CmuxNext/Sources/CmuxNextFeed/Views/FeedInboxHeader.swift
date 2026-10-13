@@ -38,9 +38,8 @@ struct FeedInboxHeader: View {
             FeedHairline()
             HStack(spacing: 10) {
                 Icon(.search, size: Self.glyphSide).foregroundStyle(colors.tertiary)
-                TextField(FeedStrings.filterInbox, text: $filter.query)
-                    .textFieldStyle(.plain).font(.system(size: 12)).focusEffectDisabled()
-                    .foregroundStyle(colors.primary)
+                ThemedField(text: $filter.query, placeholder: FeedStrings.filterInbox, font: .systemFont(ofSize: 12),
+                            height: 18, boxed: false)
                 Menu {
                     Picker(FeedStrings.filterInbox, selection: $filter.category) {
                         Text(FeedStrings.allItems).tag(FeedInboxFilter.Category.all)
