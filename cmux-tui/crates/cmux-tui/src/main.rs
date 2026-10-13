@@ -34,6 +34,7 @@ mod local_actor;
 mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
+mod page_listener;
 mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
@@ -2434,6 +2435,14 @@ fn run_server(
     let websocket_server = websocket_server.map(|server| {
         websocket_credential::attach(server, &socket_path, ws_token_minted, &ws_token)
     });
+    // `ws-listen` (ws-listen-v1): an owner without the listener opens it on request.
+    let page_listener = page_listener::PageListener::install(
+        &mux,
+        socket_path.clone(),
+        args.ws_access.clone(),
+        websocket_server,
+        ws_token.clone().filter(|_| ws_token_minted),
+    );
     // Nor the remote runtime's listeners: a Cloud daemon serves its
     // trusted-carrier link on `--remote-ws` (port 1337) and workspace HTTP on
     // `--remote-http`, both reachable at a loopback address on the machine.
@@ -2577,7 +2586,7 @@ fn run_server(
     #[cfg(unix)]
     {
         let shutdown_result = headless::finish_server_shutdown(
-            websocket_server,
+            page_listener.take(),
             &mux,
             &socket_path,
             remote_shutdown,
@@ -2589,7 +2598,7 @@ fn run_server(
     }
     #[cfg(not(unix))]
     {
-        drop(websocket_server);
+        drop(page_listener.take());
         mux.shutdown();
         mux.release_ownership(&socket_path);
         served_mux_cleanup.disarm();

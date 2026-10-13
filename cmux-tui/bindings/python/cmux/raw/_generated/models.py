@@ -4419,6 +4419,12 @@ class WaitForRequest:
 
 
 @dataclass(frozen=True)
+class WsListenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/ws-listen/request'
+    allow_origin: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
 class ZoomPaneRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/zoom-pane/request'
     pane: Union[Id, None, MissingType] = field(default=MISSING)
@@ -5762,6 +5768,7 @@ __all__ = [
     'UrlOpenSubscribeRequest',
     'VtStateRequest',
     'WaitForRequest',
+    'WsListenRequest',
     'ZoomPaneRequest',
     'ActivityChangedEvent',
     'AgentChangedEvent',

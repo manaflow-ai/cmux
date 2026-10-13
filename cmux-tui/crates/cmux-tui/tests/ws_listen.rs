@@ -120,8 +120,7 @@ fn a_running_owner_without_a_page_listener_opens_one_on_request() {
     let capabilities = identity["data"]["capabilities"].as_array().unwrap();
     assert!(capabilities.iter().any(|v| v == "ws-listen-v1"), "{identity}");
 
-    let opened =
-        fixture.rpc(json!({"id": 2, "cmd": "ws-listen", "allow_origin": PAGE_ORIGIN}));
+    let opened = fixture.rpc(json!({"id": 2, "cmd": "ws-listen", "allow_origin": PAGE_ORIGIN}));
     assert_eq!(opened["ok"], true, "{opened}");
     assert_eq!(opened["data"]["opened"], true, "{opened}");
     let url = opened["data"]["url"].as_str().unwrap().to_owned();

@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735";
+inline constexpr std::string_view kProtocolIrSha256 = "562dc6e86c76109b68bb679b5177e4a56fb01207957c95fc302553e855285d4a";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -502,6 +502,7 @@ struct UrlOpenResultRequest;
 struct UrlOpenSubscribeRequest;
 struct VtStateRequest;
 struct WaitForRequest;
+struct WsListenRequest;
 struct ZoomPaneRequest;
 struct ActivityChangedEvent;
 struct AgentChangedEvent;
@@ -5291,6 +5292,11 @@ struct WorkspaceRenamedEvent {
     friend bool operator==(const WorkspaceRenamedEvent&, const WorkspaceRenamedEvent&) = default;
 };
 
+struct WsListenRequest {
+    Field<std::string> allow_origin{};
+    friend bool operator==(const WsListenRequest&, const WsListenRequest&) = default;
+};
+
 enum class ZoomPaneRequestMode {
     toggle,
     on,
@@ -8224,6 +8230,12 @@ template <>
 struct Codec<WaitForRequest> {
     static Result<Json> encode(const WaitForRequest& value);
     static Result<WaitForRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<WsListenRequest> {
+    static Result<Json> encode(const WsListenRequest& value);
+    static Result<WsListenRequest> decode(const Json& value);
 };
 
 template <>

@@ -1279,6 +1279,11 @@ public abstract class GeneratedCmuxClient {
         return WaitForResult.fromWire(result);
     }
 
+    public final Object wsListen(WsListenRequest request) throws CmuxException {
+        Object result = execute(Commands.WS_LISTEN, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final ZoomPaneResult zoomPane(ZoomPaneRequest request) throws CmuxException {
         Object result = execute(Commands.ZOOM_PANE, request.toWire());
         return ZoomPaneResult.fromWire(result);

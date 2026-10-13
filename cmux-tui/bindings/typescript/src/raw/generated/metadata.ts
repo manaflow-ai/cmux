@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735. */
+/* cmux-tui mux protocol 12, IR 562dc6e86c76109b68bb679b5177e4a56fb01207957c95fc302553e855285d4a. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735" as const;
+export const SDK_IR_SHA256 = "562dc6e86c76109b68bb679b5177e4a56fb01207957c95fc302553e855285d4a" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3194,6 +3194,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Blocks subsequent requests on this connection; SDKs should use a dedicated connection."
+    ]
+  },
+  "ws-listen": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "ws-listen-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local connections only. Opens (or reports) the owner's loopback page listener and writes its credential to <socket>.websocket.json (0600); returns url, pages and opened, never the credential. See spec/commands.md."
     ]
   },
   "zoom-pane": {
@@ -24534,6 +24544,27 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "WaitForResult"
+    }
+  },
+  "ws-listen": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "allow_origin": {
+          "default": null,
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "JsonValue"
     }
   },
   "zoom-pane": {

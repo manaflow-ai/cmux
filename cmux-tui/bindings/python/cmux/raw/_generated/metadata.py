@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735'
+IR_SHA256 = '562dc6e86c76109b68bb679b5177e4a56fb01207957c95fc302553e855285d4a'
 
 
 @dataclass(frozen=True)
@@ -3437,6 +3437,17 @@ COMMANDS = {
             'pattern': CommandFieldMetadata(None, None),
             'surface': CommandFieldMetadata(None, None),
             'timeout_ms': CommandFieldMetadata(None, None),
+        },
+    ),
+    'ws-listen': CommandMetadata(
+        'ws-listen',
+        'local-admin',
+        12,
+        'ws-listen-v1',
+        ('local-admin',),
+        None,
+        {
+            'allow_origin': CommandFieldMetadata(None, None),
         },
     ),
     'zoom-pane': CommandMetadata(

@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735";
+pub const ir_sha256 = "562dc6e86c76109b68bb679b5177e4a56fb01207957c95fc302553e855285d4a";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -8833,6 +8833,25 @@ pub fn waitFor(client: anytype, request: WaitForRequest) !wire.Decoded(WaitForRe
     );
 }
 
+pub const WsListenRequest = struct {
+    allow_origin: wire.Field([]const u8) = .absent,
+};
+
+pub const WsListenResult = JsonValue;
+
+pub fn wsListen(client: anytype, request: WsListenRequest) !wire.Decoded(WsListenResult) {
+    return client.callTyped(
+        WsListenResult,
+        .{
+            .name = "ws-listen",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = "ws-listen-v1",
+        },
+        request,
+    );
+}
+
 pub const ZoomPaneRequestMode = enum {
     toggle,
     on,
@@ -10238,7 +10257,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 255;
+pub const command_count: usize = 256;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -10494,6 +10513,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "url-open-subscribe", .authority = "frontend", .since = 12, .capability = null, .stream = "subscribe" },
     .{ .name = "vt-state", .authority = "control", .since = 5, .capability = null, .stream = null },
     .{ .name = "wait-for", .authority = "control", .since = 6, .capability = null, .stream = null },
+    .{ .name = "ws-listen", .authority = "local-admin", .since = 12, .capability = "ws-listen-v1", .stream = null },
     .{ .name = "zoom-pane", .authority = "control", .since = 6, .capability = null, .stream = null },
 };
 

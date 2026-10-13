@@ -49,8 +49,7 @@ final class DaemonCredentialPageProvider: PageProvider {
             throw PageError.unavailable("the local cmux daemon is not running")
         }
         let path = endpoint.socketPath + ".websocket.json"
-        // task-owner: one small file read off the main actor per call; ends with the read.
-        let file = try await Task.detached(priority: .userInitiated) { try Self.read(path) }.value
+        let file = try await fileCredential(daemon, path: path)
         // The file names the endpoint. The page authenticates with a page credential when the
         // daemon has them: only that one carries the person's Cloud lease (the file token is any
         // same-user process's). An older daemon keeps the file token: local conversations only.
@@ -62,6 +61,45 @@ final class DaemonCredentialPageProvider: PageProvider {
         }
         fields["token"] = .string(page.credential)
         return .object(fields)
+    }
+
+    /// The credential file; when it is missing (an owner the CLI or an agent started, or an older
+    /// build), the owner opens its listener (`ws-listen`), or an owner too old for that is handed
+    /// off to the bundled build. Never a dead end.
+    private func fileCredential(_ daemon: DaemonService, path: String) async throws -> CmuxNextSettings.JSONValue {
+        // task-owner: one small file read off the main actor per call; ends with the read.
+        if let file = try? await Task.detached(priority: .userInitiated, operation: { try Self.read(path) }).value {
+            return file
+        }
+        let outcome: DaemonService.PageListenerOutcome
+        do {
+            outcome = try await daemon.ensurePageListener()
+        } catch DaemonError.notConnected {
+            throw PageError.unavailable("the local cmux daemon is not running")
+        } catch {
+            // The daemon refused (a listener with a configured credential): final, the page says why.
+            throw PageError(code: "cmux.daemon.page_listener", message: String(describing: error), retryable: false)
+        }
+        switch outcome {
+        case .ready:
+            // task-owner: one small file read off the main actor; ends with the read.
+            return try await Task.detached(priority: .userInitiated) { try Self.read(path) }.value
+        case .restarting:
+            // The page retries with backoff; the bundled build's owner starts with the listener.
+            throw PageError.unavailable(Self.restarting)
+        case .unsupported:
+            throw PageError(code: "cmux.daemon.too_old", message: Self.tooOld, retryable: false)
+        }
+    }
+
+    static var restarting: String {
+        String(localized: "homeChannels.daemon.restarting", defaultValue: "Restarting the cmux daemon…", table: "Handlers", bundle: .module)
+    }
+
+    static var tooOld: String {
+        String(localized: "homeChannels.daemon.tooOld",
+               defaultValue: "This cmux daemon is too old to serve this page, and cmux cannot restart it. Update the cmux-tui binary that cmux uses, then open this tab again.",
+               table: "Handlers", bundle: .module)
     }
 
     /// The file must be this user's, mode 0600, and name a live daemon: a stale file (a killed

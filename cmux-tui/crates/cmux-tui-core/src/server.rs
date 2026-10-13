@@ -198,6 +198,8 @@ mod cmd_workspaces;
 mod command_history;
 mod page_credential;
 mod page_files;
+mod page_listener;
+pub use page_listener::{PageListenerOpener, WS_LISTEN_CAPABILITY};
 pub use page_files::page_bundle_dir;
 mod responses;
 mod rows;
@@ -1636,6 +1638,9 @@ enum Command {
     CloudSessionStatus,
     /// `page-credential` (`page-credential-v1`, server/page_credential.rs).
     PageCredential,
+    /// `ws-listen` (`ws-listen-v1`, server/page_listener.rs): open the
+    /// owner's loopback page listener on request.
+    WsListen(page_listener::WsListenParams),
     CloudInboxList(cloud_conversations::InboxListParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
@@ -3478,6 +3483,7 @@ fn handle_command_with_cancellation(
         Command::CloudSessionClear => cloud_conversations::session_clear(mux, client),
         Command::CloudSessionStatus => cloud_conversations::session_status(mux, client),
         Command::PageCredential => page_credential::page_credential(mux, client),
+        Command::WsListen(params) => page_listener::ws_listen(mux, client, params),
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)

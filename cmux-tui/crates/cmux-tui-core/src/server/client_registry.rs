@@ -354,6 +354,8 @@ pub(crate) struct ClientRegistry {
     pub(super) origin_clock: crate::request_origin::OriginClock,
     pub(crate) browser_host: crate::browser_host::BrowserHostSupervisor,
     pub(super) app_trust: app_trust::AppTrust,
+    /// The binary's page listener opener (`ws-listen-v1`).
+    pub(super) page_listener: Mutex<Option<super::PageListenerOpener>>,
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
@@ -414,6 +416,7 @@ impl ClientRegistry {
             origin_clock: Default::default(),
             browser_host: Default::default(),
             app_trust: app_trust::AppTrust::default(),
+            page_listener: Mutex::new(None),
             resource_stream_admission: ResourceWorkerAdmission::new(
                 RESOURCE_STREAMS_PER_CLIENT_CAPACITY,
                 RESOURCE_STREAMS_SERVER_CAPACITY,

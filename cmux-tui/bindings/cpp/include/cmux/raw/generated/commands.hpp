@@ -295,6 +295,7 @@ public:
     [[nodiscard]] Result<EventStream> url_open_subscribe(const UrlOpenSubscribeRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<VtStateResult> vt_state(const VtStateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<WaitForResult> wait_for(const WaitForRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> ws_listen(const WsListenRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ZoomPaneResult> zoom_pane(const ZoomPaneRequest& request = {}, RequestOptions options = {});
 
     [[nodiscard]] Result<DeltaStream> subscribe_deltas(

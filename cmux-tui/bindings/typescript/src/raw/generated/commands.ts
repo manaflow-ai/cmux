@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735. */
+/* cmux-tui mux protocol 12, IR 562dc6e86c76109b68bb679b5177e4a56fb01207957c95fc302553e855285d4a. */
 
 
 import type * as T from "./types.js";
@@ -2514,6 +2514,13 @@ export interface WaitForRequest extends CmuxRequestBase {
   "timeout_ms": bigint;
 }
 
+/** Protocol v12; authority: local-admin. */
+export interface WsListenRequest extends CmuxRequestBase {
+  cmd: "ws-listen";
+  "allow_origin"?: (string) | null;
+}
+export type WsListenResult = T.JsonValue;
+
 /** Protocol v6; authority: control. */
 export interface ZoomPaneRequest extends CmuxRequestBase {
   cmd: "zoom-pane";
@@ -2777,6 +2784,7 @@ export type CmuxRequest =
   | UrlOpenSubscribeRequest
   | VtStateRequest
   | WaitForRequest
+  | WsListenRequest
   | ZoomPaneRequest;
 
 /** Command name to request, result, authority, and version mapping. */
@@ -4811,6 +4819,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 6;
     capability: null;
+    stream: null;
+  };
+  "ws-listen": {
+    request: WsListenRequest;
+    result: WsListenResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "ws-listen-v1";
     stream: null;
   };
   "zoom-pane": {

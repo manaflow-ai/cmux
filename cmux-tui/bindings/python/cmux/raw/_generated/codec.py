@@ -474,6 +474,7 @@ MODEL_BY_PATH = {
     'commands/url-open-subscribe/request': models.UrlOpenSubscribeRequest,
     'commands/vt-state/request': models.VtStateRequest,
     'commands/wait-for/request': models.WaitForRequest,
+    'commands/ws-listen/request': models.WsListenRequest,
     'commands/zoom-pane/request': models.ZoomPaneRequest,
     'events/activity-changed/payload': models.ActivityChangedEvent,
     'events/agent-changed/payload': models.AgentChangedEvent,

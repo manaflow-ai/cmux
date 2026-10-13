@@ -29596,6 +29596,34 @@ Result<WaitForRequest> Codec<WaitForRequest>::decode(const Json& value) {
     return result;
 }
 
+Result<Json> Codec<WsListenRequest>::encode(const WsListenRequest& value) {
+    (void)value;
+    Json::Object object;
+    if (!value.allow_origin.is_absent()) {
+        auto encoded = encode_value(value.allow_origin);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("allow_origin", std::move(encoded).value());
+    }
+    return Json(std::move(object));
+}
+
+Result<WsListenRequest> Codec<WsListenRequest>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    WsListenRequest result{};
+    const Json* field_allow_origin = value.find("allow_origin");
+    if (field_allow_origin) {
+        if (field_allow_origin->is_null()) {
+            result.allow_origin = Field<std::string>::null();
+        } else {
+            auto decoded = decode_value<std::string>(*field_allow_origin);
+            if (!decoded) return std::move(decoded).error();
+            result.allow_origin = Field<std::string>(std::move(decoded).value());
+        }
+    }
+    return result;
+}
+
 Result<Json> Codec<ZoomPaneRequest>::encode(const ZoomPaneRequest& value) {
     (void)value;
     Json::Object object;
@@ -37113,7 +37141,7 @@ constexpr std::array<CommandFieldRequirement, 1> kCommand245FieldRequirements{{
 constexpr std::array<CommandFieldRequirement, 1> kCommand246FieldRequirements{{
     {"icon", 12U, "tab-group-icon-v1"},
 }};
-constexpr std::array<CommandMetadata, 255> kCommands{{
+constexpr std::array<CommandMetadata, 256> kCommands{{
     {"ack-tab-notifications", "control", 12U, "notification-ack-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-screens-to-screen-group", "control", 12U, "screen-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"add-tabs-to-tab-group", "control", 12U, "tab-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
@@ -37368,6 +37396,7 @@ constexpr std::array<CommandMetadata, 255> kCommands{{
     {"url-open-subscribe", "frontend", 12U, "", true, "subscribe", "", std::span<const CommandFieldRequirement>{}},
     {"vt-state", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"wait-for", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"ws-listen", "local-admin", 12U, "ws-listen-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"zoom-pane", "control", 6U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
 }};
 constexpr std::array<EventMetadata, 75> kEvents{{
@@ -40250,6 +40279,17 @@ Result<WaitForResult> Client::wait_for(
     auto response = core_.request("wait-for", *parameters.value(), options.timeout);
     if (!response) return std::move(response).error();
     return decode_value<WaitForResult>(response.value());
+}
+
+Result<JsonValue> Client::ws_listen(
+    const WsListenRequest& request, RequestOptions options) {
+    auto encoded = encode_value(request);
+    if (!encoded) return std::move(encoded).error();
+    auto parameters = encoded.value().as_object();
+    if (!parameters) return std::move(parameters).error();
+    auto response = core_.request("ws-listen", *parameters.value(), options.timeout);
+    if (!response) return std::move(response).error();
+    return decode_value<JsonValue>(response.value());
 }
 
 Result<ZoomPaneResult> Client::zoom_pane(

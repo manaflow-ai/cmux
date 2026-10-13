@@ -106,6 +106,8 @@ public final class DaemonService {
     /// A remote machine's route (`start(remote:)`), for a second connection to its daemon (an
     /// agent chat that runs on that machine); nil for this app's own daemon.
     @ObservationIgnored public private(set) var remoteEndpoint: DaemonConnection.EndpointProvider?
+    /// Hands an owner without `ws-listen-v1` off to the bundled build (DaemonService+PageListener).
+    @ObservationIgnored var pageListenerHandOff: (@Sendable (DaemonConnection, DaemonIdentity) async -> Bool)?
 
     /// `terminalEnvironment` (`AppEnvironment.terminalEnvironment`) goes to
     /// the daemon process and to every terminal it creates for this app.
@@ -131,6 +133,7 @@ public final class DaemonService {
             }
         }
         endpointProvider = launcher.endpointProvider
+        pageListenerHandOff = { await launcher.handOffForCapability(DaemonCapabilities.shared.wsListen, identity: $1, using: $0) }
         launchSnapshotSession = launcher.configuration.session
         showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,

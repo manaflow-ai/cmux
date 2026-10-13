@@ -21327,6 +21327,34 @@
     "Trusted local connections only. Drops the lease. See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
    ]
   },
+  "ws-listen": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "ws-listen-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "allow_origin": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "default": null
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Opens (or reports) the owner's loopback page listener and writes its credential to <socket>.websocket.json (0600); returns url, pages and opened, never the credential. See spec/commands.md."
+   ]
+  },
   "page-credential": {
    "authority": "local-admin",
    "since": 12,

@@ -27,6 +27,8 @@ type Phase =
   | { kind: "form"; error?: string }
   | { kind: "connecting"; note?: string }
   | { kind: "pairing"; code: string }
+  /** The host says this daemon cannot serve the page and cmux cannot fix it by itself: no retry loop. */
+  | { kind: "blocked"; error: string }
   | { kind: "ready"; daemon: DaemonSocket; generation: number; pages?: string };
 
 const BACKOFF_MIN_MS = 500;
@@ -101,8 +103,12 @@ export function DaemonGate({
       source
         .load()
         .then((value) => connect(value.url, { token: value.token }, undefined, value.pages))
-        // The host says why it has no endpoint (an old daemon without the listener): show it.
-        .catch((error: Error) => retry(error.message));
+        // The host says why it has no endpoint. A final answer (an external daemon too old for the
+        // listener) stops here with the reason; anything else (a restart in progress) retries.
+        .catch((error: Error & { retryable?: boolean }) => {
+          if (error.retryable !== false) return retry(error.message);
+          if (live.current.mounted) setPhase({ kind: "blocked", error: error.message });
+        });
       return;
     }
     const saved = sessionStorage.getItem(storageKey(url));
@@ -144,6 +150,22 @@ export function DaemonGate({
       {phase.kind === "connecting" && <p>{t("connect.connecting")}</p>}
       {phase.kind === "connecting" && phase.note && (
         <p className="hc-gate-error">{format("connect.failed", phase.note)}</p>
+      )}
+      {phase.kind === "blocked" && (
+        <>
+          <p className="hc-gate-error">{format("connect.failed", phase.error)}</p>
+          <div className="hc-gate-actions">
+            <button
+              type="button"
+              onClick={() => {
+                setPhase({ kind: "connecting" });
+                resume();
+              }}
+            >
+              {t("connect.button")}
+            </button>
+          </div>
+        </>
       )}
       {phase.kind === "form" && (
         <form

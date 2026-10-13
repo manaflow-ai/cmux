@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5ac682b2b1f39538b756aa49143298eb94233ac6c387bdcd415438a2d1975735.
+// cmux-tui mux protocol 12, IR 562dc6e86c76109b68bb679b5177e4a56fb01207957c95fc302553e855285d4a.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -3577,6 +3577,16 @@ pub struct WaitForRequest {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct WsListenRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub allow_origin: Optional<String>,
+}
+
+#[rustfmt::skip]
+pub type WsListenResult = T::JsonValue;
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ZoomPaneRequestMode {
     #[serde(rename = "toggle")]
@@ -5031,6 +5041,10 @@ impl CmuxClient {
 
     pub fn wait_for(&mut self, request: WaitForRequest) -> Result<T::WaitForResult> {
         self.execute(&WAIT_FOR_METADATA, &request)
+    }
+
+    pub fn ws_listen(&mut self, request: WsListenRequest) -> Result<WsListenResult> {
+        self.execute(&WS_LISTEN_METADATA, &request)
     }
 
     pub fn zoom_pane(&mut self, request: ZoomPaneRequest) -> Result<T::ZoomPaneResult> {
