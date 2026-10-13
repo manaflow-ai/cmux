@@ -45,6 +45,7 @@ extension TabStripView {
         }
 
         let swaps = adoptReplacements(&ordered)
+        placeInsertions(&ordered)
         // A new tab grows into its slot while its neighbours slide, on one clock; with
         // `ui.animations.newTab` off, or under Reduce Motion, the whole strip takes its new
         // places in one step (no crossfade standing in for the motion, DESIGN P6).

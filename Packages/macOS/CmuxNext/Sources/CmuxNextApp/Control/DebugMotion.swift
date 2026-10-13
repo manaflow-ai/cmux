@@ -14,6 +14,9 @@ import CmuxNextWakeups
 /// "newTab", "newWorkspace") and `value` true or false set `ui.animations.*`
 /// in memory the same way. The report lists the display links alive
 /// (`display_links`: 0 once every spring rests, so the window idles).
+/// Spans carry `at_ms` (from `start`); `samples` lists per-frame values
+/// (`clock.dt_ms`, and `tabs.travel`, `layout.travel`, `sidebar.open`: the
+/// points an animator has left to move), so a bench reads each spring's path.
 /// `trajectory` returns this port's motion parity corpus (the resolved
 /// chrome springs and their frame paths), the same document cmux-motion's
 /// `motion_trajectories` example prints; scripts/cmux-next/motion-parity.py
@@ -60,7 +63,13 @@ enum DebugMotion {
             "display_links": .number(Double(FrameScheduler.all.filter(\.hasLink).count)),
             "active_clients": .array(FrameScheduler.all.flatMap(\.activeClients).map(JSONValue.string)),
             "spans": .array(MotionTrace.spans.map { span in
-                ["name": .string(span.name), "ms": .number((span.milliseconds * 10).rounded() / 10)]
+                ["name": .string(span.name), "ms": .number((span.milliseconds * 10).rounded() / 10),
+                 "at_ms": .number(((span.start - MotionTrace.startedAt) * 10000).rounded() / 10)]
+            }),
+            // Per-frame values (clock dt, travel left per animator), ms from `start`.
+            "samples": .array(MotionTrace.samples.map { sample in
+                ["name": .string(sample.name), "t_ms": .number(((sample.time - MotionTrace.startedAt) * 10000).rounded() / 10),
+                 "v": .number((sample.value * 100).rounded() / 100)]
             }),
         ]
     }

@@ -222,6 +222,10 @@ extension TabStripView {
         if autoscrollDuringDrag(dt) { active = true }
         scroll.step(dt)
         if !scroll.isSettled { active = true }
+        if MotionTrace.isEnabled {
+            // The points the strip's tabs have left to travel (x and width): its spring's path, for debug.motion.
+            MotionTrace.sample("tabs.travel", Double(motion.values.reduce(0) { $0 + abs($1.x.target - $1.x.value) + abs($1.width.target - $1.width.value) }))
+        }
         // Tabs sliding under a still pointer update hover (applyFrames ->
         // geometryDidChange).
         applyFrames()

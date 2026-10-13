@@ -1,5 +1,7 @@
+import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextSettings
+import CmuxNextTabs
 import Observation
 import CmuxNextWakeups
 
@@ -8,7 +10,8 @@ import CmuxNextWakeups
 /// puts it right after the selected tab, and the tab menu's New Tab to the
 /// Right right after that tab. The tab is made where it always is (the
 /// end), then moves into its slot (`TabMoves.move`, optimistic) as soon as
-/// the anchor's pane lists it. A tab made in another pane (the docked chat's
+/// the anchor's pane lists it; the anchor's strip shows it in that slot from
+/// its first frame (`expectInsertion`), so it grows in once, where it lives. A tab made in another pane (the docked chat's
 /// strip) stays where it lands. What a New Tab page turns into takes the
 /// page's slot.
 @MainActor
@@ -27,6 +30,7 @@ enum NewTabSlot {
     static func placing(after anchor: TabModel?, services: AppServices,
                         then: (@MainActor (SurfaceID) -> Void)?) -> (@MainActor (SurfaceID) -> Void)? {
         guard let anchor else { return then }
+        expectInsertion(after: anchor, services: services)
         return { surface in
             then?(surface)
             place(in: { home(of: anchor, services) }, services: services, find: { $0.tabs.first { $0.surface == surface } }) { slot(after: anchor, in: $0) }
@@ -37,6 +41,7 @@ enum NewTabSlot {
     static func placing(after anchor: TabModel?, services: AppServices,
                         then: (@MainActor (String) -> Void)?) -> (@MainActor (String) -> Void)? {
         guard let anchor else { return then }
+        expectInsertion(after: anchor, services: services)
         return { key in
             then?(key)
             place(in: { home(of: anchor, services) }, services: services, find: { pane in pane.tabs.first { $0.id == key || $0.snapshot.tabResourceID?.rawValue == key } }) {
@@ -60,6 +65,12 @@ enum NewTabSlot {
                 return others.firstIndex { $0 === before }.map { $0 + 1 }
             }
         }
+    }
+
+    /// Tells the strip showing `anchor` that the next tab it gets belongs right after it.
+    private static func expectInsertion(after anchor: TabModel, services: AppServices) {
+        guard let pane = home(of: anchor, services), let controller = services.paneController(for: pane) else { return }
+        controller.view.stripView.expectInsertion(after: StripTabID(anchor.id))
     }
 
     /// The pane `tab` is in, on any machine (surface ids are per daemon, so

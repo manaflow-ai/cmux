@@ -67,7 +67,7 @@ public final class MotionClock {
         guard entries[id] == nil else { return }
         entries[id] = Entry(animator: animator, trace: trace)
         if !order.contains(id) { order.append(id) }
-        MotionTrace.begin(trace)
+        MotionTrace.begin(trace, id: id)
         client.activate()
     }
 
@@ -76,7 +76,7 @@ public final class MotionClock {
         let id = ObjectIdentifier(animator)
         guard let entry = entries.removeValue(forKey: id) else { return }
         order.removeAll { $0 == id }
-        MotionTrace.end(entry.trace)
+        MotionTrace.end(entry.trace, id: id)
         if entries.isEmpty { client.deactivate() }
     }
 
@@ -89,12 +89,13 @@ public final class MotionClock {
 
     private func tick(_ dt: Double) -> Bool {
         frames &+= 1
+        if MotionTrace.isEnabled { MotionTrace.sample("clock.dt_ms", dt * 1000) }
         // Animators started during this frame step from the next one.
         for id in order {
             guard let entry = entries[id] else { continue }
             guard let animator = entry.animator, animator.motionStep(dt) else {
                 entries[id] = nil
-                MotionTrace.end(entry.trace)
+                MotionTrace.end(entry.trace, id: id)
                 continue
             }
         }

@@ -21,9 +21,9 @@ final class ScreenContentView: NSView {
     /// `baseGeometry` at the presented row offsets (`shiftingRows`): what
     /// hit testing, drops, focus and the strip scroll read.
     var geometry: ScreenGeometry
-    private var paneFrames: [PaneID: AnimatedFrame] = [:]
+    private(set) var paneFrames: [PaneID: AnimatedFrame] = [:]
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
-    private var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
+    private(set) var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] = [:]
     /// Panes growing in from a split's edge (`PaneArrival.presentation`), and the dock columns that change added.
     private var arriving: Set<PaneID> = [], newDockColumns: Set<ColumnID> = []
     /// Split motion moves layers only (DESIGN P4): while a split or a close springs, each pane that
@@ -309,6 +309,7 @@ final class ScreenContentView: NSView {
             if dividerFrames[key]?.advance(dt, parameters: Motion.spring(.move)) == true { moving = true }
         }
         if stepRows(dt) { moving = true }
+        if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
         if !isUserScrolling {
             if scroll.advance(dt, parameters: Motion.spring(.scroll), epsilon: 0.25) {
                 moving = true
@@ -377,80 +378,6 @@ final class ScreenContentView: NSView {
 
     var dividerMouseAreas: [LayoutMouseArea] { ScreenDividers(screen: self).mouseAreas }
     var dividerLineRects: [CGRect] { ScreenDividers(screen: self).lineRects }
-
-    // MARK: Chrome
-
-    /// Focus ring, inactive dim and attention rings. Overlay-only: no pane
-    /// frame or inset depends on any of it.
-    func updateChrome(focused: PaneID?, dimsInactive: Bool, attention: [PaneID: AttentionMark], animated: Bool) {
-        let multiple = paneFrames.count > 1
-        let style = context.style
-        let ringAllowed = (multiple || style.focusRing.showsForSinglePane)
-            && style.focusIndicator.marksBorder
-            // Pointer and scroll focus should not leave a keyboard-only focus ring behind.
-            && context.model.lastFocusSource != .pointer
-            && context.model.lastFocusSource != .scroll
-        for pane in paneFrames.keys {
-            guard let host = context.hosts[pane] else { continue }
-            let isFocused = pane == focused
-            host.setChrome(
-                showsRing: ringAllowed && isFocused,
-                // With appearance.borders none the ring is off; the dim stands in
-                // for it when the indicator asked for the border and nothing else.
-                dim: multiple && (dimsInactive || (!style.drawsLines && style.focusIndicator == .border)) && !isFocused
-                    ? style.inactivePaneDimming : 0,
-                focusRing: style.focusRing,
-                ringAlphaOverride: style.focusRingAlphaOverride,
-                tabEmphasis: .forPane(isFocused: isFocused, paneCount: paneFrames.count, indicator: style.focusIndicator,
-                                      style: style.inactiveTabStyle, strength: style.inactiveTabStrength),
-                border: PaneOverlayView.Border(shows: style.showsPaneBorder, width: style.paneBorderWidth, color: style.paneBorderColor),
-                attention: attention[pane],
-                attentionSettings: style.attention,
-                animated: animated
-            )
-        }
-    }
-
-    // MARK: Visibility and hit testing
-
-    /// Panes whose displayed frame intersects the viewport.
-    func visiblePanes() -> Set<PaneID> {
-        var result: Set<PaneID> = []
-        let uncovered = uncoveredRect
-        for (pane, frame) in paneFrames {
-            // A strip pane wholly under a docked column is hidden.
-            let scrolls = geometry.scrolls(pane: pane)
-            let displayed = displayedRect(frame.rect, pane: pane)
-            let overlap = displayed.intersection(scrolls ? uncovered : bounds)
-            if !overlap.isNull, overlap.width > 0.5, overlap.height > 0.5, frame.alpha.value > 0.01 {
-                result.insert(pane)
-            }
-        }
-        return result
-    }
-
-    /// Panes whose displayed frame lies within one viewport width of the
-    /// viewport on either side (architecture.md 4): visible panes plus the
-    /// off-screen columns a short scroll brings in. Their content stays
-    /// alive, paused, so scrolling back shows it at once.
-    func keepAlivePanes() -> Set<PaneID> {
-        KeepAliveBand.panes(displayed: paneFrames.reduce(into: [:]) { $0[$1.key] = displayedRect($1.value.rect, pane: $1.key) },
-                            viewport: bounds)
-    }
-
-    /// The pane under `localPoint`: a docked column's pane above the strip.
-    func pane(at localPoint: NSPoint) -> PaneID? {
-        if geometry.dock.contains(where: { $0.cover.contains(localPoint) }) {
-            return geometry.panes.first { !geometry.scrolls(pane: $0.key) && $0.value.contains(localPoint) }?.key
-        }
-        let content = CGPoint(x: localPoint.x - stripShift, y: localPoint.y)
-        return geometry.panes.first { geometry.scrolls(pane: $0.key) && $0.value.contains(content) }?.key
-    }
-
-    /// Displayed frame of `pane` in local coordinates.
-    func displayedFrame(of pane: PaneID) -> CGRect? {
-        paneFrames[pane].map { displayedRect($0.rect, pane: pane) }
-    }
 
     /// Releases every hosted pane that is not live elsewhere (screen removed).
     func tearDown() {

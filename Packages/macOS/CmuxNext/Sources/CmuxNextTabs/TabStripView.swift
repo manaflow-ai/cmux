@@ -88,6 +88,10 @@ public final class TabStripView: NSView {
     var replacing: (page: TabID, since: CFTimeInterval)?
     /// Newcomers shown in the cell of the page they replace, until the page leaves the model.
     var adopted: [TabID: TabID] = [:]
+    /// A tab opened right after `anchor` that this strip waits for (`expectInsertion(after:)`).
+    var inserting: (anchor: TabID, since: CFTimeInterval)?
+    /// Newcomers shown right after their anchor (and its group) until the model puts them there.
+    var placed: [TabID: (anchor: TabID, since: CFTimeInterval)] = [:]
     var isAnimating: Bool { motionClock?.isRunning(self) ?? false }
     var observationTask: Task<Void, Never>?
     var tokenObservationTask: Task<Void, Never>?
