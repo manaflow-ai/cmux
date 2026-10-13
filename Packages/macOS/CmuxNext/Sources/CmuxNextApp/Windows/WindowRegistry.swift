@@ -266,10 +266,11 @@ struct WindowRegistry: Equatable, Sendable {
     /// workspace it was created for, so it never shows empty). Other orphans
     /// go to the most recent open window, else the most recent (closed)
     /// one, else `fallbackWindow`. `held` orphans stay unowned this time.
-    /// Windows left empty close.
+    /// A new placement window in `behind` opens behind the others, so it is
+    /// the least recent (cx-ppw2w). Windows left empty close.
     @discardableResult
     mutating func reconcile(live: [String], dead: Set<String>, placements: [String: String] = [:], held: Set<String> = [],
-                            fallbackWindow: @autoclosure () -> String) -> Changes {
+                            behind: Set<String> = [], fallbackWindow: @autoclosure () -> String) -> Changes {
         var changes = Changes()
         let rank = Dictionary(live.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
         for index in windows.indices {
@@ -278,7 +279,7 @@ struct WindowRegistry: Equatable, Sendable {
         discarding = discarding.intersection(live).subtracting(dead)
         let owned = Set(windows.flatMap(\.workspaceIDs)).union(discarding)
         for orphan in live where !owned.contains(orphan) && !held.contains(orphan) {
-            let claimed = placements[orphan].flatMap { placementWindow($0) }
+            let claimed = placements[orphan].flatMap { placementWindow($0, behind: behind.contains($0)) }
             let heir = claimed ?? mostRecentOpen() ?? recency.first { !isIncognito($0) } ?? register(fallbackWindow())
             guard let index = windows.firstIndex(where: { $0.id == heir }) else { continue }
             windows[index].workspaceIDs = windows[index].workspaceIDs.merged(adding: [orphan], rank: rank)
@@ -328,16 +329,17 @@ struct WindowRegistry: Equatable, Sendable {
     /// The window a claimed orphan goes to: its window when open, or a new
     /// open window with that id when none is registered. A claim on a
     /// closed window falls through to the usual heir.
-    private mutating func placementWindow(_ id: String) -> String? {
-        guard let existing = window(id) else { return register(id) }
+    private mutating func placementWindow(_ id: String, behind: Bool) -> String? {
+        guard let existing = window(id) else { return register(id, behind: behind) }
         return existing.isOpen ? id : nil
     }
 
-    /// Registers open window `id`, most recent. Its caller gives it a
-    /// workspace in the same transition; `closeEmptied` removes it otherwise.
-    private mutating func register(_ id: String) -> String {
+    /// Registers open window `id`, most recent (least recent when it opens
+    /// `behind`). Its caller gives it a workspace in the same transition;
+    /// `closeEmptied` removes it otherwise.
+    private mutating func register(_ id: String, behind: Bool = false) -> String {
         windows.append(Window(id: id))
-        recency.insert(id, at: 0)
+        if behind { recency.append(id) } else { recency.insert(id, at: 0) }
         return id
     }
 
