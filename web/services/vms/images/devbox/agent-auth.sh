@@ -41,19 +41,38 @@ cmux_claude_has_own_login() {
 
 # The team's CodeRouter Claude accounts as this machine sees them:
 # 0 at least one active account, 1 the answer lists none, 2 no answer
-# (no model plane, edge unreachable, unreadable reply).
+# (no model plane, edge unreachable, unreadable reply). Only the public
+# placeholder from the model plane is ever sent: a user's own key never goes
+# to the CodeRouter origin. A launch reuses an answer for 60 s
+# (~/.cache/cmux/claude-team-accounts) so back-to-back launches, including
+# headless `claude -p` runs, pay for the check at most once a minute
+# (`cr use` clears it, so its report and the next launch are current).
 cmux_claude_team_upstream() {
   cmux_aa_origin="${CMUX_CODEROUTER_URL-}"
   case "$cmux_aa_origin" in https://*) ;; *) return 2 ;; esac
-  cmux_aa_key="${CMUX_CLAUDE_TEAM_API_KEY:-${ANTHROPIC_API_KEY:-${OPENAI_API_KEY-}}}"
+  cmux_aa_key="${CMUX_CLAUDE_TEAM_API_KEY-}"
   [ -n "$cmux_aa_key" ] || return 2
-  command -v curl >/dev/null 2>&1 || return 2
-  set -- -fsS --connect-timeout 2 --max-time 5 -H "authorization: Bearer $cmux_aa_key" -H 'accept: application/json'
-  if [ -f /usr/local/share/ca-certificates/freestyle-tls.crt ]; then
-    set -- "$@" --cacert /usr/local/share/ca-certificates/freestyle-tls.crt
+  cmux_aa_cache="${HOME:-/root}/.cache/cmux/claude-team-accounts"
+  cmux_aa_now=$(date +%s 2>/dev/null) || cmux_aa_now=0
+  if [ -f "$cmux_aa_cache" ]; then
+    read -r cmux_aa_at cmux_aa_cached < "$cmux_aa_cache" 2>/dev/null || cmux_aa_at=""
+    case "$cmux_aa_at:${cmux_aa_cached-}" in
+      *[!0-9:]*|:*|*:) ;;
+      *)
+        if [ "$cmux_aa_now" -ge "$cmux_aa_at" ] && [ $((cmux_aa_now - cmux_aa_at)) -lt 60 ]; then
+          return "$cmux_aa_cached"
+        fi
+        ;;
+    esac
   fi
-  cmux_aa_body=$(curl "$@" "${cmux_aa_origin%/}/api/coderouter/claude-upstream" 2>/dev/null) || return 2
-  printf '%s' "$cmux_aa_body" | python3 -c '
+  cmux_aa_rc=2
+  if command -v curl >/dev/null 2>&1; then
+    set -- -fsS --connect-timeout 2 --max-time 5 -H "authorization: Bearer $cmux_aa_key" -H 'accept: application/json'
+    if [ -f /usr/local/share/ca-certificates/freestyle-tls.crt ]; then
+      set -- "$@" --cacert /usr/local/share/ca-certificates/freestyle-tls.crt
+    fi
+    if cmux_aa_body=$(curl "$@" "${cmux_aa_origin%/}/api/coderouter/claude-upstream" 2>/dev/null); then
+      if printf '%s' "$cmux_aa_body" | python3 -c '
 import json, sys
 try:
     accounts = json.load(sys.stdin)["accounts"]
@@ -61,7 +80,11 @@ try:
 except Exception:
     sys.exit(2)
 sys.exit(0 if any(isinstance(a, dict) and a.get("state") == "active" for a in accounts) else 1)
-' 2>/dev/null
+' 2>/dev/null; then cmux_aa_rc=0; else cmux_aa_rc=$?; fi
+    fi
+  fi
+  { mkdir -p "${cmux_aa_cache%/*}" && printf '%s %s\n' "$cmux_aa_now" "$cmux_aa_rc" > "$cmux_aa_cache"; } 2>/dev/null || :
+  return "$cmux_aa_rc"
 }
 
 # Sets cmux_agent_auth_mode (team|own) and cmux_agent_auth_reason:

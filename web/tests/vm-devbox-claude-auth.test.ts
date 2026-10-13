@@ -221,6 +221,58 @@ describe("Cloud machine Claude Code sign-in precedence", () => {
     expect((await launch(m, { CMUX_CLAUDE_AUTH: "bogus" })).ANTHROPIC_API_KEY).toBe("<unset>");
   });
 
+  test("a one-off user key is never persisted, so team mode keeps working afterwards", async () => {
+    const m = machine();
+    choose(m, "team");
+    // `ANTHROPIC_API_KEY=... claude` once: the launcher sources agent-config.sh.
+    const once = await launch(m, {}, "ANTHROPIC_API_KEY=sk-ant-oneoff");
+    expect(once.ANTHROPIC_API_KEY).toBe("sk-ant-oneoff");
+    const plane = readFileSync(path.join(m.home, ".config/cmux/model-plane.env"), "utf8");
+    expect(plane).not.toContain("sk-ant-oneoff");
+    expect(plane).toContain(`export ANTHROPIC_API_KEY='${PLACEHOLDER}'`);
+    // A fresh shell without the boot env reads the persisted file only.
+    const fresh = await runChild("/bin/bash", ["-c", `. ${path.join(templateDir, "agent-config.sh")}; ${m.launcher}`], {
+      env: { PATH: `${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}`, HOME: m.home },
+    });
+    expect(fresh.stdout).toContain(`ANTHROPIC_API_KEY=${PLACEHOLDER}\n`);
+    expect(fresh.stdout).toContain(`ANTHROPIC_BASE_URL=${ORIGIN}\n`);
+  });
+
+  test("the account check sends only the placeholder, never a user's key", async () => {
+    const m = machine();
+    await launch(m, { FAKE_CURL_BODY: ACTIVE }, "export ANTHROPIC_BASE_URL=https://proxy.example.test ANTHROPIC_API_KEY=sk-ant-real OPENAI_API_KEY=sk-openai-real;");
+    const calls = readFileSync(m.calls, "utf8");
+    expect(calls).toContain(`authorization: Bearer ${PLACEHOLDER}`);
+    expect(calls).not.toContain("sk-ant-real");
+    expect(calls).not.toContain("sk-openai-real");
+  });
+
+  test("the account answer is reused for a minute", async () => {
+    const m = machine();
+    expect((await launch(m, { FAKE_CURL_BODY: ACTIVE })).ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect((await launch(m, { FAKE_CURL_BODY: DISABLED })).ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
+    expect(readFileSync(m.calls, "utf8").trim().split("\n")).toHaveLength(1);
+    // An expired answer is asked again.
+    writeFileSync(path.join(m.home, ".cache/cmux/claude-team-accounts"), "1 0\n");
+    expect((await launch(m, { FAKE_CURL_BODY: DISABLED })).ANTHROPIC_API_KEY).toBe("<unset>");
+  });
+
+  test("a HOME the generators cannot write still starts claude", async () => {
+    const m = machine();
+    choose(m, "team");
+    chmodSync(path.join(m.home, ".config/cmux"), 0o500);
+    chmodSync(m.home, 0o500);
+    try {
+      const result = await runChild("/bin/bash", ["-c", `${m.launcher} --resume x`], { env: bootEnv(m) });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain(`ANTHROPIC_API_KEY=${PLACEHOLDER}\n`);
+      expect(result.stdout).toContain("args=--resume x");
+    } finally {
+      chmodSync(m.home, 0o700);
+      chmodSync(path.join(m.home, ".config/cmux"), 0o700);
+    }
+  });
+
   test("--version and --help skip the mode resolution", async () => {
     const m = machine();
     const result = await runChild(m.launcher, ["--version"], { env: bootEnv(m, { FAKE_CURL_BODY: ACTIVE }) });
@@ -242,8 +294,11 @@ describe("cr use", () => {
         LANG: "en_US.UTF-8",
         CMUX_TUI_BIN: "/usr/bin/true",
         CMUX_AGENT_AUTH_LIB: path.join(templateDir, "agent-auth.sh"),
+        // What a machine shell exports after agent-config.sh set the pair aside.
         CMUX_CODEROUTER_URL: ORIGIN,
         OPENAI_API_KEY: PLACEHOLDER,
+        CMUX_CLAUDE_TEAM_BASE_URL: ORIGIN,
+        CMUX_CLAUDE_TEAM_API_KEY: PLACEHOLDER,
         ...extra,
       },
     });
@@ -275,7 +330,7 @@ describe("cr use", () => {
     expect((await cr(m, ["--json"], { FAKE_CURL_BODY: DISABLED })).stdout).toBe('{"agent":"claude","mode":"own","reason":"no-team-account","chosen":false}\n');
     signIn(m);
     const status = await cr(m, []);
-    expect(status.stdout).toBe("Claude Code: your own login (you signed in with /login on this machine)\n");
+    expect(status.stdout).toBe("Claude Code: your own login (signed in on this machine with /login or CLAUDE_CODE_OAUTH_TOKEN)\n");
     choose(m, "team");
     expect((await cr(m, ["--json"])).stdout).toBe('{"agent":"claude","mode":"team","reason":"chosen","chosen":true}\n');
     expect((await cr(m, ["auto"])).status).toBe(0);
@@ -290,10 +345,33 @@ describe("cr use", () => {
     expect(existsSync(path.join(m.home, ".config/cmux/agent-auth"))).toBe(false);
   });
 
+  test("a choice that cannot be written fails loudly instead of reporting it", async () => {
+    const m = machine();
+    mkdirSync(path.join(m.home, ".config/cmux/agent-auth"), { recursive: true });
+    chmodSync(path.join(m.home, ".config/cmux/agent-auth"), 0o500);
+    try {
+      const result = await cr(m, ["own"]);
+      expect(result.status).toBe(1);
+      expect(result.stderr).toContain("could not record the choice");
+      expect(result.stdout).toBe("");
+    } finally {
+      chmodSync(path.join(m.home, ".config/cmux/agent-auth"), 0o700);
+    }
+  });
+
+  test("says when an exported key or endpoint outranks the mode", async () => {
+    const m = machine();
+    const result = await cr(m, ["team"], { ANTHROPIC_API_KEY: "sk-ant-user", FAKE_CURL_BODY: ACTIVE });
+    expect(result.stdout).toContain("ANTHROPIC_API_KEY or ANTHROPIC_BASE_URL is set in this environment");
+    expect(readFileSync(m.calls, "utf8")).not.toContain("sk-ant-user");
+  });
+
   test("rejects unknown arguments and a second mode", async () => {
     const m = machine();
     expect((await cr(m, ["mine"])).status).toBe(2);
-    expect((await cr(m, ["own", "team"])).status).toBe(2);
+    const twice = await cr(m, ["own", "team"]);
+    expect(twice.status).toBe(2);
+    expect(twice.stderr).toContain("one mode");
     expect(existsSync(path.join(m.home, ".config/cmux/agent-auth/claude"))).toBe(false);
   });
 });
