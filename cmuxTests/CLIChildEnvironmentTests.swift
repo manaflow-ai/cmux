@@ -60,6 +60,21 @@ import Foundation
         #expect(child["XDG_CONFIG_HOME"] == "/tmp/cli-fixture/xdg config")
     }
 
+    /// An app-host root nested in the fixture home is still the app host's.
+    @Test
+    func anInheritedHostRootNestedInTheHomeIsReplaced() {
+        let normalizer = CLIChildEnvironment(
+            appHostEnvironment: ["HOME": "/tmp/app-host", "CFFIXED_USER_HOME": "/tmp/app-host"]
+        )
+        let child = normalizer.normalizing([
+            "HOME": "/tmp/cli-fixture",
+            "CFFIXED_USER_HOME": "/tmp/cli-fixture/inherited-app-host",
+            "XDG_CONFIG_HOME": "/tmp/cli-fixture/inherited-app-host/.config",
+        ])
+        #expect(child["CFFIXED_USER_HOME"] == "/tmp/cli-fixture")
+        #expect(child["XDG_CONFIG_HOME"] == "/tmp/cli-fixture/.config")
+    }
+
     /// An in-home symlink to a shared directory is not a fixture-owned root.
     @Test
     func anInHomeSymlinkToASharedRootIsReplaced() throws {

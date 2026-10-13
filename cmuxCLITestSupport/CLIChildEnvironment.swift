@@ -20,8 +20,13 @@ struct CLIChildEnvironment {
         var resolved = environment
         resolved["CFFIXED_USER_HOME"] = rawHome
         // A root inside the fixture's own home is the fixture testing that
-        // override; any other value could reach a shared configuration root.
-        if !Self.isInside(environment["XDG_CONFIG_HOME"], home: rawHome) {
+        // override. A root under an inherited CFFIXED_USER_HOME is the app
+        // host's, even when that host root was nested in the fixture.
+        let configRoot = environment["XDG_CONFIG_HOME"]
+        let inheritedHome = environment["CFFIXED_USER_HOME"].flatMap { $0 == rawHome ? nil : $0 }
+        let fixtureOwned = Self.isInside(configRoot, home: rawHome)
+            && !(inheritedHome.map { Self.isInside(configRoot, home: $0) } ?? false)
+        if !fixtureOwned {
             resolved["XDG_CONFIG_HOME"] = URL(fileURLWithPath: rawHome, isDirectory: true)
                 .appendingPathComponent(".config", isDirectory: true).path
         }
