@@ -148,7 +148,7 @@ struct GroupChipIconTests {
                              ("tabGroup.setIcon", .tabGroup), ("tabGroup.clearIcon", .tabGroup)] {
             let descriptor = try #require(ActionCatalog.all.first { $0.id.rawValue == id }, "\(id) is in the catalog")
             #expect(descriptor.targets.contains(target))
-            #expect(descriptor.cliName != nil)
+            #expect(!descriptor.cliName.isEmpty)
         }
     }
 }
