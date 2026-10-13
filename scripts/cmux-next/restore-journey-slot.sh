@@ -47,7 +47,9 @@ app=$(ssh -o BatchMode=yes "$host" "ls -d '$stage'/*.app | head -1")
 name=$(basename "$app" .app)
 build_tag=${name#cmux DEV }
 capture-host launch "$lease" "$app" rj -- | tee "$out/launch.txt"
-sock=/tmp/cmux-debug-$build_tag-capslot$slot.sock
+# capture-host prints the socket it gave the app; older versions named it from the build tag.
+sock=$(grep -o 'socket=[^ ]*' "$out/launch.txt" | head -1 | cut -d= -f2-)
+[ -n "$sock" ] || sock=/tmp/cmux-debug-$build_tag-capslot$slot.sock
 for _ in $(seq 1 60); do ssh -o BatchMode=yes "$host" "test -S '$sock'" && break; sleep 1; done
 
 set +e

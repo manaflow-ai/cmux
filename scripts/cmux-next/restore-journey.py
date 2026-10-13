@@ -512,6 +512,16 @@ def seed_agent():
             break
     else:
         say("  the chat tab's record never named the session (the page has it selected)")
+        # Evidence for the gap: the app's own log about the bind and the page's session report.
+        log = subprocess.run(["log", "show", "--last", "4m", "--style", "compact", "--predicate",
+                              f"processID == {APP.pid} AND (eventMessage CONTAINS[c] 'conversation-tab' "
+                              "OR eventMessage CONTAINS[c] 'session' OR eventMessage CONTAINS[c] 'bind')"],
+                             capture_output=True, text=True, timeout=120).stdout
+        with open(os.path.join(opts.out, "agent-bind-log.txt"), "w") as f:
+            f.write(log)
+        state = rpc("debug.agent_pane", {"action": "chat_state", **({"pane": pane} if pane else {})}, timeout=30)
+        dump("agent-bind-chat-state.json", state)
+        say(f"  bind log: {len(log.splitlines())} lines in agent-bind-log.txt")
     AGENT = {"session": sid, "home": home, "pane": pane}
 
 
