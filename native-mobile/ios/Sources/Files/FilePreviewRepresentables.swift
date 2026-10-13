@@ -130,9 +130,7 @@ struct WebPreview: UIViewRepresentable {
         configuration.websiteDataStore = .nonPersistent()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = false
         let view = WKWebView(frame: .zero, configuration: configuration)
-        view.isOpaque = false
-        view.backgroundColor = .clear
-        view.scrollView.backgroundColor = .clear
+        applyBackground(to: view)
         view.navigationDelegate = context.coordinator
         context.coordinator.openURL = openURL
         load(source, into: view)
@@ -144,7 +142,19 @@ struct WebPreview: UIViewRepresentable {
         context.coordinator.openURL = openURL
         guard context.coordinator.loaded != source else { return }
         context.coordinator.loaded = source
+        applyBackground(to: view)
         load(source, into: view)
+    }
+
+    /// An HTML or SVG file is drawn on white, as Safari and Quick Look do:
+    /// a page without its own colors has black text, which vanished on the
+    /// clear (dark) background. Rendered markdown brings its own colors.
+    private func applyBackground(to view: WKWebView) {
+        let pageColors: Bool
+        if case .file = source { pageColors = true } else { pageColors = false }
+        view.isOpaque = pageColors
+        view.backgroundColor = pageColors ? .white : .clear
+        view.scrollView.backgroundColor = pageColors ? .white : .clear
     }
 
     private func load(_ source: Source, into view: WKWebView) {
