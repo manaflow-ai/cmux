@@ -351,7 +351,7 @@ extension AgentPaneTransport {
         // A Trust answer on another machine for the folder the person chose there by Use Home
         // Folder (a root of this pane): that machine's daemon trusts its home folder only with
         // this mark, which no page can send (known params), so one click never trusts it (cx-1bhjj).
-        if remoteWire, facts.method == "acp.trust.set", let cwd = box.param("cwd"), addedRoots.contains(cwd) {
+        if remoteWire, facts.method == "acp.trust.set", let cwd = box.param("cwd"), remoteHomeChosen.contains(cwd) {
             box.setParam(RemoteAcpmuxWire.homeChosenParam, "true")
         }
         // The daemon sees only relay-owned ids; a page id is used by one request at a time.

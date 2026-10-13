@@ -2,15 +2,11 @@ import CmuxNextAgentPane
 import CmuxNextDaemon
 import Foundation
 
-/// New agent chats in a workspace of another machine (an SSH machine or an owner Cloud VM,
-/// cx-k21v / cx-cmok): the tab records that machine's store as its host
-/// (`registry:<registry id>`), and the chat starts in that machine's own acpmux through its
-/// session daemon (`agent-session-start`, policy `ask`) at the page's first send, never when the
-/// tab opens. It never starts on this Mac: a daemon without the verb, or one that refuses, leaves
-/// the tab with the reason.
+/// New agent chats in a workspace of another machine (SSH, owner Cloud VM; cx-k21v): the tab's
+/// host is that store (`registry:<id>`); the chat starts in that machine's acpmux
+/// (`agent-session-start`, policy `ask`) at the first send, never on this Mac.
 extension AgentTabStore {
-    /// `registry:<id>` of `daemon`'s store, the host of a new chat in one of its panes; nil for this
-    /// Mac's daemon (its chats record `install:<id>`) or while the remote store has no id yet.
+    /// `registry:<id>` of `daemon`'s store (a new chat's host there); nil for this Mac or no id yet.
     static func registryHost(of daemon: DaemonService) -> String? {
         guard !daemon.isLocal, let id = daemon.store.registryID ?? daemon.identity?.sessionID, !id.isEmpty else { return nil }
         return AgentTabRemoteStart.registryPrefix + id.lowercased()
@@ -62,7 +58,8 @@ extension AgentTabStore {
         }
         let client = AgentSessionAttachClient(surface: surface, requestTimeout: AgentTabRemoteStart.timeout, endpoint: endpoint)
         let result: Result<String, any Error>
-        do { result = .success(try await client.start(cwd: cwd, harness: chosenHarness ?? seed?.harness)) } catch { result = .failure(error) }
+        let home = existingView(key)?.model.transport.remoteHomeChosen.contains(cwd) == true // the person's Use Home Folder (cx-1bhjj)
+        do { result = .success(try await client.start(cwd: cwd, harness: chosenHarness ?? seed?.harness, homeConfirmed: home)) } catch { result = .failure(error) }
         await client.close()
         switch result {
         case .success(let session):
@@ -142,6 +139,8 @@ nonisolated struct AgentRemoteStartRefusal: LocalizedError, AgentPaneHostRefusal
         case "agent_session.timeout":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.timeout",
                                   "%@ did not start the agent in time. Try again.", machine)
+        case "agent_session.home_unconfirmed": RefusalStrings.format("handlers.refusal.agentRemoteStart.homeUnconfirmed", "Choose the home folder on %@ with Use Home Folder first.", machine)
+        case "agent_session.above_home": RefusalStrings.format("handlers.refusal.agentRemoteStart.aboveHome", "A chat on %@ never runs in a folder above its home folder.", machine)
         case "app.trust_update":
             RefusalStrings.format("handlers.refusal.agentRemoteStart.updateForTrust", "Update cmux on %@ to trust folders from here.", machine)
         case Self.folderNeededCode:
