@@ -13,7 +13,7 @@ import { tooltipProps, useShortcut } from "../shortcuts";
 import { registerPicker } from "../pickerOpeners";
 import { Menu, MenuButton, MenuItem, MenuPopup, MenuSeparator, Submenu } from "../../../ui/Menu";
 import { ContextMenu, type ContextMenuItem } from "../../../ui/ContextMenu";
-import { useHeaderState } from "./headerState";
+import { headerState, useHeaderState } from "./headerState";
 import { PullRequestChip } from "./PullRequestChip";
 import { useWorktree, WorktreePill } from "./WorktreePill";
 import type { MergeResult } from "./PullRequestMerge";
@@ -164,46 +164,89 @@ export function ChatHeaderTools({
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
   // The quick actions without a button, at the top of "...": each while it would show as a button.
-  const shownIds = new Set(actions.map((action) => action.id));
-  const folded: ChatMenuItem[] = [];
-  if (tabTools && onChanges && !shownIds.has("changes") && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
-    folded.push({
-      key: "quick-changes",
-      label: t("header.changes"),
-      icon: "diff.file",
-      shortcutAction: HEADER_ACTIONS.changes,
-      onSelect: () => onChanges("toggle"),
-    });
-  if (tabTools && onPreview && !shownIds.has("preview") && (previewUrl || lit.includes(HEADER_ACTIONS.preview)))
-    folded.push({
-      key: "quick-preview",
-      label: t("header.preview"),
-      icon: "media.play",
-      onSelect: () => onPreview(previewUrl, "toggle"),
-    });
-  if (tabTools && onSideTabs && !shownIds.has("newTab"))
-    folded.push({
-      key: "quick-newTab",
-      label: t(sideTabs ? "header.hideTabs" : "header.newTab"),
-      icon: sideTabs ? "tunable.sidebar" : "action.add",
-      onSelect: onSideTabs,
-    });
-  if (tabTools && onFiles && !shownIds.has("files"))
-    folded.push({
-      key: "quick-files",
-      label: t("header.files"),
-      icon: "folder",
-      onSelect: () => onFiles("toggle"),
-    });
-  if (tabTools && onSplitDown && !shownIds.has("splitDown"))
-    folded.push({
-      key: "quick-splitDown",
-      label: t("header.splitDown"),
-      icon: "pane.split.down",
-      shortcutAction: HEADER_ACTIONS.splitDown,
-      onSelect: () => onSplitDown("toggle"),
-    });
-  const rows = () => menuGroups(folded, menu());
+  // Built when "..." reads its rows, after the App's tab state refresh (onMenuOpen): the props of this
+  // render, and the lit splits as the App last pushed them.
+  const live = useRef({
+    actions,
+    tabTools,
+    sideTabs,
+    hasChanges,
+    previewUrl,
+    onChanges,
+    onPreview,
+    onSideTabs,
+    onFiles,
+    onSplitDown,
+  });
+  live.current = {
+    actions,
+    tabTools,
+    sideTabs,
+    hasChanges,
+    previewUrl,
+    onChanges,
+    onPreview,
+    onSideTabs,
+    onFiles,
+    onSplitDown,
+  };
+  const foldedRows = (): ChatMenuItem[] => {
+    const {
+      actions,
+      tabTools,
+      sideTabs,
+      hasChanges,
+      previewUrl,
+      onChanges,
+      onPreview,
+      onSideTabs,
+      onFiles,
+      onSplitDown,
+    } = live.current;
+    if (!tabTools) return [];
+    const { lit } = headerState();
+    const shownIds = new Set(actions.map((action) => action.id));
+    const folded: ChatMenuItem[] = [];
+    if (onChanges && !shownIds.has("changes") && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
+      folded.push({
+        key: "quick-changes",
+        label: t("header.changes"),
+        icon: "diff.file",
+        shortcutAction: HEADER_ACTIONS.changes,
+        onSelect: () => onChanges("toggle"),
+      });
+    if (onPreview && !shownIds.has("preview") && (previewUrl || lit.includes(HEADER_ACTIONS.preview)))
+      folded.push({
+        key: "quick-preview",
+        label: t("header.preview"),
+        icon: "media.play",
+        onSelect: () => onPreview(previewUrl, "toggle"),
+      });
+    if (onSideTabs && !shownIds.has("newTab"))
+      folded.push({
+        key: "quick-newTab",
+        label: t(sideTabs ? "header.hideTabs" : "header.newTab"),
+        icon: sideTabs ? "tunable.sidebar" : "action.add",
+        onSelect: onSideTabs,
+      });
+    if (onFiles && !shownIds.has("files"))
+      folded.push({
+        key: "quick-files",
+        label: t("header.files"),
+        icon: "folder",
+        onSelect: () => onFiles("toggle"),
+      });
+    if (onSplitDown && !shownIds.has("splitDown"))
+      folded.push({
+        key: "quick-splitDown",
+        label: t("header.splitDown"),
+        icon: "pane.split.down",
+        shortcutAction: HEADER_ACTIONS.splitDown,
+        onSelect: () => onSplitDown("toggle"),
+      });
+    return folded;
+  };
+  const rows = () => menuGroups(foldedRows(), menu());
   const buttons = tabTools && (
     <>
       {actions.map(({ id, mode }) =>

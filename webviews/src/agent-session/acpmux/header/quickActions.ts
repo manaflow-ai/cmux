@@ -41,7 +41,7 @@ export interface QuickAction {
   readonly mode: QuickActionMode;
 }
 
-const ids: readonly QuickActionId[] = ["changes", "preview", "terminal", "browser", "newTab", "files", "splitDown"];
+const ids: readonly QuickActionId[] = ["changes", "preview", "terminal", "splitDown", "browser", "files", "newTab"];
 /// Not shown until a person adds them (in the chat menu meanwhile).
 const OFF_BY_DEFAULT: ReadonlySet<QuickActionId> = new Set(["newTab", "files", "splitDown"]);
 const isId = (value: unknown): value is QuickActionId => ids.includes(value as QuickActionId);
