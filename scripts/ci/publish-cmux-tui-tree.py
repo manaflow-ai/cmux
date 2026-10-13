@@ -270,7 +270,15 @@ def publish_tree(
 
     with tempfile.TemporaryDirectory(prefix="cmux-tui-tree-") as temporary:
         temporary_dir = Path(temporary)
-        for name, digest in {**digests, **windows_digests}.items():
+        # The optional Windows companions go up before the Windows daemon,
+        # whose .sha256 is what a Windows client waits for: a client that
+        # sees the daemon also sees its program DLL (cx-w0uha).
+        ordered = {
+            **{name: digest for name, digest in windows_digests.items() if name in WINDOWS_OPTIONAL_NAMES},
+            **digests,
+            **{name: digest for name, digest in windows_digests.items() if name not in WINDOWS_OPTIONAL_NAMES},
+        }
+        for name, digest in ordered.items():
             binary = assets_dir / name
             _upload(
                 uploader,

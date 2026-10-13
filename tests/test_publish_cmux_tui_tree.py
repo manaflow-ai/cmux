@@ -273,6 +273,11 @@ def test_thin_windows_exe_publishes_its_host_and_program_dll(tmp_path: Path) -> 
         assert windows["binaries"][name] == digest
         assert by_key[f"{name}.sha256"] == f"{digest}  {name}\n"
     assert WINDOWS_DLL_NAME not in json.loads(by_key["completion-linux.json"])["binaries"]
+    # A Windows client waits for the daemon's .sha256: the host and the DLL are
+    # uploaded before it, so a client that sees the daemon sees its DLL.
+    order = [item["key"].rsplit("/", 1)[-1] for item in uploads]
+    for name in (WINDOWS_HOST_NAME, WINDOWS_DLL_NAME):
+        assert order.index(f"{name}.sha256") < order.index(WINDOWS_NAME), order
 
     # A DLL whose bytes differ from the Windows manifest fails the publication.
     (assets / WINDOWS_DLL_NAME).write_bytes(b"tampered")

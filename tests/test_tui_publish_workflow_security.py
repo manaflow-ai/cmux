@@ -2032,7 +2032,7 @@ def test_windows_build_ships_the_thin_exe_with_its_program_dll() -> None:
     steps = jobs["build-windows"]["steps"]
     build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU)")["run"]
     assert "cargo build -p cmux-tui --features windows-thin-exe --bin cmux-tui " in build
-    assert "cargo rustc -p cmux-tui --lib --crate-type cdylib --release --locked --target x86_64-pc-windows-gnu" in build
+    assert "cargo rustc -p cmux-tui --features windows-thin-exe --lib --crate-type cdylib --release --locked --target x86_64-pc-windows-gnu" in build
     stage = next(s for s in steps if s.get("name") == "Stage binary")["run"]
     assert '"dist/cmux-tui-dll-x86_64-pc-windows-gnu.dll"' in stage
     upload = next(s for s in steps if s.get("name") == "Upload binary artifact")["with"]["path"]
@@ -2040,6 +2040,17 @@ def test_windows_build_ships_the_thin_exe_with_its_program_dll() -> None:
     package_steps = jobs["package"]["steps"]
     notices = next(s for s in package_steps if s.get("name") == "Verify the Windows binaries use the reviewed runtime toolchain")["run"]
     assert "dist/binaries/*-x86_64-pc-windows-gnu.dll" in notices
+    # The DLL is the program: npm provenance attests and verifies it like the
+    # executables (its underscore name is outside the bin/cmux-tui* globs).
+    attest_steps = jobs["attest-npm-packages"]["steps"]
+    for name in ("Attest native npm package binaries", "Retry native npm package binary attestation"):
+        subjects = next(s for s in attest_steps if s.get("name") == name)["with"]["subject-path"]
+        assert "dist/npm-packages/cmux-tui-*/bin/cmux_tui.dll" in subjects, name
+        assert "dist/npm-packages/cmux-relay-*/bin/cmux_tui.dll" in subjects, name
+    verify = next(s for s in attest_steps if s.get("name") == "Verify native npm package attestations")["run"]
+    assert "-path '*/bin/cmux_tui.dll'" in verify
+    publish = (ROOT / ".github/workflows/tui-publish-npm.yml").read_text()
+    assert "-path '*/bin/cmux_tui.dll'" in publish
 
 
 def test_package_workflow_uses_no_shared_build_cache() -> None:

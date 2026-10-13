@@ -112,17 +112,24 @@ bin=$(run $WINHOST path | tail -n 1)
 [[ "$(cat "$bin")" == win-daemon ]] || fail "Windows fetched $(cat "$bin" 2>/dev/null)"
 [[ "$(cat "$win/cmux-tui.exe.sha256")" == "$(sha256 "$bin")" ]] || fail "no sha256 record beside $bin"
 [[ ! -e "$win/cmux-app-host.sha256" ]] || fail "fetch looked for a Windows app host"
-# A tree from before the companions: both recorded as none, no files.
-for companion in cmux-tui-host.exe cmux_tui.dll; do
-  [[ "$(cat "$win/$companion.sha256")" == none ]] || fail "no none record for $companion:
+# A tree from before the companions: no files; the host is recorded as none,
+# the program DLL's absence is never cached (a thin exe cannot start without it).
+[[ "$(cat "$win/cmux-tui-host.exe.sha256")" == none ]] || fail "no none record for cmux-tui-host.exe:
 $out"
+[[ ! -e "$win/cmux_tui.dll.sha256" ]] || fail "the DLL's absence was cached:
+$out"
+for companion in cmux-tui-host.exe cmux_tui.dll; do
   [[ ! -e "$win/$companion" ]] || fail "$companion written for a tree without it"
 done
 
-# A second fetch reuses the checked copy.
+# A second fetch reuses the checked copy, and a DLL published after the
+# first fetch (a publication in progress then) is fetched now.
+publish cmux-tui-dll-x86_64-pc-windows-gnu.dll late-dll
 out=$(run $WINHOST fetch) || fail "second fetch failed:
 $out"
 grep -q 'already present' <<<"$out" || fail "second fetch did not reuse the copy:
+$out"
+[[ "$(cat "$win/cmux_tui.dll" 2>/dev/null)" == late-dll ]] || fail "a DLL published after the first fetch was not fetched:
 $out"
 
 # A thin-exe tree (cx-w0uha): host and program DLL go beside cmux-tui.exe.

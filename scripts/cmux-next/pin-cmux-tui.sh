@@ -760,9 +760,12 @@ fetch_tree_companion() {
 #   re-execs itself as the host (slower terminal creation, still correct).
 # - the program DLL the thin cmux-tui.exe loads from its own folder
 #   (cx-w0uha), cmux-tui-dll-<target>.dll -> cmux_tui.dll. A tree without it
-#   has a whole-program cmux-tui.exe that needs no DLL.
+#   has a whole-program cmux-tui.exe that needs no DLL. Its absence is never
+#   cached (record_absent=no): a thin exe without its DLL cannot start, so a
+#   fetch that missed it (a publication in progress, a CDN error) asks again
+#   on the next fetch instead of keeping a `none` record.
 fetch_tree_windows_companion() {
-  local key="$1" dir="$2" asset="$3" file="$4" absent_note="$5" url want temp
+  local key="$1" dir="$2" asset="$3" file="$4" absent_note="$5" record_absent="${6:-yes}" url want temp
   url="$BASE/tree/$key/$asset"
   if [[ -f "$dir/$file.sha256" ]]; then
     want="$(cat "$dir/$file.sha256")"
@@ -774,7 +777,11 @@ fetch_tree_windows_companion() {
   if ! download "$url.sha256" "$temp/sha256" 2>/dev/null; then
     rm -rf "$temp"
     rm -f "$dir/$file"
-    printf 'none\n' > "$dir/$file.sha256"
+    if [[ "$record_absent" == yes ]]; then
+      printf 'none\n' > "$dir/$file.sha256"
+    else
+      rm -f "$dir/$file.sha256"
+    fi
     echo "note: tree $key published no $file; $absent_note"
     return 0
   fi
@@ -797,7 +804,7 @@ fetch_tree_companions() {
     fetch_tree_windows_companion "$1" "$2" "cmux-tui-host-$TARGET.exe" cmux-tui-host.exe \
       "terminals start through cmux-tui.exe (slower)"
     fetch_tree_windows_companion "$1" "$2" "cmux-tui-dll-$TARGET.dll" cmux_tui.dll \
-      "its cmux-tui.exe is the whole program"
+      "its cmux-tui.exe is the whole program" no
     return 0
   fi
   fetch_tree_companion "$1" "$2" app-host cmux-app-host

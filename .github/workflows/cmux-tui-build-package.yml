@@ -722,7 +722,7 @@ jobs:
           # own folder. The cdylib build writes target/.../release/cmux_tui.dll
           # beside cmux-tui.exe, so the smoke steps below run the shipped pair.
           cargo build -p cmux-tui --features windows-thin-exe --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target x86_64-pc-windows-gnu
-          cargo rustc -p cmux-tui --lib --crate-type cdylib --release --locked --target x86_64-pc-windows-gnu
+          cargo rustc -p cmux-tui --features windows-thin-exe --lib --crate-type cdylib --release --locked --target x86_64-pc-windows-gnu
           test -f target/x86_64-pc-windows-gnu/release/cmux_tui.dll
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target x86_64-pc-windows-gnu
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target x86_64-pc-windows-gnu
@@ -1219,6 +1219,8 @@ jobs:
             dist/npm-packages/cmux-tui-*/bin/cmux-tui*
             dist/npm-packages/cmux-relay-*/bin/chatmux-relay*
             dist/npm-packages/cmux-relay-*/bin/cmux-tui*
+            dist/npm-packages/cmux-tui-*/bin/cmux_tui.dll
+            dist/npm-packages/cmux-relay-*/bin/cmux_tui.dll
 
       - name: Retry native npm package binary attestation
         if: steps.attest-native-npm-packages.outcome == 'failure'
@@ -1228,6 +1230,8 @@ jobs:
             dist/npm-packages/cmux-tui-*/bin/cmux-tui*
             dist/npm-packages/cmux-relay-*/bin/chatmux-relay*
             dist/npm-packages/cmux-relay-*/bin/cmux-tui*
+            dist/npm-packages/cmux-tui-*/bin/cmux_tui.dll
+            dist/npm-packages/cmux-relay-*/bin/cmux_tui.dll
 
       - name: Verify native npm package attestations
         env:
@@ -1238,7 +1242,8 @@ jobs:
             find dist/npm-packages -type f \
               \( -path '*/cmux-tui-*/bin/cmux-tui*' -o \
                  -path '*/cmux-relay-*/bin/chatmux-relay*' -o \
-                 -path '*/cmux-relay-*/bin/cmux-tui*' \) \
+                 -path '*/cmux-relay-*/bin/cmux-tui*' -o \
+                 -path '*/bin/cmux_tui.dll' \) \
               -print0 | sort -z
           )
           ((${#binaries[@]} > 0))
