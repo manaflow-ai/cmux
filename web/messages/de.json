@@ -35,6 +35,11 @@
       "message": "Diese Maschine hat nicht rechtzeitig geantwortet, daher konnte die Anfrage nicht abgeschlossen werden.",
       "action": "Pausiere die Maschine, setze sie dann fort und versuche es erneut. Wähle in der Mac-App „Maschine pausieren“ und dann „Maschine fortsetzen“. Führe im Terminal cmux vm pause '<machine>' und dann cmux vm resume '<machine>' aus."
     },
+    "inProgress": {
+      "title": "Noch in Bearbeitung",
+      "message": "Der Cloud-Anbieter hat diese Änderung noch nicht abgeschlossen. Sie kann noch abgeschlossen werden.",
+      "action": "Prüfe den Status der Maschine mit cmux vm ls oder in der Maschinenliste, bevor du es erneut versuchst."
+    },
     "providerTimeout": {
       "title": "Cloud-Anbieter antwortet langsam",
       "message": "Der Cloud-Anbieter hat nicht rechtzeitig geantwortet.",
