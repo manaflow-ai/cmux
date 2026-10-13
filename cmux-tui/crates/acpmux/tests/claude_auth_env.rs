@@ -452,3 +452,46 @@ async fn only_allow_listed_login_variables_reach_the_agent() {
     let (reply, _) = ask(&d, "claude").await;
     assert_eq!(found(&reply)["loginOnly"], json!(["NPM_TOKEN"]));
 }
+
+/// A version-manager prefix passes, but never a secret under it: the agent
+/// gets MISE_DATA_DIR, not MISE_GITHUB_TOKEN or NVM_AUTH_HEADER, unless
+/// `loginEnvAllow` names one exactly.
+#[tokio::test]
+async fn a_secret_under_a_tool_prefix_stays_in_the_daemon() {
+    let dir = scratch(
+        "mise-secret",
+        "export ANTHROPIC_API_KEY=sk-login\nexport MISE_DATA_DIR=\"$HOME/mise\"\nexport MISE_GITHUB_TOKEN=ghp_login\nexport NVM_AUTH_HEADER='Bearer login'\n",
+    );
+    let harnesses = json!({"claude": claude(json!({}))});
+    {
+        let d = start(&dir, harnesses.clone(), &[]).await;
+        let (reply, _) = ask(&d, "claude").await;
+        let v = found(&reply);
+        assert_eq!(v["loginOnly"], json!([]), "{v}");
+        assert_eq!(v["miseDataDir"], dir.join("home/mise").to_string_lossy().as_ref(), "{v}");
+    }
+    let config = json!({"harnesses": harnesses, "defaultHarness": "claude",
+        "permissionPolicy": "approve-all", "loginEnvAllow": ["MISE_GITHUB_TOKEN"]});
+    let d = start_config(&dir, config, &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    assert_eq!(found(&reply)["loginOnly"], json!(["MISE_GITHUB_TOKEN"]));
+}
+
+/// The login shell starts from the person's identity only: a proxy in the
+/// starting daemon's own environment (a sandboxed starter) never enters
+/// the cache, so another daemon's agents never get it.
+#[tokio::test]
+async fn a_daemon_env_proxy_never_becomes_the_login_env() {
+    let dir = scratch("proxy", "export ANTHROPIC_API_KEY=sk-login\n");
+    let harnesses = json!({"claude": claude(json!({}))});
+    {
+        let d = start(&dir, harnesses.clone(), &[("HTTPS_PROXY", "http://127.0.0.1:9")]).await;
+        let (reply, _) = ask(&d, "claude").await;
+        found(&reply);
+    }
+    let cache = std::fs::read_to_string(dir.join("login-env.json")).unwrap();
+    assert!(!cache.contains("127.0.0.1:9"), "the starter's proxy is in the cache: {cache}");
+    let d = start(&dir, harnesses, &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    assert_eq!(found(&reply)["proxy"], Value::Null);
+}
