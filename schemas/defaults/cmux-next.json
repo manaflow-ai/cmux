@@ -422,7 +422,7 @@
     "setting.sidebar.groupByComputer": false,
     "setting.sidebar.minimal": false,
     "setting.sidebar.minimalMode": "off",
-    "setting.sidebar.numbering": "allItems",
+    "setting.sidebar.numbering": "workspacesOnly",
     "setting.sidebar.pinnedBandsScroll": true,
     "setting.sidebar.sectionLook": "quiet",
     "setting.sidebar.showChats": true,
