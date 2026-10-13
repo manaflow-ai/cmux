@@ -2,9 +2,9 @@ import CmuxConversationCore
 import Testing
 @testable import CmuxConversationGeometry
 
-@Suite struct ConversationPageMeasureGateTests {
+@Suite struct ConversationLiveChangeGateTests {
     @Test func changesApplyAtOnceWhileNoPageMeasures() {
-        var gate = ConversationPageMeasureGate()
+        var gate = ConversationLiveChangeGate()
         let r1 = gate.hold(.live(insertedRowIDs: ["a"], sentByMe: false))
         #expect(!r1)
         let r2 = gate.hold(.typing)
@@ -14,7 +14,7 @@ import Testing
     }
 
     @Test func anArrivalWaitsForTheMeasuredPage() {
-        var gate = ConversationPageMeasureGate()
+        var gate = ConversationLiveChangeGate()
         gate.beginMeasuring()
         let r4 = gate.hold(.typing)
         #expect(r4)
@@ -31,7 +31,7 @@ import Testing
     }
 
     @Test func myOwnChangesAndOtherKindsNeverWait() {
-        var gate = ConversationPageMeasureGate()
+        var gate = ConversationLiveChangeGate()
         gate.beginMeasuring()
         let r9 = gate.hold(.live(insertedRowIDs: ["mine"], sentByMe: true))
         #expect(!r9)
@@ -49,7 +49,7 @@ import Testing
     }
 
     @Test func heldArrivalsMergeInOrder() {
-        var gate = ConversationPageMeasureGate()
+        var gate = ConversationLiveChangeGate()
         gate.beginMeasuring()
         let r15 = gate.hold(.live(insertedRowIDs: ["a"], sentByMe: false))
         #expect(r15)
@@ -70,8 +70,54 @@ import Testing
 
     @Test func mergingKeepsTheLiveChange() {
         let live = ConversationStoreChange.live(insertedRowIDs: ["a"], sentByMe: false)
-        #expect(ConversationPageMeasureGate.merged(.typing, .typing) == .typing)
-        #expect(ConversationPageMeasureGate.merged(.typing, live) == live)
-        #expect(ConversationPageMeasureGate.merged(live, .typing) == live)
+        #expect(ConversationLiveChangeGate.merged(.typing, .typing) == .typing)
+        #expect(ConversationLiveChangeGate.merged(.typing, live) == live)
+        #expect(ConversationLiveChangeGate.merged(live, .typing) == live)
+    }
+
+    /// Messages holds transcript updates while the finger drags the
+    /// transcript (ChatKit's `scrollViewWillBeginDragging:` to
+    /// `scrollViewDidEndDragging:willDecelerate:`), so nothing is inserted,
+    /// grown or moved under the finger; what arrived applies at the lift.
+    @Test func arrivalsWaitForTheFingerToLift() {
+        var gate = ConversationLiveChangeGate()
+        gate.beginDragging()
+        #expect(gate.isDragging)
+        let r22 = gate.hold(.live(insertedRowIDs: ["a"], sentByMe: false))
+        #expect(r22)
+        let r23 = gate.hold(.typing)
+        #expect(r23)
+        let r24 = gate.hold(.live(insertedRowIDs: ["mine"], sentByMe: true))
+        #expect(!r24)
+        let r25 = gate.endDragging()
+        #expect(r25 == .live(insertedRowIDs: ["a"], sentByMe: false))
+        #expect(!gate.isDragging)
+        let r26 = gate.hold(.typing)
+        #expect(!r26)
+    }
+
+    /// A page measured during a drag, or a drag during a measure: held
+    /// changes apply once both are over, never in between.
+    @Test func heldChangesWaitForBothThePageAndTheLift() {
+        var gate = ConversationLiveChangeGate()
+        gate.beginDragging()
+        gate.beginMeasuring()
+        let r27 = gate.hold(.live(insertedRowIDs: ["a"], sentByMe: false))
+        #expect(r27)
+        let r28 = gate.finishMeasuring()
+        #expect(r28 == nil)
+        let r29 = gate.hold(.live(insertedRowIDs: ["b"], sentByMe: false))
+        #expect(r29)
+        let r30 = gate.endDragging()
+        #expect(r30 == .live(insertedRowIDs: ["a", "b"], sentByMe: false))
+
+        gate.beginMeasuring()
+        gate.beginDragging()
+        let r31 = gate.hold(.typing)
+        #expect(r31)
+        let r32 = gate.endDragging()
+        #expect(r32 == nil)
+        let r33 = gate.finishMeasuring()
+        #expect(r33 == .typing)
     }
 }
