@@ -640,6 +640,9 @@ pub struct Mux {
     resource_machine_service: OnceLock<Arc<dyn crate::ResourceMachineService>>,
     journal_kernel: Arc<crate::journal_kernel::JournalKernel>,
     journal_ingress: crate::journal_ingress::JournalIngressSender,
+    /// Periodic checkpoint, segment sealing and incremental vacuum worker
+    /// (mux/journal_maintenance.rs); `None` for an in-memory session.
+    journal_maintenance: Mutex<Option<journal_maintenance::JournalMaintenance>>,
     journal_hook_dispatcher_started: AtomicBool,
     journal_hook_runtime: Arc<crate::journal_hooks::JournalHookRuntime>,
     /// Wake-only signal for durable journal subscribers. Consumers always
@@ -974,6 +977,11 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 
 impl Drop for Mux {
     fn drop(&mut self) {
+        if let Some(maintenance) =
+            self.journal_maintenance.get_mut().unwrap_or_else(PoisonError::into_inner).take()
+        {
+            maintenance.stop();
+        }
         self.journal_plugin.shutdown();
         self.finalize_terminal_journal("mux drop", false);
         self.journal_kernel.shutdown();

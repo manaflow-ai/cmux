@@ -41,22 +41,21 @@ pub(super) fn restore_public_projections(
             state.placements_of_content(&ContentPublicId::Browser(browser)).first().copied()
         });
         let level = notification_level(&notification.level)?;
-        if notification.unread {
-            let terminal_id = notification
-                .terminal_id
-                .clone()
-                .context("terminal notification omitted its terminal identity")?;
-            if surface.is_some() {
-                terminal_notifications.insert(
-                    terminal_id,
-                    SurfaceNotification {
-                        notification: numeric_id,
-                        level,
-                        unread: true,
-                        source: notification.source,
-                    },
-                );
-            }
+        // Durable notifications can outlive their terminal. Keep their
+        // history, but only restore an unread marker while its terminal exists.
+        if notification.unread
+            && surface.is_some()
+            && let Some(terminal_id) = notification.terminal_id.clone()
+        {
+            terminal_notifications.insert(
+                terminal_id,
+                SurfaceNotification {
+                    notification: numeric_id,
+                    level,
+                    unread: true,
+                    source: notification.source,
+                },
+            );
         }
         if !notification.read_by.is_empty() {
             notification_reads.insert(

@@ -121,6 +121,7 @@ impl Mux {
             eprintln!("cmux-tui: closed terminal hosts did not exit before shutdown");
         }
         self.config_reload_changed.notify_all();
+        self.stop_journal_maintenance();
         self.journal_plugin.shutdown();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;

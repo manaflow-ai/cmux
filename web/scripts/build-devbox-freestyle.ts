@@ -99,6 +99,10 @@ import {
 } from "../services/vms/drivers/cmuxTuiDaemon";
 import {
   devboxDaemonUnit,
+  CMUX_TUI_STATE_IMAGE_PATH,
+  CMUX_TUI_STATE_MOUNT_HELPER_PATH,
+  CMUX_TUI_STATE_RESERVATION_MARKER_PATH,
+  CMUX_TUI_STATE_RESERVATION_BYTES,
   DEVBOX_DESKTOP_INSTALLS,
   devboxTerminfoInstallCommand,
   DEVBOX_INSTANCE_ID_COMMAND,
@@ -293,7 +297,7 @@ try {
   // launch that it is falling back to its bundled copy.
   await step(
     "apt-devtools",
-    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux bubblewrap && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && bwrap --version",
+    "apt-get update -q && apt-get install -y --no-install-recommends git ripgrep build-essential curl ca-certificates unzip zip xz-utils zstd procps iproute2 openssh-client pkg-config jq fd-find fzf sqlite3 tmux less rsync file tree nano vim sudo util-linux e2fsprogs bubblewrap && rm -rf /var/lib/apt/lists/* && ln -sf $(command -v fdfind) /usr/local/bin/fd && echo 'LANG=C.UTF-8' > /etc/default/locale && fd --version && jq --version && fzf --version && sqlite3 --version && tmux -V && bwrap --version",
   );
 
   await step(
@@ -543,6 +547,7 @@ try {
   // The cmux-tui daemon supervisor + its systemd unit (see the header).
   const service = devboxDaemonUnit();
   await put("cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot", 0o755);
+  await put("cmux-tui-state-mount", "/usr/local/bin/cmux-tui-state-mount", 0o755);
   await put("cmux-prompt-sync", "/usr/local/bin/cmux-prompt-sync", 0o755);
   await vm.fs.writeFile("/etc/systemd/system/cmux-tui-daemon.service", `${service}\n`, { mode: 0o644 });
   await vm.fs.writeFile(
@@ -588,6 +593,15 @@ try {
   await vm.fs.writeFile(`/etc/systemd/system/${METADATA_GUARD_UNIT}`, metadataGuardUnit(), { mode: 0o644 });
   // Fails unless the work user is refused and root still reads the instance id.
   await step("metadata-guard", `out=$(${metadataGuardEnableCommand(WORK_USER)}) && echo "$out" && echo "$out" | grep -qx user_blocked=yes && echo "$out" | grep -qx root_reads=yes`);
+  // Reserve one GiB inside the existing root disk for cmux-tui's state. The
+  // image is fully allocated before it is mounted, then the daemon's existing
+  // state (including the warm template host) is copied into it. This protects
+  // SQLite/WAL writes when general-purpose files consume the rest of the disk
+  // without changing the VM's provisioned disk size.
+  await step(
+    "cmux-tui-state-reservation",
+    `sh -n ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} && ${CMUX_TUI_STATE_MOUNT_HELPER_PATH} create ${WORK_HOME} ${WORK_USER} && mountpoint -q ${WORK_HOME}/.local/state/cmux-tui && [ "$(stat -c %s ${CMUX_TUI_STATE_IMAGE_PATH})" = ${CMUX_TUI_STATE_RESERVATION_BYTES} ] && printf 'cmux-tui-state-v1\\n' > ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH} && chmod 0444 ${CMUX_TUI_STATE_RESERVATION_MARKER_PATH} && echo cmux-tui-state-reservation-ok`,
+  );
   await step(
     "cmux-tui-daemon-unit",
     "sh -n /usr/local/bin/cmux-devbox-boot && rm -f /etc/cmux/bake-instance-id && mkdir -p /etc/systemd/system/multi-user.target.wants && ln -sf /etc/systemd/system/cmux-tui-daemon.service /etc/systemd/system/multi-user.target.wants/cmux-tui-daemon.service && systemctl daemon-reload && systemctl enable cmux-tui-daemon && systemctl restart cmux-tui-daemon && systemctl is-active cmux-tui-daemon",

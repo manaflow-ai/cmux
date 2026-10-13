@@ -14,7 +14,21 @@ ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("merge_green", ROOT / "scripts/ci/main_fix_evidence.py")
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+# Every helper run reads this WINDOW (no FREEZE line) instead of the coordinator's mailbox.
+_NO_FREEZE = tempfile.NamedTemporaryFile("w", suffix="-WINDOW", delete=False)
+_NO_FREEZE.write("[CORE] cmux-tui-core\nowner: none\nLOCK (Cargo.lock writer): free\n")
+_NO_FREEZE.close()
+os.environ["GH_MERGE_GREEN_WINDOW_FILE"] = _NO_FREEZE.name
+# No helper run reaches the real repository: merged-head checks use a fixture clone.
+os.environ["GH_MERGE_GREEN_REPO_DIR"] = os.path.join(tempfile.gettempdir(), "gh-merge-green-no-repo")
+# No helper run reaches the coordinator's mailbox: GH_MERGE_GREEN_TEST makes the
+# helper refuse a token merge unless RELEASE mail goes to this temp mailbox.
+_MAILBOX = tempfile.mkdtemp(prefix="gh-merge-green-mailbox-")
+os.makedirs(os.path.join(_MAILBOX, "inbox", "lawrence-coordinator"))
+os.environ["GH_MERGE_GREEN_MAILBOX_DIR"] = _MAILBOX
+os.environ["GH_MERGE_GREEN_TEST"] = "1"
 HEAD = "a" * 40
+MERGED_SHA = "d" * 40
 BASE = "b" * 40
 ANCESTOR = "c" * 40
 NAMES = ("cmux-next Release compile (Xcode 26)", "cmux app scheme compile (Debug)", "cmux-next swift test")
@@ -319,6 +333,8 @@ class InstalledHelperRegression(unittest.TestCase):
         )
         gh.write_text(
             "#!/bin/sh\n"
+            "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
+            "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"MERGED\",\"mergeCommit\":{\"oid\":\"" + MERGED_SHA + "\"},\"labels\":[]}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ]; then "
             "printf '%s\\n' '{\"headRefOid\":\"" + HEAD + "\",\"baseRefName\":\"feat-cmux-next\",\"state\":\"OPEN\",\"labels\":" + json.dumps([{"name": label} for label in labels]) + "}'; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr comment' ]; then printf '%s\\n' comment >> \"$EVENT_LOG\"; exit 0; fi\n"
@@ -686,7 +702,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
     """Repositories without the aggregate workflow use all exact-head verdicts."""
 
     def run_case(self, *, workflow=False, probe_status=404, checks=None, statuses=None, app_workflow=False, files=None, workflow_body=None,
-                 raw_content=None, app_workflow_body=None):
+                 raw_content=None, app_workflow_body=None, extra_args=()):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
             marker = directory / "merged"
@@ -706,6 +722,8 @@ class WorkflowPresenceRegression(unittest.TestCase):
                 with open(os.environ['QUERIES'], 'a') as f: f.write(' '.join(a) + '\n')
                 if a[:2] == ['pr', 'view']:
                     print(json.dumps({'headRefOid': x['head'], 'baseRefName': 'main', 'state': 'OPEN'}))
+                elif a[:2] == ['pr', 'comment']:
+                    pass
                 elif a[:2] == ['pr', 'merge']:
                     Path(os.environ['MERGE_MARKER']).touch()
                 elif a[0] == 'api' and any('/contents/' in arg for arg in a):
@@ -731,7 +749,7 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     sys.exit(2)
                 """))
             gh.chmod(0o755)
-            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', '--squash'],
+            result = subprocess.run([str(ROOT / 'scripts/gh-merge-green'), 'manaflow-ai/cmuxterm-hq#1254', *extra_args, '--squash'],
                 env={**os.environ, 'PATH': str(directory) + os.pathsep + os.environ['PATH'], 'FIXTURE': str(fixture), 'MERGE_MARKER': str(marker), 'QUERIES': str(queries), 'GH_MERGE_GREEN_NO_AUTO_UPDATE': '1'}, capture_output=True, text=True)
             return result, marker.exists(), queries.read_text()
 
@@ -760,6 +778,18 @@ class WorkflowPresenceRegression(unittest.TestCase):
 
     def test_no_ci_workflow_refuses_pending_status_context(self):
         result, merged, _ = self.run_case(statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(merged)
+
+    def test_vercel_override_waives_only_the_named_external_status(self):
+        result, merged, _ = self.run_case(
+            statuses=[{'id': 2, 'context': 'Vercel', 'state': 'pending'}],
+            extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+        result, merged, _ = self.run_case(
+            statuses=[{'id': 2, 'context': 'review', 'state': 'pending'}],
+            extra_args=("--override", "Vercel preview is unrelated to this CLI change"))
         self.assertNotEqual(result.returncode, 0)
         self.assertFalse(merged)
 
@@ -813,6 +843,69 @@ class WorkflowPresenceRegression(unittest.TestCase):
         result, merged, _ = self.run_case(workflow=True, files=['Sources/App.swift'], checks=[{'id': 1, 'name': 'ci-status', 'status': 'completed', 'conclusion': 'success'}])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertTrue(merged)
+
+    def macos_routing_checks(self):
+        return [
+            {'id': 1, 'name': 'ci-status', 'status': 'completed', 'conclusion': 'success',
+             'app': {'slug': 'github-actions'}, 'check_suite': {'id': 100}},
+            {'id': 2, 'name': 'macos', 'status': 'completed', 'conclusion': 'skipped',
+             'app': {'slug': 'github-actions'}, 'check_suite': {'id': 100}},
+        ]
+
+    def run_ios_routing_case(self, checks):
+        return self.run_case(workflow=True, app_workflow=True,
+                             files=['Packages/iOS/CmuxMobileShellUI/Sources/MobileDisplaySettings.swift'],
+                             checks=checks)
+
+    def test_ios_only_diff_accepts_explicit_macos_skip_from_successful_ci_suite(self):
+        result, merged, _ = self.run_ios_routing_case(self.macos_routing_checks())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(merged)
+
+    def test_macos_skip_requires_current_successful_github_actions_suite(self):
+        invalid_skips = [
+            {'status': 'in_progress', 'conclusion': None},
+            {'conclusion': 'failure'},
+            {'conclusion': 'success'},
+            {'conclusion': 'neutral'},
+            {'check_suite': {'id': 99}},
+            {'check_suite': {}},
+            {'app': {'slug': 'other-app'}},
+        ]
+        for invalid_skip in invalid_skips:
+            with self.subTest(invalid_skip=invalid_skip):
+                checks = self.macos_routing_checks()
+                checks[-1].update(invalid_skip)
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+                self.assertIn('macOS compile admission', result.stderr)
+        for replacement in ({'name': 'unrelated'}, {'conclusion': 'skipped'},
+                            {'app': {'slug': 'other-app'}}, {'check_suite': {}}):
+            with self.subTest(ci_status=replacement):
+                checks = self.macos_routing_checks()
+                checks[0].update(replacement)
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+
+    def test_macos_skip_does_not_hide_newer_route_or_scheduled_compile(self):
+        for conclusion in ('failure', 'success'):
+            with self.subTest(newer_route=conclusion):
+                checks = self.macos_routing_checks()
+                checks.append({**checks[-1], 'id': 3, 'conclusion': conclusion})
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+        for status, conclusion in (('in_progress', None), ('completed', 'failure')):
+            with self.subTest(compile=(status, conclusion)):
+                checks = self.macos_routing_checks()
+                checks.append({'id': 3, 'name': 'macos / macOS compile admission',
+                               'status': status, 'conclusion': conclusion})
+                result, merged, _ = self.run_ios_routing_case(checks)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(merged)
+                self.assertIn('macOS compile admission', result.stderr)
 
 
 class HelperCheckoutUpdateRegression(unittest.TestCase):
@@ -895,6 +988,316 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
         self.assertFalse(marker_exists)
         self.assertIn("diverged", stderr)
         self.assertIn("REPAIR.md#merging", stderr)
+
+
+class FreezeRegression(unittest.TestCase):
+    """A feat-cmux-next merge refuses a PR touching a path the WINDOW freezes."""
+
+    WINDOW = (
+        "[CORE] cmux-tui-core, spec/\nowner: none\n"
+        "FREEZE: Packages/macOS/CmuxNext/Package.swift token=69600a4e4c73\n"
+        "FREEZE: webviews/src/agent-session/ token=0badc0ffee00\n"
+        "FREEZE: docs/frozen/ docs/app.md token=d0c5d0c5\n"
+    )
+
+    def run_with_window(self, directory, window, changed_files, extra_args=()):
+        path = Path(directory) / "WINDOW"
+        if window is not None:
+            path.write_text(window)
+        previous = os.environ["GH_MERGE_GREEN_WINDOW_FILE"]
+        os.environ["GH_MERGE_GREEN_WINDOW_FILE"] = str(path)
+        try:
+            marker = Path(directory) / "merged"
+            result = InstalledHelperRegression.run_helper(
+                self, directory, marker, changed_files=changed_files, extra_args=extra_args)
+        finally:
+            os.environ["GH_MERGE_GREEN_WINDOW_FILE"] = previous
+        return result, marker
+
+    def test_a_frozen_file_refuses_the_merge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, self.WINDOW, ("docs/README.md", "Packages/macOS/CmuxNext/Package.swift"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("frozen", result.stderr)
+            self.assertIn("Packages/macOS/CmuxNext/Package.swift", result.stderr)
+
+    def test_a_file_under_a_frozen_directory_refuses_the_merge(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, self.WINDOW, ("webviews/src/agent-session/acpmux/ModelPicker.tsx",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("webviews/src/agent-session/", result.stderr)
+
+    def test_a_sibling_of_a_frozen_prefix_still_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, self.WINDOW, ("docs/frozen-notes/a.md", "docs/app.md.orig"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_the_freeze_token_holder_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, self.WINDOW, ("docs/frozen/a.md", "docs/app.md"),
+                extra_args=("--freeze-token", "d0c5d0c5"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_override_does_not_lift_a_freeze(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(
+                directory, self.WINDOW, ("Packages/macOS/CmuxNext/Package.swift",),
+                extra_args=("--override", "the red check is a known base failure on this exact head"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+
+    def test_an_unreadable_window_refuses_and_names_the_coordinator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker = self.run_with_window(directory, None, ("docs/README.md",))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("coordinator", result.stderr)
+
+
+class MergedHeadChecksRegression(unittest.TestCase):
+    """Before a feat-cmux-next merge, the merged head passes the Swift god-file
+    check (CmuxNext changes) and vp check (webviews changes), run with the base
+    branch's copy of the god-file script and baseline."""
+
+    GODFILES = (
+        "#!/usr/bin/env bash\n"
+        "# fixture: fails on a GOD marker in the merged package; logs its arguments\n"
+        "printf '%s\\n' \"$*\" >> \"$CHECK_LOG\"\n"
+        "dir=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n"
+        "grep -q base-baseline \"$dir/godfile-baseline.tsv\" || { echo 'not the base baseline'; exit 3; }\n"
+        "pkg=\"${@: -1}\"\n"
+        "if [ -e \"$pkg/GOD\" ]; then echo 'god type: Example spans 1013 lines'; exit 1; fi\n"
+    )
+
+    def git(self, *args, cwd):
+        return subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+    def fixture(self, directory, pr_files, *, pr_script=None, base_files=None):
+        directory = Path(directory)
+        origin = directory / "origin.git"
+        work = directory / "work"
+        self.git("init", "-q", "--bare", str(origin), cwd=directory)
+        self.git("init", "-q", "-b", "feat-cmux-next", str(work), cwd=directory)
+        for args in (("config", "user.email", "t@example.invalid"), ("config", "user.name", "t")):
+            self.git(*args, cwd=work)
+        scripts = work / "scripts/cmux-next"
+        scripts.mkdir(parents=True)
+        (scripts / "check-no-godfiles.sh").write_text(self.GODFILES)
+        (scripts / "check-no-godfiles.sh").chmod(0o755)
+        (scripts / "godfile-baseline.tsv").write_text("base-baseline\n")
+        (work / "Packages/macOS/CmuxNext").mkdir(parents=True)
+        (work / "Packages/macOS/CmuxNext/Package.swift").write_text("// package\n")
+        (work / "webviews").mkdir()
+        (work / "webviews/package.json").write_text("{}\n")
+        for path, text in (base_files or {}).items():
+            (work / path).write_text(text)
+        self.git("add", "-A", cwd=work)
+        self.git("commit", "-qm", "base", cwd=work)
+        self.git("remote", "add", "origin", str(origin), cwd=work)
+        self.git("push", "-q", "origin", "feat-cmux-next", cwd=work)
+        self.git("checkout", "-qb", "pr", cwd=work)
+        for path, text in pr_files.items():
+            (work / path).parent.mkdir(parents=True, exist_ok=True)
+            (work / path).write_text(text)
+        if pr_script is not None:
+            (scripts / "check-no-godfiles.sh").write_text(pr_script)
+            (scripts / "godfile-baseline.tsv").write_text("pr-raised-baseline\n")
+        self.git("add", "-A", cwd=work)
+        self.git("commit", "-qm", "pr", cwd=work)
+        head = self.git("rev-parse", "HEAD", cwd=work)
+        self.git("push", "-q", "origin", f"{head}:refs/pull/42/head", cwd=work)
+        self.git("checkout", "-q", "feat-cmux-next", cwd=work)
+        bun = directory / "bin/bun"
+        bun.parent.mkdir()
+        bun.write_text(
+            "#!/bin/sh\n"
+            "printf 'bun %s\\n' \"$*\" >> \"$CHECK_LOG\"\n"
+            "if [ \"$1 $2 $3\" = 'x vp check' ] && ls BAD*.tsx >/dev/null 2>&1; then echo 'error: Formatting issues found'; ls BAD*.tsx; exit 1; fi\n"
+        )
+        bun.chmod(0o755)
+        return work, head, directory / "bin"
+
+    def run_merge(self, directory, pr_files, **kwargs):
+        global HEAD
+        work, head, bin_dir = self.fixture(directory, pr_files, **kwargs)
+        log = Path(directory) / "checks.log"
+        log.touch()
+        saved = HEAD, os.environ.get("GH_MERGE_GREEN_REPO_DIR"), os.environ["PATH"], os.environ.get("CHECK_LOG")
+        HEAD = head
+        os.environ.update(GH_MERGE_GREEN_REPO_DIR=str(work), CHECK_LOG=str(log), PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+        try:
+            marker = Path(directory) / "merged"
+            result = InstalledHelperRegression.run_helper(self, directory, marker, changed_files=tuple(pr_files))
+        finally:
+            HEAD = saved[0]
+            os.environ["PATH"] = saved[2]
+            for name, value in (("GH_MERGE_GREEN_REPO_DIR", saved[1]), ("CHECK_LOG", saved[3])):
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+        return result, marker, log.read_text()
+
+    def test_a_merged_head_that_grows_a_god_type_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/GOD": "x\n"})
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("god", result.stderr)
+            self.assertIn("--only swift --base", log)
+
+    def test_a_clean_swift_change_merges_after_the_god_file_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"Packages/macOS/CmuxNext/A.swift": "struct A {}\n"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("--only swift --base", log)
+            self.assertNotIn("bun", log)
+
+    def test_the_base_copy_of_the_god_file_script_runs(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"Packages/macOS/CmuxNext/GOD": "x\n"}, pr_script="#!/usr/bin/env bash\nexit 0\n")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+
+    def test_a_webviews_change_that_fails_vp_check_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"webviews/BAD.tsx": "x\n"})
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("vp check", result.stderr)
+            self.assertIn("bun install --frozen-lockfile --ignore-scripts", log)
+
+    def test_a_vp_check_red_already_on_the_base_does_not_block(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"webviews/Good.tsx": "x\n"}, base_files={"webviews/BAD.tsx": "x\n"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("base", result.stderr)
+
+    def test_a_new_vp_check_failure_on_a_red_base_still_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(
+                directory, {"webviews/BAD2.tsx": "x\n"}, base_files={"webviews/BAD.tsx": "x\n"})
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("BAD2.tsx", result.stderr)
+
+    def test_a_clean_webviews_change_merges_after_vp_check(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, log = self.run_merge(directory, {"webviews/Good.tsx": "x\n"})
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("bun x vp check", log)
+            self.assertNotIn("--only swift", log)
+
+
+class ReleaseMailRegression(unittest.TestCase):
+    """A merge under a WINDOW token mails RELEASE <AREA> with the landed SHA to
+    inbox/lawrence-coordinator right after the merge."""
+
+    WINDOW = (
+        "[CORE] cmux-tui-core, spec/\nowner: op-ci-tiers #42\ntoken: c0dec0de1234\n\n"
+        "[LINK] cmux-link\nowner: none\ntoken: none\n\n"
+        "FREEZE: Packages/macOS/CmuxNext/Package.swift token=69600a4e4c73\n"
+        "PKG (CmuxNext Package.swift writer): op-ci-tiers hold token=69600a4e4c73\n"
+    )
+
+    def run_with(self, directory, extra_args, changed_files=("docs/README.md",)):
+        directory = Path(directory)
+        window = directory / "WINDOW"
+        window.write_text(self.WINDOW)
+        mailbox = directory / "mailbox"
+        (mailbox / "inbox/lawrence-coordinator").mkdir(parents=True)
+        saved = {name: os.environ.get(name) for name in ("GH_MERGE_GREEN_WINDOW_FILE", "GH_MERGE_GREEN_MAILBOX_DIR")}
+        os.environ.update(GH_MERGE_GREEN_WINDOW_FILE=str(window), GH_MERGE_GREEN_MAILBOX_DIR=str(mailbox))
+        try:
+            marker = directory / "merged"
+            result = InstalledHelperRegression.run_helper(
+                self, str(directory), marker, changed_files=changed_files, extra_args=extra_args)
+        finally:
+            for name, value in saved.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+        mails = sorted((mailbox / "inbox/lawrence-coordinator").glob("*.md"))
+        return result, marker, [m.read_text() for m in mails], [m.name for m in mails]
+
+    def test_a_window_token_merge_mails_release_with_the_landed_sha(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, mails, names = self.run_with(directory, ("--window-token", "c0dec0de1234"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertEqual(len(mails), 1, names)
+            self.assertIn("subject: RELEASE CORE: #42 landed " + MERGED_SHA, mails[0])
+            self.assertIn("to: lawrence-coordinator", mails[0])
+            self.assertIn("c0dec0de1234", mails[0])
+            self.assertFalse(any(name.endswith(".tmp") for name in names))
+
+    def test_a_freeze_token_merge_mails_release_for_its_hold(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, mails, names = self.run_with(
+                directory, ("--freeze-token", "69600a4e4c73"))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(len(mails), 1, names)
+            self.assertIn("subject: RELEASE PKG: #42 landed " + MERGED_SHA, mails[0])
+
+    def test_a_token_that_is_not_current_refuses_before_merging(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, mails, names = self.run_with(directory, ("--window-token", "5ta1e5ta1e00"))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertEqual(mails, [])
+            self.assertIn("not a current WINDOW token", result.stderr)
+
+    def test_a_test_run_without_a_mailbox_override_never_reaches_the_real_mailbox(self):
+        # Two test runs once mailed fake RELEASE FREEZE: #42 into the real
+        # coordinator inbox. Under test, or with a local WINDOW, a token merge
+        # with no GH_MERGE_GREEN_MAILBOX_DIR refuses before merging and never
+        # runs ssh.
+        for test_flag in ("1", ""):
+            with self.subTest(GH_MERGE_GREEN_TEST=test_flag), tempfile.TemporaryDirectory() as directory:
+                directory = Path(directory)
+                window = directory / "WINDOW"
+                window.write_text(self.WINDOW)
+                ssh_log = directory / "ssh-calls"
+                (directory / "ssh").write_text(f"#!/bin/sh\necho \"$*\" >> {ssh_log}\ncat >/dev/null\n")
+                (directory / "ssh").chmod(0o755)
+                saved = {name: os.environ.get(name) for name in ("GH_MERGE_GREEN_WINDOW_FILE", "GH_MERGE_GREEN_MAILBOX_DIR", "GH_MERGE_GREEN_TEST")}
+                os.environ.pop("GH_MERGE_GREEN_MAILBOX_DIR", None)
+                os.environ.update(GH_MERGE_GREEN_WINDOW_FILE=str(window), GH_MERGE_GREEN_TEST=test_flag)
+                try:
+                    marker = directory / "merged"
+                    result = InstalledHelperRegression.run_helper(
+                        self, str(directory), marker, changed_files=("docs/README.md",),
+                        extra_args=("--window-token", "c0dec0de1234"))
+                finally:
+                    for name, value in saved.items():
+                        if value is None:
+                            os.environ.pop(name, None)
+                        else:
+                            os.environ[name] = value
+                self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertFalse(ssh_log.exists(), ssh_log.read_text() if ssh_log.exists() else "")
+                self.assertIn("GH_MERGE_GREEN_MAILBOX_DIR", result.stderr)
+
+    def test_a_merge_without_a_token_sends_no_mail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, marker, mails, names = self.run_with(directory, ())
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(mails, [])
 
 
 if __name__ == "__main__":

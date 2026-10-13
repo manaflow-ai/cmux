@@ -87,6 +87,19 @@ source "$script_dir/swift-test-debug-info.sh" || exit 2
 debug_info_args=(${swift_test_debug_info_args[@]+"${swift_test_debug_info_args[@]}"})
 evidence_dir="$(mktemp -d)"
 trap 'rm -rf "$evidence_dir"' EXIT
+# Fleet ci-steps check the ref out with every submodule deinitialized: populate
+# the ones this package reaches through local dependencies (vendor/bonsplit),
+# never the rest (ghostty).
+if repo_root="$(git -C "$package_path" rev-parse --show-toplevel 2>/dev/null)"; then
+  empty_submodules=()
+  while IFS= read -r submodule; do
+    [ -n "$(ls -A "$repo_root/$submodule" 2>/dev/null)" ] || empty_submodules+=("$submodule")
+  done < <(python3 "$script_dir/swift_package_submodules.py" "$repo_root" "$package_path")
+  if [ "${#empty_submodules[@]}" -gt 0 ]; then
+    echo "Populating submodules this package reaches: ${empty_submodules[*]}" >&2
+    git -C "$repo_root" submodule update --init --depth 1 -- "${empty_submodules[@]}" >&2
+  fi
+fi
 # Fixed-cost profile: `phase NAME` ends the running phase and starts NAME, and
 # prints "ci-phase <name> <seconds>s" for the one it ended; `phase` with no
 # name ends the last one. phase_table prints them all (the step log is the

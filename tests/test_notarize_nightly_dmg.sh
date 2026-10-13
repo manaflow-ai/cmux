@@ -609,3 +609,95 @@ if CMUX_CHANNEL=beta run_helper 2>/dev/null; then
   exit 1
 fi
 echo "PASS: rc channel packaging selects rc metadata checks and skips an absent Computer Use helper"
+
+# Stable packages through the same path with the release entitlements, so the
+# stable release can ship per-architecture DMGs the way nightly does.
+: > "$LOG"
+STABLE_APP="$TMP_DIR/input/cmux.app"
+mkdir -p "$STABLE_APP/Contents/MacOS" "$STABLE_APP/Contents/Library/cmux Computer Use.app/Contents"
+printf 'signed-stable-fixture\n' > "$STABLE_APP/Contents/MacOS/cmux"
+CMUX_TEST_CALL_LOG="$LOG" \
+CMUX_TEST_SOURCE_APP="$STABLE_APP" \
+CMUX_TEST_DETACH_STATE="$TMP_DIR/detach-retried-stable" \
+CMUX_CHANNEL=stable \
+CMUX_NIGHTLY_MOUNT_DIR="$TMP_DIR/cmux-stable-mount" \
+CMUX_CREATE_DMG_TOOL="$FAKE_BIN/create-dmg" \
+CMUX_CODESIGN_TOOL="$FAKE_BIN/codesign" \
+CMUX_XCRUN_TOOL="$FAKE_BIN/xcrun" \
+CMUX_HDIUTIL_TOOL="$FAKE_BIN/hdiutil" \
+CMUX_SPCTL_TOOL="$FAKE_BIN/spctl" \
+CMUX_SMOKE_TOOL="$FAKE_BIN/smoke" \
+CMUX_VERIFY_METADATA_TOOL="$FAKE_BIN/metadata" \
+CMUX_VERIFY_LICENSES_TOOL="$FAKE_BIN/licenses" \
+CMUX_NOTARIZE_COMPUTER_USE_HELPER_TOOL="$FAKE_BIN/notarize-computer-use-helper" \
+ASC_API_KEY_ID=FIXTUREKEY \
+ASC_API_ISSUER_ID=fixture-issuer \
+ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" \
+APPLE_SIGNING_IDENTITY='Developer ID Application: Fixture' \
+"$SCRIPT" "$STABLE_APP" "$TMP_DIR/cmux-macos-arm64.dmg" "$TMP_DIR/cmux-stable-immutable.dmg"
+for expected in \
+  "notarize-helper $STABLE_APP $ROOT_DIR/cmux.release.entitlements Developer ID Application: Fixture" \
+  "metadata $STABLE_APP stable"; do
+  if ! grep -Fxq "$expected" "$LOG"; then
+    echo "FAIL: stable channel packaging missed: $expected" >&2
+    exit 1
+  fi
+done
+echo "PASS: stable channel packaging selects release entitlements and metadata checks"
+
+# Resuming a stable submission passes the channel gate and stops at the next
+# check (here a deliberate SHA-256 mismatch), never at "Unsupported channel".
+RESUME_SCRIPT="$ROOT_DIR/scripts/ci/resume-nightly-notarization.sh"
+RESUME_DIR="$TMP_DIR/resume-stable"
+mkdir -p "$RESUME_DIR/cmux.app/Contents"
+printf 'stable-dmg\n' > "$RESUME_DIR/cmux-macos-arm64.dmg"
+printf '%s\n' \
+  "submission_id=fixture-submission" \
+  "status=In Progress" \
+  "dmg_path=$RESUME_DIR/cmux-macos-arm64.dmg" \
+  "dmg_sha256=$(printf '0%.0s' $(seq 64))" \
+  "immutable_path=$RESUME_DIR/cmux-macos-arm64-immutable.dmg" \
+  "channel=stable" > "$RESUME_DIR/state"
+printf 'original submission evidence\n' > "$RESUME_DIR/cmux-macos-arm64.dmg.notarization.log"
+if resume_output="$(ASC_API_KEY_ID=FIXTUREKEY ASC_API_ISSUER_ID=fixture-issuer \
+    ASC_API_KEY_P8_BASE64="$FIXTURE_P8_BASE64" "$RESUME_SCRIPT" "$RESUME_DIR/state" "$RESUME_DIR/cmux.app" \
+    "$RESUME_DIR/cmux-macos-arm64.dmg" "$RESUME_DIR/cmux-macos-arm64-immutable.dmg" 2>&1)"; then
+  echo "FAIL: resume with a mismatched DMG hash must fail" >&2
+  exit 1
+fi
+if grep -Fq 'Unsupported recovery channel' <<<"$resume_output" \
+   || ! grep -Fq 'SHA-256 does not match' <<<"$resume_output"; then
+  echo "FAIL: resume must accept the stable channel; got: $resume_output" >&2
+  exit 1
+fi
+echo "PASS: stable notarization state resumes past the channel gate"
+
+# Fast dogfood keeps Developer ID signing and DMG creation but bypasses both
+# Computer Use and outer notarization. It must work without Apple API secrets,
+# and the signed image still becomes the internal immutable artifact.
+: > "$LOG"
+FAST_DMG="$TMP_DIR/cmux-fast-dogfood.dmg"
+FAST_IMMUTABLE="$TMP_DIR/cmux-fast-dogfood-immutable.dmg"
+if ! (
+  CMUX_SKIP_NOTARIZATION=true \
+  TEST_ASC_API_KEY_ID= \
+  TEST_ASC_API_ISSUER_ID= \
+  TEST_ASC_API_KEY_P8_BASE64= \
+  run_helper "$APP" "$FAST_DMG" "$FAST_IMMUTABLE"
+); then
+  echo "FAIL: fast dogfood packaging should sign without notarization secrets" >&2
+  exit 1
+fi
+if grep -q '^xcrun notarytool ' "$LOG" || grep -q '^notarize-helper ' "$LOG"; then
+  echo "FAIL: fast dogfood packaging must skip helper and outer notarization" >&2
+  exit 1
+fi
+if ! grep -q "codesign --force --timestamp --keychain build.keychain --sign Developer ID Application: Fixture $FAST_DMG" "$LOG"; then
+  echo "FAIL: fast dogfood packaging must still codesign the DMG" >&2
+  exit 1
+fi
+if [ ! -f "$FAST_IMMUTABLE" ] || ! cmp -s "$FAST_DMG" "$FAST_IMMUTABLE"; then
+  echo "FAIL: fast dogfood packaging did not preserve the immutable DMG" >&2
+  exit 1
+fi
+echo "PASS: fast dogfood packaging skips notarization but retains signing"

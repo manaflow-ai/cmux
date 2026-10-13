@@ -13,6 +13,8 @@
 # Optional env:
 #   CMUX_HELPER_ENTITLEMENTS  (default: cmux-helper.entitlements)
 #   CMUX_TIMESTAMP             set to "none" for un-timestamped local sigs
+#   CMUX_SIGN_SKIP_NUCLEO_FFI  set to "1" for an app that embeds no command palette
+#                              Nucleo FFI (cmux NEXT DEV: cmux-next removed it)
 #   CMUX_SIGN_MODE             "all" (default), "all-except-computer-use", or
 #                              "main-only". The split Computer Use notarization
 #                              flow uses all-except-computer-use while Apple's

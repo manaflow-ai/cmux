@@ -1,6 +1,153 @@
-//! Journal maintenance: hook delivery dispatch, internal diagnostics, reconnect checkpoints, journal checkpoints and segments, and their test hooks.
+//! Journal maintenance: hook delivery dispatch, internal diagnostics, reconnect checkpoints, journal checkpoints and segments, the periodic maintenance worker, and their test hooks.
 
 use super::*;
+
+const JOURNAL_MAINTENANCE_INTERVAL: Duration = Duration::from_secs(30);
+const JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS: u64 = 4_096;
+const JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK: usize = 8;
+
+struct JournalMaintenanceControl {
+    stopped: Mutex<bool>,
+    changed: Condvar,
+}
+
+/// The periodic journal maintenance worker of a persistent session: once per
+/// interval it migrates a legacy registry to incremental auto-vacuum, takes a
+/// checkpoint after enough new records, seals bounded segments up to the
+/// latest checkpoint, and returns free pages.
+pub(super) struct JournalMaintenance {
+    control: Arc<JournalMaintenanceControl>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+impl JournalMaintenance {
+    fn start(mux: &Arc<Mux>) -> anyhow::Result<Self> {
+        let control = Arc::new(JournalMaintenanceControl {
+            stopped: Mutex::new(false),
+            changed: Condvar::new(),
+        });
+        let worker_control = control.clone();
+        let weak_mux = Arc::downgrade(mux);
+        let thread = std::thread::Builder::new().name("cmux-journal-maintenance".into()).spawn(
+            move || loop {
+                let mut stopped =
+                    worker_control.stopped.lock().unwrap_or_else(PoisonError::into_inner);
+                if *stopped {
+                    return;
+                }
+                let (next, timeout) = worker_control
+                    .changed
+                    .wait_timeout(stopped, JOURNAL_MAINTENANCE_INTERVAL)
+                    .unwrap_or_else(PoisonError::into_inner);
+                stopped = next;
+                if *stopped {
+                    return;
+                }
+                if !timeout.timed_out() {
+                    continue;
+                }
+                drop(stopped);
+                let Some(mux) = weak_mux.upgrade() else { return };
+                mux.run_journal_maintenance();
+            },
+        )?;
+        Ok(Self { control, thread: Some(thread) })
+    }
+
+    pub(super) fn stop(mut self) {
+        *self.control.stopped.lock().unwrap_or_else(PoisonError::into_inner) = true;
+        self.control.changed.notify_all();
+        if let Some(thread) = self.thread.take() {
+            // The last `Arc<Mux>` can drop on the worker itself; it must not
+            // join its own thread.
+            if thread.thread().id() != std::thread::current().id() {
+                let _ = thread.join();
+            }
+        }
+    }
+}
+
+impl Mux {
+    pub(super) fn start_journal_maintenance(self: &Arc<Self>) -> anyhow::Result<()> {
+        if self.workspace_registry.lock().unwrap().session_journal_database_path().is_some() {
+            let maintenance = JournalMaintenance::start(self)?;
+            *self.journal_maintenance.lock().unwrap_or_else(PoisonError::into_inner) =
+                Some(maintenance);
+        }
+        Ok(())
+    }
+
+    pub(super) fn stop_journal_maintenance(&self) {
+        let maintenance =
+            self.journal_maintenance.lock().unwrap_or_else(PoisonError::into_inner).take();
+        if let Some(maintenance) = maintenance {
+            maintenance.stop();
+        }
+    }
+
+    fn run_journal_maintenance(&self) {
+        // Like the reconnect retention worker: no capture while the daemon
+        // shuts down, hands off its hosts, or ends terminals.
+        if self.shutting_down.load(Ordering::Acquire)
+            || self.journal_retention.teardown_active()
+            || self.control_clients.daemon_handoff_in_progress()
+        {
+            return;
+        }
+        let result = (|| -> anyhow::Result<()> {
+            if self.workspace_registry.lock().unwrap().migrate_journal_auto_vacuum()? {
+                // A legacy registry migration performs one full VACUUM. Keep
+                // that rewrite isolated to this maintenance tick before
+                // attempting checkpoint or sealing work.
+                return Ok(());
+            }
+            let head = self.workspace_registry.lock().unwrap().session_journal_head()?;
+            let latest =
+                self.workspace_registry.lock().unwrap().journal_checkpoints()?.into_iter().next();
+            let checkpoint_source = latest.map_or(0, |checkpoint| checkpoint.source_sequence);
+            let mut sealed_through =
+                self.workspace_registry.lock().unwrap().journal_segments_end()?;
+            let pending_seal = checkpoint_source > sealed_through;
+            if !pending_seal
+                && head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS
+            {
+                self.workspace_registry.lock().unwrap().incremental_journal_vacuum()?;
+                return Ok(());
+            }
+
+            let target = if pending_seal {
+                checkpoint_source
+            } else {
+                let checkpoint_key = format!("auto_checkpoint_{head}");
+                self.create_journal_checkpoint("journal-maintenance", &checkpoint_key)?
+                    .checkpoint
+                    .source_sequence
+            };
+            if target == 0 {
+                return Ok(());
+            }
+
+            for batch in 0..JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK {
+                if sealed_through >= target {
+                    break;
+                }
+                let key = format!("auto_segment_{target}_{batch}_{sealed_through}");
+                let commit = self.seal_journal_segments(target, "journal-maintenance", &key)?;
+                if commit.through_sequence <= sealed_through {
+                    break;
+                }
+                sealed_through = commit.through_sequence;
+            }
+            self.workspace_registry.lock().unwrap().incremental_journal_vacuum()?;
+            Ok(())
+        })();
+        if let Err(error) = result {
+            eprintln!("cmux-tui: journal maintenance deferred: {error:#}");
+            self.report_internal_diagnostic(
+                "journal maintenance deferred; checkpoint maintenance will retry",
+            );
+        }
+    }
 
 impl Mux {
     pub(crate) fn journal_hook_states(
@@ -164,27 +311,55 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::workspace_registry::JournalCheckpointCommit> {
-        if let Some(commit) = self
-            .workspace_registry
-            .lock()
-            .unwrap()
-            .journal_checkpoint_receipt(origin, idempotency_key)?
-        {
-            return Ok(commit);
+        let mut last_error = None;
+        for attempt in 0..crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS {
+            if let Some(commit) = self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .journal_checkpoint_receipt(origin, idempotency_key)?
+            {
+                return Ok(commit);
+            }
+            let captured = match crate::journal_checkpoint::capture(self) {
+                Ok(captured) => captured,
+                Err(error)
+                    if crate::journal_checkpoint::capture_error_is_retryable(&error)
+                        && attempt + 1
+                            < crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS =>
+                {
+                    last_error = Some(error);
+                    std::thread::yield_now();
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            match self.workspace_registry.lock().unwrap().create_journal_checkpoint(
+                captured.source_sequence,
+                crate::journal_checkpoint::JOURNAL_REDUCER_VERSION,
+                &captured.state,
+                &captured.blobs,
+                origin,
+                idempotency_key,
+            ) {
+                Ok(commit) => {
+                    if !commit.journal.replayed {
+                        self.publish_journal_event();
+                    }
+                    return Ok(commit);
+                }
+                Err(error)
+                    if crate::journal_checkpoint::capture_error_is_retryable(&error)
+                        && attempt + 1
+                            < crate::journal_checkpoint::MAX_CHECKPOINT_CAPTURE_ATTEMPTS =>
+                {
+                    last_error = Some(error);
+                    std::thread::yield_now();
+                }
+                Err(error) => return Err(error),
+            }
         }
-        let captured = crate::journal_checkpoint::capture(self)?;
-        let commit = self.workspace_registry.lock().unwrap().create_journal_checkpoint(
-            captured.source_sequence,
-            crate::journal_checkpoint::JOURNAL_REDUCER_VERSION,
-            &captured.state,
-            &captured.blobs,
-            origin,
-            idempotency_key,
-        )?;
-        if !commit.journal.replayed {
-            self.publish_journal_event();
-        }
-        Ok(commit)
+        Err(last_error.expect("checkpoint retry loop must retain its last error"))
     }
 
     pub(crate) fn journal_checkpoints(

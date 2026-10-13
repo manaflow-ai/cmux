@@ -74,6 +74,56 @@ impl Mux {
         self.journal_ingress.wait_for_queue_space(observed)
     }
 
+    pub(crate) fn wait_for_terminal_journal_space_until(
+        &self,
+        observed: u64,
+        deadline: Instant,
+    ) -> Result<(), String> {
+        self.journal_ingress.wait_for_queue_space_until(observed, deadline)
+    }
+
+    pub(crate) fn terminal_journal_durable_deadline(&self) -> Instant {
+        self.journal_ingress.durable_deadline()
+    }
+
+    pub(crate) fn try_journal_terminal_output_gap(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        reason: &'static str,
+    ) -> anyhow::Result<()> {
+        self.journal_ingress.send_durable(
+            crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+                terminal_id,
+                generation,
+                occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+                reason,
+            },
+        )
+    }
+
+    /// Like [`Self::try_journal_terminal_output_gap`], bounded by the capture
+    /// deadline that already elapsed or is about to: past it, only a free
+    /// queue slot records the gap, without a second durability wait.
+    pub(crate) fn try_journal_terminal_output_gap_until(
+        &self,
+        terminal_id: Arc<TerminalPublicId>,
+        generation: Arc<str>,
+        reason: &'static str,
+        deadline: Instant,
+    ) -> anyhow::Result<()> {
+        let event = crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
+            terminal_id,
+            generation,
+            occurred_at_ms: crate::workspace_registry::unix_epoch_ms().unwrap_or(0),
+            reason,
+        };
+        if Instant::now() >= deadline {
+            return self.journal_ingress.try_send_terminal_gap(event);
+        }
+        self.journal_ingress.send_durable_until(event, deadline)
+    }
+
     pub(crate) fn flush_terminal_journal(&self) -> anyhow::Result<()> {
         self.journal_ingress.flush_terminal()
     }

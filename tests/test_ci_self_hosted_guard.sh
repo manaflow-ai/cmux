@@ -46,7 +46,43 @@ check_cla_guard_runner() {
   # needs the guard step that also admits Blacksmith scale-set VM names.
   local hosted_guard ephemeral_guard
   hosted_guard="        if: runner.environment != 'github-hosted'"
-  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-Runner-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-Runner-')) || contains(runner.name, 'glaeda')"
+  ephemeral_guard="        if: (runner.environment != 'github-hosted' && !startsWith(runner.name, 'blacksmith-2vcpu-ubuntu-2404-') && !startsWith(runner.name, 'blacksmith-4vcpu-ubuntu-2404-')) || contains(runner.name, 'glaeda')"
+
+  # Blacksmith names a VM '<label>-<id>' (blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc;
+  # before October 2026 '<label>-Runner-<hex>'). Read the prefixes and the
+  # owned-host marker back out of the guard and check that it admits those
+  # names and refuses owned glaeda hosts.
+  local prefixes marker case_line expected name admitted prefix
+  prefixes="$(grep -oE "startsWith\(runner\.name, '[^']+'\)" <<<"$ephemeral_guard" | sed -E "s/.*'([^']+)'.*/\1/")"
+  marker="$(sed -nE "s/.*contains\(runner\.name, '([^']+)'\).*/\1/p" <<<"$ephemeral_guard")"
+  if [[ -z "$prefixes" || -z "$marker" ]]; then
+    echo "FAIL: CLA runner guard must name Blacksmith prefixes and an owned-host marker"
+    exit 1
+  fi
+  for case_line in \
+    'admit blacksmith-4vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'admit blacksmith-2vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'admit blacksmith-4vcpu-ubuntu-2404-Runner-337101a82d' \
+    'refuse cmuxs-mac-mini-5-glaeda-1' \
+    'refuse blacksmith-4vcpu-ubuntu-2404-glaeda' \
+    'refuse blacksmith-8vcpu-ubuntu-2404-56ere4cqq7ryjqvc' \
+    'refuse blacksmith-4vcpu-ubuntu-2404'; do
+    expected="${case_line%% *}"
+    name="${case_line#* }"
+    admitted=refuse
+    while IFS= read -r prefix; do
+      if [[ "$name" == "$prefix"* ]]; then
+        admitted=admit
+      fi
+    done <<<"$prefixes"
+    if [[ "$name" == *"$marker"* ]]; then
+      admitted=refuse
+    fi
+    if [[ "$admitted" != "$expected" ]]; then
+      echo "FAIL: CLA runner guard must $expected self-hosted runner $name"
+      exit 1
+    fi
+  done
   if [[ "$runs_on" == "$hosted" ]] && ! grep -Fqx "$hosted_guard" "$CLA_GUARD_FILE" && ! grep -Fqx "$ephemeral_guard" "$CLA_GUARD_FILE"; then
     echo "FAIL: cla-policy-guard.yml must refuse a runner that is not GitHub-hosted"
     exit 1
@@ -995,12 +1031,20 @@ check_no_github_hosted_runners() {
     "tui-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     "cmux-tui-nightly.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     "relay-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
+    "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
+    # PyPI trusted publishing accepts only GitHub-hosted runners too.
+    "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
     # Detects a Blacksmith outage, so it must run where Blacksmith is not.
     "ci-cloud-overflow-probe.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing"
     # validate-cla-policy.rb pins these to ubuntu-24.04 until #17453 lands.
     "cla.yml:    runs-on: ubuntu-24.04 # github-hosted-required: write token on fork pull requests"
     "cla-policy-guard.yml:    runs-on: ubuntu-24.04"
+    # pull_request_target with a write token (test_ci_fork_runner_routing).
+    "cmux-next-pr-merge-tree.yml:    runs-on: ubuntu-24.04 # github-hosted-required: pull_request_target write token"
+    # Registry provenance and trusted publishing accept only GitHub-hosted runners.
+    "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
+    "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     # Dispatch-only Intel compatibility leg; Blacksmith has no Intel macOS image.
     # GitHub retired macos-14, so it is no longer an exception (#17068).
     "ci-macos-compat.yml:          - os: macos-15-intel"

@@ -19,6 +19,10 @@ path = "tests/test_cmux_cua_mcp_smoke.py"
 lane = "macos-cli-no-socket"
 
 [[test]]
+path = "tests/test_cmux_cua_compat_contract.py"
+lane = "macos-cli-no-socket"
+
+[[test]]
 path = "tests/test_cmux_cua_build_cache_safety.py"
 lane = "macos-cli-no-socket"
 
@@ -157,6 +161,22 @@ path = "tests/test_ci_change_areas.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_strings_output_encoding.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_release_profile.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_dead_code_stripping.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_computer_use_helper_icon_depth.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_delta_since_green.py"
 lane = "linux-guard"
 
@@ -206,6 +226,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_nightly_push_throttle.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_promotion_admission.py"
 lane = "linux-guard"
 
 [[test]]
@@ -301,6 +325,10 @@ path = "tests/test_ci_cargo_affected.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_package_result_reuse.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_package_lane_ghostty_sha.py"
 lane = "linux-guard"
 
@@ -346,6 +374,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_github_release_publication.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_next_feed_watch.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_tui_artifacts_retry.py"
 lane = "linux-guard"
 
 [[test]]
@@ -542,6 +578,18 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_ci_r2_cache_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_r2_storage_census.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_binaries_prune.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_actions_artifact_prune.py"
 lane = "linux-guard"
 
 [[test]]
@@ -825,6 +873,10 @@ path = "tests/test_nightly_publication_marker.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_artifact_alias.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cla_guard_metadata_routing.py"
 lane = "linux-guard"
 
@@ -1005,10 +1057,6 @@ path = "tests/test_ci_manual_dispatch_guard.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_fast_guard_status.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_ci_side_lane_placement.py"
 lane = "linux-guard"
 
@@ -1069,19 +1117,15 @@ path = "tests/test_install_zig_ci_reviewed_version.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_tui_artifacts_retry.py"
-lane = "linux-guard"
-
-[[test]]
 path = "tests/test_asc_developer_id_app.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_package_input_key.py"
+path = "tests/test_ci_frame_pacing_summary.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_ci_frame_pacing_summary.py"
+path = "tests/test_base_red_excuse.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1210,4 +1254,32 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_cmux_tui_pin_duplicate_skip.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gh_merge_green_revert.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_poll_notary_submission.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_resume_tracks.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_nightly_notarization_poll_loop.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_testbox_source_mtimes.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_compose_stable_appcast.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_pr_merge_tree.py"
 lane = "linux-guard"
