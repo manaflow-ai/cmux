@@ -227,7 +227,8 @@ def main():
         print("Show Tab Bar:", action("pane.toggleTabBar", focus=True), flush=True)
         strip("Show Tab Bar shows a chat's tab bar", False, kind="agent", choice=True)
         # A terminal tab on that lone chat stays beside it: no chat dock (one pane shown).
-        run("newSurface", "New Terminal Tab on a lone chat that shows its tab bar opens a tab there", "tab")
+        press_with(lambda: rpc("debug.key", {"key": "`", "modifiers": ["control"]}),
+                   "New Terminal Tab (Ctrl-`) on a lone chat that shows its tab bar opens a tab there", "tab")
         strip("the chat did not move into a dock", False)
         press("t", "Cmd-T on a chat that shows its tab bar opens a tab there", "tab")
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "pane-tab-bar-chat-shown.png")})
