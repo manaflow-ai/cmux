@@ -1,5 +1,6 @@
 import { INFERENCE_PERSONAL_PLAN_IDS, INFERENCE_TEAM_PLAN_IDS } from "@cmux/protocol"
 import type { TeamState } from "../domains/team.ts"
+import { memberLimit } from "../domains/team-ai-limit.ts"
 import type { StackServer } from "../stack-server.ts"
 
 /**
@@ -24,8 +25,8 @@ export const PLAN_STALE_MS = 2 * 60 * 60_000
 /** After a failed Stack read, the stale copy answers without a new read for this long. */
 export const FAILURE_BACKOFF_MS = 60_000
 
-/** `user_limit_usd`: the team's per-user monthly AI limit (team-ai-limit.ts); null = the deployment default. */
-export type PlanAnswer = { readonly ok: true; readonly paid: boolean; readonly user_limit_usd: number | null } | { readonly ok: false; readonly reason: "unavailable" }
+/** `user_limit_usd`: the caller's monthly AI limit in this team (personal, else team default, else 200; team-ai-limit.ts). */
+export type PlanAnswer = { readonly ok: true; readonly paid: boolean; readonly user_limit_usd: number } | { readonly ok: false; readonly reason: "unavailable" }
 
 const ensure = (sql: SqlStorage) => {
   sql.exec(`CREATE TABLE IF NOT EXISTS inference_plan (id INTEGER PRIMARY KEY CHECK (id = 1), plan TEXT, checked_at INTEGER NOT NULL, failed_at INTEGER)`)
@@ -70,9 +71,9 @@ export const personalPlanPaid = (plan: string | null) => plan !== null && INFERE
  * TeamDO.inferencePlan: the answer for `entity`. `stackUser` is set only for the caller's own
  * personal team (route.ts); a shared team needs its live mirrored Stack team.
  */
-export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, now = Date.now()): Promise<PlanAnswer> => {
+export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now = Date.now()): Promise<PlanAnswer> => {
   const team = state?.team ?? null
-  const limit = state?.ai_user_monthly_limit_usd ?? null
+  const limit = memberLimit(state, user).limit_usd
   const read = (fetch: (s: StackServer) => Promise<string | null>) =>
     readPlan(sql, now, async () => {
       if (!stack) throw new Error("stack server not configured")

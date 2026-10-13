@@ -79,6 +79,18 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     settleUser(this.ctx.storage, id, actualMicros)
   }
 
+  /** team.ai_limit.get: this month's spend (USD, settled plus open) of the users named, and only those. */
+  async userSpends(entity: string, users: ReadonlyArray<string>): Promise<Record<string, number>> {
+    this.bind(entity)
+    const month = utcMonth(Date.now())
+    const out: Record<string, number> = {}
+    for (const u of users.slice(0, 500)) {
+      const { spent, open } = userSpentMicros(this.ctx.storage.sql, month, u)
+      out[u] = Math.round(spent + open) / 1_000_000
+    }
+    return out
+  }
+
   /** A metered automation step boundary: may this member's run go on under `limitMicros` this month? */
   async userAllowed(entity: string, user: string, limitMicros: number): Promise<{ allowed: boolean; spent_usd: number }> {
     this.bind(entity)

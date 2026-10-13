@@ -202,7 +202,7 @@ describe("Tier 1 code runs (workerd)", () => {
       export default class extends WorkflowEntrypoint { async run(event, step) { await step.do("x", async () => 1); } }`
     const { t, run } = await runOnce("code-run-12", sha(12), bundle, async (tok) => {
       // The owner (creator of the automation) sets their personal team's per-member limit to 0.
-      expect((await op(tok, "team.ai_limit.set", { user_monthly_limit_usd: 0 })).ok).toBe(true)
+      expect((await op(tok, "team.ai_limit.set", { default_usd: 0 })).ok).toBe(true)
     })
     expect(run).toMatchObject({ state: "failed", error: { code: "user_limit.reached" } })
     const usage = await read(t, "usage.summary")

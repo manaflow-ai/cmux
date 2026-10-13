@@ -1774,6 +1774,7 @@
     "stream.cancel",
     "tab.close",
     "tab_group.close",
+    "team.ai_limit.member.set",
     "team.ai_limit.set",
     "team.audit.list",
     "team.enrollment_token.create",

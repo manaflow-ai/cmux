@@ -314,7 +314,7 @@ interface HarnessEntrypoint {
 export const runCode = async (env: Env, step: WorkflowStep, input: CodeRunInput, startedAt: Date): Promise<unknown> => {
   if (!env.LOADER) throw new CodeRunError("body.unsupported", "this deployment has no Worker Loader binding")
   // The owner's monthly AI limit, read once in a durable step (TeamDO team.ai_limit.set, else the default).
-  const limitUsd = await step.do("cmux:user-limit", { retries: { limit: 5, delay: 1000, backoff: "exponential" } }, async () => env.TEAM_DO.get(env.TEAM_DO.idFromName(input.team)).aiUserLimit(input.team))
+  const limitUsd = await step.do("cmux:user-limit", { retries: { limit: 5, delay: 1000, backoff: "exponential" } }, async () => env.TEAM_DO.get(env.TEAM_DO.idFromName(input.team)).aiUserLimit(input.team, input.user))
   const run: CodeRunInput = { ...input, limitMicros: userLimitMicros(limitUsd) }
   const egress = run.egress ?? []
   const id = await loaderId(env, run.team, run.automation, run.ref, egress)
