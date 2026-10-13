@@ -27,13 +27,22 @@ final class ConversationPhotoSheetController: UIViewController, PHPickerViewCont
     private let grabberStrip = UIView()
     var selection: [String] { grid.selectedAssetIDs }
 
+    /// UIKit's large detent on iOS 27; 10 pt shorter on iOS 26, as
+    /// Messages' (same identifier, so the picker swap keys off it).
+    private static var largeDetent: UISheetPresentationController.Detent {
+        if #available(iOS 27.0, *) { return .large() }
+        return .custom(identifier: .large) { context in
+            PhotoDrawerGeometry.largeDetentValue(maximum: context.maximumDetentValue, leavesTopGap: true)
+        }
+    }
+
     init(sheetHeight: CGFloat) {
         super.init(nibName: nil, bundle: nil)
         modalPresentationStyle = .pageSheet
         if let sheet = sheetPresentationController {
             sheet.detents = [
                 .custom(identifier: Self.keyboardDetent) { _ in PhotoDrawerGeometry.detentValue(height: sheetHeight) },
-                .large(),
+                Self.largeDetent,
             ]
             sheet.selectedDetentIdentifier = Self.keyboardDetent
             sheet.largestUndimmedDetentIdentifier = Self.keyboardDetent
