@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+public import CmuxNextDaemon
 import Foundation
 
 // Commands that change what the store shows: typed intents (the store's
@@ -11,7 +11,7 @@ extension DaemonService {
     /// mirror, and it leaves the log on its transaction's echo, once the
     /// store applied every event up to the sequence read after the reply,
     /// or when `body` throws. Returns the body's value, or nil on failure.
-    func intend<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
+    public func intend<T: Sendable>(_ label: String, _ intent: Intent, transaction: ClientTransactionID,
                              _ body: @Sendable (isolated DaemonConnection) async throws -> T) async -> T? {
         let ticket = openTicket()
         guard let connection else {
@@ -42,21 +42,21 @@ extension DaemonService {
 
     /// `intend` with a fresh transaction, for commands that do not carry
     /// one. Returns whether the command succeeded.
-    func intend(_ label: String, _ intent: Intent, _ body: DaemonCommandBody) async -> Bool {
+    public func intend(_ label: String, _ intent: Intent, _ body: DaemonCommandBody) async -> Bool {
         await intend(label, intent, transaction: .generate(), body) != nil
     }
 
     /// `request` for commands that carry a transaction (their events echo
     /// it): `transaction` defaults to a fresh one. Returns the body's
     /// value, or nil when it failed (logged).
-    func request<T: Sendable>(_ label: String, transaction: ClientTransactionID = .generate(),
+    public func request<T: Sendable>(_ label: String, transaction: ClientTransactionID = .generate(),
                               _ body: @Sendable (DaemonConnection, ClientTransactionID) async throws -> T) async -> T? {
         await request(label) { connection in try await body(connection, transaction) }
     }
 
     /// A tab group command with a fresh transaction (its events echo it):
     /// an intent when it has one, else a plain request.
-    func runGroupCommand(_ label: String, intent: Intent?,
+    public func runGroupCommand(_ label: String, intent: Intent?,
                          _ body: @escaping @Sendable (DaemonConnection, ClientTransactionID) async throws -> Void) async -> Bool {
         let transaction = ClientTransactionID.generate()
         guard let intent else { return await request(label, transaction: transaction, body) != nil }
@@ -66,7 +66,7 @@ extension DaemonService {
     /// Runs a command that changes nothing locally before the daemon
     /// reports it (no intent to show). Returns the body's value, or nil
     /// when it failed (logged).
-    func request<T: Sendable>(_ label: String, _ body: @Sendable (isolated DaemonConnection) async throws -> T) async -> T? {
+    public func request<T: Sendable>(_ label: String, _ body: @Sendable (isolated DaemonConnection) async throws -> T) async -> T? {
         let ticket = openTicket()
         guard let connection else {
             logger.error("\(label, privacy: .public): not connected")
@@ -86,7 +86,7 @@ extension DaemonService {
 
     /// `request` for callers that handle the failure themselves: it still
     /// goes to the action scope (ticket, barrier, failure), and is rethrown.
-    func perform<T: Sendable>(_ label: String, _ body: @Sendable (isolated DaemonConnection) async throws -> T) async throws -> T {
+    public func perform<T: Sendable>(_ label: String, _ body: @Sendable (isolated DaemonConnection) async throws -> T) async throws -> T {
         let ticket = openTicket()
         guard let connection else {
             await closeTicket(ticket, label: label, error: DaemonError.notConnected)

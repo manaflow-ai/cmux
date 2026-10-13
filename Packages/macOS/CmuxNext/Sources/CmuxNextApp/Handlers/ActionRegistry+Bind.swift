@@ -1,41 +1,5 @@
 import CmuxNextActions
 
-/// A typed reason a workspace/window/settings handler could not act. Thrown
-/// from handlers bound with `bind(_:run:)`, it reaches the control socket
-/// as `unavailable: <message>` through `ActionRegistry.refuse`.
-struct ActionFailure: Error, Hashable, CustomStringConvertible {
-    let message: String
-    /// An explicit target names nothing: the control socket answers `not_found`.
-    var isNotFound = false
-    /// A navigation or focus move with no target (R136): no notice for a
-    /// keyboard or menu run; callers still get the message.
-    var isQuiet = false
-
-    /// The cmux-tui daemon does not serve `capability`.
-    static func needsDaemonCapability(_ capability: String) -> ActionFailure {
-        ActionFailure(message: RefusalStrings.needsDaemonCapability(capability))
-    }
-
-    /// cmux-next has no implementation of `feature` yet.
-    static func needsAppCapability(_ feature: String) -> ActionFailure {
-        ActionFailure(message: RefusalStrings.needsAppCapability(feature))
-    }
-
-    static func invalidTarget(_ message: String) -> ActionFailure {
-        ActionFailure(message: message)
-    }
-
-    static func noTarget(_ message: String) -> ActionFailure {
-        ActionFailure(message: message, isQuiet: true)
-    }
-
-    static func notFound(_ message: String) -> ActionFailure {
-        ActionFailure(message: message, isNotFound: true)
-    }
-
-    var description: String { message }
-}
-
 extension ActionRegistry {
     /// Binds a throwing handler; a thrown error is reported with `refuse`.
     /// With `requires`, the action is unavailable (disabled in every surface)
