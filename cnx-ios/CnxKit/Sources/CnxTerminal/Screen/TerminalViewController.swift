@@ -85,6 +85,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// have no earlier primary-screen frame to be matched against, and the
     /// first report after the switch can still describe the alternate screen.
     private var placesFromReport = false
+    private var refreshAfterTUI = false
     private var started = false
     private var fling: FlingAnimator?
 
@@ -371,13 +372,24 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         case .scrollbar(let total, let offset, let visible):
             scrollbar = (total, offset, visible)
             updateDocument()
-            if placesFromReport, !model.isTUI { place(atRow: offset) }
+            if placesFromReport, !model.isTUI {
+                place(atRow: offset)
+                // The document did not change size, so updateDocument did not
+                // ask for the visible rows; ask now.
+                updateViewport(visibleMinY: scrollView.contentOffset.y)
+            }
         case .cellSize:
             view.setNeedsLayout()
         case .bell:
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .outputProcessed:
             outputSinceProbe = true
+            if refreshAfterTUI, !model.isTUI {
+                // The switch back from the alternate screen is processed by
+                // now: ask for the primary screen's viewport and its report.
+                refreshAfterTUI = false
+                surface.scrollToActiveArea()
+            }
             if scrollbar.total == 0 { scrollbar = (surface.grid.rows, 0, surface.grid.rows) }
             updateDocument()
         }
@@ -600,6 +612,9 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             viewportTop = -1
             following = true
             placesFromReport = true
+            refreshAfterTUI = true
+            // Direct typing outlives the TUI only while the terminal keeps focus.
+            if !surface.isFirstResponder { model.directTyping = false }
             documentRows = 0
             updateDocument()
             scrollView.contentOffset.y = maxOffsetY
