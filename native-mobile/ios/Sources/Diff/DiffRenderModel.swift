@@ -108,6 +108,11 @@ enum DiffRenderer {
         func nextUnified() -> DiffRowID { defer { unifiedCounter += 1 }; return DiffRowID(file: file.index, row: unifiedCounter) }
         func nextSplit() -> DiffRowID { defer { splitCounter += 1 }; return DiffRowID(file: file.index, row: splitCounter) }
 
+        // Open block comments and multi-line strings carry from line to
+        // line, separately for each side; a hunk header starts over.
+        var oldCarry = SyntaxHighlighter.Carry.none
+        var newCarry = SyntaxHighlighter.Carry.none
+
         func make(_ line: DiffLine, highlights: [Range<Int>]) -> DiffRenderLine {
             // A minified line can be megabytes: cut it and skip highlighting
             // (same limits as the code preview).
@@ -129,11 +134,13 @@ enum DiffRenderer {
                 note.foregroundColor = Theme.secondaryInk
                 text = note
             case .add:
-                text = SyntaxHighlighter.attributed(line.text, language: language, highlights: highlights, highlightColor: DiffColors.addWord)
+                text = SyntaxHighlighter.attributed(line.text, language: language, carry: &newCarry, highlights: highlights, highlightColor: DiffColors.addWord)
             case .del:
-                text = SyntaxHighlighter.attributed(line.text, language: language, highlights: highlights, highlightColor: DiffColors.delWord)
+                text = SyntaxHighlighter.attributed(line.text, language: language, carry: &oldCarry, highlights: highlights, highlightColor: DiffColors.delWord)
             case .context:
-                text = SyntaxHighlighter.attributed(line.text, language: language)
+                // One row for both sides: colored as the new side reads it.
+                text = SyntaxHighlighter.attributed(line.text, language: language, carry: &newCarry)
+                oldCarry = newCarry
             }
             return DiffRenderLine(kind: line.kind, oldNumber: line.oldNumber, newNumber: line.newNumber, text: text, columns: columns)
         }
@@ -174,6 +181,8 @@ enum DiffRenderer {
                 let first = newSpan(hunk).first
                 appendContext(newFrom: first - hidden, newTo: first - 1, delta: oldSpan(hunk).first - first)
             } else {
+                oldCarry = .none
+                newCarry = .none
                 unified.append(.hunk(id: nextUnified(), header: hunk.header, gap: hunkIndex, hidden: hidden))
                 split.append(.hunk(id: nextSplit(), header: hunk.header, gap: hunkIndex, hidden: hidden))
             }

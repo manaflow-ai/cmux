@@ -19,10 +19,12 @@ struct CodeDocument: Sendable {
         let raw = UnifiedDiffParser.splitLines(text)
         let highlight = raw.count <= highlightLimit
         var maxColumns = 1
+        // Block comments and multi-line strings carry across lines.
+        var carry = SyntaxHighlighter.Carry.none
         let lines = raw.map { full -> AttributedString in
             let line = clipped(full)
             maxColumns = max(maxColumns, line.reduce(0) { $0 + ($1 == "\t" ? 4 : 1) })
-            if highlight, line.count <= highlightLineLimit { return SyntaxHighlighter.attributed(line, language: language) }
+            if highlight, line.count <= highlightLineLimit { return SyntaxHighlighter.attributed(line, language: language, carry: &carry) }
             var plain = AttributedString(line)
             plain.foregroundColor = Theme.ink
             return plain
