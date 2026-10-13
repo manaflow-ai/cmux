@@ -212,20 +212,32 @@ struct ChatComposer: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Text(store.currentModelName ?? "")
-                if let effort = store.effortOption, let value = effort.options.first(where: { $0.value == effort.currentValue }) {
-                    Text(value.name ?? value.value).foregroundStyle(.secondary)
-                }
+            // Model and effort when they fit; at large text sizes the model alone.
+            ViewThatFits(in: .horizontal) {
+                modelPillLabel(withEffort: true)
+                modelPillLabel(withEffort: false)
             }
             .font(.subheadline.weight(.medium))
             .foregroundStyle(.primary)
             .lineLimit(1)
             .padding(.horizontal, 12)
-            .frame(height: 34)
+            .frame(minHeight: 34)
             .background(Color.cnxFill, in: .capsule)
         }
         .accessibilityLabel("Model")
+        .accessibilityValue(Text([store.currentModelName, store.effortOption.flatMap { effort in
+            effort.options.first { $0.value == effort.currentValue }.map { $0.name ?? $0.value }
+        }].compactMap { $0 }.joined(separator: ", ")))
+    }
+
+    private func modelPillLabel(withEffort: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(store.currentModelName ?? "")
+            if withEffort, let effort = store.effortOption, let value = effort.options.first(where: { $0.value == effort.currentValue }) {
+                Text(value.name ?? value.value).foregroundStyle(.secondary)
+            }
+        }
+        .fixedSize(horizontal: withEffort, vertical: false)
     }
 
     private func checkButton(_ title: String, checked: Bool, action: @escaping () -> Void) -> some View {
