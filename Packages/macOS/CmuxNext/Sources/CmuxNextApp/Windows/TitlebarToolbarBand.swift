@@ -237,7 +237,11 @@ final class TitlebarBandButton: NSButton {
     override func mouseDown(with event: NSEvent) {
         guard isEnabled else { return }
         if let pressMenu {
-            if let menu = pressMenu(), !menu.items.isEmpty { presentMenu(menu, self) }
+            guard let menu = pressMenu(), !menu.items.isEmpty else { return }
+            // Pressed while its menu is open, like a pop-up button.
+            isHighlighted = true
+            defer { isHighlighted = false }
+            presentMenu(menu, self)
             return
         }
         guard menuProvider != nil, longPressOpensMenu, let window else { return super.mouseDown(with: event) }
