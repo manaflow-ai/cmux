@@ -14,7 +14,11 @@ type Phase =
   | { kind: "pairing"; code: string }
   | { kind: "ready"; daemon: DaemonSocket };
 
-export function DaemonGate({ url, strings, children }: {
+export function DaemonGate({
+  url,
+  strings,
+  children,
+}: {
   url: string;
   strings: Strings;
   children: (daemon: DaemonSocket) => ReactNode;
@@ -51,11 +55,12 @@ export function DaemonGate({ url, strings, children }: {
     const saved = sessionStorage.getItem(storageKey(url));
     if (saved) connect({ token: saved }, saved);
     // Runs once per endpoint.
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- connect is rebuilt each render; the effect runs once per endpoint.
   }, [url]);
 
   if (phase.kind === "ready") return <>{children(phase.daemon)}</>;
   return (
-    <div className="hc-gate" role="dialog" aria-labelledby="hc-gate-title">
+    <section className="hc-gate" aria-labelledby="hc-gate-title">
       <h1 id="hc-gate-title">{t("connect.title")}</h1>
       <p className="hc-gate-endpoint">{url}</p>
       {phase.kind === "pairing" && <p className="hc-gate-code">{format("connect.pairingCode", phase.code)}</p>}
@@ -74,6 +79,7 @@ export function DaemonGate({ url, strings, children }: {
             {t("connect.credential")}
             <input
               type="password"
+              aria-label={t("connect.credential")}
               autoComplete="off"
               value={credential}
               onChange={(event) => setCredential(event.target.value)}
@@ -99,7 +105,7 @@ export function DaemonGate({ url, strings, children }: {
           {phase.error && <p className="hc-gate-error">{format("connect.failed", phase.error)}</p>}
         </form>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -121,6 +127,7 @@ export function InstanceBar({ daemon, strings }: { daemon: DaemonSocket; strings
     return daemon.onEvent((event) => {
       if (event.event === "tree-changed" || event.event === "workspace-changed") void refresh();
     });
+    // oxlint-disable-next-line react-hooks/exhaustive-deps -- refresh is rebuilt each render; one subscription per daemon.
   }, [daemon]);
 
   return (
@@ -131,7 +138,7 @@ export function InstanceBar({ daemon, strings }: { daemon: DaemonSocket; strings
         disabled={busy}
         onClick={() => {
           setBusy(true);
-          daemon
+          void daemon
             .request("new-workspace", {})
             .then(refresh)
             .finally(() => setBusy(false));
