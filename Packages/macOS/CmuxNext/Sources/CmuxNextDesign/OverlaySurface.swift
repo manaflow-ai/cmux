@@ -153,7 +153,11 @@ public final class OverlaySurfaceView: NSView {
                 materialView?.layer?.borderColor = Palette.separator.cgColor
             case .opaque:
                 materialView?.layer?.backgroundColor = Palette.popupSurface.cgColor
-                materialView?.layer?.borderColor = Borders.color(Palette.separator.withAlphaComponent(1)).cgColor
+                // The theme's hairline as is. The layer draws its border
+                // inside its bounds, over the opaque fill, so the edge stays
+                // opaque under Reduce Transparency too. Alpha 1 here was the
+                // full text color: a bright rim on every dark popup.
+                materialView?.layer?.borderColor = Palette.separator.cgColor
             }
         }
         applyShape()

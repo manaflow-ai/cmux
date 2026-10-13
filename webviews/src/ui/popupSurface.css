@@ -5,9 +5,14 @@
 :root {
   --ui-popup-radius: 8px;
   --ui-popup-padding: 4px;
-  --ui-popup-shadow:
+  /* The drop shadow alone, for a surface that draws its own edge (a border or an inset hairline):
+     the full shadow's inset ring beside that edge drew a second, light rim (dogfood 2026-10-12). */
+  --ui-popup-drop-shadow:
     0 8px 24px color-mix(in srgb, black 18%, transparent),
-    0 1px 3px color-mix(in srgb, black 14%, transparent),
+    0 1px 3px color-mix(in srgb, black 14%, transparent);
+  /* The drop shadow plus a hairline edge, for a surface with no edge of its own. */
+  --ui-popup-shadow:
+    var(--ui-popup-drop-shadow),
     inset 0 0 0 0.5px color-mix(in srgb, currentColor 12%, transparent);
   --ui-row-height: 28px;
   --ui-row-radius: 5px;

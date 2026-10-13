@@ -235,9 +235,9 @@
 /* Nested cascade levels are popups too. Keep their bespoke placement and scrolling, but use the
    same solid popup surface as the root model menu and Base UI surfaces. */
 .acpmux-mp-cascade .acpmux-mp-sub {
-  border: 1px solid var(--ui-line, color-mix(in srgb, var(--agent-text) 12%, transparent));
+  border: 0;
   background-color: var(--surface-popup);
-  box-shadow: var(--ui-popup-shadow);
+  box-shadow: inset 0 0 0 0.5px var(--acpmux-composer-edge), var(--ui-popup-drop-shadow);
 }
 
 /* Under Increase Contrast the search row's text step does not show (muted is the text color):

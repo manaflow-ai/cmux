@@ -58,7 +58,7 @@
   color: var(--ui-fg);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);
-  box-shadow: var(--ui-popup-shadow);
+  box-shadow: var(--ui-popup-drop-shadow);
   outline: none;
   /* Base UI's positioner names the side the popup grows from. */
   transform-origin: var(--transform-origin);
