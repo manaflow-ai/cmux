@@ -43,6 +43,16 @@ public struct BetaFeaturesCatalogSection: SettingCatalogSection {
         userDefaultsKey: "windowHints.beta.enabled"
     )
 
+    /// Agent turn rail: one tick per prompt beside Claude Code and Codex
+    /// terminals, with Cmd-Shift-Up/Down to step between prompts, as an
+    /// opt-in preview. Defaults off; while off no terminal reserves its gutter
+    /// and Cmd-Shift-Up/Down stay with Ghostty.
+    public let agentTurnRail = DefaultsKey<Bool>(
+        id: "agentTurnRail.beta.enabled",
+        defaultValue: false,
+        userDefaultsKey: "agentTurnRail.beta.enabled"
+    )
+
     /// Custom sidebars: user/agent-authored sidebars (interpreted Swift or
     /// JSON) discovered from `~/.config/cmux/sidebars/` and selectable in the
     /// sidebar button's provider picker. Defaults on; while off, no custom

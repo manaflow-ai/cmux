@@ -247,6 +247,8 @@
 		2129576A84C305A2B786857E /* AgentTurnOutlineChangeBus.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39696058384F386AA577E1C7 /* AgentTurnOutlineChangeBus.swift */; };
 		E0690E14CDF4922AE9D47A22 /* AgentTurnRailHost.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5B79DA476792F2880C8583C /* AgentTurnRailHost.swift */; };
 		B79E4BC7E2EF652002FC9018 /* AgentTurnRailModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A86F46A0B989A8BC08C075F /* AgentTurnRailModel.swift */; };
+		AD7ACAE93D7434D2688655EF /* AgentTurnRailPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E5FC809EE97602BEBC68B7F /* AgentTurnRailPreview.swift */; };
+		4FFFC332F8D80326D4702C20 /* AgentTurnRailPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 03A412DC6A45AE46DA47D63B /* AgentTurnRailPreviewTests.swift */; };
 		1F958555F7AEB5365D6506B1 /* AgentTurnRailTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 625E88AE7FC8975197D9D506 /* AgentTurnRailTests.swift */; };
 		721A6AF8BA9A8883E8B9755D /* AgentTurnRailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B70FCF5C0D6306BFFC8748 /* AgentTurnRailView.swift */; };
 		2F9C29446E65820D941FA4DA /* AgentWakeFailure.swift in Sources */ = {isa = PBXBuildFile; fileRef = 582CBC2A17C1808307BA9DD6 /* AgentWakeFailure.swift */; };
@@ -4962,6 +4964,8 @@
 		39696058384F386AA577E1C7 /* AgentTurnOutlineChangeBus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTurnOutlineChangeBus.swift; sourceTree = "<group>"; };
 		F5B79DA476792F2880C8583C /* AgentTurnRailHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTurnRail/AgentTurnRailHost.swift; sourceTree = "<group>"; };
 		8A86F46A0B989A8BC08C075F /* AgentTurnRailModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTurnRail/AgentTurnRailModel.swift; sourceTree = "<group>"; };
+		8E5FC809EE97602BEBC68B7F /* AgentTurnRailPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTurnRail/AgentTurnRailPreview.swift; sourceTree = "<group>"; };
+		03A412DC6A45AE46DA47D63B /* AgentTurnRailPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentTurnRailPreviewTests.swift"; sourceTree = "<group>"; };
 		625E88AE7FC8975197D9D506 /* AgentTurnRailTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "AgentTurnRailTests.swift"; sourceTree = "<group>"; };
 		66B70FCF5C0D6306BFFC8748 /* AgentTurnRailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentTurnRail/AgentTurnRailView.swift; sourceTree = "<group>"; };
 		582CBC2A17C1808307BA9DD6 /* AgentWakeFailure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentHibernation/AgentWakeFailure.swift; sourceTree = "<group>"; };
@@ -12289,6 +12293,7 @@
 				888DEA5181DA90BA20514C63 /* AgentSessionTurnNotifier.swift */,
 				9E6A96CCBDE353757B31D2BB /* VaultAgentRegistry+Muse.swift */,
 				603138BB51C4ADFD98885570 /* SessionIndexStore+Muse.swift */,
+				8E5FC809EE97602BEBC68B7F /* AgentTurnRailPreview.swift */,
 			);
 			path = Sources;
 			sourceTree = "<group>";
@@ -13859,6 +13864,7 @@
 				7EB0D1641E591BA0B8366E65 /* VMClientReadCoalescingTests+RequestBudget.swift */,
 				FA4CD7C689E9A08DB5112238 /* MuseVaultRegistrationTests.swift */,
 				6363F4EA9220ADE6FA369B16 /* CLIMuseHookInstallTests.swift */,
+				03A412DC6A45AE46DA47D63B /* AgentTurnRailPreviewTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -14836,6 +14842,7 @@
 				2129576A84C305A2B786857E /* AgentTurnOutlineChangeBus.swift in Sources */,
 				E0690E14CDF4922AE9D47A22 /* AgentTurnRailHost.swift in Sources */,
 				B79E4BC7E2EF652002FC9018 /* AgentTurnRailModel.swift in Sources */,
+				AD7ACAE93D7434D2688655EF /* AgentTurnRailPreview.swift in Sources */,
 				721A6AF8BA9A8883E8B9755D /* AgentTurnRailView.swift in Sources */,
 				2F9C29446E65820D941FA4DA /* AgentWakeFailure.swift in Sources */,
 				2A64B77D7128036F9D4F51FB /* AgentWakeFailureBanner.swift in Sources */,
@@ -17825,6 +17832,7 @@
 				91BEF70615F8F0582DE3C049 /* AgentSessionSearchTranscriptTests.swift in Sources */,
 				A9E030000000000000000002 /* AgentSessionSocketSurfaceTests.swift in Sources */,
 				A9E050000000000000000002 /* AgentSessionWebRendererTests.swift in Sources */,
+				4FFFC332F8D80326D4702C20 /* AgentTurnRailPreviewTests.swift in Sources */,
 				1F958555F7AEB5365D6506B1 /* AgentTurnRailTests.swift in Sources */,
 				FC23B4F0173B55B06DFE8DD4 /* AgentWakeVerificationTests.swift in Sources */,
 				B11371000000000000000001 /* AggregateMemoryRetentionTests.swift in Sources */,

@@ -15431,6 +15431,124 @@
           }
         }
       }
+    },
+    "settings.betaFeatures.agentTurnRail": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent Turn Rail"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط أدوار الوكيل"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agenten-Turn-Leiste"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barra de turnos del agente"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Barre des tours d’agent"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントのターンレール"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 턴 레일"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理回合轨"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理回合軌"
+          }
+        }
+      }
+    },
+    "settings.betaFeatures.agentTurnRail.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Preview: a tick per prompt beside Claude Code and Codex terminals. Cmd-Shift-Up/Down step between prompts instead of Ghostty's jump to prompt."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "معاينة: علامة لكل موجّه بجوار طرفيات Claude Code وCodex. ينتقل Cmd-Shift-Up/Down بين الموجّهات بدلًا من الانتقال إلى الموجّه في Ghostty."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vorschau: eine Markierung pro Prompt neben Claude Code- und Codex-Terminals. Cmd-Shift-Up/Down springen zwischen Prompts statt Ghosttys Sprung zum Prompt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista previa: una marca por prompt junto a las terminales de Claude Code y Codex. Cmd-Shift-Arriba/Abajo pasan de un prompt a otro en lugar del salto al prompt de Ghostty."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aperçu : un repère par prompt à côté des terminaux Claude Code et Codex. Cmd-Shift-Haut/Bas passent d’un prompt à l’autre au lieu du saut au prompt de Ghostty."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "プレビュー: Claude Code と Codex のターミナルの横にプロンプトごとの目盛りを表示します。Cmd-Shift-Up/Down は Ghostty のプロンプトへ移動の代わりにプロンプト間を移動します。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "미리 보기: Claude Code 및 Codex 터미널 옆에 프롬프트마다 눈금을 표시합니다. Cmd-Shift-Up/Down은 Ghostty의 프롬프트로 이동 대신 프롬프트 사이를 오갑니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览：在 Claude Code 和 Codex 终端旁为每个提示显示一个刻度。Cmd-Shift-Up/Down 在提示之间切换，取代 Ghostty 的跳至提示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "預覽：在 Claude Code 與 Codex 終端機旁為每個提示顯示一個刻度。Cmd-Shift-Up/Down 會在提示之間切換，取代 Ghostty 的跳至提示。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
