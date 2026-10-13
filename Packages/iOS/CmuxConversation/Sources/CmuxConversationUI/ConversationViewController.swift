@@ -115,6 +115,8 @@ public final class ConversationViewController: UIViewController {
     var autoScrollDriver: ConversationAutoScrollDriver?
     /// DEBUG lab: the per-frame scroll recorder, when the environment asks for one.
     var scrollProbe: ConversationScrollProbe?
+    /// DEBUG lab: transcript dynamics or a held 120 Hz, for device A/B runs.
+    var transcriptDynamics: ConversationTranscriptDynamicsDriver?
     #endif
     /// A status-bar tap's animated scroll to the top is running. Messages
     /// loads history only once it comes to rest at the spinner, so a page
@@ -337,6 +339,10 @@ public final class ConversationViewController: UIViewController {
         if scrollProbe == nil, let probe = ConversationScrollProbe.fromEnvironment(controller: self) {
             scrollProbe = probe
             probe.start()
+        }
+        if transcriptDynamics == nil, let driver = ConversationTranscriptDynamicsDriver.fromEnvironment(controller: self) {
+            transcriptDynamics = driver
+            driver.start()
         }
         if autoScrollDriver == nil, let driver = ConversationAutoScrollDriver.fromEnvironment(controller: self) {
             autoScrollDriver = driver
@@ -1174,6 +1180,9 @@ public final class ConversationViewController: UIViewController {
                 self.collectionView.layoutIfNeeded()
             }
         }
+        #if DEBUG
+        if animateLive { transcriptDynamics?.reset() }
+        #endif
         if animateLive, wasAtBottom || sentByMe {
             // A flight still in the air rides with its row (a rapid second send).
             let flightTops = flightScreenTops()
@@ -1573,6 +1582,9 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
 
     public func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         if velocity.y < 0 { maybeLoadOlder(targetOffsetY: targetContentOffset.pointee.y) }
+        #if DEBUG
+        transcriptDynamics?.dragEnded(targetOffsetY: targetContentOffset.pointee.y)
+        #endif
     }
 
     public func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
@@ -1580,6 +1592,9 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         landAllFlights()
         dismissPhotoDrawer()
         isScrollingToTop = false
+        #if DEBUG
+        transcriptDynamics?.dragBegan(atContentY: scrollView.panGestureRecognizer.location(in: scrollView).y)
+        #endif
     }
 
     public func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
@@ -1853,6 +1868,11 @@ final class TranscriptCollectionView: UICollectionView {
 
     let topFadeMask = CAGradientLayer()
     private var lastMaskGeometry: (CGFloat, CGFloat)?
+    #if DEBUG
+    /// DEBUG lab (transcript dynamics): how far below its layout place each
+    /// visible cell's content is drawn.
+    var cellOffset: ((UICollectionViewCell) -> CGFloat)?
+    #endif
 
     override func layoutSubviews() {
         // Before UIKit places its pockets in this pass, so a hidden edge
@@ -1861,6 +1881,11 @@ final class TranscriptCollectionView: UICollectionView {
         super.layoutSubviews()
         updateTopFadeMask()
         if updateBottomEdgeEffect() { setNeedsLayout() }
+        #if DEBUG
+        if let cellOffset {
+            for cell in visibleCells { Self.place(cell, offset: cellOffset(cell)) }
+        }
+        #endif
         // Outgoing bubbles' gradient is fixed to the screen. Placed here,
         // after the cells for this offset are placed, not on scroll: a cell
         // reused at the other edge would otherwise show the gradient of the
