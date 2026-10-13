@@ -16,7 +16,11 @@ extension UpdaterService {
     func attach(sheet: UpdateSheetController, services: AppServices) {
         presentUpdateUI = { [weak services] in sheet.present(in: services?.windows.active?.window) }
         willRelaunch = { [weak services] in services?.quit.origins.record(.explicit(.keep)) }
-        relaunchBlockers = { [weak services] in services?.machines.local.currentRelaunchBlockers() ?? .daemonUnavailable }
+        let updateAgentActivity = UpdateAgentActivity(environment: QuitAgents.environment(services))
+        relaunchBlockers = { [weak services] in
+            guard let services else { return .daemonUnavailable }
+            return updateAgentActivity.applying(to: services.machines.local.currentRelaunchBlockers())
+        }
         // The click: the windows leave the screen at once (S1); a failed
         // install brings them back.
         let handoff = UpdateWindowHandoff()
