@@ -8218,8 +8218,10 @@ the trusted local connection rule and the acpmux start are those of
 `agent-session-start`. The daemon never answers by itself: a client sends a
 `level` only for the person's own answer (the app's agent pane relay needs
 a fresh gesture for a set that trusts, as for a chat on the Mac's own
-acpmux). acpmux takes it as from a unix client (the person's own CLI);
-a WebSocket client of acpmux still cannot answer (`trust.remote`).
+acpmux). acpmux takes it as from a unix client (the person's own CLI): any
+trusted local unix client of this daemon can set trust here, as it can on
+acpmux's own socket (same uid). A WebSocket client of acpmux still cannot
+answer (`trust.remote`). At most 8 calls run at once (`agent_session.limit`).
 
 ## Agent chat transfer
 
