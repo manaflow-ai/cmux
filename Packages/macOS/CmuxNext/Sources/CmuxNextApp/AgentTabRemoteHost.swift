@@ -41,7 +41,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         }
         let route: AgentPaneRemoteRoute
         // The folder trust question of this machine (cx-1bhjj), on the tab as its store lists it.
-        let trust: RemoteAcpmuxWire.Trust? = !servesTrust ? nil : { [existing, surface, endpoint] cwd, level, home in
+        let ask: RemoteAcpmuxWire.Trust = { [existing, surface, endpoint] (cwd: String, level: String?, home: Bool) async throws -> Data in
             let client = AgentSessionAttachClient(surface: try await existing?()?.surface ?? surface, endpoint: endpoint)
             let answer: Result<Data, any Error>
             do { answer = .success(try await AgentTabRemoteClient(client: client).mapped { try await client.trust(cwd: cwd, level: level, homeConfirmed: home) }) } catch { answer = .failure(error) }
@@ -51,7 +51,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
         if let session {
             route = AgentPaneRemoteRoute(machine: machine, approvals: approvals) { [surface, session, endpoint] in
                 let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
-                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client), session: session, trust: trust)
+                return RemoteAcpmuxWire(client: AgentTabRemoteClient(client: client), session: session, trust: servesTrust ? ask : nil)
             }
         } else if let start {
             // A new chat: nothing runs on that machine until the page's first send (cx-k21v). The
@@ -66,7 +66,7 @@ nonisolated struct AgentTabRemoteHost: AgentPaneHostProviding {
                     }
                     let client = AgentSessionAttachClient(surface: started.surface, endpoint: endpoint)
                     return (AgentTabRemoteClient(client: client), started.session)
-                }, trust: trust)
+                }, trust: servesTrust ? ask : nil)
             }
         } else {
             throw AgentRemoteStartRefusal.startUnsupported(machine: machine)
