@@ -17,6 +17,8 @@ nonisolated struct CloudMoveCLI: Sendable {
         var transferID: String?
         /// `link sync pull`'s `sync_conflict`: the paths changed on both sides.
         var conflicts: [String] = []
+        /// `link agent move`'s `machine_outdated`: the daemon it is about, `source` or `target`.
+        var side: String?
     }
 
     /// The `cmux` binary (the bundled cmux-tui).
@@ -59,6 +61,6 @@ nonisolated struct CloudMoveCLI: Sendable {
         }
         return Answer(ok: ok, errorCode: object["error_code"] as? String, error: object["error"] as? String,
                       sessionID: object["session_id"] as? String, transferID: object["transfer_id"] as? String,
-                      conflicts: object["conflicts"] as? [String] ?? [])
+                      conflicts: object["conflicts"] as? [String] ?? [], side: object["side"] as? String)
     }
 }

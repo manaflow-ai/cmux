@@ -44,6 +44,8 @@ final class HistoryService {
         cache.onProfileHistoryCreated = { [weak self] profile, history in self?.attach(history, profile: profile) }
         cache.onProfileHistoryDropped = { [weak self] profile in self?.forget(profile: profile) }
         adoptDaemonHistoryOnFirstConnection()
+        // Folders of closed workspaces deleted while the app was not running (the CLI, another app).
+        DaemonClosedHistory.emptyAgentHomeTrash()
     }
 
     /// Launch: keeps each daemon's command recording and closed-history

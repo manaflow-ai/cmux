@@ -28,6 +28,7 @@ mod cloud_conversations_backend;
 #[cfg(unix)]
 mod coderouter_usage;
 mod config;
+mod daemon_build;
 mod headless;
 mod local_actor;
 mod private_mode;
@@ -923,8 +924,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
                     return Err(format!("{arg} may be supplied only once"));
                 }
             }
-            local_owner::OWNER_READY_FD_ARG | local_owner::OWNER_INSTALL_KEY_FD_ARG => {
-                local_owner::claim_fd_arg(&arg, args.next(), &mut out)?;
+            owner_arg if local_owner::is_owner_arg(owner_arg) => {
+                local_owner::claim_owner_arg(&arg, &mut args, &mut out)?;
             }
             // Private launch contract used by cmux-browser. It configures
             // Vercel agent-browser to attach through the local provider
@@ -1646,31 +1647,6 @@ struct CloudTemplateEnv {
 
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
-/// Records this daemon's build id and its own binary (which is also its CLI)
-/// for `identify` (plans/cmux-next/version-skew.md step 2). A binary whose
-/// path cannot be resolved reports its build id only.
-#[cfg(unix)]
-fn install_daemon_build() {
-    // cmux-remote (which stamps the source revision) is a Unix-only
-    // dependency; a Windows daemon reports its package version until the
-    // stamp moves to a cross-platform crate.
-    #[cfg(unix)]
-    let build_id = cmux_remote::ssh_bootstrap::BUILD_IDENTITY;
-    #[cfg(not(unix))]
-    let build_id = env!("CARGO_PKG_VERSION");
-    let cli_path = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default();
-    cmux_tui_core::server::install_daemon_build(cmux_tui_core::server::DaemonBuild::new(
-        build_id, cli_path,
-    ));
-}
-
-/// The build id comes from cmux-remote's build script, and cmux-remote is a
-/// unix-only dependency. A Windows daemon installs no build, so `identify`
-/// reports `null` for both fields and leaves out `daemon-build-v1`, as an
-/// embedder does.
-#[cfg(not(unix))]
-fn install_daemon_build() {}
-
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
     startup_env::take_cloud_template_env();
@@ -2124,7 +2100,7 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
-    install_daemon_build();
+    daemon_build::install();
     owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
@@ -2324,7 +2300,7 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
-    local_owner::install_key_from_fd(&mux, args.owner_install_key_fd);
+    local_owner::install_key_from_launcher(&mux, args.owner_install_key_fd);
     // Headless sessions have no host terminal to query. The first
     // interactive client may provide a private host-color handoff; use it
     // only to fill unspecified config values before any surface is created.
