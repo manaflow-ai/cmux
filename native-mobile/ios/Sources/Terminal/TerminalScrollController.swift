@@ -137,13 +137,18 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         let keyboard = view.keyboardLayoutGuide.layoutFrame.height
         let reserved = tui ? bottomInset : max(0, bottomInset - keyboard)
         let available = CGSize(
-            width: view.bounds.width,
+            width: TerminalViewportMath.gridWidth(viewWidth: view.bounds.width),
             height: max(cell.height * 5, view.bounds.height - reserved - gridTop)
         )
         if let fit = surface.gridFitting(available) {
             session.fit(cols: fit.cols, rows: fit.rows)
         }
         layoutContent()
+    }
+
+    /// Left edge of the grid (side inset, centered leftover).
+    private var gridX: CGFloat {
+        TerminalViewportMath.gridOriginX(viewWidth: view.bounds.width, cols: session.cols, cellWidth: cell.width)
     }
 
     /// Pixel height of the Mac's grid (falls back to the fitted area).
@@ -164,7 +169,7 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
             scrollView.contentOffset = .zero
             // Anchor the grid right above the composer, fully visible.
             let top = max(topInset, bounds.height - bottomInset - gridHeight)
-            surface.frame = CGRect(x: 0, y: top, width: width, height: gridHeight)
+            surface.frame = CGRect(x: gridX, y: top, width: TerminalViewportMath.gridWidth(viewWidth: width), height: gridHeight)
             return
         }
         tuiPan?.isEnabled = false
@@ -201,7 +206,8 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
             offset: scrollView.contentOffset.y, maxOffset: maxOffset, cellHeight: cell.height,
             totalRows: scrollback.total, gridRows: session.rows, viewportRows: scrollback.length
         )
-        surface.frame = CGRect(x: 0, y: topPad + CGFloat(row) * cell.height, width: bounds.width, height: gridHeight)
+        surface.frame = CGRect(x: gridX, y: topPad + CGFloat(row) * cell.height,
+                               width: TerminalViewportMath.gridWidth(viewWidth: bounds.width), height: gridHeight)
         guard row != lastViewportRow else { return }
         lastViewportRow = row
         if row >= maxRow { surface.scrollViewportToBottom() } else { surface.scrollViewport(toRow: row) }

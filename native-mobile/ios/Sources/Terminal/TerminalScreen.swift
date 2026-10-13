@@ -26,6 +26,7 @@ struct TerminalScreen: View {
     @State private var showFiles = false
     @State private var showDiff = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
 
     init(connection: HostConnection, tab: DaemonTab) {
         self.connection = connection
@@ -90,6 +91,11 @@ struct TerminalScreen: View {
         }
         .onAppear { Task { await connection.acknowledge(surface: tab.surface) } }
         .onDisappear { session.detach() }
+        .onChange(of: scenePhase) { _, phase in
+            // Only the phone in use sizes the Mac's grid.
+            if phase == .background { session.setForeground(false) }
+            if phase == .active { session.setForeground(true) }
+        }
     }
 
     private var placeholder: String {

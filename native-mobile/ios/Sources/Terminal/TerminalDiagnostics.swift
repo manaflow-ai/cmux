@@ -31,6 +31,24 @@ enum TerminalReplay {
 /// Where the Ghostty view rides inside the scroll content (shell mode).
 /// Pure so the placement can be checked without a device.
 enum TerminalViewportMath {
+    /// Space kept clear on each side of the grid, so column 0 doesn't sit on
+    /// the screen edge next to the rounded display corner.
+    static let sideInset: CGFloat = 4
+
+    /// Width the grid fits into (the view less both side insets).
+    static func gridWidth(viewWidth: CGFloat) -> CGFloat {
+        max(0, viewWidth - sideInset * 2)
+    }
+
+    /// Left edge of the grid: the inset plus half the space the whole
+    /// columns leave over, so both sides read the same.
+    static func gridOriginX(viewWidth: CGFloat, cols: Int, cellWidth: CGFloat) -> CGFloat {
+        let width = gridWidth(viewWidth: viewWidth)
+        guard cols > 0, cellWidth > 0, cellWidth.isFinite else { return sideInset }
+        let leftover = width - CGFloat(cols) * cellWidth
+        return sideInset + max(0, (leftover / 2).rounded(.down))
+    }
+
     /// Space above the grid when the grid is shorter than the area above the composer.
     static func topPad(viewHeight: CGFloat, bottomInset: CGFloat, gridHeight: CGFloat) -> CGFloat {
         max(0, viewHeight - bottomInset - gridHeight)

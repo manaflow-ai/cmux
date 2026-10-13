@@ -61,6 +61,21 @@ struct TerminalViewportMathTests {
         #expect(nan.row == nan.maxRow)
     }
 
+    @Test func gridKeepsASymmetricSideInset() {
+        // 402 pt view, 7.2 pt cells: 394 pt fit 54 columns (388.8), 5.2 pt left over.
+        #expect(TerminalViewportMath.gridWidth(viewWidth: 402) == 394)
+        let x = TerminalViewportMath.gridOriginX(viewWidth: 402, cols: 54, cellWidth: 7.2)
+        #expect(x == 6)
+        let right = 402 - (x + 54 * 7.2)
+        #expect(right >= TerminalViewportMath.sideInset && abs(right - x) < 7.2)
+    }
+
+    @Test func gridWiderThanTheViewStaysAtTheInset() {
+        // The Mac's grid can be wider than the phone (another client sized it).
+        #expect(TerminalViewportMath.gridOriginX(viewWidth: 402, cols: 120, cellWidth: 7.2) == TerminalViewportMath.sideInset)
+        #expect(TerminalViewportMath.gridOriginX(viewWidth: 402, cols: 0, cellWidth: 7.2) == TerminalViewportMath.sideInset)
+    }
+
     @Test func visibleFraction() {
         let visible = CGRect(x: 0, y: 100, width: 440, height: 800)
         #expect(TerminalViewportMath.visibleFraction(of: CGRect(x: 0, y: 200, width: 440, height: 400), in: visible) == 1)

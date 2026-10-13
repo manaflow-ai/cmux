@@ -55,7 +55,7 @@ final class TerminalSession {
             // First fit attaches; later fits (layout passes, keyboard) only
             // resize once the attach is underway.
             attach(cols: cols, rows: rows)
-        } else if client != nil {
+        } else if client != nil, inForeground {
             resize(to: (cols, rows))
         }
     }
@@ -111,10 +111,10 @@ final class TerminalSession {
                 ])
                 self.stats.attachReplied = Date()
                 debugLog("cmux-native: attach ok surface \(self.surfaceID) vt-states \(self.stats.vtStates) outputs \(self.stats.outputs)")
-                // The phone is the active viewer: its size wins while visible.
-                _ = try? await client.request("set-client-sizing", [
-                    "surface": .number(Double(self.surfaceID)), "enabled": true,
-                ])
+                // The phone in use is the active viewer: its size alone wins
+                // while it is in the foreground (another phone that only
+                // watches, or one in the background, doesn't shrink it).
+                if self.inForeground { await self.claimSize(client) } else { await self.releaseSize(client) }
                 await consumer.value
             } catch {
                 // A detach cancels this attach; its failure isn't the session's.
@@ -124,6 +124,46 @@ final class TerminalSession {
                 self?.phase = .failed(error.localizedDescription)
             }
         }
+    }
+
+    // MARK: Size authority
+
+    /// Whether this phone shows the terminal in the foreground. Only a
+    /// foreground phone takes part in sizing the Mac's grid.
+    @ObservationIgnored private(set) var inForeground = true
+
+    /// The app went to the background (or came back): give up the grid so
+    /// the Mac or another phone in use sizes it, and claim it again on return.
+    func setForeground(_ foreground: Bool) {
+        guard foreground != inForeground else { return }
+        inForeground = foreground
+        guard let client else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            if foreground {
+                if let size = self.requestedSize {
+                    _ = try? await client.request("resize-surface", [
+                        "surface": .number(Double(self.surfaceID)), "cols": .number(Double(size.cols)), "rows": .number(Double(size.rows)),
+                    ])
+                }
+                await self.claimSize(client)
+            } else {
+                await self.releaseSize(client)
+            }
+        }
+    }
+
+    private func claimSize(_ client: DaemonClient) async {
+        let surface = JSONValue.number(Double(surfaceID))
+        // Exclusive: this phone's grid only. Fall back to shared sizing on a
+        // daemon that refuses (no reported size yet).
+        if (try? await client.request("set-client-sizing", ["surface": surface, "enabled": true, "exclusive": true])) == nil {
+            _ = try? await client.request("set-client-sizing", ["surface": surface, "enabled": true])
+        }
+    }
+
+    private func releaseSize(_ client: DaemonClient) async {
+        _ = try? await client.request("release-surface-size", ["surface": .number(Double(surfaceID))])
     }
 
     /// After the link reconnects: start a fresh attach at the last size.
@@ -159,7 +199,7 @@ final class TerminalSession {
             phase = .live
             // The daemon may ignore the attach size (no attach-initial-size):
             // claim the phone's grid explicitly.
-            if let requestedSize, requestedSize != (cols, rows) { resize(to: requestedSize) }
+            if inForeground, let requestedSize, requestedSize != (cols, rows) { resize(to: requestedSize) }
         case "resized":
             stats.resizes += 1
             applyReplay(payload, event: event.name)
