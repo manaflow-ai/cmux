@@ -13,7 +13,8 @@ needs a gesture). Then, in one pane:
      behind a silent control page;
   2. the control page is hidden too, behind a last page;
   3. the control page hibernates (the trigger fired), and the audio pages stay loaded with
-     the `audio` exemption (`debug.surfaces` hibernation).
+     the `web_audio` exemption (`debug.surfaces` hibernation). Critical memory pressure
+     overrides that exemption; this script runs at normal pressure.
 
 Before cx-d0d.9 the probe saw only <audio>/<video> elements, so both audio pages hibernated.
 Camera, microphone and screen capture share the recorder (BrowserPageBusy) but need a
@@ -129,8 +130,8 @@ time.sleep(5)
 state = hibernation()
 for name in ("top", "frame"):
     tab = tabs[name]
-    check(tab not in (state.get("hibernated") or []) and (state.get("exemptions") or {}).get(tab) == "audio",
-          f"{name}: the hidden page playing Web Audio stays loaded, exemption audio "
+    check(tab not in (state.get("hibernated") or []) and (state.get("exemptions") or {}).get(tab) == "web_audio",
+          f"{name}: the hidden page playing Web Audio stays loaded, exemption web_audio "
           f"(hibernated={tab in (state.get('hibernated') or [])}, exemption={(state.get('exemptions') or {}).get(tab)})")
     if tab not in (state.get("hibernated") or []):
         check(title(tab) == "audio running", f"{name}: its audio still runs ({title(tab)})")

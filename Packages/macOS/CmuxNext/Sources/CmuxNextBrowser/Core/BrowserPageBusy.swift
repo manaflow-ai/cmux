@@ -11,18 +11,31 @@ import Foundation
 /// frame tells its parent what it and its own children use, again when that changes, so the
 /// top document answers for the tab. A page can see and replace the wrappers, which only
 /// changes whether its own tab hibernates.
-public nonisolated enum BrowserPageBusy {
+public nonisolated struct BrowserPageBusy: Equatable, Sendable {
+    /// A running Web Audio context in the tab's frames.
+    public var audio: Bool
+    /// A live camera, microphone or screen capture track in the tab's frames.
+    public var capturing: Bool
+
+    public init(audio: Bool = false, capturing: Bool = false) {
+        self.audio = audio
+        self.capturing = capturing
+    }
+
     static let recorderScript = #"""
     (() => {
       const key = Symbol.for('cmux.pageBusy');
       if (window[key]) return;
+      // Contexts weakly: a page that makes one per sound and never closes them keeps none alive.
       const contexts = new Set(), streams = new Set(), children = new Map();
       const live = (stream) => stream.getTracks().some((t) => t.readyState === 'live');
       const busy = () => {
-        const state = {
-          audio: Array.from(contexts).some((c) => c.state === 'running'),
-          capturing: Array.from(streams).some(live),
-        };
+        const state = { audio: false, capturing: Array.from(streams).some(live) };
+        for (const ref of contexts) {
+          const context = ref.deref();
+          if (!context || context.state === 'closed') { contexts.delete(ref); continue; }
+          state.audio = state.audio || context.state === 'running';
+        }
         for (const [frame, child] of children) {
           if (frame.closed) { children.delete(frame); continue; }
           state.audio = state.audio || child.audio;
@@ -31,24 +44,26 @@ public nonisolated enum BrowserPageBusy {
         return state;
       };
       let told = '';
-      const tell = () => {
-        if (window === parent) return;
-        const state = busy(), text = JSON.stringify(state);
-        if (text === told) return;
-        told = text;
+      const post = (state) => {
+        told = JSON.stringify(state);
         try { parent.postMessage({ cmuxPageBusy: state }, '*'); } catch (_) {}
       };
+      const tell = () => {
+        if (window === parent) return;
+        const state = busy();
+        if (JSON.stringify(state) !== told) post(state);
+      };
+      // Wrappers as proxies keep the originals' name, length and native toString.
+      const wrap = (owner, name, handler) => {
+        const original = owner ? owner[name] : null;
+        if (typeof original === 'function') owner[name] = new Proxy(original, handler);
+      };
       for (const name of ['AudioContext', 'webkitAudioContext']) {
-        const original = window[name];
-        if (typeof original !== 'function') continue;
-        window[name] = new Proxy(original, {
+        wrap(window, name, {
           construct(target, args, newTarget) {
             const context = Reflect.construct(target, args, newTarget);
-            contexts.add(context);
-            context.addEventListener('statechange', () => {
-              if (context.state === 'closed') contexts.delete(context);
-              tell();
-            });
+            contexts.add(new WeakRef(context));
+            context.addEventListener('statechange', tell);
             tell();
             return context;
           },
@@ -56,29 +71,28 @@ public nonisolated enum BrowserPageBusy {
       }
       const devices = typeof MediaDevices === 'function' ? MediaDevices.prototype : null;
       for (const name of ['getDisplayMedia', 'getUserMedia']) {
-        const original = devices ? devices[name] : null;
-        if (typeof original !== 'function') continue;
-        devices[name] = function (...args) {
-          return original.apply(this, args).then((stream) => {
-            streams.add(stream);
-            for (const track of stream.getTracks()) {
-              track.addEventListener('ended', () => { if (!live(stream)) streams.delete(stream); tell(); });
-            }
-            tell();
-            return stream;
-          });
-        };
+        wrap(devices, name, {
+          apply(target, self, args) {
+            return Reflect.apply(target, self, args).then((stream) => {
+              streams.add(stream);
+              for (const track of stream.getTracks()) {
+                track.addEventListener('ended', () => { if (!live(stream)) streams.delete(stream); tell(); });
+              }
+              tell();
+              return stream;
+            });
+          },
+        });
       }
       // A track the page stops fires no 'ended'.
-      if (typeof MediaStreamTrack === 'function') {
-        const stop = MediaStreamTrack.prototype.stop;
-        MediaStreamTrack.prototype.stop = function (...args) {
-          const result = stop.apply(this, args);
+      wrap(typeof MediaStreamTrack === 'function' ? MediaStreamTrack.prototype : null, 'stop', {
+        apply(target, self, args) {
+          const result = Reflect.apply(target, self, args);
           for (const stream of streams) { if (!live(stream)) streams.delete(stream); }
           tell();
           return result;
-        };
-      }
+        },
+      });
       addEventListener('message', (event) => {
         const data = event.data, from = event.source;
         if (!data || typeof data.cmuxPageBusy !== 'object' || !from) return;
@@ -88,6 +102,12 @@ public nonisolated enum BrowserPageBusy {
         children.set(from, { audio: data.cmuxPageBusy.audio === true, capturing: data.cmuxPageBusy.capturing === true });
         tell();
       });
+      // A frame that navigates keeps its window: its new document reports at once, and the
+      // old one clears its report when it goes.
+      if (window !== parent) {
+        post(busy());
+        addEventListener('pagehide', () => post({ audio: false, capturing: false }));
+      }
       Object.defineProperty(window, key, { value: busy });
     })();
     """#
@@ -95,28 +115,16 @@ public nonisolated enum BrowserPageBusy {
     /// The probe's question, in the page's world: `{"audio": Bool, "capturing": Bool}` as JSON,
     /// `{}` when the recorder is missing (a page loaded before it was installed).
     static let probeScript = "(() => { const f = window[Symbol.for('cmux.pageBusy')]; return JSON.stringify(f ? f() : {}); })()"
-
-    /// A running Web Audio context, and a live camera, microphone or screen capture, in the
-    /// tab's frames.
-    public struct Report: Equatable, Sendable {
-        public var audio: Bool
-        public var capturing: Bool
-
-        public init(audio: Bool = false, capturing: Bool = false) {
-            self.audio = audio
-            self.capturing = capturing
-        }
-    }
 }
 
 extension BrowserTab {
     /// Asks the page's recorder (`BrowserPageBusy`). Throws when the page does not answer.
-    public func pageBusy() async throws -> BrowserPageBusy.Report {
+    public func pageBusy() async throws -> BrowserPageBusy {
         let value = try await evaluate(BrowserPageBusy.probeScript, world: .page)
         guard case .string(let json) = value, let data = json.data(using: .utf8),
               let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw CocoaError(.coderReadCorrupt)
         }
-        return BrowserPageBusy.Report(audio: object["audio"] as? Bool ?? false, capturing: object["capturing"] as? Bool ?? false)
+        return BrowserPageBusy(audio: object["audio"] as? Bool ?? false, capturing: object["capturing"] as? Bool ?? false)
     }
 }

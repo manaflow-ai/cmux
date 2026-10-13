@@ -24,6 +24,8 @@ struct HibernationPlanner {
         case disabled, excluded, pinned, devTools = "devtools", capturing, unsupported
         /// Found by the probe right before hibernating.
         case audio, formInput = "form_input"
+        /// A running Web Audio context; not under critical memory pressure.
+        case webAudio = "web_audio"
     }
 
     struct Plan: Equatable {
