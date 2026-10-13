@@ -11,28 +11,28 @@ import WebKit
 /// set up while the windows build, which the first agent page takes: a
 /// page in a new process waited for that process's setup, which needs main
 /// thread turns the launch does not give it until about 450 ms (bd cx-z9kz0).
-public enum AgentPaneWarmup {
-    private static var view: WKWebView?
+extension AgentPaneView {
+    private static var warmupView: WKWebView?
     /// The in-memory data store every agent page shares. WebKit gives each store its own web
     /// processes, so a fresh store per page could not use the one started here. Storage the
     /// page keys per chat (drafts) stays per chat; the rest is app-wide choices.
-    static let dataStore = WKWebsiteDataStore.nonPersistent()
+    static let sharedDataStore = WKWebsiteDataStore.nonPersistent()
 
-    public static func start() {
-        guard view == nil else { return }
+    public static func startWarmup() {
+        guard warmupView == nil else { return }
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = dataStore
-        configuration.processPool = AgentPaneView.processPool
+        configuration.websiteDataStore = sharedDataStore
+        configuration.processPool = processPool
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.loadHTMLString("<!doctype html><title></title>", baseURL: nil)
-        self.view = view
+        warmupView = view
         // WebKit's prewarmed process (`-[WKProcessPool _warmInitialProcess]`), checked first: macOS
         // has no public call for it; without it the first page starts its own process.
         let prewarm = NSSelectorFromString("_warmInitialProcess") // crash-allow: performed only when the pool responds to it
-        if AgentPaneView.processPool.responds(to: prewarm) { _ = AgentPaneView.processPool.perform(prewarm) }
+        if processPool.responds(to: prewarm) { _ = processPool.perform(prewarm) }
     }
 
-    public static func finish() {
-        view = nil
+    public static func finishWarmup() {
+        warmupView = nil
     }
 }

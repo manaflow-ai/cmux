@@ -72,8 +72,12 @@ struct BookmarkManagerView: View {
     private func folderRow(_ choice: BookmarkFolderChoice) -> some View {
         let selected = !model.isSearching && model.folder == choice.id
         return HStack(spacing: Metrics.space3) {
-            Icon(choice.depth == 0 ? (choice.id == BookmarkRoot.bar.rawValue ? .bookmarksBar : .bookmarksOther) : .folder, size: 13)
-                .foregroundStyle(colors.secondary)
+            if choice.depth > 0, let node = model.tree.node(choice.id) {
+                BookmarkNodeIcon(node: node, source: model.source, color: colors.secondary)
+            } else {
+                Icon(choice.depth == 0 ? (choice.id == BookmarkRoot.bar.rawValue ? .bookmarksBar : .bookmarksOther) : .folder, size: 13)
+                    .foregroundStyle(colors.secondary)
+            }
             Text(choice.title).lineLimit(1)
             Spacer(minLength: 0)
         }
@@ -96,6 +100,7 @@ struct BookmarkManagerView: View {
                     model.source?.openAll(in: node.id)
                 }
                 Button(BookmarkStrings.rename) { model.startEdit(node) }
+                BookmarkFolderIconMenuItems(node: node, source: model.source)
                 Button(BookmarkStrings.delete, role: .destructive) { model.delete([node.id]) }
             } else {
                 Button(BookmarkStrings.addFolder) {
