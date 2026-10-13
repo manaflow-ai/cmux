@@ -18,6 +18,17 @@ Bead: cx-y79zh (P1). Base read: origin/feat-cmux-next at bc24e6885fff.
 S1 landed on feat-cmux-next: `UsageMeterDO.settleCall` (`backend/apps/api/src/usage-user.ts`) writes
 the call's fact and every counter in one transaction, on the charged path too; the proof is
 `backend/apps/api/test/inference-spend-facts.test.ts` at the route.
+
+Support note (S1 behavior change): the team cap now counts charged failures (the provider may have
+billed, so the full reservation is charged) and expired reservations (a call that never settled is
+charged at its reserved amount, and corrected if the real cost arrives later). Before S1 the team cap
+missed both. A team near its cap can therefore stop a little earlier than before; support can explain
+it that way: "calls that failed after the provider may have charged us count toward the cap".
+
+S0 landed on main as 370c51e40177 (PR 20210): web reads the plan item (`planItem`, never a metered
+item) for seats, plan, price, period and the MRR SQL. Read-only check on cmux-prod main (reader role,
+replica, 2026-10-13): 781 subscription rows, 0 rows with more than one item, 0 rows where the old and
+new item rule differ, the same unit-amount sum before and after.
 Pattern: https://blog.exe.dev/billable-facts ("Stripe just wants a number"): product code records
 facts; a reconcile worker computes the number and pushes it to Stripe. The post does not cover
 idempotency, meters, corrections or failure handling; those parts below are ours.
