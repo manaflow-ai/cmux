@@ -70,4 +70,47 @@ import Testing
         #expect(steps.allSatisfy { $0 < -40 && $0 > -60 })
         #expect(fill.lead == 0)
     }
+
+    /// Rows drawn past their frames leave a strip at the edge the content
+    /// comes in from (only rows inside the bounds have cells), so a skipped
+    /// frame is drawn at most `maximumLead` ahead.
+    @Test func theLeadIsBoundedOnHardFlings() {
+        var fill = ConversationDecelerationFill()
+        _ = fill.update(offset: 5000, duration: 1.0 / 120, decelerating: true, range: 0...10000)
+        _ = fill.update(offset: 4900, duration: 1.0 / 120, decelerating: true, range: 0...10000)
+        let lead = fill.update(offset: 4900, duration: 1.0 / 120, decelerating: true, range: 0...10000)
+        #expect(lead == -ConversationDecelerationFill.maximumLead)
+    }
+
+    /// Near an edge UIKit bounces instead of carrying on, so nothing is
+    /// predicted within a step of the scrollable range's ends (or past them).
+    @Test func nothingIsPredictedIntoAnEdge() {
+        var fill = ConversationDecelerationFill()
+        _ = fill.update(offset: 60, duration: 1.0 / 60, decelerating: true, range: 0...10000)
+        _ = fill.update(offset: 36, duration: 1.0 / 60, decelerating: true, range: 0...10000)
+        let lead = fill.update(offset: 36, duration: 1.0 / 60, decelerating: true, range: 0...10000)
+        #expect(lead == 0)
+    }
+
+    /// When the motion turns (a bounce), a lead is absorbed, not dropped in
+    /// one frame.
+    @Test func aTurnAbsorbsTheLeadGradually() {
+        var fill = ConversationDecelerationFill()
+        var drawn: [CGFloat] = []
+        for offset in [CGFloat(1000), 976, 976, 990, 1004] {
+            drawn.append(offset + fill.update(offset: offset, duration: 1.0 / 60, decelerating: true, range: 0...10000))
+        }
+        let steps = zip(drawn, drawn.dropFirst()).map { $1 - $0 }
+        #expect(steps.allSatisfy { abs($0) <= 24 })
+    }
+
+    /// An offset write the transcript did not report (a jump to the newest
+    /// message) is not a fling: speeds past any fling's are not predicted.
+    @Test func anImplausibleSpeedIsNotPredicted() {
+        var fill = ConversationDecelerationFill()
+        _ = fill.update(offset: 1000, duration: 1.0 / 120, decelerating: true, range: 0...100000)
+        _ = fill.update(offset: 9000, duration: 1.0 / 120, decelerating: true, range: 0...100000)
+        let lead = fill.update(offset: 9000, duration: 1.0 / 120, decelerating: true, range: 0...100000)
+        #expect(lead == 0)
+    }
 }
