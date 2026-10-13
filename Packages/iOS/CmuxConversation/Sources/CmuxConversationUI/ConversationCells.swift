@@ -350,7 +350,7 @@ final class MessageCell: UICollectionViewCell {
         }
 
         configureAudio(model: model, layout: layout)
-        timeLabel.text = message.sentAt.formatted(date: .omitted, time: .shortened)
+        timeLabel.text = ConversationShortTime.text(for: message.sentAt)
         setNeedsLayout()
         applyShifts()
         accessibility.update(model: model, layout: layout)
@@ -732,7 +732,7 @@ final class TimestampCell: UICollectionViewCell {
 
     static func text(for date: Date, now: Date = Date()) -> NSAttributedString {
         let calendar = Calendar.current
-        let time = date.formatted(date: .omitted, time: .shortened)
+        let time = ConversationShortTime.text(for: date)
         let day: String
         // Older than a week, Messages joins the date and time with "at"
         // ("Thu, Sep 24 at 7:18 PM"; device recording, iOS 26).

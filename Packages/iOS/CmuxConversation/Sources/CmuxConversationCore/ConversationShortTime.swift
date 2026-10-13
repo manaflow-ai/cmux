@@ -23,7 +23,13 @@ public struct ConversationShortTimeCache {
 
     /// `date` as `format` writes it.
     public mutating func text(for date: Date) -> String {
-        format(date)
+        guard date >= Self.wholeMinuteOffsetsSince else { return format(date) }
+        let minute = Int((date.timeIntervalSinceReferenceDate / 60).rounded(.down))
+        if let text = texts[minute] { return text }
+        if texts.count >= Self.capacity { texts.removeAll() }
+        let text = format(date)
+        texts[minute] = text
+        return text
     }
 
     /// Forgets every time (the locale, time zone or clock format changed).
