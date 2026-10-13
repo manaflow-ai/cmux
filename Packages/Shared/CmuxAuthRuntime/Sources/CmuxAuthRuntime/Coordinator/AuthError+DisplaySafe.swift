@@ -79,6 +79,17 @@ extension AuthError {
         self = .serverError(0, "auth_failed")
     }
 
+    /// What failed, for the auth log: the Stack error code, or the error's type, domain and
+    /// code. Never the server's message, which can carry account details.
+    /// - Parameter error: The raw error from a sign-in/session call.
+    public static func diagnostic(for error: any Error) -> String {
+        if let stackError = error as? any StackAuthErrorProtocol {
+            return "stack_error=\(stackError.code) type=\(type(of: error))"
+        }
+        let nsError = error as NSError
+        return "type=\(type(of: error)) domain=\(nsError.domain) nsCode=\(nsError.code)"
+    }
+
     /// How the coordinator should recover when validating a cached session
     /// fails with this error: only a hard ``AuthError/unauthorized`` clears
     /// the cached session; transient failures preserve it so a flaky network

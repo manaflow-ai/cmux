@@ -486,6 +486,9 @@ public final class AuthCoordinator {
         do {
             try await completeSignIn(flow: flow)
         } catch {
+            // The display error can hide the cause (serverError(0, "auth_failed") for any
+            // unlisted Stack code), so the next repro's log names it.
+            log.log("auth.externalSignIn validation failed: \(AuthError.diagnostic(for: error))")
             throw AuthError(displaySafe: error) ?? error
         }
     }
