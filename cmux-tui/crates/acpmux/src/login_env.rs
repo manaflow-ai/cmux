@@ -54,7 +54,7 @@ fn run_marker() -> String {
         Sha256::digest(seed.as_bytes()).iter().take(8).map(|b| format!("{b:02x}")).collect();
     format!("{MARKER}{hex}")
 }
-const CACHE_VERSION: u32 = 1;
+const CACHE_VERSION: u32 = 2;
 
 #[derive(Debug, Default, Clone)]
 struct Imported {
@@ -145,7 +145,9 @@ pub fn begin() -> Plan {
         return Plan { run_shell: true, wait: true };
     };
     let stale = cache.saved_at.is_none_or(|t| now_secs().saturating_sub(t) > MAX_AGE.as_secs());
-    st.imported = Some(build(for_children(cache.vars.into_iter().collect()), cache.path));
+    // Only names the current rule keeps (an older cache may hold more).
+    let vars = cache.vars.into_iter().filter(|(k, v)| storable(k, v)).collect();
+    st.imported = Some(build(for_children(vars), cache.path));
     st.outcome = Outcome::Cached;
     st.secret_names = cache.secret_names.clone();
     drop(st);
@@ -395,10 +397,11 @@ pub fn set_extra_allow(names: Vec<String>) {
     *EXTRA_ALLOW.write().unwrap_or_else(|e| e.into_inner()) = names;
 }
 
-fn truthy(key: &str) -> bool {
-    // A daemon inside a Claude Code session: that session's switch is not the person's.
+fn truthy(key: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
+    // The profile's own switch first; a daemon inside a Claude Code session:
+    // that session's switch is not the person's.
     let own = std::env::var(key).ok().filter(|_| daemon_has(key));
-    let v = own.or_else(|| var(key));
+    let v = profile.and_then(|p| p.get(key).cloned()).or(own).or_else(|| var(key));
     v.is_some_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
 }
 
@@ -416,6 +419,17 @@ fn truthy(key: &str) -> bool {
 ///   CLOUDSDK_*, GCLOUD_* only when CLAUDE_CODE_USE_VERTEX is set.
 /// - Codex: OPENAI_*, CODEX_*.
 pub fn allowed(key: &str, value: &str, family: Option<&str>) -> bool {
+    allowed_with(key, value, family, None)
+}
+
+/// `allowed`, with the harness profile's env deciding the Bedrock and
+/// Vertex conditions too.
+pub fn allowed_with(
+    key: &str,
+    value: &str,
+    family: Option<&str>,
+    profile: Option<&BTreeMap<String, String>>,
+) -> bool {
     const COMMON_PREFIXES: [&str; 5] = ["MISE_", "ASDF_", "NVM_", "VOLTA_", "DIRENV_"];
     const COMMON: [&str; 12] = [
         "PATH",
@@ -448,11 +462,11 @@ pub fn allowed(key: &str, value: &str, family: Option<&str>) -> bool {
                 || key.starts_with("CLAUDE_")
                 || key.starts_with("DISABLE_")
                 || key.ends_with("_TELEMETRY")
-                || (key.starts_with("AWS_") && truthy("CLAUDE_CODE_USE_BEDROCK"))
+                || (key.starts_with("AWS_") && truthy("CLAUDE_CODE_USE_BEDROCK", profile))
                 || ((key.starts_with("GOOGLE_")
                     || key.starts_with("CLOUDSDK_")
                     || key.starts_with("GCLOUD_"))
-                    && truthy("CLAUDE_CODE_USE_VERTEX"))
+                    && truthy("CLAUDE_CODE_USE_VERTEX", profile))
         }
         Some("codex") => key.starts_with("OPENAI_") || key.starts_with("CODEX_"),
         _ => false,
@@ -493,8 +507,11 @@ pub fn allowed_var(key: &str) -> Option<String> {
         .then_some(v)
 }
 
-fn pairs_for(family: Option<&str>) -> Vec<(String, String)> {
-    pairs().into_iter().filter(|(k, v)| allowed(k, v, family)).collect()
+fn pairs_for(
+    family: Option<&str>,
+    profile: Option<&BTreeMap<String, String>>,
+) -> Vec<(String, String)> {
+    pairs().into_iter().filter(|(k, v)| allowed_with(k, v, family, profile)).collect()
 }
 
 /// Login values of the keys `config::scrub_nested_claude_env` removes (a
@@ -515,17 +532,31 @@ pub(crate) fn nested_overrides(family: Option<&str>) -> Vec<(String, String)> {
 /// Apply the allow-listed login environment every child gets (PATH,
 /// version managers, proxies, CA) to a command.
 pub fn apply_std(cmd: &mut std::process::Command) {
-    cmd.envs(pairs_for(None));
+    cmd.envs(pairs_for(None, None));
 }
 
 /// Same, for tokio's process builder.
 pub fn apply_tokio(cmd: &mut tokio::process::Command) {
-    cmd.envs(pairs_for(None));
+    cmd.envs(pairs_for(None, None));
 }
 
 /// The allow-listed login environment for a harness of `family`.
-pub fn apply_tokio_for(cmd: &mut tokio::process::Command, family: Option<&str>) {
-    cmd.envs(pairs_for(family));
+/// `profile` is the harness profile's own env (its Bedrock/Vertex switch).
+pub fn apply_tokio_for(
+    cmd: &mut tokio::process::Command,
+    family: Option<&str>,
+    profile: Option<&BTreeMap<String, String>>,
+) {
+    cmd.envs(pairs_for(family, profile));
+}
+
+/// Same, for std's process builder.
+pub fn apply_std_for(
+    cmd: &mut std::process::Command,
+    family: Option<&str>,
+    profile: Option<&BTreeMap<String, String>>,
+) {
+    cmd.envs(pairs_for(family, profile));
 }
 
 /// Parse `env -0` output: (variables worth importing, the login PATH).
@@ -713,6 +744,10 @@ fn fingerprint() -> String {
     files.push(PathBuf::from(&shell));
     let mut hash = Sha256::new();
     hash.update(shell.as_bytes());
+    // A changed loginEnvAllow is a changed rule: read the shell again.
+    let mut extra = EXTRA_ALLOW.read().unwrap_or_else(|e| e.into_inner()).clone();
+    extra.sort();
+    hash.update(format!("allow:{};", extra.join(",")).as_bytes());
     for f in files {
         hash.update(f.as_os_str().as_encoded_bytes());
         match std::fs::metadata(&f) {

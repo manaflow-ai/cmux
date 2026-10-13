@@ -108,7 +108,7 @@ impl Probe {
             Cli::Claude => "claude",
             Cli::Codex => "codex",
         };
-        crate::login_env::apply_tokio_for(&mut cmd, Some(family));
+        crate::login_env::apply_tokio_for(&mut cmd, Some(family), Some(env));
         crate::config::scrub_nested_claude_env_tokio_for(&mut cmd, Some(family));
         cmd.args(rest)
             .args(match cli {

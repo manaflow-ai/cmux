@@ -819,10 +819,15 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
 /// without them, `login_env.rs`), are put back: the child signs in the way
 /// the person's terminal does.
 pub fn scrub_nested_claude_env(cmd: &mut std::process::Command) {
+    scrub_nested_claude_env_for(cmd, None);
+}
+
+/// Same, for a harness of `family` (its allow-list's login values go back).
+pub fn scrub_nested_claude_env_for(cmd: &mut std::process::Command, family: Option<&str>) {
     for k in nested_claude_keys() {
         cmd.env_remove(k);
     }
-    cmd.envs(crate::login_env::nested_overrides(None));
+    cmd.envs(crate::login_env::nested_overrides(family));
     cmd.env_remove(LAUNCH_CREDENTIAL_ENV);
 }
 
