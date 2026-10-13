@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextHome
+@testable import CmuxNextHomeEngine
 @testable import CmuxNextRemoteBrowser
 @testable import CmuxNextTerminal
 import Testing

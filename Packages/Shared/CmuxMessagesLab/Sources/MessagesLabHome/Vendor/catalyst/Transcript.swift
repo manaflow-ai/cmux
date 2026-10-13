@@ -464,6 +464,8 @@ final class RowCell: UICollectionViewCell {
     let fillContainer = CALayer()
     let fillGradient = CAGradientLayer()
     let fillMask = CAShapeLayer()
+    /// The fill's mask for an outgoing text balloon on macOS 27: Messages' soft edge (SoftBalloon), else `fillMask`.
+    let fillMaskImage = CALayer()
     let bitmap = CALayer()
     let connector = CAShapeLayer()
     /// The connector's vertical stroke: its bottom moves with this cell, its top with the arc.
@@ -556,11 +558,12 @@ final class RowCell: UICollectionViewCell {
         contentView.clipsToBounds = false
         let noActions: [String: CAAction] = ["contents": NSNull(), "bounds": NSNull(), "position": NSNull(), "path": NSNull(),
                                              "hidden": NSNull(), "opacity": NSNull(), "strokeEnd": NSNull(), "transform": NSNull()]
-        for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
+        for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
             l.actions = noActions
             l.contentsScale = Fixture.renderScale
         }
         typingBody.actions = noActions.merging(["fillColor": NSNull()]) { a, _ in a }
+        fillMaskImage.actions = noActions.merging(["contentsCenter": NSNull()]) { a, _ in a }
         typingBody.frame = RowDraw.typingBubble
         typingClip.actions = noActions
         typingClip.masksToBounds = true
@@ -672,7 +675,7 @@ final class RowCell: UICollectionViewCell {
             palette = Fixture.paletteGeneration
             CATransaction.begin(); CATransaction.setDisableActions(true)
             // A scale change: every layer this cell owns follows the screen.
-            for l in [fillContainer, fillGradient, fillMask, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
+            for l in [fillContainer, fillGradient, fillMask, fillMaskImage, bitmap, connector, connectorLine, typingContainer, typingClip, typingBody, receiptOld] {
                 l.contentsScale = Fixture.renderScale
             }
             // The breathing body's clip rounds to the screen's device pixels: a running clip starts again on the new
@@ -1088,8 +1091,16 @@ final class RowCell: UICollectionViewCell {
         fillContainer.isHidden = false
         let frame = RowDraw.bodyRect(spec), body = RowDraw.balloon(frame, row: p)
         fillContainer.frame = CGRect(x: 0, y: 0, width: spec.width, height: spec.height + 2 * RowDraw.margin)
-        fillMask.frame = body
-        fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail, cornersOf: frame.size)
+        if let m = SoftBalloon.mask(frame: frame, row: p) {
+            fillMaskImage.contents = m.image
+            fillMaskImage.contentsCenter = m.center
+            fillMaskImage.frame = m.frame
+            if fillContainer.mask !== fillMaskImage { fillContainer.mask = fillMaskImage }
+        } else {
+            fillMask.frame = body
+            fillMask.path = BubblePath.cached(size: body.size, outgoing: true, tail: p.tail, cornersOf: frame.size)
+            if fillContainer.mask !== fillMask { fillContainer.mask = fillMask }
+        }
         placeFillGradient(width: spec.width)
     }
 

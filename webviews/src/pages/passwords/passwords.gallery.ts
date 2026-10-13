@@ -24,7 +24,7 @@ const data: MockData = {
     { id: "default", name: "Personal" },
     { id: "work", name: "Atlas research and development" },
   ],
-  sections: { passwords: true, passkeys: true, exceptions: true, export: true },
+  sections: { passwords: true, passkeys: true, exceptions: true, export: true, browserImport: true },
   passwords: {
     default: [
       password("atlas", "atlas.example.test", "sample-user"),
