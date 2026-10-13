@@ -21566,7 +21566,7 @@ struct CMUXCLI {
                    cmux hooks feed --source <agent> [--event <event>]
 
             Manage and run cmux agent hooks without adding one top-level command per
-            agent. Claude Code and Pi hooks are injected automatically by their cmux wrappers.
+            agent. Antigravity, Claude Code, Grok, Muse, and Pi hooks are injected automatically by their cmux wrappers.
 
             Agents:
               codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, muse
@@ -45355,7 +45355,7 @@ export default {
         let fm = FileManager.default
         let verb = isUninstall ? "uninstalling" : "installing"
         print("cmux hooks \(isUninstall ? "uninstall" : "setup"): \(verb) agent hooks")
-        if !isUninstall { print(String(localized: "cli.hooks.setup.wrapperNote", defaultValue: "  (Claude Code and Pi hooks are injected automatically via their cmux wrappers)")) }
+        if !isUninstall { print(String(localized: "cli.hooks.setup.wrapperNote", defaultValue: "  (Antigravity, Claude Code, Grok, Muse, and Pi hooks are injected automatically via cmux wrappers)")) }
         print("")
         var count = 0
         var skipped = 0
