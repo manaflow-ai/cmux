@@ -131,7 +131,7 @@ export function InstanceBar({ daemon, strings }: { daemon: DaemonSocket; strings
         disabled={busy}
         onClick={() => {
           setBusy(true);
-          void daemon
+          daemon
             .request("new-workspace", {})
             .then(refresh)
             .finally(() => setBusy(false));
