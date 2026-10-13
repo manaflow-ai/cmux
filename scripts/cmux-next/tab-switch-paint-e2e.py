@@ -189,13 +189,14 @@ def main():
             failures.append(f"{step['label']}: {step['content_intermediate']} intermediate frames")
         if step["desync"]:
             failures.append(f"{step['label']}: {step['desync']} frames with the strip and the content on different tabs")
+    measured = [s for s in steps if "error" not in s]
     for phase in ("pane", "sidebar", "close", "newtab"):
-        settled = [s["settled_ms"] for s in steps if s["label"].startswith(phase) and s.get("settled_ms") is not None]
+        steps_in = [s for s in measured if s["label"].startswith(phase)]
+        settled = [s["settled_ms"] for s in steps_in if s.get("settled_ms") is not None]
         if settled:
             print(f"{phase:8} settled p50 {statistics.median(settled):.0f} ms max {max(settled):.0f} ms  "
-                  f"blank {sum(s['blank'] for s in steps if s['label'].startswith(phase))}  "
-                  f"intermediate {sum(s['content_intermediate'] for s in steps if s['label'].startswith(phase))}  "
-                  f"desync {sum(s['desync'] for s in steps if s['label'].startswith(phase))}  ({len(settled)} steps)")
+                  f"blank {sum(s['blank'] for s in steps_in)}  intermediate {sum(s['content_intermediate'] for s in steps_in)}  "
+                  f"desync {sum(s['desync'] for s in steps_in)}  ({len(settled)} steps)")
     if opts.json:
         with open(opts.json, "w") as file:
             json.dump(steps, file, indent=1)

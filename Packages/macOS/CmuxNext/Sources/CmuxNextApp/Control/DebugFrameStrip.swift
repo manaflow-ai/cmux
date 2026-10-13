@@ -82,20 +82,20 @@ enum DebugFrameStrip {
         var rows: [JSONValue] = []
         var intermediate = 0, blank = 0, contentIntermediate = 0, desync = 0
         var settledAt: Double?, firstChange: Double?
-        for (index, frame) in frames.enumerated() where frame.milliseconds >= before.milliseconds {
-            let outsideBefore = difference(frame, before, excluding: content)
-            let outsideFinal = difference(frame, last, excluding: content)
+        let start = frames.firstIndex { $0.milliseconds >= before.milliseconds } ?? frames.endIndex
+        // Off the main actor: six comparisons a frame stalled it past the watchdog in a Debug build.
+        let measures = await measure(Array(frames[start...]), before: before, last: last, content: content, strip: strip)
+        for (offset, m) in measures.enumerated() {
+            let index = start + offset, frame = frames[index]
+            let (outsideBefore, outsideFinal) = (m.outsideBefore, m.outsideFinal)
             let isIntermediate = outsideBefore > tolerance && outsideFinal > tolerance
-            let insideBefore = content.map { difference(frame, before, excluding: strip, within: $0) } ?? 0
-            let insideFinal = content.map { difference(frame, last, excluding: strip, within: $0) } ?? 0
-            let stripBefore = strip.map { difference(frame, before, within: $0) } ?? 0
-            let stripFinal = strip.map { difference(frame, last, within: $0) } ?? 0
+            let (insideBefore, insideFinal, stripBefore, stripFinal) = (m.insideBefore, m.insideFinal, m.stripBefore, m.stripFinal)
             // One of the strip and the content at the new tab, the other still at the old one (L4).
             let isDesync = strip != nil
                 && ((stripFinal <= tolerance && stripBefore > tolerance && insideBefore <= tolerance && insideFinal > tolerance)
                     || (insideFinal <= tolerance && insideBefore > tolerance && stripBefore <= tolerance && stripFinal > tolerance))
             // Flat, and neither the content from before the key nor the settled one (an empty terminal is flat too).
-            let isBlank = content.map { flatness(frame, in: $0) > 0.995 && insideBefore > tolerance && insideFinal > tolerance } ?? false
+            let isBlank = content != nil && m.flatness > 0.995 && insideBefore > tolerance && insideFinal > tolerance
             if isIntermediate { intermediate += 1 }
             if isBlank { blank += 1 }
             if frame.milliseconds > sentAt {
@@ -121,6 +121,25 @@ enum DebugFrameStrip {
             "spans": .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) }),
             "mean_interval_ms": .number(frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0),
         ])
+    }
+
+    /// One frame's comparisons with the frame before the key and the last one.
+    nonisolated struct Measure: Sendable {
+        var outsideBefore: Double, outsideFinal: Double, insideBefore: Double, insideFinal: Double
+        var stripBefore: Double, stripFinal: Double, flatness: Double
+    }
+
+    @concurrent nonisolated static func measure(_ frames: [Frame], before: Frame, last: Frame,
+                                                content: CGRect?, strip: CGRect?) async -> [Measure] {
+        frames.map { frame in
+            Measure(outsideBefore: difference(frame, before, excluding: content),
+                    outsideFinal: difference(frame, last, excluding: content),
+                    insideBefore: content.map { difference(frame, before, excluding: strip, within: $0) } ?? 0,
+                    insideFinal: content.map { difference(frame, last, excluding: strip, within: $0) } ?? 0,
+                    stripBefore: strip.map { difference(frame, before, within: $0) } ?? 0,
+                    stripFinal: strip.map { difference(frame, last, within: $0) } ?? 0,
+                    flatness: content.map { flatness(frame, in: $0) } ?? 0)
+        }
     }
 
     /// The focused pane's content area in `frame` pixels (top-left origin), once the key opened its page;
