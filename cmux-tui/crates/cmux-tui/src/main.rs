@@ -1402,6 +1402,8 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--cloud-identity",
     "--ws",
     "--ws-token",
+    "--ws-allow-origin",
+    "--ws-allow-host",
     "--remote-ws",
     "--remote-http",
     "--remote-state-dir",
