@@ -74,6 +74,9 @@ parser.add_argument("--activate", action="store_true",
                     help="relaunch as a person's launch does (activating, without CMUX_NEXT_NO_ACTIVATE), so window order and focus follow real key windows")
 parser.add_argument("--hist-file", action="store_true",
                     help="serve the history pages as file:// pages (as a person opens a local .html), reporting to the local server")
+parser.add_argument("--engine", choices=["webkit", "chromium"],
+                    help="browser engine for the seeded pages: written to the capture slot's own settings file "
+                         "(CMUX_NEXT_CONFIG_FILE under the slot, never a shared one) and put back at the end")
 parser.add_argument("--allow-non-slot", action="store_true",
                     help="drive a tagged DEV build that is not in a capture slot (it closes rj-* workspaces, quits and relaunches it)")
 opts = parser.parse_args()
@@ -407,7 +410,20 @@ def restore_acpmux_config():
 REPORTS = {}  # page name -> latest {path, scrollY, at}
 SINCE = 0.0  # when the last quit started: reports older than this are stale
 SERVED = set()
+REPORT_LOG = []  # (page name, time) of every report: when each page first reported after a relaunch
+PAGE_LOADS = []  # (page name, time) of every page the server sent: a reopened page loads once
 LOCK = threading.Lock()
+
+
+def outside_image():
+    """A 1x1 PNG next to the local history pages' folder, not in it."""
+    path = os.path.join(opts.out, "outside", "dot.png")
+    if not os.path.exists(path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+                                  "0000000d49444154789c63f8cfc0f01f00050001ff89993d1d0000000049454e44ae426082"))
+    return path
 
 
 def page_html(name, base=""):
@@ -422,13 +438,18 @@ def page_html(name, base=""):
     nxt = {"hist-a": "hist-b", "hist-b": "hist-c"}.get(name)
     href = f"{nxt}.html" if opts.hist_file else f"/{nxt}"
     link = f"<a id='next' href='{href}'>next</a>" if nxt else ""
+    # A local history page also tries to show an image from outside its folder: a page loaded
+    # with access to its own folder cannot (`ext` 0), after a reopen too.
+    if opts.hist_file and name.startswith("hist"):
+        link += f"<img id='probe' src='file://{outside_image()}' style='width:1px;height:1px'>"
     # Both history pages report as one tab ("hist").
     tab = "hist" if name.startswith("hist") else name
     return f"""<!doctype html><html><head><title>rj {name}</title></head><body>
 <h1>rj {name}</h1>{link}{body}
 <script>
 function report(){{var p=location.pathname.replace(/^.*\\//,'/').replace(/\\.html$/,'');
-new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&t='+Date.now();}}
+var probe=document.getElementById('probe'),ext=probe?(probe.complete&&probe.naturalWidth>0?1:0):-1;
+new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&ext='+ext+'&t='+Date.now();}}
 {act}
 setInterval(report,1000); window.addEventListener('scroll',report); window.addEventListener('pageshow',report); report();
 </script></body></html>"""
@@ -443,11 +464,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if url.path == "/report":
             q = parse_qs(url.query)
             with LOCK:
+                REPORT_LOG.append((q.get("page", [""])[0], time.time()))
                 REPORTS[q.get("page", [""])[0]] = {"path": q.get("path", [""])[0], "scrollY": int(q.get("y", ["0"])[0]),
-                                                   "history": int(q.get("h", ["0"])[0]), "at": time.time()}
+                                                   "history": int(q.get("h", ["0"])[0]), "ext": int(q.get("ext", ["-1"])[0]),
+                                                   "at": time.time()}
             self.send_response(204)
             self.end_headers()
             return
+        with LOCK:
+            PAGE_LOADS.append((url.path.strip("/") or "index", time.time()))
         data = page_html(url.path.strip("/") or "index").encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html")
@@ -1045,8 +1070,12 @@ def back_walk(label):
             step = time.time()
             reply = rpc("debug.toast", {"perform": action_id, **target})
             ok = bool(wait(lambda: reached(path, step), 15, 0.3))
-            RESULTS.append((f"{label}: {action_id} reaches {path}", ok,
-                            f"performed {reply.get('performed') if isinstance(reply, dict) else reply}; at {hist().get('path')}", "browser"))
+            detail = f"performed {reply.get('performed') if isinstance(reply, dict) else reply}; at {hist().get('path')}"
+            if not ok:
+                status = rpc("debug.browser.page_status", {"tab": HIST["tab"]})
+                status = status if isinstance(status, dict) else {}
+                detail += f"; history_start {status.get('history_start')!r} ({time.time() - start:.1f} s after the focus), can_go_back {status.get('can_go_back')!r}"
+            RESULTS.append((f"{label}: {action_id} reaches {path}", ok, detail, "browser"))
             if not ok:
                 break
         if hist().get("path") != "/hist-c":
@@ -1060,6 +1089,40 @@ def back_walk(label):
                 wait(lambda: hist().get("path") == "/hist-c" and hist().get("at", 0) > start, 10, 0.3)
                 RESULTS.append((f"{label}: page put back on /hist-c by its address", False,
                                 "Forward could not return; the next variant's history length counts from here", "browser"))
+
+
+def load_rows(variant, launched):
+    """How long each page took to report after the relaunch (restore time per tab, compared
+    before and after a change), and that the reopened history page loaded once."""
+    with LOCK:
+        first = {}
+        for page, at in REPORT_LOG:
+            if at > launched and page not in first:
+                first[page] = at - launched
+        hist_loads = sum(1 for page, at in PAGE_LOADS if page == "hist-c" and at > launched)
+    timings = ", ".join(f"{page} {first[page]:.2f} s" for page in sorted(first))
+    say(f"  pages reported after the relaunch: {timings or 'none'}")
+    RESULTS.append((f"{variant}: pages report after the relaunch", bool(first), timings or "no page reported", "browser"))
+    if not opts.hist_file:
+        # WebKit's own restore may show the page from its cache (0 requests): still one load.
+        RESULTS.append((f"{variant}: page[hist] loads once after the reopen", "hist" in first and hist_loads <= 1,
+                        f"the server sent /hist-c {hist_loads} times", "browser"))
+    def page_status():
+        status = rpc("debug.browser.page_status", {"tab": HIST.get("tab")}) if HIST.get("tab") else {}
+        return status if isinstance(status, dict) else {}
+    status = page_status()
+    if HIST.get("tab") and status.get("error") == "no browser tab":
+        # A tab in a workspace not shown yet has no page until it is shown.
+        with visiting("rj-web"):
+            wait(lambda: page_status().get("history_start") not in (None, "", "engine-waiting-file"), 15, 0.3)
+            status = page_status()
+    RESULTS.append((f"{variant}: page[hist] reopens through the engine's own history", status.get("history_start") == "engine",
+                    f"history_start {status.get('history_start')!r}, engine_state_saved {status.get('engine_state_saved')!r}, "
+                    f"can_go_back {status.get('can_go_back')!r}" + ("" if "history_start" in status else f"; {json.dumps(status)[:160]}"), "browser"))
+    if opts.hist_file:
+        ext = (REPORTS.get("hist") or {}).get("ext")
+        RESULTS.append((f"{variant}: page[hist] cannot show a file outside its folder", ext == 0,
+                        f"probe {ext} (1 shown, 0 refused, -1 no probe)", "browser"))
 
 
 def journey(base):
@@ -1080,6 +1143,7 @@ def journey(base):
         if not APP.quit(variant):
             RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))
             return
+        launched = time.time()
         if not APP.relaunch():
             RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
             return
@@ -1091,12 +1155,52 @@ def journey(base):
         if isinstance(before.get("counter.tick_in_view"), int):
             wait(lambda: view_tick() > before["counter.tick_in_view"], 10, 0.5)
         compare(variant, before, snapshot(f"{variant}-after"))
+        load_rows(variant, launched)
         back_walk(f"{variant} after the reopen")
+
+
+ENGINE_CONFIG = {}  # the slot settings file --engine changed: {"path", "text"} to put back
+
+
+def use_engine(engine):
+    """Points browser.defaultEngine at `engine` in the slot's own settings file and waits for the
+    app to read it. Only a capture slot's file (its launch sets CMUX_NEXT_CONFIG_FILE and
+    CMUX_CAPTURE_SLOT): a mini's shared settings are never written."""
+    path = APP.env.get("CMUX_NEXT_CONFIG_FILE")
+    if not path or not APP.env.get("CMUX_CAPTURE_SLOT"):
+        sys.exit("--engine needs a capture slot's own settings file (CMUX_NEXT_CONFIG_FILE and CMUX_CAPTURE_SLOT)")
+    text = open(path).read() if os.path.exists(path) else None
+    ENGINE_CONFIG.update(path=path, text=text)
+    config = json.loads(text) if text and text.strip() else {}
+    config.setdefault("browser", {})["defaultEngine"] = engine
+    with open(path, "w") as f:
+        json.dump(config, f, indent=2)
+    read = lambda: (rpc("settings.get", {"path": "browser.defaultEngine"}) or {}).get("value") == engine
+    if not wait(read, 20, 0.5):
+        sys.exit(f"the app never read browser.defaultEngine {engine} from {path}")
+    say(f"  browser.defaultEngine {engine} in {path}")
+
+
+def restore_engine_config():
+    path = ENGINE_CONFIG.pop("path", None)
+    if not path:
+        return
+    text = ENGINE_CONFIG.pop("text", None)
+    if text is None:
+        os.unlink(path)
+    else:
+        with open(path, "w") as f:
+            f.write(text)
+
+
+atexit.register(restore_engine_config)
 
 
 def main():
     global APP
     APP = App()
+    if opts.engine:
+        use_engine(opts.engine)
     server, base = start_server()
     say(f"local pages at {base}; daemon {daemon_socket()}")
     try:
@@ -1105,6 +1209,7 @@ def main():
         RESULTS.append(("journey finished", False, f"stopped early: {stop.code}", "harness"))
     finally:
         restore_acpmux_config()
+        restore_engine_config()
         server.shutdown()
     width = max((len(r[0]) for r in RESULTS), default=10)
     print("\n" + "-" * (width + 40))
