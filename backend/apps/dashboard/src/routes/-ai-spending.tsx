@@ -56,6 +56,17 @@ export function useAiLimits(team: string | undefined) {
 
 type AiLimits = ReturnType<typeof useAiLimits>
 
+/**
+ * A member's name for the change history: the display name, with the user id when the name does not
+ * tell members apart (missing, the sign-in service's generic "Member", or shared by two members).
+ */
+export const memberLabel = (names: ReadonlyMap<string, string>, user: string): string => {
+  const name = names.get(user)?.trim()
+  if (!name) return user
+  const shared = [...names.values()].filter((n) => n.trim() === name).length > 1
+  return shared || name === "Member" ? `${name} (${user})` : name
+}
+
 const parseUsd = (raw: string): number | null => {
   const n = Number(raw.trim())
   return raw.trim() !== "" && Number.isFinite(n) && n >= 0 ? n : null
@@ -92,7 +103,7 @@ export function AiSpendingSection({ ai, names }: { readonly ai: AiLimits; readon
   }
   const value = draft ?? (v.is_default ? "" : String(v.default_usd))
   const parsed = parseUsd(value)
-  const who = (u: string) => names.get(u) ?? u
+  const who = (u: string) => memberLabel(names, u)
   const shown = (x: number | null | undefined) => (typeof x === "number" ? usd(locale, x) : aiLimitText(locale, "value.default"))
   return (
     <>
