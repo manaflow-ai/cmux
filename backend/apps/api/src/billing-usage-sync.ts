@@ -119,10 +119,13 @@ export const syncUsage = async (env: Env, only?: { readonly subscription?: strin
   const set = usagePriceSet(env)
   // Every usage price of every set is a usage item (never a plan item); the set in force picks the target.
   const allSets: UsagePriceSet[] = ["v1", "e2e"]
-  const priceList = await stripeFetch(key, "GET", `/v1/prices?active=true&limit=20&${allSets.flatMap((s) => USAGE_PLANS.map((p) => `lookup_keys[]=${encodeURIComponent(usagePriceLookupKey(p, s))}`)).join("&")}`)
+  // At most 10 lookup keys per request (Stripe): 2 sets x 4 plans.
+  const asked = new Set(allSets.flatMap((s) => USAGE_PLANS.map((p) => usagePriceLookupKey(p, s))))
+  const priceList = await stripeFetch(key, "GET", `/v1/prices?active=true&limit=20&${[...asked].map((k) => `lookup_keys[]=${encodeURIComponent(k)}`).join("&")}`)
   const priceOf = new Map<UsagePlan, string>()
   const usagePrices = new Set<string>()
   for (const p of priceList.data as Array<{ id: string; lookup_key: string }>) {
+    if (!asked.has(p.lookup_key)) continue
     usagePrices.add(p.id)
     for (const plan of USAGE_PLANS) if (p.lookup_key === usagePriceLookupKey(plan, set)) priceOf.set(plan, p.id)
   }
