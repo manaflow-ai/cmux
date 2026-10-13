@@ -29,7 +29,7 @@ struct SyntaxHighlighterTests {
     }
 
     @Test func pythonOneLineDocstringDoesNotCarry() {
-        let tokens = run([##"    """One line."""##, "    return None"], .python)
+        let tokens = run(["    \"\"\"One line.\"\"\"", "    return None"], .python)
         #expect(kinds(tokens[0]) == [.string])
         #expect(kinds(tokens[1]) == [.keyword, .keyword])
     }
