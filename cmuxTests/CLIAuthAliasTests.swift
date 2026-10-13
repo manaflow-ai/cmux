@@ -888,7 +888,10 @@ struct CLICoderouterAliasTests {
         try writeExecutable(
             """
             #!/bin/sh
-            if (: <&0) 2>/dev/null; then
+            # With descriptor 0 closed, sh opens this script on it, so a plain
+            # `<&0` probe always succeeds. Stdin is open only when descriptor 0
+            # exists and is not this script.
+            if [ -e /dev/fd/0 ] && ! [ /dev/fd/0 -ef "$0" ]; then
               printf 'stdin-open\\n'
               exit 91
             fi
