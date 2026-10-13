@@ -39,6 +39,9 @@ public final class ConversationViewController: UIViewController {
     let layout = ConversationTranscriptLayout()
     private(set) lazy var collectionView = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
     let header = ConversationHeaderView()
+    /// The header's bottom: 92 pt below the safe top, or the compact bar's
+    /// bottom in landscape.
+    private lazy var headerBottom = header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight)
     let topEdgeFade = ConversationTopEdgeFade()
     /// The conversation background, behind the transcript (see +Background).
     let backdropView = ConversationBackdropView()
@@ -252,7 +255,7 @@ public final class ConversationViewController: UIViewController {
             header.topAnchor.constraint(equalTo: view.topAnchor),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight),
+            headerBottom,
             topEdgeFade.topAnchor.constraint(equalTo: view.topAnchor),
             topEdgeFade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             topEdgeFade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -351,6 +354,11 @@ public final class ConversationViewController: UIViewController {
         // reaches the field's top edge.
         view.keyboardLayoutGuide.keyboardDismissPadding = ConversationKeyboardPinGeometry.dismissPadding(fieldHeight: composer.fieldHeight)
         followKeyboardProgress()
+        let headerHeight = header.heightBelowSafeTop
+        if headerBottom.constant != headerHeight {
+            headerBottom.constant = headerHeight
+            view.layoutIfNeeded()
+        }
         updateInsets()
         // A full field stops 3.3 pt below the header's bottom edge, just under
         // the name pill (Messages: field top 157.3 pt, pill bottom 148.6 pt).
@@ -383,12 +391,22 @@ public final class ConversationViewController: UIViewController {
         }
         if traitCollection.changesTextMetrics(from: previousTraitCollection) {
             // Dynamic Type or Bold Text: every row re-measures at the new size.
+            let followsNewest = isPinnedToBottom && hasPositionedInitially
             layoutCache.invalidateAll()
             invalidateRowMetrics()
             layout.invalidateLayout()
             forgetAllMessageReuseIDs()
             collectionView.reloadData()
             view.setNeedsLayout()
+            // Messages keeps the newest message on the composer through a
+            // text size change (iOS 27 sim, XS -> L -> AX3 -> AX5); the rows
+            // above it grow or shrink. Without this the old offset stayed,
+            // landing days back in the history.
+            if followsNewest {
+                view.layoutIfNeeded()
+                collectionView.layoutIfNeeded()
+                collectionView.setContentOffset(bottomOffset, animated: false)
+            }
         }
     }
 
@@ -401,7 +419,9 @@ public final class ConversationViewController: UIViewController {
         // Messages' transcript starts at its navigation bar's bottom, 157.33
         // pt on a Dynamic Island iPhone: 8 pt under the name pill, 3.33 under
         // the bottom of our header (iOS 26.5 and 27.0).
-        let top = header.frame.maxY + 10.0 / 3.0
+        // Landscape (compact bar): the transcript starts at the bar's bottom
+        // (Messages 27, iPhone 17 Pro Max: content inset 78 = 24 + 54).
+        let top = header.frame.maxY + (header.isCompact ? 0 : 10.0 / 3.0)
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the
         // container and the content ends 6 pt below the last row.
@@ -536,7 +556,28 @@ public final class ConversationViewController: UIViewController {
     public override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
         isTransitioningSize = true
-        coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.isTransitioningSize = false }
+        // Messages keeps the newest message on the composer through a
+        // rotation (iOS 27, iPhone 17 Pro Max); rows re-measure at the new
+        // width, so the old offset would land elsewhere in the history.
+        let followsNewest = isPinnedToBottom && hasPositionedInitially
+        let widthChanges = size.width != view.bounds.width
+        coordinator.animate(alongsideTransition: { [weak self] _ in
+            guard let self else { return }
+            // Visible cells were configured for the old width; the layout
+            // re-measures rows but never reconfigures a cell it keeps.
+            if widthChanges {
+                self.forgetAllMessageReuseIDs()
+                self.collectionView.reloadData()
+            }
+            guard followsNewest else { return }
+            self.view.layoutIfNeeded()
+            self.collectionView.layoutIfNeeded()
+            self.collectionView.setContentOffset(self.bottomOffset, animated: false)
+        }) { [weak self] _ in
+            guard let self else { return }
+            self.isTransitioningSize = false
+            if followsNewest { self.isPinnedToBottom = true }
+        }
     }
 
     /// Lays out inside the keyboard's animation, in an animation of our own.
@@ -1390,6 +1431,7 @@ public final class ConversationViewController: UIViewController {
         if #available(iOS 18.0, *) {
             let options = UIViewController.Transition.ZoomOptions()
             options.dimmingColor = .clear
+            Self.keepPresentingViewLevel(options)
             options.alignmentRectProvider = { context in
                 let zoomed = context.zoomedViewController.view!
                 return ConversationDetailsHeaderGeometry.zoomAlignmentRect(width: zoomed.bounds.width, safeTop: zoomed.safeAreaInsets.top)
@@ -1400,6 +1442,21 @@ public final class ConversationViewController: UIViewController {
         }
         detailsController = details
         present(container, animated: true)
+    }
+
+    /// Messages' details don't recede the conversation behind them: ChatKit
+    /// turns the zoom's recede off right after creating its options (iOS 27
+    /// sim, `-[CKChatController _presentDetailsViewControllerAnimated:]`).
+    /// With UIKit's default the close morph starts at the receded 0.915
+    /// scale and springs back to 1, so the back button and content dip
+    /// 25 pt in the first frames (iOS 27, 60 fps); without it the morph rects
+    /// track Messages' frame for frame. UIKit has no public switch, so this
+    /// is a guarded key-value write that does nothing where the key is gone.
+    @available(iOS 18.0, *)
+    static func keepPresentingViewLevel(_ options: UIViewController.Transition.ZoomOptions) {
+        let key = "_recedesPresentingView"
+        guard options.responds(to: NSSelectorFromString("set\(key):")) else { return }
+        options.setValue(false, forKey: key)
     }
 
     /// Closes the details; returns false when none is open.

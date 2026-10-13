@@ -137,9 +137,6 @@ final class MessageActionOverlay: UIView {
         static let thoughtClose: CGFloat = 26.4
         static let thoughtMidDot: CGFloat = 17.6
         static let thoughtSmallDot: CGFloat = 8.8
-        static let reactorColumn = CGSize(width: 56, height: 104)
-        /// Gap between the header's top (safe area) and the reactor strip.
-        static let reactorTop: CGFloat = 6
     }
 
     private let dim = UIView()
@@ -217,7 +214,7 @@ final class MessageActionOverlay: UIView {
             traits.userInterfaceStyle == .dark ? UIColor(white: 0.16, alpha: 0.85) : UIColor(white: 1, alpha: 0.85)
         })
         menu = makeGlassView(cornerRadius: 26, tint: ConversationTheme.longPressMenuGlassTint)
-        detailCard = mode == .reactionDetail ? makeGlassView(cornerRadius: 22) : nil
+        detailCard = mode == .reactionDetail ? makeGlassView(cornerRadius: ReactionDetailCardGeometry.cornerRadius) : nil
         super.init(frame: frame)
         accessibilityIdentifier = "conversation.actions"
         // Like a context menu: VoiceOver stays inside until it is dismissed.
@@ -345,19 +342,26 @@ final class MessageActionOverlay: UIView {
         for view in [emojiButton, tailDot] as [UIView] { view.isHidden = !offersCustomEmoji }
 
         if let detailCard {
-            // Messages: a glass strip at the top, one column per reactor with
-            // their tapback above their avatar.
+            // Messages: a glass card at the top, one column per reactor with
+            // their tapback in a white thought bubble above their avatar.
             addSubview(detailCard)
-            let column = Metrics.reactorColumn
             let content = UIScrollView()
             content.showsHorizontalScrollIndicator = false
+            let cardWidth = ReactionDetailCardGeometry.card(reactorCount: reactors.count, maxWidth: bounds.width - screenInset * 2, width: bounds.width, safeTop: 0).width
             for (index, reactor) in reactors.enumerated() {
-                let x = CGFloat(index) * column.width
-                let glyph = TapbackGlyph.view(for: reactor.reaction, size: 45)
-                glyph.frame = CGRect(x: x + (column.width - 45) / 2, y: 5.7, width: 45, height: 45)
+                let column = ReactionDetailCardGeometry.column(index: index, reactorCount: reactors.count, cardWidth: cardWidth)
+                for frame in [column.bubble, column.mediumDot, column.smallDot] {
+                    let disc = UIView(frame: frame)
+                    disc.backgroundColor = UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.17, alpha: 1) : .white }
+                    disc.layer.cornerRadius = frame.width / 2
+                    disc.isUserInteractionEnabled = false
+                    content.addSubview(disc)
+                }
+                let glyph = TapbackGlyph.view(for: reactor.reaction, size: ReactionDetailCardGeometry.glyphSize)
+                glyph.frame = column.glyph
                 let avatar = ConversationAvatarView()
                 avatar.configure(initials: reactor.initials, colorHex: nil)
-                avatar.frame = CGRect(x: x + (column.width - 32) / 2, y: 72, width: 32, height: 32)
+                avatar.frame = column.avatar
                 avatar.isAccessibilityElement = true
                 avatar.accessibilityLabel = String(
                     format: String(localized: "conversation.reaction.reacted", defaultValue: "%1$@ reacted with %2$@", bundle: .module),
@@ -366,10 +370,9 @@ final class MessageActionOverlay: UIView {
                 content.addSubview(glyph)
                 content.addSubview(avatar)
             }
-            let width = min(CGFloat(reactors.count) * column.width, bounds.width - screenInset * 2)
-            detailCard.bounds = CGRect(x: 0, y: 0, width: width, height: column.height)
+            detailCard.bounds = CGRect(x: 0, y: 0, width: cardWidth, height: ReactionDetailCardGeometry.columnSize.height)
             content.frame = detailCard.bounds
-            content.contentSize = CGSize(width: CGFloat(reactors.count) * column.width, height: column.height)
+            content.contentSize = CGSize(width: max(cardWidth, ReactionDetailCardGeometry.contentWidth(reactorCount: reactors.count)), height: ReactionDetailCardGeometry.columnSize.height)
             detailCard.contentView.addSubview(content)
             detailCard.accessibilityIdentifier = "conversation.reactors"
         }
@@ -494,7 +497,7 @@ final class MessageActionOverlay: UIView {
             // Centered over the header, like Messages' reactor strip.
             detailCard.frame = CGRect(
                 x: (bounds.width - detailCard.bounds.width) / 2,
-                y: safe.top + Metrics.reactorTop,
+                y: safe.top + ReactionDetailCardGeometry.topOffset,
                 width: detailCard.bounds.width,
                 height: detailCard.bounds.height
             )

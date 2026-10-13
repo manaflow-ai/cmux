@@ -121,6 +121,16 @@ public enum ComposerAttachmentShelfMotion {
 /// a 318 pt keyboard), and the message field keeps the place the keyboard
 /// gave it, 16 pt above the keyboard: 21.3 pt above the sheet.
 public enum PhotoDrawerGeometry {
+    /// Messages' large detent on iOS 26.5 stops this far under the safe
+    /// area (iPhone 17 Pro: sheet top 72 with the safe top at 62); iOS 27.0
+    /// fills to the safe area like UIKit's large detent.
+    public static let iOS26LargeTopGap: CGFloat = 10
+
+    /// The large detent's height from UIKit's maximum detent value.
+    public static func largeDetentValue(maximum: CGFloat, leavesTopGap: Bool) -> CGFloat {
+        leavesTopGap ? maximum - iOS26LargeTopGap : maximum
+    }
+
     public static let inset: CGFloat = 8
     /// The sheet's top below the keyboard's top.
     public static let keyboardTopOffset: CGFloat = 5.3
