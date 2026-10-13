@@ -35,6 +35,13 @@ public final class WebKitTab: NSObject, BrowserTab {
     @ObservationIgnored private var navigationIDs: [ObjectIdentifier: BrowserNavigationID] = [:]
     /// Whether the shown document came from a form submission (hibernation).
     @ObservationIgnored var formSubmission = FormSubmissionTracker()
+    /// A saved history is being restored: until its first commit, a POST the
+    /// restore starts is cancelled (`RestorePostGuard`) and `restoreFallback`
+    /// loads instead, by GET.
+    @ObservationIgnored var restoringHistory = false
+    @ObservationIgnored var restoreFallback: URL?
+    /// A duplicate's one-shot sessionStorage seed is installed.
+    @ObservationIgnored var seedInstalled = false
     @ObservationIgnored private var nextNavigation: UInt64 = 0
     /// `observeNavigationEvents` handlers (WebKitTab+Navigations.swift).
     @ObservationIgnored var navigationObservers: [UUID: (BrowserNavigationEvent) -> Void] = [:]
@@ -66,17 +73,22 @@ public final class WebKitTab: NSObject, BrowserTab {
         setDrawsPageBackground(!PageBackground.startsWithTheme(openedByPage: openedByPage))
 
         let controller = webViewConfiguration.userContentController
-        controller.addUserScript(WKUserScript(
-            source: PaneFullscreenScript.source,
-            injectionTime: .atDocumentStart,
-            forMainFrameOnly: false
-        ))
+        installStandingScripts(controller)
         controller.add(WeakScriptMessageHandler(self), name: PaneFullscreenScript.messageHandlerName)
 
         observeWebView()
         if configuration.zoom != 1 {
             setZoom(configuration.zoom)
         }
+    }
+
+    /// The user scripts every WebKit tab carries.
+    func installStandingScripts(_ controller: WKUserContentController) {
+        controller.addUserScript(WKUserScript(
+            source: PaneFullscreenScript.source,
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: false
+        ))
     }
 
     isolated deinit {

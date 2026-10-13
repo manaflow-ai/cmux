@@ -36,6 +36,17 @@ extension WebKitTab: WKNavigationDelegate {
             }
             return
         }
+        if RestorePostGuard.shouldCancel(
+            restoring: restoringHistory,
+            isMainFrame: navigationAction.targetFrame?.isMainFrame ?? true,
+            method: navigationAction.request.httpMethod,
+            type: RestorePostGuard.NavigationType(navigationAction.navigationType)
+        ) {
+            decisionHandler(.cancel, preferences)
+            finishRestore()
+            if let fallback = restoreFallback { load(fallback) }
+            return
+        }
         applySiteSettings(to: preferences, for: navigationAction)
         formSubmission.decided(method: navigationAction.request.httpMethod,
                                isMainFrame: navigationAction.targetFrame?.isMainFrame ?? true)
@@ -80,6 +91,7 @@ extension WebKitTab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         guard let id = navigationID(for: navigation, creating: false) else { return }
         formSubmission.committed()
+        finishRestore()
         apply(.committed(id, url: webView.url))
         pageInfoActivity.documentCommitted(origin: webView.url.flatMap(PageInfoSite.origin(of:)))
         // The title can arrive before the commit (back/forward cache), and
@@ -261,5 +273,18 @@ extension WebKitTab: WKScriptMessageHandler {
             return
         }
         apply(.contentFullscreenChanged(on))
+    }
+}
+
+extension RestorePostGuard.NavigationType {
+    init(_ type: WKNavigationType) {
+        switch type {
+        case .linkActivated: self = .linkActivated
+        case .formSubmitted: self = .formSubmitted
+        case .backForward: self = .backForward
+        case .reload: self = .reload
+        case .formResubmitted: self = .formResubmitted
+        default: self = .other
+        }
     }
 }

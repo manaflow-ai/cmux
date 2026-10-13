@@ -24,9 +24,13 @@ extension WebKitTab: BrowserHibernationSource {
 
     /// Restores a saved history (and scroll position) into this fresh tab.
     /// Returns false when WebKit rejected it; the caller then loads the URL.
+    /// A form submission the restore would send again is cancelled and
+    /// `fallback` loads instead, by GET (`RestorePostGuard`).
     @discardableResult
-    public func restore(_ state: BrowserRestoreState) -> Bool {
+    public func restore(_ state: BrowserRestoreState, fallback: URL? = nil) -> Bool {
         guard case .webKit(let data) = state, !data.isEmpty else { return false }
+        restoringHistory = true
+        restoreFallback = fallback
         // WebKit loads the restored current item itself; loading the URL on
         // top would add a history entry.
         webView.interactionState = data
