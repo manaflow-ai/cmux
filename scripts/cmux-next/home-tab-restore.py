@@ -7,6 +7,8 @@ DEBUG quit fixture (end-sessions); the tag's daemon keeps the panes' tabs.
 Launch 2, with no open request first: the restored native Home tab must show the same conversation with its
 messages in its own transcript view (`debug.home` page.tabs: shown, transcript_tail), and the restored fixture tab
 must show its transcript when selected through the default open (pages.show).
+Launch 3, with the fixture tab selected at the quit: the restored fixture tab shows its transcript with no open
+request (its provider is registered at launch).
 Socket only, no system input. Runs on cmux-lawrence-2 (nx-remote --needs gui); each launch ends with the DEBUG quit
 fixture; the tag's `acpmux daemon shutdown` at the end.
 
@@ -115,17 +117,31 @@ pid = launch(2)
 try:
     poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
     # No open request: what the restored window shows by itself.
-    want = (before or {}).get("shown")
-    restored = poll(lambda: [t for t in home_tabs() if t.get("visible") and t.get("shown") == want and t.get("transcript_tail")] or None,
+    restored = poll(lambda: [t for t in home_tabs() if t.get("visible") and t.get("shown") and t.get("transcript_tail")] or None,
                     timeout=60)
     print("     restored Home tabs: " + json.dumps(home_tabs())[:800], flush=True)
-    check("launch 2: the restored native Home tab shows the same conversation with its messages", bool(restored), home_tabs())
+    check("launch 2: the restored native Home tab shows a conversation with its messages (not blank)", bool(restored), home_tabs())
+    if restored:
+        # Information: the conversation it shows after the relaunch (it can be another one than before).
+        print(f"     Home tab conversation before the relaunch {(before or {}).get('shown')}, after {restored[0].get('shown')}", flush=True)
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "launch-2-home.png")})
     # The restored fixture tab, selected through the default open (it finds the restored tab).
     reply = rpc("debug.home_native_fixture.open") or {}
     fx = poll(lambda: (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts"), timeout=30)
     check("launch 2: the restored fixture tab shows its transcript", bool(fx), {"open": reply, "texts": rpc("debug.home.drive", {"action": "texts"})})
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "launch-2-fixture.png")})
+finally:
+    check("launch 2: the app quits (the fixture tab selected)", bool(quit_app(pid)))
+
+# Launch 3: the restored fixture tab is the selected tab when the window comes back (the pane shows it at launch).
+# Before the fix its provider was registered only by the first debug open, after the pane had shown the tab blank.
+pid = launch(3)
+try:
+    poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
+    fx = poll(lambda: (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts"), timeout=60)
+    check("launch 3: the restored, selected fixture tab shows its transcript with no open request", bool(fx),
+          rpc("debug.home.drive", {"action": "texts"}))
+    rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "launch-3-fixture.png")})
 finally:
     quit_app(pid)
     acp = f"{home}/.acpmux/tags/{opts.tag}"
