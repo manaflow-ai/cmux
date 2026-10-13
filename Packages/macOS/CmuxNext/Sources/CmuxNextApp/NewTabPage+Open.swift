@@ -76,9 +76,9 @@ extension NewTabPage {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
         }
         // `showNow` already syncs the strip as part of presenting the adopted spare. Repeating
-        // that full strip reconciliation on the same main-actor turn was the largest avoidable
-        // part of Cmd-T's p95 (cx-98s). Cold pages still need the immediate strip sync because
-        // their content is presented by the normal scheduler on a later frame.
+        // that full reconciliation on the same main-actor turn adds directly to the Cmd-T p95
+        // budget (cx-98s). Cold pages still need the immediate strip sync because their content
+        // is presented by the normal scheduler on a later frame.
         if !showedSpare {
             BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true, animating: false) }
         }
