@@ -34,7 +34,7 @@ struct SSHFileExplorerMutationCommandTests {
             #expect(!script.contains("\\"))
             #expect(!script.contains("!"))
             #expect(!script.contains("$HOME"))
-            #expect(command.unicodeScalars.allSatisfy(\.isASCII))
+            #expect(command.unicodeScalars.allSatisfy { $0.isASCII })
             #expect(script.contains(Data(path.utf8).base64EncodedString()))
         }
 
