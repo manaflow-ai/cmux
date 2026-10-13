@@ -177,7 +177,6 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         // Disabled (New Message before a recipient) Messages draws the plus
         // lighter than UIKit's own dimming (137 on the light glass).
         let disabledInk: UIColor = switch ComposerBarGeometry.disabledPlusInk(iOS27: Self.isIOS27) {
-        case .label(let alpha): UIColor.label.withAlphaComponent(alpha)
         case .tertiaryHue(let lightAlpha, let darkAlpha): UIColor { traits in
             traits.userInterfaceStyle == .dark
                 ? UIColor(red: 235 / 255, green: 235 / 255, blue: 245 / 255, alpha: darkAlpha)

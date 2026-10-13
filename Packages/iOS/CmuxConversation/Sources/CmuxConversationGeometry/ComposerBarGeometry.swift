@@ -44,20 +44,18 @@ public enum ComposerBarGeometry {
     public static func showsRecordGlyph(iOS27: Bool, sentAudio: Bool) -> Bool { iOS27 || sentAudio }
     /// The disabled plus's ink (New Message before a recipient).
     public enum DisabledPlusInk: Equatable, Sendable {
-        /// The label color at this opacity.
-        case label(alpha: CGFloat)
         /// tertiaryLabel's hues (60,60,67 light, 235,235,245 dark) at these
         /// opacities.
         case tertiaryHue(lightAlpha: CGFloat, darkAlpha: CGFloat)
     }
 
-    /// 26.5: the label at 24 % (190 on the light glass). 27.0: Messages
-    /// tints the glyph tertiaryLabel (read from its image view), but on its
-    /// glass the stroke reads 188 over 252 light and 96 over 59 dark, a
-    /// third of the hue in light and a fifth in dark; plain tertiaryLabel
-    /// reads 195 and 112 on ours.
+    /// Messages tints the glyph tertiaryLabel (read from its image view),
+    /// but on its glass the stroke reads lighter or darker than plain
+    /// tertiaryLabel would: 27.0 188 over 252 light and 96 over 59 dark,
+    /// 26.5 190 over 253 and 60 over 26 (a third of the hue in light, a
+    /// fifth or sixth in dark).
     public static func disabledPlusInk(iOS27: Bool) -> DisabledPlusInk {
-        iOS27 ? .tertiaryHue(lightAlpha: 0.335, darkAlpha: 0.21) : .label(alpha: 0.24)
+        iOS27 ? .tertiaryHue(lightAlpha: 0.335, darkAlpha: 0.21) : .tertiaryHue(lightAlpha: 0.326, darkAlpha: 0.163)
     }
     /// Messages' record glyph, which ChatKit draws itself (a 44 pt image
     /// shown at 22 pt): five capsules 2 pt wide on a 4 pt pitch, 4, 8, 16,
