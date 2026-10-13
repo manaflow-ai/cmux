@@ -454,6 +454,43 @@ impl Driver for ProviderEngine {
         self.provider.set_request_filter(self.subscription, &self.engine, filter)
     }
 
+    /// The session's connection policy; when its new tabs just moved to a
+    /// checked store, each tab it created before reopens there at the same
+    /// URL (the old one closes), so no page of the session keeps a way out.
+    fn set_connection_policy(
+        &self,
+        policy: Option<crate::policy_proxy::ConnectionPolicy>,
+    ) -> Result<(), DriverError> {
+        if !self.provider.set_connection_policy(self.subscription, &self.engine, policy)? {
+            return Ok(());
+        }
+        let created: Vec<String> = self.created_tabs().iter().cloned().collect();
+        let listed = self.call("tabs.list", &json!({}))?;
+        for target in created {
+            if !self.provider.outside_connection_policy(self.subscription, &target) {
+                continue;
+            }
+            let url = listed
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|tab| tab["targetId"].as_str() == Some(target.as_str()))
+                .and_then(|tab| tab["url"].as_str())
+                .filter(|url| !url.is_empty() && *url != "about:blank")
+                .map(str::to_owned);
+            let opened = self.call("tabs.open", &json!({"background": true}))?;
+            // A URL the policy refuses stays blank: the old page goes anyway.
+            if let (Some(url), Some(new)) = (url, opened["targetId"].as_str()) {
+                let _ = self.call(
+                    "tab.navigate",
+                    &json!({"targetId": new, "url": url, "waitUntil": "commit"}),
+                );
+            }
+            self.call("tabs.close", &json!({"targetId": target}))?;
+        }
+        Ok(())
+    }
+
     fn capabilities(&self) -> Vec<&'static str> {
         self.provider.capabilities(&self.engine)
     }
