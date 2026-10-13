@@ -115,6 +115,7 @@ extension SidebarView {
         // The band below sits on the footer section; the dots and cards go above it.
         belowFade.frame = NSRect(x: 0, y: footerRegion.frame.minY - belowHeight, width: b.width, height: belowHeight)
         size(belowRegion, in: belowScroll, width: b.width)
+        for fade in [aboveFade, belowFade] { fade.updateFade(animated: false) } // masks resize in this layout's animation (cx-y2uf5)
         let listY = y + aboveHeight
         layoutBandLine(aboveY: listY, look: look, showsAbove: aboveHeight > 0)
         return NSRect(x: 0, y: listY, width: b.width, height: max(0, available - aboveHeight - belowHeight))
