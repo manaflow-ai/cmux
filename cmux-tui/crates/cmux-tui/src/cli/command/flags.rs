@@ -66,6 +66,7 @@ pub(super) const BOOLEAN_FLAGS: &[&str] = &[
     "to-right",
     "to-left",
     "include-pinned",
+    "background",
 ];
 
 /// `--name` ends the command without a value: it needs one, or it is no
