@@ -69,3 +69,39 @@ test("the popup names the full build, lists the highlights and has See all chang
   expect(text).not.toContain("Oct 13");
   expect(text.split("See all changes").length - 1).toBe(1);
 });
+
+// The "Updated to" card (Leo 2026-10-13): the short build ("nightly 3845050", the long one
+// truncated), the terse fallback headline, and no Share cmux text link (it is the palette's).
+test("the Updated card names the short build, says What's new in this build and has no Share link", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const noop = () => undefined;
+  await act(async () =>
+    root!.render(
+      <UpdatedCard
+        data={{
+          version: "1.0.0-nightly.3845050428001",
+          build: "3845050428001",
+          fromVersion: "1.0.0-nightly.3801702344901",
+          fromBuild: "3801702344901",
+          date: "2026-10-13",
+          source: "none",
+          language: "en",
+          items: [],
+          moreCount: 0,
+          changelog: { from: "1.0.0-nightly.3801702344901", to: "1.0.0-nightly.3845050428001" },
+        }}
+        strings={createStrings(table)}
+        actions={{ openChangelog: noop, dismiss: noop, share: noop } as never}
+      />,
+    ),
+  );
+  expect(host.querySelector(".wn-card-eyebrow")?.textContent).toBe("Updated to nightly 3845050");
+  expect(host.querySelector(".wn-card-headline")?.textContent).toBe("What's new in this build");
+  const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
+  expect(buttons).toEqual(["Close", "See What's New"]);
+});
