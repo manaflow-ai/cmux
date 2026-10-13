@@ -2597,6 +2597,39 @@ export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "fail
  * revocations reflect Hexclave; a redelivery of such an id is acknowledged
  * without work. Invalid and failed deliveries keep `processed_at` null.
  */
+/**
+ * Verified Hexclave webhook deliveries waiting to be applied. The webhook
+ * answers 200 once a delivery is stored here; a rate-limited drain (the
+ * webhook's own after-response kick and the every-minute cron) applies them,
+ * coalescing events for one user or team into one Hexclave read, and backs
+ * off on Hexclave 429/5xx using its Retry-After. A row is deleted once
+ * applied (and recorded in `hexclave_webhook_events`); nothing is dropped.
+ */
+export const hexclaveWebhookInbox = pgTable("hexclave_webhook_inbox", {
+  svixId: text("svix_id").primaryKey(),
+  eventType: text("event_type").notNull(),
+  entityKind: text("entity_kind").$type<"user" | "team">().notNull(),
+  entityId: text("entity_id").notNull(),
+  revokeCandidateTeamIds: jsonb("revoke_candidate_team_ids").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
+  /** The signed delivery body, kept for diagnosis and replay. */
+  payload: jsonb("payload").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  claimedUntil: timestamp("claimed_until", { withTimezone: true }),
+  lastError: text("last_error"),
+}, (table) => [
+  check("hexclave_webhook_inbox_entity_kind_check", sql`${table.entityKind} in ('user', 'team')`),
+  index("hexclave_webhook_inbox_due_idx").on(table.nextAttemptAt),
+  index("hexclave_webhook_inbox_entity_idx").on(table.entityKind, table.entityId),
+]);
+
+/** At most this many inbox drains run at once, each holding one leased slot. */
+export const hexclaveWebhookInboxDrainSlots = pgTable("hexclave_webhook_inbox_drain_slots", {
+  slot: integer("slot").primaryKey(),
+  leasedUntil: timestamp("leased_until", { withTimezone: true }).notNull(),
+});
+
 export const hexclaveWebhookEvents = pgTable("hexclave_webhook_events", {
   svixId: text("svix_id").primaryKey(),
   eventType: text("event_type").notNull(),
