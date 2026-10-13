@@ -55,3 +55,18 @@ jobs:
       # the graph followed seven hours later) and the pinned texts match.
       - name: package-notices.json covers vt-link-graph.json
         run: python3 cmux-tui/dist/scripts/package_notices.py check-data
+
+  defaults-snapshot:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: The defaults guard judges changes and approvals
+        run: python3 tests/test_defaults_guard.py
+
+      - name: The defaults snapshot matches the exports
+        run: python3 scripts/ci/defaults_guard.py check-fresh

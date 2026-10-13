@@ -1,0 +1,465 @@
+#!/usr/bin/env python3
+"""Guard against unannounced default changes (Leo 2026-10-13).
+
+A default is what someone gets without configuring anything: an action's
+default keys, a setting's default value, a Ghostty keybind cmux writes (an
+unbind takes a chord from Ghostty), a feature flag compiled on or off. Changing
+one changes what everyone gets, so it needs a call.
+
+schemas/defaults/<app>.json is the golden snapshot of every default, made from
+the sources of truth with no hand list:
+- cmux NEXT: plans/cmux-next/action-surfaces.json (each action's default
+  shortcut, chord and aliases, exported from the catalog by Swift) and
+  schemas/settings/settings-schema.json (each setting's default), both kept
+  current by the generated-files check; the Ghostty `keybind = ...` lines and
+  the `static let ...Enabled = true|false` flags in the app's Swift sources.
+
+  python3 scripts/ci/defaults_guard.py snapshot           # regenerate it
+  python3 scripts/ci/defaults_guard.py check-fresh        # it matches the sources
+  python3 scripts/ci/defaults_guard.py check --base B --head H [--pr N --repo R]
+
+`check` compares the snapshot at the merge base with the one at the head (the
+trees are read with git as data; nothing from the head runs). A change passes
+only with an approving review, on the head commit, from a call owner in
+.github/defaults-call-owners.json who is not the pull request's author: the
+`needs a call` label alone never passes, and a push after the approval needs
+a new one. The workflow runs this script and reads the owners file from the
+base branch, so a pull request cannot approve itself by editing either.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, field
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+APP = "cmux-next"
+SNAPSHOT = f"schemas/defaults/{APP}.json"
+OWNERS = ".github/defaults-call-owners.json"
+ACTION_SURFACES = "plans/cmux-next/action-surfaces.json"
+SETTINGS_SCHEMA = "schemas/settings/settings-schema.json"
+SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
+MARKER = "<!-- cmux:defaults-guard -->"
+REGENERATE = "python3 scripts/ci/defaults_guard.py snapshot"
+# The guard's own files: changing how defaults are read or who approves is a call too.
+GUARD_FILES = (
+    "scripts/ci/defaults_guard.py",
+    OWNERS,
+    ".github/workflows/cmux-next-defaults-guard.yml",
+)
+
+# AppKit's function-key characters, as the catalog export writes them.
+FUNCTION_KEYS = {
+    0xF700: "up", 0xF701: "down", 0xF702: "left", 0xF703: "right",
+    0xF728: "forwarddelete", 0xF729: "home", 0xF72B: "end",
+    0xF72C: "pageup", 0xF72D: "pagedown",
+}
+NAMED_KEYS = {"\t": "tab", "\r": "return", "\n": "return", " ": "space", "\x1b": "escape", "\x7f": "delete", "\x08": "delete"}
+MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
+
+KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
+FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
+
+
+# MARK: Reading a tree
+
+
+class Tree:
+    """Files of one commit (git, read as data) or of a directory (a checkout of one)."""
+
+    @staticmethod
+    def named(value: str) -> "Tree":
+        """A directory when `value` is one, else a git commit of this repository."""
+        path = Path(value)
+        return Tree(None, path.resolve()) if path.is_dir() else Tree(value)
+
+    def __init__(self, ref: str | None, root: Path = ROOT) -> None:
+        self.ref = ref
+        self.root = root
+
+    def read(self, path: str) -> str | None:
+        if self.ref is None:
+            file = self.root / path
+            return file.read_text(encoding="utf-8") if file.is_file() else None
+        result = subprocess.run(["git", "-C", str(self.root), "show", f"{self.ref}:{path}"],
+                                capture_output=True, text=True)
+        return result.stdout if result.returncode == 0 else None
+
+    def grep(self, pattern: str, path: str) -> list[tuple[str, str]]:
+        """(file, line) for every line under `path` matching the extended regex `pattern`."""
+        if self.ref is None:
+            if not (self.root / path).exists():
+                return []
+            args = ["git", "-C", str(self.root), "grep", "--no-index", "-I", "-E", "-e", pattern, "--", path]
+        else:
+            args = ["git", "-C", str(self.root), "grep", "-I", "-E", "-e", pattern, self.ref, "--", path]
+        result = subprocess.run(args, capture_output=True, text=True)
+        if result.returncode not in (0, 1):
+            raise SystemExit(f"git grep failed: {result.stderr.strip()}")
+        prefix = f"{self.ref}:" if self.ref else ""
+        lines = []
+        for raw in result.stdout.splitlines():
+            raw = raw.removeprefix(prefix)
+            name, _, line = raw.partition(":")
+            lines.append((name, line))
+        return lines
+
+
+# MARK: The defaults
+
+
+def key_name(key: str) -> str:
+    if len(key) == 1 and ord(key) in FUNCTION_KEYS:
+        return FUNCTION_KEYS[ord(key)]
+    if len(key) == 1 and 0xF704 <= ord(key) <= 0xF726:
+        return f"f{ord(key) - 0xF703}"
+    if key in NAMED_KEYS:
+        return NAMED_KEYS[key]
+    if len(key) == 1 and not key.isprintable():
+        return f"U+{ord(key):04X}"
+    return key.lower()
+
+
+def stroke(value: Mapping[str, object]) -> str:
+    modifiers = [str(m) for m in value.get("modifiers") or []]
+    ordered = [m for m in MODIFIER_ORDER if m in modifiers] + sorted(m for m in modifiers if m not in MODIFIER_ORDER)
+    return "+".join([*ordered, key_name(str(value.get("key", "")))])
+
+
+def binding(keys: Iterable[Mapping[str, object]], when: object = None) -> str:
+    text = " ".join(stroke(k) for k in keys)
+    return f"{text} when {when}" if when else text
+
+
+def action_keys(action: Mapping[str, object]) -> list[str]:
+    keys: set[str] = set()
+    shortcut = action.get("default_shortcut")
+    if isinstance(shortcut, dict):
+        keys.add(binding([shortcut]))
+    chord = action.get("default_chord")
+    if isinstance(chord, dict):
+        keys.add(binding(chord.get("keys") or [chord]))
+    elif isinstance(chord, list):
+        keys.add(binding(chord))
+    for alias in action.get("default_aliases") or []:
+        if isinstance(alias, dict):
+            keys.add(binding(alias.get("keys") or [], alias.get("when")))
+    return sorted(keys)
+
+
+def defaults(tree: Tree) -> dict[str, object]:
+    """Every default of the app in `tree`, by stable id."""
+    found: dict[str, object] = {}
+    surfaces = tree.read(ACTION_SURFACES)
+    if surfaces is None:
+        raise SystemExit(f"{ACTION_SURFACES} is missing")
+    for action in json.loads(surfaces)["actions"]:
+        keys = action_keys(action)
+        if keys:
+            found[f"key.{action['id']}"] = keys
+    schema = tree.read(SETTINGS_SCHEMA)
+    if schema is None:
+        raise SystemExit(f"{SETTINGS_SCHEMA} is missing")
+    for row in json.loads(schema)["rows"]:
+        found[f"setting.{row['key']}"] = row.get("default")
+    for _, line in tree.grep(r'"keybind *= *[^"]+=', SWIFT_SOURCES):
+        for trigger, action in KEYBIND_RE.findall(line):
+            # An interpolated line (`\(trigger)`) is built at run time from the user's config, not a default.
+            if "\\(" not in trigger + action:
+                found[f"ghostty.{trigger.strip()}"] = action.strip()
+    for name, line in tree.grep(r"static +(let|var) +[A-Za-z0-9_]*Enabled *(: *Bool *)?= *(true|false)", SWIFT_SOURCES):
+        for flag, value in FLAG_RE.findall(line):
+            found[f"flag.{Path(name).stem}.{flag}"] = value == "true"
+    return dict(sorted(found.items()))
+
+
+def render_snapshot(values: Mapping[str, object]) -> str:
+    lines = [f"    {json.dumps(key)}: {json.dumps(value, ensure_ascii=False, sort_keys=True)}" for key, value in values.items()]
+    header = {"app": APP, "regenerate": REGENERATE, "version": 1}
+    head = ",\n".join(f"  {json.dumps(k)}: {json.dumps(v)}" for k, v in header.items())
+    return "{\n" + head + ',\n  "defaults": {\n' + ",\n".join(lines) + "\n  }\n}\n"
+
+
+def snapshot_of(tree: Tree) -> dict[str, object] | None:
+    text = tree.read(SNAPSHOT)
+    return None if text is None else dict(json.loads(text)["defaults"])
+
+
+# MARK: Changes
+
+
+@dataclass(frozen=True)
+class Change:
+    id: str
+    old: object
+    new: object
+
+    @staticmethod
+    def show(value: object) -> str:
+        if value is None:
+            return "(none)"
+        if isinstance(value, list):
+            return ", ".join(str(v) for v in value) if value else "(none)"
+        return json.dumps(value, ensure_ascii=False)
+
+    @property
+    def detail(self) -> str:
+        if isinstance(self.old, list) or isinstance(self.new, list):
+            old = set(self.old if isinstance(self.old, list) else [])
+            new = set(self.new if isinstance(self.new, list) else [])
+            parts = [f"+ {k}" for k in sorted(new - old)] + [f"- {k}" for k in sorted(old - new)]
+            return "; ".join(parts)
+        return f"{self.show(self.old)} -> {self.show(self.new)}"
+
+    @property
+    def line(self) -> str:
+        return f"DEFAULTS {self.id}: {self.detail}"
+
+
+def changes(old: Mapping[str, object], new: Mapping[str, object]) -> list[Change]:
+    found = []
+    for key in sorted(set(old) | set(new)):
+        if old.get(key) != new.get(key) or (key in old) != (key in new):
+            found.append(Change(key, old.get(key), new.get(key)))
+    return found
+
+
+def guard_changes(base: Tree, head: Tree) -> list[Change]:
+    found = []
+    for path in GUARD_FILES:
+        before, after = base.read(path), head.read(path)
+        if before != after:
+            state = "added" if before is None else "removed" if after is None else "edited"
+            found.append(Change(f"guard.{path}", None, state))
+    return found
+
+
+# MARK: Approval
+
+
+@dataclass
+class Approval:
+    owners: list[str]
+    author: str
+    head: str
+    approvers: list[str] = field(default_factory=list)
+    stale: list[str] = field(default_factory=list)
+
+    @property
+    def eligible(self) -> list[str]:
+        return [o for o in self.owners if o.lower() != self.author.lower()]
+
+    @property
+    def approved(self) -> bool:
+        return bool(self.approvers)
+
+
+def owners_for(text: str | None) -> list[str]:
+    if text is None:
+        return []
+    return [str(o) for o in json.loads(text).get(APP, [])]
+
+
+def approval(owners: list[str], pull: Mapping[str, object]) -> Approval:
+    """Who approved the head: each reviewer's latest decisive review counts."""
+    author = str((pull.get("author") or {}).get("login") or "")
+    head = str(pull.get("headRefOid") or "")
+    result = Approval(owners=owners, author=author, head=head)
+    latest: dict[str, Mapping[str, object]] = {}
+    for review in (pull.get("reviews") or {}).get("nodes") or []:
+        login = str((review.get("author") or {}).get("login") or "")
+        if review.get("state") in ("APPROVED", "CHANGES_REQUESTED", "DISMISSED") and login:
+            latest[login.lower()] = review
+    for owner in result.eligible:
+        review = latest.get(owner.lower())
+        if not review or review.get("state") != "APPROVED":
+            continue
+        if str((review.get("commit") or {}).get("oid") or "") == head:
+            result.approvers.append(owner)
+        else:
+            result.stale.append(owner)
+    return result
+
+
+PULL_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      author { login } headRefOid merged mergeCommit { oid }
+      reviews(last: 100) { nodes { author { login } state commit { oid } } }
+      comments(last: 100) { nodes { databaseId body author { login } } }
+    }
+  }
+}
+"""
+
+
+def gh(args: list[str]) -> str:
+    result = subprocess.run(["gh", *args], capture_output=True, text=True)
+    if result.returncode != 0:
+        raise SystemExit(f"gh {' '.join(args[:3])} failed: {result.stderr.strip()}")
+    return result.stdout
+
+
+def fetch_pull(repo: str, number: int) -> dict:
+    owner, name = repo.split("/", 1)
+    out = gh(["api", "graphql", "-f", f"query={PULL_QUERY}", "-f", f"owner={owner}", "-f", f"name={name}",
+              "-F", f"number={number}"])
+    return json.loads(out)["data"]["repository"]["pullRequest"]
+
+
+# MARK: Report
+
+
+def comment_body(found: list[Change], verdict: Approval | None, head: str, merged: str | None = None) -> str:
+    lines = [MARKER, "## Default changes"]
+    if not found:
+        lines.append(f"No defaults change at `{head[:12]}`.")
+        return "\n".join(lines) + "\n"
+    lines.append(f"This pull request changes {len(found)} default{'s' if len(found) != 1 else ''} at `{head[:12]}` "
+                 "(what everyone gets without configuring anything):")
+    lines.append("")
+    lines += [f"- `{c.id}`: {c.detail}" for c in found]
+    lines.append("")
+    if verdict is not None:
+        if verdict.approved:
+            lines.append(f"Approved on this commit by {', '.join('@' + a for a in verdict.approvers)}.")
+        else:
+            who = " or ".join(f"@{o}" for o in verdict.eligible) or "(no eligible call owner)"
+            lines.append(f"**Needs a call.** It passes only with an approving review on this commit from {who} "
+                         f"(the call owners in `{OWNERS}`, never the author). The `needs a call` label alone does not pass, "
+                         "and a new push needs a new approval.")
+            if verdict.stale:
+                lines.append(f"Earlier approvals on an older commit: {', '.join('@' + s for s in verdict.stale)}.")
+    if merged:
+        lines += ["", f"**Merge receipt:** merged as `{merged[:12]}` with these defaults changed"
+                  + (f", approved by {', '.join('@' + a for a in verdict.approvers)}." if verdict and verdict.approved
+                     else ", WITHOUT an approving call owner review on its head.")]
+    lines += ["", f"Regenerate the snapshot with `{REGENERATE}`."]
+    return "\n".join(lines) + "\n"
+
+
+def annotate(found: list[Change]) -> None:
+    for c in found:
+        print(f"::warning title=Default changed::{c.line}")
+
+
+def summary(text: str) -> None:
+    path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if path:
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(text)
+
+
+def post_comment(repo: str, number: int, pull: Mapping[str, object], body: str, found: list[Change]) -> None:
+    existing = None
+    for comment in (pull.get("comments") or {}).get("nodes") or []:
+        if MARKER in str(comment.get("body") or "") and str((comment.get("author") or {}).get("login") or "") == "github-actions":
+            existing = comment.get("databaseId")
+    if existing is None and not found:
+        return  # nothing changed and nothing said before: no comment
+    if existing is None:
+        gh(["api", f"repos/{repo}/issues/{number}/comments", "-f", f"body={body}"])
+    else:
+        gh(["api", "-X", "PATCH", f"repos/{repo}/issues/comments/{existing}", "-f", f"body={body}"])
+
+
+# MARK: Commands
+
+
+def command_snapshot(args: argparse.Namespace) -> int:
+    path = ROOT / SNAPSHOT
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(render_snapshot(defaults(Tree(None))), encoding="utf-8")
+    print(f"wrote {SNAPSHOT}")
+    return 0
+
+
+def freshness(tree: Tree) -> list[str]:
+    """Problems with the committed snapshot of `tree` (empty when it matches the sources)."""
+    committed = tree.read(SNAPSHOT)
+    if committed is None:
+        return [f"DEFAULTS snapshot: {SNAPSHOT} is missing; run `{REGENERATE}`"]
+    if committed != render_snapshot(defaults(tree)):
+        stale = changes(dict(json.loads(committed)["defaults"]), defaults(tree))
+        return [f"DEFAULTS snapshot: {SNAPSHOT} does not match the sources; run `{REGENERATE}` and commit it"] + \
+            [f"  {c.line}" for c in stale]
+    return []
+
+
+def command_check_fresh(args: argparse.Namespace) -> int:
+    problems = freshness(Tree.named(args.ref) if args.ref else Tree(None))
+    for problem in problems:
+        print(problem)
+    return 1 if problems else 0
+
+
+def command_check(args: argparse.Namespace) -> int:
+    base, head = Tree.named(args.base), Tree.named(args.head)
+    head_sha = args.head_sha or args.head
+    problems = freshness(head)
+    # The base's snapshot, or (before the first snapshot lands) its sources.
+    before = snapshot_of(base) or defaults(base)
+    after = snapshot_of(head) or defaults(head)
+    found = changes(before, after) + guard_changes(base, head)
+    trusted = Tree(None)  # the base checkout the workflow runs from
+    owners = owners_for(trusted.read(OWNERS))
+    pull = None
+    if args.pull_json:
+        pull = json.loads(Path(args.pull_json).read_text(encoding="utf-8"))
+    elif args.pr and args.repo:
+        pull = fetch_pull(args.repo, args.pr)
+    verdict = approval(owners, pull) if pull is not None else None
+    if pull is not None and verdict is not None and verdict.head != head_sha:
+        problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
+    merged = str((pull.get("mergeCommit") or {}).get("oid") or "") if pull and pull.get("merged") else None
+    body = comment_body(found, verdict, head_sha, merged)
+    annotate(found)
+    for problem in problems:
+        print(f"::error title=Defaults snapshot::{problem}" if not problem.startswith("  ") else problem)
+    for c in found:
+        print(c.line)
+    summary(body)
+    if args.comment and pull is not None:
+        try:
+            post_comment(args.repo, args.pr, pull, body, found)
+        except SystemExit as error:  # a fork's review event has a read-only token: the verdict stands
+            print(f"::warning title=Defaults comment not posted::{error}")
+    if problems:
+        return 1
+    if found and not (verdict and verdict.approved):
+        who = " or ".join(verdict.eligible) if verdict else "a call owner"
+        print(f"::error title=Default changes need a call::{len(found)} default(s) changed; needs an approving review on {head_sha[:12]} from {who}")
+        return 1
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = parser.add_subparsers(dest="command", required=True)
+    sub.add_parser("snapshot", help="regenerate the golden snapshot from the sources").set_defaults(run=command_snapshot)
+    fresh = sub.add_parser("check-fresh", help="the committed snapshot matches the sources")
+    fresh.add_argument("--ref", help="a commit to check instead of the working tree")
+    fresh.set_defaults(run=command_check_fresh)
+    check = sub.add_parser("check", help="list changed defaults between two commits and judge the approval")
+    check.add_argument("--base", required=True, help="the merge base: a commit, or a directory checked out at it")
+    check.add_argument("--head", required=True, help="the head: a commit, or a directory checked out at it")
+    check.add_argument("--head-sha", help="the head commit when --head is a directory")
+    check.add_argument("--repo")
+    check.add_argument("--pr", type=int)
+    check.add_argument("--pull-json", help="the pull request as fetch_pull returns it (tests)")
+    check.add_argument("--comment", action="store_true", help="post or update the sticky comment")
+    check.set_defaults(run=command_check)
+    args = parser.parse_args(argv)
+    return args.run(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
