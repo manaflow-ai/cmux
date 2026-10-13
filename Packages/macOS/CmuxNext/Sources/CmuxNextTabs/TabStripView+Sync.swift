@@ -3,7 +3,7 @@ import CmuxNextDesign
 import QuartzCore
 // Model sync: diffs `TabStripModel` into tab cells and spring targets.
 extension TabStripView {
-    // MARK: - Model sync (`animating: false`: Cmd-T's tab at full width now, one commit with its page)
+    // MARK: - Model sync (`animating: false`: the change applies in one step)
 
     public func sync(fromModel: Bool, animating: Bool = true) {
         let modelOrdered = model.orderedTabs
@@ -44,9 +44,19 @@ extension TabStripView {
             }
         }
 
-        let animated = hasSynced && !reduceMotion && animating
+        let swaps = adoptReplacements(&ordered)
+        // A new tab grows into its slot while its neighbours slide, on one clock; with
+        // `ui.animations.newTab` off, or under Reduce Motion, the whole strip takes its new
+        // places in one step (no crossfade standing in for the motion, DESIGN P6).
+        let adding = ordered.contains { cells[$0.id] == nil }
+        let animated = hasSynced && !reduceMotion && animating && (!adding || Motion.animates(.newTab))
         let ids = Set(ordered.map(\.id))
-        if hasSynced { TabStripCrossfade.run(in: tabsClip, shown: Set(cells.keys), next: ids) }
+        // A replaced page goes at once: its newcomer takes its cell's place and geometry.
+        var handedOver: [TabID: TabMotion] = [:]
+        for (newcomer, page) in swaps where cells[page] != nil {
+            handedOver[newcomer] = motion[page]
+            removeTab(page)
+        }
         for (id, cell) in cells where !ids.contains(id) && !dying.contains(id) {
             if animated {
                 dying.insert(id)
@@ -65,6 +75,9 @@ extension TabStripView {
                 cell.update(item: item)
                 // A torn-out tab dropped back here takes the drop gap's geometry.
                 if pendingDrop?.id == item.id { added.insert(item.id) }
+            } else if let geometry = handedOver[item.id] {
+                _ = makeCell(item, animated: false)
+                motion[item.id] = geometry
             } else {
                 added.insert(makeCell(item, animated: animated))
             }

@@ -85000,6 +85000,1054 @@
           }
         }
       }
+    },
+    "settings.ui.animations.splits": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animate Splits"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "分割をアニメーション"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحريك التقسيمات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animiraj podjele"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer opdelinger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Teilungen animieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar divisiones"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer les divisions"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anima le divisioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើចលនាការបំបែក"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "분할 애니메이션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer delinger"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animuj podziały"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar divisões"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимировать разделение"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เคลื่อนไหวการแบ่ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bölmeleri canlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімувати поділ"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạo hiệu ứng chia khung"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "动画显示拆分"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "動畫顯示分割"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.splits.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new split grows from its edge and a closed one gives its room back. Off applies them at once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しい分割は端から広がり、閉じた分割はその領域を返します。オフにするとすぐに適用されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينمو التقسيم الجديد من حافته ويعيد التقسيم المغلق مساحته. عند الإيقاف تُطبَّق التغييرات فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova podjela raste od svog ruba, a zatvorena vraća svoj prostor. Isključeno ih primjenjuje odmah."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny opdeling vokser frem fra sin kant, og en lukket giver pladsen tilbage. Fra anvender dem med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine neue Teilung wächst von ihrem Rand aus, eine geschlossene gibt ihren Platz zurück. Aus wendet sie sofort an."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una división nueva crece desde su borde y una cerrada devuelve su espacio. Desactivado las aplica al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une nouvelle division s’ouvre depuis son bord et une division fermée rend sa place. Désactivé les applique aussitôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una nuova divisione cresce dal suo bordo e una chiusa restituisce lo spazio. Disattivato le applica subito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការបំបែកថ្មីលូតលាស់ពីគែមរបស់វា ហើយការបំបែកដែលបានបិទប្រគល់កន្លែងវិញ។ បិទ អនុវត្តភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 분할은 가장자리에서 자라나고 닫힌 분할은 공간을 돌려줍니다. 끄면 즉시 적용됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny deling vokser fra kanten sin, og en lukket gir plassen tilbake. Av bruker dem med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowy podział wyrasta od krawędzi, a zamknięty oddaje swoje miejsce. Wyłączone stosuje je od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma nova divisão cresce a partir da borda e uma fechada devolve o espaço. Desativado aplica na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новое разделение вырастает от края, а закрытое возвращает место. Выключено применяет изменения сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การแบ่งใหม่จะขยายจากขอบ และการแบ่งที่ปิดจะคืนพื้นที่ ปิดจะใช้ทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni bölme kenarından büyür, kapatılan bölme yerini geri verir. Kapalı olduğunda hemen uygulanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новий поділ виростає від краю, а закритий повертає місце. Вимкнено застосовує зміни одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Khung chia mới mở ra từ cạnh của nó và khung đã đóng trả lại chỗ. Tắt sẽ áp dụng ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新拆分从其边缘展开，关闭的拆分让出空间。关闭后立即应用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新分割從邊緣展開，關閉的分割讓出空間。關閉後立即套用。"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.newTab": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animate New Tabs"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいタブをアニメーション"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحريك علامات التبويب الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animiraj nove kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer nye faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Tabs animieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar pestañas nuevas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer les nouveaux onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anima le nuove schede"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើចលនាផ្ទាំងថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭 애니메이션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer nye faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animuj nowe karty"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar novas abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимировать новые вкладки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เคลื่อนไหวแท็บใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni sekmeleri canlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімувати нові вкладки"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạo hiệu ứng tab mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "动画显示新标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "動畫顯示新分頁"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.newTab.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new tab grows into its place in the tab bar. Off shows it there at once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいタブはタブバーの位置で広がります。オフにするとすぐに表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تنمو علامة التبويب الجديدة في مكانها في شريط علامات التبويب. عند الإيقاف تظهر فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nova kartica raste na svom mjestu u traci kartica. Isključeno je odmah prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny fane vokser frem på sin plads i fanelinjen. Fra viser den der med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ein neuer Tab wächst an seinem Platz in der Tableiste. Aus zeigt ihn dort sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una pestaña nueva crece en su lugar de la barra de pestañas. Desactivado la muestra al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Un nouvel onglet s’ouvre à sa place dans la barre d’onglets. Désactivé l’affiche aussitôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una nuova scheda cresce al suo posto nella barra delle schede. Disattivato la mostra subito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ផ្ទាំងថ្មីលូតលាស់នៅកន្លែងរបស់វាក្នុងរបារផ្ទាំង។ បិទ បង្ហាញវាភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭은 탭 막대의 자기 자리에서 자라납니다. 끄면 즉시 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny fane vokser inn på plassen sin i fanelinjen. Av viser den der med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowa karta wyrasta na swoim miejscu na pasku kart. Wyłączone pokazuje ją od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma nova aba cresce no seu lugar na barra de abas. Desativado a mostra na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новая вкладка вырастает на своём месте в панели вкладок. Выключено показывает её сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แท็บใหม่จะขยายในตำแหน่งของมันบนแถบแท็บ ปิดจะแสดงทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni sekme sekme çubuğundaki yerinde büyür. Kapalı olduğunda hemen gösterilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нова вкладка виростає на своєму місці на панелі вкладок. Вимкнено показує її одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tab mới mở ra tại vị trí của nó trên thanh tab. Tắt sẽ hiện ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新标签页在标签栏中的位置展开。关闭后立即显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新分頁在分頁列中的位置展開。關閉後立即顯示。"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.newWorkspace": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animate New Workspaces"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいワークスペースをアニメーション"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحريك مساحات العمل الجديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animiraj nove radne prostore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer nye arbejdsområder"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neue Arbeitsbereiche animieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar espacios de trabajo nuevos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer les nouveaux espaces de travail"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Anima i nuovi spazi di lavoro"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ធ្វើចលនាកន្លែងធ្វើការថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 작업 공간 애니메이션"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animer nye arbeidsområder"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animuj nowe obszary robocze"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animar novos espaços de trabalho"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анимировать новые рабочие пространства"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เคลื่อนไหวพื้นที่ทำงานใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni çalışma alanlarını canlandır"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Анімувати нові робочі простори"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tạo hiệu ứng không gian làm việc mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "动画显示新工作区"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "動畫顯示新工作區"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.newWorkspace.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A new workspace row opens in the sidebar. Off shows it there at once."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新しいワークスペースの行がサイドバーで開きます。オフにするとすぐに表示されます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ينفتح صف مساحة العمل الجديدة في الشريط الجانبي. عند الإيقاف يظهر فورًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Novi red radnog prostora otvara se u bočnoj traci. Isključeno ga odmah prikazuje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny række for arbejdsområdet åbner i sidepanelet. Fra viser den der med det samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Eine neue Arbeitsbereichszeile öffnet sich in der Seitenleiste. Aus zeigt sie dort sofort."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una fila de espacio de trabajo nueva se abre en la barra lateral. Desactivado la muestra al instante."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Une nouvelle ligne d’espace de travail s’ouvre dans la barre latérale. Désactivé l’affiche aussitôt."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Una nuova riga dello spazio di lavoro si apre nella barra laterale. Disattivato la mostra subito."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជួរកន្លែងធ្វើការថ្មីបើកនៅក្នុងរបារចំហៀង។ បិទ បង្ហាញវាភ្លាមៗ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 작업 공간 행이 사이드바에서 열립니다. 끄면 즉시 표시됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "En ny rad for arbeidsområdet åpner seg i sidepanelet. Av viser den der med en gang."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nowy wiersz obszaru roboczego otwiera się na pasku bocznym. Wyłączone pokazuje go od razu."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Uma nova linha de espaço de trabalho se abre na barra lateral. Desativado a mostra na hora."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новая строка рабочего пространства раскрывается на боковой панели. Выключено показывает её сразу."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แถวพื้นที่ทำงานใหม่จะเปิดในแถบด้านข้าง ปิดจะแสดงทันที"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni çalışma alanı satırı kenar çubuğunda açılır. Kapalı olduğunda hemen gösterilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Новий рядок робочого простору розкривається на бічній панелі. Вимкнено показує його одразу."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hàng không gian làm việc mới mở ra trong thanh bên. Tắt sẽ hiện ngay."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作区行在侧边栏中展开。关闭后立即显示。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新工作區列在側邊欄中展開。關閉後立即顯示。"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.bounce": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Animation Bounce"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アニメーションの弾み"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ارتداد الحركة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odskok animacije"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animationsfjedring"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animationsfederung"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rebote de animación"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rebond des animations"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rimbalzo delle animazioni"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការលោតនៃចលនា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "애니메이션 바운스"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animasjonsfjæring"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odbicie animacji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Quique das animações"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пружинистость анимации"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเด้งของภาพเคลื่อนไหว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Animasyon sekmesi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пружність анімації"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Độ nảy của hiệu ứng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "动画弹跳"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "動畫彈跳"
+          }
+        }
+      }
+    },
+    "settings.ui.animations.bounce.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "None stops tabs, rows and panes exactly at their place. Subtle lets them settle with a small bounce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "なしではタブ、行、ペインがその位置でぴたりと止まります。控えめでは小さく弾んで落ち着きます。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا شيء يوقف علامات التبويب والصفوف والأجزاء في مكانها تمامًا. خفيف يتركها تستقر بارتداد صغير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ništa zaustavlja kartice, redove i okna tačno na mjestu. Suptilno ih pušta da se smire uz mali odskok."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen stopper faner, rækker og ruder præcis på deres plads. Diskret lader dem falde på plads med et lille fjed."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Keine hält Tabs, Zeilen und Bereiche genau an ihrem Platz an. Dezent lässt sie mit einem kleinen Federn einrasten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ninguno detiene pestañas, filas y paneles justo en su sitio. Sutil los deja asentarse con un pequeño rebote."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aucun arrête onglets, lignes et sous-fenêtres exactement à leur place. Discret les laisse se poser avec un petit rebond."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nessuno ferma schede, righe e riquadri esattamente al loro posto. Leggero li fa assestare con un piccolo rimbalzo."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "គ្មាន បញ្ឈប់ផ្ទាំង ជួរ និងផ្ទាំងបន្ទះនៅកន្លែងរបស់វាត្រឹមត្រូវ។ ស្រាល ឱ្យវាស្ងប់ដោយលោតបន្តិច។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "없음은 탭, 행, 창을 정확히 제자리에 멈춥니다. 은은하게는 작게 튕기며 자리 잡습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen stopper faner, rader og ruter nøyaktig på plassen sin. Diskret lar dem falle på plass med en liten fjæring."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak zatrzymuje karty, wiersze i panele dokładnie na miejscu. Subtelne pozwala im osiąść z lekkim odbiciem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nenhum para abas, linhas e painéis exatamente no lugar. Sutil os deixa assentar com um pequeno quique."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Нет останавливает вкладки, строки и панели точно на месте. Слегка даёт им встать на место с небольшим отскоком."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ไม่มี จะหยุดแท็บ แถว และบานหน้าต่างตรงตำแหน่งพอดี เล็กน้อย จะให้เด้งเล็กน้อยก่อนเข้าที่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yok sekmeleri, satırları ve bölmeleri tam yerinde durdurur. Hafif, küçük bir sekmeyle yerleşmelerini sağlar."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Немає зупиняє вкладки, рядки й панелі точно на місці. Легко дає їм стати на місце з невеликим відскоком."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Không dừng tab, hàng và khung đúng vị trí. Nhẹ cho chúng nảy nhẹ trước khi dừng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "无：标签页、行和窗格精确停在原位。轻微：以轻微弹跳落定。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "無：分頁、列與窗格精確停在原位。輕微：以輕微彈跳落定。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
