@@ -146,9 +146,10 @@ final class SuggestionCardView: NSView {
         card.layer?.cornerCurve = .continuous
         card.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         card.layer?.masksToBounds = false
-        card.layer?.shadowOpacity = 0.16
-        card.layer?.shadowRadius = 8
-        card.layer?.shadowOffset = CGSize(width: 0, height: -2)
+        // The one popup shadow (PopupStyle), as the card top around the bar.
+        card.layer?.shadowOpacity = Float(PopupStyle.standard.shadowAlpha)
+        card.layer?.shadowRadius = PopupStyle.standard.shadowBlur
+        card.layer?.shadowOffset = CGSize(width: 0, height: -PopupStyle.standard.shadowOffset)
         addSubview(card)
     }
 

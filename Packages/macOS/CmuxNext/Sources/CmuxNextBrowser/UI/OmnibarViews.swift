@@ -176,9 +176,10 @@ final class OmnibarCardTopView: NSView {
         card.cornerRadius = OmnibarStyle.cardCornerRadius
         card.cornerCurve = .continuous
         card.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
-        card.shadowOpacity = 0.16
-        card.shadowRadius = 8
-        card.shadowOffset = CGSize(width: 0, height: -2)
+        // The one popup shadow (PopupStyle), as the panel of rows below.
+        card.shadowOpacity = Float(PopupStyle.standard.shadowAlpha)
+        card.shadowRadius = PopupStyle.standard.shadowBlur
+        card.shadowOffset = CGSize(width: 0, height: -PopupStyle.standard.shadowOffset)
         layer?.addSublayer(card)
         refresh()
     }
