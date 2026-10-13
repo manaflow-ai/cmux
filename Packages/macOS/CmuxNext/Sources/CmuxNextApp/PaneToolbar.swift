@@ -155,7 +155,11 @@ final class PaneToolbar {
         guard let registry = registry(), let target, let kind else { return nil }
         let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: target))
         let ids = Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
-        let more = Self.arrange(ids, hidden: hidden, zoomed: zoomed).more
+        let more = Self.arrange(ids, hidden: hidden, zoomed: zoomed).more.filter { id in
+            // The agent composer's split actions stay available through their key bindings and
+            // drag targets, but do not belong in its compact ellipsis menu.
+            kind != .newTab || (id != "splitRight" && id != "splitDown")
+        }
         return registry.makeContextMenu(for: .tab, target: invocation.target, entries: more.map { .action($0) })
     }
 }
