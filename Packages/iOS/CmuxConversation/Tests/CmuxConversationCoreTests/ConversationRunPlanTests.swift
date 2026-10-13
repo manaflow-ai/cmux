@@ -31,6 +31,33 @@ import Testing
         }
     }
 
+    /// A live change rebuilds the rows at the end: a plan for any range,
+    /// read from the transcript's end, gives the entries and the status
+    /// the whole plan does (Send Later messages trail, as the store keeps them).
+    @Test func aPlanForAnyRangeMatchesTheWholePlanThere() {
+        var messages: [ConversationMessage] = []
+        for i in 0..<40 {
+            let sender = [0, 1, 2, 5, 9, 10, 11, 30].contains(i % 13) ? "me" : "a"
+            messages.append(message(i + 1, sender, minute: Double(i * 3 + (i % 7 == 0 ? 90 : 0) + i * i % 11), delivery: sender == "me" ? .read(nil) : nil, replyTo: i == 17 ? "m3" : nil))
+        }
+        messages[36].senderID = "me"
+        messages[36].delivery = .delivered
+        var scheduled = message(nil, "me", minute: 400)
+        scheduled.scheduledAt = Date(timeIntervalSince1970: 500 * 60)
+        for (label, transcript) in [("plain", Array(messages.prefix(37))), ("all", messages), ("send later", messages + [scheduled])] {
+            for typing in [[], ["a"], ["me"]] {
+                let whole = ConversationRunPlan(messages: transcript, meID: "me", typingParticipantIDs: typing)
+                for start in 0...transcript.count {
+                    for end in [start, min(start + 1, transcript.count), transcript.count] {
+                        let part = ConversationRunPlan(messages: transcript, meID: "me", typingParticipantIDs: typing, range: start..<end)
+                        #expect(part.entries == Array(whole.entries[start..<end]), "\(label) typing \(typing) \(start)..<\(end)")
+                        #expect(part.statusIndex == whole.statusIndex)
+                    }
+                }
+            }
+        }
+    }
+
     @Test func consecutiveSameSenderFormsOneRunWithTailOnLast() {
         let plan = ConversationRunPlan(messages: [
             message(1, "a", minute: 0), message(2, "a", minute: 1), message(3, "a", minute: 2), message(4, "me", minute: 3),

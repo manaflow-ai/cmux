@@ -66,6 +66,10 @@ public final class ConversationViewController: UIViewController {
     private let rowMemo = ConversationRowMemo()
     /// `rows.map(\.id)`, kept so each update does not walk the old row models.
     private var rowIDs: [String] = []
+    /// What `rows` were built from: the store's transcript revision then,
+    /// and the message that carried the delivery status. A live change
+    /// rebuilds only the rows after what the store left alone since.
+    private var rowsBase: (revision: Int, statusMessageID: String?)?
     /// Height and leading spacing of each row, aligned with `rows` (NaN = not
     /// measured), valid for `rowMetricsKey`. An update re-measures only the
     /// rows it inserts or changes (and their followers' spacing), so a layout
@@ -87,11 +91,11 @@ public final class ConversationViewController: UIViewController {
     private(set) var hasPositionedInitially = false
     /// Rows already prefetched (see +Prefetch); reset when rows change.
     var prefetchedRange: Range<Int> = 0..<0
-    /// The reuse identifier each message row last dequeued its cell with.
+    /// The reuse class each message row last dequeued its cell with.
     /// A row's cell must be dequeued with the same identifier while UIKit
     /// still holds it (on screen or prefetched): reconfiguring an item with
-    /// another identifier raises. See `messageReuseID(for:height:)`.
-    private var messageReuseIDs: [String: String] = [:]
+    /// another identifier raises. See `messageReuseClass(for:height:)`.
+    private var messageReuseClasses = ConversationReuseRegistry<ObjectIdentifier>()
     /// The catch-up arrow (see +CatchUp).
     let catchUpButton = UIButton(type: .custom)
     /// Between viewDidAppear and viewWillDisappear.
@@ -583,7 +587,7 @@ public final class ConversationViewController: UIViewController {
     }
 
     func rebuild(change: ConversationStoreChange) {
-        rebuild(change: change, measured: nil, splice: nil, generation: nil)
+        rebuild(change: change, measured: nil, splice: nil, generation: nil, revision: nil)
     }
 
     /// `measured` carries rows a measure-ahead built from the store as it
@@ -591,8 +595,9 @@ public final class ConversationViewController: UIViewController {
     /// every row of the transcript again.
     /// `splice` describes `measured` when it was built from the page alone
     /// (see `ConversationRowBuilder.rowsAfterPrepend`).
-    /// `generation` is the row memo pass `measured` came from.
-    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?) {
+    /// `generation` is the row memo pass `measured` came from, and
+    /// `revision` the store's transcript revision it was built at.
+    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?, revision: Int?) {
         rebuildSerial &+= 1
         if store.hasLoadedNewest, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
@@ -600,9 +605,21 @@ public final class ConversationViewController: UIViewController {
         }
         var splice = splice
         var generation = generation
+        var tail: ConversationTailRows?
+        let revision = revision ?? store.transcriptRevision
         let newRows: [ConversationRow]
         if let measured {
             newRows = measured
+        } else if isLiveOrTyping(change), hasPositionedInitially, let base = rowsBase, rowIDs.count == rows.count,
+                  let built = ConversationRowBuilder.rowsAfterLiveChange(
+                    store: store, previous: rows, index: { [rowIndex] in rowIndex[$0] },
+                    unchanged: store.unchangedMessagePrefix(since: base.revision), statusMessageID: base.statusMessageID,
+                    memo: rowMemo
+                  ) {
+            // A live change: only the rows at the end are built.
+            assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a live change differ from a full build")
+            newRows = built.rows
+            tail = built
         } else if change == .prepended, hasPositionedInitially, let built = ConversationRowBuilder.rowsAfterPrepend(store: store, previous: rows) {
             // An older page: only its rows and the boundary are built.
             assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a landed page differ from a full build")
@@ -612,8 +629,9 @@ public final class ConversationViewController: UIViewController {
             newRows = ConversationRowBuilder.rows(store: store, memo: rowMemo)
             generation = rowMemo.generation
         }
-        if measured == nil, change == .prepended, measureAhead(newRows, splice: splice, generation: generation) { return }
-        apply(newRows, change: change, splice: splice, generation: generation)
+        if measured == nil, change == .prepended, measureAhead(newRows, splice: splice, generation: generation, revision: revision) { return }
+        apply(newRows, change: change, splice: splice, tail: tail, generation: generation)
+        rowsBase = (revision, ConversationRowBuilder.statusMessageID(store: store))
         updateCatchUp()
         if let info = store.info, header.window != nil, !hasConfiguredHeader {
             hasConfiguredHeader = true
@@ -631,7 +649,7 @@ public final class ConversationViewController: UIViewController {
     /// A landed page's rows are measured off the main thread before they
     /// are applied, so the frame that shows them only places them. Returns
     /// whether the rows wait for that (the measured rows rebuild again).
-    private func measureAhead(_ newRows: [ConversationRow], splice: ConversationPrependRows?, generation: Int?) -> Bool {
+    private func measureAhead(_ newRows: [ConversationRow], splice: ConversationPrependRows?, generation: Int?, revision: Int) -> Bool {
         let width = collectionView.bounds.width
         let margin = layoutMargin
         guard hasPositionedInitially, width > 0 else { return false }
@@ -664,7 +682,7 @@ public final class ConversationViewController: UIViewController {
             self.layoutCache.adopt(measured.items, width: width, margin: margin)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
-            self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil)
+            self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil, revision: current ? revision : nil)
         }
         return true
     }
@@ -859,7 +877,78 @@ public final class ConversationViewController: UIViewController {
         )
     }
 
-    private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange, splice: ConversationPrependRows? = nil, generation: Int? = nil) {
+    /// The diff of a live change built from the end (`tail`): only the rows
+    /// from `tail.kept` on, and the few rows rebuilt above, are compared.
+    /// Nil when the rows do not line up as `tail` says, or rows reorder.
+    private func tailDiff(_ newRows: [ConversationRow], tail: ConversationTailRows) -> RowDiff? {
+        let oldIDs = rowIDs
+        let keep = tail.kept
+        guard keep <= oldIDs.count, keep <= newRows.count else { return nil }
+        let oldTail = oldIDs[keep...]
+        let newTail = newRows[keep...].map(\.id)
+        var oldPlaces: [String: Int] = [:]
+        for (offset, id) in oldTail.enumerated() { oldPlaces[id] = keep + offset }
+        var newPlaces: [String: Int] = [:]
+        for (offset, id) in newTail.enumerated() { newPlaces[id] = keep + offset }
+        // Each id once, and none of the new rows already above the cut.
+        guard oldPlaces.count == oldTail.count, newPlaces.count == newTail.count,
+              !newTail.contains(where: { id in rowIndex[id].map { $0 < keep } ?? false }) else { return nil }
+        let commonOld = oldTail.filter { newPlaces[$0] != nil }
+        let commonNew = newTail.filter { oldPlaces[$0] != nil }
+        guard commonOld == commonNew else { return nil }
+        var updated: [IndexPath] = []
+        for index in tail.rebuilt where rows[index] != newRows[index] {
+            updated.append(IndexPath(item: index, section: 0))
+        }
+        for id in commonNew {
+            guard let o = oldPlaces[id], let n = newPlaces[id], rows[o] != newRows[n] else { continue }
+            updated.append(IndexPath(item: n, section: 0))
+        }
+        // Metrics as `carriedRowMetrics` gives them: the rows above the cut
+        // keep theirs, and the rows below carry theirs as an unchanged row does.
+        var metrics: [RowMetrics]?
+        if rowMetrics.count == rows.count {
+            let changed = Set(updated.map(\.item))
+            var carried = Array(rowMetrics[..<keep])
+            carried.reserveCapacity(newRows.count)
+            var previousOld: Int? = changed.contains(keep - 1) ? nil : keep - 1
+            for (offset, id) in newTail.enumerated() {
+                let index = keep + offset
+                let old = oldPlaces[id]
+                defer { previousOld = changed.contains(index) ? nil : old }
+                var metric = RowMetrics()
+                if let old, !changed.contains(index) {
+                    metric.height = rowMetrics[old].height
+                    if previousOld.map({ $0 == old - 1 }) ?? false { metric.spacing = rowMetrics[old].spacing }
+                }
+                carried.append(metric)
+            }
+            for index in tail.rebuilt where changed.contains(index) {
+                carried[index] = RowMetrics()
+                if index + 1 < carried.count { carried[index + 1].spacing = .nan }
+            }
+            metrics = carried
+        }
+        let currentIndex = rowIndex
+        return RowDiff(
+            newIDs: Array(oldIDs[..<keep]) + newTail,
+            deleted: oldTail.indices.filter { newPlaces[oldIDs[$0]] == nil }.map { IndexPath(item: $0, section: 0) },
+            inserted: newTail.indices.filter { oldPlaces[newTail[$0]] == nil }.map { IndexPath(item: keep + $0, section: 0) },
+            moved: nil, structural: true, updated: updated,
+            contains: { id in newPlaces[id] != nil || (oldPlaces[id] == nil && currentIndex[id] != nil) },
+            updateIndex: { $0.replaceSuffix(from: keep, oldTail, with: newTail) },
+            metrics: metrics
+        )
+    }
+
+    private func isLiveOrTyping(_ change: ConversationStoreChange) -> Bool {
+        switch change {
+        case .live, .typing: return true
+        default: return false
+        }
+    }
+
+    private func apply(_ newRows: [ConversationRow], change: ConversationStoreChange, splice: ConversationPrependRows? = nil, tail: ConversationTailRows? = nil, generation: Int? = nil) {
         let oldIDs = rowIDs
         prefetchedRange = 0..<0
 
@@ -887,8 +976,15 @@ public final class ConversationViewController: UIViewController {
 
         // Rows a memo pass copied from the pass on screen need no comparison.
         let unchanged = generation == rowMemo.generation ? rowMemo.unchangedRowIDs : []
-        let diff = splice.flatMap { prependDiff(newRows, splice: $0) } ?? diff(newRows, unchanged: unchanged)
-        if let splice {
+        let diff = splice.flatMap { prependDiff(newRows, splice: $0) }
+            ?? tail.flatMap { tailDiff(newRows, tail: $0) }
+            ?? diff(newRows, unchanged: tail == nil ? unchanged : [])
+        if let tail {
+            // Rows rebuilt outside a memo pass replace what the memo holds
+            // (the rows from the cut on came from a pass, which the memo
+            // does not count as the one on screen).
+            for index in tail.rebuilt { ConversationRowBuilder.messageRowID(of: newRows[index]).map(rowMemo.forget) }
+        } else if let splice {
             // Rows built outside a memo pass replace what the memo holds.
             for row in newRows[..<splice.reused.lowerBound] { ConversationRowBuilder.messageRowID(of: row).map(rowMemo.forget) }
             for index in splice.rebuilt { ConversationRowBuilder.messageRowID(of: newRows[index]).map(rowMemo.forget) }
@@ -1302,10 +1398,9 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
         switch rows[indexPath.item] {
         case let .message(model):
             let cellLayout = layoutCache.layout(for: model, width: collectionView.bounds.width, margin: layoutMargin)
-            let reuseID = messageReuseID(for: model.rowID, height: cellLayout.height)
-            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: reuseID, for: indexPath) as! MessageCell
-            if let previous = cell.model?.rowID, previous != model.rowID { messageReuseIDs[previous] = nil }
-            messageReuseIDs[model.rowID] = reuseID
+            let reuseClass = messageReuseClass(for: model.rowID, height: cellLayout.height)
+            let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MessageCell.reuseID(class: reuseClass), for: indexPath) as! MessageCell
+            messageReuseClasses.dequeued(ObjectIdentifier(cell), forRow: model.rowID, reuseClass: reuseClass, previousRowID: cell.model?.rowID)
             cell.audioDelegate = self
             cell.configure(model: model, layout: cellLayout, text: layoutCache.attributedText(for: model))
             cell.setFlightHidden(flyingRowIDs.contains(model.rowID))
@@ -1368,19 +1463,19 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
     /// screen (ConversationReuseClass), so UIKit's reuse queues keep every
     /// cell instead of dropping tall rows' cells. A row whose cell UIKit
     /// may still hold keeps the identifier it was dequeued with.
-    private func messageReuseID(for rowID: String, height: CGFloat) -> String {
-        if let reuseID = messageReuseIDs[rowID] { return reuseID }
-        return MessageCell.reuseID(class: ConversationReuseClass.index(rowHeight: height, viewportHeight: collectionView.bounds.height))
+    private func messageReuseClass(for rowID: String, height: CGFloat) -> Int {
+        messageReuseClasses.reuseClass(forRow: rowID)
+            ?? ConversationReuseClass.index(rowHeight: height, viewportHeight: collectionView.bounds.height)
     }
 
     /// Forgets the identifiers of message rows whose cells UIKit let go.
     private func forgetMessageReuseIDs(_ rowIDs: some Sequence<String>) {
-        for rowID in rowIDs { messageReuseIDs[rowID] = nil }
+        for rowID in rowIDs { messageReuseClasses.forget(rowID: rowID) }
     }
 
     /// After a reload UIKit holds no cell for any row.
     private func forgetAllMessageReuseIDs() {
-        messageReuseIDs.removeAll()
+        messageReuseClasses.forgetAll()
     }
 
     public func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {

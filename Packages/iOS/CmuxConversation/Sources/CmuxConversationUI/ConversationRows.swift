@@ -161,6 +161,12 @@ struct ConversationRowIndex {
         base += newPrefix.count - oldPrefix.count
         for (index, id) in newPrefix.enumerated() { stored[id] = index - base }
     }
+
+    /// The rows from `start` on (`oldSuffix`) gave way to `newSuffix`.
+    mutating func replaceSuffix(from start: Int, _ oldSuffix: ArraySlice<String>, with newSuffix: [String]) {
+        for id in oldSuffix { stored[id] = nil }
+        for (offset, id) in newSuffix.enumerated() { stored[id] = start + offset - base }
+    }
 }
 
 /// Rows after an older page landed: `rows[reused]` are the previous rows
@@ -169,6 +175,14 @@ struct ConversationPrependRows {
     var rows: [ConversationRow]
     var reused: Range<Int>
     var keptFrom: Int
+    var rebuilt: [Int]
+}
+
+/// Rows after a live change: `rows[..<kept]` are the previous rows, except
+/// `rebuilt`; the rows from `kept` on were built again.
+struct ConversationTailRows {
+    var rows: [ConversationRow]
+    var kept: Int
     var rebuilt: [Int]
 }
 
@@ -279,6 +293,104 @@ enum ConversationRowBuilder {
             rebuilt.append(index)
         }
         return ConversationPrependRows(rows: rows, reused: reusedStart..<rows.count, keptFrom: keepFrom, rebuilt: rebuilt)
+    }
+
+    /// The rows `rows(store:)` gives after a live change (an arrival, an
+    /// update, typing) that left the first `unchanged` messages as they were
+    /// when `previous` was built (`ConversationStore.unchangedMessagePrefix`),
+    /// built from the end alone: the rows of the messages from the one
+    /// above the first changed message (its tail depends on the next) or
+    /// the last message before Send Later (its tail depends on typing) on,
+    /// and the transcript's trailing rows, are built; the rows above come
+    /// from `previous`, except a bubble whose delivery status moved or whose
+    /// quoted message is among the rebuilt ones, which is rebuilt.
+    /// `statusMessageID` is the message that carried the status in
+    /// `previous`; `index` finds a row of `previous` by id. The rebuilt
+    /// messages are copied from `memo` when unchanged, so a change far up
+    /// costs no more than a full build. Nil when the rows cannot be split
+    /// that way.
+    static func rowsAfterLiveChange(
+        store: ConversationStore,
+        previous: [ConversationRow],
+        index: (String) -> Int?,
+        unchanged: Int,
+        statusMessageID: String?,
+        memo: ConversationRowMemo? = nil
+    ) -> ConversationTailRows? {
+        guard let info = store.info else { return nil }
+        let messages = store.messages
+        var firstScheduled = messages.count
+        while firstScheduled > 0, messages[firstScheduled - 1].isScheduled { firstScheduled -= 1 }
+        let start = min(unchanged, firstScheduled) - 1
+        // Near the top, a full build costs as little.
+        guard start > 0, start < messages.count else { return nil }
+        // Where the first rebuilt message's rows began.
+        let startRowID = messages[start].rowID
+        var cut = Int.max
+        for id in ["ts:\(startRowID)", "unsent:\(startRowID)", "system:\(startRowID)", startRowID] {
+            if let row = index(id) { cut = min(cut, row) }
+        }
+        guard cut < previous.count, cut > 0, messageRowID(of: previous[cut]) == startRowID,
+              messageRowID(of: previous[cut - 1]) != startRowID else { return nil }
+        // The leading row is as before, and no trailing row sits above the cut.
+        var leading: [ConversationRow] = []
+        appendLeadingRows(store: store, hidesLoadingRow: false, into: &leading)
+        guard previous.starts(with: leading) else { return nil }
+        if case .conversationStart = previous[leading.count] { return nil }
+        if case .loadingOlder = previous[leading.count] { return nil }
+        for id in ["typing", "unavailability"] {
+            if let row = index(id), row < cut { return nil }
+        }
+        let context = Context(store: store, info: info, isGroup: info.kind == .group, meID: store.meID, typingIDs: store.typingParticipantIDs, translations: store.translations)
+        let plan = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: start..<messages.count)
+        memo?.beginPass(info: info, meID: context.meID, messageCount: messages.count)
+        var rows = Array(previous[..<cut])
+        rows.reserveCapacity(cut + (messages.count - start) * 2 + 2)
+        var typingPlaced = context.typingIDs.isEmpty
+        for index in start..<messages.count {
+            appendRows(for: messages[index], entry: plan.entries[index - start], context: context, memo: memo, typingPlaced: &typingPlaced, into: &rows)
+        }
+        // The Focus notice ends the transcript, above typing and Send Later rows.
+        if let silenced = info.silencedRecipient {
+            let slot = rows[cut...].firstIndex { row in
+                switch row {
+                case .typing, .sendLaterHeader: return true
+                default: return false
+                }
+            } ?? rows.count
+            rows.insert(.unavailability(name: firstName(silenced.name), notifyAnywayMessageID: store.notifyAnywayMessage?.id), at: slot)
+        }
+        if !typingPlaced {
+            rows.append(.typing(participantIDs: context.typingIDs))
+        }
+        // Bubbles above the cut whose status moved or whose quote may have changed.
+        var stale: [Int] = []
+        if let statusMessageID, let old = store.messageIndex(id: statusMessageID), old < start { stale.append(old) }
+        if let new = plan.statusIndex, new < start, !stale.contains(new) { stale.append(new) }
+        for i in 0..<start {
+            guard let replyTo = messages[i].replyToID else { continue }
+            if let quoted = store.messageIndex(id: replyTo), quoted < start { continue }
+            if !stale.contains(i) { stale.append(i) }
+        }
+        var rebuilt: [Int] = []
+        for i in stale {
+            let rowID = messages[i].rowID
+            guard let row = index(rowID), row < cut else { continue }
+            guard case .message = previous[row] else { return nil }
+            let entry = ConversationRunPlan(messages: messages, meID: context.meID, typingParticipantIDs: context.typingIDs, range: i..<(i + 1)).entries[0]
+            var single: [ConversationRow] = []
+            var placed = true
+            appendRows(for: messages[i], entry: entry, context: context, typingPlaced: &placed, into: &single)
+            guard let replacement = single.first(where: { $0.id == rowID }) else { return nil }
+            rows[row] = replacement
+            rebuilt.append(row)
+        }
+        return ConversationTailRows(rows: rows, kept: cut, rebuilt: rebuilt.sorted())
+    }
+
+    /// The message carrying the delivery status in `store` now.
+    static func statusMessageID(store: ConversationStore) -> String? {
+        ConversationRunPlan(messages: store.messages, meID: store.meID, range: 0..<0).statusIndex.map { store.messages[$0].id }
     }
 
     /// The message a row belongs to (its bubble, timestamp, notice, status

@@ -42,10 +42,16 @@ public enum ConversationStoreChange: Sendable, Equatable {
 /// absorbs live events (deduped, idempotent) plus optimistic local sends.
 @MainActor
 public final class ConversationStore {
-    public private(set) var info: ConversationInfo?
-    public private(set) var meID: String?
+    public private(set) var info: ConversationInfo? {
+        didSet { recordTranscriptChange(from: 0) }
+    }
+    public private(set) var meID: String? {
+        didSet { recordTranscriptChange(from: 0) }
+    }
     /// Acknowledged messages ascend by seq; pending sends follow in creation order.
-    public internal(set) var messages: [ConversationMessage] = []
+    public internal(set) var messages: [ConversationMessage] = [] {
+        didSet { recordTranscriptChange(from: messageChangeFloor ?? 0) }
+    }
     public private(set) var older: ConversationOlderState = .idle
     public private(set) var hasLoadedNewest = false
     public private(set) var typingParticipantIDs: [String] = []
@@ -87,11 +93,56 @@ public final class ConversationStore {
         for observer in observers { observer(change) }
     }
 
+    // MARK: Transcript journal
+
+    /// Bumps on every change to what the transcript's rows are built from.
+    public private(set) var transcriptRevision = 0
+
+    /// Recent changes, oldest first: each change's revision and the lowest
+    /// message index it may have touched.
+    private var transcriptJournal: [(revision: Int, from: Int)] = []
+    private static let transcriptJournalLimit = 64
+    /// Set while a change that leaves the messages before it alone runs
+    /// (see `changingMessages(from:_:)`); any other write to `messages`
+    /// counts as changing all of them.
+    private var messageChangeFloor: Int?
+
+    /// How many leading messages are the same messages, unchanged and in the
+    /// same places, as at `revision`: a transcript built then needs only
+    /// the rows from there on. 0 when that is not known.
+    public func unchangedMessagePrefix(since revision: Int) -> Int {
+        guard revision != transcriptRevision else { return messages.count }
+        guard revision < transcriptRevision, let oldest = transcriptJournal.first, oldest.revision <= revision + 1 else { return 0 }
+        var prefix = messages.count
+        for entry in transcriptJournal.reversed() {
+            guard entry.revision > revision else { break }
+            prefix = min(prefix, entry.from)
+        }
+        return prefix
+    }
+
+    /// Something the rows read changed, leaving the messages before `index` as they were.
+    func recordTranscriptChange(from index: Int) {
+        transcriptRevision &+= 1
+        if transcriptJournal.count == Self.transcriptJournalLimit { transcriptJournal.removeFirst() }
+        transcriptJournal.append((transcriptRevision, max(0, index)))
+    }
+
+    /// Runs `body`, a change to `messages` that leaves every message before
+    /// `index` as it was (an append passes the old count).
+    func changingMessages<T>(from index: Int, _ body: () throws -> T) rethrows -> T {
+        let outer = messageChangeFloor
+        messageChangeFloor = index
+        defer { messageChangeFloor = outer }
+        return try body()
+    }
+
     /// Client-side translation state (Translate menu, automatic translation).
     public lazy var translations = ConversationTranslations(store: self)
 
     /// Translation state changed: rows redraw in place.
     func translationsDidChange() {
+        recordTranscriptChange(from: 0)
         notify(.live(insertedRowIDs: [], sentByMe: false))
     }
 
@@ -123,6 +174,11 @@ public final class ConversationStore {
     /// overwrites a newer state.
     private var listStateGeneration = 0
     private var polls = PollState()
+    /// The vote the backend refused, per poll message. Poll rows read it:
+    /// any change rebuilds them.
+    private var pollFailures: [String: ConversationPollVoteFailure] = [:] {
+        didSet { recordTranscriptChange(from: 0) }
+    }
     /// Send Later state (see ConversationStore+SendLater.swift).
     var cancelledScheduleClientIDs: Set<String> = []
     var scheduledRefreshTask: Task<Void, Never>?
@@ -183,6 +239,11 @@ public final class ConversationStore {
 
     public func message(id: String) -> ConversationMessage? {
         indexByID[id].map { messages[$0] }
+    }
+
+    /// Where the message with `id` sits in `messages`.
+    public func messageIndex(id: String) -> Int? {
+        indexByID[id]
     }
 
     public func message(rowID: String) -> ConversationMessage? {
@@ -308,13 +369,13 @@ public final class ConversationStore {
             }
         }
         if let index = indexByID[incoming.id] {
-            messages[index] = merged(existing: messages[index], incoming: incoming)
+            changingMessages(from: index) { messages[index] = merged(existing: messages[index], incoming: incoming) }
             return false
         }
         if let clientID = incoming.clientMessageID,
            let index = indexByID["local:\(clientID)"] {
             let pendingID = messages[index].id
-            messages[index] = merged(existing: messages[index], incoming: incoming)
+            changingMessages(from: index) { messages[index] = merged(existing: messages[index], incoming: incoming) }
             indexByID[pendingID] = nil
             indexByID[incoming.id] = index
             // Acknowledged now: it sorts by seq, no longer by its failure anchor.
@@ -322,7 +383,7 @@ public final class ConversationStore {
             sortAndReindexUnlessInPlace(index)
             return false
         }
-        messages.append(incoming)
+        changingMessages(from: messages.count) { messages.append(incoming) }
         indexByID[incoming.id] = messages.count - 1
         return true
     }
@@ -654,7 +715,7 @@ public final class ConversationStore {
         guard cut > 0 else { return false }
         for message in messages[..<cut] {
             polls.server[message.id] = nil
-            polls.failures[message.id] = nil
+            pollFailures[message.id] = nil
         }
         messages.removeFirst(cut)
         indexByID.removeAll(keepingCapacity: true)
@@ -851,7 +912,7 @@ public final class ConversationStore {
     private func markFailed(clientID: String, reason: String) {
         guard let index = messages.firstIndex(where: { $0.clientMessageID == clientID }),
               messages[index].seq == nil else { return }
-        messages[index].delivery = .failed(reason)
+        changingMessages(from: index) { messages[index].delivery = .failed(reason) }
         failedAnchorSeq[messages[index].id] = messages.last { $0.seq != nil }?.seq ?? 0
         notify(.live(insertedRowIDs: [], sentByMe: true))
     }
@@ -994,7 +1055,7 @@ public final class ConversationStore {
             message.reactions.append(ConversationReactionMark(participantID: meID, reaction: reaction))
             reactionRecents.record(reaction)
         }
-        messages[index] = message
+        changingMessages(from: index) { messages[index] = message }
         notify(.live(insertedRowIDs: [], sentByMe: true))
         Task { [weak self] in
             guard let self else { return }
@@ -1024,11 +1085,13 @@ public final class ConversationStore {
               messages[index].text != trimmed || messages[index].textRuns != runs,
               canEdit(messages[index]) else { return }
         let original = messages[index]
-        messages[index].text = trimmed
-        messages[index].textRuns = runs
-        messages[index].mentions = ConversationMentionEditing.surviving(original.mentions, oldText: original.text, newText: trimmed)
-        messages[index].editedAt = Date()
-        messages[index].editCount += 1
+        changingMessages(from: index) {
+            messages[index].text = trimmed
+            messages[index].textRuns = runs
+            messages[index].mentions = ConversationMentionEditing.surviving(original.mentions, oldText: original.text, newText: trimmed)
+            messages[index].editedAt = Date()
+            messages[index].editCount += 1
+        }
         notify(.live(insertedRowIDs: [], sentByMe: false))
         Task { [weak self] in
             guard let self else { return }
@@ -1061,11 +1124,13 @@ public final class ConversationStore {
     public func unsend(messageID: String) {
         guard let index = indexByID[messageID], canUnsend(messages[index]) else { return }
         unsendOriginals[messageID] = messages[index]
-        messages[index].unsentAt = Date()
-        messages[index].text = ""
-        messages[index].attachments = []
-        messages[index].reactions = []
-        messages[index].unsendFailed = false
+        changingMessages(from: index) {
+            messages[index].unsentAt = Date()
+            messages[index].text = ""
+            messages[index].attachments = []
+            messages[index].reactions = []
+            messages[index].unsendFailed = false
+        }
         notify(.live(insertedRowIDs: [], sentByMe: false))
         sendRetraction(messageID: messageID)
     }
@@ -1444,7 +1509,7 @@ public final class ConversationUnreadBadge {
 // MARK: - Polls
 
 /// Local poll intent layered over the server's copy: votes and choices the
-/// backend has not confirmed yet, and the last vote it refused.
+/// backend has not confirmed yet (the votes it refused are `pollFailures`).
 private struct PollState {
     struct PendingVote {
         var selected: Bool
@@ -1457,14 +1522,13 @@ private struct PollState {
     var pendingVotes: [String: [String: PendingVote]] = [:]
     /// messageID -> choices I added that the backend has not confirmed.
     var pendingOptions: [String: [ConversationPollOption]] = [:]
-    var failures: [String: ConversationPollVoteFailure] = [:]
     var nextToken = 0
 }
 
 extension ConversationStore {
     /// The vote the backend refused for this poll message, if any.
     public func pollVoteFailure(messageID: String) -> ConversationPollVoteFailure? {
-        polls.failures[messageID]
+        pollFailures[messageID]
     }
 
     /// Whether I can vote on or add choices to this poll (it reached the server).
@@ -1513,7 +1577,7 @@ extension ConversationStore {
     public func setPollVote(messageID: String, optionID: String, selected: Bool) {
         guard let meID, let index = indexByID[messageID], canInteractWithPoll(messages[index]),
               messages[index].poll?.option(optionID) != nil else { return }
-        polls.failures[messageID] = nil
+        pollFailures[messageID] = nil
         polls.nextToken += 1
         let token = polls.nextToken
         polls.pendingVotes[messageID, default: [:]][optionID] = PollState.PendingVote(selected: selected, token: token)
@@ -1530,7 +1594,7 @@ extension ConversationStore {
             } catch {
                 guard self.polls.pendingVotes[messageID]?[optionID]?.token == token else { return }
                 self.polls.pendingVotes[messageID]?[optionID] = nil
-                self.polls.failures[messageID] = ConversationPollVoteFailure(optionID: optionID, selected: selected)
+                self.pollFailures[messageID] = ConversationPollVoteFailure(optionID: optionID, selected: selected)
                 self.rederivePoll(messageID: messageID)
             }
             self.notify(.live(insertedRowIDs: [], sentByMe: false))
@@ -1539,12 +1603,12 @@ extension ConversationStore {
 
     /// "Try Again" on a failed vote resends the same intent.
     public func retryPollVote(messageID: String) {
-        guard let failure = polls.failures[messageID] else { return }
+        guard let failure = pollFailures[messageID] else { return }
         setPollVote(messageID: messageID, optionID: failure.optionID, selected: failure.selected)
     }
 
     public func dismissPollVoteFailure(messageID: String) {
-        guard polls.failures.removeValue(forKey: messageID) != nil else { return }
+        guard pollFailures.removeValue(forKey: messageID) != nil else { return }
         notify(.live(insertedRowIDs: [], sentByMe: false))
     }
 
