@@ -39,6 +39,9 @@ public final class ConversationViewController: UIViewController {
     let layout = ConversationTranscriptLayout()
     private(set) lazy var collectionView = TranscriptCollectionView(frame: .zero, collectionViewLayout: layout)
     let header = ConversationHeaderView()
+    /// The header's bottom: 92 pt below the safe top, or the compact bar's
+    /// bottom in landscape.
+    private lazy var headerBottom = header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight)
     let topEdgeFade = ConversationTopEdgeFade()
     /// The conversation background, behind the transcript (see +Background).
     let backdropView = ConversationBackdropView()
@@ -248,7 +251,7 @@ public final class ConversationViewController: UIViewController {
             header.topAnchor.constraint(equalTo: view.topAnchor),
             header.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             header.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            header.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: ConversationHeaderView.contentHeight),
+            headerBottom,
             topEdgeFade.topAnchor.constraint(equalTo: view.topAnchor),
             topEdgeFade.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             topEdgeFade.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -341,6 +344,11 @@ public final class ConversationViewController: UIViewController {
         // reaches the field's top edge.
         view.keyboardLayoutGuide.keyboardDismissPadding = ConversationKeyboardPinGeometry.dismissPadding(fieldHeight: composer.fieldHeight)
         followKeyboardProgress()
+        let headerHeight = header.heightBelowSafeTop
+        if headerBottom.constant != headerHeight {
+            headerBottom.constant = headerHeight
+            view.layoutIfNeeded()
+        }
         updateInsets()
         // A full field stops 3.3 pt below the header's bottom edge, just under
         // the name pill (Messages: field top 157.3 pt, pill bottom 148.6 pt).
@@ -401,7 +409,9 @@ public final class ConversationViewController: UIViewController {
         // Messages' transcript starts at its navigation bar's bottom, 157.33
         // pt on a Dynamic Island iPhone: 8 pt under the name pill, 3.33 under
         // the bottom of our header (iOS 26.5 and 27.0).
-        let top = header.frame.maxY + 10.0 / 3.0
+        // Landscape (compact bar): the transcript starts at the bar's bottom
+        // (Messages 27, iPhone 17 Pro Max: content inset 78 = 24 + 54).
+        let top = header.frame.maxY + (header.isCompact ? 0 : 10.0 / 3.0)
         // The last body rests 16.71 pt above the field (ChatKit's send
         // lands it there on iOS 26 and 27): the field sits 4 pt into the
         // container and the content ends 6 pt below the last row.
