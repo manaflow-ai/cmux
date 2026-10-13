@@ -71,6 +71,11 @@ public final class TabModel: Identifiable {
     @ObservationIgnored private var commandTimer: DemandTimer?
     /// The terminal a remote-terminal tab references (on another session).
     public internal(set) var remote: RemoteTerminalRef?
+    /// What a `.conversation` tab shows (`TabSnapshot.conversation`). Stored and observed: a
+    /// chat picked in an open tab changes only this, and the control snapshot must hear it (cx-sy3w1).
+    public internal(set) var conversation: ConversationTabRef?
+    /// The app an app tab shows (`TabSnapshot.app`), observed like ``conversation``.
+    public internal(set) var app: AppTabRef?
     /// Last snapshot, for fields the record does not surface. Views should
     /// read the typed fields; this one changes whenever any field does.
     @ObservationIgnored public private(set) var snapshot: TabSnapshot
@@ -91,23 +96,23 @@ public final class TabModel: Identifiable {
     /// The acpmux session record of an agent chat tab (a conversation tab with an agent session
     /// source, `agent-session-tabs-v1`); nil for every other tab.
     public var agentSession: AgentSessionRef? {
-        kind == .conversation ? snapshot.conversation?.agentSession : nil
+        kind == .conversation ? conversation?.agentSession : nil
     }
 
     /// The app an app tab shows (a frontend tab of an app workspace, `app-screens-v1`).
     public var appTab: AppTabRef? {
-        kind == .browser ? snapshot.app : nil
+        kind == .browser ? app : nil
     }
 
     /// The page id of a page tab (a conversation tab with a page source, `page-tabs-v1`: the
     /// App Store, Settings); nil for every other tab.
     public var page: String? {
-        kind == .conversation ? snapshot.conversation?.page : nil
+        kind == .conversation ? conversation?.page : nil
     }
 
     /// What a page tab shows (`page-tab-route-v1`); nil for none or any other tab.
     public var pageRoute: String? {
-        kind == .conversation ? snapshot.conversation?.route : nil
+        kind == .conversation ? conversation?.route : nil
     }
 
     init(_ s: TabSnapshot) {
@@ -137,6 +142,8 @@ public final class TabModel: Identifiable {
         isFrontendOwned = s.isFrontendOwned
         tabGroup = s.tabGroup
         remote = s.remote
+        conversation = s.conversation
+        app = s.app
     }
 
     static func identity(_ s: TabSnapshot) -> String {
@@ -170,6 +177,8 @@ public final class TabModel: Identifiable {
         if isFrontendOwned != s.isFrontendOwned { isFrontendOwned = s.isFrontendOwned }
         if tabGroup != s.tabGroup { tabGroup = s.tabGroup }
         if remote != s.remote { remote = s.remote }
+        if conversation != s.conversation { conversation = s.conversation }
+        if app != s.app { app = s.app }
     }
 
     /// Lays the daemon's tab record and terminal progress over the record.

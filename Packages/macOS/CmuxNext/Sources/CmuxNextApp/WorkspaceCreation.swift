@@ -100,6 +100,7 @@ enum WorkspaceCreation {
                 _ = try await connection.request(NewConversationTabRequest(agentSession: record, workspace: created.workspace,
                                                                            origin: AgentTabStore.createOrigin, mutationID: UUID().uuidString))
             } else {
+                if let token = spawn.inputToken, spawn.firstChat == nil { tabs.firstPageTokens[created.workspace] = token }
                 _ = try await tabs.openFirstPage(workspace: created.workspace, cwd: cwd, on: daemon, chat: spawn.firstChat)
             }
             return created.key.rawValue

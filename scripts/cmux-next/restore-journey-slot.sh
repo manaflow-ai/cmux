@@ -64,7 +64,10 @@ printed=$(grep -o 'socket=[^ ]*' "$out/launch.txt" | head -1 | cut -d= -f2- || t
 sock=
 for _ in $(seq 1 60); do
   for candidate in "/tmp/cmux-debug-$build_tag-capslot$slot.sock" $printed; do
-    if ssh -o BatchMode=yes "$host" "test -S '$candidate'"; then sock=$candidate; break 2; fi
+    # A socket that accepts a connection (an earlier lease can leave a dead socket file behind).
+    if ssh -o BatchMode=yes "$host" "python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(2); s.connect(sys.argv[1])' '$candidate'" 2>/dev/null; then
+      sock=$candidate; break 2
+    fi
   done
   sleep 1
 done
