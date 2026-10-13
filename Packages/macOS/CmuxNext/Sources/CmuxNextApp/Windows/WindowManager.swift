@@ -201,6 +201,14 @@ final class WindowManager {
             }
         }
         reconcileMembership()
+        // Every remaining window closed (the open ones lost their workspaces while the app was
+        // not running): the most recent one opens, so the app never starts with no window.
+        if !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen), let front = registry.value.recency.first {
+            registry.apply { registry in
+                registry.setRestored(front, open: true)
+                return WindowRegistry.Changes()
+            }
+        }
         sync(previous: [:])
         // Registered now (it received workspaces): an ordinary window. If
         // it has none (the daemon failed to create one), it keeps showing

@@ -220,14 +220,16 @@ extension WindowManager {
         return controller
     }
 
-    /// The user closed window `id`: its workspaces move to the most recent
-    /// other window of its kind; the last window stays registered, closed,
-    /// with its workspaces (restorable by a Dock click).
+    /// The user closed window `id`: it stays registered, closed, with its
+    /// workspaces, as one closed group (Cmd-Shift-T, History, a Dock click).
+    /// A daemon without window records records no group: a non-last window's
+    /// workspaces then move to the most recent other window, as before.
     /// An incognito window closes for good: its workspaces close too.
     func userClosed(_ id: String) {
         let snapshots = services.sidebarSnapshots
         Task { await snapshots.forget(window: id) }
-        let changes = transition { $0.close(id) }
+        let keepsGroup = services.daemon.supports(DaemonCapabilities.shared.windowRecords)
+        let changes = transition { $0.close(id, keepsGroup: keepsGroup) }
         discard(changes.discarded)
     }
 
@@ -243,6 +245,15 @@ extension WindowManager {
         guard let reopened, let controller = controller(for: reopened) else { return false }
         bringToFront(controller)
         return true
+    }
+
+    /// The closed window `id`'s group was deleted (History Remove, Clear
+    /// History): its workspaces move to the most recent open window, or it
+    /// opens again, so no running workspace stays hidden.
+    func releaseClosedWindow(id: String) {
+        let changes = transition { $0.releaseClosed(id) }
+        if let reopened = registry.value.window(id), reopened.isOpen, let controller = controller(for: id) { bringToFront(controller) }
+        _ = changes
     }
 
     /// Reopens closed window `id` (Reopen Closed of its `window` group).

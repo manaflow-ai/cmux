@@ -189,6 +189,14 @@ enum DaemonClosedHistory {
         })
     }
 
+    /// A deleted `window` item of this app: its closed window lets its
+    /// workspaces go (nothing could reopen them otherwise).
+    private static func releaseWindow(of item: ClosedItem, daemon: DaemonService, services: AppServices) {
+        guard item.kind == .window, daemon.isLocal, let recorded = item.window,
+              let install = try? services.cloud.localDeviceID(), recorded.hasPrefix(install + "/") else { return }
+        services.windows.releaseClosedWindow(id: String(recorded.dropFirst(install.count + 1)))
+    }
+
     /// Sends the agent-home folders of deleted closed workspaces (the
     /// daemon moved them to `.trash-pending`, cx-gzh.9.2) to the Trash, off
     /// the main thread. At launch and after each delete or clear.
@@ -204,6 +212,7 @@ enum DaemonClosedHistory {
     /// Tabs' forget): it cannot be reopened any more.
     static func delete(_ entry: Entry, services: AppServices) {
         let daemon = entry.daemon, id = entry.item.id
+        releaseWindow(of: entry.item, daemon: daemon, services: services)
         services.registry.track(Task { @MainActor in
             guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
             do {
@@ -226,6 +235,9 @@ enum DaemonClosedHistory {
     /// that skew.
     static func clear(since: Date?, services: AppServices) {
         let sinceMs = since.map { UInt64(max(0, $0.timeIntervalSince1970 * 1000)) }
+        for entry in entries([.window], in: services) where sinceMs.map({ entry.item.closedAtMs >= $0 }) ?? true {
+            releaseWindow(of: entry.item, daemon: entry.daemon, services: services)
+        }
         for daemon in services.machines.daemons where daemon.store.servesStateResources {
             services.registry.track(Task { @MainActor in
                 guard let connection = daemon.connection else { return ActionWorkFailure(MiscHandlerStrings.daemonOffline) }
