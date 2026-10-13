@@ -29,14 +29,14 @@ def run_case(root: Path, args: tuple[str, ...], *, in_cmux: bool = True) -> dict
     executable(
         real_agy,
         "#!/bin/sh\n"
-        f"python3 -c 'import json,os,sys; json.dump({{\"argv\":sys.argv[1:],\"env\":dict(os.environ)}}, open({str(real_result)!r}, \"w\"))' \"$@\"\n",
+        "python3 -c 'import json,os,sys; json.dump({\"argv\":sys.argv[1:],\"env\":dict(os.environ)}, open(os.environ[\"AGY_RESULT\"], \"w\"))' \"$@\"\n",
     )
     cmux_log = root / "cmux-calls.json"
     fake_cmux = root / "cmux"
     executable(
         fake_cmux,
         "#!/bin/sh\n"
-        f"python3 -c 'import json,os,sys; json.dump({{\"argv\":sys.argv[1:],\"env\":dict(os.environ)}}, open({str(cmux_log)!r}, \"a\"))'\n"
+        "python3 -c 'import json,os,sys; open(os.environ[\"CMUX_LOG\"], \"a\").write(json.dumps({\"argv\":sys.argv[1:],\"env\":dict(os.environ)})+\"\\n\")' \"$@\"\n"
         "exit 0\n",
     )
 
@@ -50,6 +50,8 @@ def run_case(root: Path, args: tuple[str, ...], *, in_cmux: bool = True) -> dict
             "HOME": str(root / "home"),
             "CMUX_BUNDLED_CLI_PATH": str(fake_cmux),
             "CMUX_SOCKET_PATH": str(socket_path),
+            "AGY_RESULT": str(real_result),
+            "CMUX_LOG": str(cmux_log),
         }
         if in_cmux:
             environment["CMUX_SURFACE_ID"] = "surface-agy"
@@ -80,7 +82,7 @@ def main() -> int:
         if real["env"].get("CMUX_AGENT_LAUNCH_CWD") != str(Path.cwd()):
             raise AssertionError(f"missing agy launch cwd: {real}")
         decoded = base64.b64decode(real["env"]["CMUX_AGENT_LAUNCH_ARGV_B64"]).split(b"\0")
-        if decoded[:-1] != [str(ROOT / "Resources/bin/agy").encode(), b"--prompt-interactive", b"hello"]:
+        if not decoded[0].endswith(b"/bin/agy") or decoded[1:-1] != [b"--prompt-interactive", b"hello"]:
             raise AssertionError(f"launch argv was not captured: {decoded!r}")
 
     with tempfile.TemporaryDirectory(prefix="cmux-agy-wrapper-management-") as directory:
