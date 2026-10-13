@@ -16,7 +16,7 @@ final class ShortcutHintOverlayView: NSView {
         didSet { if hints != oldValue { applyHints() } }
     }
 
-    /// Chips are reused across modifier holds; only the count changes.
+    /// Chips are reused while a modifier is held; a release removes them.
     private var badges: [ShortcutHintChipView] = []
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }

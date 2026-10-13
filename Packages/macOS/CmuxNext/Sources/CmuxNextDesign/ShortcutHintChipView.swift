@@ -29,7 +29,6 @@ public final class ShortcutHintChipView: NSView {
         layer?.shadowOffset = CGSize(width: 0, height: -1)
         fill.wantsLayer = true
         fill.layer?.masksToBounds = true
-        fill.layer?.cornerCurve = .continuous
         addSubview(fill)
         label.font = Self.font
         label.alignment = .center
@@ -103,13 +102,12 @@ public final class ShortcutHintChipView: NSView {
         let height = label.intrinsicContentSize.height
         label.frame = CGRect(x: 0, y: ((bounds.height - height) / 2).rounded(), width: bounds.width, height: height)
         layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
-        performWithTheme {
-            let dark = (ThemeContext.active ?? ThemeScope.app.tokens).isDark
-            label.textColor = ShortcutHintChipStyle.foreground(dark: dark)
-            fill.layer?.backgroundColor = ShortcutHintChipStyle.background(dark: dark).cgColor
-            fill.layer?.borderColor = ShortcutHintChipStyle.border(dark: dark).cgColor
-            layer?.shadowColor = ShortcutHintChipStyle.shadow.cgColor
-        }
+        // The scheme of the theme scope the chip sits in, like classic's chrome scheme.
+        let dark = themeTokens.isDark
+        label.textColor = ShortcutHintChipStyle.foreground(dark: dark)
+        fill.layer?.backgroundColor = ShortcutHintChipStyle.background(dark: dark).cgColor
+        fill.layer?.borderColor = ShortcutHintChipStyle.border(dark: dark).cgColor
+        layer?.shadowColor = ShortcutHintChipStyle.shadow.cgColor
     }
 
     private func makeGlass() -> GlassPanelView {
