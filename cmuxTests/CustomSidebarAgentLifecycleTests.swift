@@ -16,6 +16,8 @@ struct CustomSidebarAgentLifecycleTests {
     @Test("background work pending has a stable wire name")
     func backgroundWorkPendingWireName() {
         let lifecycle = Workspace.customSidebarAgentLifecycle(
+            sessionID: "session",
+            currentSessionID: "session",
             state: .idle,
             agentSource: "claude",
             panelLifecycles: ["claude_code": .backgroundWorkPending]
@@ -35,6 +37,8 @@ struct CustomSidebarAgentLifecycleTests {
 
         for phase in AgentHibernationLifecycleState.allCases {
             let lifecycle = Workspace.customSidebarAgentLifecycle(
+                sessionID: "session",
+                currentSessionID: "session",
                 state: .working(since: Date(timeIntervalSince1970: 1)),
                 agentSource: "codex",
                 panelLifecycles: ["codex": phase]
@@ -51,16 +55,22 @@ struct CustomSidebarAgentLifecycleTests {
         ]
 
         #expect(Workspace.customSidebarAgentLifecycle(
+            sessionID: "session",
+            currentSessionID: "session",
             state: .idle,
             agentSource: "claude",
             panelLifecycles: panelLifecycles
         ) == "needs_input")
         #expect(Workspace.customSidebarAgentLifecycle(
+            sessionID: "session",
+            currentSessionID: "session",
             state: .idle,
             agentSource: "codex",
             panelLifecycles: panelLifecycles
         ) == "running")
         #expect(Workspace.customSidebarAgentLifecycle(
+            sessionID: "session",
+            currentSessionID: "session",
             state: .idle,
             agentSource: "opencode",
             panelLifecycles: panelLifecycles
@@ -70,11 +80,15 @@ struct CustomSidebarAgentLifecycleTests {
     @Test("ended sessions and unbound panels omit lifecycle")
     func endedOrUnboundOmitted() {
         #expect(Workspace.customSidebarAgentLifecycle(
+            sessionID: "ended",
+            currentSessionID: "ended",
             state: .ended,
             agentSource: "claude",
             panelLifecycles: ["claude_code": .running]
         ) == nil)
         #expect(Workspace.customSidebarAgentLifecycle(
+            sessionID: "unbound",
+            currentSessionID: "unbound",
             state: .idle,
             agentSource: "claude",
             panelLifecycles: nil
@@ -92,9 +106,22 @@ struct CustomSidebarAgentLifecycleTests {
         )
 
         #expect(Workspace.customSidebarAgentLifecycle(
+            sessionID: "session",
+            currentSessionID: "session",
             state: .idle,
             agentSource: "claude",
             panelLifecycles: workspace.agentLifecycleStatesByPanelId[panelId]
         ) == "background_work_pending")
+    }
+
+    @Test("an older live record does not inherit the newer session lifecycle")
+    func olderSessionDoesNotInheritLifecycle() {
+        #expect(Workspace.customSidebarAgentLifecycle(
+            sessionID: "old-session",
+            currentSessionID: "new-session",
+            state: .idle,
+            agentSource: "claude",
+            panelLifecycles: ["claude_code": .backgroundWorkPending]
+        ) == nil)
     }
 }
