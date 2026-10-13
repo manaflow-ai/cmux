@@ -39,6 +39,15 @@ export default {
   },
 }
 
+/** Sends, ignoring a socket that died without a close event (a reset connection). */
+function send(socket: WebSocket, message: string): void {
+  try {
+    socket.send(message)
+  } catch {
+    try { socket.close(1011, "dead") } catch { /* gone */ }
+  }
+}
+
 async function sha256(text: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("")
@@ -74,13 +83,15 @@ export class Room implements DurableObject {
     if (role !== "host" && role !== "viewer") return new Response("bad role", { status: 400 })
 
     // One socket per role: a new one replaces the old.
-    for (const old of this.state.getWebSockets(role)) old.close(4000, "replaced")
+    for (const old of this.state.getWebSockets(role)) {
+      try { old.close(4000, "replaced") } catch { /* already closed */ }
+    }
     const pair = new WebSocketPair()
     this.state.acceptWebSocket(pair[1], [role])
     const other = role === "host" ? "viewer" : "host"
     const peers = this.state.getWebSockets(other)
     pair[1].send(JSON.stringify({ type: "hello", role, peer: peers.length > 0 }))
-    for (const peer of peers) peer.send(JSON.stringify({ type: "peer-joined", role }))
+    for (const peer of peers) send(peer, JSON.stringify({ type: "peer-joined", role }))
     return new Response(null, { status: 101, webSocket: pair[0] })
   }
 
@@ -88,13 +99,13 @@ export class Room implements DurableObject {
     if (typeof message !== "string" || message.length > 64 * 1024) return
     const [role] = this.state.getTags(socket)
     const other = role === "host" ? "viewer" : "host"
-    for (const peer of this.state.getWebSockets(other)) peer.send(message)
+    for (const peer of this.state.getWebSockets(other)) send(peer, message)
   }
 
   async webSocketClose(socket: WebSocket): Promise<void> {
     const [role] = this.state.getTags(socket)
     const other = role === "host" ? "viewer" : "host"
-    for (const peer of this.state.getWebSockets(other)) peer.send(JSON.stringify({ type: "peer-left", role }))
+    for (const peer of this.state.getWebSockets(other)) send(peer, JSON.stringify({ type: "peer-left", role }))
   }
 
   async webSocketError(socket: WebSocket): Promise<void> {

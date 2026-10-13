@@ -24,6 +24,10 @@ struct SeedImport {
         guard let entries = try? JSONDecoder().decode([Entry].self, from: data) else { return }
         for entry in entries {
             if let raw = entry.link, let url = URL(string: raw), let pairing = VNCPairing(link: url) {
+                // A re-paired host (new room) replaces its old entry of the same name.
+                for stale in store.hosts where stale.name == entry.name && stale.pairing != nil && stale.pairing?.room != pairing.room {
+                    store.remove(stale)
+                }
                 var paired = store.pair(pairing, username: entry.username ?? "", password: entry.password)
                 paired.name = entry.name
                 store.upsert(paired, password: nil)
