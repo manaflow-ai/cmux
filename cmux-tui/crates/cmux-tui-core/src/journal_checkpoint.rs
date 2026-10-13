@@ -35,6 +35,25 @@ const RESOURCE_COLLECTIONS: [&str; 10] = [
 ];
 
 #[derive(Debug)]
+struct ReplayBufferExhausted;
+
+impl std::fmt::Display for ReplayBufferExhausted {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("terminal replay buffer exhausted")
+    }
+}
+
+impl std::error::Error for ReplayBufferExhausted {}
+
+fn replay_capture_error_is_quarantinable(error: &anyhow::Error) -> bool {
+    // The checkpoint still treats this as fatal until the capture policy is
+    // updated. Keeping the classification separate makes the regression test
+    // describe the precise error that must become terminal-local.
+    let _ = error;
+    false
+}
+
+#[derive(Debug)]
 pub(crate) struct CapturedCheckpoint {
     pub(crate) source_sequence: u64,
     pub(crate) state: Value,
@@ -795,6 +814,12 @@ mod tests {
         JournalProducerManifest, JournalSensitivity, JournalSubject,
     };
     use std::sync::Arc;
+
+    #[test]
+    fn an_exhausted_replay_buffer_is_a_terminal_local_failure() {
+        let error = anyhow::Error::new(ReplayBufferExhausted);
+        assert!(replay_capture_error_is_quarantinable(&error));
+    }
 
     fn terminal_replay_checkpoint() -> JournalCheckpoint {
         JournalCheckpoint {
