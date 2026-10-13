@@ -104,6 +104,64 @@ struct CloudMoveTests {
         }
     }
 
+    /// A moved chat stays where the move put it across a quit and relaunch: the relaunched app shows
+    /// its tab on the machine, still bound to the moved session through the machine's store (so it
+    /// attaches through that machine), offers Bring Back Local for it, and has no Retry left.
+    @Test func aMovedChatStaysAttachedToTheMachineChatAfterARelaunch() async throws {
+        try await Self.withMove("moves") { move in
+            if let error = await move.run() { Issue.record("cmux cloud move: \(error.code) \(error.message)") }
+            _ = try await move.read()
+            try await move.relaunch(tabClosed: true)
+            let moved = try await move.read()
+            let tab = try #require(moved.machineTab, "the relaunched app shows no chat tab on the machine")
+            #expect(tab.agentSession?.session == "chat-on-vm")
+            #expect(tab.agentSession?.host == "registry:" + moved.machineStore)
+            #expect(moved.attachesThroughMachine, "after the relaunch the moved chat does not attach through the machine")
+            let record = try #require(tab.agentSession)
+            #expect(!CloudBringBack.hiddenMenuItems(record, movedChats: move.services.cloud.movedChats).contains(CloudBringBack.action),
+                    "after the relaunch the machine tab has no Bring Back Local row")
+            #expect(move.services.cloud.moveRetries[move.key] == nil)
+        }
+    }
+
+    /// A quit or an update relaunch after a move committed but its machine tab didn't open keeps
+    /// the move's Retry: the relaunched app (same daemons, same defaults) only opens the moved
+    /// chat's tab on its machine, without syncing or moving the chat again.
+    @Test func aCommittedMoveWhoseTabFailedStillOpensItAfterARelaunch() async throws {
+        try await Self.withMove("tabFailed") { move in
+            #expect(await move.run() != nil, "the move did not report that it stopped")
+            let synced = try #require(move.calls().first?.last)
+            try await move.relaunch()
+            guard case .show(let shown)? = move.services.cloud.moveRetries[move.key] else {
+                Issue.record("the relaunched app lost the move's Retry: \(String(describing: move.services.cloud.moveRetries[move.key]))")
+                return
+            }
+            #expect(shown.session == "chat-on-vm" && shown.machineID == "vm-move" && shown.folder == synced)
+            try FileManager.default.createDirectory(atPath: synced, withIntermediateDirectories: true)
+            if let again = await move.run() { Issue.record("Retry after the relaunch failed: \(again.code) \(again.message)") }
+            let moved = try await move.read()
+            #expect(moved.calls.count == 2, "Retry after the relaunch synced or moved the chat again: \(moved.calls)")
+            #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "Retry after the relaunch did not open the moved chat's tab")
+            #expect(!moved.macStillHasTab)
+            #expect(move.services.cloud.moveRetries[move.key] == nil)
+        }
+    }
+
+    /// A move the app quits in the middle of (here, while its folder syncs) is pinned to its
+    /// machine for the relaunched app: running it again finishes it there, never on another one.
+    @Test func aMoveInterruptedByAQuitFinishesOnItsMachineAfterTheRelaunch() async throws {
+        try await Self.withMove("syncTimeout") { move in
+            move.services.cloud.move.timeout = .seconds(60)
+            move.start()
+            let deadline = ContinuousClock.now + .seconds(20)
+            while move.calls().isEmpty, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+            #expect(move.calls().count == 1, "the move never started its sync: \(move.calls())")
+            try await move.relaunch()
+            let retry = move.services.cloud.moveRetries[move.key]
+            #expect(retry == .move(machineID: "vm-move"), "the relaunched app does not finish the move on its machine: \(String(describing: retry))")
+        }
+    }
+
     /// A machine whose cmux-tui is too old for the move (cx-rppd.13) is named as one in plain words,
     /// whether the folder copy or the chat move found it, and nothing moves: this Mac's tab stays and
     /// Retry runs the move again on that machine once it is updated.
@@ -191,8 +249,10 @@ struct CloudMoveTests {
     /// daemon, and the stand-in CLI.
     @MainActor
     final class Move {
-        let services: AppServices
-        let machine: CloudMachineSession
+        private(set) var services: AppServices
+        private(set) var machine: CloudMachineSession
+        /// Builds the relaunched app: a second app on the same daemons and defaults.
+        var relaunched: (@MainActor () async throws -> (AppServices, CloudMachineSession))?
         let project: URL
         let workRoot: URL
         let log: URL
@@ -210,6 +270,36 @@ struct CloudMoveTests {
             self.workRoot = workRoot
             self.log = log
             self.vmSocket = vmSocket
+        }
+
+        /// Quits this app as a quit keeping sessions does (its daemons and their chats keep
+        /// running) and opens the relaunched app, which shows this Mac's tab again unless a move
+        /// closed it (`tabClosed`). The quit app's work still running reaches no defaults, as a
+        /// process that ended.
+        func relaunch(tabClosed: Bool = false) async throws {
+            let build = try #require(relaunched)
+            services.cloud.move.ledger = nil
+            services.daemon.shutdownConnection()
+            machine.daemon.shutdownConnection()
+            for controller in services.windows.controllers { controller.window?.close() }
+            (services, machine) = try await build()
+            let deadline = ContinuousClock.now + .seconds(60)
+            func ready() -> Bool {
+                machine.daemon.connection != nil && AgentTabStore.registryHost(of: machine.daemon) != nil
+                    && (tabClosed || services.locateTab(tabID) != nil)
+            }
+            while !ready(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+            try #require(ready(), "the relaunched app did not reconnect, or does not show this Mac's chat tab")
+            if !tabClosed { #expect(services.locateTab(tabID)?.0.id == key, "the relaunched app keys this Mac's chat tab differently") }
+        }
+
+        /// `cmux cloud move` on the chat tab, without waiting for it.
+        func start() {
+            let services = services, tabID = tabID, path = project.path
+            Task { @MainActor in
+                _ = await Self.send(services, ["action": .string("cloud move"), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
+                                               "target": .string("tab:" + tabID), "args": .object(["path": .string(path)])])
+            }
         }
 
         /// `cmux cloud move` on the chat tab; its error when it stopped.
@@ -251,6 +341,10 @@ struct CloudMoveTests {
         }
 
         private func send(_ params: [String: CmuxNextSettings.JSONValue]) async -> ControlError? {
+            await Self.send(services, params)
+        }
+
+        private static func send(_ services: AppServices, _ params: [String: CmuxNextSettings.JSONValue]) async -> ControlError? {
             let bridge = RegistryControlBridge(registry: services.registry)
             let router = ControlRouter(identity: ControlIdentity(version: "1.0", build: "1", bundleID: "com.cmuxterm.app.debug.test", tag: "test",
                                                                  processID: getpid()),
@@ -345,20 +439,29 @@ struct CloudMoveTests {
         let vm = DaemonLauncher(configuration: .init(binary: binary, session: "cn-move-vm-\(UUID().uuidString.prefix(6).lowercased())",
                                                      stateDirectory: root.appendingPathComponent("vm-state")), environment: environment)
         _ = NSApplication.shared
-        let services = AppServices(environment: AppEnvironment.current([:]))
-        AppActions.bind(services)
-        services.windows.ordersWindowsIn = false
-        services.cloud.move = CloudMoveSetup(cli: cli, workRoots: [workRoot.path], timeout: .seconds(5))
-        services.daemon.start {
-            DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
-        }
-        services.windows.restoreWhenLoaded()
+        // The app's own defaults, as the app keeps them, for this run only.
+        let suite = "cn-move-\(UUID().uuidString.prefix(8).lowercased())"
+        let ledger = try #require(UserDefaults(suiteName: suite))
+        defer { ledger.removePersistentDomain(forName: suite) }
         let vmSocket = try await vm.endpointProvider().socketPath
-        let machine = Self.machine(services, cli: cli, root: root)
-        services.machines.add(machine)
-        machine.daemon.start(remote: { vmSocket })
+        func app() async throws -> (AppServices, CloudMachineSession) {
+            let services = AppServices(environment: AppEnvironment.current([:]))
+            AppActions.bind(services)
+            services.windows.ordersWindowsIn = false
+            services.cloud.move = CloudMoveSetup(cli: cli, workRoots: [workRoot.path], timeout: .seconds(5), ledger: ledger)
+            services.daemon.start {
+                DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: mac.endpointProvider)
+            }
+            services.windows.restoreWhenLoaded()
+            let machine = Self.machine(services, cli: cli, root: root)
+            services.machines.add(machine)
+            machine.daemon.start(remote: { vmSocket })
+            return (services, machine)
+        }
+        let (services, machine) = try await app()
 
         let move = Move(services: services, machine: machine, project: project, workRoot: workRoot, log: log, vmSocket: vmSocket)
+        move.relaunched = app
         let result: Result<Void, any Error>
         do {
             try await openChat(move)
@@ -367,9 +470,9 @@ struct CloudMoveTests {
         } catch {
             result = .failure(error)
         }
-        await end(services.daemon)
-        await end(machine.daemon)
-        for controller in services.windows.controllers { controller.window?.close() }
+        await end(move.services.daemon)
+        await end(move.machine.daemon)
+        for controller in move.services.windows.controllers { controller.window?.close() }
         try result.get()
     }
 

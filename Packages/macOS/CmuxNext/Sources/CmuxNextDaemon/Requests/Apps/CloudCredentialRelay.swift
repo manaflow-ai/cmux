@@ -1,6 +1,4 @@
-import CmuxNextApps
-import CmuxNextDaemon
-import Foundation
+public import Foundation
 
 /// The Mac side of the host credential relay (cx-wb5.63, slice B of
 /// cx-wb5.57; cmux-tui-core `apps/relay.rs`): a first-party app server
@@ -12,16 +10,16 @@ import Foundation
 /// to `POST /v1/read`, a keyed op to `POST /v1/ops`. The Worker's answer
 /// goes back unchanged as the provider ABI body; the server sees no
 /// credential and the daemon never sees one.
-nonisolated struct CloudCredentialRelay: Sendable {
+public nonisolated struct CloudCredentialRelay: Sendable {
     /// The provider family this relay serves.
-    static let family = "credential"
-    static let relayOp = "credential.relay"
-    static let sessionOp = "credential.session"
+    public static let family = "credential"
+    public static let relayOp = "credential.relay"
+    public static let sessionOp = "credential.session"
     /// The only app server the relay serves, and the only op family it
     /// sends: an install token with origin user counts as the person on the
     /// Worker (feed answers), so no other app and no other family may ever
     /// borrow it.
-    static let app = "cmux/cloud"
+    public static let app = "cmux/cloud"
     static let opPrefix = "cloud."
     /// Ops the relay never sends, even when the app's manifest lists them.
     /// The app server must never get a credential minted with this Mac's
@@ -42,35 +40,24 @@ nonisolated struct CloudCredentialRelay: Sendable {
             && !op.hasPrefix(refusedPrefix)
     }
 
-    /// The allow list is `cmux/cloud`'s only because only `cmux/cloud` may
-    /// call this relay (``answer(_:)`` refuses every other app); a second
-    /// app that may call it needs its own allow list here.
-    ///
-    /// The ops the bundled `cmux/cloud` manifest serves (`serves.ops`), the
-    /// ones its server sends as wire calls. Empty when the bundle has no such
-    /// manifest, so the relay then refuses every op. Read from disk once,
-    /// off the main actor.
-    @concurrent static func bundledServedOps() async -> Set<String> { servedOpsOfBundledApp }
-
-    private static let servedOpsOfBundledApp: Set<String> = {
-        guard let manifest = AppPlatformResources.firstPartyManifests().first(where: { $0.manifest.id == app })?.manifest
-        else { return [] }
-        return Set(manifest.raw["serves"]?["ops"]?.arrayValue?.compactMap(\.stringValue) ?? [])
-    }()
-
     /// POSTs `body` to `path` on the API Worker with `bearer`; returns the
     /// status and the body. Never logs the bearer.
-    typealias Post = @Sendable (_ path: String, _ body: Data, _ bearer: String) async throws -> (status: Int, body: Data)
+    public typealias Post = @Sendable (_ path: String, _ body: Data, _ bearer: String) async throws -> (status: Int, body: Data)
 
-    struct Session: Sendable, Equatable {
-        var signedIn: Bool
-        var team: String?
+    public struct Session: Sendable, Equatable {
+        public var signedIn: Bool
+        public var team: String?
+
+        public init(signedIn: Bool, team: String?) {
+            self.signedIn = signedIn
+            self.team = team
+        }
     }
 
     /// One provider answer: `ok` and the ABI body.
-    struct Answer: Sendable, Equatable {
-        var ok: Bool
-        var body: JSONValue
+    public struct Answer: Sendable, Equatable {
+        public var ok: Bool
+        public var body: JSONValue
     }
 
     let post: Post
@@ -82,8 +69,18 @@ nonisolated struct CloudCredentialRelay: Sendable {
     /// The ops the app server may have sent (``bundledServedOps()`` in the app).
     let allowedOps: @Sendable () async -> Set<String>
 
+    public init(post: @escaping Post, token: @escaping @Sendable () async throws -> String,
+                invalidate: @escaping @Sendable () async -> Void, session: @escaping @Sendable () async -> Session,
+                allowedOps: @escaping @Sendable () async -> Set<String>) {
+        self.post = post
+        self.token = token
+        self.invalidate = invalidate
+        self.session = session
+        self.allowedOps = allowedOps
+    }
+
     /// Answers one provider call of the `credential` family.
-    func answer(_ call: AppsProviderCall) async -> Answer {
+    public func answer(_ call: AppsProviderCall) async -> Answer {
         guard call.app == Self.app else {
             return Self.failure("credential.app_refused", "only \(Self.app) may use the credential relay")
         }
