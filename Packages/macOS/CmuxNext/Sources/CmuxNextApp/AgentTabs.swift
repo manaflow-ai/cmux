@@ -145,6 +145,11 @@ final class AgentTabStore {
     var seeds: [String: AgentPaneSeedSource] = [:]
     /// A new workspace's chat seed until its tab is known (`seedFirstChat`).
     var firstChats: [WorkspaceHandle: AgentPaneSeedSource] = [:]
+    /// The key-hold token of a new workspace's first New Tab page (Cmd-N, NewTabInputCoordinator),
+    /// until its create returned: the page made for that workspace's tab, and only it, carries it.
+    var firstPageTokens: [WorkspaceHandle: String] = [:]
+    /// A first page took a key-hold token (the hold then waits for that page's readiness).
+    var onFirstPageToken: ((String) -> Void)?
     /// The tab resuming each outside chat (`harness:agentSessionId`), so
     /// picking the same chat again shows that tab instead of a second one.
     var adoptions: [String: String] = [:]
@@ -164,6 +169,9 @@ final class AgentTabStore {
     var linkedSessions: Set<String> = []
     /// A link's turn for a tab whose view is not made yet.
     var pendingTurns: [String: String] = [:]
+    /// What each released chat page held that acpmux does not (``AgentPageHibernation``), for
+    /// the page built when its tab shows again.
+    var wakeStates: [String: AgentPaneWakeState] = [:]
     /// The git link of tab `key`: the session host of the tab's own machine (AgentPaneGitReads.swift),
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
@@ -295,7 +303,7 @@ final class AgentTabStore {
         // new-conversation-tab replied): it stays the chat, never the page (cx-vurv).
         if local, seed == nil, newTabPages[key] == nil, tabStores[key] == nil, (sessions[key] ?? record.session) == nil,
            !linkedSessions.contains(key) {
-            newTabPages[key] = firstPageNewTab?(nil, nil)
+            newTabPages[key] = firstPage(cwd: nil, token: firstPageToken(of: key, in: store))
         }
         // A New Tab page made now (Cmd-N's first page, a restored page) adopts the prewarmed spare
         // when there is one: no cold load and React mount on the open path (cx-ec99).
@@ -318,6 +326,7 @@ final class AgentTabStore {
             allowsTabConversion: local
         )
         model.pendingRevealTurn = pendingTurns.removeValue(forKey: key)
+        model.pendingWake = wakeStates.removeValue(forKey: key)
         wire(model, key: key)
         // A page of another machine's chat is never pooled as this Mac's spare (its host is that machine's).
         if !local {
@@ -330,7 +339,11 @@ final class AgentTabStore {
                 return folders.filter { $0.lowercased().contains(query) }
             }
         }
-        guard let view = makeView(model) else { return nil }
+        guard let view = makeView(model) else {
+            // The next page made for the tab still gets it.
+            if let wake = model.pendingWake { wakeStates[key] = wake }
+            return nil
+        }
         views[key] = view
         track(key, in: store)
         return view

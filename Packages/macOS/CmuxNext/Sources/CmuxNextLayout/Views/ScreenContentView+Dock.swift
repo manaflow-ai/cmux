@@ -29,8 +29,9 @@ extension ScreenContentView {
         guard let index = subviews.firstIndex(of: host) else { return [] }
         var rects: [CGRect] = []
         for case let above as PaneHostView in subviews[(index + 1)...] where !above.isHidden && above.alphaValue > 0.99 {
-            let shared = above.frame.intersection(host.frame)
-            if shared.width > 0.5 && shared.height > 0.5 { rects.append(above.frame) }
+            // A host a spring rect reveals hides only what shows of it, not its whole (final-size) frame.
+            let shown = above.revealRect.map(above.frame.intersection) ?? above.frame
+            if shown.intersection(host.frame).width > 0.5 && shown.intersection(host.frame).height > 0.5 { rects.append(shown) }
         }
         return rects
     }

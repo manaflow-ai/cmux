@@ -188,6 +188,7 @@ extension AgentTabStore {
         if let value = remoteCreations.removeValue(forKey: key) { remoteCreations[real] = value }
         if let value = remoteStarts.removeValue(forKey: key) { remoteStarts[real] = value }
         if let value = pendingTurns.removeValue(forKey: key) { pendingTurns[real] = value }
+        if let value = wakeStates.removeValue(forKey: key) { wakeStates[real] = value }
         if linkedSessions.remove(key) != nil { linkedSessions.insert(real) }
         adoptions = adoptions.mapValues { $0 == key ? real : $0 }
         if let store = tabStores.removeValue(forKey: key) { tabStores[real] = store }
@@ -301,8 +302,10 @@ extension AgentTabStore {
         remoteAliases = remoteAliases.filter { $0.value != key && $0.key != key }
         linkedSessions.remove(key)
         pendingTurns[key] = nil
+        wakeStates[key] = nil
         tabStores[key] = nil
         unsentDrafts.set("", for: key)
+        launchImages.drop(key)
         seenLive.remove(key)
         forgetUnusedStores()
         stopCustomizationWhenUnused()

@@ -1,0 +1,4 @@
+{
+  "_comment": "Fast-tier entries that failed then passed (FLAKY). They still run and report but do not gate. Add {name, owner, bead, since} in the owner's PR; remove the entry in the PR that fixes it, after 20 passing runs (fast-tier.py --only NAME --repeat 20).",
+  "entries": []
+}

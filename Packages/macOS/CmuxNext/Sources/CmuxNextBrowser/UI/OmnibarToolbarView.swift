@@ -38,6 +38,11 @@ public final class OmnibarToolbarView: NSView {
 
     public override var isFlipped: Bool { true }
 
+    /// The arrow over the row, as the browser toolbar shows (`OmnibarPointer`).
+    public override func resetCursorRects() {
+        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.toolbar, editing: false).cursor)
+    }
+
     public override func layout() {
         super.layout()
         addressBar.followLayout()

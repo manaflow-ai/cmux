@@ -486,25 +486,7 @@ impl Hub {
             tokio::spawn(async move { hub.inbound_loop(s, rx).await });
         }
 
-        let init = child
-            .request(
-                method::INITIALIZE,
-                json!({
-                    "protocolVersion": 1,
-                    "clientCapabilities": {
-                        // File reads and writes come through acpmux, so the
-                        // permission policy and rules gate every harness's
-                        // edits, not only the ones it chooses to ask about.
-                        "fs": {"readTextFile": true, "writeTextFile": true},
-                        // Subagents arrive as their own sessions (ACP draft #1992),
-                        // attributed by `crate::subagents`.
-                        "subagents": {},
-                        "terminal": false
-                    },
-                    "clientInfo": {"name": "acpmux", "version": VERSION}
-                }),
-            )
-            .await?;
+        let init = child.request(method::INITIALIZE, super::pool::initialize_params()).await?;
         let supports_load = init
             .get("agentCapabilities")
             .and_then(|c| c.get("loadSession"))

@@ -14,6 +14,8 @@ import Testing
     struct Harness {
         let settings: SettingsController
         let terminal: TerminalThemeSetting
+        /// Where the harness posts day and clock changes.
+        let center: NotificationCenter
         let scope: ThemeScope
         let page: SettingsPageProvider
         let url: URL
@@ -32,9 +34,11 @@ import Testing
         await settings.reload()
         let scope = ThemeScope(level: .room)
         let terminal = TerminalThemeSetting(backdropScope: scope)
+        let center = NotificationCenter()
         terminal.reload = {}
+        terminal.notificationCenter = center
         terminal.follow(settings)
-        return Harness(settings: settings, terminal: terminal, scope: scope, page: SettingsPageProvider(settings: settings), url: url)
+        return Harness(settings: settings, terminal: terminal, center: center, scope: scope, page: SettingsPageProvider(settings: settings), url: url)
     }
 
     func settle(until done: () -> Bool) async {
@@ -83,7 +87,7 @@ import Testing
         await settle { harness.scope.backdropSelection == .art(.daily(on: today)) }
         let tomorrow = BackdropArt.nextDay(after: today).addingTimeInterval(60)
         harness.terminal.now = { tomorrow }
-        NotificationCenter.default.post(name: .NSSystemClockDidChange, object: nil)
+        harness.center.post(name: .NSSystemClockDidChange, object: nil)
         await settle { harness.scope.backdropSelection == .art(.daily(on: tomorrow)) }
         #expect(harness.scope.backdropSelection == .art(.daily(on: tomorrow)))
     }
