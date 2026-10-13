@@ -68,12 +68,14 @@ struct SwitchToColdTabTypeAheadTests {
             try? FileManager.default.removeItem(at: root)
         }
 
-        // The launch window shows a terminal that has the keyboard.
-        await Self.wait(within: .seconds(90)) { services.windows.active?.window?.firstResponder is TerminalSurfaceView }
+        // The launch window opens a page; a terminal tab opened from the keyboard is shown and has it.
+        await Self.wait(within: .seconds(90)) { services.windows.active?.focusedPane != nil && services.daemon.connection != nil }
         let controller = try #require(services.windows.active)
         let window = try #require(controller.window)
         let pane = try #require(controller.focusedPane)
-        try #require(window.firstResponder is TerminalSurfaceView, "the launch terminal never took the keyboard")
+        _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .user))
+        await Self.wait(within: .seconds(60)) { window.firstResponder is TerminalSurfaceView }
+        try #require(window.firstResponder is TerminalSurfaceView, "the new terminal never took the keyboard")
         let router = services.keyRouter
         // Its terminal, by one key typed there.
         var seq = Self.lastSeq()
@@ -82,22 +84,24 @@ struct SwitchToColdTabTypeAheadTests {
         let shown = try #require(Self.inputBytes(after: seq).keys.first, "the shown terminal got no input")
 
         // A second terminal tab made by a script: the window does not show it, so it has no surface.
+        let before = pane.orderedIDs.count
         _ = services.registry.perform("newSurface", invocation: ActionInvocation(origin: .cli))
-        await Self.wait(within: .seconds(30)) { pane.orderedIDs.count >= 2 }
+        await Self.wait(within: .seconds(30)) { pane.orderedIDs.count > before }
         let cold = try #require(pane.orderedIDs.last?.rawValue)
+        let number = pane.orderedIDs.count
         #expect(pane.currentTabKey != cold, "the script's tab was shown")
         #expect(!services.cache.hasContent(for: cold), "the script's tab already has a surface")
 
-        // Ctrl-2, then typing at once.
+        // Ctrl-<its number>, then typing at once.
         seq = Self.lastSeq()
-        _ = services.registry.perform("selectSurfaceByNumber", invocation: ActionInvocation(arguments: ["index": .int(2)]))
+        _ = services.registry.perform("selectSurfaceByNumber", invocation: ActionInvocation(arguments: ["index": .int(number)]))
         Self.type("hello", in: window, router: router)
         await Self.wait(within: .seconds(15)) { Self.inputBytes(after: seq).values.reduce(0, +) >= 5 }
         try? await Task.sleep(for: .milliseconds(300))  // a stray key would show by now
         let after = Self.inputBytes(after: seq)
 
         #expect(pane.currentTabKey == cold)
-        #expect(after[shown] == nil, "keys typed after Ctrl-2 went to the tab it left: \(after)")
+        #expect(after[shown] == nil, "keys typed after Ctrl-\(number) went to the tab it left: \(after)")
         #expect(after.count == 1 && after.values.first == 5, "the selected tab's terminal got \(after) of 5 typed bytes")
     }
 }
