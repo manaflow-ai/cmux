@@ -72,7 +72,18 @@ map each one to its owner, so the same v2 envelope works on every host:
 
 | namespace | owner | read | mutation |
 | --- | --- | --- | --- |
-| `apps` | `apps.store` (the app supervisor's App Store, raw `apps-store {op, args}`) | `apps.catalog.list`, `apps.catalog.get`, `apps.installed.list` | `apps.set`, `apps.install`, `apps.uninstall` (page `apps`: `confirm`) |
+| `apps` | `apps.store` (the app supervisor's App Store, raw `apps-store {op, args}`) | `apps.catalog.list`, `apps.catalog.get`, `apps.installed.list`, `apps.grants.get`, `apps.logs`, `apps.asset.get` | `apps.set`, `apps.install`, `apps.uninstall`, `apps.grant.set` (page `apps`: `confirm`); `apps.hidden.set`, `apps.grant.revoke` (page `apps`: `gesture`) |
+
+The installed-app panels (cx-hnmbt.13): `apps.grants.get {app}` answers `{app, sandboxed, scopes:
+[{scope, reason, risk, optional, granted}]}` for an installed app (`apps.not_installed` otherwise);
+`apps.logs {app, limit?}` the last lines of the app's log ring (`{app, lines: [{level, message,
+ts_ms}]}`, at most 500, no stream: the page reads again); `apps.asset.get {app, path}` an image file
+of the package as `{app, path, data_url}` (png, jpeg, gif, webp or svg, at most 512 KiB, never a
+path outside the package). `apps.hidden.set {app, hidden}` is Hide/Show and `apps.grant.revoke {app,
+scope}` revokes a scope: neither widens what an app may do, so the Apps page needs only the
+person's gesture. `apps.grant.set {app, scope, granted}` allows (or revokes) a scope and needs the
+native sheet. Opening an app is a host verb (the page runs the host action `app.open`), never a
+daemon operation.
 
 A routed request is `{protocol, type: "request", id, operation, params, idempotency_key?,
 origin?}`; the response is the normal `cmux.protocol/2` response. The origin rules are the

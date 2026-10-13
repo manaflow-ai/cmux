@@ -12,12 +12,19 @@ export interface PageOperations {
 export const PAGE_OPERATIONS: Readonly<Record<string, PageOperations>> = {
   "apps": {
     "read": [
+      "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
-      "apps.installed.list"
+      "apps.grants.get",
+      "apps.installed.list",
+      "apps.logs"
     ],
-    "gesture": [],
+    "gesture": [
+      "apps.grant.revoke",
+      "apps.hidden.set"
+    ],
     "confirm": [
+      "apps.grant.set",
       "apps.install",
       "apps.set",
       "apps.uninstall"
@@ -52,11 +59,17 @@ export const ROUTED_NAMESPACES: Readonly<Record<string, RoutedNamespace>> = {
   "apps": {
     "owner": "apps.store",
     "read": [
+      "apps.asset.get",
       "apps.catalog.get",
       "apps.catalog.list",
-      "apps.installed.list"
+      "apps.grants.get",
+      "apps.installed.list",
+      "apps.logs"
     ],
     "mutation": [
+      "apps.grant.revoke",
+      "apps.grant.set",
+      "apps.hidden.set",
       "apps.install",
       "apps.set",
       "apps.uninstall"
