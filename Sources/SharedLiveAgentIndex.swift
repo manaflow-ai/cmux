@@ -533,7 +533,7 @@ final class SharedLiveAgentIndex {
     ) async -> SharedLiveAgentIndexRefreshOutcome {
         ensureWatchingHookStoreDirectory()
         let requestedAt = DispatchTime.now().uptimeNanoseconds
-        let freshAfter = requestedAt // #20186 red seam: retries still demand their own scan
+        let freshAfter = min(freshAfterUptimeNanoseconds ?? requestedAt, requestedAt)
         let ownershipRefreshDeadline = requestedAt
             &+ (timeoutNanoseconds ?? ownershipRefreshTimeoutNanoseconds)
         while true {
