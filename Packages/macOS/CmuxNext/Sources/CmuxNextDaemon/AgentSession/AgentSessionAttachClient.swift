@@ -52,13 +52,14 @@ public actor AgentSessionAttachClient {
     /// in its own machine's acpmux (policy `ask`) and binds it; returns the new session id. A
     /// daemon that does not serve the verb is refused here (`agent_session.start_unsupported`),
     /// so no start ever falls back to another machine.
-    public func start(cwd: String, harness: String?) async throws -> String {
+    public func start(cwd: String, harness: String?, homeConfirmed: Bool = false) async throws -> String {
         _ = try await liveTransport()
         guard servesStart else {
             throw AgentSessionAttachError(code: Self.startUnsupported, message: "the daemon does not serve agent session start")
         }
         var params: [String: any Sendable] = ["cwd": cwd]
         if let harness { params["harness"] = harness }
+        if homeConfirmed { params["home_confirmed"] = true }
         let data = try await call("agent-session-start", params)
         guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
               let session = object["session"] as? String, !session.isEmpty else {

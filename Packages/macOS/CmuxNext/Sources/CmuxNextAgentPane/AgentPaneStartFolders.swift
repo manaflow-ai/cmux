@@ -108,7 +108,14 @@ public final class AgentPaneStartFolders {
     func useRemote(_ path: String, confirm: Bool, transport: AgentPaneTransport) async -> [String: Any] {
         guard let resolve, let answer = await resolve(path) else { return AgentPaneReply.success(["status": "ok", "cwd": path]) }
         switch answer.skipped?.reason {
-        case .home: return Self.answerHome(answer.skipped?.cwd ?? path, confirm: confirm, transport: transport)
+        case .home:
+            // Use Home Folder on that machine: asked first; the answer spends its click's gesture.
+            let home = answer.skipped?.cwd ?? path
+            if transport.remoteHomeChosen.contains(home) { return AgentPaneReply.success(["status": "ok", "cwd": home]) }
+            guard confirm else { return AgentPaneReply.success(["status": "confirm", "reason": "home", "cwd": home]) }
+            guard transport.gestures.consume() else { return AgentPaneModel.transportFailure(.gestureRequired) }
+            transport.remoteHomeChosen.insert(home)
+            return AgentPaneReply.success(["status": "ok", "cwd": home])
         case .aboveHome: return AgentPaneReply.success(["status": "refused", "reason": "root", "cwd": path])
         case .missing: return AgentPaneModel.transportFailure(.pathInvalid)
         case .agentHome, nil: return AgentPaneReply.success(["status": "ok", "cwd": answer.kind == .seed ? answer.cwd ?? path : path])
