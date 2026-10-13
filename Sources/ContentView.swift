@@ -1713,7 +1713,7 @@ struct ContentView: View {
                 AppDelegate.shared?.performNewWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.hiddenNewWorkspace",
-                    skipConfiguredAction: true
+                    localOnly: true
                 )
             },
             observedWindowReference: observedWindowReference,
@@ -2066,7 +2066,7 @@ struct ContentView: View {
                 AppDelegate.shared?.performNewWorkspaceAction(
                     tabManager: tabManager,
                     debugSource: "titlebar.fullscreenNewWorkspace",
-                    skipConfiguredAction: true
+                    localOnly: true
                 )
             },
             onFocusHistoryBack: {
@@ -8958,7 +8958,7 @@ struct ContentView: View {
             AppDelegate.shared?.performNewWorkspaceAction(
                 tabManager: tabManager,
                 debugSource: "palette.newWorkspace",
-                skipConfiguredAction: true
+                localOnly: true
             )
         }
         registry.register(commandId: "palette.newBrowserWorkspace") {

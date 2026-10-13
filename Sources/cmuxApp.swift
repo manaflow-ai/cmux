@@ -891,7 +891,7 @@ struct cmuxApp: App {
                         appDelegate.performNewWorkspaceAction(
                             tabManager: activeTabManager,
                             debugSource: "menu.newWorkspace",
-                            skipConfiguredAction: true
+                            localOnly: true
                         )
                     } else {
                         activeTabManager.addWorkspaceIfActive()

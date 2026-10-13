@@ -8551,18 +8551,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         event: NSEvent? = nil,
         placementOverride: WorkspacePlacement? = nil,
         debugSource: String = "newWorkspace",
-        skipConfiguredAction: Bool = false
+        skipConfiguredAction: Bool = false,
+        localOnly: Bool = false
     ) -> Bool {
         // This is the context-following path used by the ordinary New Workspace
         // controls. On an active remote-tmux mirror it follows the routing toggle;
         // `performNewLocalWorkspaceAction` is the explicit local escape hatch.
+        //
+        // `localOnly` is Cmd+N and the controls that share it: they never start
+        // a device or Cloud workspace from the selection. `skipConfiguredAction`
+        // is the built-in action picked by name, which must not run the
+        // configured one in its place.
+        let staysLocal = skipConfiguredAction || localOnly
         let context = preferredTabManager.flatMap { mainWindowContext(for: $0) }
             ?? preferredMainWindowContextForWorkspaceCreation(event: event, debugSource: debugSource)
         let manager = context?.tabManager ?? preferredTabManager
-        if !skipConfiguredAction, let manager, let machine = manager.selectedWorkspace?.deviceMachineForNewWorkspace {
+        if !staysLocal, let manager, let machine = manager.selectedWorkspace?.deviceMachineForNewWorkspace {
             return deviceWorkspaceCreationCoordinator?.start(on: machine, in: manager) ?? false
         }
-        if !skipConfiguredAction, let manager,
+        if !staysLocal, let manager,
            let vmID = manager.selectedWorkspace?.cloudVMID,
            !vmID.isEmpty {
             // Once this intent targets a VM, an unavailable or pending cloud
@@ -8575,8 +8582,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             event: event,
             placementOverride: placementOverride,
             debugSource: debugSource,
-            skipConfiguredAction: skipConfiguredAction,
-            inheritWorkingDirectoryOverride: skipConfiguredAction
+            skipConfiguredAction: staysLocal,
+            inheritWorkingDirectoryOverride: staysLocal
                 ? manager.map { shouldInheritWorkingDirectoryForLocalWorkspace(in: $0) }
                 : nil
         )
@@ -15710,7 +15717,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             performNewWorkspaceAction(
                 event: event,
                 debugSource: "shortcut.cmdN",
-                skipConfiguredAction: true
+                localOnly: true
             )
             return true
         }

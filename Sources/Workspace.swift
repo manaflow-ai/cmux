@@ -15250,7 +15250,7 @@ extension Workspace: BonsplitDelegate {
                 _ = AppDelegate.shared?.performNewWorkspaceAction(
                     tabManager: owningTabManager,
                     debugSource: "surfaceTabBar.newWorkspace",
-                    skipConfiguredAction: true
+                    localOnly: true
                 )
             case .newAgentChat: performSurfaceTabBarNewAgentChatAction(presentingWindow: presentingWindow)
             case .cloudVM:
