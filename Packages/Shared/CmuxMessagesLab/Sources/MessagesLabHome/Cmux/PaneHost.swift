@@ -185,6 +185,7 @@ final class HostView: NSView {
         super.viewDidMoveToWindow()
         controller?.windowChanged()
         observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
+        restoreClipMaskOutsideLiveResize()
     }
 
     // MARK: Live resize (MessagesLab c483761 resize-drops, Host.swift)
@@ -202,6 +203,16 @@ final class HostView: NSView {
         demo.clip.layer.mask = nil
         CATransaction.commit()
         demo.chrome.liveResizing = true
+    }
+    /// The view left its window (or came to another) during a live resize, so no viewDidEndLiveResize comes: the mask
+    /// is put back unless the new window is itself in a live resize (a pane closed or a tab moved during the drag).
+    private func restoreClipMaskOutsideLiveResize() {
+        guard let demo, let m = restingClipMask, window?.inLiveResize != true else { return }
+        restingClipMask = nil
+        demo.chrome.liveResizing = false
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        demo.clip.layer.mask = m
+        CATransaction.commit()
     }
     override func viewDidEndLiveResize() {
         super.viewDidEndLiveResize()
