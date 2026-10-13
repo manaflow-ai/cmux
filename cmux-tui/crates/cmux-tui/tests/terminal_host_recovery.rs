@@ -102,16 +102,6 @@ impl RecoveryHarness {
         harness
     }
 
-    /// A harness whose daemon runs with `env` added.
-    #[cfg(target_os = "linux")]
-    fn start_with_env(name: &str, env: &[(&str, &str)]) -> Self {
-        let mut harness = Self::start_unstarted(name);
-        harness.extra_env =
-            env.iter().map(|(key, value)| ((*key).to_string(), (*value).to_string())).collect();
-        harness.restart();
-        harness
-    }
-
     /// A harness whose daemon never respawns a lost terminal (L2 off).
     fn start_without_respawn(name: &str) -> Self {
         let mut harness = Self::start_unstarted(name);
