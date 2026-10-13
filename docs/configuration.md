@@ -336,7 +336,7 @@ How ⌘1…⌘9 and ⌘⌃] / ⌘⌃[ walk the sidebar. Both walk one list: ever
 ```json
 {
   "sidebar": {
-    "numbering": "allItems",
+    "numbering": "workspacesOnly",
     "cmd9": "last",
     "stepping": "allItems",
     "steppingWraps": true
@@ -344,12 +344,12 @@ How ⌘1…⌘9 and ⌘⌃] / ⌘⌃[ walk the sidebar. Both walk one list: ever
 }
 ```
 
-- `numbering`: `allItems` counts every item (Home = ⌘1, App Store = ⌘2, the first workspace = ⌘3); `workspacesOnly` numbers only the rows (the first workspace = ⌘1, as in classic cmux). Default: `allItems`.
+- `numbering`: `allItems` counts every item (Home = ⌘1, App Store = ⌘2, the first workspace = ⌘3); `workspacesOnly` numbers only the rows (the first workspace = ⌘1, as in classic cmux). Default: `workspacesOnly`.
 - `cmd9`: `last` makes ⌘9 the last item, as in browsers; `ninth` makes it the ninth. Default: `last`.
 - `stepping`: what ⌘⌃] and ⌘⌃[ step through, `allItems` or `workspacesOnly`. Default: `allItems`.
 - `steppingWraps`: past the last item the next one is the first again. Default: `true`.
 
-Change them in **Settings > Appearance > Sidebar** or with `cmux settings set sidebar.numbering workspacesOnly`.
+Change them in **Settings > Appearance > Sidebar** or with `cmux settings set sidebar.numbering allItems`.
 
 ## `sidebar.showAgentActivity`
 

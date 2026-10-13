@@ -2037,7 +2037,7 @@
       "type" : "string"
     },
     "sidebar.numbering" : {
-      "default" : "allItems",
+      "default" : "workspacesOnly",
       "description" : "Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.",
       "enum" : [
         "allItems",

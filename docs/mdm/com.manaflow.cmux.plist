@@ -2732,7 +2732,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>allItems</string>
+			<string>workspacesOnly</string>
 			<key>pfm_description</key>
 			<string>Every item: Home is Command-1, the App Store Command-2, the first workspace Command-3. Workspaces only: the first workspace is Command-1.</string>
 			<key>pfm_name</key>

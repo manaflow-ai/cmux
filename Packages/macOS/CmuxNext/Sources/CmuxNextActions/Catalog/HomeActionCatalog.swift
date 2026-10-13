@@ -1,6 +1,7 @@
 // Home (plans/cmux-next/home.md): the pinned sidebar row that shows the native
-// conversations screen. Cmd+1 reaches it through `selectWorkspaceByNumber`
-// (digit 1); this action is the palette, menu and CLI path.
+// conversations screen. Cmd+1 reaches it through `selectWorkspaceByNumber` only
+// with `sidebar.numbering: allItems` (the default numbers only workspaces);
+// this action is the palette, menu and CLI path.
 // `home.attachFiles` is the one action behind the composer's attach button:
 // the palette opens the file picker; `cmux home attach <path>` hands a file to
 // the shown Home composer through the same intake as a drop.
