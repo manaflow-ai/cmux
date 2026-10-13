@@ -170,7 +170,7 @@ def k16(tab):
     if palette_open():
         run("commandPalette")
     # The control: the same tab in the background is not VISIBLE, so Chromium refuses its ceremony
-    # at once. `debug.cef.devtools` reaches the focused tab, so the authenticator goes on first.
+    # at once ("the page does not have focus": its IsFocused check is GetVisibility() == VISIBLE). `debug.cef.devtools` reaches the focused tab, so the authenticator goes on first.
     devtools("WebAuthn.enable", {"enableUI": False})
     devtools("WebAuthn.addVirtualAuthenticator", {"options": {"automaticPresenceSimulation": True, **spec["authenticator"]}})
     other = (run("openBrowser", {"url": "about:blank", "engine": "cef"}) or {}).get("created") or []

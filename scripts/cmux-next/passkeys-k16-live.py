@@ -6,7 +6,7 @@ command palette must stay VISIBLE, so a virtual-authenticator ceremony there com
 
 Usage: passkeys-k16-live.py --tag TAG --app PATH.app --out DIR
 """
-import argparse, json, os, plistlib, socket, subprocess, sys, tempfile, time
+import argparse, json, os, plistlib, re, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from tag_teardown import TagTeardown  # noqa: E402
@@ -24,7 +24,8 @@ BINARY = os.path.join(APP, "Contents/MacOS", INFO["CFBundleExecutable"])
 PREFIX = "com.cmuxterm.app.debug."
 if not INFO.get("CFBundleIdentifier", "").startswith(PREFIX):
     sys.exit(f"refusing {INFO.get('CFBundleIdentifier')}: not a tagged DEV bundle")
-SOCKET = f"/tmp/cmux-debug-{INFO['CFBundleIdentifier'][len(PREFIX):]}.sock"
+# The app's slug of its bundle tag (ControlSocketPath.sanitize): tag pk-k16 is bundle ...debug.pk.k16.
+SOCKET = f"/tmp/cmux-debug-{re.sub(r'[^a-z0-9]+', '-', INFO['CFBundleIdentifier'][len(PREFIX):].lower()).strip('-')}.sock"
 SCRATCH = tempfile.mkdtemp(prefix=f"passkeys-k16-{opts.tag}-")
 CONFIG = os.path.join(SCRATCH, "cmux.json")
 GHOSTTY = os.path.join(SCRATCH, "ghostty-config")
