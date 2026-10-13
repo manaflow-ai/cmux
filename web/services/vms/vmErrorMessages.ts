@@ -132,10 +132,15 @@ export async function vmGuestUnresponsiveCopy(locale: Locale): Promise<VmRequire
 
 /** Localized copy for a read that answered at its deadline (routeDeadline.ts). */
 export async function vmProviderTimeoutCopy(locale: Locale): Promise<VmRequiresProCopy> {
+  return vmRouteDeadlineCopy("providerTimeout", locale);
+}
+
+/** Localized copy for a VM route that answered at its deadline (routeDeadline.ts). */
+export async function vmRouteDeadlineCopy(kind: "inProgress" | "providerTimeout", locale: Locale): Promise<VmRequiresProCopy> {
   const translator = createTranslator({
     locale,
     messages: await loadMessages(locale),
-    namespace: "vmErrors.providerTimeout",
+    namespace: `vmErrors.${kind}`,
   }) as unknown as (key: string) => string;
   return {
     title: translator("title"),
@@ -255,6 +260,27 @@ export async function vmGoLimitCopy(
     namespace: "vmErrors.goLimit",
   }) as unknown as (key: string) => string;
   return { message: t(`${kind}Message`), action: t(`${kind}Action`) };
+}
+
+/**
+ * The localized sentence naming the machines an active-VM limit counted, or
+ * "" when there are none. It is appended to the plan sentence, so it starts
+ * with a space.
+ */
+export async function vmActiveLimitCountedCopy(
+  locale: Locale,
+  machines: readonly { readonly name: string; readonly status: "provisioning" | "running" }[],
+): Promise<string> {
+  if (machines.length === 0) return "";
+  const t = createTranslator({
+    locale,
+    messages: await loadMessages(locale),
+    namespace: "vmErrors.activeLimit",
+  }) as unknown as (key: string, values?: Record<string, string>) => string;
+  const names = machines.map((machine) =>
+    machine.status === "provisioning" ? t("provisioning", { name: machine.name }) : machine.name
+  );
+  return ` ${t("counted", { machines: names.join(t("separator")) })}`;
 }
 
 /** Localized copy for a create, resume, resize, or fork that does not fit the shared pool. */

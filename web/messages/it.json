@@ -35,6 +35,11 @@
       "message": "Questa macchina non ha risposto in tempo, quindi la richiesta non è stata completata.",
       "action": "Metti in pausa la macchina, poi riprendila e riprova. Nell'app per Mac, scegli Metti in pausa la macchina, poi Riprendi la macchina. In un terminale, esegui cmux vm pause '<machine>', poi cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Ancora in corso",
+      "message": "Il provider cloud non ha ancora completato questa modifica. Potrebbe ancora completarsi.",
+      "action": "Controlla lo stato della macchina con cmux vm ls o nell'elenco delle macchine prima di riprovare."
+    },
     "providerTimeout": {
       "title": "Il provider cloud è lento",
       "message": "Il provider cloud non ha risposto in tempo.",
@@ -105,6 +110,11 @@
       "vcpuMessage": "Le tue VM usano già {used} di {pool} vCPU. Questa VM ha bisogno di {requested} vCPU.",
       "upgradeAction": "Metti in pausa o elimina una VM, oppure passa a Max.",
       "action": "Metti in pausa o elimina una VM."
+    },
+    "activeLimit": {
+      "counted": "Conteggiate ora: {machines}. Le macchine in pausa non vengono conteggiate.",
+      "provisioning": "{name} (in provisioning)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
@@ -3462,7 +3472,10 @@
     "title": "Accesso a cmux effettuato",
     "body": "Se cmux non si è aperto automaticamente, usa il pulsante qui sotto.",
     "button": "Torna a cmux",
-    "switchAccountButton": "Usa un altro account"
+    "switchAccountButton": "Usa un altro account",
+    "rateLimitedTitle": "L'accesso è occupato",
+    "rateLimitedBody": "Il nostro servizio di accesso sta gestendo troppe richieste. Attendi qualche secondo, poi continua. Non devi accedere di nuovo.",
+    "retryButton": "Continua l'accesso"
   },
   "landing": {
     "bestTerminal": {
@@ -5497,6 +5510,9 @@
     "switchFailed": "Impossibile uscire. Riprova.",
     "invalidTitle": "Questo invito non è più valido",
     "invalidBody": "È scaduto, è stato revocato o è già stato usato. Chiedine uno nuovo a un admin del team.",
-    "goToTeams": "Vai ai tuoi team"
+    "goToTeams": "Vai ai tuoi team",
+    "unavailableTitle": "Impossibile confermare l'accesso",
+    "unavailableBody": "Il nostro servizio di accesso è occupato. Attendi qualche secondo, poi riapri l'invito. Non devi accedere di nuovo.",
+    "retry": "Riprova"
   }
 }

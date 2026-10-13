@@ -4593,14 +4593,6 @@ class TabManager: ObservableObject {
         selectedWorkspace?.selectPreviousSurface()
     }
 
-    /// Previous/Next, the Chrome tab keys (Cmd-Shift-[ / Cmd-Shift-], Ctrl-Tab / Ctrl-Shift-Tab,
-    /// the View menu): moves to the previous or next sidebar workspace,
-    /// what Chrome calls a tab, wrapping at the ends, whatever pane, Dock or panel has focus
-    /// (Leo 2026-10-12). Next/Previous Tab in Pane stays explicit.
-    func stepTabOrWorkspace(forward: Bool) {
-        if forward { selectNextTab() } else { selectPreviousTab() }
-    }
-
     /// Select a surface by index in the currently focused pane of the selected workspace
     func selectSurface(at index: Int) {
         selectedWorkspace?.selectSurface(at: index)

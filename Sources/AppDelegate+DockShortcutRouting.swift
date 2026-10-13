@@ -37,6 +37,7 @@ extension KeyboardShortcutSettings.Action {
         DockShortcutRoutingDisposition {
         switch self {
         case .triggerFlash,
+             .nextSurface, .prevSurface,
              .moveSurfaceLeft, .moveSurfaceRight,
              .moveSurfaceToPreviousPane, .moveSurfaceToNextPane,
              .moveSurfaceToPaneLeft, .moveSurfaceToPaneRight,
@@ -113,7 +114,6 @@ extension KeyboardShortcutSettings.Action {
              .switchRightSidebarToDock,
              .switchRightSidebarToMachines,
              .nextSidebarTab, .prevSidebarTab,
-             .nextSurface, .prevSurface,
              .nextSidebarTabInGroup, .prevSidebarTabInGroup,
              .moveWorkspaceUp, .moveWorkspaceDown,
              .selectWorkspaceByNumber,

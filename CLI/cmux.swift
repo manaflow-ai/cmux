@@ -16,6 +16,18 @@ import LocalAuthentication
 #if canImport(Security)
 import Security
 #endif
+
+#if os(macOS)
+@_silgen_name("csops_audittoken")
+private func cmuxCLICodeSigningOperationsForAuditToken(
+    _ processID: pid_t,
+    _ operation: UInt32,
+    _ destination: UnsafeMutableRawPointer?,
+    _ destinationSize: Int,
+    _ auditToken: UnsafeMutableRawPointer?
+) -> Int32
+#endif
+
 struct WindowInfo {
     let index: Int
     let id: String
@@ -3069,6 +3081,30 @@ enum SocketPasswordResolver {
 }
 
 final class SocketClient {
+    struct CoderouterArmServerIdentity: Equatable {
+        let auditTokenBytes: [UInt8]
+        let processID: pid_t
+
+        init(auditTokenBytes: [UInt8], processID: pid_t) {
+            self.auditTokenBytes = auditTokenBytes
+            self.processID = processID
+        }
+    }
+
+    private static let coderouterArmServerSigningRequirement =
+        #"anchor apple generic and identifier "com.cmuxterm.app" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+    // Local tagged Release bundles are signed with the shared Apple
+    // Development identity when the Developer ID private key is unavailable.
+    // This fallback is gated by the enclosing bundle ID below; the stable
+    // production bundle remains Developer ID only.
+    private static let coderouterTaggedDevelopmentSigningRequirement =
+        #"anchor apple generic and certificate leaf[field.1.2.840.113635.100.6.1.12] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+    private static let codeSigningValidFlag: UInt32 = 0x0000_0001
+    private static let codeSigningHardFlag: UInt32 = 0x0000_0100
+    private static let codeSigningKillFlag: UInt32 = 0x0000_0200
+    private static let codeSigningHardenedRuntimeFlag: UInt32 = 0x0001_0000
+    private static let codeSigningDebuggedFlag: UInt32 = 0x1000_0000
+
     private struct RelayEndpoint {
         let host: String
         let port: UInt16
@@ -3320,10 +3356,345 @@ final class SocketClient {
         socketAuthenticated = true
     }
 
+    /// Check the release server identity before the public proof request. This
+    /// is defense in depth; the response HMAC is the authenticator.
+    func verifiedCoderouterArmServerIdentity() -> CoderouterArmServerIdentity? {
+        guard let identity = coderouterArmServerIdentity(),
+              Self.coderouterArmServerIdentityIsAllowed(identity) else {
+            return nil
+        }
+        return identity
+    }
+
+    /// Re-read the kernel peer identity immediately before the proof request.
+    /// This narrows peer changes, PID reuse, exec, or signing-state changes in
+    /// the pre-write window.
+    func coderouterArmServerIdentityIsStillAllowed(
+        _ expectedIdentity: CoderouterArmServerIdentity
+    ) -> Bool {
+        guard let currentIdentity = coderouterArmServerIdentity(),
+              currentIdentity == expectedIdentity else {
+            return false
+        }
+        return Self.coderouterArmServerIdentityIsAllowed(currentIdentity)
+    }
+
+    private func coderouterArmServerIdentity() -> CoderouterArmServerIdentity? {
+        #if os(macOS)
+        guard socketFD >= 0, relayEndpoint == nil else { return nil }
+
+        var auditToken = audit_token_t()
+        var auditTokenSize = socklen_t(MemoryLayout<audit_token_t>.size)
+        guard getsockopt(
+            socketFD,
+            SOL_LOCAL,
+            LOCAL_PEERTOKEN,
+            &auditToken,
+            &auditTokenSize
+        ) == 0,
+        auditTokenSize == MemoryLayout<audit_token_t>.size else {
+            return nil
+        }
+
+        var peerProcessID: pid_t = 0
+        var peerProcessIDSize = socklen_t(MemoryLayout<pid_t>.size)
+        guard getsockopt(
+            socketFD,
+            SOL_LOCAL,
+            LOCAL_PEERPID,
+            &peerProcessID,
+            &peerProcessIDSize
+        ) == 0,
+        peerProcessIDSize == MemoryLayout<pid_t>.size,
+        peerProcessID > 0 else {
+            return nil
+        }
+
+        let bytes = withUnsafeBytes(of: auditToken) { Array($0) }
+        let auditProcessID = bytes.withUnsafeBytes { buffer in
+            pid_t(bitPattern: buffer.loadUnaligned(
+                fromByteOffset: 5 * MemoryLayout<UInt32>.size,
+                as: UInt32.self
+            ))
+        }
+        guard auditProcessID == peerProcessID else { return nil }
+        return CoderouterArmServerIdentity(
+            auditTokenBytes: bytes,
+            processID: peerProcessID
+        )
+        #else
+        return nil
+        #endif
+    }
+
+    private static func coderouterArmServerIdentityIsAllowed(
+        _ identity: CoderouterArmServerIdentity
+    ) -> Bool {
+        #if os(macOS) && canImport(Security)
+        guard identity.auditTokenBytes.count == MemoryLayout<audit_token_t>.size else {
+            return false
+        }
+        let effectiveUserID = identity.auditTokenBytes.withUnsafeBytes { buffer in
+            uid_t(buffer.loadUnaligned(
+                fromByteOffset: MemoryLayout<UInt32>.size,
+                as: UInt32.self
+            ))
+        }
+        let realUserID = identity.auditTokenBytes.withUnsafeBytes { buffer in
+            uid_t(buffer.loadUnaligned(
+                fromByteOffset: 3 * MemoryLayout<UInt32>.size,
+                as: UInt32.self
+            ))
+        }
+        guard effectiveUserID == getuid(), realUserID == getuid() else {
+            return false
+        }
+
+        let attributes = [
+            kSecGuestAttributeAudit: Data(identity.auditTokenBytes) as CFData,
+        ] as CFDictionary
+        var dynamicCode: SecCode?
+        guard SecCodeCopyGuestWithAttributes(
+            nil,
+            attributes,
+            SecCSFlags(),
+            &dynamicCode
+        ) == errSecSuccess,
+        let dynamicCode else {
+            return false
+        }
+
+        var requirement: SecRequirement?
+        let hasReleaseIdentity: Bool
+        if SecRequirementCreateWithString(
+            coderouterArmServerSigningRequirement as CFString,
+            SecCSFlags(),
+            &requirement
+        ) == errSecSuccess,
+        let requirement {
+            hasReleaseIdentity = SecCodeCheckValidity(
+                dynamicCode,
+                SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+                requirement
+            ) == errSecSuccess
+        } else {
+            hasReleaseIdentity = false
+        }
+        #if DEBUG
+        guard hasReleaseIdentity else {
+            return coderouterDebugArmServerIdentityIsAllowed(
+                identity,
+                dynamicCode: dynamicCode
+            )
+        }
+        #else
+        if !hasReleaseIdentity {
+            guard coderouterTaggedReleaseArmServerIdentityIsAllowed(
+                dynamicCode: dynamicCode
+            ) else {
+                return false
+            }
+        }
+        #endif
+
+        var dynamicStatus: UInt32 = 0
+        var auditToken = audit_token_t()
+        identity.auditTokenBytes.withUnsafeBytes { source in
+            withUnsafeMutableBytes(of: &auditToken) { destination in
+                destination.copyBytes(from: source)
+            }
+        }
+        let dynamicStatusResult = withUnsafeMutablePointer(to: &dynamicStatus) { statusPointer in
+            withUnsafeMutablePointer(to: &auditToken) { auditTokenPointer in
+                cmuxCLICodeSigningOperationsForAuditToken(
+                    identity.processID,
+                    0, // CS_OPS_STATUS
+                    statusPointer,
+                    MemoryLayout<UInt32>.size,
+                    auditTokenPointer
+                )
+            }
+        }
+        let requiredDynamicFlags = codeSigningValidFlag
+            | codeSigningHardFlag
+            | codeSigningKillFlag
+            | codeSigningHardenedRuntimeFlag
+        guard dynamicStatusResult == 0,
+              dynamicStatus & requiredDynamicFlags == requiredDynamicFlags,
+              dynamicStatus & codeSigningDebuggedFlag == 0 else {
+            return false
+        }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(
+            dynamicCode,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any],
+        let flags = information[kSecCodeInfoFlags as String] as? NSNumber,
+        flags.uint32Value & codeSigningHardenedRuntimeFlag != 0 else {
+            return false
+        }
+
+        // cmux app entitlements are part of its release contract. Do not apply
+        // CodeRouter's empty-entitlements rule to the server application.
+        return true
+        #else
+        return false
+        #endif
+    }
+
+    #if DEBUG && os(macOS) && canImport(Security)
+    private static func coderouterDebugArmServerIdentityIsAllowed(
+        _ identity: CoderouterArmServerIdentity,
+        dynamicCode: SecCode
+    ) -> Bool {
+        guard SecCodeCheckValidity(
+            dynamicCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            nil
+        ) == errSecSuccess else {
+            return false
+        }
+
+        var dynamicStatus: UInt32 = 0
+        var auditToken = audit_token_t()
+        identity.auditTokenBytes.withUnsafeBytes { source in
+            withUnsafeMutableBytes(of: &auditToken) { destination in
+                destination.copyBytes(from: source)
+            }
+        }
+        let statusResult = withUnsafeMutablePointer(to: &dynamicStatus) { statusPointer in
+            withUnsafeMutablePointer(to: &auditToken) { auditTokenPointer in
+                cmuxCLICodeSigningOperationsForAuditToken(
+                    identity.processID,
+                    0,
+                    statusPointer,
+                    MemoryLayout<UInt32>.size,
+                    auditTokenPointer
+                )
+            }
+        }
+        guard statusResult == 0,
+              dynamicStatus & codeSigningValidFlag == codeSigningValidFlag,
+              dynamicStatus & codeSigningDebuggedFlag == 0 else {
+            return false
+        }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(
+            dynamicCode,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any] else {
+            return false
+        }
+        return coderouterDebugArmServerSigningFieldsAreAllowed(
+            identifier: information[kSecCodeInfoIdentifier as String] as? String,
+            teamIdentifier: information[kSecCodeInfoTeamIdentifier as String] as? String,
+            expectedBundleIdentifier: ProcessInfo.processInfo.environment["CMUX_BUNDLE_ID"]
+        )
+    }
+
+    static func coderouterDebugArmServerSigningFieldsAreAllowed(
+        identifier: String?,
+        teamIdentifier: String?,
+        expectedBundleIdentifier: String?
+    ) -> Bool {
+        CodeRouterDebugServerIdentityPolicy().isAllowed(
+            identifier: identifier,
+            teamIdentifier: teamIdentifier,
+            expectedBundleIdentifier: expectedBundleIdentifier
+        )
+    }
+    #endif
+
+    #if !DEBUG && os(macOS) && canImport(Security)
+    /// Allow the Apple Development signature used by a local tagged Release
+    /// artifact, while keeping the stable production bundle Developer ID only.
+    private static func coderouterTaggedReleaseArmServerIdentityIsAllowed(
+        dynamicCode: SecCode
+    ) -> Bool {
+        guard let expectedBundleIdentifier = CLIExecutableLocator
+            .enclosingAppBundle()?
+            .bundleIdentifier,
+            expectedBundleIdentifier.hasPrefix("com.cmuxterm.app.debug."),
+            expectedBundleIdentifier.count > "com.cmuxterm.app.debug.".count,
+            SecCodeCheckValidity(
+                dynamicCode,
+                SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+                nil
+            ) == errSecSuccess else {
+            return false
+        }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(
+            dynamicCode,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+        var developmentRequirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            coderouterTaggedDevelopmentSigningRequirement as CFString,
+            SecCSFlags(),
+            &developmentRequirement
+        ) == errSecSuccess,
+        let developmentRequirement,
+        SecStaticCodeCheckValidity(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            developmentRequirement
+        ) == errSecSuccess else {
+            return false
+        }
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any],
+        information[kSecCodeInfoIdentifier as String] as? String
+            == expectedBundleIdentifier,
+        information[kSecCodeInfoTeamIdentifier as String] as? String
+            == "7WLXT3NR37" else {
+            return false
+        }
+
+        return true
+    }
+    #endif
+
     func send(
         command: String,
         responseTimeout: TimeInterval? = nil,
         deadline: Date? = nil,
+        includeCapability: Bool = true,
+        capabilityEnvironment: [String: String]? = nil,
         waitUntilCompletion: Bool = false
     ) throws -> String {
         let requestedResponseTimeout = responseTimeout ?? Self.responseTimeoutSeconds
@@ -3372,9 +3743,14 @@ final class SocketClient {
         )
         recordOperation(operation)
 
-        guard let payload = SocketCommandLine.framedLine(
-            for: capabilityWrappedCommand(Self.automationEnvelopeCommand(command))
-        ) else {
+        let automationCommand = Self.automationEnvelopeCommand(command)
+        let capabilityCommand = includeCapability
+            ? capabilityWrappedCommand(
+                automationCommand,
+                environment: capabilityEnvironment ?? ProcessInfo.processInfo.environment
+            )
+            : automationCommand
+        guard let payload = SocketCommandLine.framedLine(for: capabilityCommand) else {
             throw CLIError(message: "Rejected socket command containing line-terminator characters")
         }
         try writeAllNonBlocking(
@@ -3457,6 +3833,99 @@ final class SocketClient {
         }
         operationCompleted = true
         return response
+    }
+
+    /// Sends one bounded newline frame and requires the peer to close without
+    /// sending any byte after the response newline.
+    func sendSingleFrame(
+        command: String,
+        responseTimeout: TimeInterval,
+        maximumRawBytes: Int
+    ) throws -> String {
+        guard maximumRawBytes > 1,
+              !command.utf8.contains(0x0A),
+              !command.utf8.contains(0x0D) else {
+            throw CLIError(message: "Invalid socket frame")
+        }
+        let payload = Data((command + "\n").utf8)
+        guard payload.count <= maximumRawBytes else {
+            throw CLIError(message: "Socket frame is too large")
+        }
+        let deadline = Date.now.addingTimeInterval(responseTimeout)
+        if relayEndpoint != nil, socketFD < 0 {
+            try connect(deadline: deadline)
+        }
+        guard socketFD >= 0 else { throw CLIError(message: "Not connected") }
+
+        try configureResponseReceiveTimeout(responseTimeout)
+        _ = try? configureSocketWriteSafety(responseTimeout)
+        var operation = CLISocketOperationTelemetry.State(
+            name: CLISocketOperationTelemetry.operationName(for: command),
+            timeout: responseTimeout,
+            startedAt: Date(),
+            phase: .writeRequest
+        )
+        recordOperation(operation)
+        try writeAllNonBlocking(
+            payload,
+            deadline: deadline,
+            timeoutMessage: "Command timed out",
+            failureMessage: "Failed to write to socket"
+        )
+
+        var response = Data()
+        var sawNewline = false
+        while true {
+            let remaining = deadline.timeIntervalSinceNow
+            guard remaining > 0 else {
+                throw CLIError(message: "Command timed out")
+            }
+            operation.phase = .waitForResponse
+            operation.sawNewline = sawNewline
+            operation.timeout = remaining
+            recordOperation(operation)
+            try configureResponseReceiveTimeout(remaining)
+            let readCapacity = max(
+                1,
+                min(1024, maximumRawBytes + 1 - response.count)
+            )
+            var buffer = [UInt8](repeating: 0, count: readCapacity)
+            let count = Darwin.read(socketFD, &buffer, buffer.count)
+            if count < 0 {
+                if errno == EINTR { continue }
+                if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw CLIError(message: "Command timed out")
+                }
+                throw CLIError(message: "Socket read error")
+            }
+            if count == 0 { break }
+            operation.bytesRead += count
+            for byte in buffer.prefix(count) {
+                guard !sawNewline else {
+                    throw CLIError(message: "Invalid socket frame")
+                }
+                response.append(byte)
+                guard response.count <= maximumRawBytes else {
+                    throw CLIError(message: "Socket frame is too large")
+                }
+                if byte == 0x0A {
+                    sawNewline = true
+                }
+            }
+        }
+
+        guard sawNewline,
+              response.last == 0x0A,
+              let decoded = String(
+                  data: Data(response.dropLast()),
+                  encoding: .utf8
+              ) else {
+            throw CLIError(message: "Invalid socket frame")
+        }
+        operation.phase = .completed
+        operation.sawNewline = true
+        recordOperation(operation)
+        return decoded
     }
 
     private static func automationEnvelopeCommand(_ command: String) -> String {
@@ -4279,10 +4748,157 @@ final class SocketClient {
     }
 }
 
+/// Injectable only through the in-process CMUXCLI initializer. The executable
+/// entry point always uses `production`; there is no argument or environment
+/// switch that can weaken the release peer identity prefilter. The capability
+/// HMAC, not this mutable peer token, authenticates the arm response.
+struct CoderouterArmServerPeerVerifier {
+    let verifyBeforeRequest: (SocketClient) -> SocketClient.CoderouterArmServerIdentity?
+    let reverifyBeforeArmRequest: (SocketClient, SocketClient.CoderouterArmServerIdentity) -> Bool
+
+    static let production = Self(
+        verifyBeforeRequest: { client in
+            client.verifiedCoderouterArmServerIdentity()
+        },
+        reverifyBeforeArmRequest: { client, expectedIdentity in
+            client.coderouterArmServerIdentityIsStillAllowed(expectedIdentity)
+        }
+    )
+}
+
 struct CMUXCLI {
     let args: [String]
     let initialSIGPIPEInspectionPayload: [String: Any]?
     let simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning
+    let coderouterArmServerPeerVerifier: CoderouterArmServerPeerVerifier
+
+    /// Bounded socket wait around the cmux worker's hosted arm deadline.
+    static let coderouterHandoffSocketResponseTimeoutSeconds: TimeInterval = 25
+    private static let coderouterHandoffMaximumRawFrameBytes =
+        CodeRouterHandoffProtocol.maximumRawFrameBytes
+    private static let coderouterCapabilityProbeTimeoutSeconds: TimeInterval = 2
+    private static let coderouterCapabilityProbeMaximumBytes = 16 * 1024
+    private static let coderouterHandoffProtocolVersion =
+        CodeRouterHandoffProtocol.protocolVersion
+    private static let coderouterSigningRequirement: String = {
+#if DEBUG
+        // Tagged Debug builds use the shared Apple Development identity. Keep
+        // the identifier and team pinned while accepting only that Debug
+        // certificate family; Release retains the Developer ID requirement.
+        return #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate leaf[field.1.2.840.113635.100.6.1.12] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+#else
+        return #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+#endif
+    }()
+    private static let coderouterTaggedDevelopmentSigningRequirement =
+        #"anchor apple generic and identifier "com.cmuxterm.coderouter" and certificate leaf[field.1.2.840.113635.100.6.1.12] exists and certificate leaf[subject.OU] = "7WLXT3NR37""#
+    /// `kSecCodeSignatureRuntime` is not imported by Swift from CSCommon.h.
+    private static let coderouterHardenedRuntimeFlag: UInt32 = 0x0001_0000
+
+    private struct CoderouterCapabilityResponse: Decodable {
+        let product: String
+        let protocolVersion: Int
+        let authModes: [String]
+    }
+
+    typealias CoderouterHandoffArm = CodeRouterHandoffProtocol.Arm
+    private typealias CoderouterHandoffProofContext =
+        CodeRouterHandoffProtocol.ProofContext
+
+    private static func coderouterExecutableIsAllowed(
+        at executablePath: String,
+        environment: [String: String]
+    ) -> Bool {
+        #if DEBUG
+        // Tests use short-lived shell fixtures. This bypass is not present in
+        // a Release build and the CMUX_ prefix keeps it out of the child.
+        if environment["CMUX_CODEROUTER_TEST_ALLOW_UNSIGNED"] == "1" {
+            return true
+        }
+        #endif
+
+        #if canImport(Security)
+        var staticCode: SecStaticCode?
+        guard SecStaticCodeCreateWithPath(
+            URL(fileURLWithPath: executablePath) as CFURL,
+            SecCSFlags(),
+            &staticCode
+        ) == errSecSuccess,
+        let staticCode else {
+            return false
+        }
+
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            coderouterSigningRequirement as CFString,
+            SecCSFlags(),
+            &requirement
+        ) == errSecSuccess,
+        let requirement else {
+            return false
+        }
+        let hasReleaseIdentity = SecStaticCodeCheckValidity(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            requirement
+        ) == errSecSuccess
+        #if DEBUG
+        guard hasReleaseIdentity else { return false }
+        #else
+        guard hasReleaseIdentity || coderouterTaggedReleaseCoderouterIdentityIsAllowed(
+            staticCode: staticCode
+        ) else { return false }
+        #endif
+
+        var signingInformation: CFDictionary?
+        guard SecCodeCopySigningInformation(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSSigningInformation)),
+            &signingInformation
+        ) == errSecSuccess,
+        let information = signingInformation as? [String: Any],
+        let flags = information[kSecCodeInfoFlags as String] as? NSNumber,
+        flags.uint32Value & coderouterHardenedRuntimeFlag != 0 else {
+            return false
+        }
+        let entitlements = information[kSecCodeInfoEntitlementsDict as String]
+            as? [String: Any] ?? [:]
+        return entitlements.isEmpty
+        #else
+        false
+        #endif
+    }
+
+    #if !DEBUG && canImport(Security)
+    /// Local tagged Release artifacts may use the shared Apple Development
+    /// identity. The app bundle ID gate keeps this out of production builds.
+    private static func coderouterTaggedReleaseCoderouterIdentityIsAllowed(
+        staticCode: SecStaticCode
+    ) -> Bool {
+        guard let bundleIdentifier = CLIExecutableLocator
+            .enclosingAppBundle()?
+            .bundleIdentifier,
+            bundleIdentifier.hasPrefix("com.cmuxterm.app.debug."),
+            bundleIdentifier.count > "com.cmuxterm.app.debug.".count else {
+            return false
+        }
+        var requirement: SecRequirement?
+        guard SecRequirementCreateWithString(
+            coderouterTaggedDevelopmentSigningRequirement as CFString,
+            SecCSFlags(),
+            &requirement
+        ) == errSecSuccess,
+        let requirement,
+        SecStaticCodeCheckValidity(
+            staticCode,
+            SecCSFlags(rawValue: UInt32(kSecCSStrictValidate)),
+            requirement
+        ) == errSecSuccess else {
+            return false
+        }
+        return true
+    }
+    #endif
 
     private enum NotifyTargetResolution {
         case surface(
@@ -4521,11 +5137,13 @@ struct CMUXCLI {
         args: [String],
         initialSIGPIPEInspectionPayload: [String: Any]? = nil,
         simulatorOwnedCommandRunner: any SimulatorOwnedCommandRunning =
-            SimulatorOwnedCommandRunner()
+            SimulatorOwnedCommandRunner(),
+        coderouterArmServerPeerVerifier: CoderouterArmServerPeerVerifier = .production
     ) {
         self.args = args
         self.initialSIGPIPEInspectionPayload = initialSIGPIPEInspectionPayload
         self.simulatorOwnedCommandRunner = simulatorOwnedCommandRunner
+        self.coderouterArmServerPeerVerifier = coderouterArmServerPeerVerifier
     }
 
     /// Sends transport failures and structured protocol failures through the
@@ -4981,9 +5599,688 @@ struct CMUXCLI {
         return explicitValue == defaultValue ? catalogValue : explicitValue
     }
 
+    private func localizedCoderouterLaunchFailed() -> String {
+        let defaultValue = "Could not start the required CLI. Check the installation and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.error.launchFailed",
+            defaultValue: "Could not start the required CLI. Check the installation and try again.",
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.error.launchFailed",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffFailed() -> String {
+        let defaultValue = "Could not prepare the CodeRouter handoff. Keep cmux signed in and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.failed",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.failed",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffNotAuthenticated() -> String {
+        let defaultValue = "CodeRouter handoff requires a signed-in cmux account. Run `cmux auth login`, then retry."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.notAuthenticated",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.notAuthenticated",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffTeamRequired() -> String {
+        let defaultValue = "CodeRouter handoff requires a selected cmux team. Select a team in cmux, then retry."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.teamRequired",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.teamRequired",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private func localizedCoderouterHandoffUnsupported() -> String {
+        let defaultValue = "The installed CodeRouter CLI does not support secure cmux handoff. Update CodeRouter and try again."
+        let bundle = CLIExecutableLocator.enclosingAppBundle() ?? .main
+        let catalogValue = String(
+            localized: "cli.coderouter.handoff.unsupported",
+            defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
+            bundle: bundle
+        )
+        let explicitValue = CMUXDiffViewerLocalization.string(
+            "cli.coderouter.handoff.unsupported",
+            defaultValue: defaultValue
+        )
+        return explicitValue == defaultValue ? catalogValue : explicitValue
+    }
+
+    private static func coderouterSocketPath(
+        explicitSocketPath: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws -> String {
+        let envSocketPath = explicitSocketPath == nil
+            ? try CLISocketEnvironment.socketPath(in: environment)
+            : CLISocketEnvironment.socketPathForTelemetry(in: environment)
+        let socketPath = explicitSocketPath ?? envSocketPath ?? CLISocketPathResolver.defaultSocketPath(
+            bundleIdentifier: bundleIdentifier,
+            environment: environment
+        )
+        let source: CLISocketPathSource
+        if explicitSocketPath != nil {
+            source = .explicitFlag
+        } else if envSocketPath != nil {
+            source = .environment
+        } else {
+            source = .implicitDefault
+        }
+        let resolver = CLISocketPathResolver(environment: environment, bundleIdentifier: bundleIdentifier)
+        let resolution = resolver.resolve(requestedPath: socketPath, source: source)
+        guard resolution.hasLiveSocket else {
+            throw CLIError(message: resolution.failureMessage)
+        }
+        return resolution.selectedPath ?? socketPath
+    }
+
+    static func coderouterHandoffSocketPathIsValid(_ socketPath: String) -> Bool {
+        CodeRouterHandoffProtocol().socketPathIsValid(socketPath)
+    }
+
+    /// Checks the arm response before Foundation can coerce number types or
+    /// collapse duplicate object keys.
+    static func coderouterHandoffResponseRawShapeIsValid(
+        _ rawResponse: String
+    ) -> Bool {
+        CodeRouterHandoffProtocol().responseRawShapeIsValid(rawResponse)
+    }
+
+    private static func coderouterHandoffProofContext(
+        environment: [String: String]
+    ) -> CoderouterHandoffProofContext? {
+        guard let capability = environment["CMUX_SOCKET_CAPABILITY"] else {
+            return nil
+        }
+
+        #if canImport(Security)
+        var challengeBytes = [UInt8](
+            repeating: 0,
+            count: SocketClientCapabilityProof.byteCount
+        )
+        guard SecRandomCopyBytes(
+            kSecRandomDefault,
+            challengeBytes.count,
+            &challengeBytes
+        ) == errSecSuccess else {
+            return nil
+        }
+        let challenge = Data(challengeBytes)
+        #else
+        return nil
+        #endif
+
+        let processID = getpid()
+        guard processID > 0 else { return nil }
+        var usage = rusage_info_v0()
+        let usageResult = withUnsafeMutableBytes(of: &usage) { buffer -> Int32 in
+            guard let baseAddress = buffer.baseAddress else { return -1 }
+            return proc_pid_rusage(
+                processID,
+                RUSAGE_INFO_V0,
+                baseAddress.assumingMemoryBound(to: rusage_info_t?.self)
+            )
+        }
+        let processStartAbsoluteTime = usage.ri_proc_start_abstime
+        guard usageResult == 0, processStartAbsoluteTime > 0 else {
+            return nil
+        }
+
+        return CodeRouterHandoffProtocol().makeProofContext(
+            capability: capability,
+            challenge: challenge,
+            processID: processID,
+            processStartAbsoluteTime: processStartAbsoluteTime
+        )
+    }
+
+    func armCoderouterHandoff(
+        explicitSocketPath: String?,
+        explicitPassword _: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws -> CoderouterHandoffArm {
+        let socketPath = try Self.coderouterSocketPath(
+            explicitSocketPath: explicitSocketPath,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        )
+        guard Self.coderouterHandoffSocketPathIsValid(socketPath) else {
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        }
+        guard let proofContext = Self.coderouterHandoffProofContext(
+            environment: environment
+        ) else {
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        }
+        let client = SocketClient(path: socketPath)
+        do {
+            try client.connect()
+            guard let expectedServerIdentity = coderouterArmServerPeerVerifier
+                .verifyBeforeRequest(client) else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            guard coderouterArmServerPeerVerifier.reverifyBeforeArmRequest(
+                client,
+                expectedServerIdentity
+            ) else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            defer { client.close() }
+
+            let responseEnvelope = try client.sendV2Envelope(
+                method: SocketClientCapabilityProof.method,
+                params: proofContext.requestParams,
+                requestID: SocketClientCapabilityProof.requestID,
+                responseTimeout: Self.coderouterHandoffSocketResponseTimeoutSeconds,
+                includeCapability: false,
+                validateRawResponse: Self
+                    .coderouterHandoffResponseRawShapeIsValid,
+                strictFrameMaximumRawBytes: Self
+                    .coderouterHandoffMaximumRawFrameBytes
+            )
+            guard let verified = CodeRouterHandoffProtocol().verifyResponse(
+                responseEnvelope,
+                context: proofContext
+            ) else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            if case let .armed(teamBinding) = verified {
+                return CoderouterHandoffArm(
+                    socketPath: socketPath,
+                    teamBinding: teamBinding
+                )
+            }
+            guard case let .signedError(code) = verified else {
+                throw CLIError(message: localizedCoderouterHandoffFailed())
+            }
+            if code == "team_required" {
+                throw CLIError(
+                    message: localizedCoderouterHandoffTeamRequired(),
+                    v2Code: code
+                )
+            }
+            if code == "not_authenticated" {
+                throw CLIError(
+                    message: localizedCoderouterHandoffNotAuthenticated(),
+                    v2Code: code
+                )
+            }
+            throw CLIError(
+                message: localizedCoderouterHandoffFailed(),
+                v2Code: code
+            )
+        } catch let error as CLIError {
+            client.close()
+            if error.v2Code == "team_required"
+                || error.v2Code == "not_authenticated" {
+                throw error
+            }
+            // Do not expose unsigned, invalid, or server-provided diagnostics.
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        } catch {
+            client.close()
+            throw CLIError(message: localizedCoderouterHandoffFailed())
+        }
+    }
+
+    private func execCoderouter(
+        executablePath: String,
+        commandArgs: [String],
+        handoff: CoderouterHandoffArm?,
+        preserveProviderCredentials: Bool,
+        environment inheritedEnvironment: [String: String]
+    ) throws {
+        let childEnvironment = Self.coderouterChildEnvironment(
+            inheritedEnvironment,
+            forHandoff: handoff != nil,
+            preserveProviderCredentials: preserveProviderCredentials
+        )
+        let launchArguments = Self.coderouterLaunchArguments(
+            commandArgs: commandArgs,
+            handoff: handoff
+        )
+        var argv = ([executablePath] + launchArguments).map { strdup($0) }
+        let environmentStrings = childEnvironment.keys.sorted().map { key in
+            let value = childEnvironment[key] ?? ""
+            return "\(key)=\(value)"
+        }
+        var environment = environmentStrings.map { strdup($0) }
+        defer {
+            for item in argv { free(item) }
+            for item in environment { free(item) }
+        }
+        argv.append(nil)
+        environment.append(nil)
+
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        guard posix_spawn_file_actions_init(&actions) == 0 else {
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        guard posix_spawnattr_init(&attributes) == 0 else {
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        // CLOEXEC_DEFAULT closes every descriptor that is not named in these
+        // actions, including high descriptors above a reduced RLIMIT_NOFILE.
+        // Preserve each standard descriptor only when the caller left it open.
+        // A closed standard descriptor must stay closed and must not make the
+        // alias fail. SETEXEC keeps normal signal and exit-status behavior.
+        for descriptor in [STDIN_FILENO, STDOUT_FILENO, STDERR_FILENO] {
+            errno = 0
+            if fcntl(descriptor, F_GETFD) >= 0 {
+                guard posix_spawn_file_actions_addinherit_np(&actions, descriptor) == 0 else {
+                    throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+                }
+            } else if errno != EBADF {
+                throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+            }
+        }
+        guard posix_spawnattr_setflags(
+            &attributes,
+            Int16(POSIX_SPAWN_SETEXEC | POSIX_SPAWN_CLOEXEC_DEFAULT)
+        ) == 0 else {
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+
+        var childPID: pid_t = 0
+        let executionError = executablePath.withCString { executable in
+            posix_spawn(&childPID, executable, &actions, &attributes, &argv, &environment)
+        }
+        guard executionError == 0 else {
+            let errorText = String(cString: strerror(executionError))
+            cliDebugLog(
+                "cli.coderouter.exec_failed executable=\(executablePath) "
+                    + "errno=\(executionError) error=\(errorText)"
+            )
+            throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+        }
+        // POSIX_SPAWN_SETEXEC replaces this process. Returning would mean the
+        // platform violated that contract.
+        throw CLIError(message: localizedCoderouterLaunchFailed(), exitCode: 127)
+    }
+
+    static func coderouterLaunchArguments(
+        commandArgs: [String],
+        handoff: CoderouterHandoffArm?
+    ) -> [String] {
+        CodeRouterLaunchPolicy().launchArguments(
+            commandArgs: commandArgs,
+            handoff: handoff
+        )
+    }
+
+    static func coderouterChildEnvironment(
+        _ inheritedEnvironment: [String: String],
+        forHandoff: Bool,
+        preserveProviderCredentials: Bool = false
+    ) -> [String: String] {
+        CodeRouterLaunchPolicy().childEnvironment(
+            inheritedEnvironment,
+            forHandoff: forHandoff,
+            preserveProviderCredentials: preserveProviderCredentials
+        )
+    }
+
+    private func coderouterSupportsSecureHandoff(
+        executablePath: String,
+        inheritedEnvironment: [String: String]
+    ) -> Bool {
+        guard Self.coderouterExecutableIsAllowed(
+            at: executablePath,
+            environment: inheritedEnvironment
+        ) else {
+            return false
+        }
+
+        let timeoutNanoseconds = UInt64(
+            Self.coderouterCapabilityProbeTimeoutSeconds * 1_000_000_000
+        )
+        let deadline = DispatchTime.now().uptimeNanoseconds &+ timeoutNanoseconds
+        var outputFDs = [Int32](repeating: -1, count: 2)
+        guard Darwin.pipe(&outputFDs) == 0 else { return false }
+        var readFD = outputFDs[0]
+        var writeFD = outputFDs[1]
+        defer {
+            if readFD >= 0 { Darwin.close(readFD) }
+            if writeFD >= 0 { Darwin.close(writeFD) }
+        }
+        _ = fcntl(readFD, F_SETFD, FD_CLOEXEC)
+        _ = fcntl(writeFD, F_SETFD, FD_CLOEXEC)
+
+        let argumentStrings = [
+            executablePath,
+            "capabilities",
+            "--json",
+        ]
+        let childEnvironment = Self.coderouterChildEnvironment(
+            inheritedEnvironment,
+            forHandoff: true
+        )
+
+        var argv = argumentStrings.map { strdup($0) }
+        let environmentStrings = childEnvironment.keys.sorted().map { key in
+            "\(key)=\(childEnvironment[key] ?? "")"
+        }
+        var environment = environmentStrings.map { strdup($0) }
+        defer {
+            for item in argv { free(item) }
+            for item in environment { free(item) }
+        }
+        argv.append(nil)
+        environment.append(nil)
+
+        let nullFD = Darwin.open("/dev/null", O_RDWR | O_CLOEXEC)
+        guard nullFD >= 0 else { return false }
+        defer { Darwin.close(nullFD) }
+
+        var actions: posix_spawn_file_actions_t?
+        var attributes: posix_spawnattr_t?
+        guard posix_spawn_file_actions_init(&actions) == 0 else { return false }
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        guard posix_spawnattr_init(&attributes) == 0 else { return false }
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        guard posix_spawn_file_actions_adddup2(&actions, nullFD, STDIN_FILENO) == 0,
+              posix_spawn_file_actions_adddup2(&actions, writeFD, STDOUT_FILENO) == 0,
+              posix_spawn_file_actions_adddup2(&actions, nullFD, STDERR_FILENO) == 0,
+              posix_spawnattr_setpgroup(&attributes, 0) == 0,
+              posix_spawnattr_setflags(
+                  &attributes,
+                  Int16(POSIX_SPAWN_CLOEXEC_DEFAULT | POSIX_SPAWN_SETPGROUP)
+              ) == 0 else {
+            return false
+        }
+
+        var childPID: pid_t = 0
+        let spawnError = executablePath.withCString { executable in
+            posix_spawn(&childPID, executable, &actions, &attributes, &argv, &environment)
+        }
+        guard spawnError == 0 else { return false }
+        Darwin.close(writeFD)
+        writeFD = -1
+
+        guard let output = Self.readCoderouterCapabilityOutput(
+            from: readFD,
+            childPID: childPID,
+            deadline: deadline
+        ) else {
+            return false
+        }
+        Darwin.close(readFD)
+        readFD = -1
+        guard let capabilities = try? JSONDecoder().decode(
+            CoderouterCapabilityResponse.self,
+            from: output
+        ),
+        capabilities.product == "coderouter",
+        capabilities.protocolVersion == Self.coderouterHandoffProtocolVersion,
+        capabilities.authModes.contains("cmux-socket-v1") else {
+            return false
+        }
+        return true
+    }
+
+    private static func readCoderouterCapabilityOutput(
+        from fileDescriptor: Int32,
+        childPID: pid_t,
+        deadline: UInt64
+    ) -> Data? {
+        let currentFlags = fcntl(fileDescriptor, F_GETFL)
+        guard currentFlags >= 0,
+              fcntl(fileDescriptor, F_SETFL, currentFlags | O_NONBLOCK) == 0 else {
+            var status: Int32 = 0
+            stopCoderouterCapabilityProbe(
+                childPID: childPID,
+                childExited: false,
+                status: &status
+            )
+            return nil
+        }
+
+        var output = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        var status: Int32 = 0
+        var childExited = false
+        var reachedEOF = false
+
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            while true {
+                let count = buffer.withUnsafeMutableBytes { bytes -> Int in
+                    guard let baseAddress = bytes.baseAddress else { return 0 }
+                    return Darwin.read(fileDescriptor, baseAddress, bytes.count)
+                }
+                if count > 0 {
+                    if output.count + count > coderouterCapabilityProbeMaximumBytes {
+                        stopCoderouterCapabilityProbe(
+                            childPID: childPID,
+                            childExited: childExited,
+                            status: &status
+                        )
+                        return nil
+                    }
+                    output.append(contentsOf: buffer.prefix(count))
+                    continue
+                }
+                if count == 0 {
+                    reachedEOF = true
+                } else if errno == EINTR {
+                    continue
+                } else if errno != EAGAIN && errno != EWOULDBLOCK {
+                    stopCoderouterCapabilityProbe(
+                        childPID: childPID,
+                        childExited: childExited,
+                        status: &status
+                    )
+                    return nil
+                }
+                break
+            }
+
+            if !childExited {
+                let waitResult = waitpid(childPID, &status, WNOHANG)
+                if waitResult == childPID {
+                    childExited = true
+                } else if waitResult < 0, errno != EINTR {
+                    stopCoderouterCapabilityProbe(
+                        childPID: childPID,
+                        childExited: false,
+                        status: &status
+                    )
+                    return nil
+                }
+            }
+            if childExited, reachedEOF {
+                return status == 0 ? output : nil
+            }
+
+            let now = DispatchTime.now().uptimeNanoseconds
+            let remainingNanoseconds = deadline > now ? deadline - now : 0
+            let remainingMilliseconds = max(1, min(50, Int(remainingNanoseconds / 1_000_000)))
+            var descriptor = pollfd(
+                fd: fileDescriptor,
+                events: Int16(POLLIN | POLLERR | POLLHUP),
+                revents: 0
+            )
+            let pollResult = Darwin.poll(&descriptor, 1, Int32(remainingMilliseconds))
+            if pollResult < 0, errno != EINTR {
+                stopCoderouterCapabilityProbe(
+                    childPID: childPID,
+                    childExited: childExited,
+                    status: &status
+                )
+                return nil
+            }
+        }
+
+        stopCoderouterCapabilityProbe(
+            childPID: childPID,
+            childExited: childExited,
+            status: &status
+        )
+        return nil
+    }
+
+    private static func stopCoderouterCapabilityProbe(
+        childPID: pid_t,
+        childExited: Bool,
+        status: inout Int32
+    ) {
+        // The probe starts in its own process group. Kill the whole group so a
+        // script cannot leave a sleeping or output-producing descendant after
+        // the two-second probe budget ends.
+        _ = Darwin.kill(-childPID, SIGKILL)
+        // A probe can change its own process group. Always target the direct
+        // child as well, so group manipulation cannot make cleanup wait on a
+        // live child.
+        _ = Darwin.kill(childPID, SIGKILL)
+        if !childExited {
+            let reapDeadline = DispatchTime.now().uptimeNanoseconds &+ 250_000_000
+            while DispatchTime.now().uptimeNanoseconds < reapDeadline {
+                let result = waitpid(childPID, &status, WNOHANG)
+                if result == childPID || (result < 0 && errno == ECHILD) {
+                    return
+                }
+                if result < 0, errno != EINTR {
+                    return
+                }
+                usleep(1_000)
+            }
+        }
+    }
+
+    private static func coderouterNativeExecutablePath(
+        for resolvedPath: String
+    ) -> String? {
+        let resolvedURL = URL(fileURLWithPath: resolvedPath)
+            .resolvingSymlinksInPath()
+            .standardizedFileURL
+        guard resolvedURL.lastPathComponent == "coderouter.js",
+              resolvedURL.deletingLastPathComponent().lastPathComponent == "bin" else {
+            return resolvedPath
+        }
+
+        #if arch(arm64)
+        let npmTarget = "darwin-arm64"
+        #elseif arch(x86_64)
+        let npmTarget = "darwin-x64"
+        #else
+        return nil
+        #endif
+        let packageRoot = resolvedURL
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let vendorExecutable = packageRoot
+            .appendingPathComponent("vendor", isDirectory: true)
+            .appendingPathComponent(npmTarget, isDirectory: true)
+            .appendingPathComponent("coderouter", isDirectory: false)
+        guard FileManager.default.isExecutableFile(atPath: vendorExecutable.path) else {
+            return nil
+        }
+        return vendorExecutable.path
+    }
+
+    /// Run the separately installed CodeRouter CLI. Every command replaces this
+    /// process, which preserves normal signal and exit behavior. Routed commands
+    /// use a hidden protocol-2 argv mode after cmux arms the current PID. The
+    /// socket path is not a credential. No lease, socket password, or descriptor
+    /// crosses exec. Arguments are built directly and are never parsed by a shell.
+    func runCoderouterAlias(
+        commandArgs: [String],
+        explicitSocketPath: String?,
+        explicitPassword: String?,
+        environment: [String: String],
+        bundleIdentifier: String
+    ) throws {
+        let resolvedPath = try resolveCoderouterExecutable(environment: environment)
+            ?? bootstrapCoderouter(environment: environment)
+        guard let executablePath = Self.coderouterNativeExecutablePath(for: resolvedPath) else {
+            throw CLIError(message: localizedCoderouterHandoffUnsupported())
+        }
+
+        // Only routed agent commands consume a handoff. Management, help,
+        // version, and capability commands keep the normal standalone CLI
+        // contract and never contact the cmux socket.
+        let isRoutedAgentCommand = Self.coderouterCommandRequiresHandoff(commandArgs)
+        if !isRoutedAgentCommand {
+            let preserveProviderCredentials = commandArgs.first.map {
+                ["naked", "direct"].contains($0)
+            } ?? false
+            return try execCoderouter(
+                executablePath: executablePath,
+                commandArgs: commandArgs,
+                handoff: nil,
+                preserveProviderCredentials: preserveProviderCredentials,
+                environment: environment
+            )
+        }
+
+        // Probe the exact executable before asking cmux to arm a one-use
+        // handoff. The probe is credential-free and requires the protocol-2
+        // socket mode, so old binaries fail closed before any socket action.
+        guard coderouterSupportsSecureHandoff(
+            executablePath: executablePath,
+            inheritedEnvironment: environment
+        ) else {
+            throw CLIError(message: localizedCoderouterHandoffUnsupported())
+        }
+
+        let handoff = try armCoderouterHandoff(
+            explicitSocketPath: explicitSocketPath,
+            explicitPassword: explicitPassword,
+            environment: environment,
+            bundleIdentifier: bundleIdentifier
+        )
+        try execCoderouter(
+            executablePath: executablePath,
+            commandArgs: commandArgs,
+            handoff: handoff,
+            preserveProviderCredentials: false,
+            environment: environment
+        )
+    }
+
+    static func coderouterCommandRequiresHandoff(_ commandArgs: [String]) -> Bool {
+        CodeRouterLaunchPolicy().commandRequiresHandoff(commandArgs)
+    }
+
     func run() async throws {
         let processEnv = ProcessInfo.processInfo.environment
+        // The resolver has stable debug/release fallbacks at runtime, but its
+        // API remains optional for callers that do not need a bundle ID.
         let cliBundleIdentifier = CLISocketPathResolver.currentAppBundleIdentifier()
+            ?? "com.cmuxterm.app"
         var explicitSocketPath: String? = nil
         var jsonOutput = false
         var idFormatArg: String? = nil
@@ -5053,13 +6350,14 @@ struct CMUXCLI {
         if let supervisor = try OwnedProcessSupervisor(command: command, arguments: rawCommandArgs) {
             exit(try supervisor.run())
         }
-        // `cmux cr ...` is always the CodeRouter CLI, bootstrapped on first use
-        // when this machine has none (CMUXCLI+CoderouterPassthrough.swift).
-        // `cmux coderouter` keeps that passthrough except for the verbs cmux
-        // owns (`status`, `machines`, `claude`, help), which manage the team's
-        // model plane through the app socket (CMUXCLI+Coderouter.swift).
         if command == "cr" || (command == "coderouter" && !Self.isCmuxOwnedCoderouterInvocation(rawCommandArgs)) {
-            try runCoderouterAlias(commandArgs: rawCommandArgs)
+            try runCoderouterAlias(
+                commandArgs: rawCommandArgs,
+                explicitSocketPath: explicitSocketPath,
+                explicitPassword: socketPasswordArg,
+                environment: processEnv,
+                bundleIdentifier: cliBundleIdentifier
+            )
             return
         }
         if command == SudoPrivilegedExecutor.hiddenCommand {
@@ -5218,6 +6516,11 @@ struct CMUXCLI {
             try openPath(command)
             return
         }
+
+        try validateBrowserProfileMutationCommandBeforeSocket(
+            command: command,
+            commandArgs: commandArgs
+        )
 
         let envSocketPath = explicitSocketPath == nil
             ? try CLISocketEnvironment.socketPath(in: processEnv)
@@ -5525,10 +6828,6 @@ struct CMUXCLI {
         }
 
         try validateSurfaceResumeCommandValueOptionsBeforeSocket(
-            command: command,
-            commandArgs: commandArgs
-        )
-        try validateBrowserProfileMutationCommandBeforeSocket(
             command: command,
             commandArgs: commandArgs
         )
@@ -5876,25 +7175,31 @@ struct CMUXCLI {
                 }
                 if let limits = response["limits"] as? [String: Any],
                    let planId = limits["planId"] as? String {
+                    // The cap counts running and provisioning machines; paused
+                    // ones are listed above but do not hold a slot.
+                    let activeCount = (limits["activeVmCount"] as? Int) ?? vms.count(where: { vm in
+                        let status = (vm["status"] as? String)?.lowercased()
+                        return status == "running" || status == "provisioning"
+                    })
                     // Absent or null means the plan has no active-machine cap.
                     if let maxActiveVms = limits["maxActiveVms"] as? Int, maxActiveVms == 1 {
                         let format = String(
                             localized: "cli.vm.list.planMeter.single",
                             defaultValue: "%1$d of 1 machine on the %2$@ plan"
                         )
-                        print(String(format: format, vms.count, planId))
+                        print(String(format: format, activeCount, planId))
                     } else if let maxActiveVms = limits["maxActiveVms"] as? Int {
                         let format = String(
                             localized: "cli.vm.list.planMeter",
                             defaultValue: "%1$d of %2$d machines on the %3$@ plan"
                         )
-                        print(String(format: format, vms.count, maxActiveVms, planId))
+                        print(String(format: format, activeCount, maxActiveVms, planId))
                     } else {
                         let format = String(
                             localized: "cli.vm.list.planMeter.unlimited",
                             defaultValue: "%1$d machines on the %2$@ plan, no limit"
                         )
-                        print(String(format: format, vms.count, planId))
+                        print(String(format: format, activeCount, planId))
                     }
                     // Free plans: the backend says when access to the fleet closes;
                     // the footer counts down to it so the lock never comes as a surprise.
@@ -6397,7 +7702,7 @@ struct CMUXCLI {
                 if let nameOpt { params["name"] = nameOpt }
                 let response: [String: Any]
                 do {
-                    response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds * 2)
+                    response = try client.sendV2(method: "vm.fork", params: params, responseTimeout: Self.vmCreateResponseTimeoutSeconds)
                 } catch let error as CLIError {
                     // A definitive backend failure is replayed under its key; only an
                     // in-flight or unknown outcome keeps the key for the retry.
@@ -16927,104 +18232,83 @@ struct CMUXCLI {
         return (result.status, result.stdout, result.stderr)
     }
 
-    func browserProfileArguments(
+    /// Parses options-free browser arguments through the shared, privacy-safe parser.
+    func browserCommandArguments(
         _ values: [String],
         allowedFlags: Set<String> = [],
         commandName: String
     ) throws -> (positionals: [String], flags: Set<String>) {
-        var positionals: [String] = []
-        var flags: Set<String> = []
-        var pastTerminator = false
-
-        for value in values {
-            if pastTerminator {
-                positionals.append(value)
-                continue
-            }
-            if value == "--" {
-                pastTerminator = true
-                continue
-            }
-            if allowedFlags.contains(value) {
-                flags.insert(value)
-                continue
-            }
-            if value.hasPrefix("-") {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.readSelection.error.unexpectedArguments",
-                        defaultValue: "%@: unexpected arguments: %@"
-                    ),
-                    commandName,
-                    value
-                ))
-            }
-            positionals.append(value)
+        do {
+            let result = try BrowserCommandArgumentParser(
+                allowedFlags: allowedFlags
+            ).parse(values)
+            return (result.positionals, result.flags)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
         }
-        return (positionals, flags)
     }
 
-    func rejectBrowserProfileExtras(_ values: ArraySlice<String>, commandName: String) throws {
-        guard !values.isEmpty else { return }
-        throw CLIError(message: String(
-            format: String(
-                localized: "cli.readSelection.error.unexpectedArguments",
-                defaultValue: "%@: unexpected arguments: %@"
-            ),
-            commandName,
-            values.joined(separator: " ")
-        ))
+    /// Rejects leftover browser positionals without echoing their contents.
+    func rejectBrowserCommandExtras(_ values: ArraySlice<String>, commandName: String) throws {
+        do {
+            try BrowserCommandArgumentParser.requireNoExtraPositionals(values.count)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
+        }
     }
 
-    func validateBrowserProfileMutationArguments(
+    /// Validates raw browser arguments through the shared, privacy-safe parser.
+    func validateBrowserCommandArguments(
         _ values: [String],
         valueOptions: Set<String> = [],
         allowedFlags: Set<String> = [],
+        optionsAllowingEmptyValues: Set<String> = [],
         commandName: String
     ) throws {
-        var index = 0
-        var pastTerminator = false
-        while index < values.count {
-            let value = values[index]
-            if pastTerminator {
-                index += 1
-                continue
-            }
-            if value == "--" {
-                pastTerminator = true
-                index += 1
-                continue
-            }
-            if allowedFlags.contains(value) {
-                index += 1
-                continue
-            }
-            if let equal = value.firstIndex(of: "="), value.hasPrefix("--") {
-                let option = String(value[..<equal])
-                let optionValue = String(value[value.index(after: equal)...])
-                if valueOptions.contains(option), !optionValue.isEmpty {
-                    index += 1
-                    continue
-                }
-            }
-            if valueOptions.contains(value) {
-                guard index + 1 < values.count, !values[index + 1].hasPrefix("-") else {
-                    throw CLIError(message: "\(value) requires a value")
-                }
-                index += 2
-                continue
-            }
-            if value.hasPrefix("-") {
-                throw CLIError(message: String(
-                    format: String(
-                        localized: "cli.readSelection.error.unexpectedArguments",
-                        defaultValue: "%@: unexpected arguments: %@"
-                    ),
-                    commandName,
-                    value
-                ))
-            }
-            index += 1
+        do {
+            _ = try BrowserCommandArgumentParser(
+                valueOptions: valueOptions,
+                allowedFlags: allowedFlags,
+                optionsAllowingEmptyValues: optionsAllowingEmptyValues
+            ).parse(values)
+        } catch let error as BrowserCommandArgumentParser.ParseError {
+            throw browserCommandArgumentError(error, commandName: commandName)
+        }
+    }
+
+    /// Maps parser failures to localized CLI errors without including option values or positionals.
+    private func browserCommandArgumentError(
+        _ error: BrowserCommandArgumentParser.ParseError,
+        commandName: String
+    ) -> CLIError {
+        switch error {
+        case .missingValue(let option):
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.arguments.error.missingValue",
+                    defaultValue: "%1$@: %2$@ requires a value"
+                ),
+                commandName,
+                option
+            ))
+        case .unknownOption(let name):
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.readSelection.error.unexpectedArguments",
+                    defaultValue: "%@: unexpected arguments: %@"
+                ),
+                commandName,
+                name
+            ))
+        case .unexpectedPositionals:
+            return CLIError(message: String(
+                format: String(
+                    localized: "cli.readSelection.error.unexpectedArguments",
+                    defaultValue: "%@: unexpected arguments: %@"
+                ),
+                commandName,
+                "..."
+            ))
         }
     }
 
@@ -17118,17 +18402,32 @@ struct CMUXCLI {
         }
 
         switch normalizedVerb {
+        case "list":
+            let commandName = "browser profiles \(profileVerb)"
+            try validateBrowserCommandArguments(
+                profileArgs,
+                commandName: commandName
+            )
+            let parsed = try browserCommandArguments(
+                profileArgs,
+                commandName: commandName
+            )
+            try rejectBrowserCommandExtras(
+                parsed.positionals[...],
+                commandName: commandName
+            )
+
         case "create":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--name"],
                 commandName: commandName
             )
             let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
-            let parsed = try browserProfileArguments(remaining, commandName: commandName)
+            let parsed = try browserCommandArguments(remaining, commandName: commandName)
             if nameOpt != nil {
-                try rejectBrowserProfileExtras(parsed.positionals[...], commandName: commandName)
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
             }
             let name = nameOpt ?? parsed.positionals.joined(separator: " ")
             guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -17137,19 +18436,19 @@ struct CMUXCLI {
 
         case "rename":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--profile", "--name"],
                 commandName: commandName
             )
             let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
             let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-            let parsed = try browserProfileArguments(rem2, commandName: commandName)
+            let parsed = try browserCommandArguments(rem2, commandName: commandName)
             let positional = parsed.positionals
             if profileOpt != nil, nameOpt != nil {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else if nameOpt != nil {
-                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
             }
             let profile = profileOpt ?? positional.first
             let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
@@ -17162,43 +18461,43 @@ struct CMUXCLI {
 
         case "clear":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--profile"],
                 allowedFlags: ["--all", "--force"],
                 commandName: commandName
             )
             let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-            let parsed = try browserProfileArguments(
+            let parsed = try browserCommandArguments(
                 rem1,
                 allowedFlags: ["--all", "--force"],
                 commandName: commandName
             )
             let positional = parsed.positionals
             if parsed.flags.contains("--all") {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else if profileOpt != nil {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else if positional.first != nil {
-                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
             } else {
                 throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
             }
 
         case "delete":
             let commandName = "browser profiles \(profileVerb)"
-            try validateBrowserProfileMutationArguments(
+            try validateBrowserCommandArguments(
                 profileArgs,
                 valueOptions: ["--profile"],
                 commandName: commandName
             )
             let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-            let parsed = try browserProfileArguments(rem1, commandName: commandName)
+            let parsed = try browserCommandArguments(rem1, commandName: commandName)
             let positional = parsed.positionals
             if profileOpt != nil {
-                try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
             } else {
-                try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
             }
             let profile = profileOpt ?? positional.first
             guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -17451,6 +18750,19 @@ struct CMUXCLI {
 
             switch normalizedVerb {
             case "list":
+                let commandName = "browser profiles \(profileVerb)"
+                try validateBrowserCommandArguments(
+                    profileArgs,
+                    commandName: commandName
+                )
+                let parsed = try browserCommandArguments(
+                    profileArgs,
+                    commandName: commandName
+                )
+                try rejectBrowserCommandExtras(
+                    parsed.positionals[...],
+                    commandName: commandName
+                )
                 let payload = try client.sendV2(method: "browser.profiles.list")
                 if effectiveJSONOutput {
                     print(jsonString(formatIDs(payload, mode: effectiveIDFormat)))
@@ -17459,15 +18771,15 @@ struct CMUXCLI {
                 }
             case "create":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--name"],
                     commandName: commandName
                 )
                 let (nameOpt, remaining) = parseOption(profileArgs, name: "--name")
-                let parsed = try browserProfileArguments(remaining, commandName: commandName)
+                let parsed = try browserCommandArguments(remaining, commandName: commandName)
                 if nameOpt != nil {
-                    try rejectBrowserProfileExtras(parsed.positionals[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 }
                 let name = nameOpt ?? parsed.positionals.joined(separator: " ")
                 guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -17484,19 +18796,19 @@ struct CMUXCLI {
                 }
             case "rename":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--profile", "--name"],
                     commandName: commandName
                 )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
                 let (nameOpt, rem2) = parseOption(rem1, name: "--name")
-                let parsed = try browserProfileArguments(rem2, commandName: commandName)
+                let parsed = try browserCommandArguments(rem2, commandName: commandName)
                 let positional = parsed.positionals
                 if profileOpt != nil, nameOpt != nil {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                 } else if nameOpt != nil {
-                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                    try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                 }
                 let profile = profileOpt ?? positional.first
                 let newName = nameOpt ?? (positional.count > 1 ? positional.dropFirst().joined(separator: " ") : nil)
@@ -17519,14 +18831,14 @@ struct CMUXCLI {
                 }
             case "clear":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--profile"],
                     allowedFlags: ["--all", "--force"],
                     commandName: commandName
                 )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-                let parsed = try browserProfileArguments(
+                let parsed = try browserCommandArguments(
                     rem1,
                     allowedFlags: ["--all", "--force"],
                     commandName: commandName
@@ -17534,13 +18846,13 @@ struct CMUXCLI {
                 let positional = parsed.positionals
                 var params: [String: Any] = [:]
                 if parsed.flags.contains("--all") {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                     params["all"] = true
                 } else if let profileOpt {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                     params["profile"] = profileOpt
                 } else if let profile = positional.first {
-                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                    try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                     params["profile"] = profile
                 } else {
                     throw CLIError(message: "browser profiles \(profileVerb) requires a profile or --all")
@@ -17557,18 +18869,18 @@ struct CMUXCLI {
                 }
             case "delete":
                 let commandName = "browser profiles \(profileVerb)"
-                try validateBrowserProfileMutationArguments(
+                try validateBrowserCommandArguments(
                     profileArgs,
                     valueOptions: ["--profile"],
                     commandName: commandName
                 )
                 let (profileOpt, rem1) = parseOption(profileArgs, name: "--profile")
-                let parsed = try browserProfileArguments(rem1, commandName: commandName)
+                let parsed = try browserCommandArguments(rem1, commandName: commandName)
                 let positional = parsed.positionals
                 if profileOpt != nil {
-                    try rejectBrowserProfileExtras(positional[...], commandName: commandName)
+                    try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                 } else {
-                    try rejectBrowserProfileExtras(positional.dropFirst(), commandName: commandName)
+                    try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                 }
                 let profile = profileOpt ?? positional.first
                 guard let profile, !profile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
@@ -17616,6 +18928,12 @@ struct CMUXCLI {
                 "--create-profile",
                 "--create-destination-profile",
             ]
+            try validateBrowserCommandArguments(
+                importArgs,
+                valueOptions: importValueOptions,
+                allowedFlags: importFlags,
+                commandName: "browser import"
+            )
             func importPositionals(_ values: [String]) -> [String] {
                 var result: [String] = []
                 var index = 0
@@ -17967,11 +19285,23 @@ struct CMUXCLI {
             return
         }
         if subcommand == "history" {
-            let verb = browserActionVerbArgs().first?.lowercased() ?? "clear"
+            let commandName = "browser history"
+            try validateBrowserCommandArguments(
+                subArgs,
+                allowedFlags: ["--force", "--yes"],
+                commandName: commandName
+            )
+            let parsed = try browserCommandArguments(
+                subArgs,
+                allowedFlags: ["--force", "--yes"],
+                commandName: commandName
+            )
+            let verb = parsed.positionals.first?.lowercased() ?? "clear"
             guard verb == "clear" else {
                 throw CLIError(message: "Unsupported browser history subcommand: \(verb) (expected: clear)")
             }
-            guard hasFlag(subArgs, name: "--force") || hasFlag(subArgs, name: "--yes") else {
+            try rejectBrowserCommandExtras(parsed.positionals.dropFirst(), commandName: commandName)
+            guard parsed.flags.contains("--force") || parsed.flags.contains("--yes") else {
                 throw CLIError(message: "browser history clear permanently deletes the default browser profile's history (same as the View menu's Clear Browser History); pass --force to confirm")
             }
             let payload = try client.sendV2(method: "browser.history.clear", params: ["force": true])
@@ -18064,6 +19394,15 @@ struct CMUXCLI {
             let sid = try requireSurface()
             var params: [String: Any] = ["surface_id": sid]
 
+            let waitValueOptions: Set<String> = [
+                "--selector", "--text", "--url-contains", "--url", "--load-state",
+                "--function", "--timeout-ms", "--timeout",
+            ]
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: waitValueOptions,
+                commandName: "browser wait"
+            )
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
             let (textOpt, rem2) = parseOption(rem1, name: "--text")
             let (urlContainsOptA, rem3) = parseOption(rem2, name: "--url-contains")
@@ -18072,8 +19411,14 @@ struct CMUXCLI {
             let (functionOpt, rem6) = parseOption(rem5, name: "--function")
             let (timeoutOptMs, rem7) = parseOption(rem6, name: "--timeout-ms")
             let (timeoutOptSec, rem8) = parseOption(rem7, name: "--timeout")
+            let parsed = try browserCommandArguments(rem8, commandName: "browser wait")
+            let positionalCount = selectorOpt == nil && !parsed.positionals.isEmpty ? 1 : 0
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(positionalCount),
+                commandName: "browser wait"
+            )
 
-            if let selector = selectorOpt ?? rem8.first {
+            if let selector = selectorOpt ?? parsed.positionals.first {
                 params["selector"] = selector
             }
             if let textOpt {
@@ -18110,12 +19455,28 @@ struct CMUXCLI {
         }
 
         if ["click", "dblclick", "hover", "focus", "check", "uncheck", "scrollintoview", "scrollinto", "scroll-into-view"].contains(subcommand) {
+            let commandName = "browser \(subcommand)"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--selector"],
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
-            let selector = selectorOpt ?? rem1.first
+            let parsed = try browserCommandArguments(
+                rem1,
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser \(subcommand) requires a selector")
             }
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(selectorOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let methodMap: [String: String] = [
                 "click": "browser.click",
                 "dblclick": "browser.dblclick",
@@ -18128,7 +19489,7 @@ struct CMUXCLI {
                 "scroll-into-view": "browser.scroll_into_view",
             ]
             var params: [String: Any] = ["surface_id": sid, "selector": selector]
-            if hasFlag(subArgs, name: "--snapshot-after") {
+            if parsed.flags.contains("--snapshot-after") {
                 params["snapshot_after"] = true
             }
             let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
@@ -18219,12 +19580,28 @@ struct CMUXCLI {
         }
 
         if ["press", "key", "keydown", "keyup"].contains(subcommand) {
+            let commandName = "browser \(subcommand)"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--key"],
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             let (keyOpt, rem1) = parseOption(subArgs, name: "--key")
-            let key = keyOpt ?? rem1.first
+            let parsed = try browserCommandArguments(
+                rem1,
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
+            let key = keyOpt ?? parsed.positionals.first
             guard let key else {
                 throw CLIError(message: "browser \(subcommand) requires a key")
             }
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(keyOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let methodMap: [String: String] = [
                 "press": "browser.press",
                 "key": "browser.press",
@@ -18232,7 +19609,7 @@ struct CMUXCLI {
                 "keyup": "browser.keyup",
             ]
             var params: [String: Any] = ["surface_id": sid, "key": key]
-            if hasFlag(subArgs, name: "--snapshot-after") {
+            if parsed.flags.contains("--snapshot-after") {
                 params["snapshot_after"] = true
             }
             let payload = try sendBrowserAutomationRequest(method: methodMap[subcommand]!, params: params)
@@ -18241,19 +19618,38 @@ struct CMUXCLI {
         }
 
         if subcommand == "select" {
+            let commandName = "browser select"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--selector", "--value"],
+                allowedFlags: ["--snapshot-after"],
+                optionsAllowingEmptyValues: ["--value"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
             let (valueOpt, rem2) = parseOption(rem1, name: "--value")
-            let selector = selectorOpt ?? rem2.first
+            let parsed = try browserCommandArguments(
+                rem2,
+                allowedFlags: ["--snapshot-after"],
+                commandName: commandName
+            )
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser select requires a selector")
             }
-            let value = valueOpt ?? (selectorOpt != nil ? rem2.first : rem2.dropFirst().first)
+            let usedForSelector = selectorOpt == nil ? 1 : 0
+            let value = valueOpt ?? parsed.positionals.dropFirst(usedForSelector).first
             guard let value else {
                 throw CLIError(message: "browser select requires a value")
             }
+            let usedPositionals = usedForSelector + (valueOpt == nil ? 1 : 0)
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(usedPositionals),
+                commandName: commandName
+            )
             var params: [String: Any] = ["surface_id": sid, "selector": selector, "value": value]
-            if hasFlag(subArgs, name: "--snapshot-after") {
+            if parsed.flags.contains("--snapshot-after") {
                 params["snapshot_after"] = true
             }
             let payload = try sendBrowserAutomationRequest(method: "browser.select", params: params)
@@ -18518,12 +19914,23 @@ struct CMUXCLI {
                 throw CLIError(message: "browser is requires a subcommand")
             }
             let isArgs = Array(subArgs.dropFirst())
+            let commandName = "browser is \(isVerb)"
+            try validateBrowserCommandArguments(
+                isArgs,
+                valueOptions: ["--selector"],
+                commandName: commandName
+            )
             let (selectorOpt, rem1) = parseOption(isArgs, name: "--selector")
-            let selector = selectorOpt ?? rem1.first
+            let parsed = try browserCommandArguments(rem1, commandName: commandName)
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser is \(isVerb) requires a selector")
             }
 
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(selectorOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let methodMap: [String: String] = [
                 "visible": "browser.is.visible",
                 "enabled": "browser.is.enabled",
@@ -18549,6 +19956,32 @@ struct CMUXCLI {
                 throw CLIError(message: "browser find requires a locator (role|text|label|placeholder|alt|title|testid|first|last|nth)")
             }
             let locatorArgs = Array(subArgs.dropFirst())
+            let commandName = "browser find \(locator)"
+            let valueOptions: Set<String>
+            let allowedFlags: Set<String>
+            switch locator {
+            case "role":
+                valueOptions = ["--name"]
+                allowedFlags = ["--exact"]
+            case "text", "label", "placeholder", "alt", "title", "testid":
+                valueOptions = []
+                allowedFlags = ["--exact"]
+            case "first", "last":
+                valueOptions = ["--selector"]
+                allowedFlags = []
+            case "nth":
+                valueOptions = ["--index", "--selector"]
+                allowedFlags = []
+            default:
+                valueOptions = []
+                allowedFlags = []
+            }
+            try validateBrowserCommandArguments(
+                locatorArgs,
+                valueOptions: valueOptions,
+                allowedFlags: allowedFlags,
+                commandName: commandName
+            )
 
             var params: [String: Any] = ["surface_id": sid]
             let method: String
@@ -18556,15 +19989,21 @@ struct CMUXCLI {
             switch locator {
             case "role":
                 let (nameOpt, rem1) = parseOption(locatorArgs, name: "--name")
-                let candidates = nonFlagArgs(rem1)
+                let parsed = try browserCommandArguments(
+                    rem1,
+                    allowedFlags: ["--exact"],
+                    commandName: commandName
+                )
+                let candidates = parsed.positionals
                 guard let role = candidates.first else {
                     throw CLIError(message: "browser find role requires <role>")
                 }
                 params["role"] = role
+                try rejectBrowserCommandExtras(candidates.dropFirst(), commandName: commandName)
                 if let nameOpt {
                     params["name"] = nameOpt
                 }
-                if hasFlag(locatorArgs, name: "--exact") {
+                if parsed.flags.contains("--exact") {
                     params["exact"] = true
                 }
                 method = "browser.find.role"
@@ -18577,27 +20016,37 @@ struct CMUXCLI {
                     "title": "title",
                     "testid": "testid",
                 ]
-                let candidates = nonFlagArgs(locatorArgs)
+                let parsed = try browserCommandArguments(
+                    locatorArgs,
+                    allowedFlags: ["--exact"],
+                    commandName: commandName
+                )
+                let candidates = parsed.positionals
                 guard let value = candidates.first else {
                     throw CLIError(message: "browser find \(locator) requires a value")
                 }
                 params[keyMap[locator]!] = value
-                if hasFlag(locatorArgs, name: "--exact") {
+                try rejectBrowserCommandExtras(candidates.dropFirst(), commandName: commandName)
+                if parsed.flags.contains("--exact") {
                     params["exact"] = true
                 }
                 method = "browser.find.\(locator)"
             case "first", "last":
                 let (selectorOpt, rem1) = parseOption(locatorArgs, name: "--selector")
-                let candidates = nonFlagArgs(rem1)
+                let candidates = try browserCommandArguments(rem1, commandName: commandName).positionals
                 guard let selector = selectorOpt ?? candidates.first else {
                     throw CLIError(message: "browser find \(locator) requires a selector")
                 }
                 params["selector"] = selector
+                try rejectBrowserCommandExtras(
+                    candidates.dropFirst(selectorOpt == nil ? 1 : 0),
+                    commandName: commandName
+                )
                 method = "browser.find.\(locator)"
             case "nth":
                 let (indexOpt, rem1) = parseOption(locatorArgs, name: "--index")
                 let (selectorOpt, rem2) = parseOption(rem1, name: "--selector")
-                let candidates = nonFlagArgs(rem2)
+                let candidates = try browserCommandArguments(rem2, commandName: commandName).positionals
                 let indexRaw = indexOpt ?? candidates.first
                 guard let indexRaw,
                       let index = Int(indexRaw) else {
@@ -18609,6 +20058,11 @@ struct CMUXCLI {
                 }
                 params["index"] = index
                 params["selector"] = selector
+                let usedPositionals = (indexOpt == nil ? 1 : 0) + (selectorOpt == nil ? 1 : 0)
+                try rejectBrowserCommandExtras(
+                    candidates.dropFirst(usedPositionals),
+                    commandName: commandName
+                )
                 method = "browser.find.nth"
             default:
                 throw CLIError(message: "Unsupported browser find locator: \(locator)")
@@ -18620,20 +20074,32 @@ struct CMUXCLI {
         }
 
         if subcommand == "frame" {
+            let commandName = "browser frame"
+            try validateBrowserCommandArguments(
+                subArgs,
+                valueOptions: ["--selector"],
+                commandName: commandName
+            )
             let sid = try requireSurface()
             guard let frameVerb = subArgs.first?.lowercased() else {
                 throw CLIError(message: "browser frame requires <selector|main>")
             }
             if frameVerb == "main" {
+                try rejectBrowserCommandExtras(subArgs.dropFirst(), commandName: commandName)
                 let payload = try client.sendV2(method: "browser.frame.main", params: ["surface_id": sid])
                 output(payload, fallback: "OK")
                 return
             }
             let (selectorOpt, rem1) = parseOption(subArgs, name: "--selector")
-            let selector = selectorOpt ?? nonFlagArgs(rem1).first
+            let parsed = try browserCommandArguments(rem1, commandName: commandName)
+            let selector = selectorOpt ?? parsed.positionals.first
             guard let selector else {
                 throw CLIError(message: "browser frame requires a selector or 'main'")
             }
+            try rejectBrowserCommandExtras(
+                parsed.positionals.dropFirst(selectorOpt == nil ? 1 : 0),
+                commandName: commandName
+            )
             let payload = try sendBrowserAutomationRequest(method: "browser.frame.select", params: ["surface_id": sid, "selector": selector])
             output(payload, fallback: "OK")
             return
@@ -18677,13 +20143,30 @@ struct CMUXCLI {
             let sid = try requireSurface()
             let cookieVerb = subArgs.first?.lowercased() ?? "get"
             let cookieArgs = subArgs.first != nil ? Array(subArgs.dropFirst()) : []
+            let commandName = "browser cookies \(cookieVerb)"
+            let cookieValueOptions: Set<String> = [
+                "--name", "--value", "--url", "--domain", "--path", "--expires",
+            ]
+            let cookieFlags: Set<String> = ["--secure", "--all", "--http-only"]
+            try validateBrowserCommandArguments(
+                cookieArgs,
+                valueOptions: cookieValueOptions,
+                allowedFlags: cookieFlags,
+                optionsAllowingEmptyValues: cookieVerb == "set" ? ["--value"] : [],
+                commandName: commandName
+            )
 
             let (nameOpt, rem1) = parseOption(cookieArgs, name: "--name")
             let (valueOpt, rem2) = parseOption(rem1, name: "--value")
             let (urlOpt, rem3) = parseOption(rem2, name: "--url")
             let (domainOpt, rem4) = parseOption(rem3, name: "--domain")
             let (pathOpt, rem5) = parseOption(rem4, name: "--path")
-            let (expiresOpt, _) = parseOption(rem5, name: "--expires")
+            let (expiresOpt, rem6) = parseOption(rem5, name: "--expires")
+            let parsed = try browserCommandArguments(
+                rem6,
+                allowedFlags: cookieFlags,
+                commandName: commandName
+            )
 
             var params: [String: Any] = ["surface_id": sid]
             if let nameOpt { params["name"] = nameOpt }
@@ -18691,10 +20174,10 @@ struct CMUXCLI {
             if let urlOpt { params["url"] = urlOpt }
             if let domainOpt { params["domain"] = domainOpt }
             if let pathOpt { params["path"] = pathOpt }
-            if hasFlag(cookieArgs, name: "--secure") {
+            if parsed.flags.contains("--secure") {
                 params["secure"] = true
             }
-            if hasFlag(cookieArgs, name: "--all") {
+            if parsed.flags.contains("--all") {
                 params["all"] = true
             }
             if let expiresOpt {
@@ -18706,26 +20189,35 @@ struct CMUXCLI {
 
             switch cookieVerb {
             case "get":
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 let payload = try client.sendV2(method: "browser.cookies.get", params: params)
                 output(payload, fallback: "OK")
             case "set":
                 var setParams = params
-                if hasFlag(cookieArgs, name: "--http-only") {
+                if parsed.flags.contains("--http-only") {
                     setParams["httpOnly"] = true
                 }
-                let positional = nonFlagArgs(cookieArgs)
-                if setParams["name"] == nil, positional.count >= 1 {
-                    setParams["name"] = positional[0]
+                let positional = parsed.positionals
+                var positionalIndex = 0
+                if setParams["name"] == nil, positional.indices.contains(positionalIndex) {
+                    setParams["name"] = positional[positionalIndex]
+                    positionalIndex += 1
                 }
-                if setParams["value"] == nil, positional.count >= 2 {
-                    setParams["value"] = positional[1]
+                if setParams["value"] == nil, positional.indices.contains(positionalIndex) {
+                    setParams["value"] = positional[positionalIndex]
+                    positionalIndex += 1
                 }
+                try rejectBrowserCommandExtras(
+                    positional.dropFirst(positionalIndex),
+                    commandName: commandName
+                )
                 guard setParams["name"] != nil, setParams["value"] != nil else {
                     throw CLIError(message: "browser cookies set requires <name> <value> (or --name/--value)")
                 }
                 let payload = try client.sendV2(method: "browser.cookies.set", params: setParams)
                 output(payload, fallback: "OK")
             case "clear":
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 let payload = try client.sendV2(method: "browser.cookies.clear", params: params)
                 output(payload, fallback: "OK")
             default:
@@ -18743,17 +20235,21 @@ struct CMUXCLI {
             }
             let op = storageArgs.count >= 2 ? storageArgs[1].lowercased() : "get"
             let rest = storageArgs.count > 2 ? Array(storageArgs.dropFirst(2)) : []
-            let positional = nonFlagArgs(rest)
+            let commandName = "browser storage \(storageType) \(op)"
+            try validateBrowserCommandArguments(rest, commandName: commandName)
+            let positional = try browserCommandArguments(rest, commandName: commandName).positionals
 
             var params: [String: Any] = ["surface_id": sid, "type": storageType]
             switch op {
             case "get":
+                try rejectBrowserCommandExtras(positional.dropFirst(), commandName: commandName)
                 if let key = positional.first {
                     params["key"] = key
                 }
                 let payload = try sendBrowserAutomationRequest(method: "browser.storage.get", params: params)
                 output(payload, fallback: "OK")
             case "set":
+                try rejectBrowserCommandExtras(positional.dropFirst(2), commandName: commandName)
                 guard positional.count >= 2 else {
                     throw CLIError(message: "browser storage \(storageType) set requires <key> <value>")
                 }
@@ -18762,6 +20258,7 @@ struct CMUXCLI {
                 let payload = try sendBrowserAutomationRequest(method: "browser.storage.set", params: params)
                 output(payload, fallback: "OK")
             case "clear":
+                try rejectBrowserCommandExtras(positional[...], commandName: commandName)
                 let payload = try sendBrowserAutomationRequest(method: "browser.storage.clear", params: params)
                 output(payload, fallback: "OK")
             default:
@@ -18786,13 +20283,18 @@ struct CMUXCLI {
                 tabArgs = subArgs
             }
 
+            let commandName = "browser tab \(tabVerb)"
+            try validateBrowserCommandArguments(tabArgs, commandName: commandName)
+            let parsed = try browserCommandArguments(tabArgs, commandName: commandName)
+
             switch tabVerb {
             case "list":
+                try rejectBrowserCommandExtras(parsed.positionals[...], commandName: commandName)
                 let payload = try client.sendV2(method: "browser.tab.list", params: ["surface_id": sid])
                 output(payload, fallback: "OK")
             case "new":
                 var params: [String: Any] = ["surface_id": sid]
-                let url = tabArgs.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
+                let url = parsed.positionals.joined(separator: " ").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !url.isEmpty {
                     params["url"] = url
                 }
@@ -18801,7 +20303,8 @@ struct CMUXCLI {
             case "switch", "close":
                 let method = (tabVerb == "switch") ? "browser.tab.switch" : "browser.tab.close"
                 var params: [String: Any] = ["surface_id": sid]
-                let target = tabArgs.first
+                try rejectBrowserCommandExtras(parsed.positionals.dropFirst(), commandName: commandName)
+                let target = parsed.positionals.first
                 if let target {
                     if let index = Int(target) {
                         params["index"] = index
@@ -20039,7 +21542,7 @@ struct CMUXCLI {
             agent. Claude Code and Pi hooks are injected automatically by their cmux wrappers.
 
             Agents:
-              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder
+              codex, grok, opencode, pi, omp, campfire, amp, cursor, gemini, kiro, antigravity (alias: agy), rovodev (alias: rovo), hermes-agent, copilot, codebuddy, factory, qoder, muse
 
             Hook targets:
               setup              Install hooks for all supported agents on PATH
@@ -34783,14 +36286,14 @@ struct CMUXCLI {
     }
 
     private func nestedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
-        guard def.name == "codex" || def.name == "grok" else {
+        guard def.name == "codex" || def.name == "grok" || def.name == "muse" else {
             return max(timeoutMs, 1)
         }
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 
     private func nestedFeedHookTimeout(_ timeoutMs: Int, for def: AgentHookDef) -> Int {
-        guard def.name == "codex" || def.name == "grok" else { return max(timeoutMs, 1) }
+        guard def.name == "codex" || def.name == "grok" || def.name == "muse" else { return max(timeoutMs, 1) }
         return Self.timeoutSecondsFromMilliseconds(timeoutMs)
     }
 
@@ -35857,6 +37360,8 @@ export default {
 
         existing["hooks"] = hooks
         if case .flat = def.format { existing["version"] = 1 }
+        // Muse refuses to start with a settings file that lacks a schema version.
+        if def.name == "muse", existing["schema_version"] == nil { existing["schema_version"] = 1 }
         if case .kiroAgentJSON = def.format {
             if existing["name"] == nil {
                 existing["name"] = "cmux"
@@ -36477,6 +37982,22 @@ export default {
         return normalizedHookValue(env["CMUX_SURFACE_ID"]) ?? ""
     }
 
+    /// Whether a Muse hook payload belongs to an internal child session.
+    ///
+    /// Muse child sessions report `turn_id == session_id`; top-level turns
+    /// carry a distinct turn id, and session lifecycle events carry none.
+    static func isMuseChildSessionHookPayload(_ payload: [String: Any]?) -> Bool {
+        guard let payload,
+              let sessionId = (payload["session_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !sessionId.isEmpty,
+              let turnId = (payload["turn_id"] as? String)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return turnId == sessionId
+    }
+
     /// Runs one agent hook event.
     ///
     /// `codex monitor` is the one event that leads to another: when the
@@ -36768,6 +38289,13 @@ export default {
             ?? String(data: FileHandle.standardInput.readDataToEndOfFile(), encoding: .utf8)
             ?? ""
         let input = parseClaudeHookInput(rawInput: rawInput)
+        // Muse runs internal child sessions (reminders, delegated subagents)
+        // whose hooks reuse the session id as the turn id. They must not
+        // replace the main session's binding or drive the pane's status.
+        if def.name == "muse", Self.isMuseChildSessionHookPayload(input.rawObject) {
+            print("OK")
+            return
+        }
         let persistedHookEventName = reportedHookEventName(from: input)
             ?? Self.feedEventName(forClaudeSubcommand: subcommand)
 
@@ -43571,7 +45099,9 @@ export default {
         guard let def = Self.agentDef(named: first) else { return false }
         let action = commandArgs.dropFirst().first?.lowercased()
         if def.name == "pi", action == "extension-source" { return false }
-        if def.name == "grok" {
+        // Grok and Muse clear CMUX_* from hook subprocesses; their pinned
+        // hooks resolve the surface from the agent process instead.
+        if def.name == "grok" || def.name == "muse" {
             return false
         }
         return action != "install" && action != "uninstall"

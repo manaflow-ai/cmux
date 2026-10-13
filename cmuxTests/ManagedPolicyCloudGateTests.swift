@@ -142,7 +142,7 @@ struct ManagedPolicyCloudGateTests {
         await coordinator.awaitBootstrapped()
         try #require(coordinator.isAuthenticated)
         do {
-            try await client.revokeCloudAccess(deviceID: "device-1")
+            try await client.revokeTunnelRoles([CloudTunnelRole(deviceFingerprint: "device-1", purpose: .terminal)])
             let recorded = RecordingCloudURLProtocol.recorder.requests
             #expect(recorded.count == 1)
             #expect(recorded.first?.httpMethod == "DELETE")

@@ -35,6 +35,11 @@
       "message": "Ta maszyna nie odpowiedziała na czas, więc nie udało się ukończyć żądania.",
       "action": "Wstrzymaj maszynę, potem ją wznów i spróbuj ponownie. W aplikacji na Maca wybierz Wstrzymaj maszynę, a potem Wznów maszynę. W terminalu uruchom cmux vm pause '<machine>', a potem cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Nadal w toku",
+      "message": "Dostawca chmury jeszcze nie ukończył tej zmiany. Może się jeszcze zakończyć.",
+      "action": "Zanim spróbujesz ponownie, sprawdź stan maszyny za pomocą cmux vm ls lub na liście maszyn."
+    },
     "providerTimeout": {
       "title": "Dostawca chmury odpowiada wolno",
       "message": "Dostawca chmury nie odpowiedział na czas.",
@@ -105,6 +110,11 @@
       "vcpuMessage": "Twoje maszyny VM używają już {used} z {pool} vCPU. Ta maszyna VM potrzebuje {requested} vCPU.",
       "upgradeAction": "Wstrzymaj lub usuń maszynę VM albo przejdź na Max.",
       "action": "Wstrzymaj lub usuń maszynę VM."
+    },
+    "activeLimit": {
+      "counted": "Obecnie liczone: {machines}. Wstrzymane maszyny nie są liczone.",
+      "provisioning": "{name} (w trakcie przygotowania)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
@@ -3462,7 +3472,10 @@
     "title": "Zalogowano do cmux",
     "body": "Jeśli cmux nie otworzył się automatycznie, użyj przycisku poniżej.",
     "button": "Wróć do cmux",
-    "switchAccountButton": "Użyj innego konta"
+    "switchAccountButton": "Użyj innego konta",
+    "rateLimitedTitle": "Logowanie jest przeciążone",
+    "rateLimitedBody": "Nasz dostawca logowania obsługuje zbyt wiele żądań. Odczekaj kilka sekund, a potem kontynuuj. Nie musisz logować się ponownie.",
+    "retryButton": "Kontynuuj logowanie"
   },
   "landing": {
     "bestTerminal": {
@@ -5497,6 +5510,9 @@
     "switchFailed": "Nie udało się wylogować. Spróbuj ponownie.",
     "invalidTitle": "To zaproszenie jest już nieważne",
     "invalidBody": "Wygasło, zostało unieważnione lub już użyte. Poproś administratora zespołu o nowe.",
-    "goToTeams": "Przejdź do swoich zespołów"
+    "goToTeams": "Przejdź do swoich zespołów",
+    "unavailableTitle": "Nie udało się potwierdzić logowania",
+    "unavailableBody": "Nasz dostawca logowania jest przeciążony. Odczekaj kilka sekund i ponownie otwórz zaproszenie. Nie musisz logować się ponownie.",
+    "retry": "Spróbuj ponownie"
   }
 }

@@ -35,6 +35,11 @@
       "message": "Maskinen svarede ikke i tide, så anmodningen kunne ikke gennemføres.",
       "action": "Sæt maskinen på pause, genoptag den, og prøv igen. I Mac-appen skal du vælge Sæt maskine på pause og derefter Genoptag maskine. I en terminal skal du køre cmux vm pause '<machine>' og derefter cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Stadig i gang",
+      "message": "Cloududbyderen har ikke afsluttet denne ændring endnu. Den kan stadig blive gennemført.",
+      "action": "Tjek maskinens status med cmux vm ls eller på listen over maskiner, før du prøver igen."
+    },
     "providerTimeout": {
       "title": "Cloududbyderen er langsom",
       "message": "Cloududbyderen svarede ikke i tide.",
@@ -105,6 +110,11 @@
       "vcpuMessage": "Dine VM'er bruger allerede {used} af {pool} vCPU'er. Denne VM skal bruge {requested} vCPU'er.",
       "upgradeAction": "Sæt en VM på pause, eller slet den, eller opgrader til Max.",
       "action": "Sæt en VM på pause, eller slet den."
+    },
+    "activeLimit": {
+      "counted": "Tælles nu: {machines}. Pausede maskiner tælles ikke med.",
+      "provisioning": "{name} (klargøres)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
@@ -3459,7 +3469,10 @@
     "title": "Logget ind på cmux",
     "body": "Hvis cmux ikke åbnede automatisk, skal du bruge knappen nedenfor.",
     "button": "Tilbage til cmux",
-    "switchAccountButton": "Brug en anden konto"
+    "switchAccountButton": "Brug en anden konto",
+    "rateLimitedTitle": "Login er optaget",
+    "rateLimitedBody": "Vores login-tjeneste behandler for mange forespørgsler. Vent et par sekunder, og fortsæt derefter. Du behøver ikke at logge ind igen.",
+    "retryButton": "Fortsæt login"
   },
   "landing": {
     "bestTerminal": {
@@ -5494,6 +5507,9 @@
     "switchFailed": "Kunne ikke logge ud. Prøv igen.",
     "invalidTitle": "Denne invitation er ikke længere gyldig",
     "invalidBody": "Den er udløbet, tilbagekaldt eller allerede brugt. Bed en teamadministrator om en ny.",
-    "goToTeams": "Gå til dine teams"
+    "goToTeams": "Gå til dine teams",
+    "unavailableTitle": "Vi kunne ikke bekræfte dit login",
+    "unavailableBody": "Vores login-tjeneste er optaget. Vent et par sekunder, og åbn invitationen igen. Du behøver ikke at logge ind igen.",
+    "retry": "Prøv igen"
   }
 }

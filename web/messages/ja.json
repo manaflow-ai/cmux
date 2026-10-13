@@ -176,6 +176,11 @@
       "message": "このマシンが時間内に応答しなかったため、リクエストを完了できませんでした。",
       "action": "マシンを一時停止してから再開し、もう一度お試しください。Mac アプリでは「マシンを一時停止」を選んでから「マシンを再開」を選びます。ターミナルでは cmux vm pause '<machine>' を実行してから cmux vm resume '<machine>' を実行します。"
     },
+    "inProgress": {
+      "title": "まだ処理中です",
+      "message": "クラウドプロバイダーはこの変更をまだ完了していません。このあと完了する可能性があります。",
+      "action": "もう一度試す前に、cmux vm ls またはマシン一覧でマシンの状態を確認してください。"
+    },
     "providerTimeout": {
       "title": "クラウドプロバイダーの応答が遅れています",
       "message": "クラウドプロバイダーが時間内に応答しませんでした。",
@@ -254,6 +259,11 @@
       "vcpuMessage": "VM はすでに {pool} vCPU のうち {used} vCPU を使っています。この VM には {requested} vCPU が必要です。",
       "upgradeAction": "VM を一時停止または削除するか、Max にアップグレードしてください。",
       "action": "VM を一時停止または削除してください。"
+    },
+    "activeLimit": {
+      "counted": "現在カウント中: {machines}。一時停止中のマシンはカウントされません。",
+      "provisioning": "{name}（プロビジョニング中）",
+      "separator": "、"
     }
   },
   "ios": {
@@ -4953,7 +4963,10 @@
     "title": "cmux にサインインしました",
     "body": "cmux が自動的に開かない場合は、下のボタンを使用してください。",
     "button": "cmux に戻る",
-    "switchAccountButton": "別のアカウントを使用"
+    "switchAccountButton": "別のアカウントを使用",
+    "rateLimitedTitle": "サインインが混み合っています",
+    "rateLimitedBody": "サインインサービスへのリクエストが集中しています。数秒待ってから続行してください。もう一度サインインする必要はありません。",
+    "retryButton": "サインインを続ける"
   },
   "billingSuccess": {
     "metaTitle": "cmux Pro が有効になりました",
@@ -7167,7 +7180,10 @@
     "switchFailed": "サインアウトできませんでした。もう一度お試しください。",
     "invalidTitle": "この招待はもう有効ではありません",
     "invalidBody": "期限切れ、取り消し済み、または使用済みです。チームの管理者に新しい招待を依頼してください。",
-    "goToTeams": "チーム一覧へ"
+    "goToTeams": "チーム一覧へ",
+    "unavailableTitle": "サインインを確認できませんでした",
+    "unavailableBody": "サインインサービスが混み合っています。数秒待ってから、もう一度招待を開いてください。もう一度サインインする必要はありません。",
+    "retry": "再試行"
   },
   "mobile": {
     "agentFeed": {

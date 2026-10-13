@@ -32,6 +32,7 @@ public enum AgentLaunchCaptureTrust {
         "grok": ["grok", "grok-macos-aarch64", "grok-macos-aarch"],
         "kiro": ["kiro", "kiro-cli"],
         "kimi": ["kimi", "kimi-cli", "kimi-code"],
+        "muse": ["muse"],
         "omp": ["omp"],
         "opencode": ["opencode", "omo", "omx", "omc"],
         "pi": ["pi", "omp"],
@@ -165,6 +166,11 @@ public enum AgentLaunchCaptureTrust {
         }
         if nameBase == "claude" || executableBase == "claude" || executable.contains("/claude/versions/") {
             descriptors.insert("claude")
+        }
+        // The `muse` launcher execs a versioned sibling (`muse-bin-1.4.6-R6000.1`),
+        // which macOS may truncate in the process name.
+        if [nameBase, executableBase].contains(where: { $0.map { MuseExecutableName($0).isVersionedBinary } == true }) {
+            descriptors.insert("muse")
         }
         return descriptors
     }

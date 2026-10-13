@@ -35,6 +35,11 @@
       "message": "Ova mašina nije odgovorila na vrijeme, pa zahtjev nije mogao biti završen.",
       "action": "Pauzirajte mašinu, zatim je nastavite i pokušajte ponovo. U Mac aplikaciji odaberite Pauziraj mašinu, zatim Nastavi mašinu. U terminalu pokrenite cmux vm pause '<machine>', zatim cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Još je u toku",
+      "message": "Cloud provajder još nije završio ovu promjenu. Možda će se još završiti.",
+      "action": "Provjerite status mašine pomoću cmux vm ls ili na listi mašina prije nego što pokušate ponovo."
+    },
     "providerTimeout": {
       "title": "Cloud provajder je spor",
       "message": "Cloud provajder nije odgovorio na vrijeme.",
@@ -105,6 +110,11 @@
       "vcpuMessage": "Vaši VM-ovi već koriste {used} od {pool} vCPU-a. Ovom VM-u treba {requested} vCPU-a.",
       "upgradeAction": "Pauzirajte ili obrišite VM, ili pređite na Max.",
       "action": "Pauzirajte ili obrišite VM."
+    },
+    "activeLimit": {
+      "counted": "Trenutno se broje: {machines}. Pauzirane mašine se ne broje.",
+      "provisioning": "{name} (priprema se)",
+      "separator": ", "
     }
   },
   "billingRecovery": {
@@ -3462,7 +3472,10 @@
     "title": "Prijavljeni ste u cmux",
     "body": "Ako se cmux nije automatski otvorio, koristite dugme ispod.",
     "button": "Vrati se u cmux",
-    "switchAccountButton": "Koristi drugi račun"
+    "switchAccountButton": "Koristi drugi račun",
+    "rateLimitedTitle": "Prijava je zauzeta",
+    "rateLimitedBody": "Naš servis za prijavu obrađuje previše zahtjeva. Sačekajte nekoliko sekundi, pa nastavite. Ne morate se ponovo prijaviti.",
+    "retryButton": "Nastavi prijavu"
   },
   "landing": {
     "bestTerminal": {
@@ -5497,6 +5510,9 @@
     "switchFailed": "Odjava nije uspjela. Pokušajte ponovo.",
     "invalidTitle": "Ova pozivnica više nije važeća",
     "invalidBody": "Istekla je, opozvana je ili je već iskorištena. Zamolite administratora tima za novu.",
-    "goToTeams": "Idi na svoje timove"
+    "goToTeams": "Idi na svoje timove",
+    "unavailableTitle": "Nismo mogli potvrditi vašu prijavu",
+    "unavailableBody": "Naš servis za prijavu je zauzet. Sačekajte nekoliko sekundi, pa ponovo otvorite pozivnicu. Ne morate se ponovo prijaviti.",
+    "retry": "Pokušaj ponovo"
   }
 }

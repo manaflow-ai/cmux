@@ -5854,11 +5854,28 @@ struct ContentView: View {
     }
 
     private func openCommandPaletteCloudWorkspace(_ target: CommandPaletteCloudWorkspaceTarget) {
+        // Already open in any window: go there instead of opening a second copy here (#19967).
+        if let shownIn = SurfaceCatalog.shared.localWorkspaceShowing(
+            remoteWorkspaceID: target.workspace.id,
+            placements: target.group.placements
+        ) {
+            switch AppDelegate.shared?.selectCloudTreeLocalWorkspace(shownIn, from: tabManager) {
+            case .selected:
+                return
+            case .openInUnfocusableWindow:
+                NSSound.beep()
+                return
+            case .notOpen, nil:
+                break
+            }
+        }
         let actions = CloudTreeNodeActions.bound(
             navigationHost: AppDelegate.makeCloudTerminalNavigationHost(),
             catalog: { SurfaceCatalog.shared },
             selectedWorkspaceID: { self.tabManager.selectedTabId },
-            selectLocalWorkspace: { workspaceID in self.tabManager.selectedTabId = workspaceID },
+            selectLocalWorkspace: { workspaceID in
+                AppDelegate.shared?.selectCloudTreeLocalWorkspace(workspaceID, from: self.tabManager)
+            },
             onDidMutate: {},
             onFailure: { _ in NSSound.beep() },
             refresh: {},
@@ -8624,7 +8641,6 @@ struct ContentView: View {
                 when: { $0.bool(CommandPaletteContextKeys.panelIsTerminal) }
             )
         )
-        contributions.append(contentsOf: Self.commandPaletteTerminalScrollContributions(subtitle: terminalPanelSubtitle))
         contributions.append(contentsOf: Self.commandPaletteAgentMessagesContributions(subtitle: terminalPanelSubtitle))
         contributions.append(
             CommandPaletteCommandContribution(
@@ -9597,7 +9613,6 @@ struct ContentView: View {
                 NSSound.beep()
             }
         }
-        registerTerminalScrollCommandPaletteHandlers(&registry)
         registerAgentMessagesCommandPaletteHandlers(&registry)
         registry.register(commandId: "palette.terminalClearScreenKeepScrollback") {
             if !tabManager.clearFocusedTerminalKeepingScrollback() {

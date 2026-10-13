@@ -9189,14 +9189,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                 // panel's pending row show Base coming up while the person keeps working (#11397).
                 let model = NewMachineModel(
                     mode: .base(workspaceID: workspace.id),
-                    plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.vms.count ?? 0, limits: page?.limits),
+                    plan: MachineSnapshotBuilder.planSnapshot(activeCount: page?.activeMachineCount ?? 0, limits: page?.limits),
                     memoryOptionsMb: page?.limits?.memoryOptionsMb ?? [],
                     lockedMemoryOptionsMb: page?.limits?.lockedMemoryOptionsMb,
                     memoryUpgradePlanId: page?.limits?.memoryUpgradePlanId,
                     memoryUpgradePlansByMb: page?.limits?.memoryUpgradePlansByMb,
                     submit: { [weak self] request in
                         guard let self else { return false }
-                        return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] arguments, progress, completion in
+                        return MachineCreateCoordinator.shared.start(request, cancellableLaunch: { [weak self] _, arguments, progress, completion in
                             guard let self else { return nil }
                             var cancellation: CloudVMActionLauncher.CancellationHandle?
                             let didStart = self.launchCloudVMBaseOpen(
@@ -16530,16 +16530,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return true
         }
 
-        // Legacy Ctrl+Tab has no configurable action of its own; it steps
-        // the sidebar like nextSurface/prevSurface.
+        // Legacy Ctrl+Tab has no configurable action of its own. It
+        // intentionally reuses nextSurface/prevSurface for Dock ownership so
+        // both strokes follow the same routing classification.
         if matchesLegacyNextSurfaceShortcut(event: event) {
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
-                .stepTabOrWorkspace(forward: true)
+            if performFocusedDockShortcut(
+                .selectNextSurface,
+                action: .nextSurface,
+                event: event
+            ) {
+                return true
+            }
+            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectNextSurface()
             return true
         }
         if matchesLegacyPreviousSurfaceShortcut(event: event) {
-            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?
-                .stepTabOrWorkspace(forward: false)
+            if performFocusedDockShortcut(
+                .selectPreviousSurface,
+                action: .prevSurface,
+                event: event
+            ) {
+                return true
+            }
+            (preferredMainWindowContextForShortcutRouting(event: event)?.tabManager ?? tabManager)?.selectPreviousSurface()
             return true
         }
 
@@ -20236,7 +20249,7 @@ private extension NSWindow {
                     return true
                 }
 
-                if shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+                if shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
                     keyCode: event.keyCode,
                     firstResponderIsTerminal: true,
                     firstResponderHasMarkedText: ghosttyView.hasMarkedText(),

@@ -88,6 +88,8 @@ bool ghostty_surface_needs_confirm_quit(void *surface);
 void ghostty_surface_new(void);
 bool ghostty_surface_process_exited(void *surface);
 void ghostty_surface_process_output(void *surface, const char *data, uintptr_t len);
+void cmux_test_ghostty_surface_terminal_modes_reset(void *surface);
+bool cmux_test_ghostty_surface_terminal_mode_enabled(void *surface, int mode);
 void ghostty_surface_quicklook_font(void);
 bool ghostty_surface_read_screen_tail_vt(
     void *surface,

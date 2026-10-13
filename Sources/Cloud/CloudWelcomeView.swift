@@ -19,8 +19,8 @@ enum CloudWelcomeNextStep: Equatable {
     }
 }
 
-/// "Cloud machines for your agents": shown once on the 0.65.1 launch for users who
-/// can use Cloud. A compact introduction above feature clips and the next step.
+/// "Cloud machines for your agents": shown once, on the first launch of a
+/// release in the welcome campaign, for users who can use Cloud. A compact introduction above feature clips and the next step.
 ///
 /// Takes plain values (no app objects) so the same view renders in the app and
 /// in a standalone lab; ``CloudWelcomeWindowController`` feeds it the account.
@@ -81,7 +81,7 @@ struct CloudWelcomeView: View {
         .accessibilityIdentifier("CloudWelcomeWindow"))
     }
 
-    /// The 0.65.1 launch card: the clip poster (with the title in its band),
+    /// The campaign launch card: the clip poster (with the title in its band),
     /// the five features, then one full-width action with the plan line under
     /// it. The × in the corner (and Escape) is Not Now.
     private var launchBody: some View {
