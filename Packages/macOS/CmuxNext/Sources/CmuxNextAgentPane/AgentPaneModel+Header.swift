@@ -79,7 +79,8 @@ extension AgentPaneModel {
     public static let previewAction = "preview"
 
     /// `pane.action` runs a listed action on a chat (never the New Tab page); `pane.tabState`
-    /// reads the header's state; `chat.archive` tags the pane's session and, archiving, closes its tab.
+    /// reads the header's state. Archive and Mark as Unread are the page's own acpmux requests
+    /// (`_acpmux/archive`, `_acpmux/markUnread`, cx-jlzsf); Archive then closes the tab with `pane.action`.
     func respondToHeader(_ request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         case .paneAction(Self.sideTabsAction, _, _):
@@ -111,29 +112,11 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
             return AgentPaneReply.success(header.state(refresh: refresh).reply)
-        case .archive(let archived): return await archive(archived)
-        case .markUnread: return await AgentPaneMarkUnread(self).reply()
         case .sideChat(let fork):
             return await openSideChat(fork)
         default:
             return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request")
         }
-    }
-
-    /// Archive sets acpmux's `archived` tag on this pane's session (the lists hide it; its value
-    /// is when, in milliseconds), Unarchive removes it. The tab closes only once the tag is set.
-    private func archive(_ archived: Bool) async -> [String: Any] {
-        guard let sessionId, newTab == nil else {
-            return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.archive")
-        }
-        let now = String(Int64(Date().timeIntervalSince1970 * 1000))
-        do {
-            try await transport.tagSession(sessionId, archived ? [Self.archivedTag: now] : [:], archived ? [] : [Self.archivedTag])
-        } catch {
-            return AgentPaneReply.failure(code: "failed", message: "\(error)")
-        }
-        if archived { header?.run("closeTab", nil) }
-        return AgentPaneReply.success()
     }
 
     /// New side chat: `fork` must be a session this pane made (its fork's reply put it in the
@@ -152,8 +135,6 @@ extension AgentPaneModel {
         return AgentPaneReply.success()
     }
 
-    /// The tag the pane's lists read (sessionList.ts `ARCHIVED_TAG`).
-    static let archivedTag = "archived"
     /// The tag that marks a side chat, valued with its chat's session (sessionList.ts `SIDE_TAG`).
     static let sideTag = "side"
 }
