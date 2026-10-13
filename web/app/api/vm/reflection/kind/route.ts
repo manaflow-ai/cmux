@@ -10,11 +10,13 @@ const JSON_HEADERS = {
 } as const;
 
 /**
- * Member lists are cached per team for a minute, so a fleet of machines
- * re-asking every minute costs at most one Stack read per team and instance.
+ * Member lists are cached per team for 15 s, so a fleet of machines
+ * re-asking every minute costs at most four Stack reads per team and
+ * instance a minute, and a new member turns a machine `team` within about
+ * 75 s (cache plus the guest's poll).
  * Only successful reads are kept; a failure is asked again next time.
  */
-const MEMBER_CACHE_TTL_MS = 60_000;
+const MEMBER_CACHE_TTL_MS = 15_000;
 const MEMBER_CACHE_MAX = 1_000;
 const memberCache = new Map<string, { readonly at: number; readonly lookup: VmTeamMemberLookup }>();
 

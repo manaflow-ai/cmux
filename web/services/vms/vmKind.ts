@@ -18,7 +18,8 @@
 //   retryable 503 and the guest keeps whatever it wrote last.
 //
 // Team membership changes, so the kind is not fixed at create: the guest
-// re-asks every minute and a machine whose team gains a member turns `team`.
+// re-asks every minute and a machine whose team gains a member turns `team`
+// on its next answer.
 import type { VmTeamMemberLookup } from "./teamDirectory";
 import type { VmPrincipalRow } from "./vmPrincipalContract";
 

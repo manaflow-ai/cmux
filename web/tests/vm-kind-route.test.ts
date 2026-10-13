@@ -114,7 +114,7 @@ describe("GET /api/vm/reflection/kind", () => {
     expect(await kindFor(shared)).toEqual({ status: 200, body: { vm_id: shared.id, kind: "team" } });
   });
 
-  test("asks Stack once a minute per team, and never caches a failure", async () => {
+  test("reuses a team's member list briefly, and never caches a failure", async () => {
     memberCalls.length = 0;
     members = async () => ["user-1"];
     await kindFor(row({ ownerTeamId: "team-cached" }));
