@@ -1,11 +1,16 @@
 //! The connection worker: one owned thread that ensures the daemon, connects
 //! with the SDK, identifies, loads a snapshot, follows `session.events`, and
 //! reports each step to a caller callback. When the daemon advertises
-//! `bookmarks-v1` or `profiles-v1`, a second thread per connection follows
-//! `bookmarks-changed` and `personal-changed` on a protocol-12 `subscribe`
-//! stream (the resource API has neither).
+//! `bookmarks-v1`, `profiles-v1` or `history-v1`, a second thread per
+//! connection follows `bookmarks-changed`, `personal-changed` and
+//! `history-changed` on a protocol-12 `subscribe` stream (the resource API
+//! has none of them). With an install key the worker hands it to a daemon it
+//! starts and checks on each connect that the daemon accepts the app's
+//! `client-hello` proof ([`ConnectionInfo::verified_app`]).
 //! See the crate docs for the thread contract.
 
+use crate::app_connection::AppConnection;
+use crate::install_key::InstallKey;
 use crate::launcher::{self, Launcher};
 use crate::mirror::{Applied, Mirror, MirrorChange};
 use crate::spaces::PROFILES_CAPABILITY;
@@ -17,7 +22,7 @@ use std::cell::Cell;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::thread::{JoinHandle, ThreadId};
 use std::time::Duration;
 
@@ -25,6 +30,8 @@ use std::time::Duration;
 pub const DEFAULT_SESSION: &str = "cmux2-gpui";
 /// The capability of the bookmark commands and `bookmarks-changed`.
 pub const BOOKMARKS_CAPABILITY: &str = "bookmarks-v1";
+/// The capability of the `history.*` operations and `history-changed`.
+pub const HISTORY_CAPABILITY: &str = "history-v1";
 /// How long the subscribe stream waits for one event before it waits again
 /// (a quiet stream is healthy; `stop` closes it at once).
 const SUBSCRIBE_EVENTS_IDLE: Duration = Duration::from_secs(3600);
@@ -40,6 +47,11 @@ pub struct DaemonConfig {
     pub binary: Option<PathBuf>,
     /// `CMUX_TUI_STATE_DIR` for a daemon this client starts.
     pub state_dir: Option<PathBuf>,
+    /// The app's install key file ([`InstallKey::load_or_create`]). `None`
+    /// uses `<state_dir>/frontend-install-key` (cmux-next's file for the
+    /// same state directory) when `state_dir` is set, else no key: the
+    /// daemon is started without one and no connection is the verified app.
+    pub install_key_file: Option<PathBuf>,
     /// Reported through `client.metadata.update`.
     pub client_name: String,
     pub client_kind: String,
@@ -57,6 +69,10 @@ pub struct DaemonConfig {
     /// same extra connection, while connected to a daemon with
     /// `profiles-v1`).
     pub personal_events: bool,
+    /// Report `history-changed` as [`DaemonEvent::HistoryChanged`] (the
+    /// same extra connection, while connected to a daemon with
+    /// `history-v1`).
+    pub history_events: bool,
     /// Additive capabilities the mirror's connections declare (for example
     /// `conversation-tabs-v1` and `agent-session-tabs-v1`, so the snapshot
     /// and the event stream read those tabs in their canonical form). Only
@@ -72,6 +88,7 @@ impl DaemonConfig {
             socket: None,
             binary: None,
             state_dir: None,
+            install_key_file: None,
             client_name: "cmux2".to_string(),
             client_kind: "frontend".to_string(),
             request_timeout: Duration::from_secs(5),
@@ -80,8 +97,14 @@ impl DaemonConfig {
             max_backoff: Duration::from_secs(10),
             bookmark_events: true,
             personal_events: true,
+            history_events: true,
             capabilities: Vec::new(),
         }
+    }
+
+    /// The install key file this config uses, if any.
+    pub fn install_key_path(&self) -> Option<PathBuf> {
+        self.install_key_file.clone().or_else(|| self.state_dir.as_deref().map(InstallKey::file_in))
     }
 }
 
@@ -106,6 +129,11 @@ pub struct ConnectionInfo {
     pub capabilities: Vec<String>,
     /// This connection's client resource, after `client.metadata.update`.
     pub client_id: Option<ConnectedClientId>,
+    /// The daemon accepted this app's install-key proof on a probe
+    /// connection: an [`AppConnection`] with [`DaemonClient::install_key`]
+    /// gets origin `user`. False without a key, or when the owner was
+    /// started without it (by another app or before the key existed).
+    pub verified_app: bool,
 }
 
 /// One step reported to the callback.
@@ -135,6 +163,15 @@ pub enum DaemonEvent {
     PersonalChanged {
         personal_revision: u64,
     },
+    /// The daemon's history changed (`history-changed`): read it again
+    /// with `history.entries.list`. `kinds` names what changed (`page`,
+    /// `agent`, `command`, `closed`, ...). Reported after `Connected` and
+    /// before the connection's `Disconnected`, while the daemon has
+    /// `history-v1`.
+    HistoryChanged {
+        kinds: Vec<String>,
+        history_revision: u64,
+    },
     /// The connection failed or ended; the worker retries after `retry_in`.
     Disconnected {
         error: String,
@@ -157,6 +194,8 @@ struct Shared {
     stopping: AtomicBool,
     cancel: Mutex<Option<StreamCancellation>>,
     connection: Mutex<Option<ConnectionInfo>>,
+    /// Loaded once by the worker before its first connect.
+    install_key: OnceLock<Option<InstallKey>>,
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -186,6 +225,7 @@ impl DaemonClient {
             stopping: AtomicBool::new(false),
             cancel: Mutex::new(None),
             connection: Mutex::new(None),
+            install_key: OnceLock::new(),
         });
         let (stop_tx, stop_rx) = mpsc::channel();
         let worker_shared = shared.clone();
@@ -211,6 +251,14 @@ impl DaemonClient {
     /// The current connection, if connected.
     pub fn connection(&self) -> Option<ConnectionInfo> {
         lock(&self.shared.connection).clone()
+    }
+
+    /// The app's install key, once the worker loaded it (before its first
+    /// `Connected`). Prove the app with it on a connection of your own:
+    /// [`AppConnection::connect`]. A secret: never log it (its `Debug`
+    /// shows only the install id).
+    pub fn install_key(&self) -> Option<InstallKey> {
+        self.shared.install_key.get().cloned().flatten()
     }
 
     /// Stops the worker and waits for it: at once when it is waiting on the
@@ -246,6 +294,11 @@ fn run(
     on_event: SharedCallback,
 ) {
     let mut backoff = config.min_backoff;
+    let key = config.install_key_path().and_then(|file| InstallKey::load_or_create(&file));
+    if config.install_key_path().is_some() && key.is_none() {
+        log::warn!("cmux daemon: no install key; this app cannot prove itself to the daemon");
+    }
+    let _ = shared.install_key.set(key);
     while !shared.stopping.load(Ordering::SeqCst) {
         let result = session(&config, &shared, &on_event, &mut backoff);
         *lock(&shared.connection) = None;
@@ -295,6 +348,7 @@ fn session(
             let mut launcher = Launcher::new(binary, config.session.clone());
             launcher.state_dir = config.state_dir.clone();
             launcher.timeout = config.ensure_timeout;
+            launcher.install_key = shared.install_key.get().cloned().flatten();
             let ensured = launcher.ensure().map_err(|e| e.to_string())?;
             info.socket = ensured.socket;
             info.pid = Some(ensured.pid);
@@ -314,6 +368,17 @@ fn session(
             info.capabilities = identity.capabilities.unwrap_or_default();
         }
         Err(e) => log::warn!("cmux daemon: identify failed: {e}"),
+    }
+    // A probe connection, as the app's own requests will make: the daemon
+    // either holds this key or not for its whole life.
+    if let Some(key) = shared.install_key.get().and_then(Option::as_ref) {
+        match AppConnection::connect(&info.socket, Some(key), config.request_timeout) {
+            Ok(probe) => {
+                info.verified_app = probe.verified();
+                probe.close();
+            }
+            Err(e) => log::warn!("cmux daemon: client-hello probe failed: {e}"),
+        }
     }
 
     let client = cmux::Client::connect(
@@ -374,14 +439,15 @@ fn follow(
     let follow = Follow {
         bookmarks: config.bookmark_events && advertised(BOOKMARKS_CAPABILITY),
         personal: config.personal_events && advertised(PROFILES_CAPABILITY),
+        history: config.history_events && advertised(HISTORY_CAPABILITY),
     };
     let socket = info.socket.clone();
     emit(shared, on_event, &DaemonEvent::Connected(info));
     emit(shared, on_event, &DaemonEvent::Reset);
     // Ends (closed and joined) when this function returns, so no
-    // BookmarksChanged or PersonalChanged follows the connection's
+    // BookmarksChanged, PersonalChanged or HistoryChanged follows the connection's
     // Disconnected.
-    let _subscribed = if follow.bookmarks || follow.personal {
+    let _subscribed = if follow.bookmarks || follow.personal || follow.history {
         let follower = SubscribeEvents::start(
             &socket,
             config,
@@ -430,9 +496,10 @@ fn follow(
 struct Follow {
     bookmarks: bool,
     personal: bool,
+    history: bool,
 }
 
-/// The `bookmarks-changed` and `personal-changed` follower of one
+/// The `bookmarks-changed`, `personal-changed` and `history-changed` follower of one
 /// connection: a protocol-12 `subscribe` stream read on its own thread.
 /// Dropping it closes the stream and joins the thread.
 struct SubscribeEvents {
@@ -475,6 +542,13 @@ impl SubscribeEvents {
                         Ok(cmux::raw::Event::PersonalChanged(changed)) if follow.personal => {
                             let event = DaemonEvent::PersonalChanged {
                                 personal_revision: changed.personal_revision,
+                            };
+                            emit(&shared, &on_event, &event);
+                        }
+                        Ok(cmux::raw::Event::HistoryChanged(changed)) if follow.history => {
+                            let event = DaemonEvent::HistoryChanged {
+                                kinds: changed.kinds,
+                                history_revision: changed.revision,
                             };
                             emit(&shared, &on_event, &event);
                         }
