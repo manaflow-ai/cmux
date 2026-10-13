@@ -128,6 +128,25 @@ fn order(connection: &Connection) -> anyhow::Result<Vec<String>> {
     Ok(read_browser_profiles(connection)?.into_iter().map(|profile| profile.id).collect())
 }
 
+pub(crate) fn resolve_browser_profile_id_in(
+    connection: &Connection,
+    value: &str,
+) -> anyhow::Result<String> {
+    let mut statement = connection.prepare(
+        "SELECT browser_profile_id FROM browser_profiles
+         WHERE browser_profile_id = ?1 OR name = ?1
+         ORDER BY browser_profile_id ASC",
+    )?;
+    let ids = statement
+        .query_map([value], |row| row.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    match ids.as_slice() {
+        [id] => Ok(id.clone()),
+        [] => anyhow::bail!("unknown browser profile {value}"),
+        _ => anyhow::bail!("browser profile name is ambiguous: {value}"),
+    }
+}
+
 impl WorkspaceRegistry {
     /// Resolve a browser profile by its stable id or exact display name.
     /// Names must be unique because agent commands may address profiles by
@@ -135,25 +154,6 @@ impl WorkspaceRegistry {
     pub fn resolve_browser_profile_id(&self, value: &str) -> anyhow::Result<String> {
         let connection = self.connection.get();
         resolve_browser_profile_id_in(&connection, value)
-    }
-
-    pub(crate) fn resolve_browser_profile_id_in(
-        connection: &Connection,
-        value: &str,
-    ) -> anyhow::Result<String> {
-        let mut statement = connection.prepare(
-            "SELECT browser_profile_id FROM browser_profiles
-             WHERE browser_profile_id = ?1 OR name = ?1
-             ORDER BY browser_profile_id ASC",
-        )?;
-        let ids = statement
-            .query_map([value], |row| row.get::<_, String>(0))?
-            .collect::<Result<Vec<_>, _>>()?;
-        match ids.as_slice() {
-            [id] => Ok(id.clone()),
-            [] => anyhow::bail!("unknown browser profile {value}"),
-            _ => anyhow::bail!("browser profile name is ambiguous: {value}"),
-        }
     }
 
     /// Create a browser profile at `index` (default last). An existing id
