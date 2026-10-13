@@ -159,6 +159,9 @@ public final class ConversationStore {
         eventTask = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
+                if case let .message(message, _) = event, let prepare = self.prepareLiveMessage?(message) {
+                    await prepare()
+                }
                 self.apply(event)
             }
         }

@@ -301,6 +301,7 @@ public final class ConversationViewController: UIViewController {
         observeKeyboardFrames()
         installTranslation()
         store.onChange = { [weak self] change in self?.storeDidChange(change) }
+        store.prepareLiveMessage = { [weak self] message in self?.bubbleTextPreparation(for: message) }
         store.start()
         rebuild(change: .reset)
     }
@@ -664,6 +665,30 @@ public final class ConversationViewController: UIViewController {
             self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil)
         }
         return true
+    }
+
+    /// A live message's bubble text, built and measured off the main
+    /// thread before the store applies the message, so the frame that
+    /// inserts it finds both in `BubbleTextCache`. Only rows whose text is
+    /// the message's own (no translation, link card, poll or audio) are
+    /// readied; any other row builds its text as before.
+    private func bubbleTextPreparation(for message: ConversationMessage) -> (@Sendable () async -> Void)? {
+        let width = collectionView.bounds.width
+        guard width > 0, !message.text.isEmpty, message.linkPreview == nil, message.poll == nil,
+              message.audioAttachment == nil, !message.isUnsent,
+              store.translations.presentation(for: message) == nil else { return nil }
+        let margin = layoutMargin
+        let traits = collectionView.traitCollection
+        let meID = store.meID
+        let text = PreparedBubbleText(text: message.text, outgoing: message.senderID == meID, mentions: message.mentions, meID: meID, runs: message.textRuns)
+        return {
+            await Task.detached(priority: .userInitiated) {
+                traits.performAsCurrent {
+                    let body = MessageCellLayout.attributedBody(text.text, outgoing: text.outgoing, mentions: text.mentions, meID: text.meID, runs: text.runs)
+                    _ = BubbleTextCache.shared.size(of: body, width: MessageCellLayout.bubbleTextWidth(width: width, margin: margin))
+                }
+            }.value
+        }
     }
 
     /// Fewer new rows than this measure in place (a page is 50).
@@ -1588,6 +1613,15 @@ extension ConversationViewController {
             )
         }
     }
+}
+
+/// What a live message's bubble text is built from, handed to a task.
+private struct PreparedBubbleText: Sendable {
+    var text: String
+    var outgoing: Bool
+    var mentions: [ConversationMention]
+    var meID: String?
+    var runs: [ConversationTextRun]
 }
 
 /// Rows handed to a measuring task (immutable value models).
