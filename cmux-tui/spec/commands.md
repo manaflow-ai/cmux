@@ -8170,7 +8170,10 @@ otherwise `agent_session.unknown_tab`, or `agent_session.bound` when it has
 one (also when another start bound it first: the new session is then ended).
 `harness` is the agent kind acpmux resolves from its own config (1 to 64
 letters, digits or `_`, `.`, `-`); `cwd` is an absolute folder (at most 4096
-bytes; acpmux checks that it exists). The folder must already be trusted on
+bytes; acpmux checks that it exists). `cwd` follows `agent-session-trust`'s
+home folder rule: `/` and folders above the home folder are
+`agent_session.above_home`, the home folder needs `home_confirmed: true`
+(else `agent_session.home_unconfirmed`). The folder must already be trusted on
 this machine (acpmux's folder trust decision, else the agent's own level for
 Claude and Codex), checked before the agent starts and again for the family
 it runs; otherwise `agent_session.untrusted_folder` (the daemon never answers
