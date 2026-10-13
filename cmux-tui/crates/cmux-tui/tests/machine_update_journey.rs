@@ -478,7 +478,12 @@ fn machine_update_swaps_in_the_pinned_build_and_keeps_terminals_and_chats() {
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     left.sort();
-    assert_eq!(left, ["cmux-tui", "cmux-tui.prev"], "leftovers next to the binary");
+    // The update lock stays, empty: removing it would let two updates race.
+    assert_eq!(
+        left,
+        [".cmux-tui.update.lock", "cmux-tui", "cmux-tui.prev"],
+        "leftovers next to the binary"
+    );
 
     // The terminal and the chat survived the swap and the restart.
     assert_eq!(incarnation(&vm), Some(listed), "the terminal did not survive");
@@ -521,4 +526,105 @@ fn machine_update_refuses_a_build_that_does_not_match_its_pin() {
         .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
         .collect();
     assert_eq!(left, ["cmux-tui"], "something was written next to the binary");
+}
+
+/// The machine side of the update checks everything before it changes
+/// anything: run directly with a wrong checksum, a pid that is not the
+/// daemon, an install path outside its own home, a result file elsewhere,
+/// or while another update holds the lock, it refuses, and the machine's
+/// binary and daemon stay as they were.
+#[test]
+fn machine_update_apply_step_refuses_before_changing_anything() {
+    use std::os::unix::fs::PermissionsExt as _;
+    use std::os::unix::io::AsRawFd as _;
+    let (root, _cleanup) = journey_root("mga");
+    let shipped = fs::read(bin()).unwrap();
+    let mut old = shipped.clone();
+    old.extend_from_slice(b"\0cmux-tui built before the move verbs\0");
+    let vm = SupervisedVm::start(&root, &old, false);
+    let before = vm.identify().unwrap();
+    let folder = vm.home().join(".cmux/bin");
+    let staged = folder.join(".cmux-tui.update-00000000000000aa");
+    fs::write(&staged, &shipped).unwrap();
+    fs::set_permissions(&staged, fs::Permissions::from_mode(0o755)).unwrap();
+    let sha = sha256_hex(&shipped);
+    let pid = before["pid"].as_u64().unwrap().to_string();
+    let install = vm.bin();
+    let result = folder.join(".cmux-tui.update-00000000000000bb.json");
+    let apply = |sha: &str, install: &Path, pid: &str, result: &Path| {
+        let output = vm
+            .command(staged.to_str().unwrap())
+            .env("CMUX_TUI_SOCKET", &vm.socket)
+            .arg("__machine-update-apply")
+            .args(["--sha256", sha, "--install"])
+            .arg(install)
+            .args(["--daemon-pid", pid, "--result"])
+            .arg(result)
+            .output()
+            .unwrap();
+        let outcome: Option<Value> =
+            fs::read_to_string(result).ok().and_then(|text| serde_json::from_str(&text).ok());
+        let _ = fs::remove_file(result);
+        (output.status.code(), outcome)
+    };
+    let unchanged = |why: &str| {
+        let now = vm.identify().expect("the old daemon still serves");
+        assert_eq!(now["pid"], before["pid"], "{why}: the daemon restarted");
+        assert_eq!(now["build_id"], json!(OLD_BUILD), "{why}: {now}");
+        assert_eq!(sha256_hex(&fs::read(vm.bin()).unwrap()), sha256_hex(&old), "{why}");
+        assert!(staged.exists(), "{why}: the staged build moved");
+        assert!(!folder.join("cmux-tui.prev").exists(), "{why}: a previous build was kept");
+    };
+
+    let wrong = sha256_hex(b"another build");
+    let (code, outcome) = apply(&wrong, &install, &pid, &result);
+    assert_eq!(
+        (code, outcome.as_ref().map(|o| o["state"].clone())),
+        (Some(1), Some(json!("failed"))),
+        "{outcome:?}"
+    );
+    unchanged("a wrong checksum");
+
+    let not_daemon = std::process::id().to_string();
+    let (code, outcome) = apply(&sha, &install, &not_daemon, &result);
+    assert_eq!(
+        (code, outcome.as_ref().map(|o| o["state"].clone())),
+        (Some(1), Some(json!("failed"))),
+        "{outcome:?}"
+    );
+    unchanged("a pid that is not the daemon");
+
+    let elsewhere = root.join("elsewhere/.cmux/bin");
+    fs::create_dir_all(&elsewhere).unwrap();
+    fs::write(elsewhere.join("cmux-tui"), &old).unwrap();
+    let elsewhere_result = elsewhere.join(".cmux-tui.update-00000000000000cc.json");
+    let (code, outcome) = apply(&sha, &elsewhere.join("cmux-tui"), &pid, &elsewhere_result);
+    assert_eq!(
+        (code, outcome.as_ref().map(|o| o["state"].clone())),
+        (Some(1), Some(json!("failed"))),
+        "{outcome:?}"
+    );
+    unchanged("an install path outside its home");
+    assert_eq!(fs::read(elsewhere.join("cmux-tui")).unwrap(), old);
+
+    let (code, outcome) =
+        apply(&sha, &install, &pid, &root.join(".cmux-tui.update-00000000000000dd.json"));
+    assert_eq!((code, outcome), (Some(64), None), "a result file elsewhere was accepted");
+    unchanged("a result file elsewhere");
+
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(folder.join(".cmux-tui.update.lock"))
+        .unwrap();
+    // SAFETY: flock on a descriptor this test owns.
+    assert_eq!(unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) }, 0);
+    let (code, outcome) = apply(&sha, &install, &pid, &result);
+    assert_eq!(
+        (code, outcome.as_ref().map(|o| o["state"].clone())),
+        (Some(1), Some(json!("busy"))),
+        "{outcome:?}"
+    );
+    unchanged("another update holding the lock");
 }

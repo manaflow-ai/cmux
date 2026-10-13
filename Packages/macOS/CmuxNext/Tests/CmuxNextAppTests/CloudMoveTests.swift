@@ -121,15 +121,29 @@ struct CloudMoveTests {
     /// "Update Machine" (cx-rppd.13): after a move stopped on a machine whose cmux-tui is too old,
     /// only the person's button (an invocation from this app's own UI) updates the machine, through
     /// `cmux link machine update` with nothing but the machine's socket, then moves the chat there.
-    /// The same argument from the CLI updates nothing.
+    /// The same argument from the CLI, MCP, a script or another client updates nothing.
     @Test func updateMachineUpdatesAnOutdatedMachineThenMovesTheChat() async throws {
         try await Self.withMove("updates") { move in
             #expect(await move.run() != nil, "the move did not report the older machine")
             #expect(move.services.cloud.moveRetries[move.key] == .update(machineID: "vm-move"))
 
-            // The argument from the CLI: never an update.
-            _ = await move.run(extra: [CloudMachineUpdate.argument: .bool(true)])
-            #expect(!move.calls().contains { $0.prefix(3) == ["link", "machine", "update"] }, "the CLI updated the machine: \(move.calls())")
+            // The argument from anywhere but this app's own UI: never an update, only the move again.
+            for origin in [ActionOrigin.cli, .mcp, .script, .remote] {
+                let before = move.calls().count
+                let invocation = ActionInvocation(target: ActionTargetRef(kind: .tab, id: move.key),
+                                                  arguments: [CloudMachineUpdate.argument: .bool(true), "path": .string(move.project.path),
+                                                              "machine": .string("vm-move")],
+                                                  origin: origin)
+                // An origin the registry refuses outright updates nothing either.
+                guard move.services.registry.perform(CloudMove.action, invocation: invocation) else { continue }
+                let deadline = ContinuousClock.now + .seconds(30)
+                while move.calls().count < before + 2, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+                let ran = move.calls().dropFirst(before).map { Array($0.prefix(3)) }
+                #expect(ran == [["link", "sync", "push"], ["link", "agent", "move"]], "\(origin): \(ran)")
+                // The stop's own bookkeeping, after its last call.
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            #expect(!move.calls().contains { $0.prefix(3) == ["link", "machine", "update"] }, "an update ran: \(move.calls())")
             #expect(move.services.locateTab(move.tabID) != nil)
 
             // The toast's "Update Machine".
@@ -259,9 +273,9 @@ struct CloudMoveTests {
         }
 
         /// `cmux cloud move` on the chat tab; its error when it stopped.
-        func run(extra: [String: CmuxNextSettings.JSONValue] = [:]) async -> ControlError? {
+        func run() async -> ControlError? {
             await send(["action": .string("cloud move"), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
-                        "target": .string("tab:" + tabID), "args": .object(["path": .string(project.path)].merging(extra) { $1 })])
+                        "target": .string("tab:" + tabID), "args": .object(["path": .string(project.path)])])
         }
 
         /// `action` as the chat's own agent runs it from its shell: the CLI names the agent's session
