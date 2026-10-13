@@ -169,6 +169,7 @@ let package = Package(
             name: "CmuxNextApp",
             dependencies: [
                 "CmuxNextCompat",
+                "CmuxNextCLIInstall",
                 "CmuxNextMallocZone",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextCrashReporting",
@@ -638,6 +639,12 @@ let package = Package(
         .target(
             name: "CmuxNextWakeups",
             dependencies: ["CmuxNextCompat"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
+        // (moved out of CmuxNextApp to keep it under its size cap).
+        .target(
+            name: "CmuxNextCLIInstall",
             swiftSettings: daemonSwiftSettings
         ),
         // The freeze gate for this process's environment writes (libghostty
