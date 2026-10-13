@@ -5,6 +5,7 @@ import { toolDiffs } from "../direct";
 import { useT, type StringKey } from "../i18n";
 import { SHORTCUT_ACTIONS, useShortcut, withShortcut } from "../shortcuts";
 import type { PermissionClientState, PermissionDecision, PermissionGroup } from "./protocol";
+import { PermissionActionButton, PermissionCardFrame } from "../PermissionCard";
 
 const choices: Record<PermissionDecision, StringKey> = {
   allow_once: "permission.allowOnce",
@@ -163,8 +164,7 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
         </div>
       )}
       {pending.map((group) => (
-        <div className="acpmux-permission-card" key={group.groupId}>
-          <strong>{t("permission.title")}</strong>
+        <PermissionCardFrame title={t("permission.title")} key={group.groupId}>
           <p className="acpmux-permission-scope">
             {t(group.items.length === 1 ? "permission.count.one" : "permission.count.other", { n: group.items.length })}
           </p>
@@ -186,19 +186,19 @@ export function PermissionPanel({ state, working, onRespond, onRetry, onRevoke, 
               )}
               <div className="acpmux-permission-buttons">
                 {group.decisions.map((decision) => (
-                  <button
+                  <PermissionActionButton
                     key={decision}
+                    label={t(choices[decision])}
+                    shortcut={shortcuts[decision]}
                     className={decision === "deny" ? "acpmux-permission-deny" : undefined}
                     disabled={disabled}
                     onClick={() => onRespond(group.groupId, group.revision, decision)}
-                  >
-                    {withShortcut(t(choices[decision]), shortcuts[decision])}
-                  </button>
+                  />
                 ))}
               </div>
             </>
           )}
-        </div>
+        </PermissionCardFrame>
       ))}
       {receipt && (
         <details className="acpmux-permission-receipt">
