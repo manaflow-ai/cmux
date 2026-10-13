@@ -235,6 +235,8 @@ pub struct Supervisor {
     /// Connector links of the terminal interfaces (`terminal_ops.rs`).
     pub(super) terminals: super::terminal_links::Terminals,
     transactions: AtomicU64,
+    /// `apps-link-changed` coalescing: (one runs, another came meanwhile).
+    pub(super) link_changed: Mutex<(bool, bool)>,
 }
 
 pub(super) fn now_ms() -> u64 {
@@ -304,6 +306,7 @@ impl Supervisor {
             me: me.clone(),
             terminals: Default::default(),
             transactions: AtomicU64::new(1),
+            link_changed: Mutex::new((false, false)),
         });
         if seeded {
             let _ = supervisor.persist(&supervisor.inner.lock().unwrap().mirror);

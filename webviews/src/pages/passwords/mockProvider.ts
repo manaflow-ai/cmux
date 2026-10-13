@@ -50,7 +50,7 @@ export function sampleData(sections: Partial<Sections> = {}): MockData {
       { id: "default", name: "Default" },
       { id: "work", name: "Work" },
     ],
-    sections: { passwords: true, passkeys: true, exceptions: true, export: true, ...sections },
+    sections: { passwords: true, passkeys: true, exceptions: true, export: true, browserImport: true, ...sections },
     passwords: {
       default: [
         row("p1", "github.com", "octo@example.com", { times_used: 41 }),

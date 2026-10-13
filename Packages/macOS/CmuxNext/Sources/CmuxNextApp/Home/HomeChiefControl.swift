@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextActions
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import CmuxNextRemote
 import Foundation
 import os
