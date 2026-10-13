@@ -29,6 +29,8 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
     let style: ConversationPhotoViewerLayout.Style
     private var chromeHidden: Bool
     private var dragStart: CGPoint?
+    /// When a drag let go to close, so the flight back starts from the lift.
+    private(set) var dragReleaseTime: CFTimeInterval?
     /// Hides (true) or shows the photo's bubble while the photo is dragged
     /// away from it, so the photo never shows twice.
     var hidesSource: ((Bool) -> Void)?
@@ -52,7 +54,9 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
     required init?(coder: NSCoder) { fatalError() }
 
     override var preferredStatusBarStyle: UIStatusBarStyle { chromeHidden ? .lightContent : .default }
-    override var prefersStatusBarHidden: Bool { style == .quickLook26 && chromeHidden }
+    /// Quick Look brings the status bar back as soon as a drag starts (26.5,
+    /// 60 fps: the second frame of the drag), not when the photo is let go.
+    override var prefersStatusBarHidden: Bool { style == .quickLook26 && chromeHidden && dragStart == nil }
 
     /// UIKit's zoom transition drives the presentation (iOS 27).
     var usesSystemZoom: Bool { style == .zoom27 }
@@ -250,6 +254,7 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
         switch pan.state {
         case .began:
             dragStart = imageView.center
+            setNeedsStatusBarAppearanceUpdate()
             // Messages leaves the bubble empty while its photo is away.
             hidesSource?(true)
         case .changed:
@@ -263,6 +268,7 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
         case .ended, .cancelled, .failed:
             let velocity = pan.velocity(in: view).y
             if pan.state == .ended, translation.y > 80 || velocity > 600 {
+                dragReleaseTime = CACurrentMediaTime()
                 dismiss(animated: true)
             } else {
                 let start = dragStart
@@ -272,6 +278,7 @@ final class ConversationPhotoViewerController: UIViewController, UIScrollViewDel
                     self.presentationProgress = 1
                 } completion: { _ in
                     self.dragStart = nil
+                    self.setNeedsStatusBarAppearanceUpdate()
                     self.hidesSource?(false)
                 }
             }
@@ -368,8 +375,14 @@ final class ConversationPhotoZoomTransition: NSObject, UIViewControllerTransitio
             viewer.presentationProgress = presenting ? p : startProgress * (1 - p)
             sourceView?.alpha = 0
         }
-        apply(0)
-        let driver = ConversationPhotoFlightDriver(omega: omega, step: apply) { [weak sourceView] in
+        // A released drag is already on its way back in the first frame
+        // drawn, as in Quick Look; the close button starts from rest.
+        let lift = presenting ? nil : viewer.dragReleaseTime
+        let fps = viewer.view.window?.windowScene?.screen.maximumFramesPerSecond ?? 60
+        let firstFrame = CACurrentMediaTime() + 1 / Double(max(fps, 1))
+        let start = ConversationPhotoFlight.closeStart(lift: lift, firstFrame: firstFrame)
+        apply(lift == nil ? 0 : ConversationPhotoFlight.progress(at: firstFrame - start, omega: omega))
+        let driver = ConversationPhotoFlightDriver(omega: omega, lift: lift, step: apply) { [weak sourceView] in
             sourceView?.alpha = sourceAlpha
             viewer.photoView.isHidden = false
             flight.removeFromSuperview()
@@ -417,14 +430,16 @@ final class ConversationPhotoFlightView: UIView {
 @MainActor
 final class ConversationPhotoFlightDriver: NSObject {
     private let omega: Double
+    private let lift: CFTimeInterval?
     private let step: (CGFloat) -> Void
     private let completion: () -> Void
     private var link: CADisplayLink?
     private var startTime: CFTimeInterval?
     private var retainSelf: ConversationPhotoFlightDriver?
 
-    init(omega: Double, step: @escaping (CGFloat) -> Void, completion: @escaping () -> Void) {
+    init(omega: Double, lift: CFTimeInterval? = nil, step: @escaping (CGFloat) -> Void, completion: @escaping () -> Void) {
         self.omega = omega
+        self.lift = lift
         self.step = step
         self.completion = completion
     }
@@ -438,7 +453,7 @@ final class ConversationPhotoFlightDriver: NSObject {
     }
 
     @objc private func tick(_ link: CADisplayLink) {
-        if startTime == nil { startTime = link.timestamp }
+        if startTime == nil { startTime = ConversationPhotoFlight.closeStart(lift: lift, firstFrame: link.timestamp) }
         let t = link.targetTimestamp - (startTime ?? link.timestamp)
         if t >= ConversationPhotoFlight.settleTime(omega: omega) {
             step(1)
