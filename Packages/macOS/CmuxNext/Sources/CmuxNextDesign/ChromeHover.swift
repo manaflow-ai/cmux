@@ -85,14 +85,16 @@ public final class ChromeHover {
 
     /// Sets `layer`'s fill to `color` (nil clears it), fading as
     /// `fade(to:pressed:)` says when `animated`, at once otherwise. For views
-    /// that keep their own fill layer (a pill inset in a row). Call inside
-    /// the view's theme scope.
-    public static func paint(_ layer: CALayer, _ color: NSColor?, animated: Bool, pressed: Bool = false) {
+    /// that keep their own fill layer (a pill inset in a row). `clearing`
+    /// replaces `hoverOut` as the fill clears (sidebar rows fade out too).
+    /// Call inside the view's theme scope.
+    public static func paint(_ layer: CALayer, _ color: NSColor?, animated: Bool, pressed: Bool = false,
+                             clearing: MotionFade = .hoverOut) {
         let target = color?.cgColor
         // A faded-out fill keeps an alpha-0 model value: already clear.
         let shown = color == nil && layer.backgroundColor?.alpha == 0 ? nil : layer.backgroundColor
         guard shown != target else { return }
-        guard animated, let token = fade(to: target, pressed: pressed) else {
+        guard animated, let token = fade(to: target, pressed: pressed).map({ $0 == .hoverOut ? clearing : $0 }) else {
             layer.removeAnimation(forKey: "backgroundColor")
             Motion.transaction(nil) { layer.backgroundColor = target }
             return
