@@ -265,15 +265,15 @@ struct MachineIconTests {
         let services = Self.services()
         AppActions.bind(services)
         Self.record(services, icon: "🚀")
-        func machineRows(_ sections: [SidebarSection]) throws -> [ActionID] {
+        func machineRows(_ sections: [CmuxNextSidebar.SidebarSection]) throws -> [ActionID] {
             let model = SidebarModel(sections: sections)
             let menu = try #require(SidebarContextMenus.menu(for: .section(.machine(.local)), model: model, services: services,
                                                              scope: ThemeScope(level: .room)))
             func all(_ items: [NSMenuItem]) -> [NSMenuItem] { items.flatMap { [$0] + ($0.submenu.map { all($0.items) } ?? []) } }
             return all(menu.items).compactMap { ActionRegistry.menuRun(of: $0)?.id }.filter { $0.rawValue.hasPrefix("machine.") }
         }
-        let local = SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
-        let cloud = SidebarSection(kind: .machine(SidebarMachine(id: CmuxNextSidebar.MachineID("vm-1"), name: "cloud-a1", kind: .cloud)),
+        let local = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [])
+        let cloud = CmuxNextSidebar.SidebarSection(kind: .machine(SidebarMachine(id: CmuxNextSidebar.MachineID("vm-1"), name: "cloud-a1", kind: .cloud)),
                                    nodes: [])
         #expect(try machineRows([local]) == [], "the lone Projects header draws no machine icon")
         #expect(try machineRows([local, cloud]) == ["machine.setIcon", "machine.clearIcon"], "This Mac's own header offers them")
