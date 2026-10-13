@@ -200,3 +200,7 @@ fn apply(mux: &Mux, actor: &Actor, key: Key, op: BookmarkOp) -> anyhow::Result<V
 #[cfg(test)]
 #[path = "bookmark_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "bookmark_merge_tests.rs"]
+mod merge_tests;
