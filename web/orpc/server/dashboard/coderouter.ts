@@ -120,7 +120,7 @@ const transferNativeAccount = coderouterOS
 
 const addApiKeyAccount = coderouterOS
   .input(teamInput.extend({
-    provider: z.enum(["openai-apikey", "openrouter-apikey"]),
+    provider: z.enum(["openai-apikey", "openrouter-apikey", "xai-apikey"]),
     apiKey: z.string().min(1).max(4096),
     label: z.string().max(200),
   }))

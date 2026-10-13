@@ -74,6 +74,23 @@ extension TerminalController {
                 let result = try await CoderouterClient.shared.clearClaudeAccounts(teamID: teamID)
                 return (result.foundationObject as? [String: Any]) ?? [:]
             }
+        case "coderouter.api_key.add":
+            // `DisableAICredentialUpload` (MDM): the params carry the API key.
+            guard ManagedAICredentialUploadPolicy.isEnabled else {
+                return v2Error(id: id, code: ManagedAICredentialUploadPolicy.socketErrorCode, message: ManagedAICredentialUploadPolicy.disabledMessage)
+            }
+            guard let provider = Self.coderouterString(params["provider"]),
+                  Self.coderouterAPIKeyProviders.contains(provider) else {
+                return v2Error(id: id, code: "invalid_params", message: "coderouter.api_key.add requires `provider`: \(Self.coderouterAPIKeyProviders.sorted().joined(separator: ", ")).")
+            }
+            guard let apiKey = Self.coderouterString(params["apiKey"]) else {
+                return v2Error(id: id, code: "invalid_params", message: "coderouter.api_key.add requires `apiKey`.")
+            }
+            let label = Self.coderouterString(params["label"])
+            return coderouterCall(id: id) {
+                let result = try await CoderouterClient.shared.addAPIKeyAccount(provider: provider, apiKey: apiKey, label: label, teamID: teamID)
+                return (result.foundationObject as? [String: Any]) ?? [:]
+            }
         case "coderouter.machines":
             return coderouterCall(id: id) {
                 guard let client = await MachineUsageClient.shared else {
@@ -86,6 +103,10 @@ extension TerminalController {
             return v2Error(id: id, code: "method_not_found", message: "Unknown method")
         }
     }
+
+    /// The API-key providers `coderouter.api_key.add` uploads. The backend
+    /// validates the key itself.
+    nonisolated static let coderouterAPIKeyProviders: Set<String> = ["openai-apikey", "openrouter-apikey", "xai-apikey"]
 
     private enum ClaudeUpstreamParse {
         case success(ClaudeUpstreamInput)

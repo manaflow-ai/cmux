@@ -16,7 +16,9 @@ import type { EncryptedCredential } from "../services/coderouter/encryption";
 import {
   credentialExpiresAt,
   credentialLabel,
+  isApiKeyCredential,
   maskApiKey,
+  responsesProvidersForModel,
   type ApiKeyCredential,
   type CodeRouterCredential,
 } from "../services/coderouter/types";
@@ -27,6 +29,7 @@ let upstreamStatuses: number[] = [];
 let accountsToServe: { id: string; credential: CodeRouterCredential }[] = [];
 let cooldowns: { accountId: string; durationMs: number }[] = [];
 let forcedRefreshes: string[] = [];
+let selectedPools: unknown[] = [];
 
 const originalFetch = globalThis.fetch;
 beforeAll(() => {
@@ -66,6 +69,12 @@ const openRouterKey: ApiKeyCredential = {
   accountId: "fp-openrouter",
   label: "",
 };
+const xaiKey: ApiKeyCredential = {
+  provider: "xai-apikey",
+  apiKey: "xai-0123456789abcdef0123456789abcdef",
+  accountId: "fp-xai",
+  label: "",
+};
 const codexSignIn: CodeRouterCredential = {
   provider: "codex",
   accessToken: "codex-access",
@@ -93,7 +102,8 @@ let selectIndex = 0;
 
 const responses = createCodexResponsesProxy({
   authenticate,
-  select: async () => {
+  select: async (input) => {
+    selectedPools.push(input.provider);
     const account = nextAccount();
     return account ? { ...account, sticky: false } : null;
   },
@@ -101,7 +111,7 @@ const responses = createCodexResponsesProxy({
     const credential = credentialFor();
     if (input.force) {
       forcedRefreshes.push(input.accountId);
-      if (credential.provider === "openai-apikey" || credential.provider === "openrouter-apikey") {
+      if (isApiKeyCredential(credential)) {
         // What the real refresher does: mark the key broken, then throw.
         throw new CodeRouterCredentialBroken("provider rejected the API key");
       }
@@ -134,6 +144,7 @@ beforeEach(() => {
   accountsToServe = [];
   cooldowns = [];
   forcedRefreshes = [];
+  selectedPools = [];
   selectIndex = 0;
   lastSelected = "";
 });
@@ -354,5 +365,52 @@ describe("responses routing through API keys", () => {
     expect(listed.status).toBe(200);
     expect(upstreamCalls[0]!.url).toBe("https://openrouter.ai/api/v1/models");
     expect(upstreamCalls[0]!.headers.get("authorization")).toBe(`Bearer ${openRouterKey.apiKey}`);
+  });
+});
+
+describe("Grok models through xAI keys", () => {
+  test("parses a pasted xAI key into a fingerprinted account", () => {
+    expect(parseCredential({ provider: "xai-apikey", apiKey: xaiKey.apiKey })).toEqual({
+      provider: "xai-apikey",
+      apiKey: xaiKey.apiKey,
+      accountId: apiKeyFingerprint("xai-apikey", xaiKey.apiKey),
+      label: "",
+    });
+    expect(credentialLabel(xaiKey)).toBe("xai-…cdef");
+    expect(credentialExpiresAt(xaiKey)).toBeNull();
+  });
+
+  test("Grok models draw only from xAI keys and other models never do", () => {
+    expect(responsesProvidersForModel("grok-code-fast-1")).toEqual(["xai-apikey"]);
+    expect(responsesProvidersForModel("gpt-5.3-codex")).toEqual(["codex", "openai-apikey", "openrouter-apikey"]);
+    expect(responsesProvidersForModel(undefined)).toEqual(["codex", "openai-apikey", "openrouter-apikey"]);
+  });
+
+  test("sends a Grok request to api.x.ai with the key and the body unchanged", async () => {
+    accountsToServe = [{ id: "acct-xai", credential: xaiKey }];
+    const body = { model: "grok-code-fast-1", input: [], store: false };
+    const response = await responses(responsesRequest(body));
+    expect(response.status).toBe(200);
+    expect(selectedPools).toEqual([["xai-apikey"]]);
+    const call = upstreamCalls[0]!;
+    expect(call.url).toBe("https://api.x.ai/v1/responses");
+    expect(call.headers.get("authorization")).toBe(`Bearer ${xaiKey.apiKey}`);
+    expect(call.headers.get("session_id")).toBeNull();
+    expect(call.headers.get("openai-beta")).toBeNull();
+    expect(JSON.parse(call.body)).toEqual(body);
+  });
+
+  test("a Codex model request selects from the pool without xAI keys", async () => {
+    accountsToServe = [{ id: "acct-codex", credential: codexSignIn }];
+    await responses(responsesRequest());
+    expect(selectedPools).toEqual([["codex", "openai-apikey", "openrouter-apikey"]]);
+  });
+
+  test("a compressed body keeps the default pool", async () => {
+    accountsToServe = [{ id: "acct-codex", credential: codexSignIn }];
+    const request = responsesRequest({ model: "grok-code-fast-1", input: [] });
+    request.headers.set("content-encoding", "zstd");
+    await responses(request);
+    expect(selectedPools).toEqual([["codex", "openai-apikey", "openrouter-apikey"]]);
   });
 });

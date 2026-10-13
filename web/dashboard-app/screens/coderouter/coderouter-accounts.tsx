@@ -65,7 +65,7 @@ function mutationStatus(
 }
 
 /** Everything the add panel offers, in display order. */
-type ApiKeyAddKind = "openai-apikey" | "openrouter-apikey";
+type ApiKeyAddKind = "openai-apikey" | "openrouter-apikey" | "xai-apikey";
 type AddKind = ClaudeUpstreamKind | ApiKeyAddKind | "codex" | "opencode";
 const ADD_KINDS: readonly AddKind[] = [
   "anthropic_api_key",
@@ -73,9 +73,22 @@ const ADD_KINDS: readonly AddKind[] = [
   "bedrock",
   "openai-apikey",
   "openrouter-apikey",
+  "xai-apikey",
   "codex",
   "opencode",
 ];
+
+const API_KEY_HINTS = {
+  "openai-apikey": "openAiKeyHint",
+  "openrouter-apikey": "openRouterKeyHint",
+  "xai-apikey": "xaiKeyHint",
+} as const satisfies Record<ApiKeyAddKind, string>;
+
+const API_KEY_PLACEHOLDERS: Record<ApiKeyAddKind, string> = {
+  "openai-apikey": "sk-proj-...",
+  "openrouter-apikey": "sk-or-v1-...",
+  "xai-apikey": "xai-...",
+};
 
 const inputClass =
   "w-full border border-border bg-background px-2 py-1.5 font-mono text-xs text-foreground focus-visible:outline focus-visible:outline-1 focus-visible:outline-foreground";
@@ -870,7 +883,7 @@ function AddAccountPanel({ teamId }: { readonly teamId: string }) {
               command="npx coderouter@latest add opencode"
               t={t}
             />
-          ) : kind === "openai-apikey" || kind === "openrouter-apikey" ? (
+          ) : kind === "openai-apikey" || kind === "openrouter-apikey" || kind === "xai-apikey" ? (
             <ApiKeyForm key={kind} teamId={teamId} kind={kind} />
           ) : (
             <ClaudeUpstreamForm key={kind} teamId={teamId} kind={kind} />
@@ -902,9 +915,10 @@ function CliInstructions({
 }
 
 /**
- * Stores an OpenAI or OpenRouter key as a coderouter account. Codex on this
- * team's machines then routes Responses calls through it, next to any Codex
- * sign-ins, and moves off it on a rate limit or a rejected key.
+ * Stores an OpenAI, OpenRouter or xAI key as a coderouter account. Codex on
+ * this team's machines then routes Responses calls through it, next to any
+ * Codex sign-ins, and moves off it on a rate limit or a rejected key. An xAI
+ * key serves only Grok models.
  */
 function ApiKeyForm({
   teamId,
@@ -935,12 +949,12 @@ function ApiKeyForm({
   return (
     <form onSubmit={submit} className="space-y-3">
       <p className="text-xs text-muted">
-        {kind === "openai-apikey" ? t("openAiKeyHint") : t("openRouterKeyHint")}
+        {t(API_KEY_HINTS[kind])}
       </p>
       <Field
         label={t("apiKeyField")}
         name="apiKey"
-        placeholder={kind === "openai-apikey" ? "sk-proj-..." : "sk-or-v1-..."}
+        placeholder={API_KEY_PLACEHOLDERS[kind]}
       />
       <Field
         label={t("labelField")}
@@ -1109,6 +1123,8 @@ function addKindLabel(kind: AddKind, t: Translator): string {
       return t("kindOpenAiApiKey");
     case "openrouter-apikey":
       return t("kindOpenRouterApiKey");
+    case "xai-apikey":
+      return t("kindXaiApiKey");
     default:
       return claudeKindLabel(kind, t);
   }
@@ -1125,6 +1141,8 @@ function nativeKindLabel(kind: CodeRouterAccountSummary["provider"], t: Translat
       return t("kindOpenAiApiKey");
     case "openrouter-apikey":
       return t("kindOpenRouterApiKey");
+    case "xai-apikey":
+      return t("kindXaiApiKey");
   }
 }
 

@@ -392,15 +392,16 @@ struct CoderouterSidebarSectionTests {
         let root = try #require(CloudTreeCreateActionBuilder.add(to: [CloudTreeNodeBuilder.coderouterNode(section)]).first)
 
         #expect(root.kind == .coderouterSection(count: 3, refresh: CloudTreeSectionRefresh()))
-        #expect(root.children.map(\.searchableTitle) == ["Codex", "Claude", "OpenCode", "Gemini"])
+        #expect(root.children.map(\.searchableTitle) == ["Codex", "Claude", "OpenCode", "Grok", "Gemini"])
         let codex = root.children[0]
         #expect(codex.kind == .coderouterProviderGroup(.codex, count: 2))
         #expect(codex.children.map(\.searchableTitle) == ["New Codex Account", "a@example.com", "b@example.com"])
         // An empty addable type still offers its New Account row.
         #expect(root.children[1].children.map(\.searchableTitle) == ["New Claude Account"])
         #expect(root.children[2].children.map(\.searchableTitle) == ["New OpenCode Account"])
+        #expect(root.children[3].children.map(\.searchableTitle) == ["New Grok Account"])
         // A type CodeRouter can't add lists its accounts without a create row.
-        #expect(root.children[3].children.map(\.searchableTitle) == ["c@example.com"])
+        #expect(root.children[4].children.map(\.searchableTitle) == ["c@example.com"])
     }
 
     @Test("New Account rows run the CLI add flow for their type")
@@ -425,6 +426,12 @@ struct CoderouterSidebarSectionTests {
         #expect(CoderouterProvider.opencodeGo.addCommand == "cmux cr add opencode")
         #expect(CoderouterProvider.claude.addCommand(for: "team's-id", scope: .teamOption) == "cmux cr add claude --team 'team'\\''s-id'")
         #expect(CoderouterProvider.codex.addCommand(for: "team-a", scope: .teamOption) == "cmux cr add codex --team 'team-a'")
+        // Grok's xAI key is a cmux-owned flow that takes the team directly,
+        // even where older CodeRouter CLIs need config isolation.
+        #expect(CoderouterProvider(id: "xai-apikey") == .xaiAPIKey)
+        #expect(CoderouterProvider.xaiAPIKey.addCommand == "cmux cr add grok")
+        #expect(CoderouterProvider.xaiAPIKey.addCommand(for: "team-a", scope: .isolatedConfiguration) == "cmux coderouter grok add --team 'team-a'")
+        #expect(CoderouterProvider.xaiAPIKey.addCommand(for: nil, cmuxExecutable: "/A b/cmux") == "'/A b/cmux' coderouter grok add")
     }
 
     @Test("New Account launches a dedicated focused terminal")

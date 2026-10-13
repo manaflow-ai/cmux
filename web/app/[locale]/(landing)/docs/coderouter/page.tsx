@@ -53,6 +53,7 @@ export default async function CoderouterOverviewPage({
           <tr><td>{t("accountChatgpt")}</td><td>Codex, Pi</td><td><code>cr add codex</code></td></tr>
           <tr><td>{t("accountOpenAiKey")}</td><td>Codex, Pi</td><td>{t("addDashboard")}</td></tr>
           <tr><td>{t("accountOpenRouterKey")}</td><td>Codex, Pi</td><td>{t("addDashboard")}</td></tr>
+          <tr><td>{t("accountXaiKey")}</td><td>Codex, Pi</td><td><code>cmux cr add grok</code></td></tr>
           <tr><td>{t("accountOpencodeGo")}</td><td>OpenCode</td><td><code>cr add opencode</code></td></tr>
           <tr><td>{t("accountClaudeSubscription")}</td><td>Claude Code</td><td><code>cr add claude</code></td></tr>
           <tr><td>{t("accountAnthropicKey")}</td><td>Claude Code</td><td><code>cmux coderouter claude add api-key</code></td></tr>

@@ -24,7 +24,7 @@ const nativeAccountSchema = z.object({
   visibility: z.enum(["private", "team"]).optional(),
   createdBy: nullableString.optional(),
   id: z.string(),
-  provider: z.enum(["codex", "opencode-go", "openai-apikey", "openrouter-apikey"]),
+  provider: z.enum(["codex", "opencode-go", "openai-apikey", "openrouter-apikey", "xai-apikey"]),
   providerAccountId: z.string(),
   providerUserId: z.string().optional(),
   label: z.string(),

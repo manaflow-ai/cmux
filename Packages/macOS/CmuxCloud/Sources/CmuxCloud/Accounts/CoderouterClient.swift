@@ -119,6 +119,25 @@ public actor CoderouterClient {
         return try bridgedJSONObject(data)
     }
 
+    /// Adds a pasted provider API key (for example `xai-apikey`) as a
+    /// CodeRouter account. Returns the server's `{ account, ... }` payload.
+    public func addAPIKeyAccount(provider: String, apiKey: String, label: String?, teamID: String?) async throws -> JSONValue {
+        // `DisableAICredentialUpload` (MDM): the body carries the API key.
+        guard ManagedAICredentialUploadPolicy.isEnabled else { throw ManagedAICredentialUploadPolicy.refusalError() }
+        var body: [String: Any] = ["provider": provider, "apiKey": apiKey, "visibility": "team"]
+        if let label = label?.trimmingCharacters(in: .whitespacesAndNewlines), !label.isEmpty {
+            body["label"] = label
+        }
+        let (data, http) = try await request(
+            "POST",
+            path: "/api/coderouter/accounts",
+            jsonBody: body,
+            teamID: teamID
+        )
+        try ensureOK(http, data: data)
+        return try bridgedJSONObject(data)
+    }
+
     /// Renames or enables/disables one account. Returns `{ teamId, account }`.
     public func updateClaudeAccount(id accountID: String, label: String?, state: String?, teamID: String?) async throws -> JSONValue {
         var body: [String: Any] = [:]
