@@ -1,24 +1,29 @@
-import AppKit
+public import AppKit
 import CmuxNextDesign
 
 /// Click-through shortcut badges shown while a modifier is held: one small
 /// Liquid Glass chip per hint (`Glass.makeOverlayPanel`, so the opaque theme
 /// fill under Reduce Transparency), right-aligned in its target rect. Text
 /// contains only shortcut symbols.
-final class ShortcutHintOverlayView: NSView {
-    struct Hint: Equatable {
-        var text: String
-        var rect: CGRect
+public final class ShortcutHintOverlayView: NSView {
+    public struct Hint: Equatable {
+        public var text: String
+        public var rect: CGRect
+
+        public init(text: String, rect: CGRect) {
+            self.text = text
+            self.rect = rect
+        }
     }
 
-    var hints: [Hint] = [] {
+    public var hints: [Hint] = [] {
         didSet { if hints != oldValue { applyHints() } }
     }
 
     /// Chips are reused across modifier holds; only the count changes.
     private var badges: [ShortcutHintBadgeView] = []
 
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    public override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
     private func applyHints() {
         while badges.count > hints.count { badges.removeLast().removeFromSuperview() }
