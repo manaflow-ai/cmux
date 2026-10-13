@@ -593,8 +593,8 @@ impl HostLaunch {
     /// text, so this keeps some 4x the rows a replay sends; pages dense with
     /// unique styles, graphemes or hyperlinks store more per cell, and a
     /// restart then restores fewer rows. The daemon's terminal holds the
-    /// full scrollback every client reads; a second full copy here cost up
-    /// to 50 MB per busy terminal.
+    /// full scrollback every client reads; a second full copy here cost the
+    /// whole scrollback limit again per busy terminal.
     pub(crate) fn host_scrollback(daemon_scrollback: usize) -> usize {
         daemon_scrollback.min(crate::surface::VT_REPLAY_MAX_BYTES)
     }
