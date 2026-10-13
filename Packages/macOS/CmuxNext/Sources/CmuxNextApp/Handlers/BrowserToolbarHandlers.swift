@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
+import CmuxNextSettings
+import os
 
 /// The browser toolbar's trailing buttons (`BrowserToolbarButtonsView`).
 /// Every press runs a catalog action, so the palette, `cmux action run`,
@@ -56,7 +58,7 @@ enum BrowserToolbarHandlers {
         })
         registry.bind("browser.overflow.menu", run: { invocation in
             let entry = try context.page(invocation)
-            entry.chrome.toolbarButtons.present(overflowMenu(for: entry, registry: registry), from: .overflow)
+            entry.chrome.toolbarButtons.present(overflowMenu(for: entry, registry: registry, settings: context.services.settings), from: .overflow)
         })
     }
 
@@ -75,7 +77,30 @@ enum BrowserToolbarHandlers {
         buttons.profileName = profileName(forTab: key, services: services)
         buttons.downloads = { [weak services] in services?.cache.pageRequests.downloads.toolbarSummary ?? BrowserToolbarDownloads() }
         buttons.media = { [weak services] in services.map { $0.cache.pageRequests.media.toolbar(in: $0.cache) } ?? BrowserToolbarMedia() }
+        buttons.pins = { [weak services] in pins(services?.settings) }
     }
+
+    /// The pinned buttons in cmux.json (`browser.toolbarButtons`); the default before settings load.
+    static func pins(_ settings: SettingsController?) -> Set<BrowserToolbarButton> {
+        let setting = settings.map(BrowserToolbarButtonsSetting.current) ?? .fallback
+        return Set(setting.pinned.compactMap(BrowserToolbarButton.init(rawValue:)))
+    }
+
+    /// Pins or unpins `button` in cmux.json; every toolbar follows the file.
+    static func togglePin(_ button: BrowserToolbarButton, settings: SettingsController?) {
+        guard let settings else { return }
+        let next = BrowserToolbarButtonsSetting.current(settings).toggling(button.rawValue)
+        // task-owner: one write; the menu item's gesture is the user's (SettingWriter.currentRun)
+        Task {
+            do {
+                try await settings.setSetting(at: BrowserToolbarButtonsSetting.configPath, to: next.configValue, by: .currentRun())
+            } catch {
+                logger.error("browser.toolbarButtons write failed: \(String(describing: error), privacy: .public)")
+            }
+        }
+    }
+
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "browser-toolbar")
 
     static func press(_ button: BrowserToolbarButton, entry: BrowserEntry, registry: ActionRegistry) {
         let target = tabTarget(entry)
@@ -141,16 +166,19 @@ enum BrowserToolbarHandlers {
         }
     }
 
-    /// The More menu, Edge's three-dot menu (cx-6qwm): the collapsed
-    /// buttons' actions first, then new tab and windows, zoom and full
+    /// The More menu (cx-6qwm): the actions of the buttons not in the
+    /// toolbar (unpinned or collapsed) and the Extensions menu while no
+    /// extension is pinned first, then new tab and windows, zoom and full
     /// screen, the browser's own pages (bookmarks, history, tab groups,
     /// the Downloads menu, extensions, passwords, clearing data), page tools (split,
-    /// screenshot, find), more tools, then Settings and Help. Every row is a
-    /// catalog action; one the tab cannot run drops out. No print row: no
-    /// engine exposes printing yet.
-    static func overflowMenu(for entry: BrowserEntry, registry: ActionRegistry) -> NSMenu {
+    /// screenshot, find), more tools, then Settings and Help, and last Show in
+    /// Toolbar, which pins a button (cx-d0d.81). Every row but Show in
+    /// Toolbar is a catalog action; one the tab cannot run drops out. No
+    /// print row: no engine exposes printing yet.
+    static func overflowMenu(for entry: BrowserEntry, registry: ActionRegistry, settings: SettingsController?) -> NSMenu {
         var entries: [ContextMenuEntry] = []
-        for button in entry.chrome.toolbarButtons.collapsedButtons {
+        if entry.chrome.offersExtensionsMenuInMore { entries.append(.action("browser.extensions.menu")) }
+        for button in entry.chrome.toolbarButtons.menuButtons {
             switch button {
             case .designMode: entries.append(.action("toggleBrowserDesignMode"))
             case .devTools: entries.append(.action("toggleBrowserDeveloperTools"))
@@ -177,6 +205,26 @@ enum BrowserToolbarHandlers {
             ]), .separator,
             .action("openSettings"), .action("help.documentation"),
         ]
-        return registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: entries)
+        let menu = registry.makeContextMenu(for: .browserPage, target: tabTarget(entry), entries: entries)
+        menu.addItem(.separator())
+        menu.addItem(showInToolbarItem(pinned: entry.chrome.toolbarButtons.pinned, settings: settings))
+        return menu
+    }
+
+    /// Show in Toolbar: one checked item per pinnable button; choosing one
+    /// pins or unpins it (`browser.toolbarButtons`).
+    static func showInToolbarItem(pinned: Set<BrowserToolbarButton>, settings: SettingsController?) -> NSMenuItem {
+        let item = NSMenuItem(title: BrowserToolbarButton.showInToolbarTitle, action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: BrowserToolbarButton.showInToolbarTitle)
+        for button in BrowserToolbarButton.pinnable {
+            let row = NSMenuItem(title: button.pinTitle, action: #selector(ActionMenuClosure.run), keyEquivalent: "")
+            row.state = pinned.contains(button) ? .on : .off
+            let closure = ActionMenuClosure { [weak settings] in togglePin(button, settings: settings) }
+            row.target = closure
+            row.representedObject = closure
+            submenu.addItem(row)
+        }
+        item.submenu = submenu
+        return item
     }
 }

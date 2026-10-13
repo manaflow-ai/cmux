@@ -127,6 +127,7 @@ extension SettingsSchema {
         "browser.defaultEngine",
         "browser.newTabPage",
         "browser.showBookmarksBar",
+        "browser.toolbarButtons",
         "browser.hibernation",
         "browser.hibernationExclusions",
         "browser.hibernatePinnedTabs",

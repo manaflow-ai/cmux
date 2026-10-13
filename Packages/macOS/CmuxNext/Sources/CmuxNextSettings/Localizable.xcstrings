@@ -85000,6 +85000,268 @@
           }
         }
       }
+    },
+    "settings.browser.toolbarButtons": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toolbar Buttons"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أزرار شريط الأدوات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dugmad alatne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Knapper på værktøjslinjen"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Symbolleistentasten"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Botones de la barra de herramientas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boutons de la barre d’outils"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulsanti della barra degli strumenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ツールバーのボタン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប៊ូតុងរបារឧបករណ៍"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "도구 막대 버튼"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Knapper i verktøylinjen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przyciski paska narzędzi"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Botões da barra de ferramentas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопки панели инструментов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มในแถบเครื่องมือ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Araç Çubuğu Düğmeleri"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопки панелі інструментів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nút trên thanh công cụ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工具栏按钮"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "工具列按鈕"
+          }
+        }
+      }
+    },
+    "settings.browser.toolbarButtons.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الأزرار المعروضة بجانب شريط العناوين. البقية في قائمة «المزيد»، حيث يعيد «إظهار في شريط الأدوات» تثبيتها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dugmad prikazana pored adresne trake. Ostala su u meniju Više, gdje ih Prikaži na alatnoj traci vraća."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Knapper ved siden af adresselinjen. Resten er i menuen Mere, hvor Vis på værktøjslinjen fastgør dem igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tasten neben der Adressleiste. Die übrigen sind im Menü „Mehr“, wo „In der Symbolleiste anzeigen“ sie wieder anheftet."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Botones que se muestran junto a la barra de direcciones. El resto están en el menú Más, donde Mostrar en la barra de herramientas los vuelve a fijar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Boutons affichés à côté de la barre d’adresse. Les autres sont dans le menu Plus, où Afficher dans la barre d’outils les épingle à nouveau."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pulsanti mostrati accanto alla barra degli indirizzi. Gli altri sono nel menu Altro, dove Mostra nella barra degli strumenti li fissa di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "アドレスバーの横に表示するボタン。その他は「その他」メニューにあり、「ツールバーに表示」で再び固定できます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ប៊ូតុងដែលបង្ហាញនៅជាប់របារអាសយដ្ឋាន។ ប៊ូតុងផ្សេងទៀតនៅក្នុងម៉ឺនុយ ច្រើនទៀត ដែល បង្ហាញក្នុងរបារឧបករណ៍ ខ្ទាស់វាវិញ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "주소 막대 옆에 표시되는 버튼입니다. 나머지는 더 보기 메뉴에 있으며, 도구 막대에 표시로 다시 고정할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Knapper som vises ved siden av adresselinjen. Resten ligger i Mer-menyen, der Vis i verktøylinjen fester dem igjen."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Przyciski wyświetlane obok paska adresu. Pozostałe są w menu Więcej, gdzie Pokaż na pasku narzędzi przypina je z powrotem."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Botões exibidos ao lado da barra de endereço. Os demais ficam no menu Mais, onde Mostrar na barra de ferramentas os fixa de novo."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопки рядом с адресной строкой. Остальные находятся в меню «Ещё», где пункт «Показывать на панели инструментов» возвращает их."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปุ่มที่แสดงถัดจากแถบที่อยู่ ปุ่มอื่นอยู่ในเมนูเพิ่มเติม ซึ่ง แสดงในแถบเครื่องมือ จะปักหมุดกลับมา"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Adres çubuğunun yanında gösterilen düğmeler. Diğerleri Daha Fazla menüsündedir; Araç Çubuğunda Göster onları yeniden sabitler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Кнопки поруч з адресним рядком. Решта в меню «Більше», де пункт «Показувати на панелі інструментів» повертає їх."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Các nút hiển thị cạnh thanh địa chỉ. Các nút khác nằm trong menu Thêm, nơi Hiển thị trên thanh công cụ ghim lại chúng."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "显示在地址栏旁边的按钮。其余按钮在“更多”菜单中，可通过“在工具栏中显示”重新固定。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "顯示在網址列旁的按鈕。其餘按鈕在「更多」選單中，可透過「在工具列中顯示」重新固定。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

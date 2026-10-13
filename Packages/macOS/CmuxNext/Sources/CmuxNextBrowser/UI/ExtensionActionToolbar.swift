@@ -4,8 +4,9 @@ import CmuxNextIcons
 
 /// Fills `BrowserChromeView.extensionSlot` with the pinned extension
 /// actions of the bound tab in Chromium's order (icon plus native
-/// badge), then the Extensions (puzzle) button, which is always there for a
-/// tab with extensions. Pinned actions beyond `visibleLimit` (the pane's
+/// badge), then the Extensions (puzzle) button, which shows while an
+/// extension is pinned (cx-d0d.81: a default toolbar keeps only what a page
+/// needs; with nothing pinned the Extensions menu is a row of More). Pinned actions beyond `visibleLimit` (the pane's
 /// room, `BrowserToolbarLayout`) are reached through that menu. Click runs
 /// the action (popup or `onClicked`), anchored to its button or, when it is
 /// not shown, to the Extensions button; right click shows the extension's
@@ -78,7 +79,8 @@ final class ExtensionActionToolbar {
         host.extensionActionAnchor = { [weak self] id in self?.anchorRect(for: id) }
         observation = ObservationLoop { [weak self] in
             guard let self, let host = self.host else { return }
-            self.render(host.extensionActions, showsPuzzle: host.showsExtensionToolbar)
+            let actions = host.extensionActions
+            self.render(actions, showsPuzzle: host.showsExtensionToolbar && actions.contains(where: \.isPinned))
             self.crashIndicator.update(store: host.showsExtensionToolbar ? host.extensionStore : nil,
                                        in: self.slot, before: self.puzzle)
         }
@@ -190,8 +192,12 @@ final class ExtensionActionToolbar {
         popUp(menu, at: buttons[id])
     }
 
+    /// Where the Extensions menu opens while the puzzle is hidden (More).
+    var menuAnchor: (() -> NSView?)?
+
     private func popUp(_ menu: NSMenu, at source: NSView? = nil) {
-        let view: NSView = source ?? (puzzle.window == nil ? (anchorView ?? puzzle) : puzzle)
+        let fallback = menuAnchor?().flatMap { $0.window == nil ? nil : $0 } ?? anchorView ?? puzzle
+        let view: NSView = source ?? (puzzle.window == nil ? fallback : puzzle)
         // AppKit raises for a menu anchored in no window.
         guard view.window != nil else { return }
         let previous = presentedMenu
