@@ -44,6 +44,8 @@ final class AgentPageHibernation {
     /// The clock (tests set it).
     var now: () -> ContinuousClock.Instant = { .now }
     private(set) var releasedCount = 0
+    /// A page is due later and the timer for it runs (tests).
+    var hasDeadline: Bool { deadline.isScheduled }
     private var turnObservation: Task<Void, Never>?
 
     init(tabs: @escaping () -> AgentTabStore?) {

@@ -115,4 +115,20 @@ struct AgentPageHibernationTests {
         await rig.settle { rig.tabs.existingView("tab_pressed") == nil }
         #expect(rig.tabs.existingView("tab_pressed") == nil, "critical pressure kept a hidden chat's page")
     }
+
+    /// A single hidden chat: no later hide, turn or setting change replans for it, so its page
+    /// goes only if its own hide armed the deadline (the hide comes while it is still in the window).
+    @Test func aLoneHiddenChatGoesOnItsOwnDeadline() async throws {
+        let rig = Rig()
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .critical)
+        _ = try rig.hiddenChat("tab_alone", session: "s-alone")
+        #expect(rig.hibernation.hasDeadline, "the hide armed no deadline")
+        // Critical pressure: due after the composer's short wait, with no call to replan.
+        rig.elapsed += .seconds(AgentPageHibernation.minimumHidden)
+        let deadline = ContinuousClock.now + .seconds(AgentPageHibernation.minimumHidden + 5)
+        while rig.tabs.existingView("tab_alone") != nil, ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(rig.tabs.existingView("tab_alone") == nil, "a lone hidden chat kept its page")
+    }
 }
