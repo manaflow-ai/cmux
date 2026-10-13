@@ -39,6 +39,8 @@ def main():
 
     def launch(name):
         if os.path.exists(sock):
+            if wait_socket(sock, 1):
+                raise SystemExit(f"{sock} answers: another app of tag {a.tag} runs; use a tag of your own")
             os.unlink(sock)
         proc = subprocess.Popen([binary], env=env, cwd=work, stdin=subprocess.DEVNULL,
                                 stdout=open(os.path.join(out, f"reopen-{name}.log"), "w"), stderr=subprocess.STDOUT,
@@ -48,7 +50,10 @@ def main():
         return proc
 
     def step(name, action=None, settle=2.0):
-        reply = rpc(sock, "action.run", {"id": action}) if action else None
+        # focus: a socket run changes the view only when it asks to (ControlActionRequest.focus).
+        reply = rpc(sock, "action.run", {"id": action, "focus": True}) if action else None
+        if action and not (reply or {}).get("ok"):
+            raise SystemExit(f"{name}: {action} did not run: {json.dumps(reply)[:300]}")
         time.sleep(settle)  # capture timing only: the tab strip and the page view draw
         path = os.path.join(out, f"reopen-{name}.png")
         shot = rpc(sock, "debug.window_snapshot", {"kind": "main", "path": path}, timeout=30).get("result")
@@ -62,6 +67,8 @@ def main():
         step("3-reopened", "reopenClosedBrowserPanel", settle=4.0)
         os.kill(app.pid, signal.SIGTERM)
         result["first_exit"] = wait_exit(app.pid, 30)
+        if result["first_exit"] is None:
+            raise SystemExit("the first instance did not quit within 30 s")
         app = launch("relaunch")
         step("4-relaunched", None, settle=5.0)
         step("5-selected", "updates.whatsNew", settle=3.0)

@@ -27,6 +27,8 @@ def main():
     run(["/usr/bin/ditto", a.app, copy])
     sock = f"/tmp/cmux-debug-{a.tag}.sock"
     if os.path.exists(sock):
+        if wait_socket(sock, 1):
+            raise SystemExit(f"{sock} answers: another app of tag {a.tag} runs; use a tag of your own")
         os.unlink(sock)
     config = os.path.join(work, "cmux.json")
     with open(config, "w") as f:
@@ -47,7 +49,8 @@ def main():
             raise SystemExit(f"the app's control socket {sock} did not open")
         status = rpc(sock, "updates.status").get("result", {})
         result.update(track=status.get("track"), feed_url=status.get("feed_url"), test_feed=status.get("test_feed"))
-        result["open"] = rpc(sock, "action.run", {"id": "updates.whatsNew"})
+        # focus: a socket run changes the view only when it asks to (ControlActionRequest.focus).
+        result["open"] = rpc(sock, "action.run", {"id": "updates.whatsNew", "focus": True})
         time.sleep(5.0)  # capture timing only: the page fetches the nightly notes index and the newest notes
         windows = rpc(sock, "debug.window_list").get("result", {}).get("windows", [])
         result["windows"] = windows
