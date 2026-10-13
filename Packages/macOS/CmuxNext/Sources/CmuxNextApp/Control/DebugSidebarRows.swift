@@ -34,6 +34,7 @@ enum DebugSidebarRows {
                 "drop": sidebar.debugDropProbe().map(probe) ?? .null,
                 "paging": .object(sidebar.debugPaging().mapValues(JSONValue.string)),
                 "items": .array(items(of: controller)),
+                "status_glyphs": .array(DebugStatusGlyphs.report(in: sidebar)),
                 "new_button": sidebar.debugNewButtonFrame().map(rect) ?? .null,
                 "rows": .array(rows.map { row in
                     .object([
