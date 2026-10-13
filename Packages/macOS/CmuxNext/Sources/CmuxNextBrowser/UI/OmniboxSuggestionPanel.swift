@@ -146,10 +146,10 @@ final class SuggestionCardView: NSView {
         card.layer?.cornerCurve = .continuous
         card.layer?.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
         card.layer?.masksToBounds = false
-        // The one popup shadow (PopupStyle), as the card top around the bar.
-        card.layer?.shadowOpacity = Float(PopupStyle.standard.shadowAlpha)
-        card.layer?.shadowRadius = PopupStyle.standard.shadowBlur
-        card.layer?.shadowOffset = CGSize(width: 0, height: -PopupStyle.standard.shadowOffset)
+        // The one popup shadow (PopupStyle), as the card top around the bar. The card is a
+        // layer-backed view, so AppKit owns its layer's shadow: it is the view's `shadow` (a
+        // shadow set on the layer itself was reset to none, so the rows cast no shadow at all).
+        card.shadow = PopupStyle.standard.shadow()
         addSubview(card)
     }
 
