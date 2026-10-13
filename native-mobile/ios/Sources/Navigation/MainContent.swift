@@ -13,6 +13,7 @@ struct SidebarRoot: View {
             content: MainContent(app: app, navigator: navigator)
         )
         .ignoresSafeArea()
+        .pushDeepLinks(app: app, navigator: navigator)
         .sheet(isPresented: $navigator.showSettings) { SettingsScreen(app: app) }
         #if DEBUG
         .task { openDebugScreen() }
