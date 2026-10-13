@@ -431,7 +431,7 @@ import Testing
             return
         }
         // Falls back to the cmux-chosen remote path (escaped).
-        #expect(text.contains("cmux-paste"))
+        #expect(text.contains("cmux-drop"))
     }
 
     @Test func cancelledOperationFailsClosed() {

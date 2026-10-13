@@ -93,10 +93,9 @@ struct TerminalUploadCommand: Sendable, Equatable {
     /// on the environment (not stdin) so a plain shell one-liner can use it; the
     /// standard process environment is inherited by the caller.
     ///
-    /// `remotePath` comes from ``RemotePasteFileTransferPolicy`` and names a file in
-    /// a per-session directory under `~/.cache/cmux/paste`. Only the built-in
-    /// transport creates and cleans that directory, so a command that writes to the
-    /// path creates the directory itself.
+    /// `remotePath` is a standalone path under `/tmp` for the custom command. The
+    /// command owns its transport, permissions, and cleanup; the built-in SSH
+    /// transport uses its separate private per-session directory.
     static func environment(
         localPath: String,
         remotePath: String,
@@ -120,6 +119,22 @@ struct TerminalUploadCommand: Sendable, Equatable {
             env["CMUX_UPLOAD_SSH_OPTIONS"] = sshOptions.joined(separator: "\n")
         }
         return env
+    }
+
+    /// The path handed to a custom upload command. It is intentionally independent
+    /// of the built-in SSH transport's private session directory: custom commands
+    /// may use an interactive SSH wrapper, an artifact service, or another
+    /// transport that cannot run cmux's directory-maintenance SSH command.
+    static func customRemotePath(for fileURL: URL, uuid: UUID = UUID()) -> String {
+        let extensionValue = fileURL.pathExtension.lowercased()
+        let suffix = extensionValue.unicodeScalars.prefix(16).reduce(into: "") { result, scalar in
+            if (scalar.value >= 48 && scalar.value <= 57) ||
+                (scalar.value >= 97 && scalar.value <= 122) {
+                result.unicodeScalars.append(scalar)
+            }
+        }
+        let extensionSuffix = suffix.isEmpty ? "" : "." + suffix
+        return "/tmp/cmux-drop-\(uuid.uuidString.lowercased())\(extensionSuffix)"
     }
 
     /// The ready-to-type string cmux inserts for one file after the command runs.
