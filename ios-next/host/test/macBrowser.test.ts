@@ -45,7 +45,7 @@ async function fakeCef() {
         case "Target.attachToTarget":
           return reply({ sessionId: `S-${msg.params.targetId}` });
         case "Page.getNavigationHistory":
-          return reply({ currentIndex: 0, entries: [{ id: 1 }] });
+          return reply({ currentIndex: 1, entries: [{ id: 1, url: "https://a.example/", title: "A" }, { id: 2, url: "https://example.com/", title: "Example" }] });
         case "Runtime.evaluate":
           return reply({ result: { value: { title: "Example" } } });
         default:
@@ -194,6 +194,13 @@ describe("browser.* mirroring the Mac's tabs", () => {
     const { tab: newTab } = await client.request("browser.create", { url: "x.example" });
     expect(newTab).toMatchObject({ id: "CEF-NEW", url: "https://x.example", streamable: true, paneId: "p3", layoutTabId: "t12" });
     expect(cef.calls.map((c) => c.method)).not.toContain("Target.createTarget");
+    // History (back/forward long-press menus) on a Mac tab: the same CDP path.
+    expect(await client.request("browser.history", { tabId: "CEF1" })).toEqual({
+      currentIndex: 1,
+      entries: [{ id: 1, url: "https://a.example/", title: "A" }, { id: 2, url: "https://example.com/", title: "Example" }],
+    });
+    await client.request("browser.goToHistory", { tabId: "CEF1", entryId: 1 });
+    expect(cef.calls.filter((c) => c.method === "Page.navigateToHistoryEntry").map((c) => c.params)).toEqual([{ entryId: 1 }]);
     await expect(client.request("browser.activate", { tabId: "CEF2" })).rejects.toMatchObject({ code: "unsupported" });
     await expect(client.request("browser.close", { tabId: "CEF2" })).rejects.toMatchObject({ code: "unsupported" });
     await client.request("browser.detach", { streamId });

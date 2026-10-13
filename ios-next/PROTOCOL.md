@@ -215,6 +215,11 @@ Tab `{id, url, title, loading, progress, canGoBack, canGoForward, faviconUrl?, a
 - `browser.scroll {tabId, x, y, dx, dy}` -> `{}`
 - `browser.key {tabId, type:"down"|"up", key, code, text?, modifiers:int}` -> `{}` (CDP modifier bits)
 - `browser.text {tabId, text}` -> `{}`
+- `browser.history {tabId}` -> `{currentIndex, entries:[{id, url, title}]}`: the tab's session history
+  (CDP `Page.getNavigationHistory`), oldest first; `entries[currentIndex]` is the page shown. Feeds the
+  long-press back/forward menus. `title` may be empty.
+- `browser.goToHistory {tabId, entryId}` -> `{}`: jumps to that entry (`Page.navigateToHistoryEntry`);
+  `not_found` if the entry is no longer in the tab's history. Both work for the Mac's own tabs too.
 - `browser.screenshot {tabId}` -> `{dataBase64}` (tab overview thumbnail, jpeg)
 - events: `browser.tab {tab}`, `browser.closed {tabId}`, `browser.detached {streamId, tabId, reason:"displaced"}`
   (another client attached the same tab; this client's stream ended)

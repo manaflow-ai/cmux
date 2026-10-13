@@ -74,7 +74,7 @@ async function startFakeCdp(): Promise<FakeCdp> {
         case "Target.attachToTarget":
           return reply({ sessionId: "S1" });
         case "Page.getNavigationHistory":
-          return reply({ currentIndex: 1, entries: [{ id: 1 }, { id: 2 }] });
+          return reply({ currentIndex: 1, entries: [{ id: 1, url: "https://example.com/", title: "Example" }, { id: 2, url: "https://example.org/", title: "" }] });
         case "Runtime.evaluate":
           if (msg.params.expression === "document.visibilityState") return reply({ result: { value: state.hidden ? "hidden" : "visible" } });
           return reply({ result: { value: { icon: "https://example.com/favicon.ico", title: "Example Domain" } } });
@@ -187,6 +187,11 @@ describe("BrowserProvider with a fake CDP endpoint", () => {
     expect(by("Input.insertText")).toEqual([{ text: "hello" }]);
     expect(by("Page.navigate")).toEqual([{ url: "https://example.org" }]);
     expect(by("Page.navigateToHistoryEntry")).toEqual([{ entryId: 1 }]);
+    const hist = await client.request("browser.history", { tabId: "T1" });
+    expect(hist).toEqual({ currentIndex: 1, entries: [{ id: 1, url: "https://example.com/", title: "Example" }, { id: 2, url: "https://example.org/", title: "" }] });
+    await client.request("browser.goToHistory", { tabId: "T1", entryId: 2 });
+    expect(by("Page.navigateToHistoryEntry")).toEqual([{ entryId: 1 }, { entryId: 2 }]);
+    await expect(client.request("browser.goToHistory", { tabId: "T1", entryId: 99 })).rejects.toMatchObject({ code: "not_found" });
     const shot = await client.request("browser.screenshot", { tabId: "T1" });
     expect(typeof shot.dataBase64).toBe("string");
 

@@ -827,6 +827,21 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     await cdp.send("Page.navigateToHistoryEntry", { entryId: entry.id }, sid);
   }
 
+  /** browser.history: the tab's session history (CDP Page.getNavigationHistory). */
+  async historyList(tabId: string): Promise<{ currentIndex: number; entries: { id: number; url: string; title: string }[] }> {
+    const { cdp, sid } = await this.session(tabId);
+    const h = await cdp.send<{ currentIndex: number; entries: { id: number; url: string; title?: string }[] }>("Page.getNavigationHistory", {}, sid);
+    return { currentIndex: h.currentIndex, entries: h.entries.map((e) => ({ id: e.id, url: e.url ?? "", title: e.title ?? "" })) };
+  }
+
+  /** browser.goToHistory: jumps to one entry of the tab's session history. */
+  async goToHistory(tabId: string, entryId: number): Promise<void> {
+    const { cdp, sid } = await this.session(tabId);
+    const h = await cdp.send<{ entries: { id: number }[] }>("Page.getNavigationHistory", {}, sid);
+    if (!h.entries.some((e) => e.id === entryId)) throw new RpcError("not_found", `No history entry ${entryId}`);
+    await cdp.send("Page.navigateToHistoryEntry", { entryId }, sid);
+  }
+
   async reload(tabId: string): Promise<void> {
     const { cdp, sid } = await this.session(tabId);
     await cdp.send("Page.reload", {}, sid);
@@ -1011,6 +1026,11 @@ export class BrowserProvider extends EventEmitter<BrowserProviderEvents> {
     });
     server.register("browser.forward", async (p) => {
       await this.history(str(p, "tabId"), 1);
+      return {};
+    });
+    server.register("browser.history", async (p) => this.historyList(str(p, "tabId")));
+    server.register("browser.goToHistory", async (p) => {
+      await this.goToHistory(str(p, "tabId"), num(p, "entryId"));
       return {};
     });
     server.register("browser.reload", async (p) => {
