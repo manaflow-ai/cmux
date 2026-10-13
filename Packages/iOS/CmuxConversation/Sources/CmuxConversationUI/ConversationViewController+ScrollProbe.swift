@@ -94,6 +94,9 @@ final class ConversationScrollProbe {
 
     /// Row state as it is committed in this update.
     private var pending: String?
+    /// The transcript was neither dragged nor decelerating in that update.
+    private var settled = false
+    private var wasMoving = false
 
     @available(iOS 18.0, *)
     private func capture(_ info: UIUpdateInfo) {
@@ -124,6 +127,7 @@ final class ConversationScrollProbe {
         }
         visible = now
         let touch = touches.latest
+        settled = !scrollView.isTracking && !scrollView.isDecelerating
         pending = [
             String(format: "%.6f", info.modelTime),
             String(format: "%.6f", info.estimatedPresentationTime),
@@ -152,7 +156,10 @@ final class ConversationScrollProbe {
         self.pending = nil
         frame += 1
         rows.append("\(frame)," + pending.replacingOccurrences(of: "%T5%", with: String(format: "%.6f", phases[5])))
-        if rows.count >= 240 { flush() }
+        // Written every 2 s of updates and whenever the scroll comes to
+        // rest, so a run copied off the device right after ends complete.
+        if rows.count >= 240 || (settled && wasMoving) { flush() }
+        wasMoving = !settled
     }
 
     /// Appends the buffered rows off the main thread.
