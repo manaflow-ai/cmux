@@ -23974,6 +23974,33 @@
     },
     {
       "cli" : "guiOnly",
+      "cli_name" : "action agent-history-show",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentHistory.show",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.window",
+        "order" : 100,
+        "title" : "Window",
+        "title_key" : "category.window",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Show Agent History",
+      "title_key" : "action.history.showAgentHistory",
+      "title_table" : "HistoryActions"
+    },
+    {
+      "cli" : "guiOnly",
       "cli_name" : "browser show-history",
       "context_menu" : "noObject",
       "context_menus" : [

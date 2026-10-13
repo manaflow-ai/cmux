@@ -214,7 +214,6 @@ def press_with(step, case, expects):
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
-    kind = setting("tabs.newTabKind", "page")
     swap = setting("tabs.swapCmdTAndCmdN", False)
     terminal = setting("tabs.tabBar.terminal", "auto")
     agent = setting("tabs.tabBar.agent", "auto")
@@ -228,12 +227,9 @@ def main():
         print("Show Tab Bar:", action("pane.toggleTabBar", focus=True), flush=True)
         strip("Show Tab Bar shows a chat's tab bar", False, kind="agent", choice=True)
         # A terminal tab on that lone chat stays beside it: no chat dock (one pane shown).
-        setting("tabs.newTabKind", "terminal")
-        NEEDS_PAGE[0] = False
-        press("t", "Cmd-T (terminal kind) on a lone chat that shows its tab bar opens a tab there", "tab")
-        NEEDS_PAGE[0] = True
+        press_with(lambda: rpc("debug.key", {"key": "`", "modifiers": ["control"]}),
+                   "New Terminal Tab (Ctrl-`) on a lone chat that shows its tab bar opens a tab there", "tab")
         strip("the chat did not move into a dock", False)
-        setting("tabs.newTabKind", "page")
         press("t", "Cmd-T on a chat that shows its tab bar opens a tab there", "tab")
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "pane-tab-bar-chat-shown.png")})
         # Hidden again (the pane now holds two tabs, which Automatic would show): Cmd-T opens a workspace.
@@ -261,7 +257,6 @@ def main():
         restore("tabs.tabBar.agent", agent)
         restore("tabs.tabBar.terminal", terminal)
         restore("tabs.swapCmdTAndCmdN", swap)
-        restore("tabs.newTabKind", kind)
 
 
 main()
