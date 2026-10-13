@@ -381,9 +381,6 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
         lock.withLock { collectors[task.taskIdentifier] = collector }
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                #if DEBUG
-                beforeWaiting?(task)
-                #endif
                 if let reason = blockReason() {
                     forget(task)
                     let url = task.originalRequest?.url?.absoluteString ?? "the URL"
@@ -443,13 +440,6 @@ public final class BrowserReplFetcher: NSObject, URLSessionDataDelegate, @unchec
     /// The work of each task's redirect hop being handled (its cookie
     /// calls), which its fetch cancels and waits for. Under `lock`.
     private var redirectWork: [Int: Task<Void, Never>] = [:]
-
-    #if DEBUG
-    /// Test seam: runs in a fetch after its task's collector is registered
-    /// and before the fetch waits for the task, so a test can deliver the
-    /// task's completion in that window.
-    var beforeWaiting: ((URLSessionDataTask) -> Void)?
-    #endif
 
     private func collector(for task: URLSessionTask) -> FetchCollector? {
         lock.lock()

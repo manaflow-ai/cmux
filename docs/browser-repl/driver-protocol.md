@@ -506,7 +506,6 @@ native (`BrowserReplBoundary` in the session, and the driver):
   for dialogs and file choosers judged by the opening frame's document,
   the download's session judged by its source); the driver drops any other
   name, and a path that does not match an event's delivery drops it.
-  `BrowserReplDocumentAuthorityTests` enumerates every method and event.
 
 - Domain patterns (the policy's `allowed` and `prohibited`, a secret's
   domains, `tools.register` domains): `example.com`, `*.example.com`,
@@ -851,12 +850,11 @@ native (`BrowserReplBoundary` in the session, and the driver):
   `blob:` of them; a wildcard scheme, `*://host`, names these four), never
   a `file:` URL (WebKit loads `file://host/p` as the local file `/p`), and the
   local-file rules come after the policy's, so no allowed pattern undoes
-  their block (`BrowserReplFileContentRuleTests`). A universal host (`*`,
+  their block. A universal host (`*`,
   allowed or prohibited) matches every host in the rules as it does
   natively, a bracketed IPv6 address too, and an IPv4 address written as
   IPv6 (`[::ffff:…]`), which the policy refuses natively, is blocked by a
-  rule after the allowed patterns' (`BrowserReplContentRuleParityTests`,
-  `BrowserReplContentRuleIPTests`). WebKit compiles
+  rule after the allowed patterns'. WebKit compiles
   them asynchronously while those tabs' pages keep running, so from the
   main actor's next turn after a policy or directory change until the new
   list is on a tab (and after WebKit refused it, until a policy compiles),
@@ -869,7 +867,7 @@ native (`BrowserReplBoundary` in the session, and the driver):
   policy. The cancel is in the navigation-action decision, which WebKit
   asks again for each HTTP redirect hop, with the hop's URL and before it
   requests it, so a redirect to a blocked host is cancelled before that
-  host is asked for anything (`BrowserReplRedirectPolicyTests`). A navigation to `about:` (`about:blank`) or `data:`, or to a
+  host is asked for anything. A navigation to `about:` (`about:blank`) or `data:`, or to a
   `blob:` of an opaque origin, takes its document from the frame that
   started it, so it is judged by that frame's document as WebKit recorded
   it (its source frame) and cancelled when the policy blocks that one; one

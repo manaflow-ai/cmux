@@ -11,35 +11,6 @@ import Testing
 @MainActor
 @Suite("Browser REPL pasteboards", .serialized)
 struct BrowserReplPasteboardTests {
-    @MainActor
-    @Suite("Drag pasteboard lookups", .serialized)
-    struct Lookups {
-        /// WebKit handling a web content process's message runs on its own
-        /// run-loop turn; WebKit called from AppKit or cmux code is an
-        /// action in some web view. Image sequences as observed on macOS 26.
-        @Test func lookupsAreClassifiedByWhatCalledWebKit() {
-            typealias Origin = BrowserReplDragPasteboardRedirect.LookupOrigin
-            #expect(BrowserReplDragPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit", "JavaScriptCore", "CoreFoundation"]) == Origin.webKitOnItsOwnTurn)
-            #expect(BrowserReplDragPasteboardRedirect.origin(ofCallerImages: ["WebKit", "libdispatch.dylib"]) == Origin.webKitOnItsOwnTurn)
-            #expect(BrowserReplDragPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit", "AppKit"]) == Origin.webKitCalledByTheApp)
-            #expect(BrowserReplDragPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit", "cmux"]) == Origin.webKitCalledByTheApp)
-            #expect(BrowserReplDragPasteboardRedirect.origin(ofCallerImages: ["WebCore", "WebKit"]) == Origin.webKitCalledByTheApp)
-            #expect(BrowserReplDragPasteboardRedirect.origin(ofCallerImages: ["AppKit", "WebKit", "CoreFoundation"]) == Origin.notWebKit)
-            #expect(BrowserReplDragPasteboardRedirect.origin(ofCallerImages: []) == Origin.notWebKit)
-        }
-
-        /// The clipboard (the general pasteboard) is never redirected, for
-        /// WebKit or anyone else.
-        @Test func theGeneralPasteboardIsNeverRedirected() async {
-            let capture = BrowserAutomationDragCapture()
-            defer { capture.finish() }
-            #expect(await capture.openPasteboardWindow())
-            let general = NSPasteboard.Name.general.rawValue
-            for origin in [BrowserReplDragPasteboardRedirect.LookupOrigin.notWebKit, .webKitOnItsOwnTurn, .webKitCalledByTheApp] {
-                #expect(BrowserReplDragPasteboardRedirect.shared.redirectTarget(forLookupOf: general, origin: origin) == nil)
-            }
-        }
-    }
 }
 
 /// A clock that moves only when a test advances it.

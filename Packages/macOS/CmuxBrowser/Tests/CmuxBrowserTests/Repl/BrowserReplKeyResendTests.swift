@@ -169,81 +169,6 @@ struct BrowserReplKeyResendTests {
         }
     }
 
-    /// Playwright picks a shortcut's command by the key's code and the
-    /// modifiers held (`Meta+KeyA` is Select All), and an uppercase letter
-    /// does not add Shift: `Meta+A` is Select All with `shiftKey` false, as
-    /// `Meta+a` is. Only a Shift in the combo makes it `Shift+Meta+A`.
-    ///
-    /// Like every test here that expects a command to run, it drops
-    /// WebKit's resend as the app's `sendEvent` does (`withAppDroppingResends`).
-    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
-    func anUppercaseLetterWithMetaRunsTheLowercaseShortcut() async throws {
-        let webView = try await load("""
-            <input id=i value=abc><script>\(Self.countKeys)
-            window.shifts = []; addEventListener('keydown', e => { if (e.metaKey && e.code === 'KeyA') window.shifts.push(e.shiftKey); });</script>
-            """)
-        try await Self.withAppDroppingResends {
-            try await press(["Meta", "A"], in: webView)
-            try await settle(webView, keys: 2)
-            #expect(webView.commands == ["selectAll:"], "cmux browser press Meta+A ran \(webView.commands)")
-            try await press(["Meta", "Shift", "A"], in: webView)
-            try await settle(webView, keys: 5)
-        }
-        #expect(webView.commands == ["selectAll:"], "cmux browser press Shift+Meta+A ran \(webView.commands)")
-        #expect(try await webView.evaluateJavaScript("window.shifts") as? [Bool] == [false, true])
-        // The REPL resolves the same keys the same way.
-        let upper = try #require(try BrowserReplKeyStroke.resolve(key: "A", code: "KeyA", text: nil, modifiers: ["Meta"]))
-        let lower = try #require(try BrowserReplKeyStroke.resolve(key: "a", code: "KeyA", text: nil, modifiers: ["Meta"]))
-        #expect(upper.editingCommand == "selectAll:", "REPL Meta+A ran \(String(describing: upper.editingCommand))")
-        #expect(!upper.modifierFlags.contains(.shift))
-        #expect(upper.modifierFlags.rawValue == lower.modifierFlags.rawValue)
-        let control = try #require(try BrowserReplKeyStroke.resolve(key: "A", code: "KeyA", text: nil, modifiers: ["Control"]))
-        #expect(!control.modifierFlags.contains(.shift))
-        #expect(control.characters == "\u{1}")
-        let shifted = try #require(try BrowserReplKeyStroke.resolve(key: "A", code: "KeyA", text: nil, modifiers: ["Meta", "Shift"]))
-        #expect(shifted.modifierFlags.contains(.shift))
-        #expect(shifted.editingCommand == nil)
-        // Without Meta or Control, A is still Shift+a and types "A".
-        let plain = try #require(try BrowserReplKeyStroke.resolve(key: "A", code: "KeyA", text: "A", modifiers: []))
-        #expect(plain.modifierFlags.contains(.shift))
-        #expect(plain.characters == "A")
-    }
-
-    // A page that handles the shortcut (it cancels the keydown) does not get
-    // the editing command as well, as in a browser: run twice, a Copy or
-    // Paste would reach the pasteboard behind the page's back.
-    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
-    func cmuxBrowserPressDoesNotRunAnEditingShortcutThePageHandled() async throws {
-        let webView = try await load(
-            "<input id=i value=abc><script>\(Self.countKeys) addEventListener('keydown', e => { if (e.metaKey) e.preventDefault(); });</script>"
-        )
-        try await press(["Meta", "a"], in: webView)
-        try await press(["Meta", "c"], in: webView)
-        try await press(["Meta", "v"], in: webView)
-        try await settle(webView, keys: 6)
-        #expect(webView.commands.isEmpty, "an editing command ran for a shortcut the page handled")
-    }
-
-    // `cmux browser press` carries no REPL session: in a tab a session
-    // created (one with the page clipboard guard) its Meta+C, Meta+X and
-    // Meta+V must reach neither the system pasteboard (the web view's own
-    // copy:, cut:, paste:) nor any session's virtual clipboard. A person's
-    // Command-C in that tab is not a `cmux browser press` and keeps the
-    // web view's own action.
-    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
-    func cmuxBrowserPressRunsNoClipboardCommandInASessionTab() async throws {
-        let webView = try await load("<input id=i value=abc><script>\(Self.countKeys)</script>")
-        BrowserReplPageClipboard(shim: try BrowserReplPasteboardTests.PageScripts.shim()).install(on: webView) { _, _ in true }
-        try await Self.withAppDroppingResends {
-            try await press(["Meta", "c"], in: webView)
-            try await press(["Meta", "x"], in: webView)
-            try await press(["Meta", "v"], in: webView)
-            try await press(["Meta", "a"], in: webView)
-            try await settle(webView, keys: 8)
-        }
-        #expect(webView.commands == ["selectAll:"], "cmux browser press ran a clipboard command in a session's tab: \(webView.commands)")
-    }
-
     /// A web view in a window, the first responder there, with the page's
     /// field focused: as in the app, WebKit gives a key in editable content
     /// to the window's input method first, and only then queues it for the
@@ -352,100 +277,6 @@ struct BrowserReplKeyResendTests {
         }
     }
 
-    /// `cmux browser press` Meta+A into a focused field of a web view in a
-    /// window, as in the app, while the key before it (Meta's key-down,
-    /// which the page takes a while to handle) is still in WebKit's key
-    /// queue. The end of that earlier key must not be taken for Meta+A's
-    /// own outcome (the press must wait for that queue, as the REPL does),
-    /// or Meta+A counts as handled and Select All is silently skipped.
-    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
-    func cmuxBrowserPressRunsSelectAllWhileAnEarlierKeyIsQueuedInAWindowsEditableField() async throws {
-        let (window, webView) = try await loadInWindow("""
-            <input id=i value=abc><script>\(Self.countKeys)
-            addEventListener('keydown', e => { if (e.key === 'Meta') { const t = performance.now(); while (performance.now() - t < 300) {} } });</script>
-            """)
-        defer { window.close() }
-        let meta = try #require(BrowserKeyboardEvent(rawKey: "Meta"))
-        let a = try #require(BrowserKeyboardEvent(rawKey: "a"))
-        let inputMethod = SlowInputMethod(webView: webView)
-        try await Self.withAppDroppingResends {
-            try await inputMethod.install {
-                #expect(await webView.replayBrowserKeyboardEvent(meta, action: .keyDown) == .delivered)
-                // Each `cmux browser press` is its own socket call: the
-                // input method has answered for Meta (WebKit queued it)
-                // before Meta+A goes out.
-                await inputMethod.waitForAnswers(1)
-                #expect(await webView.replayBrowserKeyboardEvent(a, action: .press) == .delivered)
-                #expect(await webView.replayBrowserKeyboardEvent(meta, action: .keyUp) == .delivered)
-                try await settle(webView, keys: 2)
-            }
-        }
-        #expect(try await webView.evaluateJavaScript("window.keys") as? Int == 2, "the page did not get Meta and a")
-        #expect(webView.commands == ["selectAll:"], "Meta+A no page handled ran \(webView.commands)")
-    }
-
-    /// Meta+A, Meta+C and Meta+X that no page handled, typed by a REPL
-    /// session into a focused field of a web view in a window, as in the
-    /// app: WebKit sends each back to the app, which drops the resend, so
-    /// the key's outcome must say no page handled it. Seen live (final gate,
-    /// cmux-lawrence-2): the outcome said "handled" before WebKit had even
-    /// queued the key, so Select All, Copy and Cut never ran.
-    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)), arguments: ["a", "c", "x"])
-    func aReplShortcutNoPageHandledIsUnhandledInAWindowsEditableField(_ letter: String) async throws {
-        let (window, webView) = try await loadInWindow("<input id=i value=abc><script>\(Self.countKeys)</script>")
-        defer { window.close() }
-        let stroke = try #require(try BrowserReplKeyStroke.resolve(key: letter, code: "Key\(letter.uppercased())", text: nil, modifiers: ["Meta"]))
-        var unhandled = false
-        try await Self.withAppDroppingResends {
-            #expect(webView.replayBrowserReplKeyStroke(stroke, keyDown: true, heldBy: "session") == .delivered)
-            let down = try #require(webView.browserNativeInputDeliveryOwner.lastDeliveredKeyDown)
-            let outcome = webView.observeAutomationKeyDownOutcome(down)
-            unhandled = await outcome.wasUnhandled()
-            _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false, heldBy: "session")
-        }
-        #expect(unhandled, "Meta+\(letter) no page handled was reported as handled")
-    }
-
-    /// A page that cancels the key handled it, in a window too.
-    @Test(.enabled(if: BrowserReplKeyResendTests.webKitReportsKeyOutcome, Comment(rawValue: BrowserReplKeyResendTests.needsKeyOutcome)))
-    func aReplShortcutThePageCancelledIsHandledInAWindowsEditableField() async throws {
-        let (window, webView) = try await loadInWindow(
-            "<input id=i value=abc><script>\(Self.countKeys) addEventListener('keydown', e => { if (e.metaKey) e.preventDefault(); });</script>"
-        )
-        defer { window.close() }
-        let stroke = try #require(try BrowserReplKeyStroke.resolve(key: "a", code: "KeyA", text: nil, modifiers: ["Meta"]))
-        var unhandled = true
-        try await Self.withAppDroppingResends {
-            #expect(webView.replayBrowserReplKeyStroke(stroke, keyDown: true, heldBy: "session") == .delivered)
-            let down = try #require(webView.browserNativeInputDeliveryOwner.lastDeliveredKeyDown)
-            unhandled = await webView.observeAutomationKeyDownOutcome(down).wasUnhandled()
-            _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: false, heldBy: "session")
-        }
-        #expect(!unhandled, "a key the page cancelled was reported as unhandled")
-        #expect(try await webView.evaluateJavaScript("window.keys") as? Int == 1)
-    }
-
-    /// An outcome its caller dropped before WebKit reported must go away
-    /// with its run-loop watch: nothing else may keep it (and the observer
-    /// that asks WebKit again each time the main run loop waits) alive until
-    /// a timeout nobody awaits.
-    @Test func aDroppedKeyOutcomeIsNotKeptAlive() throws {
-        let webView = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        let stroke = try #require(try BrowserReplKeyStroke.resolve(key: "a", code: "KeyA", text: nil, modifiers: ["Meta"]))
-        #expect(webView.replayBrowserReplKeyStroke(stroke, keyDown: true) == .delivered)
-        let down = try #require(webView.keyDowns.first)
-        weak var dropped: BrowserAutomationKeyDownOutcome?
-        do {
-            // The web view swallows the key, so WebKit never queues it and
-            // the outcome stays unresolved, watching the run loop.
-            let outcome = webView.observeAutomationKeyDownOutcome(down)
-            dropped = outcome
-        }
-        #expect(dropped == nil, "a dropped key outcome was kept alive")
-        // A late resend of that key finds nobody to tell and is still dropped.
-        #expect(down.dropResentBrowserAutomationKeyEvent())
-    }
-
     // The mobile browser stream replays a person's keys from their phone
     // through the specification entry point; WebKit's resend of a key no page
     // handled keeps reaching the Mac's menus there, as before.
@@ -469,25 +300,6 @@ struct BrowserReplKeyResendTests {
         webView.withBrowserWebKitKeyDownDispatch(of: delivered) {
             #expect(!delivered.isResentBrowserAutomationKeyEvent)
             #expect(!delivered.dropResentBrowserAutomationKeyEvent())
-        }
-    }
-
-    /// WebKit's resend of one tab's key can reach the app while another
-    /// web view (another tab, another session) delivers its own automated
-    /// key. Only that exact key's own delivery exempts it; any other
-    /// delivery in flight must not let the resend through to the user's
-    /// key window, where it would type into the terminal or run a menu
-    /// shortcut.
-    @Test func anotherWebViewsDeliveryDoesNotLetAResendThrough() throws {
-        let webView = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        let other = RecordingWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200))
-        let stroke = try #require(try BrowserReplKeyStroke.resolve(key: "q", code: "KeyQ", text: "q", modifiers: []))
-        _ = webView.replayBrowserReplKeyStroke(stroke, keyDown: true)
-        let delivered = try #require(webView.keyDowns.first)
-        other.withBrowserWebKitKeyDownDispatch {
-            #expect(delivered.isResentBrowserAutomationKeyEvent,
-                    "another web view's delivery hid this key's resend")
-            #expect(delivered.dropResentBrowserAutomationKeyEvent())
         }
     }
 

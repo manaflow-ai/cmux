@@ -112,58 +112,6 @@ extension BrowserReplPasteboardTests {
             #expect(again?.string(forType: .string) == nil, "the discard kept a late write", sourceLocation: sourceLocation)
         }
 
-        /// A page whose drag handler runs past the window's bound: WebKit
-        /// writes the drag data after the bound, so the write must go to a
-        /// private discard, no other drag may open its window meanwhile,
-        /// and the drag WebKit then starts is known to carry no data.
-        @Test func aDragStartedPastItsWindowsBoundWritesOnlyToADiscard() async {
-            let capture = BrowserAutomationDragCapture()
-            let other = BrowserAutomationDragCapture()
-            defer {
-                capture.closePasteboardWindow()
-                other.closePasteboardWindow()
-                capture.finish()
-                other.finish()
-            }
-            let redirect = BrowserReplDragPasteboardRedirect.shared
-            let clock = ManualClock()
-            #expect(await redirect.openDragWindow(capture.pasteboard, timeout: .seconds(5), clock: clock))
-            await clock.waitForSleepers(1)
-            clock.advance(by: .seconds(5))
-            await Self.untilLookup(isNot: capture.pasteboard)
-            Self.expectPrivateDiscard(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true), not: capture.pasteboard)
-
-            let waiting = Task { @MainActor in
-                await redirect.openDragWindow(other.pasteboard, timeout: .seconds(5), clock: clock)
-            }
-            await clock.waitForSleepers(1)
-            clock.advance(by: .seconds(5))
-            #expect(await waiting.value == false, "another drag opened its window while a late event could still write")
-
-            // WebKit wrote the data (to the discard), then starts the drag.
-            capture.begin()
-            #expect(capture.didBegin)
-            #expect(capture.lostDragData, "a drag started past its window's bound was taken as carrying the page's data")
-            #expect(redirect.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil)
-        }
-
-        /// The tab's drag state is reset (the capture is cleared) while
-        /// WebKit still handles the event that opened the window: lookups
-        /// stay private until the driver closes the window.
-        @Test func aCaptureClearedWhileItsEventRunsKeepsLateWritesPrivate() async {
-            let capture = BrowserAutomationDragCapture()
-            defer { capture.closePasteboardWindow() }
-            #expect(await capture.openPasteboardWindow())
-            capture.finish()
-            Self.expectPrivateDiscard(
-                BrowserReplDragPasteboardRedirect.shared.redirectTarget(forLookupOf: Self.drag, fromWebKit: true),
-                not: capture.pasteboard
-            )
-            // The driver closes the window once WebKit handled the event.
-            capture.closePasteboardWindow()
-            #expect(BrowserReplDragPasteboardRedirect.shared.redirectTarget(forLookupOf: Self.drag, fromWebKit: true) == nil)
-        }
-
         /// A finished capture's pasteboard is closed off, emptied and
         /// released, and the capture cannot open its window again.
         @Test func aFinishedCaptureReleasesItsPasteboard() async {

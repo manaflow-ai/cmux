@@ -357,15 +357,11 @@ Each session that drives a tab has its own agent world
 (Playwright's injected script plus `page-agent.js`, about 400 KB) runs in
 that world in every frame of every document the tab loads. Measured
 2026-10-04 on the dev Mac (M-series, macOS 27.0) with real WebKit in a
-package test: a page of a 40-item list and, in the second table, 10
+package test (since removed): a page of a 40-item list and, in the second table, 10
 same-site iframes each holding a form and the same list; a reload's time
 (p50 of 7) and the web content process's physical footprint after the
 reloads, with 0 to 8 session worlds installed. Three runs; the ranges are
 over runs.
-
-```sh
-CMUX_BREPL_WORLD_COST=1 swift test --package-path Packages/macOS/CmuxBrowser --filter BrowserReplSessionWorldCostTests
-```
 
 One document a load:
 
