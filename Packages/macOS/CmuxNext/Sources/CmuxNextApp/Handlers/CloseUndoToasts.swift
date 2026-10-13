@@ -167,6 +167,9 @@ final class CloseUndoToasts {
         }
         announced += 1
         guard !entries.isEmpty else { announcedEmpty += 1; return }
+        // A second close of a tab whose close is still waiting (a repeated Cmd-W) is the same gesture.
+        let pending = Set(expected.flatMap { $0.tabs.map(\.id) })
+        guard !entries.contains(where: { pending.contains($0.id) }) else { return }
         let title = tabs.count == 1 ? Self.title(of: tabs[0], titles: services.map { TabTitleResolver(services: $0) } ?? TabTitleResolver()) : ""
         nextSerial += 1
         var close = Expected(tabs: entries.sorted { $0.index < $1.index }, paneResourceID: pane.resourceID,
@@ -218,7 +221,7 @@ final class CloseUndoToasts {
         for id in added {
             let entry = DaemonClosedHistory.entry(id, in: services)
             let position = entry.flatMap { entry in
-                entry.item.kind == .tab ? expected.firstIndex { $0.paneResourceID != nil && $0.paneResourceID == entry.item.paneID } : nil
+                entry.item.kind == .tab ? expected.firstIndex { !$0.recorded && $0.paneResourceID != nil && $0.paneResourceID == entry.item.paneID } : nil
             }
             recentDaemonItems.append((id, entry?.item.paneID?.rawValue, entry?.item.tabs.count ?? 0, position != nil))
             if recentDaemonItems.count > 8 { recentDaemonItems.removeFirst(recentDaemonItems.count - 8) }

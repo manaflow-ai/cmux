@@ -14,19 +14,11 @@ import CmuxNextDaemon
 /// page), a New Tab or blank browser page, a dead tab.
 @MainActor
 struct CloseToastRule {
-    enum Decision: Equatable {
+    enum Decision {
         case show
         case skip
         /// Shows only if one of these live terminals runs a program.
         case askTerminals([TabModel])
-
-        static func == (lhs: Decision, rhs: Decision) -> Bool {
-            switch (lhs, rhs) {
-            case (.show, .show), (.skip, .skip): true
-            case (.askTerminals(let a), .askTerminals(let b)): a.map(\.id) == b.map(\.id)
-            default: false
-            }
-        }
     }
 
     var titles: TabTitleResolver
@@ -34,17 +26,19 @@ struct CloseToastRule {
     var hasUnsentDraft: (TabModel) -> Bool
     var isWorking: (TabModel) -> Bool = { tab in
         if let state = tab.agent?.state, state == .working || state == .blocked { return true }
-        return StatusMapping.shared.isWorking(tabs: [tab])
+        return StatusMapping.shared.isWorking(tabs: [tab]) || StatusMapping.shared.needsInput(tab)
     }
 
     init(services: AppServices) {
         titles = TabTitleResolver(services: services)
         let agentTabs = services.madeAgentTabs
-        hasUnsentDraft = { tab in agentTabs?.unsentDrafts.hasDraft(tab.id) ?? false }
+        hasUnsentDraft = { tab in agentTabs.map { $0.unsentDrafts.hasDraft($0.resolve(tab.id)) } ?? false }
     }
 
     /// A tab that reopens with nothing lost: a page, a New Tab or blank page, a dead tab.
+    /// A new chat with typed text is not (its tab is still a New Tab page).
     func reopensFree(_ tab: TabModel) -> Bool {
+        if hasUnsentDraft(tab) { return false }
         if tab.dead || titles.page(tab) != nil || titles.isNewTabPage(tab) { return true }
         guard tab.kind == .browser else { return false }
         let url = tab.url ?? ""
