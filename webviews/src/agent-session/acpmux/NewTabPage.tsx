@@ -27,8 +27,6 @@ export type TabKind = (typeof TAB_KINDS)[number];
 /// The event the host dispatches on `window` for Focus Location Bar (Cmd-L).
 export const FOCUS_LOCATION_EVENT = "acpmux-focus-location";
 
-/// What Cmd-T and + open (`tabs.newTabKind`), in the order the "default" toggle cycles.
-
 /// New tab page copy: keys of the pane's string table.
 export const NEW_TAB_LABELS = {
   kinds: {
