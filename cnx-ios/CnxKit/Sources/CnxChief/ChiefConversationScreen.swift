@@ -42,10 +42,7 @@ extension ConversationPresentationOptions {
             placeholder: String(localized: "Message Chief"),
             serviceTitle: "Chief",
             serviceSubtitle: String(localized: "Runs your agents on your Macs"),
-            trailingSymbol: "clock.arrow.circlepath",
-            // Every bubble slides left to show send times, as in the
-            // package's lab host (user feedback: only the blue ones moved).
-            incomingRowsFollowTimestampDrawer: true
+            trailingSymbol: "clock.arrow.circlepath"
         )
     }
 }
@@ -103,6 +100,20 @@ public final class ChiefConversationContainer: UIViewController, UIGestureRecogn
         conversation.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(conversation.view)
         conversation.didMove(toParent: self)
+    }
+
+    /// The back button's count of other unread conversations, the way the
+    /// package's lab host feeds it (`ConversationUnreadBadge`). Setting it
+    /// also configures the header from the store; the shared Chief store is
+    /// usually connected before this screen exists, so no later store change
+    /// would configure it once the header is in a window.
+    var backUnreadCount = 0 {
+        didSet { if isViewLoaded, view.window != nil { conversation.setBackUnreadCount(backUnreadCount) } }
+    }
+
+    public override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        conversation.setBackUnreadCount(backUnreadCount)
     }
 
     public override func viewDidAppear(_ animated: Bool) {
@@ -174,6 +185,13 @@ public final class ChiefDemoHook {
     public func attachPhoto(_ image: UIImage) {
         guard let controller, let data = image.jpegData(compressionQuality: 0.85) else { return }
         controller.store.send(text: "", images: [(data: data, width: Int(image.size.width * image.scale), height: Int(image.size.height * image.scale), mimeType: "image/jpeg")])
+    }
+
+    /// Tapbacks the newest incoming message, as picking one in the bar does.
+    public func react(_ name: String) {
+        guard let reaction = ConversationReaction(rawValue: name), let store = controller?.store,
+              let message = store.messages.last(where: { $0.senderID != store.meID && $0.seq != nil }) else { return }
+        store.react(messageID: message.id, reaction: reaction)
     }
 
     /// Scrolls the transcript to the top (true) or the bottom (false).

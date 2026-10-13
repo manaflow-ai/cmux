@@ -70,8 +70,6 @@ final class MessageCell: UICollectionViewCell {
     var timestampReveal: CGFloat = 0 { didSet { applyShifts() } }
     /// Drawer travel at a full reveal (set per swipe); see `TimestampDrawerRows`.
     var timestampRevealDistance: CGFloat = 58 { didSet { applyShifts() } }
-    /// `ConversationPresentationOptions.incomingRowsFollowTimestampDrawer`.
-    var incomingFollowsTimestampDrawer = false { didSet { applyShifts() } }
     /// Swipe-right reply drag offset in points (the bubble's travel).
     var replyDrag: CGFloat = 0 { didSet { applyShifts() } }
     /// Select mode leading shift for incoming rows.
@@ -489,7 +487,7 @@ final class MessageCell: UICollectionViewCell {
         guard let model else { return }
         let reveal = TimestampDrawerRows.travel(
             isOutgoing: model.isOutgoing,
-            inAvatarTranscript: model.reservesAvatarColumn || incomingFollowsTimestampDrawer,
+            inAvatarTranscript: model.reservesAvatarColumn,
             reveal: timestampReveal * timestampRevealDistance
         )
         shiftable.transform = CGAffineTransform(translationX: replyDrag + selectionShift - reveal, y: 0)
@@ -707,7 +705,7 @@ final class TimestampCell: UICollectionViewCell {
     static var gapAfterBody: CGFloat {
         let font = ConversationTheme.captionFont
         return ConversationTranscriptMetrics.timestampLineGap(
-            captionLineSpacing: font.lineHeight + font.leading, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
+            captionLineSpacing: ConversationTheme.captionLineSpacing, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
         )
     }
 
@@ -727,7 +725,7 @@ final class TimestampCell: UICollectionViewCell {
     static var height: CGFloat {
         let font = ConversationTheme.captionFont
         let below = ConversationTranscriptMetrics.timestampFollowingGap(
-            captionLineSpacing: font.lineHeight + font.leading, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
+            captionLineSpacing: ConversationTheme.captionLineSpacing, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
         )
         return lineTop + MessageCellLayout.pixelCeil(ConversationTheme.timestampFont.lineHeight) + below - nextRowGap
     }
@@ -813,7 +811,7 @@ final class ConversationStartCell: UICollectionViewCell {
     static var height: CGFloat {
         let font = ConversationTheme.captionFont
         let gap = ConversationTranscriptMetrics.headerToTimestampGap(
-            captionLineSpacing: font.lineHeight + font.leading, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
+            captionLineSpacing: ConversationTheme.captionLineSpacing, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
         )
         return topInset + textHeight + gap - TimestampCell.lineTop
     }
@@ -891,11 +889,9 @@ final class TypingCell: UICollectionViewCell {
     /// the transcript. Shifting the bounds origin leaves the content view's
     /// transform to arrival animations.
     var timestampDrawerOffset: CGFloat = 0 { didSet { applyTimestampDrawerOffset() } }
-    /// `ConversationPresentationOptions.incomingRowsFollowTimestampDrawer`.
-    var incomingFollowsTimestampDrawer = false { didSet { applyTimestampDrawerOffset() } }
 
     private func applyTimestampDrawerOffset() {
-        contentView.bounds.origin.x = TimestampDrawerRows.travel(isOutgoing: false, inAvatarTranscript: !avatar.isHidden || incomingFollowsTimestampDrawer, reveal: timestampDrawerOffset)
+        contentView.bounds.origin.x = TimestampDrawerRows.travel(isOutgoing: false, inAvatarTranscript: !avatar.isHidden, reveal: timestampDrawerOffset)
     }
 
     override init(frame: CGRect) {

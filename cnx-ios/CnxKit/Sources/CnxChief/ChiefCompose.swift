@@ -127,7 +127,6 @@ public final class ChiefComposer {
         guard let presenter = Self.topController() else { return false }
         let directory = ChiefDirectory(recipients: ChiefDirectory.recipients(store: store, identity: session.identity))
         let compose = ConversationComposeViewController(directory: directory)
-        compose.serviceLine = ("cmux", String(localized: "Chief and your agents, on your Macs"))
         compose.onOpenConversation = { [weak self, weak compose] creation, message in
             guard let self else { return }
             compose?.presentingViewController?.dismiss(animated: true)
