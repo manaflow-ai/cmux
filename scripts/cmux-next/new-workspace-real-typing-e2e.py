@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Real-key proof that no key typed right after Cmd-N is lost (cx-kql5h) on a running tagged
-cmux-next build, cold and warm.
+"""Real-key proof that no key typed right after an action that makes a New Tab page is lost
+(cx-kql5h) on a running tagged cmux-next build: Cmd-N (New Workspace), Cmd-T from a terminal,
+Cmd-D from a New Tab page (the new pane gets one) and New Tab Page from the command palette.
 
 Lawrence's keys came 55-67 ms after Cmd-N at 25-30 keys/s and the New Tab field of the new
 workspace lost the first 2-3 ("hello world 123" became "lo world 123"): nothing held them while
@@ -9,13 +10,14 @@ the window server (CGEvent, HID tap), as a keyboard does: Cmd-N, then each chara
 at --rate keys/s, the first one --delay-ms after Cmd-N. The field of the new workspace's New Tab
 page must then hold the whole text (`debug.new_tab` `field`).
 
-- cold: the app is relaunched before each run (its first Cmd-N).
-- warm: runs back to back in the same app.
+- cold: the app is relaunched before each Cmd-N run (its first Cmd-N).
+- warm: Cmd-N, Cmd-T, split and palette runs back to back in the same app. A Cmd-T or palette run
+  starts on a terminal tab (made through the socket, not measured), so a new page really opens.
 
 Needs the logged-in GUI session and the right to post events (nx-remote --needs input). The
 helper brings the tagged app to the front itself. It never touches another app's windows.
 
-Usage: new-workspace-real-typing-e2e.py --tag <tag> [--cold N] [--warm N] [--rate 30] [--delay-ms 40]
+Usage: new-workspace-real-typing-e2e.py --tag <tag> [--cold N] [--warm N] [--others N] [--rate 30] [--delay-ms 40]
 Exit status 0 when every run kept every key.
 """
 import argparse, json, os, re, socket, subprocess, sys, tempfile, time
@@ -24,6 +26,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
 parser.add_argument("--cold", type=int, default=10)
 parser.add_argument("--warm", type=int, default=10)
+parser.add_argument("--others", type=int, default=5, help="warm runs of each other flow (Cmd-T, split, palette)")
 parser.add_argument("--rate", type=float, default=30.0)
 parser.add_argument("--delay-ms", type=int, default=40)
 parser.add_argument("--text", default="hello world 123")
@@ -38,12 +41,11 @@ import AppKit
 import CoreGraphics
 import Foundation
 
-// args: pid text rate delayMs
+// args: pid planJSON. A plan is a list of steps: {"chord": [keyCode, "cmd,shift"]}, {"key": keyCode},
+// {"wait_ms": n}, {"type": text, "rate": keysPerSecond, "measure": bool}.
 let args = CommandLine.arguments
 let pid = pid_t(args[1])!
-let text = args[2]
-let rate = Double(args[3])!
-let delayMs = Double(args[4])!
+let plan = try! JSONSerialization.jsonObject(with: Data(args[2].utf8)) as! [[String: Any]]
 let keys: [Character: (UInt16, Bool)] = {
     var map: [Character: (UInt16, Bool)] = [:]
     let plain: [(Character, UInt16)] = [("a",0),("s",1),("d",2),("f",3),("h",4),("g",5),("z",6),("x",7),("c",8),("v",9),("b",11),
@@ -73,19 +75,42 @@ while NSWorkspace.shared.frontmostApplication?.processIdentifier != pid && now()
 }
 guard NSWorkspace.shared.frontmostApplication?.processIdentifier == pid else { print("{\"error\":\"app not frontmost\"}"); exit(5) }
 usleep(300_000)  // harness: the activation settles before the first key
-let start = now()
-post(45, .maskCommand)  // Cmd-N
-var first = 0.0
-let gap = 1000.0 / rate
-for (index, character) in text.enumerated() {
-    let due = start + delayMs + Double(index) * gap
-    while now() < due { usleep(500) }  // harness: key pacing
-    if index == 0 { first = now() - start }
-    guard let (code, shift) = keys[character] else { continue }
-    post(code, shift ? .maskShift : [])
+var lastChord = now()
+var first = -1.0
+var measuredStart = 0.0
+var measuredCount = 0
+var clock = now()
+for step in plan {
+    if let chord = step["chord"] as? [Any], let code = chord[0] as? Int {
+        var flags: CGEventFlags = []
+        for name in ((chord.count > 1 ? chord[1] as? String : nil) ?? "").split(separator: ",") {
+            switch name { case "cmd": flags.insert(.maskCommand); case "shift": flags.insert(.maskShift)
+            case "opt": flags.insert(.maskAlternate); case "ctrl": flags.insert(.maskControl); default: break }
+        }
+        post(UInt16(code), flags)
+        lastChord = now(); clock = lastChord
+    } else if let code = step["key"] as? Int {
+        post(UInt16(code), []); clock = now()
+    } else if let wait = step["wait_ms"] as? Double {
+        clock += wait
+        while now() < clock { usleep(300) }  // harness: step pacing
+    } else if let text = step["type"] as? String {
+        let gap = 1000.0 / ((step["rate"] as? Double) ?? 30)
+        let measure = (step["measure"] as? Bool) ?? false
+        let start = clock
+        for (index, character) in text.enumerated() {
+            let due = start + Double(index) * gap
+            while now() < due { usleep(300) }  // harness: key pacing
+            if measure && index == 0 { first = now() - lastChord; measuredStart = now() }
+            guard let (code, shift) = keys[character] else { continue }
+            post(code, shift ? .maskShift : [])
+        }
+        if measure { measuredCount = text.count }
+        clock = now()
+    }
 }
-let total = now() - start
-print("{\"first_key_ms\":\(first),\"keys_ms\":\(total),\"rate\":\(Double(text.count) / ((total - first) / 1000.0))}")
+let span = now() - measuredStart
+print("{\"first_key_ms\":\(first),\"keys_ms\":\(span),\"rate\":\(span > 0 ? Double(max(measuredCount - 1, 0)) / (span / 1000.0) : 0)}")
 '''
 
 
@@ -142,9 +167,29 @@ def field_text():
     return None if "error" in reply else reply.get("text")
 
 
-def run(name, helper):
+CMD_N = [{"chord": [45, "cmd"]}]
+CMD_T = [{"chord": [17, "cmd"]}]
+CMD_D = [{"chord": [2, "cmd"]}]
+PALETTE = [{"chord": [35, "cmd,shift"]}, {"wait_ms": 400}, {"type": "new tab page", "rate": 30}, {"wait_ms": 250},
+           {"key": 36}]
+
+
+def plan(action):
+    return action + [{"wait_ms": opts.delay_ms}, {"type": opts.text, "rate": opts.rate, "measure": True}]
+
+
+def focus_terminal_tab():
+    """A terminal tab in the focused pane, so the next New Tab really opens a page (not measured)."""
+    print("  setup newSurface:", rpc("action.run", {"action": "newSurface", "args": {}, "focus": True}), flush=True)
+    wait(lambda: field_text() is None, 5)
+    time.sleep(1)  # test harness: the terminal takes the keyboard
+
+
+def run(name, helper, steps, setup=None):
+    if setup:
+        setup()
     pid = app_pid()
-    result = subprocess.run([helper, str(pid), opts.text, str(opts.rate), str(opts.delay_ms)], capture_output=True, text=True, timeout=60)
+    result = subprocess.run([helper, str(pid), json.dumps(plan(steps))], capture_output=True, text=True, timeout=60)
     timing = {}
     try:
         timing = json.loads(result.stdout.strip().splitlines()[-1])
@@ -168,13 +213,19 @@ def main():
     rows = []
     for index in range(opts.cold):
         launch()
-        rows.append(run(f"cold-{index + 1}", helper))
-    if opts.warm:
+        rows.append(run(f"cold-cmdn-{index + 1}", helper, CMD_N))
+    if opts.warm or opts.others:
         if not opts.cold:
             launch()
         for index in range(opts.warm):
             time.sleep(1)  # test harness: the previous workspace settles
-            rows.append(run(f"warm-{index + 1}", helper))
+            rows.append(run(f"warm-cmdn-{index + 1}", helper, CMD_N))
+        for index in range(opts.others):
+            rows.append(run(f"warm-cmdt-{index + 1}", helper, CMD_T, setup=focus_terminal_tab))
+            # Cmd-D on the New Tab page just made: the new pane opens its own New Tab page.
+            time.sleep(1)  # test harness: the page settles
+            rows.append(run(f"warm-split-{index + 1}", helper, CMD_D))
+            rows.append(run(f"warm-palette-{index + 1}", helper, PALETTE, setup=focus_terminal_tab))
     rpc("debug.quit", {"press": "end-everything"})
     with open(os.path.join(opts.out, "new-workspace-real-typing.json"), "w") as handle:
         json.dump(rows, handle, indent=1)
