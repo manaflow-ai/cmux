@@ -132,7 +132,8 @@ extension WindowRootView {
                 continue
             }
             switch constraint.firstAttribute {
-            case .leading, .top: constraint.constant = gutter
+            case .top: constraint.constant = mainPaneTopInset()
+            case .leading: constraint.constant = gutter
             case .trailing, .bottom: constraint.constant = -gutter
             default: break
             }
@@ -145,6 +146,25 @@ extension WindowRootView {
     /// window's own corners, which change with fullscreen.
     var mainPaneCornerRadius: CGFloat {
         Metrics.mainPaneCornerRadius(windowCornerRadius: window?.frameCornerRadius ?? 0)
+    }
+
+    /// The card's top inset: the gutter, except under a minimal titlebar,
+    /// where the top row's tab pills center on the traffic lights' line
+    /// (never more than the gutter; `PaneChromeMetrics.cardTop`).
+    func mainPaneTopInset() -> CGFloat {
+        let gutter = Metrics.mainPaneGutter
+        guard titlebarStyle == .minimal, let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) else { return gutter }
+        let centerFromTop = bounds.maxY - convert(lights, from: nil).midY
+        return min(gutter, PaneChromeMetrics.current.cardTop(centeringPillOn: centerFromTop, scale: window.backingScaleFactor))
+    }
+
+    /// Re-applies the card's top inset when the traffic lights' line moved
+    /// (window attach, fullscreen, titlebar style); no-op otherwise.
+    func updateMainPaneTopInset() {
+        let top = mainPaneTopInset()
+        for constraint in mainPaneEdges where constraint.firstItem === contentHost && constraint.firstAttribute == .top && constraint.constant != top {
+            constraint.constant = top
+        }
     }
 
     /// The content host's edge constraints: top and bottom, and the

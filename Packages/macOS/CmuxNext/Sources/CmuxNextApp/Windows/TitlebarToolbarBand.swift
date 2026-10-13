@@ -115,9 +115,13 @@ final class TitlebarToolbarBand: NSView {
         sidebarToggle.symbol = SidebarToggleIcon.tunable.value(in: iconStore).symbol(sidebarHidden: hidden)
     }
 
+    /// Between groups in the top row (traffic lights, the toggle, Back and
+    /// Forward); the pair inside a group sits `Metrics.space1` apart.
+    static var groupGap: CGFloat { Metrics.space3 }
+
     /// The band's full width for its items: the toggle first, then Back
     /// and Forward.
-    static var width: CGFloat { TitlebarBandButton.side * 3 + Metrics.space1 * 2 }
+    static var width: CGFloat { TitlebarBandButton.side * 3 + groupGap + Metrics.space1 }
 
     /// Each item is `presence` of its width, and the gaps close with it, so
     /// the band reaches 0 width with no jump.
@@ -126,9 +130,9 @@ final class TitlebarToolbarBand: NSView {
         let side = TitlebarBandButton.side
         let width = side * presence
         var x: CGFloat = 0
-        for button in [sidebarToggle, backButton, forwardButton] {
+        for (button, gap) in [(sidebarToggle, Self.groupGap), (backButton, Metrics.space1), (forwardButton, 0)] {
             button.frame = NSRect(x: x, y: (bounds.height - side) / 2, width: width, height: side)
-            x += (side + Metrics.space1) * presence
+            x += (side + gap) * presence
         }
     }
 
