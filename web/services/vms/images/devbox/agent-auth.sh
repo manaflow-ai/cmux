@@ -218,12 +218,32 @@ cmux_claude_apply_auth_mode() {
 # -c model_provider="openai", the built-in provider that uses `codex login`.
 # Only a config cmux generated is overridden; a user's own provider choice is
 # left alone.
+cmux_codex_uses_generated_provider() {
+  cmux_codex_config="${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml"
+  [ -f "$cmux_codex_config" ] || return 1
+  # Read the TOML value instead of matching the generator's formatting. The
+  # config is also written by the Codex hook installer and may use valid TOML
+  # quoting/whitespace that differs from the generated spelling.
+  python3 - "$cmux_codex_config" <<'CMUX_CODEX_PROVIDER'
+import pathlib
+import sys
+import tomllib
+
+try:
+    document = tomllib.loads(pathlib.Path(sys.argv[1]).read_text())
+except (OSError, UnicodeError, tomllib.TOMLDecodeError):
+    raise SystemExit(1)
+
+raise SystemExit(0 if document.get("model_provider") == "cmux" else 1)
+CMUX_CODEX_PROVIDER
+}
+
 cmux_codex_apply_auth_mode() {
   cmux_codex_own_provider=0
   cmux_agent_auth_resolve codex
   [ "$cmux_agent_auth_mode" = own ] || return 0
   cmux_agent_drop_model_plane_env
-  if grep -qx 'model_provider = "cmux"' "${CODEX_HOME:-${HOME:-/root}/.codex}/config.toml" 2>/dev/null; then
+  if cmux_codex_uses_generated_provider; then
     cmux_codex_own_provider=1
   fi
 }
