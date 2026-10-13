@@ -146,6 +146,41 @@ export default agentPaneEntry({
         if (line.height > 32) throw new Error(`the Integrate a harness line is ${line.height}px tall, not one line`);
       },
     },
+    "typed-over-note": {
+      note: "hq#1925 12: suggestions open over No agent to ask and the New terminal / browser / chat row cover them; no text under the popover shows through.",
+      ready: { ...newTab(), transport: "mock" },
+      mockHarnesses: [],
+      snapshot: { ...noChat(), catalog: [] },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-no-agent") !== null);
+        await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-popover .nt-row") !== null);
+        const popover = ctx.document.querySelector<HTMLElement>(".nt-popover")!;
+        const style = ctx.document.defaultView!.getComputedStyle(popover);
+        const alpha = /\/\s*([\d.]+%?)\s*\)$|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/.exec(style.backgroundColor);
+        const fill = alpha ? (alpha[1] ?? alpha[2])! : "1";
+        const opaque = fill.endsWith("%") ? parseFloat(fill) >= 100 : parseFloat(fill) >= 1;
+        if (!opaque || parseFloat(style.opacity) < 1)
+          throw new Error(
+            `the suggestions show the page through them (${style.backgroundColor}, opacity ${style.opacity})`,
+          );
+        const cover = popover.getBoundingClientRect();
+        const under = [...ctx.document.querySelectorAll<HTMLElement>(".nt-no-agent > *, .nt-create > *")].filter(
+          (item) => {
+            const rect = item.getBoundingClientRect();
+            return (
+              rect.width > 0 && rect.top < cover.bottom - 2 && rect.bottom > cover.top && rect.left < cover.right - 8
+            );
+          },
+        );
+        for (const item of under) {
+          const rect = item.getBoundingClientRect();
+          const y = Math.min((rect.top + rect.bottom) / 2, cover.bottom - 2);
+          const hit = ctx.document.elementFromPoint(Math.max(rect.left, cover.left) + Math.min(8, rect.width / 2), y);
+          if (!hit?.closest(".nt-popover")) throw new Error(`"${item.textContent?.trim()}" draws over the suggestions`);
+        }
+      },
+    },
     "harnesses-from-menu": {
       note: "Play: Integrate a Harness… from the palette or the File menu on this page (cx-9fqw) shows the Harnesses page here, in place, not in a second tab.",
       ready: newTab(),
