@@ -49,15 +49,30 @@ pub fn socket_path() -> PathBuf {
     resolved
 }
 
-/// Windows port: the socket path rule there is `cmux::local_socket`'s (a
-/// later landing).
-#[cfg(not(unix))]
+/// Windows: `ACPMUX_SOCKET`, else `<home>\\acpmux.sock`; a long home (AF_UNIX
+/// paths are limited to 108 bytes there too) falls back to a short path in an
+/// owner-only folder in this user's temp folder, derived from the home path
+/// so daemon and clients agree.
+#[cfg(windows)]
 pub fn socket_path() -> PathBuf {
-    std::env::var("ACPMUX_SOCKET")
-        .ok()
-        .filter(|v| !v.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home().join("acpmux.sock"))
+    if let Some(v) = std::env::var("ACPMUX_SOCKET").ok().filter(|v| !v.is_empty()) {
+        return PathBuf::from(v);
+    }
+    let preferred = home().join("acpmux.sock");
+    if preferred.as_os_str().len() < 96 {
+        return preferred;
+    }
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in home().to_string_lossy().bytes() {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x0100_0000_01b3);
+    }
+    let dir = std::env::temp_dir().join("acpmux");
+    let path = dir.join(format!("{hash:016x}.sock"));
+    if path.as_os_str().len() < 96 && cmux::local_socket::private_directory(&dir).is_ok() {
+        return path;
+    }
+    preferred
 }
 
 /// Create `dir` mode 0700 if missing; true only when it is a real directory
@@ -826,7 +841,7 @@ pub const LAUNCH_CREDENTIAL_ENV: &str = "CMUX_LAUNCH_CREDENTIAL";
 
 /// The keys `scrub_nested_claude_env` removes, from the daemon's environment
 /// and the imported login environment.
-fn nested_claude_keys() -> Vec<std::ffi::OsString> {
+pub(crate) fn nested_claude_keys() -> Vec<std::ffi::OsString> {
     if std::env::var_os("CLAUDECODE").is_none() {
         return Vec::new();
     }

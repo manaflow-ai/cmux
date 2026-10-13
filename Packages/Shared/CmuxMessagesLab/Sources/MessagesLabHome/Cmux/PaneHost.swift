@@ -185,6 +185,44 @@ final class HostView: NSView {
         super.viewDidMoveToWindow()
         controller?.windowChanged()
         observeWindowPlace()  // MessagesLab b6760b6: another window, another place (PaneHost+WindowPlace.swift)
+        restoreClipMaskOutsideLiveResize()
+    }
+
+    // MARK: Live resize (MessagesLab c483761 resize-drops, Host.swift)
+
+    /// While the window is resized live: the transcript clip has no mask, and the chrome's border is its nine-part
+    /// image (ChromeView.liveResizing; Home hides the chrome), so no width makes the render server draw the
+    /// transcript offscreen to fit the mask. The clip's mask (WindowView placeMask) clips nothing that the window
+    /// view's own bounds do not. Both come back when the resize ends (the still pixels are the resting ones).
+    private var restingClipMask: CALayer?
+    override func viewWillStartLiveResize() {
+        super.viewWillStartLiveResize()
+        guard let demo, restingClipMask == nil, let m = demo.clip.layer.mask else { demo?.chrome.liveResizing = true; return }
+        restingClipMask = m
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        demo.clip.layer.mask = nil
+        CATransaction.commit()
+        demo.chrome.liveResizing = true
+    }
+    /// The view left its window (or came to another) during a live resize, so no viewDidEndLiveResize comes: the mask
+    /// is put back unless the new window is itself in a live resize (a pane closed or a tab moved during the drag).
+    private func restoreClipMaskOutsideLiveResize() {
+        guard let demo, let m = restingClipMask, window?.inLiveResize != true else { return }
+        restingClipMask = nil
+        demo.chrome.liveResizing = false
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        demo.clip.layer.mask = m
+        CATransaction.commit()
+    }
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        guard let demo else { return }
+        demo.chrome.liveResizing = false
+        guard let m = restingClipMask else { return }
+        restingClipMask = nil
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        demo.clip.layer.mask = m
+        CATransaction.commit()
     }
 
     /// A backing scale change (the window moved to a display with another scale): ChatController.displayScaleChanged

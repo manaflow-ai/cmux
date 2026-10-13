@@ -3,6 +3,7 @@ import { introspectWorkflowInstance, runInDurableObject } from "cloudflare:test"
 import type { Principal } from "@cmux/ownership"
 import { importJWK, SignJWT, type JWK } from "jose"
 import { describe, expect, it } from "vitest"
+import { automationPrincipal } from "../src/automation-caps.ts"
 import { testBundles } from "../src/code-run.ts"
 import { fireAlarm } from "./setup/alarm.ts"
 // Route tests: drive the API Worker over HTTP; restored by the unit-test lane (slice 5 deleted them by mistake).
@@ -194,6 +195,78 @@ describe("Tier 1 code runs (workerd)", () => {
     expect(run).toMatchObject({ state: "failed", error: { code: "budget.cap_reached" } })
     const usage = await read(t, "usage.summary")
     expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.steps").quantity).toBe(0)
+  })
+
+  it("does not start tenant code when the automation owner is at their monthly AI limit (cx-ds09i)", async () => {
+    const bundle = `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      export default class extends WorkflowEntrypoint { async run(event, step) { await step.do("x", async () => 1); } }`
+    const { t, run } = await runOnce("code-run-12", sha(12), bundle, async (tok) => {
+      // The owner (creator of the automation) sets their personal team's per-member limit to 0.
+      expect((await op(tok, "team.ai_limit.set", { default_usd: 0 })).ok).toBe(true)
+    })
+    expect(run).toMatchObject({ state: "failed", error: { code: "user_limit.reached" } })
+    const usage = await read(t, "usage.summary")
+    expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.steps").quantity).toBe(0)
+  })
+
+  it("charges a manual run to the member who started it, not to the automation's creator (cx-ds09i review P2)", async () => {
+    const bundle = `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      export default class extends WorkflowEntrypoint { async run(event, step) { await step.do("x", async () => 1); } }`
+    const { team, run } = await runOnce("code-run-13", sha(13), bundle)
+    expect(run.state).toBe("succeeded")
+    const meter = (env as unknown as { USAGE_METER_DO: DurableObjectNamespace }).USAGE_METER_DO.get((env as unknown as { USAGE_METER_DO: DurableObjectNamespace }).USAGE_METER_DO.idFromName(team))
+    let users: Array<string> = []
+    await inDO(meter, async (m) => {
+      users = m.ctx.storage.sql.exec(`SELECT user FROM user_month WHERE usd_micros > 0`).toArray().map((r: { user: string }) => r.user)
+    })
+    // runOnce creates the automation as user_cccc... and starts the run with the token of the "code-run-13" user.
+    expect(users.length).toBe(1)
+    expect(users[0]).not.toBe("user_cccccccccccccccccccc")
+    expect(users[0]).toMatch(/^user_[0-9a-f]{20}$/)
+  })
+
+  it("an effective automation.update makes the editor the payer; a rename does not (cx-ds09i review P2)", async () => {
+    const t = await token("code-run-14")
+    const team = (await op(t, "user.ensure", {})).value.personal_team as string
+    const scheduler = testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(team))
+    const as = (user: string): Principal => ({ identity: `session:${user}`, kind: "session", user, team })
+    const submit = async (s: any, p: Principal, opName: string, params: unknown) => {
+      const r = await s.submit(team, p, { t: "op", op: opName, params, idempotency_key: crypto.randomUUID(), origin: "cli" })
+      return r.frames.find((f: { t: string }) => f.t === "result")?.value
+    }
+    await inDO(scheduler, async (s) => {
+      const a = await submit(s, as("user_aaaaaaaaaaaaaaaaaaaa"), "automation.create", { name: "pay", triggers: [{ type: "manual" }], body: { type: "steps", steps: [{ type: "note", text: "x" }] } })
+      const head = () => s.boundEngine.currentState.charged_to?.[a.id]
+      expect(head()).toBe("user_aaaaaaaaaaaaaaaaaaaa")
+      await submit(s, as("user_bbbbbbbbbbbbbbbbbbbb"), "automation.update", { automation: a.id, name: "renamed" })
+      expect(head()).toBe("user_aaaaaaaaaaaaaaaaaaaa")
+      await submit(s, as("user_bbbbbbbbbbbbbbbbbbbb"), "automation.update", { automation: a.id, concurrency: { max: 2, on_limit: "queue" } })
+      expect(head()).toBe("user_bbbbbbbbbbbbbbbbbbbb")
+    })
+  })
+
+  it("a run started by an automation is charged to the member who pays for the parent run (cx-ds09i review P2)", async () => {
+    const t = await token("code-run-15")
+    const team = (await op(t, "user.ensure", {})).value.personal_team as string
+    const scheduler = testEnv.SCHEDULER_DO.get(testEnv.SCHEDULER_DO.idFromName(team))
+    const person: Principal = { identity: "session:user_cccccccccccccccccccc", kind: "session", user: "user_cccccccccccccccccccc", team }
+    const submit = async (s: any, p: Principal, opName: string, params: unknown) => {
+      const r = await s.submit(team, p, { t: "op", op: opName, params, idempotency_key: crypto.randomUUID(), origin: "cli" })
+      return r.frames.find((f: { t: string }) => f.t === "result")?.value ?? r.frames
+    }
+    await inDO(scheduler, async (s) => {
+      const body = { type: "steps", steps: [{ type: "note", text: "x" }] }
+      const parentAuto = await submit(s, person, "automation.create", { name: "parent", triggers: [{ type: "manual" }], body })
+      const child = await submit(s, person, "automation.create", { name: "child", triggers: [{ type: "manual" }], body })
+      const parentRun = await submit(s, { ...person, identity: "session:user_dddddddddddddddddddd", user: "user_dddddddddddddddddddd" }, "automation.run", { automation: parentAuto.id })
+      // The parent run's own principal, as its capability calls carry it (automation-caps.ts).
+      const auto = automationPrincipal({ automation: parentAuto.id, run: parentRun.id, team } as never)
+      const childRun = await submit(s, auto, "automation.run", { automation: child.id })
+      const row = (s.rows ?? s.boundEngine?.rows)?.get("run", childRun.id)?.row
+      expect(row?.charged_user, JSON.stringify(childRun)).toBe("user_dddddddddddddddddddd")
+    })
   })
 
   it("fails with code.not_found when the bundle is missing, and the tenant has no network", async () => {
