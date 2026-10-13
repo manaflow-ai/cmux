@@ -4,7 +4,9 @@
 #   1. its cmux-tui tree is published (verified the way the nightly resolves
 #      it: pin-cmux-tui.sh resolve-newest-published, limited to one commit), and
 #   2. its cmux-next.yml push run has a successful "cmux-next Release compile
-#      (Xcode 26)" job (main's promote job checks this again).
+#      (Xcode 26)" job (main's promote job checks this again), and
+#   3. its generated page strings are fresh (gen-strings --check; the checked-out
+#      commit only).
 # Both finish asynchronously, so each side asks when its half completes:
 #
 #   --sha <sha> --release-compile-green
@@ -63,9 +65,30 @@ has_notary_gate() { # <sha>
   [[ "$workflow" == *NIGHTLY_NEXT_NOTARY_PAUSED* ]]
 }
 
+# A commit whose generated page strings are stale fails the nightly's web
+# bundle step about 30 minutes in (nightly-next run 38348747848: a GitHub PR
+# merge brought back settings strings another commit had retired). Check the
+# checked-out commit here instead (node, about 0.2 s); a later commit with
+# fresh strings is promoted. Only the checkout can be checked: in --tree-ready
+# mode a newer commit than the checkout is requested without this check.
+strings_fresh() { # <sha>
+  [[ "$1" == "$head" ]] || return 0
+  local gen="$repo_root/webviews/scripts/pages/gen-strings.mjs"
+  [[ -f "$gen" ]] || return 0
+  if ! command -v node >/dev/null 2>&1; then
+    echo "warning: no node on this runner; the page strings of ${1:0:12} are not checked" >&2
+    return 0
+  fi
+  (cd "$repo_root/webviews" && node scripts/pages/gen-strings.mjs --check)
+}
+
 request() { # <sha>
   if ! has_notary_gate "$1"; then
     echo "not promoting ${1:0:12}: its nightly.yml has no NIGHTLY_NEXT_NOTARY_PAUSED gate"
+    return 1
+  fi
+  if ! strings_fresh "$1"; then
+    echo "not promoting ${1:0:12}: its generated page strings are stale (node webviews/scripts/pages/gen-strings.mjs --check); a later commit with fresh strings is promoted"
     return 1
   fi
   gh workflow run nightly.yml --repo "$repo" --ref main -f promote_nightly_next_sha="$1"
