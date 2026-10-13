@@ -70,7 +70,11 @@ final class RemoteLocalhostService {
     /// own choice (personal state, `workspace.setRemoteLocalhost`) first,
     /// then cmux.json `browser.remoteLocalhost*`.
     func isEnabled(workspace id: String?) -> Bool {
-        setting.isEnabled(workspace: id)
+        if let id, let qualified = WindowProfiles.qualified(id, machines: machines),
+           let choice = machines.local.store.personal.workspace(session: qualified.session, key: qualified.key)?.remoteLocalhost {
+            return choice
+        }
+        return setting.isEnabled(workspace: id)
     }
 
     /// `base` with the store and navigation guard for `tab` showing `url`:
