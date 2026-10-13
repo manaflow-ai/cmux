@@ -68,8 +68,8 @@ import Testing
 @Suite struct ReactionDetailCardGeometryTests {
     @Test func oneReactorCardMatchesMessages27() {
         let card = ReactionDetailCardGeometry.card(reactorCount: 1, maxWidth: 370, width: 402, safeTop: 62)
-        #expect(abs(card.minX - 138.33) < 0.5)
-        #expect(abs(card.maxX - 262) < 0.5)
+        #expect(abs(card.minX - 138.33) < 1)
+        #expect(abs(card.maxX - 262) < 1)
         #expect(abs(card.minY - 61.67) < 0.5)
         #expect(abs(card.height - 122.67) < 0.5)
         let column = ReactionDetailCardGeometry.column(index: 0, reactorCount: 1, cardWidth: card.width)

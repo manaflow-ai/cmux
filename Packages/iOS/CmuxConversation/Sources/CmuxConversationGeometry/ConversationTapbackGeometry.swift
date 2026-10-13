@@ -73,3 +73,63 @@ public enum ConversationTapbackGeometry {
         }
     }
 }
+
+/// The reaction detail Messages shows when a tapback is tapped: a glass card
+/// under the status bar with one column per reactor, their tapback in a
+/// white thought bubble over their avatar. Measured on iOS 27.0 (iPhone 17
+/// Pro, light, one reactor): card 123.67 x 122.67 at the safe top - 0.33,
+/// radius ~31; bubble 50 pt at 9.33 from the card's top; dots below it;
+/// 30.67 pt avatar 79 pt down. Multi-reactor spacing isn't observable in the
+/// simulator; each reactor gets a column of the one-reactor width.
+public enum ReactionDetailCardGeometry {
+    public static let columnSize = CGSize(width: 123.67, height: 122.67)
+    public static let topOffset: CGFloat = -0.33
+    public static let cornerRadius: CGFloat = 31
+    public static let bubbleDiameter: CGFloat = 50
+    public static let bubbleTop: CGFloat = 9.33
+    /// The tapback inside the bubble, in a badge glyph's 32 pt box scaled
+    /// with the bubble (50 / 35).
+    public static let glyphSize: CGFloat = 45
+    /// Trailing dots under the bubble, centered: a nub and a small dot.
+    public static let mediumDot = CGSize(width: 11, height: 11)
+    public static let mediumDotCenterY: CGFloat = 61.83
+    public static let smallDot = CGSize(width: 5.33, height: 5.33)
+    public static let smallDotCenterY: CGFloat = 72.33
+    public static let avatarDiameter: CGFloat = 30.67
+    public static let avatarTop: CGFloat = 79
+
+    public struct Column: Equatable, Sendable {
+        public var bubble: CGRect
+        public var glyph: CGRect
+        public var mediumDot: CGRect
+        public var smallDot: CGRect
+        public var avatar: CGRect
+    }
+
+    /// The card's frame, centered, no wider than `maxWidth` (it scrolls).
+    public static func card(reactorCount: Int, maxWidth: CGFloat, width: CGFloat, safeTop: CGFloat) -> CGRect {
+        let cardWidth = min(CGFloat(max(reactorCount, 1)) * columnSize.width, maxWidth)
+        return CGRect(x: (width - cardWidth) / 2, y: safeTop + topOffset, width: cardWidth, height: columnSize.height)
+    }
+
+    /// Content width of all columns (the scroll content).
+    public static func contentWidth(reactorCount: Int) -> CGFloat {
+        CGFloat(max(reactorCount, 1)) * columnSize.width
+    }
+
+    /// Column `index`'s pieces in the card's content space. A lone column
+    /// centers in the card.
+    public static func column(index: Int, reactorCount: Int, cardWidth: CGFloat) -> Column {
+        let content = contentWidth(reactorCount: reactorCount)
+        let lead = max(0, (cardWidth - content) / 2)
+        let midX = lead + (CGFloat(index) + 0.5) * columnSize.width
+        let bubble = CGRect(x: midX - bubbleDiameter / 2, y: bubbleTop, width: bubbleDiameter, height: bubbleDiameter)
+        return Column(
+            bubble: bubble,
+            glyph: CGRect(x: midX - glyphSize / 2, y: bubble.midY - glyphSize / 2, width: glyphSize, height: glyphSize),
+            mediumDot: CGRect(x: midX - mediumDot.width / 2, y: mediumDotCenterY - mediumDot.height / 2, width: mediumDot.width, height: mediumDot.height),
+            smallDot: CGRect(x: midX - smallDot.width / 2, y: smallDotCenterY - smallDot.height / 2, width: smallDot.width, height: smallDot.height),
+            avatar: CGRect(x: midX - avatarDiameter / 2, y: avatarTop, width: avatarDiameter, height: avatarDiameter)
+        )
+    }
+}
