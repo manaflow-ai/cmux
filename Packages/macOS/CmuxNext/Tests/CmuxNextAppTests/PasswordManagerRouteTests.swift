@@ -18,7 +18,8 @@ struct PasswordManagerRouteTests {
         try await Self.withApp { services, _ in
             let invocation = ActionInvocation(arguments: ["url": .string(address)])
             #expect(services.registry.perform("openBrowser", invocation: invocation))
-            try await Self.until { Self.tabs(services).contains { $0.page == "passwords" } }
+            // A store page tab, or an app-only one while the daemon cannot hold page tabs yet.
+            try await Self.until { services.pages.window(showing: .passwords, windows: services.windows.controllers) != nil }
             #expect(!Self.tabs(services).contains { $0.url?.contains("password") == true && $0.page == nil },
                     "Chromium's password manager opened in a browser tab")
         }
