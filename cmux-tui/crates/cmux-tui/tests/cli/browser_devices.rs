@@ -80,6 +80,13 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
         assert!(titles.contains(&title), "{title} missing from {titles:?}");
     }
     assert_eq!(all.iter().filter(|d| d["origin"] == "chrome").count(), 46);
+    // Chrome's menu sections come from the daemon too.
+    let section =
+        |title: &str| all.iter().find(|d| d["title"] == title).unwrap()["category"].clone();
+    assert_eq!(section("Surface Duo"), "foldable");
+    assert_eq!(section("iPad Mini"), "tablet-desktop");
+    assert_eq!(section("Nest Hub Max"), "smart-display");
+    assert_eq!(section("iPhone 17 Pro"), "mobile");
     assert!(all.iter().filter(|d| d["origin"] == "cmux").all(|d| d["sources"].is_array()));
 
     // Custom devices persist in the daemon and come first; Chrome's limits hold.

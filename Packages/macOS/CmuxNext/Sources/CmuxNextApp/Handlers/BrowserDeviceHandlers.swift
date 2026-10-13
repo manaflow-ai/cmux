@@ -44,7 +44,13 @@ enum BrowserDeviceHandlers {
             let chrome = entry.chrome
             let current = tab.emulation
             Task { @MainActor in
-                guard let list = try? await daemon.perform("browser.devices.list", { try await $0.state.browserDevices() }) else { return }
+                let list: JSONValue
+                do {
+                    list = try await daemon.perform("browser.devices.list") { try await $0.state.browserDevices() }
+                } catch {
+                    registry.refuse(RefusalStrings.describe(error))
+                    return
+                }
                 let menu = menu(list: list, current: current) { device, orientation in
                     if let device {
                         daemon.send("browser.tab.emulate") { try await $0.state.emulateTab(resource, device: device, orientation: orientation) }
@@ -131,22 +137,15 @@ enum BrowserDeviceHandlers {
 
 /// The device menu's text (BrowserDevices.xcstrings).
 nonisolated enum DeviceStrings {
-    /// Chrome's device menu sections, in Chrome's order (DeviceModeView
-    /// `deviceCategory`), read from each device's own `type` and flags.
-    enum Category: CaseIterable {
-        case mobile, foldable, tabletDesktop, smartDisplay
+    /// Chrome's device menu sections in Chrome's order; each device's
+    /// `category` comes from the daemon.
+    enum Category: String, CaseIterable {
+        case mobile, foldable
+        case tabletDesktop = "tablet-desktop"
+        case smartDisplay = "smart-display"
 
         init(_ device: [String: JSONValue]) {
-            let type = device["type"]?.stringValue ?? ""
-            if type == "foldable" || device["foldable-screen"] == .bool(true) || device["dual-screen"] == .bool(true) {
-                self = .foldable
-            } else if type == "smart-display" {
-                self = .smartDisplay
-            } else if ["tablet", "notebook", "desktop"].contains(type) {
-                self = .tabletDesktop
-            } else {
-                self = .mobile
-            }
+            self = device["category"]?.stringValue.flatMap(Category.init(rawValue:)) ?? .mobile
         }
     }
 

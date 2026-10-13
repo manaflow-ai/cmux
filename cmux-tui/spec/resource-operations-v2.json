@@ -12821,7 +12821,7 @@
         "fields": {},
         "extra": false,
         "constraints": [
-          "Answers {chrome, devices}: the custom devices (origin custom, oldest first), then the built-in list compiled into the daemon: Chrome DevTools' device list verbatim and in Chrome's order (origin chrome; chrome names the devtools-frontend ref, commit and Chromium milestone), then newer devices Chrome does not list yet (origin cmux, each with its sources). Each device is Chrome's JSONV1 device object (title, type, order, show-by-default, screen, capabilities, user-agent, user-agent-metadata, modes, dual-screen, foldable-screen)."
+          "Answers {chrome, devices}: the custom devices (origin custom, oldest first), then the built-in list compiled into the daemon: Chrome DevTools' device list verbatim and in Chrome's order (origin chrome; chrome names the devtools-frontend ref, commit and Chromium milestone), then newer devices Chrome does not list yet (origin cmux, each with its sources). Each device also has category (Chrome's device menu section: mobile, foldable, tablet-desktop or smart-display). Each device is Chrome's JSONV1 device object (title, type, order, show-by-default, screen, capabilities, user-agent, user-agent-metadata, modes, dual-screen, foldable-screen)."
         ]
       },
       "result": {

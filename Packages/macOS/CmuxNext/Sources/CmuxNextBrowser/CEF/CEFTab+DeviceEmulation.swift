@@ -15,13 +15,13 @@ extension CEFTab: BrowserEmulating {
     /// (`attach`) and when the page area changes size (the fit scale). One
     /// worker sends the newest state only.
     func applyDeviceEmulation() {
-        guard let browserID, !isClosed else { return }
+        guard browserID != nil, !isClosed else { return }
         guard deviceEmulation != nil || deviceEmulationApplied else { return }
         deviceEmulationDirty = true
         guard deviceEmulationTask == nil else { return }
         let runtime = runtime
         deviceEmulationTask = Task { [weak self] in
-            while let self, self.deviceEmulationDirty, !self.isClosed {
+            while let self, self.deviceEmulationDirty, !self.isClosed, let browserID = self.browserID {
                 self.deviceEmulationDirty = false
                 let emulation = self.deviceEmulation
                 let scale = emulation.map { $0.fitScale(in: self.container.pageViewportFrame.size) } ?? 1
