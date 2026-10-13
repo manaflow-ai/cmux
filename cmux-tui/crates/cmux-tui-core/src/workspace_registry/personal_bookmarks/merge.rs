@@ -31,7 +31,7 @@ pub struct BookmarkMerge {
 }
 
 /// One merge's running state: what it wrote and skipped, and the profile's
-/// node count (read once).
+/// node count (read once). Statements are prepared once per folder visit.
 struct Merge<'a> {
     tx: &'a Transaction<'a>,
     profile: &'a str,
@@ -92,7 +92,7 @@ fn stored_title(title: &str) -> String {
 
 impl Merge<'_> {
     fn folder(&self, parent: &str) -> anyhow::Result<Folder> {
-        let mut statement = self.tx.prepare_cached(
+        let mut statement = self.tx.prepare(
             "SELECT bookmark_id, kind, title, url FROM bookmarks
              WHERE browser_profile_id = ?1 AND parent_id = ?2",
         )?;
@@ -115,9 +115,7 @@ impl Merge<'_> {
     fn owner(&self, id: &str) -> anyhow::Result<Option<(String, String)>> {
         Ok(self
             .tx
-            .prepare_cached(
-                "SELECT browser_profile_id, kind FROM bookmarks WHERE bookmark_id = ?1",
-            )?
+            .prepare("SELECT browser_profile_id, kind FROM bookmarks WHERE bookmark_id = ?1")?
             .query_row([id], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
             .optional()?)
     }
@@ -129,6 +127,8 @@ impl Merge<'_> {
             return Ok(());
         }
         let mut folder = self.folder(parent)?;
+        let tx = self.tx;
+        let mut insert = tx.prepare(INSERT_ROW)?;
         for node in nodes {
             let kind = node.get("type").and_then(Value::as_str).unwrap_or_default();
             let title = stored_title(node.get("name").and_then(Value::as_str).unwrap_or_default());
@@ -184,7 +184,7 @@ impl Merge<'_> {
                 _ => new_bookmark_id(),
             };
             insert_row(
-                &mut self.tx.prepare_cached(INSERT_ROW)?,
+                &mut insert,
                 &new_id,
                 self.profile,
                 parent,
