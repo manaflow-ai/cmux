@@ -41,7 +41,7 @@ public final class PaletteRankerBridge {
         self.handle = handle
     }
 
-    deinit {
+    nonisolated deinit {
         cmux_palette_ranker_free(handle)
     }
 
