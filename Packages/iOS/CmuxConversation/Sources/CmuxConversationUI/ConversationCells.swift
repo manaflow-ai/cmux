@@ -705,7 +705,7 @@ final class TimestampCell: UICollectionViewCell {
     static var gapAfterBody: CGFloat {
         let font = ConversationTheme.captionFont
         return ConversationTranscriptMetrics.timestampLineGap(
-            captionLineSpacing: font.lineHeight + font.leading, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
+            captionLineSpacing: ConversationTheme.captionLineSpacing, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
         )
     }
 
@@ -725,7 +725,7 @@ final class TimestampCell: UICollectionViewCell {
     static var height: CGFloat {
         let font = ConversationTheme.captionFont
         let below = ConversationTranscriptMetrics.timestampFollowingGap(
-            captionLineSpacing: font.lineHeight + font.leading, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
+            captionLineSpacing: ConversationTheme.captionLineSpacing, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
         )
         return lineTop + MessageCellLayout.pixelCeil(ConversationTheme.timestampFont.lineHeight) + below - nextRowGap
     }
@@ -811,7 +811,7 @@ final class ConversationStartCell: UICollectionViewCell {
     static var height: CGFloat {
         let font = ConversationTheme.captionFont
         let gap = ConversationTranscriptMetrics.headerToTimestampGap(
-            captionLineSpacing: font.lineHeight + font.leading, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
+            captionLineSpacing: ConversationTheme.captionLineSpacing, captionPointSize: font.pointSize, scale: ConversationTheme.displayScale
         )
         return topInset + textHeight + gap - TimestampCell.lineTop
     }

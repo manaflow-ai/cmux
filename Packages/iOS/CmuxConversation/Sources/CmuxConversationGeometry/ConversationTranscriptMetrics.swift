@@ -64,6 +64,16 @@ public enum ConversationTranscriptMetrics {
     /// (11 pt type), that ChatKit's spaces are drawn for.
     public static let referenceCaptionLineSpacing: CGFloat = 13
 
+    /// The caption 2 line spacing that ChatKit's spaces scale with. With a
+    /// tall-script language (Arabic, for one) among the reader's languages,
+    /// iOS grows each text style font's line height (caption 2 13.13 ->
+    /// 15.13 pt at Large); Messages' spaces ignore that growth (a run's
+    /// bubbles stay 4 pt apart on a real iPhone set to en-US + ar), so the
+    /// spacing uses the line height the same font has without it.
+    public static func captionLineSpacing(lineHeight: CGFloat, leading: CGFloat, languageNeutralLineHeight: CGFloat) -> CGFloat {
+        min(lineHeight, languageNeutralLineHeight) + leading
+    }
+
     /// A transcript space at the reader's text size. ChatKit scales every
     /// space by the caption 2 font's line spacing over its 13 pt at Large and
     /// rounds to the pixel grid; up to Large nothing changes. Logged from
