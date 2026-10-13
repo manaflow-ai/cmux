@@ -3669,11 +3669,11 @@ mod browser_devices;
 #[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
-#[path = "cli/closed_delete.rs"]
-mod closed_delete;
 #[cfg(unix)]
 #[path = "cli/close_workspace_if_empty.rs"]
 mod close_workspace_if_empty;
+#[path = "cli/closed_delete.rs"]
+mod closed_delete;
 #[cfg(unix)]
 #[path = "cli/cloud_lease_gate.rs"]
 mod cloud_lease_gate;
