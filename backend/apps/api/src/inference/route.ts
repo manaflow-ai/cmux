@@ -77,7 +77,7 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
   const plan = await env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)).inferencePlan(p.team, stackUser)
   if (!plan.ok) return err(503, "plan.unavailable", "the plan check is not available now; retry", { retryable: true })
   if (!plan.paid) return err(402, "inference.plan_required", "AI models need a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN } })
-  return { kind: "team", team: p.team, user: p.user, limitMicros: userLimitMicros(env, plan.user_limit_usd) }
+  return { kind: "team", team: p.team, user: p.user, limitMicros: userLimitMicros(plan.user_limit_usd) }
 }
 
 export const handleInferenceModels = (env: Env): Response => {

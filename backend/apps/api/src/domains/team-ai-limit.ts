@@ -1,5 +1,5 @@
 import type { ReduceContext, Reject, RowReader } from "@cmux/ownership"
-import { TeamAiLimitSet } from "@cmux/protocol"
+import { AI_LIMIT_RAISE_REFUSAL, INFERENCE_USER_MONTHLY_DEFAULT_USD, TeamAiLimitSet } from "@cmux/protocol"
 import { decodeParams, reject } from "./common.ts"
 import { appendAudit } from "./team-audit.ts"
 import { roleOf } from "./team-members.ts"
@@ -26,6 +26,8 @@ export const reduceAiLimitSet = (state: TeamState, params: unknown, ctx: ReduceC
   if (!d.ok) return d
   const before = state.ai_user_monthly_limit_usd ?? null
   const after = d.value.user_monthly_limit_usd
+  // Raises are blocked until overage billing exists: lower freely, never above the default.
+  if (after !== null && after > INFERENCE_USER_MONTHLY_DEFAULT_USD) return reject("validation.invalid", AI_LIMIT_RAISE_REFUSAL)
   const value = { user_monthly_limit_usd: after }
   if (before === after) return { ok: true, state, value, changed: false }
   const fmt = (v: number | null) => (v === null ? "the default" : `${v} USD`)

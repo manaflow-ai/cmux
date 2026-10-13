@@ -1,12 +1,11 @@
 import { COST_USD_PER_UNIT, MONEY_METERS } from "./domains/usage.ts"
-import type { Meter } from "@cmux/protocol"
-import type { Env } from "./env.ts"
+import { INFERENCE_USER_MONTHLY_DEFAULT_USD, type Meter } from "@cmux/protocol"
 
 /**
  * The per-user monthly AI spending counter (cx-ds09i, Lawrence 2026-10-12), kept by the team's
  * UsageMeterDO: each member's own cost to us (provider cost of model router calls, and metered
  * automation runs at COST_USD_PER_UNIT) per UTC month, against the team's per-user limit
- * (TeamDO team.ai_limit.set; default INFERENCE_USER_MONTHLY_DEFAULT_USD, 200).
+ * (TeamDO team.ai_limit.set; default INFERENCE_USER_MONTHLY_DEFAULT_USD, 200, which no team may exceed yet).
  *
  * A model router call reserves its maximum cost before the upstream call (one transaction: two
  * calls at once cannot both take the last of the limit), then settles with the real cost; a
@@ -84,12 +83,11 @@ export const nextMonthStart = (now: number) => {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1)
 }
 
-/** The member's monthly limit in micro-dollars: the team's setting, else INFERENCE_USER_MONTHLY_DEFAULT_USD (default 200). */
-export const userLimitMicros = (env: Env, teamLimitUsd: number | null) => {
-  const fallback = Number(env.INFERENCE_USER_MONTHLY_DEFAULT_USD ?? "200")
-  const usd = teamLimitUsd ?? (Number.isFinite(fallback) && fallback >= 0 ? fallback : 200)
-  return Math.round(usd * 1_000_000)
-}
+/**
+ * The member's monthly limit in micro-dollars: the team's setting, else the default. Never above the
+ * default while raises are blocked, even for a value stored before the rule.
+ */
+export const userLimitMicros = (teamLimitUsd: number | null) => Math.round(Math.min(teamLimitUsd ?? INFERENCE_USER_MONTHLY_DEFAULT_USD, INFERENCE_USER_MONTHLY_DEFAULT_USD) * 1_000_000)
 
 /** Who a metered automation cost counts against when the run names no owner (runs from before cx-ds09i). */
 export const UNATTRIBUTED_USER = "unattributed"

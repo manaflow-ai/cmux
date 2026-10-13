@@ -60,7 +60,7 @@ export class TeamDO extends OwnerDO<TeamState> {
   }
 
   protected read(state: TeamState, op: string, params: unknown, principal: Principal): ReadResult {
-    return teamRead(state, op, params, principal, this.rows, this.env.INFERENCE_USER_MONTHLY_DEFAULT_USD)
+    return teamRead(state, op, params, principal, this.rows)
   }
   override async readOp(entity: string, principal: Principal, op: string, params: unknown): Promise<ReadResult> { const r = await super.readOp(entity, principal, op, params); return (r.ok && (await teamVmAccountsFence(() => this.teamVm(entity).currentInstall(entity), principal, op))) || r }
 

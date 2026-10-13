@@ -1,4 +1,5 @@
 import type { Principal } from "@cmux/ownership"
+import { INFERENCE_USER_MONTHLY_DEFAULT_USD } from "@cmux/protocol"
 import type { TeamState } from "./domains/team.ts"
 import { complianceFor, devicePolicyFor, publicToken } from "./domains/team-enrollment.ts"
 import { POLICY_HISTORY_LIMIT, policyAt } from "./domains/team-policy.ts"
@@ -28,7 +29,7 @@ const READ_GRANTS: Readonly<Record<string, TeamGrant>> = {
 }
 
 /** TeamDO reads (members only; admin reads for owners and admins). Pure over the team state. */
-export const teamRead = (state: TeamState, op: string, params: unknown, principal: Principal, rows?: RowsWithScan, defaultLimitVar?: string): ReadResult => {
+export const teamRead = (state: TeamState, op: string, params: unknown, principal: Principal, rows?: RowsWithScan): ReadResult => {
   const member = memberOf(state, rows, principal.user)
   if (!member) return { ok: false, code: "auth.forbidden", message: "not a member of this team" }
   const p = (params ?? {}) as { version?: unknown; limit?: unknown }
@@ -110,9 +111,7 @@ export const teamRead = (state: TeamState, op: string, params: unknown, principa
       // default; never anyone's spend.
       if (!roleHas(member.role, "team.resources") && !roleHas(member.role, "billing.manage")) return { ok: false, code: "auth.forbidden", message: `the ${member.role} role may not read ${op}` }
       const set = state.ai_user_monthly_limit_usd ?? null
-      const fallback = Number(defaultLimitVar ?? "200")
-      const defaultUsd = Number.isFinite(fallback) && fallback >= 0 ? fallback : 200
-      return { ok: true, value: { team: state.team?.id, user_monthly_limit_usd: set ?? defaultUsd, is_default: set === null }, revision: String(state.audit_count ?? 0) }
+      return { ok: true, value: { team: state.team?.id, user_monthly_limit_usd: Math.min(set ?? INFERENCE_USER_MONTHLY_DEFAULT_USD, INFERENCE_USER_MONTHLY_DEFAULT_USD), is_default: set === null }, revision: String(state.audit_count ?? 0) }
     }
     case "team.audit.list": {
       // Session only (the op's principals); billing reads only billing records (spec H12 b).
