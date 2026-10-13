@@ -3443,7 +3443,7 @@ fn handle_command_with_cancellation(
         Command::CreateBrowserProfile(params) => browser_profiles::create(mux, params),
         Command::UpdateBrowserProfile(params) => browser_profiles::update(mux, params),
         Command::MoveBrowserProfile(params) => browser_profiles::move_to(mux, params),
-        Command::DeleteBrowserProfile(params) => browser_profiles::delete(mux, params),
+        Command::DeleteBrowserProfile(params) => browser_profiles::delete(mux, client, params),
         Command::ListBookmarks(params) => bookmarks::list(mux, params),
         Command::CreateBookmark(params) => bookmarks::create(mux, &actor, params),
         Command::UpdateBookmark(params) => bookmarks::update(mux, &actor, params),

@@ -20,6 +20,12 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
             String(localized: key, defaultValue: value, table: "BrowserProfileActions", bundle: .module)
         }
         let profile = CatalogArgument.browserProfile
+        var deleteDescriptor = descriptor("browserProfile.delete", text("action.browserProfile.delete", "Delete Browser Profile and Its Data…"),
+                                          "trash", "delete", extra: ["remove", "data"], destructive: true)
+        // Only a person deletes a browser profile (its cookies, sign-ins, passwords and passkeys):
+        // the control socket refuses every CLI, MCP or script run, and a page needs the person's
+        // own click. The daemon refuses `delete-browser-profile` from any connection but the app.
+        deleteDescriptor.isPersonOnly = true
         return [
             descriptor("browserProfile.new", text("action.browserProfile.new", "New Browser Profile…"), "person.crop.circle.badge.plus",
                        "create", extra: ["add", "create"],
@@ -35,8 +41,7 @@ nonisolated enum BrowserProfileActionCatalog: ActionCatalogGroup {
                        "set-icon", extra: ["icon", "emoji", "avatar"], arguments: [CatalogArgument.iconString.optional]),
             descriptor("browserProfile.clearIcon", text("action.browserProfile.clearIcon", "Clear Browser Profile Icon"), "circle.dashed",
                        "clear-icon", extra: ["icon", "reset"]),
-            descriptor("browserProfile.delete", text("action.browserProfile.delete", "Delete Browser Profile and Its Data…"), "trash",
-                       "delete", extra: ["remove", "data"], destructive: true),
+            deleteDescriptor,
             descriptor("browserProfile.newTab", text("action.browserProfile.newTab", "New Tab with Browser Profile…"), "plus.square",
                        "new-tab", extra: ["tab", "open"], arguments: [profile, CatalogArgument.urlString.optional], targets: [.pane]),
             descriptor("browserProfile.newWindow", text("action.browserProfile.newWindow", "New Window with Browser Profile…"),

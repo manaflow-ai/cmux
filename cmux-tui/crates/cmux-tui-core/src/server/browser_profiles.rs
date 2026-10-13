@@ -46,8 +46,9 @@ pub(super) struct MoveParams {
     index: usize,
 }
 
-/// `delete-browser-profile` (not `default`): clears the workspace and room
-/// defaults that name it and deletes its bookmarks.
+/// `delete-browser-profile` (not `default`, verified app connection only):
+/// clears the workspace and room defaults that name it and deletes its
+/// bookmarks.
 #[derive(Deserialize)]
 pub(super) struct DeleteParams {
     browser_profile: String,
@@ -87,7 +88,36 @@ pub(super) fn move_to(mux: &Mux, params: MoveParams) -> anyhow::Result<Value> {
     Ok(json!({"browser_profile": profile, "changed": changed}))
 }
 
-pub(super) fn delete(mux: &Mux, params: DeleteParams) -> anyhow::Result<Value> {
+/// A `delete-browser-profile` from a connection that is not the verified
+/// cmux app (an agent, a script, the CLI, a page relay): only the person
+/// deletes a browser profile and its data, through the app (Settings, the
+/// palette, the menu), which asks first.
+#[derive(Debug)]
+pub(super) struct DeleteNeedsPerson;
+
+impl std::fmt::Display for DeleteNeedsPerson {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "only a person deletes a browser profile, in the cmux app: {}",
+            crate::request_origin::NEEDS_VERIFIED_APP
+        )
+    }
+}
+
+impl std::error::Error for DeleteNeedsPerson {}
+
+/// The wire code of a [`DeleteNeedsPerson`] refusal (`origin.forbidden`).
+pub(super) fn error_code(error: &anyhow::Error) -> Option<String> {
+    error
+        .downcast_ref::<DeleteNeedsPerson>()
+        .map(|_| crate::request_origin::ORIGIN_FORBIDDEN.to_string())
+}
+
+pub(super) fn delete(mux: &Mux, client: u64, params: DeleteParams) -> anyhow::Result<Value> {
+    if super::origin_gate::require_user(mux, client).is_err() {
+        return Err(DeleteNeedsPerson.into());
+    }
     let id = mux
         .workspace_registry
         .lock()

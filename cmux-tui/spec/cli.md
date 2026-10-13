@@ -514,7 +514,7 @@ browser list
 browser profile list
 browser profile create --name <name> [--profile <id>] [--color <value>] [--icon <value>] [--index <n>]
 browser profile move --profile <id-or-name> --index <n>
-browser profile delete --profile <id-or-name>
+browser profile delete --profile <id-or-name>   (always refused: origin.forbidden; only a person deletes a profile, in the app)
 browser profile open <url> --engine webkit|cef --profile <id-or-name> [--pane <numeric-pane-id>] [--title <value>] [--background true|false]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close

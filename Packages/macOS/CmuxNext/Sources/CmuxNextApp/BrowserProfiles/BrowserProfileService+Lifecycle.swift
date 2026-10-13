@@ -18,8 +18,20 @@ extension BrowserProfileService {
             reopen(tab, in: pane, profile: BrowserProfileRecord.defaultID, closingOriginal: true, notice: nil)
         }
         if usesDaemonRecords {
-            // The daemon clears the workspace and room defaults naming it.
-            services.machines.local.send("delete-browser-profile") { try await $0.deleteBrowserProfile(id) }
+            // The daemon clears the workspace and room defaults naming it. It deletes a profile only
+            // for this verified app (only a person deletes one), so the profile's data goes only
+            // after it confirmed: a refused or failed delete keeps the profile whole.
+            guard let connection = services.machines.local.connection else { throw DaemonError.notConnected }
+            // task-owner: one-shot daemon delete; the local data follows only its confirmation
+            Task { [weak self] in
+                do {
+                    try await connection.deleteBrowserProfile(id)
+                    try self?.dropDeletedData(id)
+                } catch {
+                    self?.logger.error("browser profile delete failed: \(String(describing: error), privacy: .public)")
+                }
+            }
+            return
         } else if usesPersonalState {
             for workspace in workspacesUsing(id) {
                 let request = SetPersonalWorkspaceRequest(sessionID: workspace.session, workspaceKey: WorkspaceKey(rawValue: workspace.key),
@@ -31,6 +43,11 @@ extension BrowserProfileService {
                 services.machines.local.send("update-profile") { try await $0.updateProfile(roomID, browserProfileID: .clear) }
             }
         }
+        try dropDeletedData(id)
+    }
+
+    /// The local half of a delete: the record, its history, bookmarks and engine data.
+    private func dropDeletedData(_ id: String) throws {
         try edit { $0.markDeleted(id) }
         services.cache.dropHistory(for: BrowserProfileRecord.engineProfile(for: id))
         services.bookmarks.dropProfile(id)

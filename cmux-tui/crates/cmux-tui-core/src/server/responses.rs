@@ -97,6 +97,7 @@ pub(super) fn response_error_code(error: &anyhow::Error) -> Option<String> {
         .or_else(|| agent_chat_column_code(error))
         .or_else(|| super::rows::error_code(error))
         .or_else(|| super::bookmarks::error_code(error))
+        .or_else(|| super::browser_profiles::error_code(error))
         .or_else(|| crate::mux::feed_local::feed_error_code(error))
         .or_else(|| super::clipboard_read::error_code(error))
         .or_else(|| super::chief_inspect::error_code(error))

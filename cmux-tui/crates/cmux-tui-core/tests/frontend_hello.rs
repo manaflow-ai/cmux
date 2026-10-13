@@ -320,7 +320,7 @@ fn only_the_proved_app_deletes_a_browser_profile() {
 
     let mut relay = Client::connect(&socket);
     relay.rpc(json!({ "id": 1, "cmd": "client-hello", "role": "page_relay" }));
-    assert_ne!(relay.rpc(delete.clone())["ok"], true);
+    assert_eq!(relay.rpc(delete.clone())["error_code"], FORBIDDEN);
     let mut unproved = Client::connect(&socket);
     unproved.rpc(json!({ "id": 1, "cmd": "client-hello", "role": "main" }));
     assert_eq!(unproved.rpc(delete.clone())["error_code"], FORBIDDEN);
