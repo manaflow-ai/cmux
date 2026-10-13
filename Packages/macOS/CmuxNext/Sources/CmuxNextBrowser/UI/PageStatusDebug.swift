@@ -6,7 +6,8 @@ import WebKit
 /// the cmux error page's title and message ("" while hidden), `certificate`
 /// "1" when it is the certificate warning, `gone` "1" while the sad tab shows,
 /// `enginePage` "1" while the engine's own page shows for the failed load
-/// (Chromium's certificate interstitial), and `holes` the Chromium page
+/// (Chromium's net error page or certificate interstitial), `title` the
+/// tab's title, and `holes` the Chromium page
 /// window's holes, where the pane's own views show (`[[x, y, w, h], ...]`),
 /// and `events` its last navigation events (`CEFEventTrace`).
 /// `unresponsive` is "1" while the "Page unresponsive" card shows.
@@ -42,6 +43,7 @@ public struct PageStatusDebug {
             "certificate": !status.errorView.isHidden && status.errorView.isCertificateInterstitial ? "1" : "0",
             "gone": gone ? "1" : "0",
             "enginePage": chrome.tab.state.loadError?.engineShowsPage == true ? "1" : "0",
+            "title": chrome.tab.state.title ?? "",
             "holes": "\(((chrome.tab as? CEFTab)?.pageWindowHoles ?? []).map { [$0.minX, $0.minY, $0.width, $0.height] })",
             "events": CEFEventTrace.recent((chrome.tab as? CEFTab)?.browserID).joined(separator: " | "),
         ]
