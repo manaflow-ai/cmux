@@ -268,7 +268,8 @@ struct ShellTabs: View {
 }
 
 #if DEBUG
-/// DEBUG launch arguments: `-CnxDemo chat-feed` runs the Feed + agent chat demo driver.
+/// DEBUG launch arguments: `-CnxDemo chat-feed` runs the Feed + agent chat demo driver;
+/// `-CnxDemo acp-parity` the Feed swipe, artifacts, subagents, checkpoints and handoff driver.
 struct DebugLaunch {
     @MainActor
     static func run(selectTab: (RootTab) -> Void) async {
@@ -285,6 +286,9 @@ struct DebugLaunch {
         case "chat-feed":
             selectTab(.feed)
             await FeedDemoScript().run()
+        case "acp-parity":
+            selectTab(.feed)
+            await ParityDemoScript().run()
         default:
             break
         }

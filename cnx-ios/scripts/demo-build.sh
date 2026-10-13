@@ -268,7 +268,7 @@ Not for the App Store or TestFlight; nothing here was uploaded.
 | Agent chat and Feed | Real, from acpmux on the Mac. The phone can deny or cancel; allow and question answers are refused by acpmux (\`permission.person_required\`). |
 | Chief (Home) | Mock: \`conversation-*\` is not on cnx-hostd's allowlist. |
 | Terminal | Demo screen only (Developer → Demo → Terminal); no terminal over the link yet. |
-| Artifacts, diffs | Sample data. |
+| Artifacts, diffs | Agent-session artifacts preview over the Mac's \`file\` service; terminal artifacts and diffs are sample data. |
 
 ## Known gaps (from \`cnx-ios/verify/*.md\`)
 

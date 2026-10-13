@@ -38,6 +38,8 @@ public struct FeedItem: Identifiable, Hashable, Sendable {
     public var quote: Quote?
     public var createdAt: Date
     public var isRead = false
+    /// Marked done (swipe): hidden from the Feed like an archived mail.
+    public var isDone = false
     /// Set once answered inline (question, permission) or replied to.
     public var resolution: String?
     public var replies: [String] = []
@@ -114,10 +116,10 @@ public final class FeedStore {
     }
 
     public var visibleItems: [FeedItem] {
-        items.filter { filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) }
+        items.filter { !$0.isDone && filter.matches($0) && !mutedWorkspaces.contains($0.workspaceID) }
     }
 
-    public var needsYouCount: Int { items.count(where: \.needsYou) }
+    public var needsYouCount: Int { items.count(where: { $0.needsYou && !$0.isDone }) }
 
     public func count(_ filter: FeedFilter) -> Int { items.count(where: filter.matches) }
 
@@ -129,6 +131,26 @@ public final class FeedStore {
     public func clearUnseen() { unseenNewIDs = [] }
 
     public func markRead(_ id: String) { mutate(id) { $0.isRead = true } }
+    public func markUnread(_ id: String) { mutate(id) { $0.isRead = false } }
+
+    /// Marks an event done (swipe): it leaves the Feed; `undoDone` brings it back.
+    public func markDone(_ id: String) {
+        mutate(id) {
+            $0.isDone = true
+            $0.isRead = true
+        }
+        lastDoneID = id
+    }
+
+    public private(set) var lastDoneID: String?
+
+    public func clearDone() { lastDoneID = nil }
+
+    public func undoDone() {
+        guard let id = lastDoneID else { return }
+        mutate(id) { $0.isDone = false }
+        lastDoneID = nil
+    }
 
     /// Replaces every item (live mode starts empty).
     public func replaceAll(_ next: [FeedItem]) {

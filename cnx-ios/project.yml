@@ -56,6 +56,8 @@ targets:
       properties:
         CFBundleDisplayName: $(CNX_DISPLAY_NAME)
         CNXTag: $(CNX_TAG)
+        NSCameraUsageDescription: Take a photo to attach to a message for your agent.
+        NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
         UILaunchScreen:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark
