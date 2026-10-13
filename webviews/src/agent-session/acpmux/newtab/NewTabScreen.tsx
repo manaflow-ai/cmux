@@ -61,6 +61,8 @@ export type NewTabScreenActions = {
   onTouched?(): void;
   /// No agent to ask: opens the Harnesses page (cx-uj5g8).
   onAddHarness?(): void;
+  /// acpmux has not listed its harnesses yet (the first open after a launch): none is missing yet.
+  checkingHarnesses?: boolean;
   /// New terminal / New browser tab (cx-ag5.7): the host replaces this tab with a blank one.
   onCreate?(kind: "terminal" | "browser"): void;
 };
@@ -121,6 +123,12 @@ export function NewTabScreen(props: Props) {
   const [shell, setShell] = useState(false);
   /// Return asked with no agent to ask: the note under the field says so until the next edit.
   const [noAgent, setNoAgent] = useState(false);
+  // With no harness installed, the note offers one up front, once acpmux has listed them; with
+  // any installed, never (Leo 2026-10-12). A dismissal holds for every later page.
+  const [hintDismissed, setHintDismissed] = useState(harnessHintDismissed);
+  const noneInstalled =
+    !props.checkingHarnesses && !snapshot.catalog.some((entry) => !entry.unavailable || entry.probeFailed === true);
+  const showNote = noAgent || (noneInstalled && !hintDismissed && props.onAddHarness !== undefined);
   const [project, setProject] = useState(props.cwd && !isAgentHome(props.cwd) ? props.cwd : undefined);
   const field = useRef<HTMLInputElement>(null);
   const wholeSelection = useRef(false);
@@ -535,7 +543,7 @@ export function NewTabScreen(props: Props) {
         </Popover>
       )}
       {props.notice}
-      {noAgent && (
+      {showNote && (
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         <div className="nt-no-agent" role="status">
           <span>{t("newtab.noAgent")}</span>
@@ -545,6 +553,24 @@ export function NewTabScreen(props: Props) {
                 <PlusIcon />
               </span>
               <span>{t("newtab.addHarness")}</span>
+            </button>
+          )}
+          {props.onAddHarness && (
+            <button
+              type="button"
+              className="nt-tool nt-hint-dismiss ui-ghost"
+              data-dismiss-hint
+              aria-label={t("newtab.addHarness.dismiss")}
+              title={t("newtab.addHarness.dismiss")}
+              onClick={() => {
+                dismissHarnessHint();
+                setHintDismissed(true);
+                setNoAgent(false);
+              }}
+            >
+              <span className="nt-tool-icon ui-ghost-icon" aria-hidden="true">
+                <CrossIcon />
+              </span>
             </button>
           )}
         </div>
@@ -637,6 +663,42 @@ function listStep(event: React.KeyboardEvent): 1 | -1 | undefined {
 function ownsKeys(element: Element): boolean {
   if ((element as HTMLElement).isContentEditable || element.closest("input, textarea, select")) return true;
   return element.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="combobox"]') !== null;
+}
+
+/// Integrate a harness dismissed for good (this browser profile, as the skipped agent updates).
+const HARNESS_HINT_DISMISSED = "cmux.acpmux.newTab.harnessHintDismissed";
+
+function harnessHintDismissed(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(HARNESS_HINT_DISMISSED) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function dismissHarnessHint(): void {
+  try {
+    globalThis.localStorage?.setItem(HARNESS_HINT_DISMISSED, "1");
+  } catch {
+    // No storage: dismissed for this page only.
+  }
+}
+
+/// The 14 px cross in currentColor that dismisses Integrate a harness.
+function CrossIcon() {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="14"
+      height="14"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    >
+      <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />
+    </svg>
+  );
 }
 
 /// The 14 px plus in currentColor before "Integrate a harness".

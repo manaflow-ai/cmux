@@ -86,7 +86,7 @@ test("Return on a prompt with no agent says so and offers to add one", async () 
     setValue.call(field, "fix the flaky upload test");
     field.dispatchEvent(new window.Event("input", { bubbles: true }));
   });
-  expect(host.querySelector(".nt-no-agent")).toBeNull();
+  // With none installed the line is already there, up front (new-tab-harness-hint.test.tsx).
   await act(async () => {
     field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
   });

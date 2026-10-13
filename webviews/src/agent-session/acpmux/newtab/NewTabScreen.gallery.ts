@@ -105,9 +105,14 @@ export default agentPaneEntry({
   ],
   variants: withAllChats({
     empty: {
-      note: "No chats yet.",
+      note: "No chats yet. A harness is installed, so nothing offers Integrate a harness.",
       ready: newTab(),
       snapshot: noChat(),
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
+        if (ctx.document.querySelector(".nt-no-agent, .nt-add-harness"))
+          throw new Error("Integrate a harness shows with a harness installed");
+      },
     },
     "chats-unavailable": {
       note: "The chat index did not answer: All chats says it could not load and offers Try again.",
@@ -126,6 +131,16 @@ export default agentPaneEntry({
           (row) => row.getBoundingClientRect().height > 32,
         );
         if (tall.length) throw new Error(`${tall.length} recent chat rows are taller than one line`);
+      },
+    },
+    "no-harness-installed": {
+      note: "No harness installed (Leo 2026-10-12): one quiet line under the field, No agent to ask, Integrate a harness and a dismiss that holds for later pages. With any harness installed (every other state) the page never offers it.",
+      ready: newTab(),
+      snapshot: { ...noChat(), catalog: [] },
+      play: async (ctx) => {
+        await ctx.waitFor(() => ctx.document.querySelector(".nt-no-agent [data-dismiss-hint]") !== null);
+        const line = ctx.document.querySelector(".nt-no-agent")!.getBoundingClientRect();
+        if (line.height > 32) throw new Error(`the Integrate a harness line is ${line.height}px tall, not one line`);
       },
     },
     "harnesses-from-menu": {

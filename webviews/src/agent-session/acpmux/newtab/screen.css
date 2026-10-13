@@ -152,6 +152,8 @@
 .nt-tool:hover,.nt-tool:focus-visible{background:color-mix(in srgb,var(--agent-text) 6%,transparent);color:var(--agent-text)}
 /* The create actions (cx-ag5.7): one quiet ghost row under the box, at its left edge. */
 .nt-create{display:flex;flex-wrap:wrap;margin:8px 4px 0;font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
+/* Its dismiss (no harness installed, Leo 2026-10-12): a glyph-only ghost button at the line's end. */
+.nt-hint-dismiss{margin-left:auto}
 .nt-no-agent{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:8px 4px 0;color:var(--acpmux-composer-dim);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
 /* Chats (cx-n0i9): one list under the field. The running and waiting chats lead it with their
    state; every chat on this computer follows, virtualized, newest first. Marks are muted at rest:
