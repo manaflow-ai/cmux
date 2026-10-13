@@ -527,6 +527,7 @@
     "setting.tabs.tabBar.agent": "auto",
     "setting.tabs.tabBar.browser": "auto",
     "setting.tabs.tabBar.terminal": "auto",
+    "setting.tabs.toolbarButtons": [],
     "setting.tasks.layout": "inbox",
     "setting.terminal.fontFamily": null,
     "setting.terminal.fontSize": null,
