@@ -12,7 +12,7 @@
   "observability": { "enabled": true },
   "vars": {
     "ENVIRONMENT": "local",
-    "API_VERSION": "0.2.0",
+    "API_VERSION": "0.3.0",
     "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895",
     "STACK_PUBLISHABLE_CLIENT_KEY": "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g",
     "INVITE_CALLBACK_URL": "http://localhost:8102/handler/team-invitation"
@@ -28,7 +28,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "dev",
-        "API_VERSION": "0.2.0",
+        "API_VERSION": "0.3.0",
         "STACK_PROJECT_ID": "454ecd03-1db2-4050-845e-4ce5b0cd9895",
         "STACK_PUBLISHABLE_CLIENT_KEY": "pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g",
         "INVITE_CALLBACK_URL": "http://localhost:8102/handler/team-invitation"
@@ -46,7 +46,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "prod",
-        "API_VERSION": "0.2.0",
+        "API_VERSION": "0.3.0",
         "STACK_PROJECT_ID": "9790718f-14cd-4f7e-824d-eaf527a82b82",
         "STACK_PUBLISHABLE_CLIENT_KEY": "",
         "INVITE_CALLBACK_URL": "https://cmux.com/handler/team-invitation"

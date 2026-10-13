@@ -9,6 +9,8 @@ export { TeamHub } from "./team-hub.ts"
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const TEAM_ID = /^[A-Za-z0-9_-]{1,128}$/
+const PERSONAL = "personal-"
+export const personalTeamId = (userId: string) => `${PERSONAL}${userId}`
 const COLOR = /^#[0-9A-Fa-f]{6}$/
 const WG_KEY = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,255}$/
@@ -38,6 +40,11 @@ const hub = (env: Env, teamId: string) => env.TEAM_HUB.get(env.TEAM_HUB.idFromNa
 
 const requireMember = async (env: Env, teamId: string, caller: Caller) => {
   if (!TEAM_ID.test(teamId)) throw new HttpError(400, "bad_request", "invalid teamId")
+  // Personal space (PROTOCOL.md): `personal-<userId>` belongs to that user alone; no Stack call.
+  if (teamId.startsWith(PERSONAL)) {
+    if (teamId !== personalTeamId(caller.userId)) throw new HttpError(403, "not_member", "not a member of this team")
+    return
+  }
   let ok: boolean
   try {
     ok = await hub(env, teamId).isMember(teamId, caller)
@@ -151,6 +158,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     const b = await readJson(req)
     if (typeof b.email !== "string" || !EMAIL.test(b.email)) throw new HttpError(400, "bad_request", "email is required")
     await requireMember(env, teamId, caller)
+    if (teamId.startsWith(PERSONAL)) throw new HttpError(400, "bad_request", "personal space has no members")
     const r = await sendTeamInvite(env, caller, teamId, b.email)
     if (!r.ok) return fail(r.status === 401 || r.status === 403 ? 403 : 502, "invite_failed", `Stack refused the invitation (${r.code})`)
     return json({ url: r.url, sent: true })

@@ -91,6 +91,30 @@ describe("TeamHub signaling", () => {
     for (const s of [p, m]) s.ws.close()
   })
 
+  it("personal space signals and relays for its owner only", async () => {
+    const solo = await token("solo")
+    const team = "personal-solo"
+    const phone = await register(solo, "phone", team)
+    const mac = await register(solo, "mac", team)
+    const p = await connect(solo, team, phone)
+    const m = await connect(solo, team, mac)
+    await p.until((s) => s.frames.some((f) => f.type === "presence" && f.mac.deviceId === mac && f.mac.online))
+    const sessionId = crypto.randomUUID()
+    p.send(offer(phone, mac, sessionId))
+    await m.until((s) => s.frames.some((f) => f.type === "signal"))
+    expect(m.frames.find((f) => f.type === "signal")).toMatchObject({ from: phone, fromUserId: "solo" })
+    const b = new Uint8Array(36)
+    b.set(uuidToBytes(sessionId), 0)
+    b.set(uuidToBytes(mac), 16)
+    p.ws.send(b)
+    await m.until((s) => s.binary.length === 1)
+    expect([...m.binary[0]!.subarray(16, 32)]).toEqual([...uuidToBytes(phone)])
+    const alicePhone = await register(await token("alice"), "phone", "team-a")
+    const other = await worker.fetch(`https://api.test/v1/teams/${team}/signal?deviceId=${alicePhone}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${await token("alice")}` } })
+    expect(other.status).toBe(403)
+    for (const s of [p, m]) s.ws.close()
+  })
+
   it("reports an offline Mac", async () => {
     const alice = await token("alice")
     const phone = await register(alice, "phone", "team-a")

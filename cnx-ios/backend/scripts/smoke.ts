@@ -3,6 +3,7 @@
  * Live smoke test of a deployed cnx-ios-api (PROTOCOL.md v1). Never prints tokens.
  *
  *   CNX_TOKEN_FILE=/path/to/token bun scripts/smoke.ts            # a Stack access token in a 0600 file
+ *   CNX_TEAM=personal ...                                         # use the caller's personal space
  *   STACK_EMAIL=... STACK_PASSWORD=... bun scripts/smoke.ts       # password sign-in on the dev project
  *
  * Env: CNX_BASE_URL (default the dev Worker), STACK_PROJECT_ID, STACK_PUBLISHABLE_CLIENT_KEY (dev defaults).
@@ -40,10 +41,12 @@ const health = await api("GET", "/v1/health", undefined, false)
 check("health", health.status === 200 && health.json?.ok === true, `version ${health.json?.version}`)
 check("rejects missing token", (await api("GET", "/v1/ice", undefined, false)).status === 401)
 
-// 2. the caller's first Stack team
-const teamsRes = await fetch("https://api.stack-auth.com/api/v1/teams?user_id=me", { headers: stackHeaders({ "x-stack-access-token": token }) })
-const teamId = (((await teamsRes.json()) as { items?: Array<{ id: string }> }).items ?? [])[0]?.id
-check("stack team", !!teamId)
+// 2. the team: CNX_TEAM=personal uses the caller's personal space, else the first Stack team
+const sub = JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString()).sub as string
+const teamId = process.env.CNX_TEAM === "personal"
+  ? `personal-${sub}`
+  : (((await (await fetch("https://api.stack-auth.com/api/v1/teams?user_id=me", { headers: stackHeaders({ "x-stack-access-token": token }) })).json()) as { items?: Array<{ id: string }> }).items ?? [])[0]?.id
+check("team", !!teamId, teamId?.startsWith("personal-") ? "personal space" : "stack team")
 if (!teamId) process.exit(1)
 
 // 3. ICE
@@ -66,6 +69,8 @@ const color = `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, 
 const put = await api("PUT", `/v1/teams/${teamId}/prefs`, { color, emoji: "🧪" })
 const got = await api("GET", `/v1/teams/${teamId}/prefs`)
 check("prefs", put.status === 200 && got.json?.color === color && got.json?.emoji === "🧪")
+if (teamId.startsWith("personal-")) check("personal invite refused", (await api("POST", `/v1/teams/${teamId}/invites`, { email: "x@example.com" })).status === 400)
+check("other personal space refused", (await api("GET", "/v1/teams/personal-someone-else/macs")).status === 403)
 check("foreign team refused", (await api("GET", `/v1/teams/00000000-0000-0000-0000-000000000000/macs`)).status === 403)
 
 // 5. two-client signaling

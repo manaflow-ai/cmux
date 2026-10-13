@@ -83,4 +83,5 @@ STACK_PASSWORD="$(op read 'op://Development/sirnczouv25kkvpzlbhnpxpqo4/password'
 CNX_TOKEN_FILE=/private/path/token bun scripts/smoke.ts
 ```
 
-`CNX_BASE_URL` selects another deployment.
+`CNX_BASE_URL` selects another deployment; `CNX_TEAM=personal` runs against
+the caller's personal space (`personal-<userId>`) instead of their first Stack team.

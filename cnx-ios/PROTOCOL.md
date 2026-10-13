@@ -16,6 +16,12 @@ ffi) and the app. Change this file first, then the implementations.
   caller-token path is the default.) v1 admission rule for a link: phone and Mac must belong to the
   same Stack user (the Mac's registering user). Team members cannot dial
   each other's Macs in v1.
+- Personal space: teamId `personal-<userId>` (userId = the verified JWT `sub`)
+  is a team of one. It is admitted for that user only, with no Stack membership
+  call; any other user gets `403 not_member`. Every route works with it
+  (devices, macs, prefs, signal WebSocket, relay) except
+  `POST /v1/teams/:teamId/invites`, which answers `400 bad_request`
+  "personal space has no members". Use it when the user has no Stack team.
 - Devices: `deviceId` is a client-generated UUID persisted in Keychain;
   `kind` is `mac` or `phone`.
 

@@ -4,7 +4,7 @@ import { call, register, token } from "./helpers.ts"
 describe("HTTP API", () => {
   it("health is public", async () => {
     const r = await call("GET", "/v1/health", undefined)
-    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.2.0" } })
+    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.3.0" } })
   })
 
   it("rejects missing, forged, wrong-audience and anonymous tokens", async () => {
@@ -66,5 +66,23 @@ describe("HTTP API", () => {
     expect((await call("POST", "/v1/teams/team-a/invites", await token("mallory"), { email: "x@example.com" })).status).toBe(403)
     const r = await call("POST", "/v1/teams/team-a/invites", await token("alice"), { email: "x@example.com" })
     expect(r).toMatchObject({ status: 200, json: { sent: true } })
+  })
+
+  it("personal space: owner only, no Stack membership, invites refused", async () => {
+    // "solo" is in no Stack team at all.
+    const solo = await token("solo")
+    const team = "personal-solo"
+    const deviceId = crypto.randomUUID()
+    expect((await call("POST", "/v1/devices", solo, { deviceId, kind: "mac", name: "Solo Mac", teamId: team })).status).toBe(200)
+    const macs = await call("GET", `/v1/teams/${team}/macs`, solo)
+    expect(macs.json.macs.map((m: any) => m.deviceId)).toEqual([deviceId])
+    expect((await call("PUT", `/v1/teams/${team}/prefs`, solo, { color: "#123456" })).json).toEqual({ color: "#123456", emoji: null })
+    const inv = await call("POST", `/v1/teams/${team}/invites`, solo, { email: "x@example.com" })
+    expect(inv).toMatchObject({ status: 400, json: { error: { code: "bad_request", message: "personal space has no members" } } })
+    const alice = await token("alice")
+    expect((await call("GET", `/v1/teams/${team}/macs`, alice)).json).toMatchObject({ error: { code: "not_member" } })
+    expect((await call("GET", `/v1/teams/${team}/prefs`, alice)).status).toBe(403)
+    expect((await call("POST", "/v1/devices", alice, { deviceId: crypto.randomUUID(), kind: "phone", name: "p", teamId: team })).status).toBe(403)
+    expect((await call("POST", `/v1/teams/${team}/invites`, alice, { email: "x@example.com" })).status).toBe(403)
   })
 })
