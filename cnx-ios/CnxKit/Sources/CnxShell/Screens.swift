@@ -4,6 +4,7 @@ import CnxChief
 import CnxDesign
 import CnxModel
 import CnxWorkspaces
+import CnxTerminal
 import SwiftUI
 
 private let theme = CnxTheme.standard
@@ -56,7 +57,7 @@ struct WorkspacesScreen: View {
                 .background(theme.colors.bg.color.ignoresSafeArea())
                 .navigationBarTitleDisplayMode(.inline)
                 .navigationDestination(for: Workspace.self) { ws in
-                    WorkspaceScreen(store: shell.store, workspaceID: ws.id)
+                    WorkspaceScreen(store: shell.store, workspaceID: ws.id, terminal: shell.terminalTabs)
                 }
                 .toolbar {
                     SidebarToolbarItem(sidebar: shell.sidebar)

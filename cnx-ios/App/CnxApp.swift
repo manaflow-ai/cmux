@@ -1,6 +1,9 @@
 import CnxAuth
 import CnxModel
 import CnxShell
+#if DEBUG
+import CnxTerminal
+#endif
 import SwiftUI
 
 @main
@@ -12,7 +15,15 @@ struct CnxApp: App {
 
     var body: some Scene {
         WindowGroup {
+            #if DEBUG
+            if TerminalDemoRoot.isRequested {
+                TerminalDemoRoot()
+            } else {
+                RootView(auth: auth, store: .mock())
+            }
+            #else
             RootView(auth: auth, store: .mock())
+            #endif
         }
     }
 }

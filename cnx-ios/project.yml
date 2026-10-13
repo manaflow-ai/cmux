@@ -26,6 +26,8 @@ targets:
         product: CnxAuth
       - package: CnxKit
         product: CnxModel
+      - package: CnxKit
+        product: CnxTerminal
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.cmux.cnx$(CNX_TAG)

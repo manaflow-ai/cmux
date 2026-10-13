@@ -20,6 +20,7 @@ final class ShellModel {
     let store: AppStore
     let auth: CnxAuthModel
     let settings: SettingsStore
+    @ObservationIgnored let terminalTabs = GhosttyTerminalTabContent()
     let sidebar: SidebarModel
 
     var tab: RootTab = .home { didSet { updateInteractiveOpen() } }

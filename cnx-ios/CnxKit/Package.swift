@@ -21,8 +21,10 @@ let package = Package(
         .library(name: "CnxSettings", targets: ["CnxSettings"]),
         .library(name: "CnxWorkspaces", targets: ["CnxWorkspaces"]),
         .library(name: "CnxChief", targets: ["CnxChief"]),
+        .library(name: "CnxTerminal", targets: ["CnxTerminal"]),
     ],
     dependencies: [
+        .package(path: "../../Packages/Shared/CmuxGhosttyKit"),
         .package(path: "../../Packages/Shared/CmuxAgentQuestion"),
         // Shared Stack Auth runtime (used as-is; do not modify from here).
         .package(path: "../../Packages/Shared/CmuxAuthRuntime"),
@@ -85,15 +87,20 @@ let package = Package(
             .product(name: "CmuxConversationUI", package: "CmuxConversation", condition: .when(platforms: [.iOS])),
         ]),
         .target(
+            name: "CnxTerminal",
+            dependencies: ["CnxDesign", .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit")]
+        ),
+        .target(
             name: "CnxShell",
             dependencies: [
                 "CnxDesign", "CnxModel", "CnxAuth", "CnxOnboarding", "CnxSettings",
-                "CnxAgentChat", "CnxFeed", "CnxTransport", "CnxWorkspaces", "CnxChief",
+                "CnxAgentChat", "CnxFeed", "CnxTransport", "CnxWorkspaces", "CnxChief", "CnxTerminal",
             ]
         ),
         .testTarget(name: "CnxModelTests", dependencies: ["CnxModel"]),
         .testTarget(name: "CnxTransportTests", dependencies: ["CnxTransport"]),
         .testTarget(name: "CnxAgentChatTests", dependencies: ["CnxAgentChat", "CnxDiff", "CnxMarkdown"]),
+        .testTarget(name: "CnxTerminalTests", dependencies: ["CnxTerminal"]),
         .testTarget(name: "CnxWorkspacesTests", dependencies: ["CnxWorkspaces", "CnxModel"]),
         .testTarget(name: "CnxChiefTests", dependencies: [
             "CnxChief", "CnxTransport",
