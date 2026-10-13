@@ -15,6 +15,8 @@ import WebKit
 /// or `exit` (the card's Wait and Exit page); `pressed` says whether there was
 /// one to press. `gone_text` is the sad tab's title, message and button;
 /// `page_pid` a WebKit tab's WebContent process (crash e2e, cx-d0d.2).
+/// `can_go_back` and `can_go_forward` are "1" while the toolbar offers Back
+/// and Forward (restore journey).
 @MainActor
 public struct PageStatusDebug {
     public let fields: [String: String]
@@ -35,6 +37,8 @@ public struct PageStatusDebug {
         }
         fields = [
             "pressed": pressed ? "1" : "0",
+            "can_go_back": chrome.tab.state.canGoBack ? "1" : "0",
+            "can_go_forward": chrome.tab.state.canGoForward ? "1" : "0",
             "unresponsive": status.unresponsiveView.isHidden ? "0" : "1",
             "gone_text": goneText,
             "page_pid": (chrome.tab as? WebKitTab).flatMap { Self.webProcess($0.webView) }.map(String.init) ?? "",

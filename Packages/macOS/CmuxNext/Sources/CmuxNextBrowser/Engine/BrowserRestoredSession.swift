@@ -57,9 +57,10 @@ class BrowserRestoredSession {
         if let native = tab.nativeNavigationList(), native.entries.count > 1 {
             return restoreAround(native, entries: entries, current: current)
         }
-        // Only web pages come back as Back and Forward entries: a replace
-        // to another scheme may not navigate at all.
-        let kept = entries.indices.filter { $0 == current || Self.isWebPage(entries[$0].url) }
+        // Only pages a replace can reach come back as Back and Forward
+        // entries: a replace to another scheme may not navigate at all.
+        let shown = entries[current].url
+        let kept = entries.indices.filter { $0 == current || Self.isReachable(entries[$0].url, from: shown) }
         let current = kept.firstIndex(of: current) ?? 0
         let entries = kept.map { entries[$0] }
         history = BrowserRestoredHistory(entries: entries, current: current)
@@ -79,7 +80,7 @@ class BrowserRestoredSession {
         let start = current - native.current
         guard start > 0, start + native.entries.count <= entries.count,
               native.entries.indices.allSatisfy({ native.entries[$0].url == entries[start + $0].url }) else { return }
-        let back = entries[..<start].filter { Self.isWebPage($0.url) }
+        let back = entries[..<start].filter { Self.isReachable($0.url, from: entries[current].url) }
         history = BrowserRestoredHistory(entries: back + [entries[current]], current: back.count)
         for entry in back where entry.scrollY != nil {
             knownScrollY[entry.url] = entry.scrollY
@@ -234,6 +235,17 @@ class BrowserRestoredSession {
 
     static func isWebPage(_ url: URL) -> Bool {
         url.scheme == "http" || url.scheme == "https"
+    }
+
+    /// Whether a replace from the restored page `shown` can show `url`: a
+    /// web page, or a local file in the folder the shown local page was
+    /// loaded with access to (a local page and the pages it links to).
+    static func isReachable(_ url: URL, from shown: URL) -> Bool {
+        if isWebPage(url) { return true }
+        guard url.isFileURL, shown.isFileURL else { return false }
+        let folder = shown.standardizedFileURL.deletingLastPathComponent().path
+        let path = url.standardizedFileURL.path
+        return path.hasPrefix(folder.hasSuffix("/") ? folder : folder + "/")
     }
 
     /// `text` as a JavaScript string literal.
