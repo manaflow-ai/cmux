@@ -43,19 +43,20 @@ extension WireGuardPhoneHost {
     private func enroll(_ request: EnrollmentRequest) throws -> WireGuardPairedPhone {
         guard var state, let tunnel else { throw PairingError.unreachable }
         // The same phone pairing again keeps its id and address.
-        let existing = state.phones.firstIndex { $0.publicKey == request.publicKey }
+        let existing = state.phones.first { $0.publicKey == request.publicKey }
         let used = Set(state.phones.map(\.address))
-        guard let address = existing.map({ state.phones[$0].address })
+        guard let address = existing?.address
                 ?? (2...254).lazy.compactMap({ self.plan.deviceAddress($0) }).first(where: { !used.contains($0) }) else {
             throw PairingError.refused("This Mac has no room for another phone. Unpair one first.")
         }
         let phone = WireGuardPairedPhone(
-            id: existing.map { state.phones[$0].id } ?? UUID().uuidString.lowercased(),
+            id: existing?.id ?? UUID().uuidString.lowercased(),
             name: String(request.deviceName.prefix(80)), model: String(request.deviceModel.prefix(80)),
             publicKey: request.publicKey, presharedKey: WireGuardKey(randomPresharedKey: ()),
             address: address, pairedAt: Date())
         try tunnel.setPeer(Self.peer(for: phone))
-        if let existing { state.phones[existing] = phone } else { state.phones.append(phone) }
+        state.phones.removeAll { $0.publicKey == request.publicKey }
+        state.phones.append(phone)
         try store.save(state)
         self.state = state
         justPaired = phone
@@ -68,8 +69,8 @@ extension WireGuardPhoneHost {
         while buffer.count <= Self.maximumEnrollmentBytes {
             guard let chunk = try? await stream.read(maximumBytes: 4096) else { return nil }
             buffer.append(chunk)
-            if let newline = buffer.firstIndex(of: 0x0A) {
-                return buffer[buffer.startIndex..<newline]
+            if buffer.contains(0x0A) {
+                return Data(buffer.prefix { $0 != 0x0A })
             }
         }
         return nil

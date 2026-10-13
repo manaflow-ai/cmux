@@ -8,6 +8,7 @@ import Darwin
 /// sources, so no thread blocks. One read and any number of writes may be in
 /// flight; writes complete in call order. `close()` fails pending calls and
 /// releases the fd exactly once.
+// crash-allow: every mutable field is touched only on `queue` (serial), which all entry points hop to
 public final class SocketStream: @unchecked Sendable {
     public enum Failure: Error, Equatable, Sendable {
         case closed
@@ -148,8 +149,9 @@ public final class SocketStream: @unchecked Sendable {
     private func serviceWrites() {
         while var head = pendingWrites.first {
             let remaining = head.data.count - head.offset
-            let written = head.data.withUnsafeBytes { raw in
-                Darwin.write(fd, raw.baseAddress!.advanced(by: head.offset), remaining)
+            let written = head.data.withUnsafeBytes { raw -> Int in
+                guard let base = raw.baseAddress else { return 0 }
+                return Darwin.write(fd, base.advanced(by: head.offset), remaining)
             }
             if written > 0 {
                 head.offset += written

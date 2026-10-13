@@ -9,7 +9,7 @@ import Testing
             endpoints: ["192.168.1.20:51888", "[fd7a:115c::1]:51888"], bootstrapKey: WireGuardKey(),
             bootstrapAddress: "10.77.1.7", presharedKey: WireGuardKey(randomPresharedKey: ()),
             hostAddress: "10.77.0.1", expiresAt: Date(timeIntervalSince1970: 2_000_000_000))
-        let link = invitation.url.absoluteString
+        let link = invitation.link
         #expect(link.hasPrefix("cmux-next://pair#"))
         #expect(try PairingInvitation(link: link) == invitation)
         #expect(throws: PairingError.notAPairingLink) { try PairingInvitation(link: "https://example.com") }

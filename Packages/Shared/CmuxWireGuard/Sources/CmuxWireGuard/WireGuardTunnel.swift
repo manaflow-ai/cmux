@@ -8,7 +8,7 @@ import os
 /// It needs no system VPN: WireGuard datagrams go out on an ordinary UDP
 /// socket and tunneled TCP connections surface as `SocketStream`s. Blocking
 /// library calls (accept, dial) run on a private queue, never on the caller.
-public final class WireGuardTunnel: @unchecked Sendable {
+public final class WireGuardTunnel: Sendable {
     public enum Failure: Error, Equatable, Sendable, LocalizedError {
         case library(operation: String, code: Int32)
         case stopped
@@ -136,7 +136,7 @@ public final class WireGuardTunnel: @unchecked Sendable {
 }
 
 /// A listener on the tunnel address.
-public final class WireGuardListener: @unchecked Sendable {
+public final class WireGuardListener: Sendable {
     private let handle: Int64
     private let queue: DispatchQueue
 
@@ -174,7 +174,14 @@ public final class WireGuardListener: @unchecked Sendable {
 /// cgo exports take `char *`; Swift bridges String only to `const char *`.
 func mutableCString<R>(_ text: String, _ body: (UnsafeMutablePointer<CChar>) -> R) -> R {
     var bytes = Array(text.utf8CString)
-    return bytes.withUnsafeMutableBufferPointer { body($0.baseAddress!) }
+    return bytes.withUnsafeMutableBufferPointer { buffer in
+        // utf8CString always holds at least the terminating NUL.
+        guard let base = buffer.baseAddress else {
+            var empty: CChar = 0
+            return body(&empty)
+        }
+        return body(base)
+    }
 }
 
 /// Routes libcmuxwg log lines to os.Logger.

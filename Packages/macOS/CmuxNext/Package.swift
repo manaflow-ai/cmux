@@ -31,6 +31,7 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextOnboarding -> Design, Icons, BrowserImport (first-run window; the App supplies OnboardingServices)
+//   CmuxNextPhonePairing -> Design (Pair iPhone window; the App fills PhonePairingModel)
 //   CmuxNextHome -> Design, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
 //     vendored code over the shared HomeStore; no daemon; plans/cmux-next/home-mac.md),
 //     MessagesLabSidebar (MessagesLab's conversation list, the v1 sidebar seam)
@@ -214,6 +215,7 @@ let package = Package(
                 "CmuxNextResources",
                 "CmuxNextBrowserImport",
                 "CmuxNextOnboarding",
+                "CmuxNextPhonePairing",
                 "CmuxNextAgentPane",
                 "CmuxNextHistory",
                 "CmuxNextPages",
@@ -314,6 +316,16 @@ let package = Package(
         .target(
             name: "CmuxNextOnboarding",
             dependencies: ["CmuxNextDesign", "CmuxNextIcons", "CmuxNextBrowserImport"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The "Pair iPhone" window (QR code, paired phones). The App fills its
+        // model from the WireGuard phone host in CmuxNextMobile.
+        .target(
+            name: "CmuxNextPhonePairing",
+            dependencies: ["CmuxNextDesign"],
             resources: [
                 .process("Resources"),
             ],

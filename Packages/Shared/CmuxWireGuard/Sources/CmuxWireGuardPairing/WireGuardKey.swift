@@ -31,9 +31,14 @@ public struct WireGuardKey: Hashable, Sendable, Codable, CustomStringConvertible
 
     /// The public key for this private key.
     public var publicKey: WireGuardKey {
-        // CryptoKit clamps the scalar exactly as WireGuard does.
-        let key = try! Curve25519.KeyAgreement.PrivateKey(rawRepresentation: rawValue)
-        return WireGuardKey(rawValue: key.publicKey.rawRepresentation)!
+        // CryptoKit clamps the scalar exactly as WireGuard does. It rejects
+        // only keys that are not 32 bytes, and every WireGuardKey is.
+        guard let key = try? Curve25519.KeyAgreement.PrivateKey(rawRepresentation: rawValue) else { return self }
+        return WireGuardKey(uncheckedRawValue: key.publicKey.rawRepresentation)
+    }
+
+    private init(uncheckedRawValue: Data) {
+        rawValue = uncheckedRawValue
     }
 
     /// A short, human-checkable fingerprint ("A1B2-C3D4").

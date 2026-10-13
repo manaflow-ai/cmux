@@ -49,6 +49,8 @@ final class AppServices {
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     /// Phone access; started by the account layer once signed in.
     let mobile = MobileHostService()
+    /// Phone access over WireGuard (QR pairing); starts at launch, no sign-in.
+    let phonePairing = PhonePairingService()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
     let updater = UpdaterService()

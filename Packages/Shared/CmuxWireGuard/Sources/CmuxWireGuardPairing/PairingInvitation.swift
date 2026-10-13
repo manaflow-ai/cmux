@@ -58,9 +58,9 @@ public struct PairingInvitation: Codable, Hashable, Sendable {
 
     /// `cmux-next://pair#<base64url JSON>`. The payload sits in the fragment
     /// so it never reaches a server if the link is opened in a browser.
-    public var url: URL {
+    public var link: String {
         let json = (try? JSONEncoder.sorted.encode(self)) ?? Data()
-        return URL(string: "\(Self.scheme)://pair#\(json.base64URLEncoded)")!
+        return "\(Self.scheme)://pair#\(json.base64URLEncoded)"
     }
 
     /// Parses a pairing link or the raw text of a pairing QR code.

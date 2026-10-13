@@ -95,6 +95,7 @@ public actor WireGuardPhoneHost {
             failure = nil
             // task-owner: accept loops end when stop() closes their listeners
             Task { await self.acceptLoop(daemon, serve: { await self.serveDaemon($0, from: $1) }) }
+            // task-owner: accept loop; ends when stop() closes the enrollment listener
             Task { await self.acceptLoop(enrollment, serve: { await self.serveEnrollment($0, from: $1) }) }
             logger.info("wireguard: listening on UDP \(port.map(String.init) ?? "?", privacy: .public)")
         } catch {
@@ -123,7 +124,7 @@ public actor WireGuardPhoneHost {
         let bootstrap = WireGuardKey()
         let psk = WireGuardKey(randomPresharedKey: ())
         let index = Int.random(in: 1...254)
-        let address = plan.bootstrapAddress(index)!
+        guard let address = plan.bootstrapAddress(index) else { throw PairingError.unreachable }
         try tunnel.setPeer(.init(publicKey: bootstrap.publicKey, presharedKey: psk, allowedIPs: ["\(address)/32"]))
         let port = tunnel.status().listenPort ?? plan.preferredListenPort
         let invitation = PairingInvitation(

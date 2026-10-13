@@ -1,28 +1,28 @@
 public import CmuxWireGuardPairing
 public import Foundation
+import os
 
 /// The phone's side of the overlay: one tunnel to one paired Mac.
 ///
 /// The phone is the WireGuard initiator. A Mac may be reachable at several
 /// endpoints (LAN, tailnet, IPv6); the link tries each in turn, best known
 /// first, until a tunneled TCP connection opens, and remembers the winner.
-public final class PairedHostLink: @unchecked Sendable {
+public final class PairedHostLink: Sendable {
     public let host: PairedHost
     private let tunnel: WireGuardTunnel
-    private let lock = NSLock()
-    private var endpoint: String?
+    private let endpoint: OSAllocatedUnfairLock<String?>
 
     public init(host: PairedHost, privateKey: WireGuardKey) throws {
         self.host = host
         tunnel = try WireGuardTunnel(address: host.address, privateKey: privateKey,
                                      peers: [Self.peer(for: host, endpoint: host.endpointsToTry.first)])
-        endpoint = host.endpointsToTry.first
+        endpoint = OSAllocatedUnfairLock(initialState: host.endpointsToTry.first)
     }
 
     deinit { tunnel.stop() }
 
     /// The endpoint the last successful connection used.
-    public var currentEndpoint: String? { lock.withLock { endpoint } }
+    public var currentEndpoint: String? { endpoint.withLock { $0 } }
 
     /// Opens a tunneled connection to the Mac's `port`. The current session
     /// is tried first; then each endpoint with a fresh session, so a Mac that
@@ -51,7 +51,7 @@ public final class PairedHostLink: @unchecked Sendable {
     private func resetPeer(endpoint: String) throws {
         try tunnel.removePeer(host.hostKey)
         try tunnel.setPeer(Self.peer(for: host, endpoint: endpoint))
-        lock.withLock { self.endpoint = endpoint }
+        self.endpoint.withLock { $0 = endpoint }
     }
 
     static func peer(for host: PairedHost, endpoint: String?) -> WireGuardTunnel.Peer {
@@ -104,12 +104,13 @@ public struct WireGuardPairingClient: Sendable {
         let request = EnrollmentRequest(publicKey: permanentKey.publicKey, deviceName: deviceName, deviceModel: deviceModel)
         try await stream.write(JSONLine().encode(request))
         var buffer = Data()
-        while !buffer.contains(0x0A) {
+        var newline = buffer.firstIndex(of: 0x0A)
+        while newline == nil {
             guard let chunk = try await stream.read(), buffer.count < 64 * 1024 else { throw PairingError.unreachable }
             buffer.append(chunk)
+            newline = buffer.firstIndex(of: 0x0A)
         }
-        let line = buffer[buffer.startIndex..<buffer.firstIndex(of: 0x0A)!]
-        let response = try JSONLine().decode(EnrollmentResponse.self, from: Data(line))
+        let response = try JSONLine().decode(EnrollmentResponse.self, from: Data(buffer.prefix { $0 != 0x0A }))
         var host = try PairedHost(invitation: invitation, response: response, pairedAt: now)
         host.lastGoodEndpoint = winner
         return host
