@@ -67,7 +67,7 @@ final class ConversationFileThumbnailer {
     }
 
     /// The system's icon for a type, when no thumbnail exists yet.
-    static func icon(for file: ConversationFileInfo) -> UIImage? {
+    nonisolated static func icon(for file: ConversationFileInfo) -> UIImage? {
         let symbol: String
         switch file.type {
         case let type where type.conforms(to: .pdf): symbol = "doc.richtext"
