@@ -192,7 +192,7 @@ export class CloudHome {
         if (change.kind === "conversation" && change.conversation) this.heads.set(id, change.conversation as Json);
         if (change.kind === "read-cursor") {
           const head = this.heads.get(id);
-          const cursors = { ...((head?.read_cursors as Json) ?? {}), [String(change.participant)]: change.seq };
+          const cursors = { ...(head?.read_cursors as Json | undefined), [String(change.participant)]: change.seq };
           if (head) this.heads.set(id, { ...head, read_cursors: cursors });
         }
         return { conversation: this.summary(id) };
