@@ -51,6 +51,10 @@ owner-handoff (written up for the owning agent).
 | 42 | Attachments / privacy | Photos went to the Mac with their GPS location (the picker says "Location Is Included"); JPEG/PNG originals kept it in the file the agent reads and may upload. | S2 | fixed: `ComposerModel.strippingLocation` drops the GPS metadata losslessly (ImageIO copy with `kCGImageMetadataShouldExcludeGPS`); HEIC→JPEG already dropped it; tests |
 | 43 | Composer | Text ending in a space plus an attachment typed two spaces ("file  /Users/…"). | S3 | fixed: `ComposerModel.appendingPaths`; tests |
 | 44 | QA infra | Relay-only could not be forced from the app. | - | added: `-relayOnly YES` launch argument; verified a relay peer ("relay local=srflx remote=relay"), typing round trip OK |
+| 45 | Feed | Every post for a terminal was filled from the terminal's current text: two 7-hour-old "error" posts both showed the reply to a prompt sent minutes ago ("42"). | S2 | fixed: only the newest post of a surface, from before the agent changed state, borrows the terminal; finished/error posts older than 15 min stay as sent (`FeedStore.terminalStillShows`, tests) |
+| 46 | Feed | Codex's idle input line ("› Ask Codex to do anything") and Claude Code's unsent draft were quoted as the user's prompt. | S2 | fixed: `FeedTextParser` skips the input box (last prompt row with only footer rows after it); tests |
+| 47 | Feed | After a resize the tree's column count lagged the grid the text was laid out at (53 vs 54), so a soft-wrapped reply was cut ("…upload it" → "…uplo"). | S3 | fixed: unwrap uses the widest row when within 4 columns of the reported width; test |
+| 48 | Feed | Error posts looked like any other post. | S3 | fixed: red "Error" badge |
 
 ## Open (owner handoff or needs a device run)
 
@@ -64,6 +68,8 @@ owner-handoff (written up for the owning agent).
 | O6 | Diff | `git.diff` reports `truncated` (untracked file cap, size cap) but the phone ignores it, so a cut diff looks complete. Proposal: return `(text, truncated)` from `gitDiffText` and show a note row. | S3 | fixed (see 27-35) |
 | O7 | QA infra | The build Mac ran out of memory (swap 22.6/23.5 GB, load ~800, about 32 booted simulators); `simctl install/launch/list` hung for every agent. Items 12-18 are compile-checked by review only, and `ComposerQuotingTests` / `FilePreviewTextSniffTests` have not run yet: run `remote-build.sh test` once the Mac recovers. | - | resolved: `xcodebuild test` on cmux-native-test, 71 tests passed (2026-10-12) |
 | O8 | Push / privacy | Sign out never unregisters the APNs token (the Worker has `/v1/push/register` only) and doesn't revoke the session server-side, so a signed-out phone keeps getting alerts with terminal text for that account. Proposal: `DELETE /v1/push/register` (or `/v1/auth/logout` that drops the device's push rows and the session) called from `AppModel.signOut`. | S2 | fixed in 6269da3 (sign-out revokes session and push registration) |
+| O9 | Daemon agent detection | On nxdemo the Codex terminal (surface 2) produced notifications titled "Claude reported an error" (source agent, level error, empty body) and `list-agents` returns no row for it, so the phone labels the posts "Claude" with no agent state. The phone takes the daemon's word; the fix belongs in cmux-tui's agent hooks/detection. | S2 | cmux-tui (handoff) |
+| O10 | htop | Not installed on the build Mac; htop not exercised (less, top, vim, Codex, Claude Code were). | - | QA |
 
 ## Performance
 

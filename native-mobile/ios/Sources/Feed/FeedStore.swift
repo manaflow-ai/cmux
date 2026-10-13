@@ -156,6 +156,14 @@ final class FeedStore {
     func enrich(_ id: String) async {
         guard !enriched.contains(id), let connection, let index = items.firstIndex(where: { $0.id == id }),
               let surface = items[index].surface else { return }
+        // The terminal shows its latest turn: only the newest post of a
+        // surface, from before the agent moved on, may borrow its text (old
+        // posts all showed the current reply and the idle input line).
+        let item = items[index]
+        let newer = items.contains { $0.surface == surface && $0.createdAt > item.createdAt }
+        let agentUpdated = connection.agents[surface]?.updatedAtMs.map { Date(timeIntervalSince1970: $0 / 1000) }
+        guard Self.terminalStillShows(item.createdAt, newerPostOnSurface: newer, agentUpdatedAt: agentUpdated,
+                                      waitingForAnswer: item.needsAttention) else { return }
         enriched.insert(id)
         let text = await connection.scrollback(surface: surface)
         guard !text.isEmpty, let current = items.firstIndex(where: { $0.id == id }) else {
@@ -206,6 +214,20 @@ final class FeedStore {
         items[index].answered = text
         items[index].read = true
         Haptics.success()
+    }
+
+    /// Whether a terminal's current text still belongs to a post made at
+    /// `createdAt`: no newer post for the surface, and the agent hasn't
+    /// changed state well after it.
+    /// A finished or error post older than 15 minutes is left as the Mac
+    /// sent it (the agent has likely moved on even without a newer event);
+    /// an open question still is what the terminal shows.
+    nonisolated static func terminalStillShows(_ createdAt: Date, newerPostOnSurface: Bool, agentUpdatedAt: Date?,
+                                               waitingForAnswer: Bool = false, now: Date = Date()) -> Bool {
+        if newerPostOnSurface { return false }
+        if let agentUpdatedAt, agentUpdatedAt.timeIntervalSince(createdAt) > 10 { return false }
+        if !waitingForAnswer, now.timeIntervalSince(createdAt) > 15 * 60 { return false }
+        return true
     }
 
     static func agentName(in title: String) -> String? {

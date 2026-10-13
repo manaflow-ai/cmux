@@ -52,8 +52,38 @@ enum FeedTextParser {
             }
             index += 1
         }
+        // The live input box (Codex "› Ask Codex to do anything", a typed
+        // draft) is the last prompt line with only footer rows after it.
+        if let input = inputBoxPrompt(lines), input.count >= 2, lastPrompt?.hasPrefix(input) == true {
+            lastPrompt = previousPrompt(lines, before: input)
+        }
         let tail = lines.suffix(30).joined(separator: "\n")
         return Result(lastPrompt: lastPrompt, lastReply: lastReply, options: options(in: tail))
+    }
+
+    /// The text of the input box when the last prompt line is followed only
+    /// by footer rows (no reply, within the last few non-empty rows).
+    private static func inputBoxPrompt(_ lines: [String]) -> String? {
+        let nonEmpty = lines.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty && !isRule($0) }
+        guard let position = nonEmpty.lastIndex(where: { line in
+            line.first.map { promptMarkers.contains($0) } ?? false
+        }) else { return nil }
+        let after = nonEmpty[(position + 1)...]
+        guard after.count <= 3, !after.contains(where: { $0.first.map { replyMarkers.contains($0) } ?? false }) else { return nil }
+        return nonEmpty[position].dropFirst().trimmingCharacters(in: .whitespaces)
+    }
+
+    /// The submitted prompt before the input box (parse again without it).
+    private static func previousPrompt(_ lines: [String], before input: String) -> String? {
+        guard let cut = lines.lastIndex(where: { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return trimmed.first.map { promptMarkers.contains($0) } ?? false
+        }) else { return nil }
+        return parse(lines[..<cut].joined(separator: "\n")).lastPrompt
+    }
+
+    private static func isRule(_ line: String) -> Bool {
+        line.allSatisfy { "─━-═".contains($0) }
     }
 
     /// `1. Yes` / `❯ 2. No, and tell Claude…` lines near the end.
@@ -75,7 +105,11 @@ enum FeedTextParser {
     /// Rejoins rows the terminal soft-wrapped: a row that fills the whole
     /// width continues on the next one.
     static func unwrap(_ rows: [String], columns: Int?) -> [String] {
-        guard let columns, columns > 10 else { return rows }
+        guard let reported = columns, reported > 10 else { return rows }
+        // The tree's size can lag the grid the text was laid out at (another
+        // client resized it); the widest row is the real width when close.
+        let widest = rows.map(\.count).max() ?? reported
+        let columns = abs(widest - reported) <= 4 ? widest : reported
         var result: [String] = []
         var carry = ""
         for row in rows {

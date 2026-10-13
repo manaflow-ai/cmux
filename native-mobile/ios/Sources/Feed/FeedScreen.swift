@@ -261,6 +261,12 @@ struct FeedPostView: View {
                     .padding(.horizontal, 7).padding(.vertical, 3)
                     .background(Capsule().fill(Theme.attention.opacity(0.18)))
                     .foregroundStyle(Theme.attention)
+            } else if item.kind == .error {
+                Text(String(localized: "Error"))
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background(Capsule().fill(Theme.danger.opacity(0.16)))
+                    .foregroundStyle(Theme.danger)
             }
             TimelineView(.periodic(from: .now, by: 60)) { context in
                 Text(compactRelativeTime(item.createdAt, now: context.date))
