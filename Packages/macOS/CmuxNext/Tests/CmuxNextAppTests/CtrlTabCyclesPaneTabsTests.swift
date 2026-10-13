@@ -10,9 +10,20 @@ import Testing
 /// resolves a key-down, with the app's default bindings, in a terminal and
 /// in a browser page.
 @MainActor @Suite struct CtrlTabCyclesPaneTabsTests {
+    /// The app's catalog and default bindings; the four actions are bound
+    /// (a key resolves only to an action the app can run).
+    static let registry: ActionRegistry = {
+        let registry = ActionRegistry.standard()
+        let bound: [ActionID] = ["nextSurface", "prevSurface", "nextSidebarTab", "prevSidebarTab"]
+        for id in bound {
+            registry.bind(id, invoke: { _ in })
+        }
+        return registry
+    }()
+
     static func winner(_ keys: String, in surface: String) -> String? {
         let context = KeyContext([KeyContext.surfaceKind: .string(surface)])
-        guard case .object(let report)? = KeybindingReports.resolve(keys, context: context, registry: ActionRegistry.standard(), window: nil),
+        guard case .object(let report)? = KeybindingReports.resolve(keys, context: context, registry: registry, window: nil),
               report["outcome"]?.stringValue == "run", case .object(let winner)? = report["winner"] else { return nil }
         return winner["command"]?.stringValue
     }
