@@ -19,6 +19,7 @@ Independent effort on branch `feat-cnx-ios`. Native, mainstream-AI-app feel
 - `CnxModel`: Team, Mac, Workspace, Tab (terminal / browser / agent / chief), FeedEvent, AgentQuestion, Artifact, Diff.
 - `CnxTransport`: `MacLink` protocol (open channel, request/reply, event stream), `TransportKind {webrtc, wireguard}` switch, mock link for UI work. Backed by `cnx-ffi`.
 - `CnxAuth`: wraps `CmuxAuthRuntime` (Stack Auth: Apple, Google, GitHub, email code).
+- `CnxLive`: live data once signed in: device registration, presence, the Mac link state machine (dial, backoff, transport switch), daemon workspaces, acpmux chats, Feed events and answers, Chief over the link. See `verify/live.md`.
 - Feature modules: `CnxOnboarding`, `CnxShell` (TabView + team sidebar), `CnxHome` (Chief via `CmuxConversation`), `CnxWorkspaces` (`CmuxTabsKit`), `CnxFeed` (WKWebView markdown cards, inline answers, quote bubbles), `CnxTerminal` (Ghostty, composer, key bar, joystick), `CnxAgentChat`, `CnxArtifacts`, `CnxDiff`, `CnxSettings`.
 
 ## Mac side

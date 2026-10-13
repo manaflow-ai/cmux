@@ -104,7 +104,7 @@ public final class CnxAuthModel {
         return CnxAuthModel(
             coordinator: coordinator,
             stack: stack,
-            apiBase: environment["CNX_API_BASE"].flatMap(URL.init(string:)),
+            apiBase: environment["CNX_API_BASE"].flatMap(URL.init(string:)) ?? (isDebug ? URL(string: "https://cnx-ios-api-dev.debussy.workers.dev") : nil),
             isMock: false
         )
     }
@@ -223,6 +223,16 @@ public final class CnxAuthModel {
             throw InviteError.requestFailed
         }
         return url
+    }
+
+    /// The `cnx-ios-api` base URL for live data (nil in mock mode or when unconfigured).
+    public var apiBaseURL: URL? { isMock ? nil : apiBase }
+
+    /// A current Stack access token (refreshed by the runtime when needed).
+    /// `forceRefresh` mints a new one after the service rejected the last (401).
+    public func accessToken(forceRefresh: Bool = false) async throws -> String {
+        guard let coordinator else { throw AuthError.unauthorized }
+        return forceRefresh ? try await coordinator.forceRefreshAccessToken() : try await coordinator.accessToken()
     }
 
     /// Local-first sign-out.

@@ -2,7 +2,9 @@
 import CnxAuth
 import CnxDesign
 import CnxFeed
+import CnxLive
 import CnxModel
+import CnxTransport
 import CnxOnboarding
 import CnxSettings
 import SwiftUI
@@ -115,7 +117,12 @@ public struct RootView: View {
         let teams = auth.teams
         log.info("Stack teams: \(teams.count, privacy: .public)")
         guard !teams.isEmpty else { return }
-        store.applyAccountTeams(teams, selectedID: auth.selectedTeamID)
+        if auth.isMock {
+            store.applyAccountTeams(teams, selectedID: auth.selectedTeamID)
+        } else {
+            // Live: Macs come from the cnx-ios service, never the samples.
+            store.applyLiveTeams(teams, selectedID: auth.selectedTeamID)
+        }
     }
 
     private func applyAppearance(_ mode: AppearanceMode) {
@@ -135,6 +142,8 @@ public struct RootView: View {
 /// a four-tab `TabView`.
 struct ShellView: View {
     @State private var shell: ShellModel
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var inviteEmail = ""
     private let options: ShellLaunchOptions
 
     init(store: AppStore, auth: CnxAuthModel, settings: SettingsStore, sidebar: SidebarModel, options: ShellLaunchOptions) {
@@ -148,7 +157,7 @@ struct ShellView: View {
         SidebarContainer(
             model: shell.sidebar,
             sidebar: TeamSidebar(store: shell.store, shell: shell, sidebar: shell.sidebar),
-            content: ShellTabs(shell: shell)
+            content: ShellTabs(shell: shell).environment(shell.store)
         )
         .ignoresSafeArea()
         .cnxToast($shell.toast)
@@ -156,9 +165,34 @@ struct ShellView: View {
             ShareSheet(url: item.url).presentationDetents([.medium, .large])
         }
         .sheet(item: $shell.editingTeam) { team in
-            TeamAppearanceEditor(team: team) { shell.store.setAppearance($0, for: team.id) }
+            TeamAppearanceEditor(team: team) { shell.saveAppearance($0, for: team) }
+        }
+        .alert("Invite to \(shell.invitingTeam?.name ?? "team")", isPresented: Binding(
+            get: { shell.invitingTeam != nil },
+            set: { if !$0 { shell.invitingTeam = nil } }
+        )) {
+            TextField("Email", text: $inviteEmail)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.emailAddress)
+            Button("Cancel", role: .cancel) { inviteEmail = "" }
+            Button("Send") {
+                if let team = shell.invitingTeam { shell.sendInvite(email: inviteEmail, to: team) }
+                inviteEmail = ""
+            }
+        } message: {
+            Text("They'll get an email invitation to join.")
+        }
+        .onChange(of: shell.auth.teams) { _, teams in
+            shell.live?.applyAccountTeams(teams, selectedID: shell.store.activeTeamID)
+        }
+        .onChange(of: shell.settings.transport) { _, transport in
+            shell.live?.setTransport(transport.link)
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { shell.live?.foreground() }
         }
         .task {
+            startLive()
             if options.sidebarOpen { shell.sidebar.open() }
             #if DEBUG
             if let demo = options.demo { await DemoDriver(shell: shell).run(demo) }
@@ -166,6 +200,33 @@ struct ShellView: View {
             #endif
         }
     }
+}
+
+extension ShellView {
+    /// Signed in for real with a service URL: replace mocks with live data.
+    @MainActor
+    private func startLive() {
+        let auth = shell.auth
+        guard shell.live == nil, !auth.isMock, let base = auth.apiBaseURL, let user = auth.user else { return }
+        let api = LiveAPI(baseURL: base) { try await auth.accessToken(forceRefresh: $0) }
+        let live = LiveCoordinator(
+            store: shell.store,
+            api: api,
+            identity: DeviceIdentity.load(),
+            userID: user.id,
+            deviceName: UIDevice.current.name,
+            transport: shell.settings.transport.link,
+            dialer: FFIMacLinkDialer()
+        )
+        shell.live = live
+        live.applyAccountTeams(auth.teams, selectedID: auth.selectedTeamID)
+        log.info("live data on \(base.host() ?? "", privacy: .public)")
+    }
+}
+
+extension CnxModel.TransportKind {
+    /// The link layer's transport for the Settings choice.
+    var link: CnxTransport.TransportKind { self == .webrtc ? .webRTC : .wireGuard }
 }
 
 /// Exactly four tabs: Home, Workspaces, Feed, Settings. The selected tab is

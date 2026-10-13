@@ -116,7 +116,8 @@ public struct WorkspacesList: View {
                         .alignmentGuide(.listRowSeparatorLeading) { _ in 48 }
                     }
                 } header: {
-                    MacSectionHeader(mac: mac, presence: stamp.presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt))
+                    MacSectionHeader(mac: mac, presence: stamp.presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt),
+                                     link: store.macLinkStatus[mac.id])
                 }
             }
         }
@@ -142,8 +143,28 @@ public struct WorkspacesList: View {
 struct MacSectionHeader: View {
     let mac: MacDevice
     let presence: String
+    /// The live link line for this Mac, when the app dials it.
+    var link: String?
 
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            row
+            if let link {
+                Text(link)
+                    .font(theme.type.meta)
+                    .foregroundStyle(theme.colors.label2)
+                    .lineLimit(2)
+                    .padding(.leading, 15)
+                    .padding(.bottom, 6)
+                    .contentTransition(.opacity)
+                    .accessibilityIdentifier("mac-link-status")
+            }
+        }
+        .textCase(nil)
+        .animation(theme.motion.snappy.animation, value: link)
+    }
+
+    private var row: some View {
         HStack(spacing: 8) {
             StatusDot(mac.isOnline ? .online : .offline, size: 7)
             Text(mac.name)

@@ -50,6 +50,8 @@ public enum AgentSessionEvent: Hashable, Sendable {
     case modelsAvailable([ACPModelInfo], current: String?)
     case modesAvailable([ACPMode], current: String?)
     case status(AgentSessionSummary.Status)
+    /// A call the source made for the person failed (refused allow, trust gate, link down).
+    case clientError(String)
 }
 
 /// A person's action in the chat, encoded by the source into acpmux calls:

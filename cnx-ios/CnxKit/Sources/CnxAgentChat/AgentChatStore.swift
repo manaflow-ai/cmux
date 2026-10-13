@@ -119,6 +119,8 @@ public final class AgentChatStore {
     public private(set) var modes: [ACPMode] = []
     public private(set) var currentModeID: String?
     public private(set) var usage: (used: Int, size: Int)?
+    /// The newest refused intent, shown over the composer until the next send.
+    public var clientError: String?
     /// Bumps on every streamed change (follow-mode scroll keys off it).
     public private(set) var revision = 0
     private var currentMessageID: String?
@@ -169,6 +171,7 @@ public final class AgentChatStore {
     public func send(prompt: String, attachments: [AgentAttachment] = [], steer: Bool = false) {
         let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty else { return }
+        clientError = nil
         source.send(.prompt(text: text, attachments: attachments, steer: steer))
     }
 
@@ -231,6 +234,12 @@ public final class AgentChatStore {
             summary.status = .waiting
         case .permissionDecision(let permissionId, let optionId):
             updateItems { item in
+                // A question resolves through the same decision: its answer option, or a decline.
+                if case .question(var question) = item, question.id == permissionId, question.isPending {
+                    let answered = optionId != nil && optionId == question.source.answerOption
+                    question.state = answered ? .answered(AgentQuestionAnswer(selections: [:])) : .cancelled
+                    return .question(question)
+                }
                 guard case .permission(var record) = item, record.request.id == permissionId else { return nil }
                 if let optionId, let option = record.request.options.first(where: { $0.id == optionId }) {
                     record.resolution = .chose(option)
@@ -255,6 +264,8 @@ public final class AgentChatStore {
             currentModeID = current
         case .status(let status):
             summary.status = status
+        case .clientError(let message):
+            clientError = message
         }
     }
 
