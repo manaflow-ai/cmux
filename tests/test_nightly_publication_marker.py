@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -69,6 +70,68 @@ class NightlyPublicationMarkerTests(unittest.TestCase):
                 )
                 self.assertEqual(env.ALREADY_PUBLISHED != "true", should_publish)
                 self.assertEqual(eval(closure, {"env": env}), should_close)
+
+    def run_guard(self, body, channel, source_branch, ancestor):
+        steps = {step["name"]: step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]}
+        guard = steps["Reject stale continuation before publication"]["run"]
+        lookup = guard.split("\n", 2)[2].split("\nPY\n", 1)[0]
+        output = io.StringIO()
+        with patch("urllib.request.urlopen", return_value=io.StringIO(json.dumps({"body": body}))), \
+                patch.object(sys, "argv", ["-", "test/repo", channel, self.SHA, "100"]), \
+                patch.dict(os.environ, {"GH_TOKEN": "fixture"}), contextlib.redirect_stdout(output):
+            exec(compile(lookup, str(WORKFLOW), "exec"), {})
+        # Run the step's shell on the lookup's output with a stub git whose
+        # ancestry answer is fixed.
+        shell = guard.split("\nPY\n", 1)[1]
+        with tempfile.TemporaryDirectory() as temp:
+            bin_dir = Path(temp, "bin")
+            bin_dir.mkdir()
+            git = bin_dir / "git"
+            git.write_text(f"#!/bin/sh\n[ \"$1\" = merge-base ] && exit {0 if ancestor else 1}\nexit 0\n")
+            git.chmod(0o755)
+            Path(temp, "publication-guard").write_text(output.getvalue())
+            env_file = Path(temp, "env")
+            env_file.touch()
+            completed = subprocess.run(
+                ["bash", "-c", "set -euo pipefail\n" + shell],
+                env={
+                    "PATH": f"{bin_dir}:{os.environ['PATH']}",
+                    "RUNNER_TEMP": temp,
+                    "GITHUB_ENV": str(env_file),
+                    "CHANNEL": channel,
+                    "SOURCE_BRANCH": source_branch,
+                    "SOURCE_HEAD_SHA": self.SHA.lower(),
+                },
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        return output.getvalue(), completed
+
+    def test_newer_rc_line_replaces_an_older_line_without_shared_ancestry(self):
+        published = "b" * 40
+        prose = f"<!-- cmux-published-sha: {published} -->\nAutomated rc build for `{published[:7]}` from `rc/v0.65.0`.\n"
+        marker = f"<!-- cmux-published-sha: {published} -->\n<!-- cmux-published-branch: rc/v0.65.0 -->\n"
+        no_branch = f"<!-- cmux-published-sha: {published} -->\n"
+        same_line = f"<!-- cmux-published-sha: {published} -->\n<!-- cmux-published-branch: rc/v0.65.2 -->\n"
+        lookup, _ = self.run_guard(prose, "rc", "rc/v0.65.2", ancestor=False)
+        self.assertIn(f"published_sha={published}", lookup)
+        self.assertIn("published_branch=rc/v0.65.0", lookup)
+        for body, channel, source_branch, ancestor, should_pass in (
+            (prose, "rc", "rc/v0.65.2", False, True),
+            (marker, "rc", "rc/v0.65.2", False, True),
+            (prose, "rc", "rc/v0.65.10", False, True),
+            (prose, "rc", "rc/v0.64.9", False, False),
+            (prose, "rc", "rc/v0.65.0", False, False),
+            (prose, "rc", "rc/vfoo", False, False),
+            (no_branch, "rc", "rc/v0.65.2", False, False),
+            (same_line, "rc", "rc/v0.65.2", False, False),
+            (same_line, "rc", "rc/v0.65.2", True, True),
+            (prose, "nightly", "main", False, False),
+        ):
+            with self.subTest(body=body, channel=channel, source_branch=source_branch, ancestor=ancestor):
+                _, completed = self.run_guard(body, channel, source_branch, ancestor)
+                self.assertEqual(completed.returncode == 0, should_pass, completed.stderr)
 
     def test_continuation_closes_issue_when_later_failure_comment_has_newer_sha(self):
         steps = {step["name"]: step for step in yaml.safe_load(WORKFLOW.read_text())["jobs"]["publish"]["steps"]}

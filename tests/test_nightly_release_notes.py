@@ -54,6 +54,33 @@ class PublishedShaTests(unittest.TestCase):
                 self.assertIsNone(NOTES.published_sha(body))
 
 
+class BaselineTests(unittest.TestCase):
+    def test_new_rc_line_has_no_change_range(self):
+        for body in (
+            f"<!-- cmux-published-sha: {BASE} -->\nAutomated rc build for `{BASE[:7]}` from `rc/v0.65.0`.",
+            f"<!-- cmux-published-sha: {BASE} -->\n<!-- cmux-published-branch: rc/v0.65.0 -->\n",
+        ):
+            with self.subTest(body=body):
+                self.assertEqual(NOTES.baseline(body, "rc", "rc/v0.65.2"), (None, "rc/v0.65.0"))
+
+    def test_same_line_nightly_and_unknown_branch_keep_the_published_base(self):
+        rc_body = f"<!-- cmux-published-sha: {BASE} -->\n<!-- cmux-published-branch: rc/v0.65.2 -->\n"
+        for body, tag, branch in (
+            (rc_body, "rc", "rc/v0.65.2"),
+            (f"<!-- cmux-published-sha: {BASE} -->\n", "rc", "rc/v0.65.2"),
+            (f"<!-- cmux-published-sha: {BASE} -->\nAutomated nightly build for `{BASE[:7]}` from `main`.", "nightly", "main"),
+            (f"<!-- cmux-published-sha: {BASE} -->\n<!-- cmux-published-branch: rc/v0.65.0 -->\n", "nightly", "main"),
+            (f"<!-- cmux-published-sha: {BASE} -->\n<!-- cmux-published-branch: rc/v0.65.0 -->\n", "rc", "rc/vfoo"),
+        ):
+            with self.subTest(tag=tag, branch=branch, body=body):
+                self.assertEqual(NOTES.baseline(body, tag, branch), (BASE, None))
+
+    def test_new_line_summary_says_why_there_is_no_range(self):
+        markdown, _ = NOTES.summarize([], REPO, None, HEAD, replaces_line="rc/v0.65.0")
+        self.assertIn("starts a new release line after `rc/v0.65.0`", markdown)
+        self.assertNotIn("was not recorded", markdown)
+
+
 class SummaryTests(unittest.TestCase):
     def summarize(self, prs, **kwargs):
         return NOTES.summarize(prs, REPO, BASE, HEAD, **kwargs)

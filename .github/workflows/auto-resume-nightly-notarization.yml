@@ -873,6 +873,11 @@ jobs:
               print("published_same_source=false")
           elif sha:
               print(f"published_sha={sha.group(1)}")
+              # Bodies written before the branch marker name the branch only in prose.
+              branch = re.search(r"<!--\s*cmux-published-branch:\s*(rc/v[0-9]+(?:\.[0-9]+)*)\s*-->", body, re.I) \
+                  or re.search(r"build for `[0-9a-f]+` from `(rc/v[0-9]+(?:\.[0-9]+)*)`", body)
+              if branch:
+                  print(f"published_branch={branch.group(1)}")
           PY
           if grep -Fxq 'already_published=true' "$RUNNER_TEMP/publication-guard"; then
             echo 'ALREADY_PUBLISHED=true' >> "$GITHUB_ENV"
@@ -883,7 +888,15 @@ jobs:
             fi
           else
             published_sha="$(sed -n 's/^published_sha=//p' "$RUNNER_TEMP/publication-guard")"
-            if [ -n "$published_sha" ]; then
+            published_branch="$(sed -n 's/^published_branch=//p' "$RUNNER_TEMP/publication-guard")"
+            # Each RC version is its own rc/vX.Y.Z branch, so a newer RC line
+            # never descends from the older one it replaces. Ancestry only
+            # orders continuations within one line.
+            if [ "$CHANNEL" = rc ] && [ -n "$published_branch" ] && [ "$published_branch" != "$SOURCE_BRANCH" ] \
+              && [[ "$SOURCE_BRANCH" =~ ^rc/v[0-9]+(\.[0-9]+)*$ ]] \
+              && [ "$(printf '%s\n%s\n' "${published_branch#rc/v}" "${SOURCE_BRANCH#rc/v}" | sort -V | tail -1)" = "${SOURCE_BRANCH#rc/v}" ]; then
+              echo "$SOURCE_BRANCH is a newer RC line than $published_branch; replacing it"
+            elif [ -n "$published_sha" ]; then
               git fetch --no-tags origin "$SOURCE_HEAD_SHA" "$published_sha"
               git merge-base --is-ancestor "$published_sha" "$SOURCE_HEAD_SHA" || {
                 echo "source continuation is older than the published release; refusing stale replacement" >&2

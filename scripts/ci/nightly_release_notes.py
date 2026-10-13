@@ -12,6 +12,10 @@ from urllib.parse import quote
 from xml.dom import minidom
 
 MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*-->", re.I)
+RC_BRANCH = r"rc/v[0-9]+(?:\.[0-9]+)*"
+BRANCH_MARKER = re.compile(r"<!--\s*cmux-published-branch:\s*(" + RC_BRANCH + r"|main)\s*-->", re.I)
+# Bodies written before the branch marker name their branch only in prose.
+BRANCH_PROSE = re.compile(r"build for `[0-9a-f]+` from `(" + RC_BRANCH + r")`")
 SPARKLE = "http://www.andymatuschak.org/xml-namespaces/sparkle"
 REPAIR = "https://github.com/manaflow-ai/cmuxterm-hq/blob/main/REPAIR.md"
 
@@ -40,6 +44,25 @@ class GitHub:
 def published_sha(body: str) -> str | None:
     match = MARKER.search(body)
     return match.group(1).lower() if match else None
+
+
+def published_branch(body: str) -> str | None:
+    match = BRANCH_MARKER.search(body) or BRANCH_PROSE.search(body)
+    return match.group(1) if match else None
+
+
+def baseline(body: str, tag: str, branch: str) -> tuple[str | None, str | None]:
+    """Return the change-range base and, for a new RC line, the line it replaces.
+
+    Each RC version is its own rc/vX.Y.Z branch, so the line it replaces is not
+    an ancestor and has no change range. Within one line, and on nightly, the
+    published commit is the base and must be an ancestor.
+    """
+    base = published_sha(body)
+    previous = published_branch(body)
+    if base and tag != "nightly" and previous and previous != branch and re.fullmatch(RC_BRANCH, branch):
+        return None, previous
+    return base, None
 
 
 def collect_prs(github: GitHub, base: str, head: str, branch: str) -> list[dict]:
@@ -114,13 +137,16 @@ def markdown_title(title: str) -> str:
     return re.sub(r"([\\`*_\[\]<>])", r"\\\1", clean_title(title))
 
 
-def summarize(prs: list[dict], repo: str, base: str | None, head: str, limit: int = 40) -> tuple[str, str]:
+def summarize(prs: list[dict], repo: str, base: str | None, head: str, limit: int = 40,
+              replaces_line: str | None = None) -> tuple[str, str]:
     ordered = sorted({p["number"]: p for p in prs}.values(), key=lambda p: (p["mergedAt"], p["number"]), reverse=True)
     infra = sum(infrastructure(p) for p in ordered)
     product = [p for p in ordered if not infrastructure(p)]
     visible = product[:limit]
     lines = ["## What changed", ""]
-    if base is None:
+    if replaces_line:
+        lines += [f"This build starts a new release line after `{replaces_line}`, so there is no change range.", ""]
+    elif base is None:
         lines += ["The previous published commit was not recorded, so a change range is not available for this build.", ""]
     elif not product:
         lines += ["No product PRs merged since the previous published build.", ""]
@@ -191,14 +217,19 @@ def main() -> int:
         raise ValueError("Expected owner/repo and a full built SHA")
     github = GitHub(args.repo)
     release = github.rest(f"releases/tags/{quote(args.tag, safe='')}")
-    base = published_sha(release.get("body") or "")
-    if base is None:
+    base, replaces_line = baseline(release.get("body") or "", args.tag, args.branch)
+    if replaces_line:
+        print(f"{args.branch} replaces {replaces_line}; a new release line has no change range")
+    elif base is None:
         print(f"::warning::No previous publication marker; restore cmux-published-sha in the release body to recover the change range. Repair: {REPAIR}")
     prs = collect_prs(github, base, args.head, args.branch) if base else []
-    markdown, plain = summarize(prs, args.repo, base, args.head)
+    markdown, plain = summarize(prs, args.repo, base, args.head, replaces_line=replaces_line)
     body = markdown + "\n## Downloads\n\n" + args.details.read_text()
     args.out.write_text(body)
-    args.out.with_suffix(".published.md").write_text(f"<!-- cmux-published-sha: {args.head} -->\n" + body)
+    markers = f"<!-- cmux-published-sha: {args.head} -->\n"
+    if args.branch == "main" or re.fullmatch(RC_BRANCH, args.branch):
+        markers += f"<!-- cmux-published-branch: {args.branch} -->\n"
+    args.out.with_suffix(".published.md").write_text(markers + body)
     update_appcasts(args.appcasts, args.build, plain)
     print(f"Prepared nightly notes for {len(prs)} merged PRs; baseline {base or 'unavailable'}")
     return 0
