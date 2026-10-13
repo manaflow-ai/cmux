@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import Darwin
-import Foundation
+public import Darwin
+public import Foundation
 import os
 import Security
 
@@ -23,8 +23,8 @@ private let helperV2Logger = Logger(subsystem: "com.cmuxterm.app.next", category
 /// spawns gets in its environment. Same-uid processes can read that file;
 /// the secret is defense in depth, the kernel identity checks are the boundary.
 @MainActor
-final class ComputerUseHelperV2 {
-    enum State: Equatable {
+public final class ComputerUseHelperV2 {
+    public enum State: Equatable {
         case off
         /// On, but the helper is missing, did not start, or responsibility
         /// could not be disclaimed.
@@ -41,11 +41,11 @@ final class ComputerUseHelperV2 {
     nonisolated static let socketFileName = "h.sock"
 
     private(set) var state: State = .off
-    let directory: String
+    public let directory: String
     private let helperApp: @Sendable () -> URL?
     /// This app's acpmux (executable and daemon socket), set by the agent
     /// pane source once it resolves acpmux.
-    var acpmux: @Sendable () -> (executable: URL, socketPath: String)?
+    public var acpmux: @Sendable () -> (executable: URL, socketPath: String)?
     private let spawner: any ComputerUseHelperV2Spawning
     private let clock: any Clock<Duration>
     private let readyTimeout: Duration
@@ -77,7 +77,7 @@ final class ComputerUseHelperV2 {
     /// What every acpmux daemon this app spawns gets: the endpoint directory
     /// (constant for this app build, so a daemon that outlives a helper
     /// restart still finds the current endpoint).
-    nonisolated static func childEnvironment(directory: String) -> [String: String] {
+    public nonisolated static func childEnvironment(directory: String) -> [String: String] {
         [endpointDirectoryKey: directory]
     }
 
@@ -172,7 +172,7 @@ final class ComputerUseHelperV2 {
     /// Registers the acpmux daemon listening on `acpmuxSocket`, after checking
     /// it runs this app's acpmux executable. Its descendants (agent MCP
     /// bridges) may then use the helper.
-    func registerAcpmuxDaemon(acpmuxSocket: String) async {
+    public func registerAcpmuxDaemon(acpmuxSocket: String) async {
         guard let child, let executable = acpmux()?.executable,
               let stamp = await Self.daemonStamp(socketPath: acpmuxSocket, executable: executable) else { return }
         await child.send(Self.line(["type": "register_acpmux", "pid": Int(stamp.pid),

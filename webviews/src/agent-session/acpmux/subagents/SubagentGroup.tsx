@@ -5,10 +5,14 @@
 // the transcript.
 import { createContext, useContext, useEffect, useState } from "react";
 import { Icon } from "../icons/Icon";
+import { AgentMark, agentBrand } from "../../shared/AgentMark";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { formatDuration } from "../conversation/turns";
 import type { Subagent } from "./subagentFold";
+
+/// The chat's harness (claude, codex, ...): its subagents run on it, so their avatars carry its mark.
+export const SubagentHarnessContext = createContext<string | undefined>(undefined);
 
 /// Opens a subagent's own view in the pane, or the session's own with undefined (App.tsx).
 export const SubagentNavContext = createContext<((id: string | undefined) => void) | undefined>(undefined);
@@ -51,9 +55,10 @@ export function useNow(live: boolean): number {
 }
 
 function Avatar({ agent, dot = false }: { agent: Subagent; dot?: boolean }) {
+  const harness = useContext(SubagentHarnessContext);
   return (
     <span className="cv-subagent-avatar" data-state={agent.state}>
-      <Icon name="agent.session" size={14} />
+      {agentBrand(harness) ? <AgentMark agent={harness} size={14} /> : <Icon name="agent.session" size={14} />}
       {dot && <span className="cv-subagent-avatar__dot" aria-hidden="true" />}
     </span>
   );
@@ -115,7 +120,10 @@ export function SubagentListRow({ row }: { row: AcpmuxRow }) {
     <>
       <Avatar agent={agent} dot />
       <span className="cv-subagent__text">
-        <span className="cv-subagent__name">{agent.name}</span>
+        <span className="cv-subagent__name">
+          {agent.name}
+          {agent.kind && agent.kind !== agent.name && <span className="cv-subagent__kind">{agent.kind}</span>}
+        </span>
         <span className="cv-subagent__state">{state}</span>
       </span>
       <span className="cv-subagent__time">{formatDuration(elapsed(agent, now))}</span>
