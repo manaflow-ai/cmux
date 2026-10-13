@@ -35,12 +35,15 @@ import argparse
 import ctypes
 import json
 import os
+import plistlib
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 _libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
@@ -162,11 +165,11 @@ class App:
     """The app's control socket, through the app's own bundled CLI."""
 
     def __init__(self, bundle: str, socket_path: str):
-        self.cli = os.path.join(bundle, "Contents/Resources/bin/cmux")
+        self.cli_path = os.path.join(bundle, "Contents/Resources/bin/cmux")
         self.socket = socket_path
 
     def run(self, action: str, target: str | None = None, **args):
-        argv = [self.cli, "--app-socket", self.socket, "--json", "action", "run", action]
+        argv = [self.cli_path, "--app-socket", self.socket, "--json", "action", "run", action]
         if target:
             argv += ["--target", target]
         for name, value in args.items():
@@ -180,16 +183,38 @@ class App:
         except ValueError:
             return {"error": (out.stdout + out.stderr).strip()[:300]}
 
+    def action(self, action: str, **args) -> dict:
+        """`action.run` over the socket itself: the CLI reads `--session`
+        as its own option, so an action argument of that name never reaches
+        the app through it."""
+        params = {"action": action, "args": args, "wait": True, "origin": "script",
+                  "idempotency_key": f"mutation_{uuid.uuid4().hex}"}
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as stream:
+            stream.settimeout(120)
+            stream.connect(self.socket)
+            stream.sendall((json.dumps({"id": 1, "method": "action.run", "params": params}) + "\n").encode())
+            reply = b""
+            while not reply.endswith(b"\n"):
+                chunk = stream.recv(65536)
+                if not chunk:
+                    break
+                reply += chunk
+        try:
+            answer = json.loads(reply or b"{}")
+        except ValueError:
+            return {"error": reply.decode(errors="replace")[:300]}
+        return {"error": json.dumps(answer["error"])[:300]} if answer.get("error") else answer.get("result") or {}
+
     def identify(self) -> dict:
         try:
-            out = subprocess.run([self.cli, "--app-socket", self.socket, "--json", "app", "identify"],
+            out = subprocess.run([self.cli_path, "--app-socket", self.socket, "--json", "app", "identify"],
                                  capture_output=True, text=True, timeout=10)
             return json.loads(out.stdout or "{}")
         except (subprocess.TimeoutExpired, ValueError):
             return {}
 
     def ping(self) -> bool:
-        out = subprocess.run([self.cli, "--app-socket", self.socket, "app", "ping"],
+        out = subprocess.run([self.cli_path, "--app-socket", self.socket, "app", "ping"],
                              capture_output=True, text=True, timeout=30)
         return out.returncode == 0
 
@@ -197,19 +222,78 @@ class App:
 FAKE_AGENT_ID = "bench-memory-fake"
 
 
-def open_workspace(app: App, recipe: str, url: str, index: int, agent: str | None = None):
+class FakeChats:
+    """Chats on an ACP test agent whose turns end (--fake-agent).
+
+    A prompt sent through the app's CLI waits in a new chat's composer for a
+    Send, so such a chat never gets a session. Each chat here is instead an
+    acpmux session made on the app's own acpmux, with its first turn already
+    answered, opened as a workspace (`agent.openSessionWorkspace`): an idle
+    chat, as one is after its reply. Its sessions stay in that acpmux's
+    store (the app's tag under ~/.acpmux)."""
+
+    def __init__(self, app: App, bundle: str, script: str):
+        self.app = app
+        added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
+                        args=os.path.abspath(script), protocol="acp", replace="true")
+        if added.get("error") or added.get("code"):
+            raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
+        self.env = dict(os.environ, ACPMUX_SOCKET=self.acpmux_socket(bundle))
+
+    @staticmethod
+    def acpmux_socket(bundle: str) -> str:
+        deadline = time.monotonic() + 90
+        while time.monotonic() < deadline:
+            for pid, _, cmd in process_table():
+                if in_bundle(cmd, bundle) is not None and "/bin/acpmux daemon run" in cmd:
+                    listed = subprocess.run(["lsof", "-a", "-p", str(pid), "-U", "-Fn"],
+                                            capture_output=True, text=True, timeout=30).stdout
+                    paths = [line[1:] for line in listed.splitlines() if line.startswith("n") and line.endswith("acpmux.sock")]
+                    if paths:
+                        return paths[0]
+            time.sleep(1)  # test script: waiting for the app's acpmux to listen
+        raise SystemExit("bench-memory: the app's acpmux opened no socket within 90 s")
+
+    def open(self, index: int) -> str | None:
+        """A new workspace on a new answered chat; returns the workspace id."""
+        made = subprocess.run([self.app.cli_path, "acp", "new", "--json", "-d", "-m", FAKE_AGENT_ID,
+                               "-n", f"memory-bench-{index}", f"memory bench chat {index}"],
+                              capture_output=True, text=True, timeout=120, env=self.env)
+        try:
+            session = json.loads(made.stdout)["sessionId"]
+        except (ValueError, KeyError):
+            print(f"   acp new: {(made.stdout + made.stderr).strip()[:300]}", file=sys.stderr)
+            return None
+        response = self.app.action("agent.openSessionWorkspace", session=session)
+        created = [item for item in response.get("created", []) if str(item).startswith("ws_")]
+        if not created:
+            print(f"   agent.openSessionWorkspace: {response.get('error') or response}", file=sys.stderr)
+            return None
+        return created[0]
+
+
+def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats | None = None):
     """One workspace of `recipe` (kinds joined by +); returns its id or None."""
-    made = app.run("workspace.newAtBottom")
-    created = [item for item in made.get("created", []) if str(item).startswith("ws_")]
-    if not created:
-        print(f"   workspace.newAtBottom: {made.get('error') or made.get('message') or made}", file=sys.stderr)
-        return None
-    workspace = created[0]
-    # Browser and chat tabs open in the focused pane (they take a tab or pane
-    # target, not a workspace), so show the new workspace first, as a user
-    # who opened it would; that also loads its pages and renderers.
-    app.run("workspace.selectLast")
-    for kind in recipe.split("+"):
+    kinds = recipe.split("+")
+    if chats and "chat" in kinds:
+        # The workspace opens on its chat (with a terminal first, as every such workspace).
+        kinds.remove("chat")
+        workspace = chats.open(index)
+        if workspace is None:
+            return None
+        app.action("goToWorkspace", workspace=workspace)
+    else:
+        made = app.run("workspace.newAtBottom")
+        created = [item for item in made.get("created", []) if str(item).startswith("ws_")]
+        if not created:
+            print(f"   workspace.newAtBottom: {made.get('error') or made.get('message') or made}", file=sys.stderr)
+            return None
+        workspace = created[0]
+        # Browser and chat tabs open in the focused pane (they take a tab or pane
+        # target, not a workspace), so show the new workspace first, as a user
+        # who opened it would; that also loads its pages and renderers.
+        app.run("workspace.selectLast")
+    for kind in kinds:
         if kind == "none":
             # The workspace alone (its first page): `--mix none` churns workspaces only.
             continue
@@ -218,10 +302,10 @@ def open_workspace(app: App, recipe: str, url: str, index: int, agent: str | Non
         elif kind == "browser":
             response = app.run("openBrowser.chromium", url=url)
         elif kind == "chat":
-            # A prompt opens an agent chat tab. Fleet minis carry no agent
-            # credentials: without --fake-agent the turn waits on a login.
-            extra = {"agent": agent} if agent else {}
-            response = app.run("newTab.submit", text=f"memory bench chat {index}", **extra)
+            # A prompt opens an agent chat tab. It waits in the composer for a
+            # Send (fleet minis carry no agent credentials either): --fake-agent
+            # makes chats that answered.
+            response = app.run("newTab.submit", text=f"memory bench chat {index}")
         else:
             raise SystemExit(f"bench-memory: unknown kind {kind!r} in --mix")
         if response.get("error") or response.get("code"):
@@ -237,7 +321,13 @@ def close_workspace(app: App, workspace: str):
 
 
 def bundle_pids(bundle: str) -> set[int]:
-    return {pid for pid, _, cmd in process_table() if in_bundle(cmd, bundle) is not None}
+    """The bundle's processes, with the terminal hosts its daemons started:
+    those run a copy of cmux-tui outside the bundle, named by the app's
+    bundle id (`--owner <bundle id>:...`)."""
+    with open(os.path.join(bundle, "Contents/Info.plist"), "rb") as handle:
+        owner = f"--owner {plistlib.load(handle)['CFBundleIdentifier']}:"
+    return {pid for pid, _, cmd in process_table()
+            if in_bundle(cmd, bundle) is not None or ("__terminal-host" in cmd and owner in cmd)}
 
 
 def is_binary(cmd: str, binary: str) -> bool:
@@ -381,7 +471,7 @@ def main():
         launched, socket_path, scratch = launch(bundle, json.loads(args.config))
         app_pid = launched
     app = App(bundle, socket_path)
-    agent = None
+    chats = None
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [],
@@ -397,16 +487,12 @@ def main():
 
     try:
         if args.fake_agent:
-            added = app.run("agent.harness.add", id=FAKE_AGENT_ID, name="Memory bench", command=sys.executable,
-                            args=os.path.abspath(args.fake_agent), protocol="acp", replace="true")
-            if added.get("error") or added.get("code"):
-                raise SystemExit(f"bench-memory: agent.harness.add: {added.get('message') or added.get('error')}")
-            agent = FAKE_AGENT_ID
+            chats = FakeChats(app, bundle, args.fake_agent)
         settle_and_sample("idle-launch")
         for count in counts:
             # The launch workspace counts as the first one.
             while len(opened) + 1 < count:
-                workspace = open_workspace(app, recipes[len(opened) % len(recipes)], args.url, len(opened), agent)
+                workspace = open_workspace(app, recipes[len(opened) % len(recipes)], args.url, len(opened), chats)
                 if workspace is None:
                     break
                 opened.append(workspace)
@@ -416,7 +502,7 @@ def main():
             next_sample = time.monotonic() + args.sample_minutes * 60
             cycles = 0
             while time.monotonic() < end:
-                workspace = open_workspace(app, recipes[cycles % len(recipes)], args.url, 1000 + cycles, agent)
+                workspace = open_workspace(app, recipes[cycles % len(recipes)], args.url, 1000 + cycles, chats)
                 time.sleep(2)  # test script: let the new tabs load before closing them
                 if workspace:
                     close_workspace(app, workspace)
