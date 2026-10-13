@@ -26,6 +26,10 @@ public actor WireGuardPhoneHost {
         public var endpoints: [String] = []
         public var hostName = ""
         public var hostID = ""
+        /// The Mac's WireGuard public key (base64), for the LAN advertisement.
+        public var hostPublicKey = ""
+        /// The current invitation's typed form ("ABCD-EFGH").
+        public var code: String?
         public var hostKeyFingerprint = ""
         public var phones: [WireGuardPairedPhone] = []
         /// Phone id -> open daemon connections.
@@ -58,6 +62,7 @@ public actor WireGuardPhoneHost {
     struct PendingInvitation: Sendable {
         let invitation: PairingInvitation
         let bootstrapPublicKey: WireGuardKey
+        let code: PairingCode
     }
 
     public init(stateDirectory: URL, hostName: String, daemonSocketPath: @escaping SocketPath,
@@ -122,18 +127,18 @@ public actor WireGuardPhoneHost {
     public func makeInvitation(lifetime: Duration = .seconds(600)) throws -> PairingInvitation {
         guard let tunnel, let state else { throw PairingError.unreachable }
         dropInvitation()
-        let bootstrap = WireGuardKey()
-        let psk = WireGuardKey(randomPresharedKey: ())
-        let index = Int.random(in: 1...254)
-        guard let address = plan.bootstrapAddress(index) else { throw PairingError.unreachable }
-        try tunnel.setPeer(.init(publicKey: bootstrap.publicKey, presharedKey: psk, allowedIPs: ["\(address)/32"]))
+        // The QR code and the typed code are one invitation: its secrets
+        // derive from the code (PairingCode.derive).
+        let code = PairingCode()
         let port = tunnel.status().listenPort ?? plan.preferredListenPort
         let invitation = PairingInvitation(
-            hostName: hostName, hostID: state.hostID, hostKey: state.privateKey.publicKey,
-            endpoints: WireGuardEndpoints(port: port).candidates(), bootstrapKey: bootstrap,
-            bootstrapAddress: address, presharedKey: psk, hostAddress: plan.hostAddress,
+            code: code, hostName: hostName, hostID: state.hostID, hostKey: state.privateKey.publicKey,
+            endpoints: WireGuardEndpoints(port: port).candidates(), plan: plan,
             expiresAt: Date().addingTimeInterval(TimeInterval(lifetime.components.seconds)))
-        self.invitation = PendingInvitation(invitation: invitation, bootstrapPublicKey: bootstrap.publicKey)
+        let bootstrap = invitation.bootstrapKey.publicKey
+        try tunnel.setPeer(.init(publicKey: bootstrap, presharedKey: invitation.presharedKey,
+                                 allowedIPs: ["\(invitation.bootstrapAddress)/32"]))
+        self.invitation = PendingInvitation(invitation: invitation, bootstrapPublicKey: bootstrap, code: code)
         justPaired = nil
         invitationExpiry.schedule(after: lifetime) { [weak self] in await self?.dropInvitation() }
         publish()
@@ -170,9 +175,11 @@ public actor WireGuardPhoneHost {
         snapshot.failure = failure
         snapshot.justPaired = justPaired
         snapshot.connections = connections
+        snapshot.code = invitation?.code.description
         if let state {
             snapshot.hostKeyFingerprint = state.privateKey.publicKey.fingerprint
             snapshot.hostID = state.hostID
+            snapshot.hostPublicKey = state.privateKey.publicKey.base64
             snapshot.phones = state.phones
         }
         if let tunnel {

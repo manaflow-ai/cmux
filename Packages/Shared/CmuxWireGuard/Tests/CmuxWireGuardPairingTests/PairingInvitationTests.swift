@@ -53,3 +53,27 @@ extension Data {
         self.init(bytes)
     }
 }
+
+@Suite struct PairingCodeTests {
+    @Test func parsesTypedVariants() throws {
+        let code = try #require(PairingCode("ab0d-efgh"))
+        #expect(code.description == "AB0D-EFGH")
+        #expect(PairingCode("ABOD EFGH") == code)
+        #expect(PairingCode("ABCD-EFG") == nil)
+        #expect(PairingCode("ABCD-EFGU") == nil)
+    }
+
+    @Test func derivationIsStablePerHostAndDiffersAcrossHosts() {
+        let code = PairingCode()
+        let host = WireGuardKey().publicKey
+        let first = code.derive(hostKey: host)
+        let again = code.derive(hostKey: host)
+        #expect(first.bootstrapKey == again.bootstrapKey && first.presharedKey == again.presharedKey)
+        #expect((1...254).contains(first.addressIndex))
+        #expect(code.derive(hostKey: WireGuardKey().publicKey).bootstrapKey != first.bootstrapKey)
+        let invitation = PairingInvitation(code: code, hostName: "Mac", hostID: "h", hostKey: host, endpoints: [],
+                                           expiresAt: Date())
+        #expect(invitation.bootstrapKey == first.bootstrapKey)
+        #expect(invitation.bootstrapAddress == "10.77.1.\(first.addressIndex)")
+    }
+}

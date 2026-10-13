@@ -16,6 +16,14 @@ struct PhonePairingStrings {
     static var connected: String { String(localized: "pairing.connected", defaultValue: "Connected", bundle: .module) }
     static var notConnected: String { String(localized: "pairing.notConnected", defaultValue: "Not connected", bundle: .module) }
     static var unpair: String { String(localized: "pairing.unpair", defaultValue: "Unpair", bundle: .module) }
+    static var orType: String {
+        String(localized: "pairing.orType", defaultValue: "Or type this code on an iPhone on the same network", bundle: .module)
+    }
+
+    static func codeLabel(_ code: String) -> String {
+        String(format: String(localized: "pairing.codeLabel", defaultValue: "Pairing code %@", bundle: .module), code)
+    }
+
     static var qrLabel: String { String(localized: "pairing.qrLabel", defaultValue: "Pairing code", bundle: .module) }
 
     static func expires(_ time: String) -> String {

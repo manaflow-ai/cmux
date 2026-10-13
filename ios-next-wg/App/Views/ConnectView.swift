@@ -5,6 +5,7 @@ import UIKit
 struct ConnectView: View {
     @Environment(AppModel.self) private var model
     @State private var scanning = false
+    @State private var typingCode = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,7 +23,7 @@ struct ConnectView: View {
                 .padding(.top, 8)
             PrimaryCapsuleButton(title: "Scan QR code") { scanning = true }
                 .padding(.top, 26)
-            Button("Paste pairing link") { pasteLink() }
+            Button("Enter code manually") { typingCode = true }
                 .font(.body)
                 .foregroundStyle(.primary)
                 .padding(.top, 16)
@@ -35,17 +36,17 @@ struct ConnectView: View {
                 .foregroundStyle(.tertiary)
                 .padding(.bottom, 12)
         }
+        .sheet(isPresented: $typingCode) {
+            CodeEntrySheet()
+                .presentationDetents([.medium])
+                .presentationBackground(.regularMaterial)
+        }
         .fullScreenCover(isPresented: $scanning) {
             ScannerView { link in
                 scanning = false
                 model.pair(link: link)
             }
         }
-    }
-
-    private func pasteLink() {
-        guard let text = UIPasteboard.general.string else { return }
-        model.pair(link: text)
     }
 }
 

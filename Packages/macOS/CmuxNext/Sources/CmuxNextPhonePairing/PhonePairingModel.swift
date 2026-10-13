@@ -26,6 +26,8 @@ public final class PhonePairingModel {
     /// The pairing link the QR code encodes; nil while none is minted.
     public var link: String?
     public var expiresAt: Date?
+    /// The same invitation, typed ("ABCD-EFGH"), for phones on this network.
+    public var code: String?
     /// UDP endpoints the phone will try.
     public var endpoints: [String] = []
     public var phones: [Phone] = []
@@ -45,6 +47,7 @@ public final class PhonePairingModel {
         let model = PhonePairingModel()
         model.link = "cmux-next://pair#sample"
         model.expiresAt = Date().addingTimeInterval(600)
+        model.code = "7K3Q-M9XT"
         model.endpoints = ["192.168.1.20:51888", "100.101.102.103:51888"]
         model.hostFingerprint = "A1B2-C3D4"
         model.phones = [

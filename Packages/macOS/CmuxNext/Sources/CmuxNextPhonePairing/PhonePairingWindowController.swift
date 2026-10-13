@@ -5,7 +5,7 @@ import SwiftUI
 /// The "Pair iPhone" window: a fixed-size tool window drawing its own glass
 /// panel, with only a close button.
 public final class PhonePairingWindowController: NSWindowController, NSWindowDelegate {
-    static let size = NSSize(width: 700, height: 440)
+    static let size = NSSize(width: 700, height: 480)
     static let panelInset: CGFloat = 12
     static let panelRadius: CGFloat = 20
 

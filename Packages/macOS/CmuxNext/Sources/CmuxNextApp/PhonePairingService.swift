@@ -96,13 +96,14 @@ final class PhonePairingService {
 
     private func apply(_ snapshot: WireGuardPhoneHost.Snapshot) {
         if snapshot.running, let port = snapshot.listenPort, !snapshot.hostID.isEmpty {
-            advertiser.publish(name: snapshot.hostName, hostID: snapshot.hostID, port: port)
+            advertiser.publish(name: snapshot.hostName, hostID: snapshot.hostID, hostKey: snapshot.hostPublicKey, port: port)
         } else {
             advertiser.stop()
         }
         model.failure = snapshot.failure
         model.endpoints = snapshot.endpoints
         model.hostFingerprint = snapshot.hostKeyFingerprint
+        model.code = snapshot.code
         model.phones = snapshot.phones.sorted { $0.pairedAt > $1.pairedAt }.map { phone in
             PhonePairingModel.Phone(id: phone.id, name: phone.name, model: phone.model, address: phone.address,
                                     connected: (snapshot.connections[phone.id] ?? 0) > 0,

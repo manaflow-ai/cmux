@@ -87,8 +87,30 @@ public struct WireGuardPairingClient: Sendable {
 
     /// Uses the invitation's one-time identity to send `permanentKey`'s
     /// public half to the Mac, and returns the paired Mac to store.
+    /// Pairs with the Mac on this network whose current code is `code`. Each
+    /// Mac found is tried with the invitation the code derives for its key;
+    /// only the Mac that minted the code answers the handshake.
+    public func pair(code: PairingCode, permanentKey: WireGuardKey, deviceName: String,
+                     deviceModel: String, now: Date = Date()) async throws -> PairedHost {
+        let hosts = await WireGuardHostDiscovery().hosts()
+        guard !hosts.isEmpty else {
+            throw PairingError.refused(String(localized: "No Mac running cmux was found on this network. Use the QR code instead."))
+        }
+        for host in hosts {
+            guard let hostKey = host.hostKey else { continue }
+            let invitation = PairingInvitation(code: code, hostName: host.name, hostID: host.hostID, hostKey: hostKey,
+                                               endpoints: [host.endpoint], expiresAt: now.addingTimeInterval(60))
+            if let paired = try? await pair(invitation: invitation, permanentKey: permanentKey, deviceName: deviceName,
+                                            deviceModel: deviceModel, now: now, perEndpoint: .seconds(6)) {
+                return paired
+            }
+        }
+        throw PairingError.refused(String(localized: "That code didn't match a Mac on this network. Check it, or show a new one."))
+    }
+
     public func pair(invitation: PairingInvitation, permanentKey: WireGuardKey, deviceName: String,
-                     deviceModel: String, plan: OverlayPlan = OverlayPlan(), now: Date = Date()) async throws -> PairedHost {
+                     deviceModel: String, plan: OverlayPlan = OverlayPlan(), now: Date = Date(),
+                     perEndpoint: Duration = .seconds(12)) async throws -> PairedHost {
         guard now < invitation.expiry else { throw PairingError.expired }
         let tunnel = try WireGuardTunnel(address: invitation.bootstrapAddress, privateKey: invitation.bootstrapKey, peers: [
             .init(publicKey: invitation.hostKey, presharedKey: invitation.presharedKey,
@@ -102,7 +124,7 @@ public struct WireGuardPairingClient: Sendable {
             // Generous: the first LAN packet raises iOS's Local Network prompt,
             // and WireGuard retries its handshake every 5 s until it is answered.
             if let opened = try? await tunnel.connect(host: invitation.hostAddress, port: plan.enrollmentPort,
-                                                      timeout: .seconds(12)) {
+                                                      timeout: perEndpoint) {
                 stream = opened
                 winner = candidate
                 break

@@ -68,6 +68,17 @@ struct PhonePairingView: View {
                     .disabled(model.link == nil || model.justPaired != nil)
                 }
                 .controlSize(.regular)
+                if let code = model.code, model.justPaired == nil {
+                    VStack(spacing: 2) {
+                        Text(PhonePairingStrings.orType)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                        Text(code)
+                            .font(.system(size: 20, weight: .semibold, design: .monospaced))
+                            .textSelection(.enabled)
+                            .accessibilityLabel(PhonePairingStrings.codeLabel(code))
+                    }
+                }
                 if let expiresAt = model.expiresAt, model.justPaired == nil {
                     Text(PhonePairingStrings.expires(expiresAt.formatted(date: .omitted, time: .shortened)))
                         .font(.system(size: 11))

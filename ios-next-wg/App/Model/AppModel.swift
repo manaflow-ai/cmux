@@ -41,7 +41,12 @@ final class AppModel {
     func consumeLaunchPairLink() {
         #if DEBUG
         let arguments = CommandLine.arguments
-        guard pairing == .idle, let index = arguments.firstIndex(of: "-pairLink"), index + 1 < arguments.count else { return }
+        guard pairing == .idle else { return }
+        if let index = arguments.firstIndex(of: "-pairCode"), index + 1 < arguments.count,
+           let code = PairingCode(arguments[index + 1]) {
+            return pair(code: code)
+        }
+        guard let index = arguments.firstIndex(of: "-pairLink"), index + 1 < arguments.count else { return }
         pair(link: arguments[index + 1])
         #endif
     }
@@ -71,16 +76,30 @@ final class AppModel {
         }
     }
 
+    /// A code typed from the Mac's pairing window (same network only).
+    func pair(code: PairingCode) {
+        Task {
+            await pair(hostName: String(localized: "your Mac")) { client, key, name, model in
+                try await client.pair(code: code, permanentKey: key, deviceName: name, deviceModel: model)
+            }
+        }
+    }
+
     private func pair(_ invitation: PairingInvitation) async {
+        await pair(hostName: invitation.hostName) { client, key, name, model in
+            try await client.pair(invitation: invitation, permanentKey: key, deviceName: name, deviceModel: model)
+        }
+    }
+
+    private func pair(hostName: String,
+                      _ run: (WireGuardPairingClient, WireGuardKey, String, String) async throws -> PairedHost) async {
         guard let identity else {
             pairing = .failed(startupError ?? String(localized: "This iPhone's key is unavailable."))
             return
         }
-        pairing = .pairing(hostName: invitation.hostName)
+        pairing = .pairing(hostName: hostName)
         do {
-            let host = try await WireGuardPairingClient().pair(
-                invitation: invitation, permanentKey: identity,
-                deviceName: UIDevice.current.name, deviceModel: UIDevice.current.model)
+            let host = try await run(WireGuardPairingClient(), identity, UIDevice.current.name, UIDevice.current.model)
             connections.first { $0.id == host.hostID }?.disconnect()
             connections.removeAll { $0.id == host.hostID }
             let connection = makeConnection(host, key: identity)

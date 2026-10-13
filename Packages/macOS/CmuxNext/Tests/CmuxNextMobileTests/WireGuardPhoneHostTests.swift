@@ -136,3 +136,30 @@ struct WireGuardPhoneHostTests {
         await host.stop()
     }
 }
+
+@Suite(.timeLimit(.minutes(1)))
+struct WireGuardPhoneHostCodeTests {
+    /// The typed code plus the Mac's advertised key and id rebuild the same
+    /// invitation the QR code carries, and pairing with it works.
+    @Test func typedCodePairsLikeTheQRCode() async throws {
+        let directory = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("wg-code-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let host = WireGuardPhoneHost(stateDirectory: directory, hostName: "Code Mac", daemonSocketPath: { nil },
+                                      onChange: { _ in })
+        await host.start()
+        let qr = try await host.makeInvitation()
+        let snapshot = await host.snapshot()
+        let code = try #require(snapshot.code.flatMap(PairingCode.init))
+        let port = try #require(snapshot.listenPort)
+        let hostKey = try #require(WireGuardKey(base64: snapshot.hostPublicKey))
+        let typed = PairingInvitation(code: code, hostName: snapshot.hostName, hostID: snapshot.hostID, hostKey: hostKey,
+                                      endpoints: ["127.0.0.1:\(port)"], expiresAt: Date().addingTimeInterval(60))
+        #expect(typed.bootstrapKey == qr.bootstrapKey)
+        #expect(typed.presharedKey == qr.presharedKey)
+        let paired = try await WireGuardPairingClient().pair(invitation: typed, permanentKey: WireGuardKey(),
+                                                             deviceName: "Typed", deviceModel: "iPhone")
+        #expect(paired.hostID == snapshot.hostID)
+        #expect(await host.snapshot().phones.map(\.name) == ["Typed"])
+        await host.stop()
+    }
+}
