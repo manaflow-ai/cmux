@@ -356,7 +356,7 @@ export async function POST(request: Request): Promise<Response> {
       // provider-specific image ids without a provider field, and the
       // deployment default must not reroute them under the wrong provider.
       const provider = body.provider ?? inferVmProviderForImage(body.image) ?? defaultProviderId();
-      const selected = resolveCreateImage(provider, body, memoryMb);
+      const selected = resolveCreateImage(provider, body, memoryMb, user.id);
       if (!selected.ok) return selected.response;
       const { imageSelection } = selected;
       const image = imageSelection.image;
@@ -842,10 +842,10 @@ type CreateImageSelection =
  * The plan's memory picks the snapshot size (one snapshot per size on
  * Freestyle), so the machine boots at its shape with nothing to resize.
  */
-function resolveCreateImage(provider: ProviderId, body: CreateBody, memoryMb: number): CreateImageSelection {
+function resolveCreateImage(provider: ProviderId, body: CreateBody, memoryMb: number, callerUserId: string): CreateImageSelection {
   try {
     assertVmCreateEnabled(provider);
-    const imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb });
+    const imageSelection = resolveVmImage(provider, body.image, process.env, { kind: body.kind, memoryMb, callerUserId });
     return { ok: true, imageSelection };
   } catch (err) {
     if (isVmCreateDisabledError(err)) {

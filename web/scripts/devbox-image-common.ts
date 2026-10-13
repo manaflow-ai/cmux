@@ -958,6 +958,8 @@ export type DevboxManifestEntry = {
   defaultForLocalDev?: boolean;
   kind?: DevboxImageKind;
   defaultForKind?: boolean;
+  /** A test image (services/vms/images/resolver.ts): never a default, requestable only by allowlisted users. */
+  restricted?: boolean;
   /** The shape this snapshot boots at (Freestyle ladder). Size-less entries are pre-ladder bakes. */
   size?: DevboxImageSize;
   cmuxdRemoteCommit: string;
@@ -1322,6 +1324,9 @@ export function devboxImageLadderProblems(
   provider: DevboxProvider = "freestyle",
 ): string[] {
   const problems: string[] = devboxUnifiedSnapshotProblems(manifest, provider);
+  for (const entry of manifest.images) {
+    if (entry.restricted === true && entry.defaultForKind) problems.push(`${entry.version}: a restricted test image cannot be a default`);
+  }
   for (const kind of ["base", "desktop"] as const) {
     const defaults = manifest.images.filter(
       (entry) => entry.provider === provider && (entry.kind ?? "base") === kind && entry.defaultForKind,
