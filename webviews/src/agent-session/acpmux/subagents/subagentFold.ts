@@ -13,6 +13,9 @@ export type Subagent = {
   parent: string | null;
   name: string;
   task?: string;
+  /// The kind of agent it is, when the harness names one (Claude's subagent_type: Explore,
+  /// general-purpose, a user agent).
+  kind?: string;
   /// `running`, `completed`, `failed`, `cancelled` or `disconnected`.
   state: string;
   startedAt: number;
@@ -57,6 +60,10 @@ export class SubagentFold {
     if (kind === "subagent_spawned" || kind === "subagent_state_update") return true;
     const call = typeof update?.toolCallId === "string" ? update.toolCallId : undefined;
     if (call && this.spawnCalls.has(call)) return true;
+    // Codex's own bookkeeping between its subagents (`wait` for them, `closeAgent`): the group
+    // row already shows who is working and who is done, so these draw no row of their own.
+    const collab = update?._meta?.codex?.collaboration?.tool;
+    if (this.agents.size > 0 && (collab === "wait" || collab === "closeAgent")) return true;
     return events.length > 0;
   }
 
@@ -117,7 +124,15 @@ export class SubagentFold {
     if (!agent) {
       const parent = typeof change.parent === "string" ? change.parent : null;
       const name = text(change.name) ?? text(change.task) ?? change.id;
-      agent = { id: change.id, parent, name, task: text(change.task), state: "running", startedAt: event.at };
+      agent = {
+        id: change.id,
+        parent,
+        name,
+        task: text(change.task),
+        kind: text(change.kind),
+        state: "running",
+        startedAt: event.at,
+      };
       this.agents.set(agent.id, agent);
       if (parent === null) {
         this.open ??= { id: `${SUBAGENTS}-${event.seq}`, at: event.at, version: 0, ids: [] };
@@ -127,6 +142,7 @@ export class SubagentFold {
     } else {
       agent.name = text(change.name) ?? agent.name;
       agent.task = text(change.task) ?? agent.task;
+      agent.kind = text(change.kind) ?? agent.kind;
     }
     const state = text(change.state);
     if (state && state !== agent.state) {
