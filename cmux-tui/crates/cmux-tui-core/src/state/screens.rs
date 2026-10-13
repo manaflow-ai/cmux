@@ -26,6 +26,10 @@ use crate::state::store::{StateChanges, StateCommit, state_delete, state_upsert}
 use crate::state::values::{fresh_upserts, upserted_value};
 use crate::workspace_registry::ScreenPresentationState;
 
+/// Advertises `icon` on `screen_group.update`, `ScreenGroupSnapshot`, the
+/// raw `update-screen-group`, screen group runs and saved screen groups.
+pub(crate) const SCREEN_GROUP_ICON_CAPABILITY: &str = "screen-group-icon-v1";
+
 /// What a screen change returns as its v2 result.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) enum ScreenResult {
@@ -77,6 +81,8 @@ pub(crate) enum ScreenChange {
         name: Option<String>,
         color: Option<String>,
         collapsed: Option<bool>,
+        /// `screen-group-icon-v1`; `Some(None)` clears the icon.
+        icon: Option<Option<String>>,
     },
     GroupUngroup {
         group: String,
@@ -381,8 +387,8 @@ impl Mux {
                 let screens = screens_of(&screens)?;
                 self.remove_screens_request(request, &screens)?.1.into()
             }
-            ScreenChange::GroupUpdate { group, name, color, collapsed } => {
-                self.update_screen_group_request(request, &group, name, color, collapsed)?
+            ScreenChange::GroupUpdate { group, name, color, collapsed, icon } => {
+                self.update_screen_group_request(request, &group, name, color, collapsed, icon)?
             }
             ScreenChange::GroupUngroup { group } => {
                 self.ungroup_screen_group_request(request, &group)?.1

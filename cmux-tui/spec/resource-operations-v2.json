@@ -5608,6 +5608,17 @@
             }
           },
           "description": "The saved group this live group syncs with."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "tab-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -5760,6 +5771,17 @@
             "kind": "primitive",
             "name": "decimal"
           }
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "tab-group-icon-v1: the saved group's icon, the shared icon string; a reopen gives the live group this icon. null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -6163,6 +6185,17 @@
             }
           },
           "description": "Members in screen order; they are contiguous."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "screen-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -21110,6 +21143,17 @@
               "name": "boolean"
             }
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "screen-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset, put-blob); null clears it. An asset the daemon does not store is refused with validation.invalid."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -21121,7 +21165,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, or collapsed is present."
+          "At least one of name, color, collapsed, or icon is present."
         ]
       },
       "result": {
@@ -24240,6 +24284,17 @@
               "name": "boolean"
             }
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "tab-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset, put-blob); null clears it. A linked saved group follows. An asset the daemon does not store is refused with validation.invalid."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -24251,7 +24306,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, or collapsed is present."
+          "At least one of name, color, collapsed, or icon is present."
         ]
       },
       "result": {

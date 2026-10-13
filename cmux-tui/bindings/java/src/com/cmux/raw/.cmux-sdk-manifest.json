@@ -557,8 +557,8 @@
     },
     {
       "path": "Commands.java",
-      "sha256": "b5942f44d9d16cfd8397c4f1130c69b08a705827479f67a0a656e3a41777e40c",
-      "size": 68406
+      "sha256": "f277209a24604823b775a62ee31b05c0e4e11d92b1a3341daee67792ebcc4a7b",
+      "size": 68557
     },
     {
       "path": "ConfigReloadRequestedEvent.java",
@@ -1772,7 +1772,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "73749b2ec60548ad9dc85dde6599f451f08695771f4ecae5e41a796f34b350bd",
+      "sha256": "4a1de3461ed03e224deb8b7b68779eda7c72f4367ad918d0e3744ea307a55d53",
       "size": 6393
     },
     {
@@ -2882,13 +2882,13 @@
     },
     {
       "path": "UpdateScreenGroupRequest.java",
-      "sha256": "70a5203d636ce4a02a580f5516b00db0ca9f967a8a470b7aa589143f5694f7d2",
-      "size": 3962
+      "sha256": "1fa74820dad220298e2dbea193d8150579d4e320628c862eac525dada8cc7635",
+      "size": 4558
     },
     {
       "path": "UpdateTabGroupRequest.java",
-      "sha256": "b12c5afacef248af036a76f37bc48c3af388a4f82a187edf70be008bc16b7f1b",
-      "size": 3923
+      "sha256": "1977521280a1e4b45204860a218f4d1c4043878291ede80a98d1bf3f3ac7cc9c",
+      "size": 4516
     },
     {
       "path": "UpdateWorkspaceGroupRequest.java",
@@ -3012,7 +3012,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff",
+  "ir_sha256": "e171857910d090c4b08a6ba35a4542510f7ff9fb14155b8ebecc662d497b6c4c",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2
