@@ -23,7 +23,16 @@ export const handleContactCard = (env: Env): Response => {
 export const apiOrigin = (env: Env): string | null =>
   env.WORKER_NAME === "cmux-api" ? "https://cloud-api.cmux.dev" : env.WORKER_NAME === "cmux-api-staging" ? "https://cloud-api-staging.cmux.dev" : null
 
+/**
+ * The text channel's own switch (cx-f5tk4, Lawrence 2026-10-13: production invites by email only):
+ * texts (SMS and iMessage) send only when HOME_INVITES_TEXT is exactly "on"; unset or anything else
+ * keeps the SendBlue secrets idle, and a text invite is a failed delivery (no retry loop), as with a
+ * missing provider key. HOME_INVITES_SEND still switches every invite.
+ */
+export const textInvitesOn = (env: Env) => env.HOME_INVITES_TEXT === "on"
+
 export const sendblueConfig = (env: Env): invites.SendblueConfig | null => {
+  if (!textInvitesOn(env)) return null
   const origin = apiOrigin(env)
   if (!env.SENDBLUE_API_KEY || !env.SENDBLUE_API_SECRET || !env.SENDBLUE_FROM_NUMBER || !origin) return null
   return { apiKeyId: env.SENDBLUE_API_KEY, apiSecret: env.SENDBLUE_API_SECRET, fromNumber: env.SENDBLUE_FROM_NUMBER, statusCallback: `${origin}/v1/hooks/sendblue` }
