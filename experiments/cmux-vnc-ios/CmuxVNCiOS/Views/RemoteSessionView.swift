@@ -13,7 +13,7 @@ struct RemoteSessionView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            RemoteScreen(session: session, inputMode: session.preferences.inputMode, keyboardVisible: $keyboardVisible)
+            RemoteScreen(session: session, keyboardVisible: $keyboardVisible)
                 .ignoresSafeArea()
             if chromeVisible { topBar.transition(.move(edge: .top).combined(with: .opacity)) }
             stateCard
@@ -39,9 +39,6 @@ struct RemoteSessionView: View {
             }
             Spacer(minLength: 8)
             Menu {
-                Picker("Input", selection: $session.preferences.inputMode) {
-                    ForEach(InputMode.allCases) { mode in Label(mode.title, systemImage: mode.symbol).tag(mode) }
-                }
                 Toggle("Stream stats", isOn: $session.preferences.showStats)
                 Section("Send") {
                     Button("Control-Option-Delete", systemImage: "command") { session.tap(.deleteForward, modifiers: [.control, .option]) }
@@ -52,7 +49,7 @@ struct RemoteSessionView: View {
                 Button("Refresh Screen", systemImage: "arrow.clockwise") { session.refresh() }
                 Button("Hide Toolbar", systemImage: "chevron.up") { withAnimation { chromeVisible = false } }
             } label: {
-                Label("Options", systemImage: session.preferences.inputMode.symbol)
+                Label("Options", systemImage: "ellipsis.circle")
             }
             .labelStyle(.iconOnly)
             Button("Keyboard", systemImage: keyboardVisible ? "keyboard.chevron.compact.down" : "keyboard") {
@@ -150,7 +147,6 @@ struct RemoteSessionView: View {
 /// Hosts `RemoteScreenViewController` in SwiftUI.
 struct RemoteScreen: UIViewControllerRepresentable {
     let session: RemoteSession
-    let inputMode: InputMode
     @Binding var keyboardVisible: Bool
 
     func makeUIViewController(context: Context) -> RemoteScreenViewController {
@@ -158,7 +154,6 @@ struct RemoteScreen: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ controller: RemoteScreenViewController, context: Context) {
-        controller.inputMode = inputMode
         if controller.isKeyboardVisible != keyboardVisible { controller.isKeyboardVisible = keyboardVisible }
     }
 }

@@ -39,9 +39,6 @@ struct HostEditorView: View {
                     Text("A Mac asks for an account on that Mac. Other VNC servers usually ask for a VNC password only. Passwords stay in this iPhone's keychain.")
                 }
                 Section("Session") {
-                    Picker("Input", selection: $host.options.inputMode) {
-                        ForEach(InputMode.allCases) { mode in Label(mode.title, systemImage: mode.symbol).tag(mode) }
-                    }
                     Toggle("Draw cursor on this device", isOn: $host.options.localCursor)
                     Toggle("Show stream stats", isOn: $host.options.showStats)
                 }

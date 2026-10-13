@@ -2,18 +2,12 @@ import CmuxVNC
 import UIKit
 
 /// The remote screen: a zoomable view of the framebuffer, the local cursor,
-/// touch gestures and keyboard input.
-///
-/// Trackpad mode: one finger moves the pointer (the view follows it when
-/// zoomed), tap clicks, two-finger tap right-clicks, press-and-hold then
-/// drag drags, two fingers scroll, pinch zooms.
-/// Touch mode: taps click where the finger is, one finger pans a zoomed
-/// view, press-and-hold then drag drags, two fingers scroll, pinch zooms.
+/// touch gestures and keyboard input. One input model, no modes: a tap
+/// clicks where the finger is, press-and-hold then drag drags, one finger
+/// pans a zoomed view, two-finger tap right-clicks, two fingers scroll, and
+/// pinch zooms (zoom in for small targets).
 final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, UIGestureRecognizerDelegate {
     let session: RemoteSession
-    var inputMode: InputMode = .trackpad {
-        didSet { if inputMode != oldValue { applyInputMode() } }
-    }
 
     private let scrollView = UIScrollView()
     private let content = UIView()
@@ -22,13 +16,9 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     private var cursor = VNCCursor(width: 0, height: 0, hotspotX: 0, hotspotY: 0, pixels: [])
     private let keyInput = KeyInputView()
     private var frameSize = CGSize.zero
-    private var lastPan = CGPoint.zero
-    private var lastLongPress = CGPoint.zero
     private var scrollRemainder = CGPoint.zero
     /// Finger travel in points per wheel click.
     private let pointsPerScrollClick: CGFloat = 18
-    /// Pointer speed in trackpad mode (framebuffer pixels per screen point, before zoom).
-    private let trackpadSpeed: CGFloat = 1.6
 
     init(session: RemoteSession) {
         self.session = session
@@ -63,7 +53,6 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         keyInput.session = session
         view.addSubview(keyInput)
         installGestures()
-        applyInputMode()
 
         session.onFrame = { [weak self] frame in self?.show(frame) }
         session.onCursor = { [weak self] cursor in self?.setCursor(cursor) }
@@ -151,35 +140,14 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         scrollView.contentInset = UIEdgeInsets(top: insetY, left: insetX, bottom: insetY, right: insetX)
     }
 
-    /// Trackpad mode: scrolls a zoomed view so the pointer stays inside a margin.
-    private func follow(_ pointer: CGPoint) {
-        let zoom = scrollView.zoomScale
-        let point = CGPoint(x: pointer.x * zoom, y: pointer.y * zoom)
-        let margin: CGFloat = 60
-        var offset = scrollView.contentOffset
-        let visible = CGRect(origin: offset, size: scrollView.bounds.size)
-        if point.x < visible.minX + margin { offset.x = point.x - margin }
-        if point.x > visible.maxX - margin { offset.x = point.x - visible.width + margin }
-        if point.y < visible.minY + margin { offset.y = point.y - margin }
-        if point.y > visible.maxY - margin { offset.y = point.y - visible.height + margin }
-        let maxX = max(-scrollView.contentInset.left, scrollView.contentSize.width - visible.width + scrollView.contentInset.right)
-        let maxY = max(-scrollView.contentInset.top, scrollView.contentSize.height - visible.height + scrollView.contentInset.bottom)
-        offset.x = min(max(-scrollView.contentInset.left, offset.x), maxX)
-        offset.y = min(max(-scrollView.contentInset.top, offset.y), maxY)
-        if offset != scrollView.contentOffset { scrollView.setContentOffset(offset, animated: false) }
-    }
-
     // MARK: Gestures
 
-    private let trackpadPan = UIPanGestureRecognizer()
     private let longPress = UILongPressGestureRecognizer()
     private let tap = UITapGestureRecognizer()
     private let twoFingerTap = UITapGestureRecognizer()
     private let twoFingerPan = UIPanGestureRecognizer()
 
     private func installGestures() {
-        trackpadPan.addTarget(self, action: #selector(handleTrackpadPan(_:)))
-        trackpadPan.maximumNumberOfTouches = 1
         longPress.addTarget(self, action: #selector(handleLongPress(_:)))
         longPress.minimumPressDuration = 0.35
         longPress.allowableMovement = 12
@@ -189,18 +157,12 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         twoFingerPan.addTarget(self, action: #selector(handleTwoFingerPan(_:)))
         twoFingerPan.minimumNumberOfTouches = 2
         twoFingerPan.maximumNumberOfTouches = 2
-        for recognizer in [trackpadPan, longPress, tap, twoFingerTap, twoFingerPan] as [UIGestureRecognizer] {
+        for recognizer in [longPress, tap, twoFingerTap, twoFingerPan] as [UIGestureRecognizer] {
             recognizer.delegate = self
             scrollView.addGestureRecognizer(recognizer)
         }
-        // Allow-scrolling vs dragging: a hold that becomes a drag wins over panning.
-        trackpadPan.require(toFail: longPress)
+        // A hold that becomes a drag wins over panning the view.
         scrollView.panGestureRecognizer.require(toFail: longPress)
-    }
-
-    private func applyInputMode() {
-        trackpadPan.isEnabled = inputMode == .trackpad
-        scrollView.panGestureRecognizer.isEnabled = inputMode == .touch
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
@@ -215,34 +177,14 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         recognizer.location(in: content)
     }
 
-    @objc private func handleTrackpadPan(_ recognizer: UIPanGestureRecognizer) {
-        let translation = recognizer.translation(in: view)
-        if recognizer.state == .began { lastPan = .zero }
-        let delta = CGPoint(x: translation.x - lastPan.x, y: translation.y - lastPan.y)
-        lastPan = translation
-        let scale = trackpadSpeed / max(scrollView.zoomScale, 0.01) * min(1, max(0.35, scrollView.zoomScale))
-        session.movePointer(by: CGPoint(x: delta.x * scale, y: delta.y * scale))
-        follow(session.pointer)
-        updateCursor()
-    }
-
     @objc private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
-        let location = recognizer.location(in: view)
         switch recognizer.state {
         case .began:
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-            if inputMode == .touch { session.movePointer(to: framebufferPoint(recognizer)) }
-            lastLongPress = location
+            session.movePointer(to: framebufferPoint(recognizer))
             session.press(.left, down: true)
         case .changed:
-            if inputMode == .touch {
-                session.movePointer(to: framebufferPoint(recognizer))
-            } else {
-                let scale = trackpadSpeed / max(scrollView.zoomScale, 0.01) * min(1, max(0.35, scrollView.zoomScale))
-                session.movePointer(by: CGPoint(x: (location.x - lastLongPress.x) * scale, y: (location.y - lastLongPress.y) * scale))
-                lastLongPress = location
-                follow(session.pointer)
-            }
+            session.movePointer(to: framebufferPoint(recognizer))
         case .ended, .cancelled, .failed:
             session.press(.left, down: false)
         default:
@@ -252,13 +194,13 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     }
 
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
-        if inputMode == .touch { session.movePointer(to: framebufferPoint(recognizer)) }
+        session.movePointer(to: framebufferPoint(recognizer))
         session.click(.left)
         updateCursor()
     }
 
     @objc private func handleTwoFingerTap(_ recognizer: UITapGestureRecognizer) {
-        if inputMode == .touch { session.movePointer(to: framebufferPoint(recognizer)) }
+        session.movePointer(to: framebufferPoint(recognizer))
         session.click(.right)
         updateCursor()
     }
@@ -266,7 +208,11 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     @objc private func handleTwoFingerPan(_ recognizer: UIPanGestureRecognizer) {
         let velocity = recognizer.translation(in: view)
         recognizer.setTranslation(.zero, in: view)
-        if recognizer.state == .began { scrollRemainder = .zero }
+        if recognizer.state == .began {
+            scrollRemainder = .zero
+            // Scroll what is under the fingers.
+            session.movePointer(to: framebufferPoint(recognizer))
+        }
         scrollRemainder.x += velocity.x
         scrollRemainder.y += velocity.y
         let clicksX = Int(scrollRemainder.x / pointsPerScrollClick), clicksY = Int(scrollRemainder.y / pointsPerScrollClick)

@@ -17,21 +17,9 @@ struct SavedHost: Identifiable, Codable, Hashable {
 
 /// Per-host session preferences.
 struct SessionPreferences: Codable, Hashable {
-    var inputMode: InputMode = .trackpad
     /// Draw the remote cursor shape locally (no round trip for pointer motion).
     var localCursor = true
     var showStats = true
-}
-
-enum InputMode: String, Codable, CaseIterable, Identifiable {
-    /// One finger moves the pointer like a laptop trackpad; the view follows it.
-    case trackpad
-    /// Taps land where the finger is; one finger pans a zoomed view.
-    case touch
-
-    var id: String { rawValue }
-    var title: String { self == .trackpad ? "Trackpad" : "Touch" }
-    var symbol: String { self == .trackpad ? "rectangle.and.hand.point.up.left" : "hand.tap" }
 }
 
 /// Saved hosts in UserDefaults, passwords in the Keychain.

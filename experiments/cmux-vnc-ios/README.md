@@ -15,10 +15,10 @@ The home-screen name is **cmux VNC**.
 - **Real computers.** A Mac with Screen Sharing on (Apple Diffie-Hellman
   sign-in with a Mac account), or any VNC server (VNC password or none) on
   your local network or tailnet. Passwords are stored in the iPhone keychain.
-- **Input.** Trackpad mode (one finger moves the pointer, the zoomed view
-  follows it) or touch mode (taps land under the finger). In both modes, tap
-  clicks, two-finger tap right-clicks, press-and-hold then drag drags, two
-  fingers scroll, and pinch zooms.
+- **Input.** One model, no modes: tap clicks where you touch, press-and-hold
+  then drag drags, one finger pans a zoomed view, two-finger tap right-clicks,
+  two fingers scroll what is under them, and pinch zooms (zoom in for small
+  targets).
 - **Keyboard.** A software keyboard with Esc, Tab, sticky Control, Option and
   Command, arrows and paging keys, plus hardware keyboards by HID usage.
 - **Stream stats.** Frames per second, KB/s, update latency and the encoding

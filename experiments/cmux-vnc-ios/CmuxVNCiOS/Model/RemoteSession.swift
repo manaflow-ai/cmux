@@ -45,7 +45,7 @@ final class RemoteSession {
     @ObservationIgnored private var demo: VNCDemoServer?
     @ObservationIgnored private var statsWindow = (start: CACurrentMediaTime(), frames: 0, bytes: 0)
     @ObservationIgnored private var heldButtons: VNCButtons = []
-    /// The remote pointer in framebuffer pixels (trackpad mode moves it relatively).
+    /// The remote pointer in framebuffer pixels.
     @ObservationIgnored private(set) var pointer = CGPoint(x: 100, y: 100)
 
     /// A saved host.
@@ -181,11 +181,6 @@ final class RemoteSession {
         pointer = clamp(point)
         let target = pointer
         Task { await client.movePointer(x: Int(target.x), y: Int(target.y)) }
-    }
-
-    /// Moves the pointer by a framebuffer delta (trackpad mode).
-    func movePointer(by delta: CGPoint) {
-        movePointer(to: CGPoint(x: pointer.x + delta.x, y: pointer.y + delta.y))
     }
 
     func press(_ button: VNCButtons, down: Bool) {
