@@ -406,5 +406,8 @@ fn a_page_never_uses_a_lease_another_connection_set() {
     assert_eq!(status["data"]["state"], "signed_out", "{status}");
     let refused = page.rpc(json!({"cmd":"cloud-inbox-list"}));
     assert_eq!(refused["error_code"], "cloud_signed_out", "{refused}");
-    assert!(cloud.requests().is_empty(), "the page used the brain's lease: {:?}", cloud.requests());
+    // The brain's own inbox socket (`/v1/wire/user`) is its; the page sent no read.
+    let reads: Vec<_> =
+        cloud.requests().into_iter().filter(|(path, ..)| path != "/v1/wire/user").collect();
+    assert!(reads.is_empty(), "the page used the brain's lease: {reads:?}");
 }

@@ -202,7 +202,7 @@ impl PairingBroker {
     pub fn issue(&self) -> Result<(String, u64), PairingError> {
         let now = Instant::now();
         let value = random_credential()?;
-        let mut state = self.state.lock().unwrap();
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         Self::prune(&mut state, now);
         state
             .credentials
