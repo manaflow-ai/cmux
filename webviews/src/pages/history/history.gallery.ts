@@ -168,7 +168,8 @@ export default historyPageEntry({
       play: async (ctx) => {
         const rows = () => ctx.document.querySelectorAll(".history-row").length;
         await ctx.waitFor(() => rows() === 2);
-        await ctx.contextMenu({ selector: ".history-row" });
+        // The bottom row (the older one), so no row moves when it goes.
+        await ctx.contextMenu({ role: "option", name: /^atlas-web/ });
         await ctx.waitFor(() => ctx.document.querySelector(".page-menu-item.destructive"));
         await ctx.click({ selector: ".page-menu-item.destructive" });
         await ctx.waitFor(() => rows() === 1);
