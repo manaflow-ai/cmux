@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextControl
@@ -83,8 +84,8 @@ final class AppServices {
     /// The local model relay's bearer lease (Router/ModelRouterLease.swift); nil without acpmux.
     private(set) lazy var modelRouter: ModelRouterLease? = {
         let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
-        guard let acpmux = AgentTabPaneSource.paneEnvironment(tag: environment.tag, bundledBinDirectory: bin,
-                                                               environment: ProcessInfo.processInfo.environment) else { return nil }
+        guard let acpmux = AcpmuxEnvironment.resolve(tag: environment.tag, bundledBinDirectory: bin,
+                                                     environment: ProcessInfo.processInfo.environment) else { return nil }
         return ModelRouterLease(tokens: cloud.auth, apiBaseURL: feed.apiBaseURL, acpmuxHome: acpmux.home,
                                 logger: Logger(subsystem: "com.cmuxterm.next", category: "model-router"))
     }()

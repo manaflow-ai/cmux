@@ -822,6 +822,20 @@ class SameTreeIsAnEvent(unittest.TestCase):
 
 
 
+class FastTierBuildsLibghosttyVt(unittest.TestCase):
+    def test_the_fast_tier_job_can_build_cmux_tui_core(self):
+        """cmux-tui-core's ghostty-vt-sys builds libghostty-vt from the ghostty-next gitlink with
+        zig (#20290: `the ghostty-next submodule is empty`), as cmux-tui.yml's jobs do."""
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["fast-tier"]
+        self.assertEqual(job["env"]["GHOSTTY_ZIG_SOURCE"], "ghostty-next")
+        self.assertEqual(job["env"]["CMUX_GHOSTTY_SRC"], "")
+        runs = [step.get("run", "") for step in job["steps"]]
+        tier = next(i for i, run in enumerate(runs) if "scripts/cmux-next/fast-tier.py" in run)
+        init = next(i for i, run in enumerate(runs) if "git submodule update --init" in run and "ghostty-next" in run)
+        zig = next(i for i, run in enumerate(runs) if "scripts/install-zig-ci.sh" in run)
+        self.assertLess(max(init, zig), tier)
+
+
 class FastTierTriggers(unittest.TestCase):
     def test_a_fast_tier_registry_change_runs_the_workflow(self):
         """A PR that only adds a fast-tier entry (#20232) must run the tier it changes."""

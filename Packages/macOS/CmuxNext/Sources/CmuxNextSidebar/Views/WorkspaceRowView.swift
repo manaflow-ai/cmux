@@ -274,7 +274,8 @@ final class WorkspaceRowView: SidebarRowView {
         let b = NSRect(x: full.minX, y: full.minY, width: full.width, height: full.height - statusHeight)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
+        let fades = fadesNextHover
+        defer { fadesNextHover = false; CATransaction.commit() }
 
         // Members indent under their group header; the members' line is
         // one layer per group under the rows (SidebarListView+GroupLines).
@@ -297,7 +298,7 @@ final class WorkspaceRowView: SidebarRowView {
         var trailing = b.width - Metrics.space3
         let control = SidebarStyle.controlSize
         // The chevron shows on hover and on the selected row only (cx-fo2t); its slot stays.
-        disclosureButton.isHidden = disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)
+        setHoverShown(disclosureButton, !(disclosure == nil || disclosure == .empty || isShowingPlaceholder || !(isHovered || isSelected)), fades: fades)
         if disclosure != nil {
             disclosureButton.frame = NSRect(x: trailing - control, y: cy - control / 2, width: control, height: control)
             trailing -= control + Metrics.space1
@@ -323,8 +324,8 @@ final class WorkspaceRowView: SidebarRowView {
         // hover hides it.
         let showClose = isHovered && !isShowingPlaceholder && isClosable
         let showMore = !isPlaceholderRow && onMore != nil && isHovered && !renaming
-        closeButton.isHidden = !showClose
-        badge.isHidden = showClose || (showMore && !isClosable) || !badge.state.isUnread
+        setHoverShown(closeButton, showClose, fades: fades)
+        setHoverShown(badge, !(showClose || (showMore && !isClosable) || !badge.state.isUnread), fades: fades)
         var slot: CGFloat = 0
         if badge.state.isUnread {
             let w = badge.preferredWidth
@@ -339,9 +340,9 @@ final class WorkspaceRowView: SidebarRowView {
         // The menu button, on hover only, left of the x (or in its place on a
         // row that cannot close). Hidden (not only clear) when it does not
         // show; VoiceOver uses the row's custom action.
-        moreButton.isHidden = !showMore
-        moreButton.frame = closeButton.frame.offsetBy(dx: showClose ? -(control + Metrics.space1) : 0, dy: 0)
-        let pinStart = layoutPin(showClose: showClose, showMore: showMore, control: control)
+        setHoverShown(moreButton, showMore, fades: fades)
+        moreButton.frame = closeButton.frame.offsetBy(dx: isClosable && !isShowingPlaceholder ? -(control + Metrics.space1) : 0, dy: 0)
+        let pinStart = layoutPin(showMore: showMore, control: control, fades: fades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
@@ -384,11 +385,11 @@ final class WorkspaceRowView: SidebarRowView {
         // line fade out before them (alpha masks, every backdrop), and the
         // marks they cover hide while they show.
         let fade = SidebarStyle.titleFadeWidth
-        title.trailingOcclusion = overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0
+        title.setTrailingOcclusion(overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
         subtitle.wantsLayer = true
-        subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade)
+        subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
         for mark in [activity, agentMark, mutedMark, presenceDots, timeLabel] as [NSView] {
-            mark.alphaValue = overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1
+            fadeOpacity(mark, to: overlayStart.map { mark.frame.maxX > $0 - Metrics.space1 } == true ? 0 : 1, fades: fades)
         }
         layoutStatus(x: textX, width: max(0, b.width - Metrics.space3 - textX), head: b.maxY, bottom: full.maxY)
         needsDisplay = true

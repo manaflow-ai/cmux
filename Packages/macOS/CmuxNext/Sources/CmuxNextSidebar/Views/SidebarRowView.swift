@@ -37,7 +37,8 @@ class SidebarRowView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         let local = convert(point, from: superview)
-        for button in interactiveSubviews where !button.isHidden && button.frame.contains(local) {
+        // A button fading out after hover shows but takes no click.
+        for button in interactiveSubviews where !button.isHidden && button.alphaValue > 0 && button.frame.contains(local) {
             return button
         }
         return nil
@@ -63,6 +64,7 @@ class SidebarRowView: NSView {
         isSelected = false
         // A recycled row shows its new content's fill at once.
         fadesNextFill = false
+        fadesNextHover = false
         // A row parked mid-move does not finish that move when it comes back (cx-bqm6).
         layer?.removeAllAnimations()
         clipsToBounds = false
@@ -82,20 +84,24 @@ class SidebarRowView: NSView {
 
     func hoverChanged() {
         fadesNextFill = true
+        fadesNextHover = true
         needsDisplay = true
     }
 
-    /// The next fill change came from hover, so it fades
-    /// (`ChromeHover.fade`: eases in, clears at once); reloads and theme
-    /// changes apply at once.
+    /// The next fill change came from hover, so it fades in and out
+    /// (`MotionFade.hover` both ways, Leo 2026-10-13: moving between rows
+    /// snapped); reloads and theme changes apply at once.
     var fadesNextFill = false
+    /// The next layout came from hover: the row's hover controls fade in
+    /// place (the row's `layout()` clears it).
+    var fadesNextHover = false
 
     /// Paints `color` on the row's backing layer, fading when hover changed
     /// it. Call from `updateLayer()` inside the theme scope.
     func paintFill(_ color: NSColor?) {
         paintsFill = color != nil
         guard let layer else { return }
-        ChromeHover.paint(layer, color, animated: fadesNextFill)
+        ChromeHover.paint(layer, color, animated: fadesNextFill, clearing: .hover)
         fadesNextFill = false
     }
 
