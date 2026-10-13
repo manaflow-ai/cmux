@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextActions
 import CmuxNextSettings
 import CmuxNextWakeups
 import Darwin
@@ -18,6 +19,15 @@ import UniformTypeIdentifiers
 /// (`intermediate` counts the ones that equal neither), and no frame shows
 /// the content area blank, one flat color that was not there before the key (`blank`). PNGs of every frame and
 /// one strip (`strip.png`, the frames side by side) go to `dir`.
+///
+/// `action` runs that action by name instead of a key (`target`: a tab id).
+/// `modifiers` (default `["command"]`) sends another chord, for tab switches
+/// and closes (Control-Tab, Command-Shift-], Command-W). Inside the content
+/// area, `settled_ms` is the first frame from which it equals the last frame
+/// for good, `first_change_ms` the first that differs from before the key,
+/// and `content_intermediate` counts the frames equal to neither: a loading,
+/// partly drawn or reflowing page between the two tabs. `region: "workspace"`
+/// measures the whole workspace area instead of the focused pane's.
 @MainActor
 enum DebugFrameStrip {
     nonisolated struct Frame: Sendable {
@@ -43,26 +53,43 @@ enum DebugFrameStrip {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             lead.schedule(after: .milliseconds(120)) { @MainActor in done.resume() }
         }
-        let sent = DebugKey.send(["key": .string(params["key"]?.stringValue ?? "n"), "modifiers": .array([.string("command")]),
+        let sent: JSONValue
+        if let action = params["action"]?.stringValue {
+            // The action a key runs, by name (`nextSurface`, `nextSidebarTab`), whatever the keymap binds.
+            let target = params["target"]?.stringValue.map { ActionTargetRef(kind: .tab, id: $0) }
+            let ran = services.registry.perform(ActionID(rawValue: action), invocation: ActionInvocation(target: target, origin: .user))
+            sent = .object(["action": .string(action), "ran": .bool(ran)])
+        } else {
+            let modifiers = params["modifiers"] ?? .array([.string("command")])
+            sent = DebugKey.send(["key": .string(params["key"]?.stringValue ?? "n"), "modifiers": modifiers,
                                   "window": .string(controller.state.id)], services: services)
+        }
         let sentAt = BenchSpans.ms(.now - start)
         let frames = await recording.value
         let spans = BenchSpans.end()
         guard let first = frames.first, let last = frames.last, let before = frames.last(where: { $0.milliseconds < sentAt }) else {
             return .object(["error": .string("no frames"), "key": sent])
         }
-        let content = contentRect(controller, window: window, frame: first)
+        let content = contentRect(controller, window: window, frame: first, workspace: params["region"]?.stringValue == "workspace")
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var rows: [JSONValue] = []
-        var intermediate = 0, blank = 0
+        var intermediate = 0, blank = 0, contentIntermediate = 0
+        var settledAt: Double?, firstChange: Double?
         for (index, frame) in frames.enumerated() where frame.milliseconds >= before.milliseconds {
             let outsideBefore = difference(frame, before, excluding: content)
             let outsideFinal = difference(frame, last, excluding: content)
             let isIntermediate = outsideBefore > tolerance && outsideFinal > tolerance
-            // Flat, and not still the content from before the key (an empty terminal is flat too).
-            let isBlank = content.map { flatness(frame, in: $0) > 0.995 && difference(frame, before, within: $0) > tolerance } ?? false
+            let insideBefore = content.map { difference(frame, before, within: $0) } ?? 0
+            let insideFinal = content.map { difference(frame, last, within: $0) } ?? 0
+            // Flat, and neither the content from before the key nor the settled one (an empty terminal is flat too).
+            let isBlank = content.map { flatness(frame, in: $0) > 0.995 && insideBefore > tolerance && insideFinal > tolerance } ?? false
             if isIntermediate { intermediate += 1 }
             if isBlank { blank += 1 }
+            if frame.milliseconds > sentAt {
+                if insideBefore > tolerance && insideFinal > tolerance { contentIntermediate += 1 }
+                if firstChange == nil, insideBefore > tolerance { firstChange = frame.milliseconds - sentAt }
+                if insideFinal > tolerance { settledAt = nil } else if settledAt == nil { settledAt = frame.milliseconds - sentAt }
+            }
             let name = String(format: "frame-%03d.png", index)
             write(frame, to: (dir as NSString).appendingPathComponent(name))
             rows.append(.object([
@@ -75,14 +102,18 @@ enum DebugFrameStrip {
         return .object([
             "key": sent, "dir": .string(dir), "frames": .array(rows), "intermediate": .number(Double(intermediate)),
             "blank": .number(Double(blank)), "frame_count": .number(Double(rows.count)),
+            "content_intermediate": .number(Double(contentIntermediate)),
+            "settled_ms": settledAt.map { .number($0.rounded()) } ?? .null, "first_change_ms": firstChange.map { .number($0.rounded()) } ?? .null,
             "spans": .array(spans.map { .object(["name": .string($0.name), "ms": .number(($0.start - sentAt).rounded()), "duration_ms": .number($0.milliseconds)]) }),
             "mean_interval_ms": .number(frames.count > 1 ? (last.milliseconds - first.milliseconds) / Double(frames.count - 1) : 0),
         ])
     }
 
-    /// The focused pane's content area in `frame` pixels (top-left origin), once the key opened its page.
-    private static func contentRect(_ controller: WindowController, window: NSWindow, frame: Frame) -> CGRect? {
-        guard let host = controller.content?.focusedPane?.view.contentHost, host.window === window,
+    /// The focused pane's content area in `frame` pixels (top-left origin), once the key opened its page;
+    /// with `workspace`, the whole workspace area beside the sidebar (a sidebar item switch, `region: "workspace"`).
+    private static func contentRect(_ controller: WindowController, window: NSWindow, frame: Frame, workspace: Bool) -> CGRect? {
+        let view: NSView? = workspace ? controller.content?.layoutView : controller.content?.focusedPane?.view.contentHost
+        guard let host = view, host.window === window,
               let windowHeight = window.contentView?.superview?.bounds.height ?? window.contentView?.bounds.height
         else { return nil }
         let rect = host.convert(host.bounds, to: nil)
