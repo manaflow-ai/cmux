@@ -114,11 +114,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
         let person = !services.cache.agentDrivenTabs.contains(key)
         switch intent {
         case .openURL(let url, _) where person && ChromiumPageRoute(url) == .passwordsPage:
-            try? services.showPasswordsPage(focus: true)
+            try? ChromiumPageRouter.showPasswords(services, focus: true)
             return
         case .adoptTab(let child, _) where person && child.state.url.flatMap({ ChromiumPageRoute($0) }) == .passwordsPage:
             child.close()
-            try? services.showPasswordsPage(focus: true)
+            try? ChromiumPageRouter.showPasswords(services, focus: true)
             return
         default: break
         }

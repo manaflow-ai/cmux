@@ -43,7 +43,7 @@ final class PasswordsPageService: InternalPageProvider {
 
     func open(focus: Bool) throws {
         guard let services else { throw ActionFailure(message: RefusalStrings.noWindowOpen) }
-        try services.showPasswordsPage(focus: focus)
+        try ChromiumPageRouter.showPasswords(services, focus: focus)
     }
 
     var page: InternalPageID { .passwords }
