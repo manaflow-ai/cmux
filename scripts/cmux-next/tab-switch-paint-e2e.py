@@ -31,6 +31,7 @@ parser.add_argument("--duration-ms", type=float, default=600)
 parser.add_argument("--out", default="/tmp/tab-switch-paint")
 parser.add_argument("--json", help="write every step's numbers here")
 parser.add_argument("--no-fail", action="store_true")
+parser.add_argument("--journal", help="write the app's content journal (a marker per step) here")
 # Accepted for the capture-slot harness, which passes them to every e2e.
 parser.add_argument("--runs", type=int, default=1)
 opts = parser.parse_args()
@@ -93,13 +94,16 @@ def serve():
 
 
 def strip(label, **params):
+    if opts.journal:
+        rpc("debug.journal", {"marker": label, "last": 0})
     reply = rpc("debug.new_tab", {"action": "frame_strip", "dir": f"{opts.out}/{label}", "duration_ms": opts.duration_ms, **params}, timeout=60) or {}
     if "error" in reply:
         return {"label": label, "error": reply["error"]}
     step = {"label": label, "settled_ms": reply.get("settled_ms"), "first_change_ms": reply.get("first_change_ms"),
             "blank": int(reply.get("blank", 0)), "content_intermediate": int(reply.get("content_intermediate", 0)),
             "intermediate": int(reply.get("intermediate", 0)), "desync": int(reply.get("desync", 0)), "frames": reply.get("frame_count"),
-            "interval_ms": round(reply.get("mean_interval_ms", 0), 1), "dir": reply.get("dir")}
+            "interval_ms": round(reply.get("mean_interval_ms", 0), 1), "dir": reply.get("dir"),
+            "spans": reply.get("spans"), "rows": reply.get("frames")}
     print(f"{label:28} settled {step['settled_ms']!s:>5} ms  first change {step['first_change_ms']!s:>5} ms  "
           f"blank {step['blank']}  content-intermediate {step['content_intermediate']}  desync {step['desync']}  "
           f"outside-intermediate {step['intermediate']}", flush=True)
@@ -192,6 +196,9 @@ def main():
     if opts.json:
         with open(opts.json, "w") as file:
             json.dump(steps, file, indent=1)
+    if opts.journal:
+        with open(opts.journal, "w") as file:
+            json.dump(rpc("debug.journal", {"last": 5000}), file, indent=1)
     if failures:
         print("FAIL " + "; ".join(failures))
         if not opts.no_fail:
