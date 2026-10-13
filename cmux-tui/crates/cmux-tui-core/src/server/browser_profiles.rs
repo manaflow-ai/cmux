@@ -77,12 +77,9 @@ pub(super) fn update(mux: &Mux, params: UpdateParams) -> anyhow::Result<Value> {
 }
 
 pub(super) fn move_to(mux: &Mux, params: MoveParams) -> anyhow::Result<Value> {
-    let browser_profile = mux
-        .workspace_registry
-        .lock()
-        .unwrap()
-        .resolve_browser_profile_id(&params.browser_profile)?;
+    // Resolve the id or exact name under the same registry lock as the move.
     let (profile, changed) = mux.personal_mutation(|registry| {
+        let browser_profile = registry.resolve_browser_profile_id(&params.browser_profile)?;
         registry.move_browser_profile(&browser_profile, params.index)
     })?;
     Ok(json!({"browser_profile": profile, "changed": changed}))
@@ -118,13 +115,12 @@ pub(super) fn delete(mux: &Mux, client: u64, params: DeleteParams) -> anyhow::Re
     if super::origin_gate::require_user(mux, client).is_err() {
         return Err(DeleteNeedsPerson.into());
     }
-    let id = mux
-        .workspace_registry
-        .lock()
-        .unwrap()
-        .resolve_browser_profile_id(&params.browser_profile)?;
-    let (deletion, _) =
-        mux.personal_mutation(|registry| Ok((registry.delete_browser_profile(&id)?, true)))?;
+    // Resolve the id or exact name under the same registry lock as the delete.
+    let ((id, deletion), _) = mux.personal_mutation(|registry| {
+        let id = registry.resolve_browser_profile_id(&params.browser_profile)?;
+        let deletion = registry.delete_browser_profile(&id)?;
+        Ok(((id, deletion), true))
+    })?;
     if let Some(revision) = deletion.bookmarks_revision {
         mux.emit_bookmarks_changed(id.to_string(), revision);
     }
