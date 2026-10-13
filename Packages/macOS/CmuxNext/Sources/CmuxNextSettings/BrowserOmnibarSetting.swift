@@ -35,12 +35,7 @@ public nonisolated struct BrowserOmnibarSetting: Sendable, Hashable {
     public static let glassTintStrengthPath = ["browser", "omnibar", "glassTintStrength"]
     public static let cornerRadiusPath = ["browser", "omnibar", "cornerRadius"]
     public static let shadowPath = ["browser", "omnibar", "shadow"]
-    /// `glass` values.
-    public static let glassStyles = ["regular", "clear", "off"]
-    /// `glassTint` values.
-    public static let glassTints = ["background", "accent", "none"]
-    /// `cornerRadius` words; a number is points in `cornerRadiusRange`.
-    public static let cornerRadiusWords = ["theme", "capsule"]
+    /// `cornerRadius` points; the words are `theme` and `capsule`.
     public static let cornerRadiusRange: ClosedRange<Double> = 0...16
     /// The built-in engines, then `custom`.
     public static let engines = ["google", "duckduckgo", "bing", "brave", "kagi", "custom"]

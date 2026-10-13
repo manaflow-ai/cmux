@@ -129,7 +129,7 @@ public nonisolated enum OmnibarGlassDesign: String, Sendable, CaseIterable, Hash
 public final class OmnibarGlassAppearance {
     public static let shared = OmnibarGlassAppearance()
     public private(set) var look = OmnibarGlassLook.standard
-    public init() {}
+    private init() {}
 
     /// cmux.json's `browser.omnibar` look keys (`BrowserOmnibarSetting`):
     /// an unknown word keeps the default; `cornerRadius` nil is the theme's,
