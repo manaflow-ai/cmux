@@ -76,8 +76,32 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     ensureUserTables(ctx.storage.sql)
     // The last level the usage sync sent to the payment service, per subscription and period (cx-y79zh S4).
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_push (subscription TEXT NOT NULL, period_start INTEGER NOT NULL, period_end INTEGER NOT NULL, identifier TEXT NOT NULL, micros INTEGER NOT NULL, pushed_at INTEGER NOT NULL, PRIMARY KEY (subscription, period_start))`)
+    // Billable subscriptions the usage sync saw for this team (the included-amount stop, cx-y79zh S5).
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_billable (subscription TEXT PRIMARY KEY, period_end INTEGER NOT NULL, seen_at INTEGER NOT NULL)`)
     // An object made with the first usage_push shape (no period_end) gets the column; 0 = unknown, never a final push (review P2).
     if (!ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(usage_push)`).toArray().some((c) => c.name === "period_end")) ctx.storage.sql.exec(`ALTER TABLE usage_push ADD COLUMN period_end INTEGER NOT NULL DEFAULT 0`)
+  }
+
+  /** The usage sync saw this team on a billable subscription (a usage item) whose period ends at `periodEnd` (s). */
+  async markBillable(entity: string, subscription: string, periodEnd: number): Promise<void> {
+    this.bind(entity)
+    this.ctx.storage.sql.exec(`INSERT INTO usage_billable (subscription, period_end, seen_at) VALUES (?, ?, ?) ON CONFLICT (subscription) DO UPDATE SET period_end = excluded.period_end, seen_at = excluded.seen_at`, subscription, periodEnd, Date.now())
+  }
+
+  /**
+   * The included-amount stop (inference/included-stop.ts): a team on a billable subscription whose period
+   * has not ended passes; any other team may spend up to `includedMicros` this UTC month (settled model
+   * spend plus open reservations plus this call's maximum).
+   */
+  async includedAdmit(entity: string, includedMicros: number, maxMicros: number): Promise<{ ok: true } | { ok: false; spent_micros: number }> {
+    this.bind(entity)
+    const sql = this.ctx.storage.sql
+    const now = Date.now()
+    if (sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM usage_billable WHERE period_end * 1000 > ?`, now).one().n > 0) return { ok: true }
+    const month = utcMonth(now)
+    const spent = Number(sql.exec<{ m: number | null }>(`SELECT usd_micros AS m FROM usage_month WHERE month = ? AND meter = 'model.spend_usd'`, month).toArray()[0]?.m ?? 0)
+    const open = Number(sql.exec<{ m: number | null }>(`SELECT SUM(micros) AS m FROM user_reservation WHERE month = ?`, month).toArray()[0]?.m ?? 0)
+    return spent + open + maxMicros <= includedMicros ? { ok: true } : { ok: false, spent_micros: spent + open }
   }
 
   /** The usage sync's last sent identifier for a subscription period, or null (never sent, or the team never used the meter). */

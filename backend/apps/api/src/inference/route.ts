@@ -13,6 +13,7 @@ import { cardCost, MODELS, modelById, type ModelEntry, type ProviderId } from ".
 import { providerTarget } from "./providers.ts"
 import { callUpstream } from "./upstream.ts"
 import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
+import { includedStop } from "./included-stop.ts"
 
 /**
  * The model router's HTTP surface (plans/cmux-next/model-router.md, cx-dna4.1):
@@ -26,7 +27,7 @@ import { freeCaller, freeSettle, freeAdmit } from "./free.ts"
  */
 
 export type Caller =
-  | { readonly kind: "team"; readonly team: string; readonly user: string; readonly limitMicros: number }
+  | { readonly kind: "team"; readonly team: string; readonly user: string; readonly limitMicros: number; readonly plan?: string | null }
   | { readonly kind: "free"; readonly device: string }
 
 const MAX_BODY_BYTES = 8 * 1024 * 1024
@@ -91,7 +92,7 @@ export const resolveCaller = async (env: Env, request: Request): Promise<Caller 
   const plan = await env.TEAM_DO.get(env.TEAM_DO.idFromName(p.team)).inferencePlan(p.team, p.user, stackUser)
   if (!plan.ok) return err(503, "plan.unavailable", "the plan check is not available now; retry", { retryable: true })
   if (!plan.paid) return err(402, "inference.plan_required", "AI models need a paid plan", { details: { plan: INFERENCE_ENTRY_PLAN } })
-  return { kind: "team", team: p.team, user: p.user, limitMicros: userLimitMicros(plan.user_limit_usd) }
+  return { kind: "team", team: p.team, user: p.user, limitMicros: userLimitMicros(plan.user_limit_usd), plan: plan.plan ?? null }
 }
 
 export const handleInferenceModels = (env: Env): Response => {
@@ -199,6 +200,9 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
     const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
     const check = await meter.check(caller.team)
     if (!check.allowed) return err(402, "team.cap_reached", "the team reached its monthly usage cap")
+    // A team whose usage above the plan's included amount cannot be billed stops at that amount (cx-y79zh S5).
+    const included = await includedStop(env, meter, caller, maxMicros)
+    if (included) return included
     // The member's own monthly limit (usage-user.ts): reserved before the global lines, released at once if they refuse.
     const held = await meter.reserveUser(caller.team, caller.user, id, maxMicros, caller.limitMicros)
     if (!held.ok) {
