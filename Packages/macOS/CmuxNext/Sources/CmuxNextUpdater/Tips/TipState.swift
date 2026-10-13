@@ -1,14 +1,14 @@
 public import Foundation
 
-/// What the hints card remembers on this Mac (UserDefaults, never uploaded;
-/// kept across restarts and updates): actions the user ran, hints dismissed,
-/// hints the person saw on screen (each shows once, ever), the hint chosen
-/// today, and the end of a timed mute ("Mute Hints for 1 Day/Week").
+/// What the tips card remembers on this Mac (UserDefaults, never uploaded;
+/// kept across restarts and updates): actions the user ran, tips dismissed,
+/// tips the person saw on screen (each shows once, ever), the tip chosen
+/// today, and the end of a timed mute ("Mute Tips for 1 Day/Week").
 nonisolated public struct TipState: Equatable, Sendable {
     /// Action ids the user ran (local usage flags).
     public var usedActions: Set<String> = []
     public var dismissed: Set<String> = []
-    /// Hint ids whose card was on screen: never picked again.
+    /// Tip ids whose card was on screen: never picked again.
     public var seen: Set<String> = []
     /// The tip chosen for `day` (yyyy-MM-dd, local calendar); a nil tip
     /// means "none today" (dismissed, tried, or nothing left).
@@ -43,8 +43,8 @@ nonisolated public struct TipState: Equatable, Sendable {
         if let seen = defaults.stringArray(forKey: Self.seenKey) {
             self.seen = Set(seen)
         } else if let shown = shownTip, let index = TipCatalog.all.firstIndex(where: { $0.id == shown }) {
-            // State from before seen hints were recorded: the rotation went in catalog order, so
-            // every hint up to the last one shown was seen.
+            // State from before seen tips were recorded: the rotation went in catalog order, so
+            // every tip up to the last one shown was seen.
             self.seen = Set(TipCatalog.all[...index].map(\.id))
         }
     }
@@ -65,10 +65,10 @@ nonisolated public struct TipState: Equatable, Sendable {
     }
 }
 
-/// Picks the hint of the day (pure). At most one new hint per calendar day,
+/// Picks the tip of the day (pure). At most one new tip per calendar day,
 /// in catalog order after the last one shown; never a used, dismissed or
-/// seen hint (each hint shows once, ever; a hint a later release adds is
-/// unseen, so it shows once too; with every hint seen, none). Today's hint
+/// seen tip (each tip shows once, ever; a tip a later release adds is
+/// unseen, so it shows once too; with every tip seen, none). Today's tip
 /// stays while it is still on the card (`showing`) even though it is seen;
 /// once it is dismissed, tried, or gone (a restart), nothing more today.
 nonisolated public struct TipChooser {
