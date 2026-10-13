@@ -56,6 +56,9 @@ targets:
       properties:
         CFBundleDisplayName: $(CNX_DISPLAY_NAME)
         CNXTag: $(CNX_TAG)
+        NSPhotoLibraryUsageDescription: cmux uses your photos to attach images to messages.
+        NSCameraUsageDescription: cmux uses the camera to attach photos to messages.
+        NSMicrophoneUsageDescription: cmux uses the microphone to record voice messages.
         UILaunchScreen:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark

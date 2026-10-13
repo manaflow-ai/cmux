@@ -60,8 +60,6 @@ struct TeamPage: View {
     let user: CnxAuthModel.User?
     let edit: () -> Void
     let invite: () -> Void
-    @State private var confirmsLeave = false
-    @State private var toast: CnxToast?
 
     var body: some View {
         List {
@@ -92,21 +90,8 @@ struct TeamPage: View {
                     SettingsLabel("Invite to team", symbol: "person.badge.plus")
                 }
             }
-            Section {
-                Button("Leave team", role: .destructive) { confirmsLeave = true }
-                    .foregroundStyle(theme.colors.danger)
-            }
         }
         .settingsPage(LocalizedStringKey(team.name))
-        .alert("Leave \(team.name)?", isPresented: $confirmsLeave) {
-            Button("Cancel", role: .cancel) {}
-            Button("Leave", role: .destructive) {
-                toast = CnxToast(symbol: "exclamationmark.circle", text: "Leaving teams isn't available yet")
-            }
-        } message: {
-            Text("You'll lose access to this team's Macs and workspaces.")
-        }
-        .cnxToast($toast)
     }
 }
 
@@ -128,22 +113,9 @@ struct PairedMacsPage: View {
                         }
                     }
                     .accessibilityElement(children: .combine)
-                    .swipeActions {
-                        Button("Unpair", role: .destructive) {}
-                    }
-                }
-                Button {} label: {
-                    SettingsLabel("Pair a Mac", symbol: "plus")
                 }
             } header: {
-                HStack {
-                    Text("Macs")
-                    Spacer()
-                    Button("Disconnect all") {}
-                        .font(theme.type.meta)
-                        .foregroundStyle(theme.colors.label2)
-                        .textCase(nil)
-                }
+                Text("Macs")
             }
         }
         .settingsPage("Paired Macs")

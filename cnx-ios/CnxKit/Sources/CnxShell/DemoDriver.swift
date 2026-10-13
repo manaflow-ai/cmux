@@ -151,7 +151,7 @@ struct DemoDriver {
         shell.tab = .workspaces
         await pause(1.6)
         guard let ws = store.workspace(id: "ws-cmux") else { return }
-        shell.workspacesPath = [ws]
+        shell.workspacesPath = NavigationPath([ws])
         await pause(2.4)
         DemoDirector.shared.post(.chatSend("Summarize what changed in the transport layer"))
         await pause(7.0)
@@ -170,7 +170,7 @@ struct DemoDriver {
         tabs.post(.exit)
         await pause(1.8)
         // Reopen: starts on the browser tab used last.
-        shell.workspacesPath = [ws]
+        shell.workspacesPath = NavigationPath([ws])
         await pause(2.6)
         tabs.post(.exit)
         await pause(1.5)
@@ -207,7 +207,7 @@ struct DemoDriver {
               let agent = ws.tabs.first(where: { $0.kind == .agent }) else { return }
         shell.store.noteOpened(tabID: agent.id, in: ws.id)
         step("open workspace \(ws.title) on \(agent.title)")
-        shell.workspacesPath = [ws]
+        shell.workspacesPath = NavigationPath([ws])
         await pause(4)
         let mac = shell.store.activeTeam?.macs.first { $0.id == ws.macID }?.name ?? "Mac"
         let chat = AgentSessionDirectory.shared.store(workspace: ws, tab: agent, macName: mac)
@@ -218,7 +218,7 @@ struct DemoDriver {
         await until(15) { chat.pendingPermission != nil }
         await pause(2.5)
         // Answer from the Feed: Allow (refused for a phone), then Deny (reaches the Mac).
-        shell.workspacesPath = []
+        shell.workspacesPath = NavigationPath()
         await pause(1)
         step("feed")
         shell.tab = .feed
@@ -267,7 +267,7 @@ struct DemoDriver {
         shell.tab = .workspaces
         await pause(1.6)
         guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
-        shell.workspacesPath = [ws]
+        shell.workspacesPath = NavigationPath([ws])
         await pause(3.0)
         WorkspaceDemoDirector.shared.post(.showGrid(true))
         await pause(2.2)

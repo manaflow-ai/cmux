@@ -15,6 +15,7 @@ struct ChatComposer: View {
     var collapsible: Bool
     @State private var showPhotos = false
     @State private var showFiles = false
+    @State private var showCamera = false
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var sendCount = 0
     @State private var planMode = false
@@ -45,7 +46,16 @@ struct ChatComposer: View {
             }
         }
         .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
             Task { await loadPhotos(items) }
+        }
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { image in
+                if let data = image.jpegData(compressionQuality: 0.85) {
+                    attachments.append(AgentAttachment(kind: .image, name: "Photo", data: data))
+                }
+            }
+            .ignoresSafeArea()
         }
         .sensoryFeedback(.impact(weight: .light), trigger: sendCount)
     }
@@ -96,7 +106,9 @@ struct ChatComposer: View {
     private var plusMenu: some View {
         Menu {
             Section {
-                Button("Camera", systemImage: "camera") {}
+                if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                    Button("Camera", systemImage: "camera") { showCamera = true }
+                }
                 Button("Photos", systemImage: "photo.on.rectangle") { showPhotos = true }
                 Button("Files", systemImage: "paperclip") { showFiles = true }
             }
@@ -314,18 +326,52 @@ struct ChatComposer: View {
 
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         for item in items {
-            if let data = try? await item.loadTransferable(type: Data.self) {
-                attachments.append(AgentAttachment(kind: .image, name: "Photo", data: data))
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            var attachment = AgentAttachment(kind: .image, name: "Photo", data: data)
+            // HEIC and other formats agents do not accept go over as JPEG.
+            if attachment.imageMIMEType == nil, let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.85) {
+                attachment.data = jpeg
             }
+            attachments.append(attachment)
         }
         photoItems = []
+    }
+}
+
+/// The system camera (a modal task, so a full-screen cover).
+private struct CameraPicker: UIViewControllerRepresentable {
+    let onImage: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ picker: UIImagePickerController, context: Context) {}
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraPicker
+        init(_ parent: CameraPicker) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage { parent.onImage(image) }
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) { parent.dismiss() }
     }
 }
 
 /// 56 x 56 thumbnail (images) or a 56 h chip (files) with an X badge.
 struct AttachmentThumb: View {
     let attachment: AgentAttachment
-    let remove: () -> Void
+    /// nil: a sent attachment (no remove badge).
+    var remove: (() -> Void)?
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -347,16 +393,18 @@ struct AttachmentThumb: View {
                 }
             }
             .clipShape(.rect(cornerRadius: 12, style: .continuous))
-            Button(action: remove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Color.cnxOnAccent)
-                    .frame(width: 20, height: 20)
-                    .background(Color.cnxAccent, in: .circle)
+            if let remove {
+                Button(action: remove) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color.cnxOnAccent)
+                        .frame(width: 20, height: 20)
+                        .background(Color.cnxAccent, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .offset(x: 6, y: -6)
+                .accessibilityLabel("Remove attachment")
             }
-            .buttonStyle(.plain)
-            .offset(x: 6, y: -6)
-            .accessibilityLabel("Remove attachment")
         }
         .padding(.top, 6)
         .padding(.trailing, 6)

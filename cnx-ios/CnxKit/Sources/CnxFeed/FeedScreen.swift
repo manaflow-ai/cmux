@@ -10,7 +10,7 @@ import SwiftUI
 public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     let sidebarItem: SidebarItem
     @State private var store = FeedStore.shared
-    @State private var path: [AgentChatDestination] = []
+    @Binding private var path: [AgentChatDestination]
     @State private var position = ScrollPosition(idType: String.self)
     @State private var atTop = true
     @State private var expanded: Set<String> = []
@@ -18,7 +18,10 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @Environment(AppStore.self) private var appStore
     private let director = DemoDirector.shared
 
-    public init(@ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
+    /// `path`: the Feed's navigation stack, owned by the shell so the team
+    /// drawer pan stays off while a chat is pushed (the back swipe wins).
+    public init(path: Binding<[AgentChatDestination]>, @ToolbarContentBuilder sidebarItem: () -> SidebarItem) {
+        _path = path
         self.sidebarItem = sidebarItem()
         WebMarkdownRenderer.shared.prewarm(count: 6)
     }

@@ -1,4 +1,5 @@
 #if os(iOS)
+import CnxAgentChat
 import CnxAuth
 import CnxDesign
 import CnxLive
@@ -26,8 +27,11 @@ final class ShellModel {
 
     var tab: RootTab = .home { didSet { updateInteractiveOpen() } }
     var homePath = NavigationPath() { didSet { updateInteractiveOpen() } }
-    var workspacesPath: [Workspace] = [] { didSet { updateInteractiveOpen() } }
-    var feedPath: [String] = [] { didSet { updateInteractiveOpen() } }
+    /// Type-erased: a workspace page hosts tab content with its own pushes
+    /// (diffs, terminal toolbars), and a typed `[Workspace]` binding traps
+    /// in SwiftUI (`comparisonTypeMismatch`) as soon as one of them lands.
+    var workspacesPath = NavigationPath() { didSet { updateInteractiveOpen() } }
+    var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
 
     var toast: CnxToast?
@@ -76,7 +80,7 @@ final class ShellModel {
         withAnimation(theme.motion.snap.animation) {
             store.selectTeam(id)
         }
-        workspacesPath.removeAll()
+        workspacesPath = NavigationPath()
         sidebar.close()
         live?.activeTeamChanged()
         guard !id.hasPrefix("personal-") else { return }

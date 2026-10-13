@@ -77,11 +77,12 @@ final class TerminalSurfaceView: UIView {
         self.app = app
         let box = InputBox()
         box.deliver = { [weak self] data in self?.onInput?(data) }
+        box.view = self
         inputBox = box
         var config = ghostty_surface_config_new()
         config.platform_tag = GHOSTTY_PLATFORM_IOS
         config.platform = ghostty_platform_u(ios: ghostty_platform_ios_s(uiview: Unmanaged.passUnretained(self).toOpaque()))
-        config.userdata = Unmanaged.passUnretained(self).toOpaque()
+        config.userdata = Unmanaged.passUnretained(box).toOpaque()
         config.scale_factor = Double(window?.screen.scale ?? 3)
         config.font_size = 12
         config.io_mode = GHOSTTY_SURFACE_IO_MANUAL_MIRROR
@@ -365,8 +366,13 @@ struct SurfaceRef: @unchecked Sendable {
 }
 
 @MainActor
-private final class InputBox {
+/// The surface's userdata for both callbacks. It outlives the view (it is
+/// released only after `ghostty_surface_free`, which runs asynchronously
+/// after the view's deinit), so actions Ghostty delivers in between find a
+/// nil `view` instead of a dangling pointer.
+final class InputBox {
     var deliver: ((Data) -> Void)?
+    weak var view: TerminalSurfaceView?
 }
 
 private struct Retained: @unchecked Sendable {

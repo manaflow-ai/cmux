@@ -20,11 +20,34 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
     }
 
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView {
-        AnyView(NavigationStack { TerminalScreen(model: model(for: tab)) })
+        AnyView(IsolatedTerminalStack(model: model(for: tab)))
     }
 
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView {
-        AnyView(NavigationStack { TerminalScreen(model: model(for: tab)) }.allowsHitTesting(false))
+        AnyView(IsolatedTerminalStack(model: model(for: tab)).allowsHitTesting(false))
     }
+}
+
+/// The terminal page's own navigation bar (title menu, keyboard toggle,
+/// More), from a plain UIKit navigation controller around a hosting
+/// controller. A SwiftUI NavigationStack here would sit inside the
+/// Workspaces stack's pushed page: SwiftUI merges nested stacks (the
+/// workspace push resolved to the missing-destination placeholder, and with
+/// a typed path it trapped with `comparisonTypeMismatch`), and a stack in a
+/// child hosting controller adopts the enclosing UINavigationController and
+/// pops the workspace. SwiftUI fills this controller's navigation item from
+/// TerminalScreen's `.toolbar`, so the bar looks the same.
+private struct IsolatedTerminalStack: UIViewControllerRepresentable {
+    let model: TerminalModel
+
+    func makeUIViewController(context: Context) -> UINavigationController {
+        let host = UIHostingController(rootView: TerminalScreen(model: model))
+        host.view.backgroundColor = .black
+        let navigation = UINavigationController(rootViewController: host)
+        navigation.overrideUserInterfaceStyle = .dark
+        return navigation
+    }
+
+    func updateUIViewController(_ navigation: UINavigationController, context: Context) {}
 }
 #endif

@@ -202,10 +202,10 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         Task {
             do {
                 switch intent {
-                case .prompt(let text, _, let steer):
+                case .prompt(let text, let attachments, let steer):
                     let meta: JSONValue = .object(["acpmux": .object(["promptId": .string(UUID().uuidString.lowercased()), "steer": .bool(steer)])])
                     _ = try await hub.request("session/prompt", .object([
-                        "sessionId": session, "prompt": .array([.object(["type": .string("text"), "text": .string(text)])]), "_meta": meta,
+                        "sessionId": session, "prompt": .array(Self.promptBlocks(text: text, attachments: attachments)), "_meta": meta,
                     ]))
                 case .cancel:
                     try await hub.notify("session/cancel", .object(["sessionId": session]))
@@ -227,6 +227,21 @@ public final class AcpmuxSessionSource: AgentSessionSource {
                 self.emit(.clientError(AcpmuxSessionSource.message(error)))
             }
         }
+    }
+
+    /// ACP prompt content: the text, then one `image` block (base64 data and
+    /// its MIME type) per attached image. File chips carry no contents yet,
+    /// so they are not sent.
+    static func promptBlocks(text: String, attachments: [AgentAttachment]) -> [JSONValue] {
+        var blocks: [JSONValue] = []
+        if !text.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string(text)])) }
+        for attachment in attachments {
+            if let mime = attachment.imageMIMEType, let data = attachment.data {
+                blocks.append(.object(["type": .string("image"), "mimeType": .string(mime), "data": .string(data.base64EncodedString())]))
+            }
+        }
+        if blocks.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string("")])) }
+        return blocks
     }
 
     /// Display copy for a refused call.

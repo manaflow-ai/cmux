@@ -123,7 +123,6 @@ public struct WorkspacesList: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
-        .refreshable {}
         .animation(theme.motion.smooth.animation, value: sort)
         .animation(theme.motion.smooth.animation, value: showsOffline)
     }
@@ -138,8 +137,9 @@ public struct WorkspacesList: View {
     }
 }
 
-/// Section header: 44 pt, presence dot, Mac name, "Online" / "Last seen …",
-/// trailing More menu.
+/// Section header: 44 pt, presence dot, Mac name, "Online" / "Last seen …".
+/// (Its More menu had only unwired Mac actions, so it is gone until pairing
+/// management exists.)
 struct MacSectionHeader: View {
     let mac: MacDevice
     let presence: String
@@ -174,18 +174,6 @@ struct MacSectionHeader: View {
                 .font(theme.type.meta)
                 .foregroundStyle(theme.colors.label2)
             Spacer(minLength: 0)
-            Menu {
-                Button("Pair Details", systemImage: "info.circle") {}
-                Button("Reconnect", systemImage: "arrow.clockwise") {}
-                Button("Unpair", systemImage: "minus.circle", role: .destructive) {}
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(theme.colors.label2)
-                    .frame(width: 32, height: 32)
-                    .contentShape(.rect)
-            }
-            .accessibilityLabel("\(mac.name) options")
         }
         .textCase(nil)
         .frame(minHeight: 44)
