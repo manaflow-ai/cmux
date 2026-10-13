@@ -3969,6 +3969,7 @@ class SetPersonalWorkspaceRequest:
     browser_profile_id: Union[str, None, MissingType] = field(default=MISSING)
     group: Union[str, None, MissingType] = field(default=MISSING)
     index: Union[int, None, MissingType] = field(default=MISSING)
+    remote_localhost: Union[bool, None, MissingType] = field(default=MISSING)
     theme: Union[str, None, MissingType] = field(default=MISSING)
 
 

@@ -26463,6 +26463,11 @@ Result<Json> Codec<SetPersonalWorkspaceRequest>::encode(const SetPersonalWorkspa
         if (!encoded) return std::move(encoded).error();
         object.emplace("index", std::move(encoded).value());
     }
+    if (!value.remote_localhost.is_absent()) {
+        auto encoded = encode_value(value.remote_localhost);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("remote_localhost", std::move(encoded).value());
+    }
     auto encoded_session_id = encode_value(value.session_id);
     if (!encoded_session_id) return std::move(encoded_session_id).error();
     object.emplace("session_id", std::move(encoded_session_id).value());
@@ -26509,6 +26514,16 @@ Result<SetPersonalWorkspaceRequest> Codec<SetPersonalWorkspaceRequest>::decode(c
             auto decoded = decode_value<std::uint64_t>(*field_index);
             if (!decoded) return std::move(decoded).error();
             result.index = Field<std::uint64_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_remote_localhost = value.find("remote_localhost");
+    if (field_remote_localhost) {
+        if (field_remote_localhost->is_null()) {
+            result.remote_localhost = Field<bool>::null();
+        } else {
+            auto decoded = decode_value<bool>(*field_remote_localhost);
+            if (!decoded) return std::move(decoded).error();
+            result.remote_localhost = Field<bool>(std::move(decoded).value());
         }
     }
     const Json* field_session_id = value.find("session_id");
@@ -37028,6 +37043,9 @@ constexpr std::array<CommandFieldRequirement, 7> kCommand198FieldRequirements{{
     {"selection_bg", 9U, ""},
     {"selection_fg", 9U, ""},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand201FieldRequirements{{
+    {"remote_localhost", 12U, "personal-remote-localhost-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 1> kCommand210FieldRequirements{{
     {"transaction", 9U, "layout-undo-v1"},
 }};
@@ -37269,7 +37287,7 @@ constexpr std::array<CommandMetadata, 254> kCommands{{
     {"set-default-colors", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand198FieldRequirements)},
     {"set-frontend-browser-history", "control", 12U, "frontend-browser-history-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-personal-terminal", "control", 12U, "personal-terminals-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
-    {"set-personal-workspace", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"set-personal-workspace", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand201FieldRequirements)},
     {"set-profile-follows", "control", 12U, "profiles-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-ratio", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"set-row-heights", "control", 12U, "rows-v1", false, "", "", std::span<const CommandFieldRequirement>{}},

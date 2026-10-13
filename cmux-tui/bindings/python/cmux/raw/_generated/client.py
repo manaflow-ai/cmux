@@ -615,8 +615,8 @@ class GeneratedClientMixin:
     def set_personal_terminal(self, session_id: str, terminal_key: str, *, theme: Union[str, None, MissingType] = MISSING) -> JsonValue:
         return self._invoke_command('set-personal-terminal', SetPersonalTerminalRequest(session_id=session_id, terminal_key=terminal_key, theme=theme))
 
-    def set_personal_workspace(self, session_id: str, workspace_key: str, *, browser_profile_id: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, theme: Union[str, None, MissingType] = MISSING) -> JsonValue:
-        return self._invoke_command('set-personal-workspace', SetPersonalWorkspaceRequest(session_id=session_id, workspace_key=workspace_key, browser_profile_id=browser_profile_id, group=group, index=index, theme=theme))
+    def set_personal_workspace(self, session_id: str, workspace_key: str, *, browser_profile_id: Union[str, None, MissingType] = MISSING, group: Union[str, None, MissingType] = MISSING, index: Union[int, None, MissingType] = MISSING, remote_localhost: Union[bool, None, MissingType] = MISSING, theme: Union[str, None, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('set-personal-workspace', SetPersonalWorkspaceRequest(session_id=session_id, workspace_key=workspace_key, browser_profile_id=browser_profile_id, group=group, index=index, remote_localhost=remote_localhost, theme=theme))
 
     def set_profile_follows(self, profile: str, session_ids: List[str]) -> JsonValue:
         return self._invoke_command('set-profile-follows', SetProfileFollowsRequest(profile=profile, session_ids=session_ids))

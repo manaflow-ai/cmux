@@ -82,6 +82,7 @@ pub(crate) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
            group_id TEXT,
            browser_profile_id TEXT,
            theme TEXT,
+           remote_localhost INTEGER CHECK(remote_localhost IN (0,1)),
            PRIMARY KEY(session_id, workspace_key)
          );
          CREATE TABLE IF NOT EXISTS personal_terminals (
@@ -94,6 +95,7 @@ pub(crate) fn create_personal_schema(transaction: &Transaction<'_>) -> anyhow::R
     add_group_top_position(transaction)?;
     add_group_column(transaction, "icon", "TEXT")?;
     add_group_column(transaction, "pinned", "INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1))")?;
+    add_workspace_remote_localhost(transaction)?;
     // `session-icon-v1`: a session's (machine's) icon, the shared icon
     // string. Added before the open-time blob sweep reads it.
     super::mutation_ledger::add_nullable_column(transaction, "sessions", "icon")?;
@@ -111,6 +113,20 @@ fn add_group_column(connection: &Connection, name: &str, declaration: &str) -> a
         connection.execute_batch(&format!(
             "ALTER TABLE personal_groups ADD COLUMN {name} {declaration}"
         ))?;
+    }
+    Ok(())
+}
+
+/// `personal_workspaces.remote_localhost` (`personal-remote-localhost-v1`),
+/// added in place to older registries (additive, no schema version bump).
+fn add_workspace_remote_localhost(connection: &Connection) -> anyhow::Result<()> {
+    let present = connection
+        .prepare("SELECT 1 FROM pragma_table_info('personal_workspaces') WHERE name = 'remote_localhost'")?
+        .exists([])?;
+    if !present {
+        connection.execute_batch(
+            "ALTER TABLE personal_workspaces ADD COLUMN remote_localhost INTEGER CHECK(remote_localhost IN (0,1))",
+        )?;
     }
     Ok(())
 }
@@ -265,6 +281,11 @@ pub struct PersonalWorkspace {
     pub group: Option<String>,
     pub browser_profile_id: Option<String>,
     pub theme: Option<String>,
+    /// The workspace's own remote-localhost choice
+    /// (`personal-remote-localhost-v1`): whether its browser tabs open its
+    /// machine's localhost. None follows the `browser.remoteLocalhost`
+    /// setting.
+    pub remote_localhost: Option<bool>,
 }
 
 /// The own theme of one session-qualified terminal
@@ -610,7 +631,7 @@ pub(crate) fn read_group(
 
 pub(crate) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<PersonalWorkspace>> {
     let mut statement = connection.prepare(
-        "SELECT session_id, workspace_key, group_id, browser_profile_id, theme FROM personal_workspaces
+        "SELECT session_id, workspace_key, group_id, browser_profile_id, theme, remote_localhost FROM personal_workspaces
          ORDER BY position ASC, session_id ASC, workspace_key ASC",
     )?;
     let rows = statement.query_map([], |row| {
@@ -620,11 +641,12 @@ pub(crate) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<Per
             row.get::<_, Option<String>>(2)?,
             row.get::<_, Option<String>>(3)?,
             row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<bool>>(5)?,
         ))
     })?;
     let mut workspaces = Vec::new();
     for (index, row) in rows.enumerate() {
-        let (session_id, workspace_key, group, browser_profile_id, theme) = row?;
+        let (session_id, workspace_key, group, browser_profile_id, theme, remote_localhost) = row?;
         workspaces.push(PersonalWorkspace {
             session_id,
             workspace_key,
@@ -632,6 +654,7 @@ pub(crate) fn read_workspaces(connection: &Connection) -> anyhow::Result<Vec<Per
             group,
             browser_profile_id,
             theme,
+            remote_localhost,
         });
     }
     Ok(workspaces)

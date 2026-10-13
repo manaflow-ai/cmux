@@ -45,7 +45,8 @@ final class KeybindingsFileService {
         }
     }
 
-    /// Calls `listener` after every load of the file.
+    /// Calls `listener` after every load of the file and every edit of the
+    /// binding table (``edited()``).
     func onChange(_ listener: @escaping @MainActor () -> Void) -> UUID {
         let id = UUID()
         listeners[id] = listener
@@ -54,6 +55,13 @@ final class KeybindingsFileService {
 
     func removeListener(_ id: UUID) {
         listeners[id] = nil
+    }
+
+    /// An edit of the binding table, the page's or the socket's
+    /// (``KeybindingPageWrites/run(_:_:services:)``): a cmux.json change
+    /// loads no file, so the listeners (every open page) hear it here.
+    func edited() {
+        for listener in listeners.values { listener() }
     }
 
     // MARK: Writing

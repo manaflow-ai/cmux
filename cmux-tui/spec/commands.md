@@ -5683,7 +5683,7 @@ Room = object{id:string, name:string, color:string|null, icon:string|null, theme
 Session = object{session_id:string, machine_name:string|null, session_name:string|null, transport:object, last_seen_ms:uint64|null, capabilities:json|null, migrated:bool, icon?:string|null}
 Pin = object{session_id:string, workspace_key:string, profile:string}
 PersonalGroup = object{id:string, profile:string, name:string, color:string|null, collapsed:bool, index:usize, top_index:usize|null, icon:string|null, pinned:bool}
-PersonalWorkspace = object{session_id:string, workspace_key:string, index:usize, group:string|null, browser_profile_id:string|null, theme:string|null}
+PersonalWorkspace = object{session_id:string, workspace_key:string, index:usize, group:string|null, browser_profile_id:string|null, theme:string|null, remote_localhost?:bool|null}
 PersonalTerminal = object{session_id:string, terminal_key:string, theme:string}
 BrowserProfile = object{id:string, name:string, color:string|null, icon:string|null, index:usize, source:object|null}
 ```
@@ -6883,12 +6883,18 @@ Result: `object{group:PersonalGroup, changed:bool}`
 
 Creates or updates the personal row of a qualified workspace. A new row is
 appended last unless `index` is given; `index` is the final position in the
-personal order. JSON null clears `group`, `browser_profile_id`, or `theme`.
-The daemon does not check that the group belongs to the room showing the
-workspace; the app evaluates membership.
+personal order. JSON null clears `group`, `browser_profile_id`, `theme`, or
+`remote_localhost`. The daemon does not check that the group belongs to the
+room showing the workspace; the app evaluates membership.
+
+`remote_localhost` (capability `personal-remote-localhost-v1`) is the
+workspace's own remote-localhost choice: whether its browser tabs open its
+machine's localhost (plans/cmux-next/remote-localhost.md section 6). null
+follows the app's `browser.remoteLocalhost` setting. The app sets it only for
+a person; the daemon does not check who sends it.
 
 Params: `session_id`, `workspace_key` (required), `index`, `group`,
-`browser_profile_id`, `theme`.
+`browser_profile_id`, `theme`, `remote_localhost`.
 
 Result: `object{workspace:PersonalWorkspace, changed:bool}`
 

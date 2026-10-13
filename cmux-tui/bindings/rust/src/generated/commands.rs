@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 3252d9899fd9231b78633c52b7e91dd7b7765d0dfb52a2a3f021051056b3c67a.
+// cmux-tui mux protocol 12, IR 374ade89328236fb2b081d417dec69578ac6c1efb7e4c3dd7bdb14bcdd60fa06.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -2898,6 +2898,8 @@ pub struct SetPersonalWorkspaceRequest {
     pub group: Optional<String>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub index: Optional<u64>,
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub remote_localhost: Optional<bool>,
     pub session_id: String,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub theme: Optional<String>,
@@ -4722,6 +4724,10 @@ impl CmuxClient {
     }
 
     pub fn set_personal_workspace(&mut self, request: SetPersonalWorkspaceRequest) -> Result<SetPersonalWorkspaceResult> {
+        if !request.remote_localhost.is_missing() {
+            self.require_protocol_field("set-personal-workspace", 12)?;
+            self.require_capability_field("set-personal-workspace", "personal-remote-localhost-v1")?;
+        }
         self.execute(&SET_PERSONAL_WORKSPACE_METADATA, &request)
     }
 

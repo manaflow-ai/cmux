@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3252d9899fd9231b78633c52b7e91dd7b7765d0dfb52a2a3f021051056b3c67a";
+inline constexpr std::string_view kProtocolIrSha256 = "374ade89328236fb2b081d417dec69578ac6c1efb7e4c3dd7bdb14bcdd60fa06";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -4380,6 +4380,7 @@ struct SetPersonalWorkspaceRequest {
     Field<std::string> browser_profile_id{};
     Field<std::string> group{};
     Field<std::uint64_t> index{};
+    Field<bool> remote_localhost{};
     std::string session_id{};
     Field<std::string> theme{};
     std::string workspace_key{};

@@ -214,14 +214,21 @@ fn image_path_of(process: HANDLE) -> Option<String> {
     (ok != 0).then(|| String::from_utf16_lossy(&buffer[..length as usize]))
 }
 
-/// Whether `pid` runs this daemon's own executable (a terminal host). Only a
-/// path comparison, no memory read: no access rule.
+/// Whether `pid` runs a terminal host of this daemon: its own executable, or
+/// the dedicated `cmux-tui-host.exe` next to it (cx-1vlzr, the binary the
+/// daemon spawns hosts from on Windows). Only a path comparison, no memory
+/// read: no access rule.
 pub fn runs_own_executable(pid: u32) -> bool {
     let Some(handle) = open(pid, PROCESS_QUERY_LIMITED_INFORMATION) else { return false };
     let (Some(other), Ok(own)) = (image_path_of(handle.0), std::env::current_exe()) else {
         return false;
     };
-    other.eq_ignore_ascii_case(&own.to_string_lossy())
+    if other.eq_ignore_ascii_case(&own.to_string_lossy()) {
+        return true;
+    }
+    own.parent()
+        .map(|dir| dir.join("cmux-tui-host.exe"))
+        .is_some_and(|host| other.eq_ignore_ascii_case(&host.to_string_lossy()))
 }
 
 fn read<T: Copy>(process: HANDLE, at: usize) -> Option<T> {

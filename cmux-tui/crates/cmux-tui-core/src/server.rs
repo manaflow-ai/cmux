@@ -1784,6 +1784,9 @@ enum Command {
         browser_profile_id: Option<Option<String>>,
         #[serde(default, deserialize_with = "present_nullable")]
         theme: Option<Option<String>>,
+        /// `personal-remote-localhost-v1`; null clears.
+        #[serde(default, deserialize_with = "present_nullable")]
+        remote_localhost: Option<Option<bool>>,
     },
     /// Set or clear (null) the own theme of a session-qualified terminal.
     SetPersonalTerminal {
@@ -3583,22 +3586,9 @@ fn handle_command_with_cancellation(
         Command::MovePersonalGroup { group, index } => {
             cmd_profiles::move_personal_group(mux, group, index)
         }
-        Command::SetPersonalWorkspace {
-            session_id,
-            workspace_key,
-            index,
-            group,
-            browser_profile_id,
-            theme,
-        } => cmd_profiles::set_personal_workspace(
-            mux,
-            session_id,
-            workspace_key,
-            index,
-            group,
-            browser_profile_id,
-            theme,
-        ),
+        command @ Command::SetPersonalWorkspace { .. } => {
+            cmd_profiles::set_personal_workspace(mux, command)
+        }
         Command::SetPersonalTerminal { session_id, terminal_key, theme } => {
             cmd_profiles::set_personal_terminal(mux, session_id, terminal_key, theme)
         }

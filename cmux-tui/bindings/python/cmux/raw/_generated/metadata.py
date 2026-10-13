@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '3252d9899fd9231b78633c52b7e91dd7b7765d0dfb52a2a3f021051056b3c67a'
+IR_SHA256 = '374ade89328236fb2b081d417dec69578ac6c1efb7e4c3dd7bdb14bcdd60fa06'
 
 
 @dataclass(frozen=True)
@@ -2747,6 +2747,7 @@ COMMANDS = {
             'browser_profile_id': CommandFieldMetadata(None, None),
             'group': CommandFieldMetadata(None, None),
             'index': CommandFieldMetadata(None, None),
+            'remote_localhost': CommandFieldMetadata(12, 'personal-remote-localhost-v1'),
             'session_id': CommandFieldMetadata(None, None),
             'theme': CommandFieldMetadata(None, None),
             'workspace_key': CommandFieldMetadata(None, None),
