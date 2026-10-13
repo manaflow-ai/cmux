@@ -126,11 +126,32 @@ struct DecoderTests {
         }
     }
 
-    @Test func rectanglesOutsideTheFramebufferAreClipped() async throws {
-        let framebuffer = Framebuffer(width: 2, height: 2)
-        _ = try await decode(RFBRectangleHeader(x: 1, y: 1, width: 2, height: 2, encoding: 0),
-                             body: bgrx(red) + bgrx(red) + bgrx(red) + bgrx(red), into: framebuffer)
-        #expect(framebuffer.pixels[3] == red)
-        #expect(framebuffer.pixels[0] == 0xFF00_0000)
+    @Test func rectangleOutsideTheFramebufferIsRejected() async {
+        await #expect(throws: RFBError.self) {
+            _ = try await decode(RFBRectangleHeader(x: 1, y: 1, width: 2, height: 2, encoding: 0), body: [], into: Framebuffer(width: 2, height: 2))
+        }
+    }
+
+    @Test func hugeCursorIsRejected() async {
+        await #expect(throws: RFBError.self) {
+            _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 4000, height: 4000, encoding: -239), body: [], into: Framebuffer(width: 1, height: 1))
+        }
+    }
+
+    @Test func hugeDesktopSizeIsRejected() async {
+        await #expect(throws: RFBError.self) {
+            _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 65535, height: 65535, encoding: -223), body: [], into: Framebuffer(width: 1, height: 1))
+        }
+    }
+
+    @Test func inflateStopsAtTheRectangleBound() async {
+        // 64 KB of zeros compresses to a few hundred bytes: far past a 2x1 rectangle.
+        let compressed = zlibCompress([UInt8](repeating: 0, count: 1 << 16))
+        var body = Bytes()
+        body.u32(compressed.count)
+        body.data += compressed
+        await #expect(throws: RFBError.self) {
+            _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 2, height: 1, encoding: 6), body: body.data, into: Framebuffer(width: 2, height: 1))
+        }
     }
 }

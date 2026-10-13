@@ -24,9 +24,10 @@ final class ZlibStream {
     }
 
     /// Inflates every byte of `input`; returns all the output it produced.
-    func inflate(_ input: UnsafeBufferPointer<UInt8>, expected: Int = 0) throws -> [UInt8] {
+    /// Throws once the output passes `limit` (a decompression bomb).
+    func inflate(_ input: UnsafeBufferPointer<UInt8>, limit: Int) throws -> [UInt8] {
         var result: [UInt8] = []
-        result.reserveCapacity(max(expected, input.count * 4))
+        result.reserveCapacity(min(limit, max(input.count * 4, 1 << 16)))
         guard let base = input.baseAddress, !input.isEmpty else { return result }
         stream.pointee.next_in = UnsafeMutablePointer(mutating: base)
         stream.pointee.avail_in = uInt(input.count)
@@ -42,6 +43,7 @@ final class ZlibStream {
                 return capacity - Int(stream.pointee.avail_out)
             }
             result.append(contentsOf: output[0 ..< produced])
+            guard result.count <= limit else { throw RFBError.protocolViolation("compressed rectangle inflates past \(limit) bytes") }
             if produced == 0 { break }
         } while stream.pointee.avail_in > 0 || stream.pointee.avail_out == 0
         stream.pointee.next_in = nil

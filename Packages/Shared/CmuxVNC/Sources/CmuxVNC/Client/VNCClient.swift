@@ -67,6 +67,7 @@ public actor VNCClient {
     private var pointer = (x: 0, y: 0)
     private var requestSentAt: ContinuousClock.Instant?
     private var statistics = VNCSessionStats()
+    private var advertised: [RFBEncoding] = []
 
     /// `transport` defaults to TCP to `endpoint`.
     public init(endpoint: VNCEndpoint, options: VNCSessionOptions = VNCSessionOptions(), transport: (any RFBTransport)? = nil) {
@@ -184,7 +185,8 @@ public actor VNCClient {
             let framebuffer = Framebuffer(width: info.width, height: info.height)
             size = (info.width, info.height)
             try await transport.send(RFBClientMessage.setPixelFormat(.bgrx))
-            try await transport.send(RFBClientMessage.setEncodings(options.encodings ?? RFBEncoding.advertised(localCursor: options.localCursor)))
+            advertised = options.encodings ?? RFBEncoding.advertised(localCursor: options.localCursor)
+            try await transport.send(RFBClientMessage.setEncodings(advertised))
             eventSink.yield(.connected(info))
             try await request(incremental: false)
             let decoder = RFBRectangleDecoder()
@@ -202,8 +204,11 @@ public actor VNCClient {
                     eventSink.yield(.bell)
                 case 3:
                     try await reader.skip(3)
-                    let text = try await reader.lengthPrefixedString(limit: 16 << 20)
-                    eventSink.yield(.clipboard(text))
+                    // ServerCutText is Latin-1 (RFC 6143 7.6.4).
+                    let length = Int(try await reader.u32())
+                    guard length <= 16 << 20 else { throw RFBError.protocolViolation("clipboard of \(length) bytes") }
+                    let bytes = try await reader.bytes(length)
+                    eventSink.yield(.clipboard(String(String.UnicodeScalarView(bytes.map { Unicode.Scalar($0) }))))
                 default:
                     throw RFBError.protocolViolation("server message \(type)")
                 }
@@ -226,6 +231,8 @@ public actor VNCClient {
     private func update(reader: RFBReader, decoder: RFBRectangleDecoder, framebuffer: Framebuffer, publisher: FramePublisher) async throws {
         try await reader.skip(1)
         let count = Int(try await reader.u16())
+        // 0xFFFF means "until LastRect" only when LastRect was advertised.
+        let untilLastRect = count == 0xFFFF && advertised.contains(.lastRect)
         if let sent = requestSentAt {
             statistics.lastUpdateLatencyMs = Self.milliseconds(sent.duration(to: .now))
         }
@@ -237,7 +244,7 @@ public actor VNCClient {
         var index = 0
         var ended = false
         // A count of 0xFFFF means "until LastRect" when the server supports it.
-        while !ended, count == 0xFFFF || index < count {
+        while !ended, untilLastRect || index < count {
             let header = RFBRectangleHeader(
                 x: Int(try await reader.u16()), y: Int(try await reader.u16()),
                 width: Int(try await reader.u16()), height: Int(try await reader.u16()),

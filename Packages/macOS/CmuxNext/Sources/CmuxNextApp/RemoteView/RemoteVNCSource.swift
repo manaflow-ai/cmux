@@ -19,6 +19,8 @@ final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
         var frames: AsyncStream<RemoteDecodedFrame>.Continuation?
         var pumps: [Task<Void, Never>] = []
         var server: VNCServerInfo?
+        /// Counts sessions; a late event from an older one is dropped.
+        var generation = 0
     }
 
     private let state = Mutex(State())
@@ -31,25 +33,29 @@ final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
     var serverInfo: VNCServerInfo? { state.withLock { $0.server } }
 
     /// Starts a new session to `endpoint`, ending any current one.
-    func connect(to endpoint: VNCEndpoint, credentials: VNCCredentials) {
+    /// `onConnected` runs once the server accepted the credentials.
+    func connect(to endpoint: VNCEndpoint, credentials: VNCCredentials, onConnected: (@Sendable () -> Void)? = nil) {
         let client = VNCClient(endpoint: endpoint, options: VNCSessionOptions(credentials: credentials))
-        let previous = state.withLock { state -> VNCClient? in
+        let (previous, generation) = state.withLock { state -> (VNCClient?, Int) in
             defer { state.client = client }
             for pump in state.pumps { pump.cancel() }
             state.pumps.removeAll()
-            return state.client
+            state.generation += 1
+            return (state.client, state.generation)
         }
         if let previous { Task { await previous.disconnect() } }
-        setStatus(RemoteViewStatus(path: .compatibility, state: .connecting))
+        setStatus(RemoteViewStatus(path: .compatibility, state: .connecting), generation: generation)
         let hadCredentials = credentials.password != nil
         let events = Task { [weak self] in
             for await event in client.events {
                 switch event {
                 case let .connected(info):
                     self?.state.withLock { $0.server = info }
-                    self?.setStatus(RemoteViewStatus(path: .compatibility, state: .streaming))
+                    self?.setStatus(RemoteViewStatus(path: .compatibility, state: .streaming), generation: generation)
+                    onConnected?()
                 case let .disconnected(error):
-                    self?.setStatus(RemoteViewStatus(path: .compatibility, state: .ended(Self.end(for: error, hadCredentials: hadCredentials))))
+                    self?.setStatus(RemoteViewStatus(path: .compatibility, state: .ended(Self.end(for: error, hadCredentials: hadCredentials))),
+                                    generation: generation)
                 case .cursor, .bell, .clipboard:
                     break
                 }
@@ -91,11 +97,14 @@ final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
 
     /// Sends the current status again (a cancelled sign-in restores its card).
     func republishStatus() {
-        setStatus(status)
+        let current = state.withLock { $0.generation }
+        setStatus(status, generation: current)
     }
 
-    private func setStatus(_ status: RemoteViewStatus) {
-        let continuation = state.withLock { state in
+    /// Applies `status` from session `generation`; ignored once a newer session started.
+    private func setStatus(_ status: RemoteViewStatus, generation: Int) {
+        let continuation = state.withLock { state -> AsyncStream<RemoteViewStatus>.Continuation? in
+            guard state.generation == generation else { return nil }
             state.status = status
             return state.statuses
         }

@@ -5,7 +5,7 @@ import Security
 #if DEBUG
 /// VNC sign-ins in the login Keychain, one generic password per
 /// `host:port`. Never in the tab record: records persist and travel.
-struct RemoteVNCCredentialStore {
+nonisolated struct RemoteVNCCredentialStore {
     static let service = "cmux-next VNC"
 
     private struct Stored: Codable {

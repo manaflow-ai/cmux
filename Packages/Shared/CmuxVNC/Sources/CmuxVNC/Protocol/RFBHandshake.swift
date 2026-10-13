@@ -54,7 +54,7 @@ struct RFBHandshake {
             }
             let generator = try await reader.u16()
             let length = Int(try await reader.u16())
-            guard length > 0, length <= 1024 else { throw RFBError.protocolViolation("Apple DH key length \(length)") }
+            guard length > 0, length <= RFBLimits.maxDHKeyBytes else { throw RFBError.protocolViolation("Apple DH key length \(length)") }
             let prime = try await reader.bytes(length)
             let serverKey = try await reader.bytes(length)
             let auth = AppleDHAuthentication(generator: generator, prime: prime, serverPublicKey: serverKey)
@@ -83,6 +83,7 @@ struct RFBHandshake {
         try await transport.send([shared ? 1 : 0])
         let width = Int(try await reader.u16())
         let height = Int(try await reader.u16())
+        try RFBLimits.checkFramebuffer(width: width, height: height)
         let format = try await reader.bytes(16)
         let name = try await reader.lengthPrefixedString(limit: 4096)
         guard let nativeFormat = RFBPixelFormat(bytes: format) else { throw RFBError.protocolViolation("ServerInit format") }
@@ -103,10 +104,12 @@ struct RFBHandshake {
         if minor == 3 {
             let type = try await reader.u32()
             if type == 0 { throw RFBError.authenticationFailed(try await reader.lengthPrefixedString(limit: 4096)) }
-            let offered = UInt8(truncatingIfNeeded: type)
-            guard [RFBSecurityType.none, RFBSecurityType.vncPassword].contains(offered) else {
-                throw RFBError.noSupportedSecurityType([offered])
+            // Compare the whole word: 258 is not type 2.
+            guard type == UInt32(RFBSecurityType.none) || type == UInt32(RFBSecurityType.vncPassword) else {
+                throw RFBError.noSupportedSecurityType([UInt8(truncatingIfNeeded: type)])
             }
+            let offered = UInt8(type)
+            if offered == RFBSecurityType.vncPassword, credentials.username != nil { throw RFBError.credentialsRequired }
             return offered
         }
         let count = Int(try await reader.u8())
@@ -118,10 +121,12 @@ struct RFBHandshake {
     }
 
     /// Apple DH when a user name is known, then the VNC password, then none.
+    /// A sign-in with a user name is an account password: it never goes out
+    /// as a VNC password response (8 bytes, DES, offline-crackable).
     func choose(from offered: [UInt8]) throws -> UInt8 {
         let hasPassword = credentials.password != nil
         if offered.contains(RFBSecurityType.appleDH), hasPassword, credentials.username != nil { return RFBSecurityType.appleDH }
-        if offered.contains(RFBSecurityType.vncPassword), hasPassword { return RFBSecurityType.vncPassword }
+        if offered.contains(RFBSecurityType.vncPassword), hasPassword, credentials.username == nil { return RFBSecurityType.vncPassword }
         if offered.contains(RFBSecurityType.none) { return RFBSecurityType.none }
         if offered.contains(RFBSecurityType.appleDH) { throw RFBError.credentialsRequired }
         if offered.contains(RFBSecurityType.vncPassword) { throw RFBError.passwordRequired }

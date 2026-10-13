@@ -117,6 +117,35 @@ struct RFBHandshakeTests {
         #expect(try RFBHandshake(credentials: VNCCredentials()).choose(from: [2, 1]) == 1)
     }
 
+    @Test func accountPasswordNeverGoesOutAsAVNCPassword() throws {
+        let account = RFBHandshake(credentials: VNCCredentials(username: "me", password: "secret"))
+        // It asks for a VNC password instead of sending the account password's DES response.
+        #expect(throws: RFBError.passwordRequired) { try account.choose(from: [2]) }
+        #expect(try account.choose(from: [2, 30]) == 30)
+    }
+
+    @Test func oversizedServerInitIsRejected() async {
+        var server = Bytes()
+        server.data += Array("RFB 003.008\n".utf8)
+        server.u8(1); server.u8(1)
+        server.u32(0)
+        server.data += serverInit(width: 65535, height: 65535)
+        let transport = ScriptedTransport(server.data)
+        await #expect(throws: RFBError.self) {
+            try await RFBHandshake(credentials: VNCCredentials()).run(reader: RFBReader(transport: transport), transport: transport)
+        }
+    }
+
+    @Test func protocol33TypeComparesTheWholeWord() async {
+        var server = Bytes()
+        server.data += Array("RFB 003.003\n".utf8)
+        server.u32(258)
+        let transport = ScriptedTransport(server.data)
+        await #expect(throws: RFBError.self) {
+            try await RFBHandshake(credentials: VNCCredentials(password: "x")).run(reader: RFBReader(transport: transport), transport: transport)
+        }
+    }
+
     @Test func protocol33ServerChoosesType() async throws {
         var server = Bytes()
         server.data += Array("RFB 003.003\n".utf8)

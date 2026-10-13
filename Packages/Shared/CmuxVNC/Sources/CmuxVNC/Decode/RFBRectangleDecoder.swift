@@ -23,18 +23,23 @@ enum RFBRectangleEffect: Equatable {
 final class RFBRectangleDecoder {
     private var zlibStream: ZlibStream?
     private var zrleStream: ZlibStream?
-    /// Largest compressed body accepted (a 5K frame compresses far below this).
-    static let maxCompressedBytes = 64 << 20
-
     func decode(_ header: RFBRectangleHeader, reader: RFBReader, into framebuffer: Framebuffer) async throws -> RFBRectangleEffect {
         guard let encoding = RFBEncoding(rawValue: header.encoding) else {
             throw RFBError.protocolViolation("unsupported encoding \(header.encoding)")
         }
+        // Pixel rectangles must lie inside the framebuffer: their size bounds every read below.
+        if ![.desktopSize, .lastRect, .cursor].contains(encoding) {
+            guard header.x + header.width <= framebuffer.width, header.y + header.height <= framebuffer.height else {
+                throw RFBError.protocolViolation("rectangle \(header.x),\(header.y) \(header.width)x\(header.height) outside the framebuffer")
+            }
+        }
         switch encoding {
         case .raw:
-            let count = header.width * header.height * 4
-            try await reader.withBytes(count) { bytes in
-                framebuffer.blitBGRX(x: header.x, y: header.y, width: header.width, height: header.height, bytes: bytes)
+            // Row by row, so a large rectangle never sits whole in the read buffer.
+            for row in 0 ..< header.height {
+                try await reader.withBytes(header.width * 4) { bytes in
+                    framebuffer.blitBGRX(x: header.x, y: header.y + row, width: header.width, height: 1, bytes: bytes)
+                }
             }
         case .copyRect:
             let sourceX = Int(try await reader.u16())
@@ -45,18 +50,21 @@ final class RFBRectangleDecoder {
         case .hextile:
             try await decodeHextile(header, reader, framebuffer)
         case .zlib:
-            let data = try await inflate(reader, stream: &zlibStream, expected: header.width * header.height * 4)
+            let data = try await inflate(reader, stream: &zlibStream, limit: header.width * header.height * 4)
             guard data.count >= header.width * header.height * 4 else { throw RFBError.protocolViolation("short Zlib rectangle") }
             data.withUnsafeBufferPointer { bytes in
                 framebuffer.blitBGRX(x: header.x, y: header.y, width: header.width, height: header.height, bytes: bytes)
             }
         case .zrle:
-            let data = try await inflate(reader, stream: &zrleStream, expected: header.width * header.height * 3)
+            // ZRLE's worst case is raw tiles: one subencoding byte per tile plus 3 bytes a pixel.
+            let tiles = ((header.width + 63) / 64) * ((header.height + 63) / 64)
+            let data = try await inflate(reader, stream: &zrleStream, limit: header.width * header.height * 3 + tiles)
             try data.withUnsafeBufferPointer { bytes in
                 var parser = ZRLEParser(bytes: bytes)
                 try parser.decode(header, into: framebuffer)
             }
         case .desktopSize:
+            try RFBLimits.checkFramebuffer(width: header.width, height: header.height)
             framebuffer.resize(width: header.width, height: header.height)
             return .resized
         case .lastRect:
@@ -67,12 +75,12 @@ final class RFBRectangleDecoder {
         return .drew
     }
 
-    private func inflate(_ reader: RFBReader, stream: inout ZlibStream?, expected: Int) async throws -> [UInt8] {
+    private func inflate(_ reader: RFBReader, stream: inout ZlibStream?, limit: Int) async throws -> [UInt8] {
         let length = Int(try await reader.u32())
-        guard length <= Self.maxCompressedBytes else { throw RFBError.protocolViolation("compressed body of \(length) bytes") }
+        guard length <= RFBLimits.maxCompressedBytes else { throw RFBError.protocolViolation("compressed body of \(length) bytes") }
         if stream == nil { stream = try ZlibStream() }
         let inflater = stream!
-        return try await reader.withBytes(length) { try inflater.inflate($0, expected: expected) }
+        return try await reader.withBytes(length) { try inflater.inflate($0, limit: limit) }
     }
 
     private func decodeRRE(_ header: RFBRectangleHeader, _ reader: RFBReader, _ framebuffer: Framebuffer) async throws {
@@ -122,6 +130,9 @@ final class RFBRectangleDecoder {
 
     private func decodeCursor(_ header: RFBRectangleHeader, _ reader: RFBReader) async throws -> VNCCursor {
         let w = header.width, h = header.height
+        guard w <= RFBLimits.maxCursorSide, h <= RFBLimits.maxCursorSide else {
+            throw RFBError.protocolViolation("cursor \(w)x\(h) is too large")
+        }
         let colours = try await reader.bytes(w * h * 4)
         let maskStride = (w + 7) / 8
         let mask = try await reader.bytes(maskStride * h)

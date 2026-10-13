@@ -59,6 +59,9 @@ public struct RemoteViewTabPolicy {
             }
         }
         if lower.hasSuffix(".ts.net") || lower.hasSuffix(".local") { return true }
+        // A dotless all-digit or 0x name is a numeric IPv4 address to the
+        // resolver (134744072 is 8.8.8.8), not a LAN name.
+        if lower.utf8.allSatisfy({ (0x30...0x39).contains($0) }) || lower.hasPrefix("0x") { return false }
         return !lower.contains(".")
     }
 

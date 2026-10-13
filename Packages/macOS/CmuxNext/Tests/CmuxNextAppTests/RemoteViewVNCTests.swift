@@ -48,7 +48,7 @@ struct RemoteViewVNCPolicyTests {
         #expect(policy.decide(record: record, source: .person, paneAvailable: true) == .connect(record))
     }
 
-    @Test(arguments: ["8.8.8.8", "100.128.0.1", "172.32.0.1", "example.com", "203.0.113.4"])
+    @Test(arguments: ["8.8.8.8", "100.128.0.1", "172.32.0.1", "example.com", "203.0.113.4", "134744072", "0x08080808", "8.8.2056"])
     func publicHostsAreRefused(_ host: String) throws {
         let record = try #require(RemoteViewTabRecord(host: host, vncPort: 5900))
         #expect(policy.decide(record: record, source: .person, paneAvailable: true) == .unavailable(.notPrivateNetwork(host: host)))

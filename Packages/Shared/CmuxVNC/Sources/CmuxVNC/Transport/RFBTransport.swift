@@ -19,6 +19,7 @@ public protocol RFBTransport: AnyObject, Sendable {
 public final class NetworkRFBTransport: RFBTransport {
     private let connection: NWConnection
     private let queue = DispatchQueue(label: "cmux.vnc.transport", qos: .userInitiated)
+    private let lifecycle = TransportLifecycle()
 
     public init(host: String, port: UInt16) {
         let tcp = NWProtocolTCP.Options()
@@ -30,20 +31,21 @@ public final class NetworkRFBTransport: RFBTransport {
 
     public func open() async throws {
         let connection = self.connection
-        let once = ResumeOnce()
+        let lifecycle = self.lifecycle
         try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+                // A close (or cancellation) before this point fails the open at once:
+                // a connection cancelled before it starts never reports a state.
+                guard lifecycle.beginOpen(continuation) else { return }
                 connection.stateUpdateHandler = { state in
                     switch state {
                     case .ready:
-                        if once.claim() { continuation.resume() }
+                        lifecycle.finishOpen(nil)
                     case let .waiting(error), let .failed(error):
-                        if once.claim() {
-                            connection.cancel()
-                            continuation.resume(throwing: RFBError.transport(error.localizedDescription))
-                        }
+                        lifecycle.finishOpen(RFBError.transport(error.localizedDescription))
+                        connection.cancel()
                     case .cancelled:
-                        if once.claim() { continuation.resume(throwing: RFBError.connectionClosed) }
+                        lifecycle.finishOpen(RFBError.connectionClosed)
                     default:
                         break
                     }
@@ -51,6 +53,7 @@ public final class NetworkRFBTransport: RFBTransport {
                 connection.start(queue: queue)
             }
         } onCancel: {
+            lifecycle.close()
             connection.cancel()
         }
     }
@@ -87,20 +90,43 @@ public final class NetworkRFBTransport: RFBTransport {
     }
 
     public func close() {
+        lifecycle.close()
         connection.cancel()
     }
 }
 
-/// A continuation guard for handlers that fire more than once.
-final class ResumeOnce: @unchecked Sendable {
+/// Whether the transport was closed, and the open waiting for the
+/// connection: resumed exactly once, by the connection state or by a close.
+final class TransportLifecycle: @unchecked Sendable {
     private let lock = NSLock()
-    private var claimed = false
+    private var closed = false
+    private var opening: CheckedContinuation<Void, any Error>?
 
-    func claim() -> Bool {
+    /// False (and the continuation already failed) when closed.
+    func beginOpen(_ continuation: CheckedContinuation<Void, any Error>) -> Bool {
         lock.lock()
-        defer { lock.unlock() }
-        guard !claimed else { return false }
-        claimed = true
+        guard !closed else {
+            lock.unlock()
+            continuation.resume(throwing: RFBError.connectionClosed)
+            return false
+        }
+        opening = continuation
+        lock.unlock()
         return true
+    }
+
+    func finishOpen(_ error: (any Error)?) {
+        lock.lock()
+        let continuation = opening
+        opening = nil
+        lock.unlock()
+        if let error { continuation?.resume(throwing: error) } else { continuation?.resume() }
+    }
+
+    func close() {
+        lock.lock()
+        closed = true
+        lock.unlock()
+        finishOpen(RFBError.connectionClosed)
     }
 }

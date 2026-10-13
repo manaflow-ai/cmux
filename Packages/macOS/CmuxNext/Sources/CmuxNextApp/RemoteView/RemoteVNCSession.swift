@@ -18,12 +18,15 @@ final class RemoteVNCSession {
     private var demoPort: UInt16?
     private var demoStart: Task<Void, Never>?
     private var prompting = false
+    private var closed = false
 
     init(record: RemoteViewTabRecord, port: UInt16) {
         self.record = record
-        endpoint = VNCEndpoint(host: record.host, port: port)
-        // `mock` is reserved (RemoteViewTabPolicy): never resolved, always the loopback demo.
-        if record.host.lowercased() == RemoteViewPageSession.mockHost { demo = VNCDemoServer() }
+        // The reserved names (RemoteViewTabPolicy) are never resolved: `local` and
+        // `localhost` are this Mac, `mock` is the loopback demo desktop.
+        let host = record.host.lowercased()
+        endpoint = VNCEndpoint(host: ["local", "localhost"].contains(host) ? "127.0.0.1" : record.host, port: port)
+        if host == RemoteViewPageSession.mockHost { demo = VNCDemoServer() }
     }
 
     isolated deinit {
@@ -33,6 +36,7 @@ final class RemoteVNCSession {
 
     /// Connects with the saved sign-in (or none; the host may not need one).
     func connect() {
+        guard !closed else { return }
         guard let demo else {
             source.connect(to: endpoint, credentials: store.credentials(for: endpoint) ?? VNCCredentials())
             return
@@ -44,7 +48,11 @@ final class RemoteVNCSession {
         guard demoStart == nil else { return }
         demoStart = Task { [weak self] in
             let port = try? await demo.start()
-            guard let self else { return }
+            // Closed (or gone) while the server started: stop it, never connect.
+            guard let self, !closed, !Task.isCancelled else {
+                demo.stop()
+                return
+            }
             demoStart = nil
             guard let port else { return }
             demoPort = port
@@ -59,6 +67,7 @@ final class RemoteVNCSession {
 
     /// The tab closed: the demo server goes too.
     func close() {
+        closed = true
         source.stop()
         demoStart?.cancel()
         demo?.stop()
@@ -103,8 +112,9 @@ final class RemoteVNCSession {
                 source.republishStatus()
                 return
             }
-            store.save(credentials, for: endpoint)
-            source.connect(to: endpoint, credentials: credentials)
+            // Saved only once the host accepts them, so a typo never replaces a working sign-in.
+            let store = store, endpoint = endpoint
+            source.connect(to: endpoint, credentials: credentials) { store.save(credentials, for: endpoint) }
         }
         if let window {
             alert.beginSheetModal(for: window, completionHandler: finish)
