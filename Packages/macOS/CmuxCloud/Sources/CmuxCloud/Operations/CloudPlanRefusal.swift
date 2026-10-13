@@ -180,7 +180,7 @@ public struct CloudPlanRefusal: Equatable, Sendable {
         // The CLI puts this URL inside a sentence, so a comma or period can
         // follow it. Remove sentence punctuation before URL parsing; otherwise
         // the team query value includes the punctuation and fails validation.
-        let candidate = String(output[range]).trimmingCharacters(in: CharacterSet(charactersIn: ".,;:!?"))
+        let candidate = String(output[range]).trimmingCharacters(in: .punctuationCharacters)
         guard let url = URL(string: candidate),
               let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
               components.host == "cmux.com",
