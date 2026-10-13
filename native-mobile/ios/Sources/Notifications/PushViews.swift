@@ -35,7 +35,7 @@ private struct PushRootModifier: ViewModifier {
             }
             .sheet(isPresented: $push.showPrePrompt) {
                 PushPrePromptSheet(push: push)
-                    .presentationDetents([.medium, .large])
+                    .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
             }
     }
@@ -85,7 +85,7 @@ struct PushPrePromptSheet: View {
                 Image(systemName: "bell.badge")
                     .font(.system(size: 34, weight: .regular))
                     .foregroundStyle(.primary)
-                    .padding(.top, 28)
+                    .padding(.top, 36)
                 Text(String(localized: "Know when an agent needs you"))
                     .font(.title3.weight(.semibold))
                     .multilineTextAlignment(.center)
@@ -104,7 +104,7 @@ struct PushPrePromptSheet: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            .tint(.primary)
+            .tint(Color(white: 0.45))
             .onChange(of: liveActivities) { _, on in push.liveActivitiesEnabled = on }
             Spacer(minLength: 0)
             VStack(spacing: 10) {
@@ -163,7 +163,7 @@ struct LiveActivitiesToggle: View {
 
     var body: some View {
         Toggle(String(localized: "Live Activities"), isOn: $on)
-            .tint(.primary)
+            .tint(Color(white: 0.45))
             .onChange(of: on) { _, value in PushManager.shared.liveActivitiesEnabled = value }
             .accessibilityIdentifier("settings.liveActivities")
     }
