@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseCloudTelemetryBatch } from "../services/observability/cloudTelemetryContract";
 import { makeCloudTelemetryHandler } from "../services/observability/cloudTelemetryIngest";
 import { cloudSpanToOtlp } from "../services/observability/cloudTelemetryExport";
+import { canonicalCloudTelemetryOperation } from "../services/observability/cloudServerError";
 
 const now = Date.now();
 function span(overrides: Record<string, unknown> = {}) {
@@ -30,6 +31,12 @@ function request(body: unknown = batch(), headers: Record<string, string> = {}) 
 }
 
 describe("Cloud diagnostic boundary", () => {
+  test("canonicalizes the session-open route operation for retained errors", () => {
+    expect(canonicalCloudTelemetryOperation("open_session")).toBe("open");
+    expect(canonicalCloudTelemetryOperation("session")).toBe("session");
+    expect(canonicalCloudTelemetryOperation("not-a-cloud-operation")).toBe("unknown");
+  });
+
   test("acknowledges and exports placement failures without dropping neighboring spans", async () => {
     const { exportCloudDiagnostics } = await import("../services/observability/cloudTelemetryExport");
     const payload = batch([
@@ -248,5 +255,96 @@ describe("shared development error destination", () => {
     const original = batch();
     const value = { ...original, client: { ...original.client, tag: "pr-123-cloud" } };
     expect(parseCloudTelemetryBatch(value, now)?.client.tag).toBe("pr-123-cloud");
+  });
+});
+
+describe("ingest sampling of routine Cloud polls", () => {
+  // Trace ID suffixes: 0x0032 = 50 is in the Mac uploader's 1-in-50 sample, 0x0033 is not.
+  const sampledTrace = "0af7651916cd43dd8448eb211c800032";
+  const unsampledTrace = "0af7651916cd43dd8448eb211c800033";
+  let nextId = 0;
+  function poll(overrides: Record<string, unknown> = {}) {
+    nextId += 1;
+    return span({
+      eventId: `00000000-0000-4000-8000-${nextId.toString(16).padStart(12, "0")}`,
+      operation: "list", phase: "operation", outcome: "success", failure: undefined,
+      parentSpanId: undefined, traceId: unsampledTrace, ...overrides,
+    });
+  }
+  function recordingHandler() {
+    const stored: { spans: string[]; weights: Record<string, number> }[] = [];
+    let drains = 0;
+    const handler = makeCloudTelemetryHandler({
+      authenticate: async () => ({ id: "server-user" }), checkIngress: async () => true,
+      accept: async (_userId, value, weights) => {
+        stored.push({ spans: value.spans.map((item) => item.eventId), weights: Object.fromEntries(weights) });
+        return value.spans.length;
+      },
+      scheduleDrain: () => { drains += 1; }, now: () => now,
+    });
+    return { handler, stored, drains: () => drains };
+  }
+
+  test("a batch of unsampled successful polls is acknowledged in full and never stored", async () => {
+    const { handler, stored, drains } = recordingHandler();
+    const spans = ["list", "stats", "status", "refresh"].map((operation) => poll({ operation }));
+    const response = await handler(request(batch(spans, "production")));
+    expect(response.status).toBe(202);
+    // The Mac uploader only removes queued spans whose IDs come back in the receipt.
+    expect(await response.json()).toEqual({ accepted: 4, eventIds: spans.map((item) => item.eventId) });
+    expect(stored).toEqual([]);
+    expect(drains()).toBe(0);
+  });
+
+  test("keeps every non-success poll, every non-poll success, and sampled poll traces with their weight", async () => {
+    const { handler, stored } = recordingHandler();
+    const failures = (["failure", "timeout", "cancelled"] as const).map((outcome) => poll({ operation: "stats", outcome }));
+    const create = poll({ operation: "create" });
+    const sampledRoot = poll({ traceId: sampledTrace });
+    const sampledChild = poll({ traceId: sampledTrace, phase: "request", spanId: "c7ad6b7169203331", parentSpanId: span().spanId });
+    // A separate trace: the failures above keep their own trace's successful spans.
+    const dropped = poll({ operation: "stats", traceId: "0af7651916cd43dd8448eb211c800034" });
+    const spans = [...failures, create, sampledRoot, dropped, sampledChild];
+    const response = await handler(request(batch(spans, "production")));
+    expect(await response.json()).toEqual({ accepted: spans.length, eventIds: spans.map((item) => item.eventId) });
+    expect(stored).toEqual([{
+      spans: [...failures, create, sampledRoot, sampledChild].map((item) => item.eventId),
+      weights: { [sampledRoot.eventId]: 50, [sampledChild.eventId]: 50 },
+    }]);
+  });
+
+  test("a failure anywhere in a poll trace keeps that trace's successful spans unweighted", async () => {
+    const { handler, stored } = recordingHandler();
+    const timedOutAttempt = poll({ phase: "request", outcome: "timeout", failure: "timeout", spanId: "c7ad6b7169203331", parentSpanId: span().spanId });
+    const succeededRoot = poll();
+    await handler(request(batch([timedOutAttempt, succeededRoot], "nightly")));
+    expect(stored).toEqual([{ spans: [timedOutAttempt.eventId, succeededRoot.eventId], weights: {} }]);
+  });
+
+  test("development builds keep every poll", async () => {
+    const { handler, stored } = recordingHandler();
+    const spans = [poll(), poll({ operation: "stats" })];
+    await handler(request(batch(spans, "dev")));
+    expect(stored).toEqual([{ spans: spans.map((item) => item.eventId), weights: {} }]);
+  });
+
+  test("the decision is deterministic per trace and keeps about 2% of traces", async () => {
+    const { isSampledCloudPollTrace } = await import("../services/observability/cloudTelemetrySampling");
+    let kept = 0;
+    for (let suffix = 0; suffix < 0x10000; suffix += 1) {
+      const traceId = `0af7651916cd43dd8448eb211c80${suffix.toString(16).padStart(4, "0")}`;
+      const decision = isSampledCloudPollTrace(traceId);
+      expect(isSampledCloudPollTrace(traceId)).toBe(decision);
+      if (decision) kept += 1;
+    }
+    expect(kept).toBe(1311);
+  });
+
+  test("exports the sample weight so Axiom counts can be scaled", () => {
+    const parsed = parseCloudTelemetryBatch(batch([poll({ traceId: sampledTrace })]), now)!;
+    const attribute = (exported: ReturnType<typeof cloudSpanToOtlp>) => exported.attributes
+      .find((item) => item.key === "cmux.telemetry.sample_weight")?.value;
+    expect(attribute(cloudSpanToOtlp(parsed.spans[0]!, 50))).toEqual({ intValue: "50" });
+    expect(attribute(cloudSpanToOtlp(parsed.spans[0]!))).toEqual({ intValue: "1" });
   });
 });

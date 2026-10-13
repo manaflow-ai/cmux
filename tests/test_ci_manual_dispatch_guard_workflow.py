@@ -28,13 +28,20 @@ def test_watcher_is_requested_ci_workflow_run() -> None:
     assert "GITHUB_EVENT_NAME" not in watcher_env
 
 
-def test_full_suite_coverage_marker_is_only_for_full_suite() -> None:
+def test_full_suite_coverage_marker_runs_inside_changes() -> None:
     document = yaml.safe_load(CI.read_text(encoding="utf-8"))
-    marker = document["jobs"]["full-suite-coverage"]
-    assert marker["needs"] == "changes"
-    assert "needs.changes.outputs.full_suite == 'true'" in marker["if"]
-    assert marker.get("name", "full-suite-coverage") == "full-suite-coverage"
-    assert "coverage_fingerprint" in document["jobs"]["changes"]["outputs"]
+    changes = document["jobs"]["changes"]
+    marker_steps = [
+        step for step in changes["steps"]
+        if step.get("name") == "Mark full-suite coverage"
+    ]
+    assert len(marker_steps) == 1
+    marker = marker_steps[0]
+    assert marker["if"] == "${{ steps.suite.outputs.full_suite == 'true' }}"
+    assert marker["run"] == 'echo "full-suite coverage selected"'
+    assert "full-suite-coverage" not in document["jobs"]
+    assert "full-suite-coverage" not in document["jobs"]["macos-admission-gate"]["needs"]
+    assert "coverage_fingerprint" in changes["outputs"]
 
 
 def test_only_manual_dispatches_get_a_writer() -> None:

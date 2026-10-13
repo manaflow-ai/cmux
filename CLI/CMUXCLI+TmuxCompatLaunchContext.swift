@@ -260,23 +260,20 @@ extension CMUXCLI {
 
         // Claude Code can replace PATH with a shell snapshot after launch. Its snapshot keeps
         // cmux's managed per-surface command-shim directory, so install tmux beside the existing
-        // claude shim instead of relying on a separate launcher-only PATH entry. The environment
+        // claude shim (or, with Claude integration off, in that same per-surface directory)
+        // instead of relying on a separate launcher-only PATH entry. The environment
         // only identifies the candidate: the write remains bound to cmux's canonical temporary
         // root, and neither managed directory component may be a symlink.
-        if let managedRoot = claudeTeamsManagedShimRoot(
+        if let managedPlan = claudeTeamsManagedShimPlan(
             processEnvironment: processEnvironment,
             launchContext: launchContext
         ) {
             do {
                 try writeShimIfChanged(
                     script,
-                    to: managedRoot.appendingPathComponent("tmux", isDirectory: false)
+                    to: managedPlan.directory.appendingPathComponent("tmux", isDirectory: false)
                 )
-                return ClaudeTeamsShimPlan(
-                    directory: managedRoot,
-                    managedClaudeWrapperURL: managedRoot
-                        .appendingPathComponent("claude", isDirectory: false)
-                )
+                return managedPlan
             } catch {
                 // Informational launches do not create teammates, so they may use the
                 // launcher-only compatibility directory below. Real Teams sessions must
@@ -296,20 +293,57 @@ extension CMUXCLI {
         )
     }
 
-    private func claudeTeamsManagedShimRoot(
+    private func claudeTeamsManagedShimPlan(
         processEnvironment: [String: String],
         launchContext: TmuxCompatLaunchContext?,
         fileManager: FileManager = .default
-    ) -> URL? {
+    ) -> ClaudeTeamsShimPlan? {
         guard let surfaceId = normalizedTmuxTarget(launchContext?.surfaceId),
-              isUUID(surfaceId),
-              let rawRoot = normalizedTmuxTarget(processEnvironment["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"]),
-              let rawClaudeShim = normalizedTmuxTarget(processEnvironment["CMUX_CLAUDE_WRAPPER_SHIM"]) else {
+              isUUID(surfaceId) else {
             return nil
         }
 
-        let managedRoot = URL(fileURLWithPath: rawRoot, isDirectory: true).standardizedFileURL
+        // With Claude Code integration off the app installs no per-surface claude
+        // shim (#13590), but the surface's agent command shim directory is still on
+        // PATH. Put tmux there and launch the user's claude directly, with no hooks,
+        // so the toggle disables session tracking without disabling Teams (#17571).
+        // Claude shim keys are ignored here: the app exports none for this surface,
+        // so any present were inherited from a parent cmux surface.
+        if processEnvironment["CMUX_CLAUDE_INTEGRATION_DISABLED"] == "1" {
+            guard let rawRoot = normalizedTmuxTarget(processEnvironment["CMUX_AGENT_COMMAND_SHIM_ROOT"]),
+                  let managedRoot = claudeTeamsManagedShimRoot(
+                      rawRoot: rawRoot,
+                      surfaceId: surfaceId,
+                      fileManager: fileManager
+                  ) else {
+                return nil
+            }
+            return ClaudeTeamsShimPlan(directory: managedRoot, managedClaudeWrapperURL: nil)
+        }
+
+        guard let rawRoot = normalizedTmuxTarget(processEnvironment["CMUX_CLAUDE_WRAPPER_SHIM_ROOT"]),
+              let rawClaudeShim = normalizedTmuxTarget(processEnvironment["CMUX_CLAUDE_WRAPPER_SHIM"]) else {
+            return nil
+        }
         let claudeShim = URL(fileURLWithPath: rawClaudeShim, isDirectory: false).standardizedFileURL
+        guard let managedRoot = claudeTeamsManagedShimRoot(
+                  rawRoot: rawRoot,
+                  surfaceId: surfaceId,
+                  fileManager: fileManager
+              ),
+              claudeShim == managedRoot.appendingPathComponent("claude", isDirectory: false),
+              isNonSymlinkExecutableFile(claudeShim, fileManager: fileManager) else {
+            return nil
+        }
+        return ClaudeTeamsShimPlan(directory: managedRoot, managedClaudeWrapperURL: claudeShim)
+    }
+
+    private func claudeTeamsManagedShimRoot(
+        rawRoot: String,
+        surfaceId: String,
+        fileManager: FileManager
+    ) -> URL? {
+        let managedRoot = URL(fileURLWithPath: rawRoot, isDirectory: true).standardizedFileURL
         // The app installs this per-surface root before shell startup. Shell profiles
         // are allowed to change TMPDIR, so re-deriving the root here would reject the
         // app-installed directory even though its socket-validated surface identity is
@@ -320,9 +354,7 @@ extension CMUXCLI {
         guard trustedParent.lastPathComponent == "cmux-cli-shims",
               managedRoot.lastPathComponent == surfaceId,
               isOwnedNonSymlinkDirectory(trustedParent, fileManager: fileManager),
-              isOwnedNonSymlinkDirectory(managedRoot, fileManager: fileManager),
-              claudeShim == managedRoot.appendingPathComponent("claude", isDirectory: false),
-              isNonSymlinkExecutableFile(claudeShim, fileManager: fileManager) else {
+              isOwnedNonSymlinkDirectory(managedRoot, fileManager: fileManager) else {
             return nil
         }
 

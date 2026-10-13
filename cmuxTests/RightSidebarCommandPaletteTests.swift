@@ -59,10 +59,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             // Cloud Machines defaults on in dev builds (d6584c07e0); pin the toggle off so
             // the default-mode contract below is the same on every build.
             defaults.set(false, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
-            let cloudFlag = CmuxFeatureFlags.cloudMachinesFlag
-            let previousCloudOverride = CmuxFeatureFlags.shared.overrideValue(for: cloudFlag)
-            CmuxFeatureFlags.shared.setOverride(true, for: cloudFlag)
-            defer { CmuxFeatureFlags.shared.setOverride(previousCloudOverride, for: cloudFlag) }
             let contributions = ContentView.commandPaletteRightSidebarModeCommandContributions()
             let contributionsByID = Dictionary(uniqueKeysWithValues: contributions.map { ($0.commandId, $0) })
             let context = CommandPaletteContextSnapshot()
@@ -100,10 +96,6 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
     @MainActor
     func testCommandPaletteRightSidebarActionsUseModeShortcutActions() {
         withSavedBetaFeatureDefaults {
-            let definition = CmuxFeatureFlags.cloudMachinesFlag
-            let previousOverride = CmuxFeatureFlags.shared.overrideValue(for: definition)
-            CmuxFeatureFlags.shared.setOverride(true, for: definition)
-            defer { CmuxFeatureFlags.shared.setOverride(previousOverride, for: definition) }
             let defaults = UserDefaults.standard
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.feedEnabledKey)
             defaults.set(true, forKey: RightSidebarBetaFeatureSettings.cloudMachinesEnabledKey)
@@ -173,6 +165,8 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
 
         var terminalContext = CommandPaletteContextSnapshot()
         terminalContext.setBool(ContentView.commandPaletteShortcutTerminalFocusedKey, true)
+        var agentTurnsContext = CommandPaletteContextSnapshot()
+        agentTurnsContext.setBool(ContentView.commandPaletteAgentTurnsAvailableKey, true)
         var browserContext = CommandPaletteContextSnapshot()
         browserContext.setBool(CommandPaletteContextKeys.panelIsBrowser, true)
         var workspaceContext = CommandPaletteContextSnapshot()
@@ -191,6 +185,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
             XCTAssertFalse(contribution.when(emptyContext), command.rawValue)
             let visibleContext: CommandPaletteContextSnapshot = switch command.scope {
             case .terminal: terminalContext
+            case .agentTurns: agentTurnsContext
             case .browser: browserContext
             case .workspace: workspaceContext
             case .splits: splitsContext
@@ -201,6 +196,7 @@ final class RightSidebarCommandPaletteTests: XCTestCase {
         let covered = Set(ShortcutParityPaletteCommand.allCases.map(\.shortcutAction))
         for action: KeyboardShortcutSettings.Action in [
             .toggleTerminalCopyMode,
+            .previousAgentTurn, .nextAgentTurn,
             .increaseWorkspaceTerminalFontSize,
             .decreaseWorkspaceTerminalFontSize,
             .resetWorkspaceTerminalFontSize,

@@ -27,10 +27,18 @@ private enum SettingsJSONPathFallbackCatalog {
 
 typealias RightSidebarWidthSettings = CmuxSettings.RightSidebarWidthSettings
 
+enum CmuxJSONFontSettings {
+    static let sidebarPath = "sidebar.fontSize"
+    static let surfaceTabBarPath = "surfaceTabBar.fontSize"
+    static let sidebarUserDefaultsKey = "cmux.settings.sidebarFontSize"
+    static let surfaceTabBarUserDefaultsKey = "cmux.settings.surfaceTabBarFontSize"
+}
+
 enum SidebarWorkspaceDetailDefaults {
     private static let sidebar = SidebarCatalogSection()
 
     static let showBranchDirectoryKey = sidebar.showBranchDirectory.userDefaultsKey
+    static let showCloudDeviceIconsKey = sidebar.showCloudDeviceIcons.userDefaultsKey
     static let showPullRequestsKey = sidebar.showPullRequests.userDefaultsKey
     static let watchGitStatusKey = sidebar.watchGitStatus.userDefaultsKey
     static let showSSHKey = sidebar.showSSH.userDefaultsKey
@@ -43,6 +51,7 @@ enum SidebarWorkspaceDetailDefaults {
     static let compactAgentStatusKey = sidebar.compactAgentStatus.userDefaultsKey
 
     static let showBranchDirectory = sidebar.showBranchDirectory.defaultValue
+    static let showCloudDeviceIcons = sidebar.showCloudDeviceIcons.defaultValue
     static let showPullRequests = sidebar.showPullRequests.defaultValue
     static let watchGitStatus = sidebar.watchGitStatus.defaultValue
     static let showSSH = sidebar.showSSH.defaultValue
@@ -202,6 +211,10 @@ enum AppSettingsFileMapping {
             defaultsKey: app.warnBeforeClosingTab.userDefaultsKey
         ),
         .init(
+            jsonKey: "warnBeforeClosingAgentSession",
+            defaultsKey: app.warnBeforeClosingAgentSession.userDefaultsKey
+        ),
+        .init(
             jsonKey: "warnBeforeClosingTabXButton",
             defaultsKey: app.warnBeforeClosingTabXButton.userDefaultsKey
         ),
@@ -228,6 +241,7 @@ enum AppSettingsFileMapping {
     ]
 
     static let stringSettings: [SettingsFileStringMapping] = [
+        .init(jsonKey: "goToWorkspaceOrder", defaultsKey: app.goToWorkspaceOrder.userDefaultsKey),
         .init(jsonKey: "preferredEditor", defaultsKey: app.preferredEditor.userDefaultsKey),
         .init(jsonKey: "defaultWorkspacePath", defaultsKey: app.defaultWorkspacePath.userDefaultsKey),
     ]
@@ -319,11 +333,6 @@ enum TerminalSettingsFileMapping {
             invalidPath: terminal.showPasswordInputDots.id
         ),
         .init(
-            jsonKey: "showJumpToBottomButton",
-            defaultsKey: terminal.showJumpToBottomButton.userDefaultsKey,
-            invalidPath: terminal.showJumpToBottomButton.id
-        ),
-        .init(
             jsonKey: "predictiveLocalEcho",
             defaultsKey: terminal.predictiveLocalEcho.userDefaultsKey,
             invalidPath: terminal.predictiveLocalEcho.id
@@ -387,6 +396,10 @@ enum SidebarSettingsFileMapping {
         .init(
             jsonKey: "showBranchDirectory",
             defaultsKey: SidebarWorkspaceDetailDefaults.showBranchDirectoryKey
+        ),
+        .init(
+            jsonKey: "showCloudDeviceIcons",
+            defaultsKey: SidebarWorkspaceDetailDefaults.showCloudDeviceIconsKey
         ),
         .init(
             jsonKey: "showPullRequests",
@@ -482,6 +495,10 @@ enum BrowserSettingsFileMapping {
         .init(
             jsonKey: "askWhereToSaveDownloads",
             defaultsKey: SettingCatalog().browser.askWhereToSaveDownloads.userDefaultsKey
+        ),
+        .init(
+            jsonKey: "showLinkHoverURL",
+            defaultsKey: SettingCatalog().browser.showLinkHoverURL.userDefaultsKey
         ),
         .init(
             jsonKey: "openTerminalLinksInCmuxBrowser",

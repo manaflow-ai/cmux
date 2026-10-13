@@ -227,6 +227,72 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     public var allowsAutomaticClipboardWrite: Bool {
         (!ioMode.usesManualIO && !isRemoteTerminal) || allowsRemoteClipboardWrites
     }
+    // The Ghostty clipboard callback is synchronous and may run off-main; this
+    // short lock protects the compare-and-consume of a pending selection transaction.
+    private let clipboardWritePermitLock = NSLock()
+    private struct ClipboardWriteTransaction {
+        let deadline: UInt64
+        var remainingWrites: UInt8
+    }
+    private var clipboardWriteTransaction: ClipboardWriteTransaction?
+
+    /// Arms a bounded transaction for asynchronous writes caused by one pointer selection.
+    ///
+    /// A triple-click produces a word write followed by a line write, so the
+    /// caller may reserve more than one callback for the same gesture. The
+    /// transaction is replaced by a newer gesture and never accumulates stale
+    /// writes from an earlier selection.
+    ///
+    /// - Parameter writeCount: Number of non-empty callbacks this gesture may
+    ///   produce, clamped to the supported range of one through three.
+    public func permitClipboardWriteForUserGesture(writeCount: Int = 1) {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        clipboardWriteTransaction = ClipboardWriteTransaction(
+            deadline: DispatchTime.now().uptimeNanoseconds + 15_000_000_000,
+            remainingWrites: UInt8(max(1, min(writeCount, 3)))
+        )
+    }
+
+    /// Consumes one callback from the pending pointer-selection transaction.
+    public func consumeClipboardWritePermit() -> Bool {
+        clipboardWritePermitLock.lock()
+        defer { clipboardWritePermitLock.unlock() }
+        guard var transaction = clipboardWriteTransaction,
+              DispatchTime.now().uptimeNanoseconds <= transaction.deadline else {
+            clipboardWriteTransaction = nil
+            return false
+        }
+        transaction.remainingWrites -= 1
+        clipboardWriteTransaction = transaction.remainingWrites == 0 ? nil : transaction
+        return true
+    }
+
+    /// Returns whether a non-empty callback may write this surface's clipboard.
+    ///
+    /// Automatic writes remain governed by the surface trust policy. Manual
+    /// mirrors additionally require a user copy running on this call stack
+    /// (Cmd+C, Edit > Copy, keyboard copy mode) or a pending user-selection
+    /// transaction.
+    ///
+    /// - Parameter contentLength: Number of bytes in the callback payload.
+    /// - Returns: Whether the callback is admitted.
+    public func permitsClipboardWrite(contentLength: Int) -> Bool {
+        guard contentLength > 0 else { return false }
+        if allowsAutomaticClipboardWrite { return true }
+        guard ioMode == .manualMirror else { return false }
+        if surfaceCallbackContext?.takeUnretainedValue().hasUserInitiatedClipboardWriteIntent == true {
+            return true
+        }
+        return consumeClipboardWritePermit()
+    }
+
+    /// Cancels a pending pointer-selection clipboard permit.
+    public func cancelClipboardWritePermit() {
+        clipboardWritePermitLock.lock()
+        clipboardWriteTransaction = nil
+        clipboardWritePermitLock.unlock()
+    }
     /// Cloud-only permission for guest clipboard writer shims. Clipboard reads
     /// remain denied by the runtime policy regardless of this flag.
     public let allowsRemoteClipboardWrites: Bool
@@ -369,6 +435,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         TerminalSurfaceRuntimeTeardownReservation?
     var headlessStartupWindow: NSWindow?
     var surfaceCallbackContext: Unmanaged<GhosttySurfaceCallbackContext>?
+    /// Ghostty's renderer layer for the live runtime surface. Every free path
+    /// takes it and detaches its display callback on the main actor before
+    /// the native free (#17483).
+    var runtimeDisplayLayer: TerminalSurfaceRuntimeDisplayLayer?
     var agentCommandShims: AgentCommandShimSet?
     var agentCommandShimSpawnPolicy: TerminalSurfaceSpawnPolicy?
     var agentCommandShimInstallTask: Task<AgentCommandShimSet?, Never>?
@@ -415,6 +485,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
     // Same off-isolation-reader carve-out as debugMetadataLock.
     let debugForceRefreshCountLock = NSLock()
     var debugForceRefreshCountValue = 0
+    var debugForceRefreshReasonsValue: [String] = []
     /// Test-only override for the native free used by teardown paths.
     // nonisolated(unsafe) so the nonisolated deinit teardown path can read it,
     // like the @MainActor teardownSurface/suspend paths already do; tests only
@@ -767,6 +838,10 @@ public final class TerminalSurface: Identifiable, ObservableObject {
         // mobileByteTeeLease, so teeLease is nil here and ?.release() no-ops.
         let teeLease = mobileByteTeeLease
         mobileByteTeeLease = nil
+        // Deinit is nonisolated; the coordinator detaches the layer's display
+        // callback on the main actor before it schedules the native free.
+        let displayLayer = runtimeDisplayLayer
+        runtimeDisplayLayer = nil
         // `dropSurface` is @MainActor but `deinit` is nonisolated, so hop to the
         // main actor with the surface id captured by value (no self capture).
         // Dropping by id only clears the registry/replay state; releasing
@@ -833,6 +908,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
                 callbackContext: callbackContext,
                 manualIOContext: manualIOContext,
                 byteTeeLease: teeLease,
+                displayLayer: displayLayer,
                 beforeFree: {
                     await retiredRemoteOutputLane.drain()
                 },
@@ -849,6 +925,7 @@ public final class TerminalSurface: Identifiable, ObservableObject {
             callbackContext: callbackContext,
             manualIOContext: manualIOContext,
             byteTeeLease: teeLease,
+            displayLayer: displayLayer,
             beforeFree: {
                 await retiredRemoteOutputLane.drain()
             }

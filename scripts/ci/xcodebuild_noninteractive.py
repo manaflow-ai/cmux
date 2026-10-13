@@ -45,6 +45,12 @@ SWIFT_TESTING_RUN_DONE_RE = re.compile(
     rb"Test run with \d+ tests? in \d+ suites? (passed|failed) after "
 )
 SUCCESS_MARKER = b"** TEST SUCCEEDED **"
+# xcodebuild prints its own verdict once the app host has exited, then writes
+# the result bundle, Info.plist last. A slow app-host exit can use most of the
+# post-test deadline (run 37374680247 printed this 45s after the Swift Testing
+# summary), and stopping xcodebuild while it writes leaves a bundle xcresulttool
+# cannot read. The deadline restarts once here, and a slow exit is reported.
+XCODEBUILD_VERDICT_RE = re.compile(rb"\*\* TEST (?:EXECUTE )?(?:SUCCEEDED|FAILED) \*\*")
 # xcodebuild prints "Testing started" once it hands the run to testmanagerd,
 # then the first suite or case line once the test runner has connected. When
 # testmanagerd refuses xcodebuild's IDE channel, the app host launches and
@@ -383,6 +389,7 @@ def main() -> int:
     saw_passing_terminal_summary = False
     swift_testing_run_started = False
     swift_testing_run_finished = False
+    xcodebuild_verdict_seen = False
     log_path = os.environ.get("CMUX_XCODEBUILD_NONINTERACTIVE_LOG_PATH")
     log_file: BinaryIO | None = None
     if log_path:
@@ -534,6 +541,27 @@ def main() -> int:
                 if swift_testing_match.group(1) == b"failed":
                     selected_tests_result = "failed"
                 post_test_deadline = time.monotonic() + post_test_timeout
+            if (
+                post_test_deadline is not None
+                and not xcodebuild_verdict_seen
+                and XCODEBUILD_VERDICT_RE.search(prompt_window)
+            ):
+                xcodebuild_verdict_seen = True
+                now = time.monotonic()
+                # A slow app-host exit is what used most of the deadline; keep
+                # it visible even though the batch can now finish.
+                waited = post_test_timeout - (post_test_deadline - now)
+                if waited >= post_test_timeout / 3:
+                    write_child_output(
+                        (
+                            f"\nxcodebuild printed its verdict {waited:.0f}s after the "
+                            "test run summary (slow app-host exit); waiting up to "
+                            f"{post_test_timeout:g}s more for the result bundle\n"
+                        ).encode(),
+                        log_file,
+                        stdout_fd,
+                    )
+                post_test_deadline = now + post_test_timeout
         if SUCCESS_MARKER in prompt_window:
             saw_passing_terminal_summary = True
         if SWIFT_CRASH_PROMPT in prompt_window:

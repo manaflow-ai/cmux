@@ -102,6 +102,7 @@ enum SettingsSearchAliasIndex {
         "app:telemetry": localized("settings.search.alias.setting.app.telemetry", defaultValue: "app.sendAnonymousTelemetry analytics crash reports sentry posthog usage anonymous privacy"),
         "app:warn-before-quit": localized("settings.search.alias.setting.app.warn-before-quit", defaultValue: "app.warnBeforeQuit quit confirmation command-q cmd-q exit close app"),
         "app:warn-before-closing-tab": localized("settings.search.alias.setting.app.warn-before-closing-tab", defaultValue: "app.warnBeforeClosingTab close tab confirmation command-w cmd-w terminal surface"),
+        "app:warn-before-closing-agent-session": localized("settings.search.alias.setting.app.warn-before-closing-agent-session", defaultValue: "app.warnBeforeClosingAgentSession close active agent session working turn confirmation"),
         "app:warn-before-closing-tab-x-button": localized(
             "settings.search.alias.setting.app.warn-before-closing-tab-x-button",
             defaultValue: "app.warnBeforeClosingTabXButton close tab x button confirmation terminal surface"
@@ -133,7 +134,6 @@ enum SettingsSearchAliasIndex {
         "terminal:reflow-hard-wrap-on-copy": localized("settings.search.alias.setting.terminal.reflow-hard-wrap-on-copy", defaultValue: "terminal.reflowHardWrapOnCopy reflow hard wrap copy soft wrap line breaks newlines paste"),
         "terminal:password-input-indicator": localized("settings.search.alias.setting.terminal.password-input-indicator", defaultValue: "terminal.showPasswordInputIndicator password input indicator secure input echo off lock badge sudo ssh passwd gpg prompt"),
         "terminal:password-input-dots": localized("settings.search.alias.setting.terminal.password-input-dots", defaultValue: "terminal.showPasswordInputDots password dots typed characters count bullets feedback sudo ssh prompt"),
-        "terminal:jump-to-bottom-button": localized("settings.search.alias.setting.terminal.jump-to-bottom-button", defaultValue: "terminal.showJumpToBottomButton jump to bottom button scroll to bottom scrollback follow output latest newest pill arrow down agent codex claude"),
         "terminal:predictive-local-echo": localized("settings.search.alias.setting.terminal.predictive-local-echo", defaultValue: "terminal.predictiveLocalEcho predictive local echo typing latency lag ssh remote speculative mosh round trip underline"),
         "terminal:tab-bar-font-size": localized("settings.search.alias.setting.terminal.tab-bar-font-size", defaultValue: "surface-tab-bar-font-size tab bar font size text scale terminal browser pane tab title"),
         "terminal:resume-commands": localized("settings.search.alias.setting.terminal.resume-commands", defaultValue: "surface resume commands approvals command prefixes auto restore ask manual tmux hibernation sticky process"),
@@ -210,6 +210,7 @@ enum SettingsSearchAliasIndex {
         "browser:hidden-webview-discard-delay": localized("settings.search.alias.setting.browser.hidden-webview-discard-delay", defaultValue: "browser.hiddenWebViewDiscardDelaySeconds memory hidden tabs delay seconds discard unload"),
         "browser:unloaded-page-auto-restore": localized("settings.search.alias.setting.browser.unloaded-page-auto-restore", defaultValue: "browser.autoRestoreUnloadedPages restore reload unloaded discarded hidden tabs placeholder"),
         "browser:ask-where-to-save-downloads": localized("settings.search.alias.setting.browser.ask-where-to-save-downloads", defaultValue: "browser.askWhereToSaveDownloads downloads save panel folder attachments files pdf gmail"),
+        "browser:link-hover-url": localized("settings.search.alias.setting.browser.link-hover-url", defaultValue: "browser.showLinkHoverURL link hover url destination address status bar preview"),
         "browser:terminal-links": localized("settings.search.alias.setting.browser.terminal-links", defaultValue: "browser.openTerminalLinksInCmuxBrowser click url terminal links open in browser href"),
         "browser:intercept-open": localized("settings.search.alias.setting.browser.intercept-open", defaultValue: "browser.interceptTerminalOpenCommandInCmuxBrowser open command http https url terminal intercept"),
         "browser:host-whitelist": localized("settings.search.alias.setting.browser.host-whitelist", defaultValue: "browser.hostsToOpenInEmbeddedBrowser allowlist whitelist host wildcard domain embedded browser"),
@@ -229,6 +230,7 @@ enum SettingsSearchAliasIndex {
         "workspaceColors:indicator": localized("settings.search.alias.setting.workspaceColors.indicator", defaultValue: "workspaceColors.indicatorStyle tab indicator active workspace style color stripe dot"),
         "workspaceColors:selection": localized("settings.search.alias.setting.workspaceColors.selection", defaultValue: "workspaceColors.selectionColor selected workspace color highlight background active tab"),
         "workspaceColors:subtle-selection": localized("settings.search.alias.setting.workspaceColors.subtle-selection", defaultValue: "workspaceColors.subtleSelection subtle calm quiet selection highlight tint hairline edge selected workspace accent"),
+        "workspaceColors:brighten-dark-mode": localized("settings.search.alias.setting.workspaceColors.brighten-dark-mode", defaultValue: "workspaceColors.brightenInDarkMode brighten lighten dark mode workspace colors fill dim muted exact color"),
         "workspaceColors:badge": localized("settings.search.alias.setting.workspaceColors.badge", defaultValue: "workspaceColors.notificationBadgeColor unread notification badge color dot count"),
         "workspaceColors:palette": localized("settings.search.alias.setting.workspaceColors.palette", defaultValue: "workspaceColors.colors workspace palette named colors custom color reset built-in"),
         "settingsJSON:open-file": localized("settings.search.alias.setting.settingsJSON.open-file", defaultValue: "open config file json jsonc config editor ~/.config cmux preferences"),

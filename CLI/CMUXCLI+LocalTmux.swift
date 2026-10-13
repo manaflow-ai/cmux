@@ -209,6 +209,8 @@ extension CMUXCLI {
             builder: builder,
             runner: runner
         )
+        let records = try registry.load()
+        let recordForName = records.first(where: { $0.name == name })
         let existing = try runner.run(arguments: builder.hasSessionArguments(name))
         if existing.succeeded {
             let observed = try identityResolver.observedSession(named: name)
@@ -226,10 +228,13 @@ extension CMUXCLI {
                !command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 throw CLIError(message: String(localized: "cli.localTmux.error.existingSessionCommand", defaultValue: "local-tmux session already exists; use attach or close it before supplying a new command"))
             }
-            let records = try registry.load()
             if var record = records.first(where: { $0.tmuxBinding == observed.binding })
-                ?? records.first(where: { $0.name == name }) {
-                let liveSession = try identityResolver.bind(record, to: observed)
+                ?? recordForName {
+                let liveSession = if record.tmuxBinding == observed.binding {
+                    try identityResolver.bind(record, to: observed)
+                } else {
+                    try identityResolver.rebindStopped(record, to: observed)
+                }
                 record = liveSession.record
                 if let sessionPath = existingPath {
                     record.cwd = sessionPath
@@ -251,6 +256,12 @@ extension CMUXCLI {
         }
 
         let cwd = try requestedCwd ?? localTmuxWorkingDirectory(nil)
+        if let recordForName {
+            // A same-name record may be reused only when its old binding is
+            // gone. A renamed or otherwise live session remains protected by
+            // the identity guard.
+            try identityResolver.ensureStopped(recordForName)
+        }
         _ = try runner.requireSuccess(
             builder.newSessionArguments(sessionName: name, workingDirectory: cwd, command: invocation.command),
             context: "start"
@@ -263,6 +274,15 @@ extension CMUXCLI {
             context: "configure history"
         )
         try registry.validateServerSocketIfPresent()
+        if let recordForName {
+            let liveSession = try identityResolver.rebindStopped(recordForName, to: observed)
+            var record = liveSession.record
+            record.cwd = cwd
+            record.socketPath = builder.socketPath
+            record.updatedAt = Date.now.timeIntervalSince1970
+            try registry.upsert(record)
+            return .init(record: record, binding: observed.binding)
+        }
         let record = LocalTmuxSessionRecord(
             name: name,
             tmuxBinding: observed.binding,

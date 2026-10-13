@@ -9,7 +9,10 @@ private final class WeakOmnibarNativeTextField {
     }
 }
 
-@MainActor
+// AppKit calls the interaction view from hit-testing and responder routing.
+// Keep the registry main-thread confined by ownership, but do not mark it
+// MainActor-isolated: those framework callbacks do not carry Swift's actor
+// executor token even when they arrive on the main thread.
 final class BrowserOmnibarNativeFieldRegistry {
     static let shared = BrowserOmnibarNativeFieldRegistry()
 
@@ -96,29 +99,33 @@ final class BrowserOmnibarNativeFieldRegistry {
     }
 }
 
-@MainActor
+// SwiftUI/AppKit can invoke hitTest while reconnecting a hosted view. The view
+// is main-thread-owned by its representable, but the override itself must stay
+// available to AppKit without a MainActor executor check. Each override below
+// is explicitly `nonisolated`; NSView inherits `@MainActor` from NSResponder
+// in the Swift 6 SDK even when this class has no explicit actor annotation.
 final class BrowserOmnibarInteractionView: NSView {
     var panelId: UUID?
     private var trackingArea: NSTrackingArea?
 
-    override var isFlipped: Bool { true }
-    override var mouseDownCanMoveWindow: Bool { false }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var mouseDownCanMoveWindow: Bool { false }
 
-    override init(frame frameRect: NSRect) {
+    nonisolated override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         setAccessibilityElement(false)
     }
 
-    required init?(coder: NSCoder) {
+    nonisolated required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func resetCursorRects() {
+    nonisolated override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .iBeam)
     }
 
-    override func updateTrackingAreas() {
+    nonisolated override func updateTrackingAreas() {
         if let trackingArea {
             removeTrackingArea(trackingArea)
         }
@@ -136,7 +143,7 @@ final class BrowserOmnibarInteractionView: NSView {
         super.updateTrackingAreas()
     }
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
+    nonisolated override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, alphaValue > 0, bounds.contains(point) else { return nil }
         guard BrowserOmnibarNativeFieldRegistry.shared.field(for: panelId, in: window) != nil else {
             return nil
@@ -144,86 +151,86 @@ final class BrowserOmnibarInteractionView: NSView {
         return self
     }
 
-    override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+    nonisolated override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
         true
     }
 
-    override func cursorUpdate(with event: NSEvent) {
+    nonisolated override func cursorUpdate(with event: NSEvent) {
         setIBeamCursor()
     }
 
-    override func mouseEntered(with event: NSEvent) {
+    nonisolated override func mouseEntered(with event: NSEvent) {
         setIBeamCursor()
     }
 
-    override func mouseMoved(with event: NSEvent) {
+    nonisolated override func mouseMoved(with event: NSEvent) {
         setIBeamCursor()
     }
 
-    override func mouseExited(with event: NSEvent) {
+    nonisolated override func mouseExited(with event: NSEvent) {
         NSCursor.arrow.set()
     }
 
-    override func mouseDown(with event: NSEvent) {
+    nonisolated override func mouseDown(with event: NSEvent) {
         forwardMouseEvent(event) { field, event in
             field.mouseDown(with: event)
         }
     }
 
-    override func mouseDragged(with event: NSEvent) {
+    nonisolated override func mouseDragged(with event: NSEvent) {
         forwardMouseEvent(event) { field, event in
             field.mouseDragged(with: event)
         }
     }
 
-    override func mouseUp(with event: NSEvent) {
+    nonisolated override func mouseUp(with event: NSEvent) {
         forwardMouseEvent(event) { field, event in
             field.mouseUp(with: event)
         }
     }
 
-    override func rightMouseDown(with event: NSEvent) {
+    nonisolated override func rightMouseDown(with event: NSEvent) {
         forwardMouseEvent(event) { field, event in
             field.rightMouseDown(with: event)
         }
     }
 
-    override func rightMouseDragged(with event: NSEvent) {
+    nonisolated override func rightMouseDragged(with event: NSEvent) {
         forwardMouseEvent(event) { field, event in
             field.rightMouseDragged(with: event)
         }
     }
 
-    override func rightMouseUp(with event: NSEvent) {
+    nonisolated override func rightMouseUp(with event: NSEvent) {
         forwardMouseEvent(event) { field, event in
             field.rightMouseUp(with: event)
         }
     }
 
-    override func otherMouseDown(with event: NSEvent) {
+    nonisolated override func otherMouseDown(with event: NSEvent) {
         forwardMouseEvent(event) { field, event in
             field.otherMouseDown(with: event)
         }
     }
 
-    override func otherMouseDragged(with event: NSEvent) {
+    nonisolated override func otherMouseDragged(with event: NSEvent) {
         forwardMouseEvent(event) { field, event in
             field.otherMouseDragged(with: event)
         }
     }
 
-    override func otherMouseUp(with event: NSEvent) {
+    nonisolated override func otherMouseUp(with event: NSEvent) {
         forwardMouseEvent(event) { field, event in
             field.otherMouseUp(with: event)
         }
     }
 
-    override func setFrameSize(_ newSize: NSSize) {
+    nonisolated override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         window?.invalidateCursorRects(for: self)
     }
 
-    override func viewDidMoveToWindow() {
+    nonisolated override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         window?.invalidateCursorRects(for: self)
     }

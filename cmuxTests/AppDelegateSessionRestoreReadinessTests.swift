@@ -75,3 +75,90 @@ struct AppDelegateSessionRestoreReadinessTests {
         #expect(appDelegate.didCompleteInitialSessionRestore == false)
     }
 }
+
+// Regression guard for https://github.com/manaflow-ai/cmux/issues/5757.
+//
+// `controlResolveOnMain` gates the full-tree `v2RefreshKnownRefs()` pass on
+// `needsHandleTopologyRefresh`. Repeated calls when the window/tab topology
+// hasn't changed must skip rescanning the tree to prevent freezing the MainActor
+// during heavy agent load.
+@Suite(.serialized)
+@MainActor
+struct TerminalControllerControlResolveTests {
+    private func makeMainWindow(id: UUID) -> NSWindow {
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 320),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        window.identifier = NSUserInterfaceItemIdentifier("cmux.main.\(id.uuidString)")
+        return window
+    }
+
+    @Test
+    func repeatedControlResolveOnMainSkipsRescanWhenTopologyUnchanged() throws {
+        _ = NSApplication.shared
+        let previousApp = AppDelegate.shared
+        let app = AppDelegate()
+        AppDelegate.shared = app
+        defer { AppDelegate.shared = previousApp }
+
+        // Session restore settled: readiness allows v2RefreshKnownRefs to proceed
+        app.didAttemptStartupSessionRestore = true
+        app.isApplyingSessionRestore = false
+
+        let windowId = UUID()
+        let window = makeMainWindow(id: windowId)
+        let manager = TabManager()
+        let previousManager = TerminalController.shared.activeTabManagerForCallerNotification()
+        defer {
+            TerminalController.shared.setActiveTabManager(previousManager)
+            app.unregisterMainWindowContextForTesting(windowId: windowId)
+            window.orderOut(nil)
+        }
+
+        app.registerMainWindow(
+            window,
+            windowId: windowId,
+            tabManager: manager,
+            sidebarState: SidebarState(),
+            sidebarSelectionState: SidebarSelectionState(),
+            fileExplorerState: FileExplorerState()
+        )
+        window.makeKeyAndOrderFront(nil)
+        TerminalController.shared.setActiveTabManager(manager)
+
+        let initialWorkspace = Workspace()
+        manager.tabs = [initialWorkspace]
+
+        // Reset topology refresh state so initial scan can claim it
+        TerminalController.shared.invalidateSocketHandleTopologyRefresh()
+        #expect(TerminalController.shared.controlCommandCoordinator.needsHandleTopologyRefresh)
+
+        // First call: scans topology, mints initial workspace ref, marks refresh completed
+        TerminalController.shared.controlResolveOnMain { _ in }
+        #expect(!TerminalController.shared.controlCommandCoordinator.needsHandleTopologyRefresh)
+        #expect(TerminalController.shared.v2ExistingHandleRef(kind: .workspace, uuid: initialWorkspace.id) != nil)
+
+        // Add a second workspace directly to manager without posting a topology invalidation
+        let secondWorkspace = Workspace()
+        manager.tabs.append(secondWorkspace)
+
+        // Second call: topology has not changed (gate closed).
+        // Must skip rescan, so secondWorkspace is NOT minted.
+        TerminalController.shared.controlResolveOnMain { _ in }
+        #expect(!TerminalController.shared.controlCommandCoordinator.needsHandleTopologyRefresh)
+        #expect(TerminalController.shared.v2ExistingHandleRef(kind: .workspace, uuid: secondWorkspace.id) == nil)
+
+        // Invalidate topology (mirroring notification when windows/tabs change)
+        NotificationCenter.default.post(name: .mainWindowContextsDidChange, object: app)
+        #expect(TerminalController.shared.controlCommandCoordinator.needsHandleTopologyRefresh)
+
+        // Third call: topology was invalidated, so it rescans and mints the second workspace
+        TerminalController.shared.controlResolveOnMain { _ in }
+        #expect(!TerminalController.shared.controlCommandCoordinator.needsHandleTopologyRefresh)
+        #expect(TerminalController.shared.v2ExistingHandleRef(kind: .workspace, uuid: secondWorkspace.id) != nil)
+    }
+}
+

@@ -42,6 +42,9 @@ extension Workspace {
             return app.ownershipRejection(forBonsplitTab: transfer.tabId, policy: surfaceOwnershipPolicy)
         case .vaultSession, .filePreview, .rightSidebarTool:
             return surfaceOwnershipPolicy.rejection(for: .local)
+        case .workspaceMerge:
+            // `canMergeWorkspace` checks every tab's machine; a refused merge stays quiet.
+            return nil
         }
     }
 

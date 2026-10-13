@@ -558,6 +558,9 @@ extension CMUXCLI {
         if config.carrier {
             arguments.append("--carrier")
         }
+        if !config.session.isEmpty {
+            arguments += ["--session", config.session]
+        }
         if let hubSocket = config.wireguardHubSocket, !hubSocket.isEmpty {
             arguments += ["--wireguard-hub", hubSocket]
         }
@@ -1008,6 +1011,9 @@ extension CMUXCLI {
     /// their own usage fall back to the family text.
     static func vmVerbUsage(_ verb: String) -> String? {
         switch verb.lowercased() {
+        case "new", "create": return vmNewUsage
+        case "ls", "list": return vmListUsage
+        case "ports": return vmPortsUsage
         case "resize": return vmResizeUsage
         case "network": return vmNetworkUsage
         case "agent-updates": return vmAgentUpdatesUsage

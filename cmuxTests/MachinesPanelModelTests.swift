@@ -493,6 +493,9 @@ final class MachinesPanelModelTests: XCTestCase {
             "resource:vivid-newt/terminal/term_1",
             "resource:vivid-newt/terminal/term_2",
             "machine:vivid-newt/resources", "machine:vivid-newt/resources/cpu", "machine:vivid-newt/resources/memory", "machine:vivid-newt/resources/disk", "machine:vivid-newt/resources/usage",
+            // The Coderouter section always closes the tree (#17233), with one
+            // group per addable provider even before an account exists.
+            "coderouter-section", "coderouter-section/codex", "coderouter-section/claude", "coderouter-section/opencode-go",
         ])
         // A remote workspace already showing locally: its row marks it open and the click
         // jumps to that local workspace instead of opening a second copy.
@@ -822,7 +825,10 @@ final class MachinesPanelModelTests: XCTestCase {
         )
         let nodes = CloudTreeNodeBuilder.nodes(machines: [], snapshot: snapshot, localWorkspaces: [CloudTreeLocalWorkspace(id: local, title: "web", isSelected: false)], includeLocalMachine: true)
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
-        XCTAssertEqual(ids, ["machine:local", "machine:local/placeholder", "machine:local/browsers", "resource:local/browser/BBB"])
+        XCTAssertEqual(ids, [
+            "machine:local", "machine:local/placeholder", "machine:local/browsers", "resource:local/browser/BBB",
+            "coderouter-section", "coderouter-section/codex", "coderouter-section/claude", "coderouter-section/opencode-go",
+        ])
         if case .browser(let row) = CloudTreeNodeBuilder.flattened(nodes)[3].kind {
             XCTAssertTrue(row.isOpen)
             XCTAssertEqual(row.workspaceTitle, "web")

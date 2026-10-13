@@ -220,6 +220,7 @@ struct cmuxApp: App {
             analytics: Self.root.analytics.emitter,
             analyticsClientID: Self.root.analytics.anonymousID,
             terminalLatencyObserver: Self.root.analytics.terminalLatencyReporter,
+            feedPerformanceObserver: Self.root.analytics.feedPerformanceReporter,
             pushCoordinator: Self.root.pushCoordinator,
             displaySettings: Self.root.displaySettings,
             featureFlags: Self.root.featureFlags,

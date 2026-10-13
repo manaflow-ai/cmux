@@ -1,11 +1,13 @@
 import { Effect } from "effect";
 import { readBoundedJsonObject } from "../apns/routePolicy";
 import { CLOUD_TELEMETRY_MAX_BYTES, parseCloudTelemetryBatch, type CloudTelemetryBatch } from "./cloudTelemetryContract";
+import { sampleCloudTelemetryBatch } from "./cloudTelemetrySampling";
 
 export type CloudTelemetryIngestDependencies = {
   readonly authenticate: (request: Request) => Promise<{ readonly id: string } | null>;
   readonly checkIngress: (request: Request) => Promise<boolean>;
-  readonly accept: (userId: string, batch: CloudTelemetryBatch) => Promise<number>;
+  /** Stores the sampled spans. `sampleWeights` lists spans that stand for more than one submitted span. */
+  readonly accept: (userId: string, batch: CloudTelemetryBatch, sampleWeights: ReadonlyMap<string, number>) => Promise<number>;
   readonly scheduleDrain: () => void;
   readonly now: () => number;
 };
@@ -33,14 +35,24 @@ function ingest(request: Request, dependencies: CloudTelemetryIngestDependencies
     if (!body.ok) return response(body.error === "request_too_large" ? 413 : 400, body.error);
     const batch = parseCloudTelemetryBatch(body.value, dependencies.now());
     if (!batch) return response(400, "invalid_diagnostics");
-    const accepted = yield* Effect.tryPromise({
-      try: () => dependencies.accept(user.id, batch), catch: (error) => error,
+    yield* store(user.id, batch, dependencies);
+    // Sampled-out spans are acknowledged too: the client must not retry or re-queue them.
+    return new Response(JSON.stringify({ accepted: batch.spans.length, eventIds: batch.spans.map((span) => span.eventId) }), {
+      status: 202, headers: { "content-type": "application/json", "cache-control": "no-store" },
+    });
+  });
+}
+
+function store(userId: string, batch: CloudTelemetryBatch, dependencies: CloudTelemetryIngestDependencies) {
+  return Effect.gen(function* () {
+    const sampled = sampleCloudTelemetryBatch(batch);
+    // A batch of routine successful polls needs no transaction, quota charge or drain.
+    if (sampled.spans.length === 0) return;
+    yield* Effect.tryPromise({
+      try: () => dependencies.accept(userId, { ...batch, spans: sampled.spans }, sampled.sampleWeights), catch: (error) => error,
     });
     // A failed scheduling call must not revoke a durable receipt. The cron drain remains responsible.
     yield* Effect.sync(() => dependencies.scheduleDrain()).pipe(Effect.catchAllDefect(() => Effect.void));
-    return new Response(JSON.stringify({ accepted, eventIds: batch.spans.map((span) => span.eventId) }), {
-      status: 202, headers: { "content-type": "application/json", "cache-control": "no-store" },
-    });
   });
 }
 

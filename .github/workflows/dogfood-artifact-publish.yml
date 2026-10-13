@@ -2,87 +2,117 @@ name: Dogfood artifact publish
 
 on:
   workflow_run:
-    workflows: [CI]
+    workflows: [CI, cmux-next]
     types: [completed]
 
 permissions: {}
 
 env:
-  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml
+  SOURCE_WORKFLOW_PATHS: .github/workflows/ci.yml .github/workflows/cmux-next.yml
 
 jobs:
   publish:
     # The app artifact is an optional CI product. A red unrelated CI lane must
     # not discard a successful exact-head Dogfood build; the trusted gate below
-    # requires that job and its matching GitHub artifact explicitly.
-    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' }}
+    # requires that job and its matching GitHub artifact explicitly. A run the
+    # event lists no pull request for has nothing to publish, so it never starts.
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion != 'cancelled' && toJSON(github.event.workflow_run.pull_requests) != '[]' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: artifacts
     permissions:
-      actions: read
+      actions: write
       contents: read
       pull-requests: write
+    outputs:
+      published: ${{ steps.pr.outputs.publish }}
+      pr: ${{ steps.pr.outputs.pr }}
+      sha: ${{ steps.pr.outputs.sha }}
+      workflow: ${{ steps.pr.outputs.workflow }}
+      build_time: ${{ steps.pr.outputs.build_time }}
+      digest: ${{ steps.artifact.outputs.digest }}
     steps:
+      # Every workflow shares GITHUB_TOKEN's API budget (it ran out on
+      # 2026-10-06). The run's pull request and times come from the event, and
+      # each read below happens only when the checks before it passed: most
+      # pull requests stop after one read, their own (no dev-build label).
       - name: Find the trusted org-member dogfood artifact
         id: pr
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           RUN_ID: ${{ github.event.workflow_run.id }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          BUILD_TIME: ${{ github.event.workflow_run.updated_at || github.event.workflow_run.created_at }}
         run: |
           set -euo pipefail
-          pr="$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID" --jq '.pull_requests[0].number // empty')"
-          if [ -z "$pr" ]; then
-            echo 'publish=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          json_dir="$(mktemp -d)"
-          trap 'rm -rf "$json_dir"' EXIT
-          gh api "repos/$GH_REPO/pulls/$pr" > "$json_dir/pr.json"
-          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" > "$json_dir/jobs.json"
-          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/artifacts?per_page=100" > "$json_dir/artifacts.json"
-          PR_JSON_PATH="$json_dir/pr.json" JOBS_JSON_PATH="$json_dir/jobs.json" ARTIFACTS_JSON_PATH="$json_dir/artifacts.json" PR_NUMBER="$pr" HEAD_SHA="$HEAD_SHA" python3 - <<'PY'
+          python3 - <<'PY'
           import json
           import os
+          import subprocess
           import sys
-          from pathlib import Path
 
-          pr = json.loads(Path(os.environ["PR_JSON_PATH"]).read_text())
-          jobs = json.loads(Path(os.environ["JOBS_JSON_PATH"]).read_text()).get("jobs") or []
-          artifacts = json.loads(Path(os.environ["ARTIFACTS_JSON_PATH"]).read_text()).get("artifacts") or []
+          def api(path):
+              out = subprocess.run(["gh", "api", path], check=True, stdout=subprocess.PIPE, text=True).stdout
+              return json.loads(out)
+
+          def skip():
+              print("workflow run has no current trusted org-member dogfood artifact; skipping")
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write("publish=false\n")
+              sys.exit(0)
+
           expected_repo = os.environ["GH_REPO"]
-          expected_artifact = f"dogfood-app-{os.environ['PR_NUMBER']}-{os.environ['HEAD_SHA']}"
+          run_id = os.environ["RUN_ID"]
+          pr_number = os.environ.get("PR_NUMBER", "")
+          if not pr_number:
+              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+                  output.write("publish=false\n")
+              sys.exit(0)
+          expected_artifact = f"dogfood-app-{pr_number}-{os.environ['HEAD_SHA']}"
+          workflow_name = os.environ["WORKFLOW_NAME"]
+          if workflow_name == "cmux-next":
+              producer_names = {"cmux app scheme compile (Debug)"}
+          elif workflow_name == "CI":
+              producer_names = {f"Dogfood build #{pr_number}"}
+          else:
+              producer_names = set()
+
+          pr = api(f"repos/{expected_repo}/pulls/{pr_number}")
           head = pr.get("head") or {}
           repo = (head.get("repo") or {}).get("full_name")
           labels = {label.get("name") for label in pr.get("labels") or []}
-          dogfood_success = any(
-              job.get("name") == f"Dogfood build #{os.environ['PR_NUMBER']}"
-              and job.get("conclusion") == "success"
-              for job in jobs
-          )
-          artifact_present = any(
-              artifact.get("name") == expected_artifact and not artifact.get("expired")
-              for artifact in artifacts
-          )
-          trusted = (
+          if not (
               pr.get("state") == "open"
               and repo == expected_repo
               and head.get("sha") == os.environ["HEAD_SHA"]
               and pr.get("author_association") in {"MEMBER", "OWNER"}
               and "dev-build" in labels
-              and dogfood_success
-              and artifact_present
-          )
-          if not trusted:
-              print("workflow run has no current trusted org-member dogfood artifact; skipping")
-              with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
-                  output.write("publish=false\n")
-              sys.exit(0)
+              and ((workflow_name == "CI" and pr.get("base", {}).get("ref") != "feat-cmux-next")
+                   or (workflow_name == "cmux-next" and pr.get("base", {}).get("ref") == "feat-cmux-next"))
+              and bool(producer_names)
+          ):
+              skip()
+          artifacts = api(f"repos/{expected_repo}/actions/runs/{run_id}/artifacts?per_page=100").get("artifacts") or []
+          if not any(
+              artifact.get("name") == expected_artifact and not artifact.get("expired")
+              for artifact in artifacts
+          ):
+              skip()
+          jobs = api(f"repos/{expected_repo}/actions/runs/{run_id}/jobs?per_page=100").get("jobs") or []
+          if not any(
+              job.get("name") in producer_names
+              and job.get("conclusion") == "success"
+              for job in jobs
+          ):
+              skip()
           with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
               output.write("publish=true\n")
-              output.write(f"pr={os.environ['PR_NUMBER']}\n")
+              output.write(f"pr={pr_number}\n")
               output.write(f"sha={os.environ['HEAD_SHA']}\n")
+              output.write(f"workflow={workflow_name}\n")
+              output.write(f"build_time={os.environ.get('BUILD_TIME', '')}\n")
           PY
 
       - name: Checkout trusted publisher scripts
@@ -165,10 +195,11 @@ jobs:
           TAG: pr-${{ steps.pr.outputs.pr }}-${{ steps.pr.outputs.sha }}
           DIGEST: ${{ steps.artifact.outputs.digest }}
           DOWNLOAD_URL: ${{ steps.signed-url.outputs.url }}
+          BUILD_TIME: ${{ steps.pr.outputs.build_time }}
           MARKER: '<!-- cmux-fleet-dogfood-artifact -->'
         run: |
           set -euo pipefail
-          existing="$(gh api "repos/$GH_REPO/issues/$PR/comments" --paginate \
+          existing="$(gh api "repos/$GH_REPO/issues/$PR/comments?per_page=100" --paginate \
             --jq ".[] | select(.body | contains(\\\"$MARKER\\\")) | .id" | head -n1)"
           BODY_PATH="$RUNNER_TEMP/dogfood-comment.md" \
             python3 - <<'PY'
@@ -180,6 +211,7 @@ jobs:
               f"[Download cmux DEV artifact]({os.environ['DOWNLOAD_URL']})\n\n"
               f"SHA-256: `{os.environ['DIGEST']}`\n"
               f"Tag: `{os.environ['TAG']}`\n\n"
+              f"Build time: `{os.environ['BUILD_TIME']}`\n\n"
               "The download URL expires after 15 minutes."
           )
           Path(os.environ['BODY_PATH']).write_text(body + "\n", encoding="utf-8")
@@ -190,3 +222,123 @@ jobs:
             gh api -X POST "repos/$GH_REPO/issues/$PR/comments" -F body=@"$RUNNER_TEMP/dogfood-comment.md" >/dev/null
           fi
           echo "Dogfood artifact link posted on #$PR."
+
+      - name: Retain the exact app for capture
+        if: steps.pr.outputs.publish == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dogfood-capture-head-${{ steps.pr.outputs.pr }}-${{ steps.pr.outputs.sha }}
+          path: ${{ steps.artifact.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+
+  capture:
+    name: cmux-next before/after capture
+    needs: publish
+    if: ${{ needs.publish.outputs.published == 'true' && needs.publish.outputs.workflow == 'cmux-next' }}
+    # MACOS_RUNNER_DISPLAY must name the GUI-enabled capture mini. The cloud
+    # fallback keeps workflow validation and fork checks deterministic; the
+    # step below fails closed when capture tools are absent.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_DISPLAY || 'blacksmith-6vcpu-macos-15' }}
+    timeout-minutes: 20
+    permissions:
+      actions: write
+      contents: read
+      pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR: ${{ needs.publish.outputs.pr }}
+      HEAD_SHA: ${{ needs.publish.outputs.sha }}
+      CAPTURE_HOST_TOOL: ${{ vars.CMUX_NEXT_CAPTURE_HOST_TOOL || 'capture-host' }}
+      CUA_SSH: ${{ vars.CMUX_NEXT_CUA_SSH || 'cua-ssh' }}
+    steps:
+      - name: Checkout capture workflow scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Select Xcode
+        run: ./scripts/select-ci-xcode.sh
+
+      - name: Download the published head archive
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/capture/head"
+          gh run download "$GITHUB_RUN_ID" --repo "$GH_REPO" \
+            --name "dogfood-capture-head-$PR-$HEAD_SHA" \
+            --dir "$RUNNER_TEMP/capture/head"
+          find "$RUNNER_TEMP/capture/head" -type f -name '*.zip' -print -quit > "$RUNNER_TEMP/capture/head.path"
+          test -s "$RUNNER_TEMP/capture/head.path"
+
+      - name: Find the exact base cmux-next artifact
+        id: base
+        run: |
+          set -euo pipefail
+          base_sha="$(gh api "repos/$GH_REPO/pulls/$PR" --jq '.base.sha')"
+          run_id="$(gh run list --repo "$GH_REPO" --workflow cmux-next.yml --branch feat-cmux-next \
+            --limit 100 --json databaseId,headSha,status,conclusion |
+            python3 -c 'import json,sys; rows=json.load(sys.stdin); sha=sys.argv[1]; print(next((str(r["databaseId"]) for r in rows if r["headSha"] == sha and r["status"] == "completed" and r["conclusion"] == "success"), ""))' "$base_sha")"
+          test -n "$run_id" || { echo "no successful cmux-next base run for $base_sha" >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/capture/base"
+          gh run download "$run_id" --repo "$GH_REPO" \
+            --name "cmux-next-base-app-$base_sha" \
+            --dir "$RUNNER_TEMP/capture/base"
+          find "$RUNNER_TEMP/capture/base" -type f -name '*.zip' -print -quit > "$RUNNER_TEMP/capture/base.path"
+          test -s "$RUNNER_TEMP/capture/base.path"
+
+      - name: Capture fixed before and after surfaces under a lease
+        env:
+          HEAD_ARCHIVE: ${{ runner.temp }}/capture/head.path
+          BASE_ARCHIVE: ${{ runner.temp }}/capture/base.path
+        run: |
+          set -euo pipefail
+          capture_host="$CAPTURE_HOST_TOOL"; [[ "$capture_host" == */* ]] || capture_host="$(command -v "$capture_host" || true)"
+          cua_ssh="$CUA_SSH"; [[ "$cua_ssh" == */* ]] || cua_ssh="$(command -v "$cua_ssh" || true)"
+          test -x "$capture_host" || { echo "capture-host is not installed on this runner" >&2; exit 1; }
+          test -x "$cua_ssh" || { echo "cua-ssh is not installed on this runner" >&2; exit 1; }
+          head_archive="$(cat "$HEAD_ARCHIVE")"
+          base_archive="$(cat "$BASE_ARCHIVE")"
+          scripts/cmux-next/capture-pr-surfaces.sh \
+            --host capture-mini \
+            --head-archive "$head_archive" \
+            --base-archive "$base_archive" \
+            --capture-host "$capture_host" \
+            --cua "$cua_ssh" \
+            --tag "pr-$PR-${HEAD_SHA:0:8}" \
+            --out "$RUNNER_TEMP/capture/output"
+
+      - name: Upload before/after captures
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-capture-${{ needs.publish.outputs.pr }}-${{ needs.publish.outputs.sha }}
+          path: ${{ runner.temp }}/capture/output
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+      - name: Post before/after capture link
+        env:
+          MARKER: '<!-- cmux-next-before-after-capture -->'
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          BUILD_TIME: ${{ needs.publish.outputs.build_time }}
+        run: |
+          set -euo pipefail
+          body="$RUNNER_TEMP/capture-comment.md"
+          cat > "$body" <<EOF
+          $MARKER
+          **cmux-next before/after capture** for SHA $HEAD_SHA
+
+          [Download the five-surface before/after capture artifact]($RUN_URL)
+
+          CI build time: $BUILD_TIME. Surfaces: New Tab, terminal workspace, seeded agent pane, Home, Settings.
+          EOF
+          existing="$(gh api "repos/$GH_REPO/issues/$PR/comments?per_page=100" --paginate --jq ".[] | select(.body | contains(\"$MARKER\")) | .id" | head -n1)"
+          if [ -n "$existing" ]; then
+            gh api -X PATCH "repos/$GH_REPO/issues/comments/$existing" -F body=@"$body" >/dev/null
+          else
+            gh api -X POST "repos/$GH_REPO/issues/$PR/comments" -F body=@"$body" >/dev/null
+          fi

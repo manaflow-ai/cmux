@@ -19,6 +19,7 @@ extension BrowserPanel {
 extension BrowserPanel {
     func handleWebContentProcessTermination(for terminatedWebView: WKWebView) {
         guard terminatedWebView === webView else { return }
+        mobileBrowserDialogBroker.resolveAll()
         // A REPL session driving this tab sees Playwright's page 'crash'.
         BrowserReplTabAttachments.shared.attachment(for: id)?.emit("tab.crashed", [:])
 
