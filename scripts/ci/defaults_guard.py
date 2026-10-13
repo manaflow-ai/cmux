@@ -87,16 +87,28 @@ class Tree:
     def read(self, path: str) -> str | None:
         if self.ref is None:
             file = self.root / path
+            self.refuse_links(file)
             return file.read_text(encoding="utf-8") if file.is_file() else None
         result = subprocess.run(["git", "-C", str(self.root), "show", f"{self.ref}:{path}"],
                                 capture_output=True, text=True)
         return result.stdout if result.returncode == 0 else None
+
+    def refuse_links(self, file: Path) -> None:
+        """A checked-out head is data: a link in it could read the runner's own files."""
+        part = file
+        while part != self.root and self.root in part.parents:
+            if part.is_symlink():
+                raise SystemExit(f"DEFAULTS tree: {part.relative_to(self.root)} is a symbolic link; the defaults guard reads no links")
+            part = part.parent
 
     def grep(self, pattern: str, path: str) -> list[tuple[str, str]]:
         """(file, line) for every line under `path` matching the extended regex `pattern`."""
         if self.ref is None:
             if not (self.root / path).exists():
                 return []
+            self.refuse_links(self.root / path)
+            for found in (self.root / path).rglob("*"):
+                self.refuse_links(found)
             args = ["git", "-C", str(self.root), "grep", "--no-index", "-I", "-E", "-e", pattern, "--", path]
         else:
             args = ["git", "-C", str(self.root), "grep", "-I", "-E", "-e", pattern, self.ref, "--", path]
