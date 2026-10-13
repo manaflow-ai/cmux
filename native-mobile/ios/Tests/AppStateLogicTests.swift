@@ -118,3 +118,34 @@ struct LaunchHostTests {
         #expect(hosts.launchHost(selectedID: nil)?.id == "a")
     }
 }
+
+struct AutoSwitchHostTests {
+    private func host(_ id: String, online: Bool?) -> APIClient.Host {
+        APIClient.Host(id: id, name: id, platform: "macos", online: online, lastSeen: nil)
+    }
+
+    @Test func staleAutomaticPickMovesToTheOnlineMac() {
+        let fresh = [host("a", online: false), host("b", online: true)]
+        #expect(fresh.autoSwitch(selectedID: nil, currentID: "a", currentConnected: false)?.id == "b")
+    }
+
+    @Test func aConnectedMacStays() {
+        let fresh = [host("a", online: false), host("b", online: true)]
+        #expect(fresh.autoSwitch(selectedID: nil, currentID: "a", currentConnected: true) == nil)
+    }
+
+    @Test func theUsersChoiceStaysEvenWhenOffline() {
+        let fresh = [host("a", online: false), host("b", online: true)]
+        #expect(fresh.autoSwitch(selectedID: "a", currentID: "a", currentConnected: false) == nil)
+    }
+
+    @Test func noConnectionPicksTheLaunchHost() {
+        let fresh = [host("a", online: false), host("b", online: true)]
+        #expect(fresh.autoSwitch(selectedID: nil, currentID: nil, currentConnected: false)?.id == "b")
+    }
+
+    @Test func alreadyOnTheBestMacDoesNothing() {
+        let fresh = [host("a", online: false), host("b", online: true)]
+        #expect(fresh.autoSwitch(selectedID: nil, currentID: "b", currentConnected: false) == nil)
+    }
+}
