@@ -61,6 +61,15 @@ struct PhotoLocationTests {
 }
 
 struct ComposerPathJoinTests {
+    @Test func attachmentsAloneAtAShellOnlyTypeThePaths() {
+        #expect(ComposerModel.submits(text: "", hasPaths: true, isTUI: false) == false)
+        #expect(ComposerModel.submits(text: " ", hasPaths: true, isTUI: false) == false)
+        // An agent's prompt, typed text, or no attachments: Return as before.
+        #expect(ComposerModel.submits(text: "", hasPaths: true, isTUI: true))
+        #expect(ComposerModel.submits(text: "open", hasPaths: true, isTUI: false))
+        #expect(ComposerModel.submits(text: "ls", hasPaths: false, isTUI: false))
+    }
+
     @Test func oneSpaceBetweenTextAndPath() {
         #expect(ComposerModel.appendingPaths(["/tmp/a.jpg"], to: "file") == "file /tmp/a.jpg")
         #expect(ComposerModel.appendingPaths(["/tmp/a.jpg"], to: "file ") == "file /tmp/a.jpg")

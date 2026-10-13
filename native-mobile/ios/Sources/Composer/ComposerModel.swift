@@ -111,19 +111,29 @@ final class ComposerModel {
             }
         }
         var message = Self.plainPunctuation(text.trimmingCharacters(in: .newlines))
+        let submit = Self.submits(text: message, hasPaths: !paths.isEmpty, isTUI: session.isTUI)
         if !paths.isEmpty {
             message = Self.appendingPaths(paths, to: message)
+            if !submit { message += " " }
         }
         if message.contains("\n") {
             session.paste(message)
         } else {
             session.send(text: message)
         }
-        session.sendKeys(["enter"])
+        if submit { session.sendKeys(["enter"]) }
         text = ""
         attachments = []
         Haptics.tap()
         return true
+    }
+
+    /// Whether a send presses Return. Attachments alone at a shell prompt
+    /// only type their paths (Return would run the file as a command), so
+    /// the user can write the command around them; an agent's prompt (a
+    /// full-screen program) and any typed text submit.
+    nonisolated static func submits(text: String, hasPaths: Bool, isTUI: Bool) -> Bool {
+        isTUI || !hasPaths || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// The message with the uploaded paths after it, one space between
