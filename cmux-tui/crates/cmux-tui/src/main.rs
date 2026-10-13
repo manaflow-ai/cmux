@@ -28,6 +28,7 @@ mod cloud_conversations_backend;
 #[cfg(unix)]
 mod coderouter_usage;
 mod config;
+mod daemon_build;
 mod headless;
 mod local_actor;
 mod private_mode;
@@ -1646,31 +1647,6 @@ struct CloudTemplateEnv {
 
 static CLOUD_TEMPLATE_ENV: std::sync::OnceLock<CloudTemplateEnv> = std::sync::OnceLock::new();
 
-/// Records this daemon's build id and its own binary (which is also its CLI)
-/// for `identify` (plans/cmux-next/version-skew.md step 2). A binary whose
-/// path cannot be resolved reports its build id only.
-#[cfg(unix)]
-fn install_daemon_build() {
-    // cmux-remote (which stamps the source revision) is a Unix-only
-    // dependency; a Windows daemon reports its package version until the
-    // stamp moves to a cross-platform crate.
-    #[cfg(unix)]
-    let build_id = cmux_remote::ssh_bootstrap::BUILD_IDENTITY;
-    #[cfg(not(unix))]
-    let build_id = env!("CARGO_PKG_VERSION");
-    let cli_path = std::env::current_exe().and_then(std::fs::canonicalize).unwrap_or_default();
-    cmux_tui_core::server::install_daemon_build(cmux_tui_core::server::DaemonBuild::new(
-        build_id, cli_path,
-    ));
-}
-
-/// The build id comes from cmux-remote's build script, and cmux-remote is a
-/// unix-only dependency. A Windows daemon installs no build, so `identify`
-/// reports `null` for both fields and leaves out `daemon-build-v1`, as an
-/// embedder does.
-#[cfg(not(unix))]
-fn install_daemon_build() {}
-
 /// Routes argv to a private mode, the CLI, or the interactive or headless mux.
 fn run_main() {
     startup_env::take_cloud_template_env();
@@ -2124,7 +2100,7 @@ fn run_server(
 ) -> anyhow::Result<()> {
     #[cfg(not(unix))]
     reject_unsupported_remote_options(&args)?;
-    install_daemon_build();
+    daemon_build::install();
     owner_start::prepare(&args)?;
     let owner_host_colors = args.owner_host_colors();
     #[cfg(target_os = "linux")]
