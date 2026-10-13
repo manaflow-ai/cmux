@@ -33,7 +33,7 @@ extension UpdaterService {
     /// The checkbox: writes the setting; the setting's change comes back
     /// through ``configure(checkAutomatically:checkInterval:downloadAutomatically:metered:)``.
     public func setAutomaticUpdates(_ on: Bool) {
-        writeAutomaticUpdates?(on)
+        writeSetting?(.automaticUpdates, on)
     }
 
     /// Follows the flow's phase: a staged update records its version and

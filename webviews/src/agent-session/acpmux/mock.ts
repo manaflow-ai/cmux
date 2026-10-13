@@ -384,7 +384,10 @@ export class MockAcpmuxSocket {
         return { sessions: this.sessions };
       case "_acpmux/harnesses":
         return {
-          harnesses: this.script ? scriptHarnesses : harnesses,
+          // A gallery state can stand for a Mac with no agent CLI (`mockHarnesses`).
+          harnesses: this.script
+            ? scriptHarnesses
+            : ((globalThis as { cmuxAcpmuxMockHarnesses?: unknown[] }).cmuxAcpmuxMockHarnesses ?? harnesses),
           ...(typeof params.cwd === "string" && this.profileFolder(params.cwd)
             ? { folderProfiles: this.folderProfiles() }
             : {}),

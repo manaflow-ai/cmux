@@ -2,6 +2,7 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloud
 import { callCapability } from "./automation-caps.ts"
 import { CodeRunError, runCode } from "./code-run.ts"
 import type { Env } from "./env.ts"
+import { UNATTRIBUTED_USER } from "./usage-user.ts"
 import type { AutomationRunParams, RunReport } from "./scheduler-do.ts"
 
 /**
@@ -38,7 +39,7 @@ export class AutomationRunWorkflow extends WorkflowEntrypoint<Env, AutomationRun
       if (p.body.type === "code") {
         // Tier 1: the tenant's Workflows code in a Dynamic Worker, metered and capped (code-run.ts).
         try {
-          await runCode(this.env, step, { team: p.owner, run: p.run, automation: p.automation, ref: p.body.ref, egress: p.body.egress ?? [], input: p.input }, event.timestamp)
+          await runCode(this.env, step, { team: p.owner, run: p.run, automation: p.automation, ref: p.body.ref, egress: p.body.egress ?? [], input: p.input, user: p.charged_user ?? UNATTRIBUTED_USER }, event.timestamp)
         } catch (e) {
           // Only harness refusals carry a code; a tenant error name never chooses the run's error code.
           const code = e instanceof CodeRunError ? e.code : "run.failed"

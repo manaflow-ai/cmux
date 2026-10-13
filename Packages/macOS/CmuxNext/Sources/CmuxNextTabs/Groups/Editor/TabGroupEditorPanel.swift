@@ -127,7 +127,7 @@ final class TabGroupEditorPanel: ActiveAppKeyPanel, NSTextFieldDelegate {
             stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: p),
             stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -p),
             stack.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -p),
-            field.heightAnchor.constraint(equalToConstant: Metrics.tabHeight),
+            field.heightAnchor.constraint(equalToConstant: Metrics.controlHeight),
             nameField.leadingAnchor.constraint(equalTo: field.leadingAnchor, constant: Metrics.space4),
             nameField.trailingAnchor.constraint(equalTo: field.trailingAnchor, constant: -Metrics.space4),
             nameField.centerYAnchor.constraint(equalTo: field.centerYAnchor),
