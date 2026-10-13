@@ -126,6 +126,7 @@ describe("devbox image template", () => {
       "cmux-terminfo.sh",
       "cmux-terminfo.src",
       "cmux-tui-state-mount",
+      "cmux-vm-kind-sync",
       "codex-managed.toml",
       // The desktop layer (Freestyle only); pinned by vm-devbox-desktop.test.ts.
       "desktop",
