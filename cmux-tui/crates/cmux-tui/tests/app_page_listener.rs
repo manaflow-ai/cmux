@@ -105,7 +105,8 @@ fn identify_over_websocket(addr: &str, origin: &str, token: &str) -> Result<Valu
     stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
     let mut request = format!("ws://{addr}/").into_client_request().unwrap();
     request.headers_mut().insert("Origin", origin.parse().unwrap());
-    let (mut socket, _) = tungstenite::client(request, stream).map_err(|error| error.to_string())?;
+    let (mut socket, _) =
+        tungstenite::client(request, stream).map_err(|error| error.to_string())?;
     socket.send(Message::Text(json!({"auth": {"token": token}}).to_string().into())).unwrap();
     socket.send(Message::Text(json!({"id": 1, "cmd": "identify"}).to_string().into())).unwrap();
     loop {
@@ -176,9 +177,7 @@ fn the_apps_daemon_mints_its_websocket_credential_and_serves_its_pages() {
     assert_eq!(status(&http_get(&addr, "/secret.txt", &addr)), "404");
 
     // A second ensure reports the same owner and keeps its credential.
-    let again = parse_success(
-        &fixture.command("ensure").args(["--ws-loopback"]).output().unwrap(),
-    );
+    let again = parse_success(&fixture.command("ensure").args(["--ws-loopback"]).output().unwrap());
     assert_eq!(again["status"], "running", "{again}");
     let still: Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
     assert_eq!(still["token"], token);

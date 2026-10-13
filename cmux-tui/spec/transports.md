@@ -243,7 +243,7 @@ cmux --ws 127.0.0.1:7681
 cmux --headless --ws 127.0.0.1:7681 --ws-token <secret>
 ```
 
-A headless daemon has no TUI to approve a pairing, so `--headless --ws` without `--ws-token` (or `server.ws_token`) refuses to start (fail closed). The rule that only a human surface approves a pairing holds against same-user agents on signed builds only: on an unsigned DEV build the app's install-key prover is a same-user file, so a same-user process can pass as the app (identity.md threat model).
+A headless daemon has no TUI of its own to approve a pairing, so `--headless --ws` on a non-loopback address without `--ws-token` (or `server.ws_token`) refuses to start (fail closed). On a loopback address it mints a credential into a user-only file instead (App listener and page files below). The rule that only a human surface approves a pairing holds against same-user agents on signed builds only: on an unsigned DEV build the app's install-key prover is a same-user file, so a same-user process can pass as the app (identity.md threat model).
 
 The equivalent config is:
 
@@ -262,6 +262,18 @@ Transport compression is not part of the cmux-tui contract. Clients cannot requi
 Binary frames are not protocol messages and cause the connection to close. The server accepts a normal WebSocket upgrade on any request path and does not require a WebSocket subprotocol.
 
 This framing exactly matches the TypeScript SDK's `WebSocketTransport`: `send(json)` sends that string as one text frame, and every received text frame is delivered as one complete JSON message.
+
+### App listener and page files
+
+The cmux app starts its daemon with `server ensure --ws-loopback --ws-allow-origin cmux-page://cmux.home-channels` (cli.md). That owner listens on `127.0.0.1:<ephemeral port>`. A headless daemon whose loopback listener has no configured token mints a 256-bit credential and writes it, with the listener's addresses, to `<socket>.websocket.json` next to its socket (mode 0600, in the user-only socket directory; written to a private temporary file and renamed):
+
+```json
+{"version":1,"url":"ws://127.0.0.1:52311/","pages":"http://127.0.0.1:52311/pages/","token":"<64 hex>","pid":4242}
+```
+
+The token is never on a command line, in the environment, or in a log. A same-user host (the app) reads the file and gives the token to its own pages; a person gives it to a browser tab or pairs the tab instead. The file is removed when its daemon exits; a reader that finds a stale file sees `pid` and the connection failure. The same-user boundary is the one the Unix socket already has: a process that can read the file can also use the socket. Windows (planned): the same file protected by the user-only ACL of the state directory (cx-jdb.9).
+
+The listener also serves page files, the first step of `page-router-v1` (hq-99 R7). A plain HTTP `GET` or `HEAD` without a WebSocket upgrade for `/pages/<page>/[<file>]` answers a file of the page bundle directory: `CMUX_TUI_PAGES_DIR` (a host that bundles the pages sets it; the app sets its bundled `pages` folder), else `share/cmux-tui/pages` next to the binary's directory (the portable layout for Linux and Windows), else every request is `404`. The request passes the same Host and Origin rule as a WebSocket handshake before any file is read (`403` otherwise); path segments are plain names (letters, digits, `.`, `_`, `-`, never a leading dot, no percent escapes), at most four, and the resolved file stays under the bundle root (`404` otherwise). An HTML file carries `Content-Security-Policy: default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' ws://<Host>; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`, and every file carries `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`. A page served this way has the listener's own origin, so its WebSocket passes the localhost rule with no flag, and it still authenticates with the credential or a pairing. Each page has a page id, its folder name (`home-channels` for Channels); per-page operation allow lists keyed on that id (for example `history.*` reads only for page `history`) are the next step of `page-router-v1` and are not enforced yet: today every authenticated connection has the same authority, whatever page opened it.
 
 ### Authentication and Pairing
 

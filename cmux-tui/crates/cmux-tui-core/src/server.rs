@@ -196,6 +196,8 @@ mod cmd_terminals;
 use cmd_terminals::placed_terminal_result;
 mod cmd_workspaces;
 mod command_history;
+mod page_files;
+pub use page_files::page_bundle_dir;
 mod responses;
 mod rows;
 mod screen_json;
@@ -2451,7 +2453,7 @@ pub use restoring::RestoringServer;
 use websocket_listener::handle_websocket_connection;
 pub use websocket_listener::{
     WebSocketAccess, WebSocketServer, parse_websocket_origin, serve_websocket,
-    serve_websocket_with_access,
+    serve_websocket_with_access, serve_websocket_with_pages,
 };
 
 #[cfg(test)]
