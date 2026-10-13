@@ -160,7 +160,8 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
     expect(settled.member_usd).toBeCloseTo(0.000003, 9)
     expect(settled.team_usd).toBeCloseTo(0.000003, 9)
     // The bill's level reads the same facts: the expired charge plus its correction is the real cost.
-    const l = await levels([{ stack_user: "spend-facts-late", from: 0, to: Date.now() + 1 }])
+    // The expired fact is recorded at the alarm's time (2 h ahead in this test), so the window covers it.
+    const l = await levels([{ stack_user: "spend-facts-late", from: 0, to: Date.now() + 3 * 3600_000 }])
     expect(l.body.levels[0]).toMatchObject({ team, micros: 3, facts: 2, price_version: "ai-passthrough-v1" })
   })
 
