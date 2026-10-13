@@ -153,3 +153,27 @@ extension ReplyInsteadTests {
         #expect(store.turns.last?.status == .cancelled)
     }
 }
+
+extension StopWhileWaitingTests {
+    /// A question left open when its turn ends shows as cancelled, not as a live card.
+    @Test func stopDuringAQuestionCancelsIt() async throws {
+        let mock = MockAgentSession(
+            summary: AgentSessionSummary(id: "s", name: "S", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w", macName: "m"),
+            sleep: { _ in await Task.yield() }
+        )
+        mock.chunkSize = 4000
+        let store = AgentChatStore(source: mock)
+        while store.turns.isEmpty { await Task.yield() }
+        store.send(prompt: "go")
+        while store.pendingPermission == nil { await Task.yield() }
+        let permission = try #require(store.pendingPermission)
+        store.respond(to: permission.request, option: permission.request.options.first)
+        while store.pendingQuestion == nil { await Task.yield() }
+        let id = try #require(store.pendingQuestion).id
+        store.cancel()
+        for _ in 0..<500 where store.isRunning { await Task.yield() }
+        #expect(store.pendingQuestion == nil)
+        let question = store.turns.last?.question(id)
+        #expect(question?.state == .cancelled)
+    }
+}

@@ -56,6 +56,15 @@ public final class MockAgentSession: AgentSessionSource {
             }
         case .cancel:
             running?.cancel()
+            // A turn waiting on the person ends too (an agent cancels its
+            // outstanding request when the prompt is cancelled).
+            if let id = pendingPermissionID { emit(.permissionDecision(permissionId: id, optionId: nil)) }
+            pendingPermissionID = nil
+            pendingQuestionID = nil
+            permissionWaiter?.resume(returning: nil)
+            permissionWaiter = nil
+            questionWaiter?.resume(returning: nil)
+            questionWaiter = nil
         case .respondPermission(let id, let optionID):
             guard id == pendingPermissionID else { return }
             emit(.permissionDecision(permissionId: id, optionId: optionID))
