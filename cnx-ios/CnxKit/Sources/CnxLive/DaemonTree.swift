@@ -16,6 +16,8 @@ public struct DaemonTree: Sendable {
     public var agentTabs: [String: AgentBinding]
     /// The daemon surface id behind each app tab id (`s<surface>`).
     public var surfaces: [String: Int]
+    /// Each tab's working directory on the Mac, unabbreviated, when the daemon reports one.
+    public var directories: [String: String] = [:]
     public var revision: Int?
 
     /// The app tab id for a daemon surface.
@@ -34,6 +36,7 @@ public struct DaemonTree: Sendable {
         revision = data["workspace_revision"] as? Int
         var agentTabs: [String: AgentBinding] = [:]
         var surfaces: [String: Int] = [:]
+        var directories: [String: String] = [:]
         let previousByID = Dictionary(previous.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var result: [Workspace] = []
         for case let ws as [String: Any] in data["workspaces"] as? [Any] ?? [] {
@@ -53,6 +56,7 @@ public struct DaemonTree: Sendable {
                         }
                         let id = Self.tabID(surface: surface)
                         surfaces[id] = surface
+                        if let cwd = tab["cwd"] as? String, cwd.hasPrefix("/") { directories[id] = cwd }
                         let state = agents[surface]
                         if state?.state == "working" { working = true }
                         if state?.state == "blocked" { blocked = true }
@@ -85,6 +89,7 @@ public struct DaemonTree: Sendable {
         workspaces = result
         self.agentTabs = agentTabs
         self.surfaces = surfaces
+        self.directories = directories
     }
 
     /// One daemon tab as an app tab, or nil for tabs the phone does not show (pages, conversations).

@@ -25,6 +25,10 @@ public final class AgentSessionDirectory {
 
     public func existingStore(id: String) -> AgentChatStore? { stores[id] }
 
+    /// Forgets the tab's store; the next `store(for:)` builds one from
+    /// `makeSource` again (the tab's session changed on the Mac).
+    public func invalidate(id: String) { stores[id] = nil }
+
     public func store(workspace: Workspace, tab: WorkspaceTab, macName: String) -> AgentChatStore {
         store(for: AgentSessionSummary(
             id: tab.id, name: tab.subtitle ?? tab.title, harness: tab.harness ?? "claude", agentName: tab.title,

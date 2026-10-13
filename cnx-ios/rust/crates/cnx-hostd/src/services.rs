@@ -16,6 +16,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 use crate::config::{AcpmuxTarget, ServiceConfig};
+use crate::control;
 use crate::policy::{DaemonPolicy, MAXIMUM_LINE_BYTES, Verdict};
 
 /// Who opened the channel.
@@ -88,11 +89,15 @@ async fn daemon(
     sender: &ChannelSender,
     mut receiver: ChannelReceiver,
 ) -> Result<(), Refusal> {
-    let session = args.get("session").and_then(Value::as_str).unwrap_or(&config.default_session);
+    let named = args.get("session").and_then(Value::as_str);
+    let session = named.unwrap_or(&config.default_session);
     if !valid_session_name(session) {
         return Err(Refusal::new("bad_request", "invalid session name"));
     }
-    let path = config.tui_socket_dir.join(format!("{session}.sock"));
+    let path = match (named, &config.default_socket) {
+        (None, Some(socket)) => socket.clone(),
+        _ => config.tui_socket_dir.join(format!("{session}.sock")),
+    };
     let socket = UnixStream::connect(&path)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("cmux-tui session {session}: {e}")))?;
@@ -193,6 +198,10 @@ async fn daemon(
 fn acpmux_endpoint(target: &AcpmuxTarget) -> Result<(String, Option<String>), Refusal> {
     match target {
         AcpmuxTarget::Fixed { url, token } => Ok((url.clone(), token.clone())),
+        AcpmuxTarget::Supplied(endpoint) => endpoint
+            .borrow()
+            .clone()
+            .ok_or_else(|| Refusal::new("unavailable", "acpmux is not running in the app")),
         AcpmuxTarget::Home(home) => {
             let path = home.join("config.json");
             let text = std::fs::read_to_string(&path)
@@ -212,14 +221,15 @@ fn acpmux_endpoint(target: &AcpmuxTarget) -> Result<(String, Option<String>), Re
     }
 }
 
-/// `acpmux`: splice to the acpmux loopback WebSocket. One link data frame
-/// carries one WebSocket text message in each direction.
-async fn acpmux(
-    config: &ServiceConfig,
-    sender: &ChannelSender,
-    mut receiver: ChannelReceiver,
-) -> Result<(), Refusal> {
-    let (url, token) = acpmux_endpoint(&config.acpmux)?;
+/// How long the `acpmux` service waits for the app to report a new endpoint.
+const ACPMUX_WAIT: std::time::Duration = std::time::Duration::from_secs(15);
+
+type AcpmuxSocket =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+/// Opens the acpmux loopback WebSocket with its bearer token.
+async fn connect_acpmux(target: &AcpmuxTarget) -> Result<AcpmuxSocket, Refusal> {
+    let (url, token) = acpmux_endpoint(target)?;
     let mut request = url.into_client_request().map_err(|e| Refusal::new("unavailable", e.to_string()))?;
     if !request.uri().host().is_some_and(is_loopback_host) {
         return Err(Refusal::new("forbidden", "acpmux listener is not on loopback"));
@@ -233,6 +243,29 @@ async fn acpmux(
     let (socket, _) = tokio_tungstenite::connect_async(request)
         .await
         .map_err(|e| Refusal::new("unavailable", format!("acpmux: {e}")))?;
+    Ok(socket)
+}
+
+/// `acpmux`: splice to the acpmux loopback WebSocket. One link data frame
+/// carries one WebSocket text message in each direction.
+async fn acpmux(
+    config: &ServiceConfig,
+    sender: &ChannelSender,
+    mut receiver: ChannelReceiver,
+) -> Result<(), Refusal> {
+    let socket = match (connect_acpmux(&config.acpmux).await, &config.acpmux) {
+        (Ok(socket), _) => socket,
+        // Supervised: the app's acpmux may have restarted on another port.
+        // Ask the app once and retry with what it sends.
+        (Err(refusal), AcpmuxTarget::Supplied(endpoint)) if refusal.code == "unavailable" => {
+            let mut endpoint = endpoint.clone();
+            endpoint.borrow_and_update();
+            control::emit(&control::Event::NeedAcpmux);
+            let _ = tokio::time::timeout(ACPMUX_WAIT, endpoint.changed()).await;
+            connect_acpmux(&config.acpmux).await?
+        }
+        (Err(refusal), _) => return Err(refusal),
+    };
     let (mut ws_sink, mut ws_source) = socket.split();
     loop {
         tokio::select! {

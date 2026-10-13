@@ -134,6 +134,16 @@ public final class AcpmuxHub {
         _ = try await request("_acpmux/permission_respond", params)
     }
 
+    /// Declines a question (its reject option). A phone may always decline,
+    /// while an answer needs the Mac's person proof.
+    public func decline(_ question: AgentQuestion) async throws {
+        guard let reply = question.declineReply() else {
+            throw AcpmuxConnection.RPCError(code: 0, message: "This question can't be declined", reason: nil)
+        }
+        let params = try AcpmuxRecords.convert(reply.params, to: JSONValue.self)
+        _ = try await request("_acpmux/permission_respond", params)
+    }
+
     private func handle(_ notification: AcpmuxConnection.Notification) {
         let params = notification.params
         let sessionID = params["sessionId"]?.stringValue
@@ -331,9 +341,17 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         _ = try? await hub?.request("_acpmux/handoff_discard", .object(["handoffId": .string(draft.id)]))
     }
 
+    /// Relative references resolve against the session's folder as acpmux
+    /// reports it (absolute); the summary's is the workspace's, abbreviated
+    /// with `~` for display, which can't be resolved on the phone.
+    var baseDirectory: String {
+        if let cwd = hub?.sessions[sessionID]?.cwd, cwd.hasPrefix("/") { return cwd }
+        return summary.cwd
+    }
+
     public var artifactSource: any ArtifactSource {
         let hub = hub
-        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: summary.cwd) {
+        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: baseDirectory) {
             await MainActor.run { hub?.macLink }
         }
     }
