@@ -306,6 +306,34 @@ fn lease(base: &str, token: &str) -> Value {
            "expires_at":4_102_444_800_000_u64})
 }
 
+/// Whether a WebSocket handshake with `token` is refused.
+fn identify_fails(addr: &str, token: &str) -> bool {
+    let stream = TcpStream::connect(addr).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    let Ok((mut socket, _)) = tungstenite::client(format!("ws://{addr}/"), stream) else {
+        return true;
+    };
+    let auth = json!({"auth": {"token": token}}).to_string();
+    let identify = json!({"id": 1, "cmd": "identify"}).to_string();
+    if socket.send(Message::Text(auth.into())).is_err()
+        || socket.send(Message::Text(identify.into())).is_err()
+    {
+        return true;
+    }
+    loop {
+        match socket.read() {
+            Ok(Message::Text(text)) => {
+                let value: Value = serde_json::from_str(&text).unwrap();
+                if value["id"] == 1 {
+                    return value["ok"] != true;
+                }
+            }
+            Ok(Message::Close(_)) | Err(_) => return true,
+            Ok(_) => {}
+        }
+    }
+}
+
 /// The verified app's page credential (`page-credential`).
 fn page_credential(app: &mut Unix) -> String {
     let reply = app.rpc(json!({"cmd":"page-credential"}));
@@ -337,8 +365,11 @@ fn the_persons_page_gets_cloud_conversations_through_the_daemon() {
     assert_eq!(agent.rpc(json!({"cmd":"page-credential"}))["ok"], false);
     assert!(cloud.requests().is_empty(), "{:?}", cloud.requests());
 
-    let mut page = Page::open(&addr, &page_credential(&mut app));
+    let credential = page_credential(&mut app);
+    let mut page = Page::open(&addr, &credential);
     assert_eq!(page.rpc(json!({"cmd":"subscribe"}))["ok"], true);
+    // A page credential authenticates one handshake only.
+    assert!(identify_fails(&addr, &credential), "a page credential was accepted twice");
 
     // The person's Worker user id, so the page knows itself in cloud conversations.
     let status = page.rpc(json!({"cmd":"cloud-session-status"}));
@@ -410,4 +441,27 @@ fn a_page_never_uses_a_lease_another_connection_set() {
     let reads: Vec<_> =
         cloud.requests().into_iter().filter(|(path, ..)| path != "/v1/wire/user").collect();
     assert!(reads.is_empty(), "the page used the brain's lease: {reads:?}");
+}
+
+#[test]
+fn an_open_page_learns_that_the_app_signed_in() {
+    let fixture = Fixture::start("signin");
+    let cloud = FakeCloud::start();
+    let mut app = fixture.app();
+    let (addr, _) = fixture.credential();
+    let mut page = Page::open(&addr, &page_credential(&mut app));
+    assert_eq!(page.rpc(json!({"cmd":"subscribe"}))["ok"], true);
+    let status = page.rpc(json!({"cmd":"cloud-session-status"}));
+    assert_eq!(status["data"]["state"], "signed_out", "{status}");
+    // The app signs in: the page is told to list the inbox again.
+    assert_eq!(app.rpc(lease(&cloud.base, &person_token()))["ok"], true);
+    let event = page.cloud_event_within(Duration::from_secs(15));
+    assert_eq!(
+        event.as_ref().map(|e| e["event"].clone()),
+        Some(json!("cloud-inbox-reset")),
+        "{event:?}"
+    );
+    // A renewal of the same account is not a new lease.
+    assert_eq!(app.rpc(lease(&cloud.base, &person_token()))["ok"], true);
+    assert_eq!(page.rpc(json!({"cmd":"cloud-session-status"}))["data"]["state"], "active");
 }
