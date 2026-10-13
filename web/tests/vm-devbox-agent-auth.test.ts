@@ -613,6 +613,31 @@ describe("cr use", () => {
     for (const agent of AGENTS) expect(choice(m, agent)).toBeNull();
   });
 
+  test("a machine shell sends `cr use` to the adapter and every other command to the installed CLI", async () => {
+    // The pinned Cloud CLI facade forwards `use` to the adapter only from the
+    // release that knows the verb; the shell routes it until then.
+    const m = machine();
+    const adapter = path.join(m.root, "adapter");
+    writeFileSync(adapter, '#!/bin/sh\necho "adapter $*"\n');
+    chmodSync(adapter, 0o755);
+    for (const name of ["cr", "coderouter", "cmux"]) {
+      writeFileSync(path.join(m.bin, name), `#!/bin/sh\necho "installed ${name} $*"\n`);
+      chmodSync(path.join(m.bin, name), 0o755);
+    }
+    const config = path.join(m.root, "agent-config-cr.sh");
+    writeFileSync(config, readFileSync(path.join(templateDir, "agent-config.sh"), "utf8").replaceAll("/usr/local/libexec/cmux-cloud-adapter", adapter));
+    const run = async (command: string) =>
+      (await runChild("/bin/bash", ["-c", `. ${config}; ${command}`], { env: bootEnv(m) })).stdout.trim();
+    expect(await run("cr use own codex")).toBe("adapter coderouter use own codex");
+    expect(await run("coderouter use --json")).toBe("adapter coderouter use --json");
+    expect(await run("cmux cr use team")).toBe("adapter coderouter use team");
+    expect(await run("cmux coderouter use")).toBe("adapter coderouter use");
+    expect(await run("cr accounts --json")).toBe("installed cr accounts --json");
+    expect(await run("cr")).toBe("installed cr");
+    expect(await run("cmux tree --json")).toBe("installed cmux tree --json");
+    expect(await run("cmux cr accounts")).toBe("installed cmux cr accounts");
+  });
+
   test("an image without the switch says how to use an own login there", async () => {
     const m = machine();
     const result = await cr(m, ["own"], { CMUX_AGENT_AUTH_LIB: path.join(m.root, "missing.sh") });

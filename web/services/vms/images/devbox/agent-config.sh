@@ -322,6 +322,25 @@ cmux_agent_run() {
 
 opencode() { cmux_agent_run opencode "$@"; }
 
+# `cr use` (the sign-in switch) lives in the guest adapter. The pinned Cloud
+# CLI facade hands it there only from the release that knows the verb, so a
+# shell routes it directly; every other cr/coderouter/cmux command is untouched.
+cmux_cr_use() {
+  if [ -x /usr/local/libexec/cmux-cloud-adapter ]; then
+    /usr/local/libexec/cmux-cloud-adapter coderouter use "$@"
+  else
+    command cr use "$@"
+  fi
+}
+cr() { if [ "${1-}" = use ]; then shift; cmux_cr_use "$@"; else command cr "$@"; fi; }
+coderouter() { if [ "${1-}" = use ]; then shift; cmux_cr_use "$@"; else command coderouter "$@"; fi; }
+cmux() {
+  case "${1-}:${2-}" in
+    cr:use|coderouter:use) shift 2; cmux_cr_use "$@" ;;
+    *) command cmux "$@" ;;
+  esac
+}
+
 claude() { cmux_agent_run claude "$@"; }
 
 # claude folder-trust gate: claude's trust check short-circuits on
