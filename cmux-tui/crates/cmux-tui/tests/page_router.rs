@@ -102,6 +102,18 @@ impl Line {
             }
         }
     }
+
+    /// The next event line (the read timeout bounds the wait).
+    fn event(&mut self) -> Value {
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let value: Value = serde_json::from_str(&line).unwrap();
+            if value.get("event").is_some() {
+                return value;
+            }
+        }
+    }
 }
 
 /// A `cmux.protocol/2` request as a page host sends it (selectors current).
@@ -242,4 +254,71 @@ fn the_page_relay_names_its_page_and_gets_that_page_list() {
 
     // A connection that is no page keeps its history reads.
     assert_eq!(fixture.unix().send(&list)["ok"], true);
+}
+
+/// cx-hnmbt.9: an open History page hears history changes through the
+/// protocol. The page relay subscribes on its own connection and gets only
+/// the events its page's table entry names (`history-changed` for page
+/// `history`), so a workspace the person closes shows on the open page as a
+/// Closed row without a search. Other pages' relays get no event stream, and
+/// a page relay never gets a terminal's output stream.
+#[test]
+fn the_history_page_relay_hears_a_closed_workspace_as_history_changed() {
+    let fixture = Fixture::new("events");
+    fixture.ensure(HISTORY_ORIGIN);
+    let mut relay = fixture.unix();
+    let hello = relay
+        .send(&json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "history"}));
+    assert_eq!(hello["ok"], true, "{hello}");
+    assert_eq!(hello["data"]["page_events"], json!(["history-changed"]), "{hello}");
+    // The page's first read (every kind), then its event stream.
+    let list = v2("list", "history.entries.list", json!({}), None);
+    assert_eq!(relay.send(&list)["ok"], true);
+    let subscribed = relay.send(&json!({"id": 2, "cmd": "subscribe"}));
+    assert_eq!(subscribed["ok"], true, "{subscribed}");
+
+    let mut main = fixture.unix();
+    for name in ["kept", "closing"] {
+        let created = main.send(&json!({"id": 3, "cmd": "new-workspace", "name": name}));
+        assert_eq!(created["ok"], true, "{created}");
+    }
+    let tree = main.send(&json!({"id": 4, "cmd": "list-workspaces"}));
+    let key = tree["data"]["workspaces"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|workspace| workspace["name"] == "closing")
+        .map(|workspace| workspace["key"].clone())
+        .unwrap_or_else(|| panic!("no closing workspace: {tree}"));
+    let closed =
+        main.send(&json!({"id": 5, "cmd": "close-workspace", "key": key, "end_terminals": true}));
+    assert_eq!(closed["ok"], true, "{closed}");
+
+    // Only history-changed reaches the page (no tree or terminal events),
+    // and one of them names the Closed kind.
+    loop {
+        let event = relay.event();
+        assert_eq!(event["event"], "history-changed", "{event}");
+        let kinds = event["kinds"].as_array().cloned().unwrap_or_default();
+        if kinds.iter().any(|kind| kind == "closed") {
+            break;
+        }
+    }
+    let read = relay.send(&list);
+    let entries = read["result"]["entries"].as_array().unwrap_or_else(|| panic!("{read}"));
+    assert!(entries.iter().any(|entry| entry["kind"] == "closed"), "{read}");
+
+    // A terminal's output stream is a screen read: refused on a page relay.
+    let output = relay.send(&json!({"id": 6, "cmd": "subscribe", "surface": 1}));
+    assert_eq!(output["ok"], false, "{output}");
+    assert_eq!(output["error_code"], "origin.forbidden", "{output}");
+
+    // A page whose entry names no event gets no event stream.
+    let mut channels = fixture.unix();
+    let hello = channels.send(
+        &json!({"id": 1, "cmd": "client-hello", "role": "page_relay", "page": "home-channels"}),
+    );
+    assert_eq!(hello["data"]["page_events"], json!([]), "{hello}");
+    let refused = channels.send(&json!({"id": 2, "cmd": "subscribe"}));
+    assert_eq!(refused["error_code"], "origin.forbidden", "{refused}");
 }
