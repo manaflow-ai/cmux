@@ -122,3 +122,22 @@ import Testing
         ])
     }
 }
+
+/// Messages' To: field (ContactsUI's CNComposeRecipientActionButton) shows
+/// SF Symbols' `plus.circle.fill` at the Title 1 text style, 32.67 pt at
+/// Large, in label over secondarySystemFill, centered where our circle was.
+@Suite struct ComposeRecipientAddGlyphTests {
+    @Test func plusCircleFillAtTitle1() {
+        #expect(ComposeRecipientAddGeometry.symbolName == "plus.circle.fill")
+        #expect(ComposeRecipientAddGeometry.textStyleName == "title1")
+    }
+
+    @Test func centeredWhereMessagesDrawsIt() {
+        // iPhone 17 Pro, iOS 27: the image view is 344.33, 149.67, 32.67 square
+        // in a 370 pt capsule at x 16 whose last line ends 8 pt above its bottom.
+        let frame = ComposeRecipientAddGeometry.frame(fieldWidth: 370, lineBottom: 48 - 8, side: 98.0 / 3)
+        #expect(abs(frame.midX - (344.33 + 16.33 - 16)) < 0.05)
+        #expect(abs(frame.midY - 24) < 0.01)
+        #expect(frame.width == 98.0 / 3 && frame.height == 98.0 / 3)
+    }
+}
