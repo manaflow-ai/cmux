@@ -26,8 +26,6 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     private let pages = UIScrollView()
     private let header = ConversationDetailsHeaderView()
     let tabBar: ConversationDetailsTabBar?
-    let backGlass = makeGlassView(cornerRadius: ConversationHeaderGeometry.buttonSize / 2, interactive: true)
-    private let backButton = UIButton(type: .system)
 
     /// Opens the background editor for a category (the Backgrounds page).
     var onEditBackground: ((ConversationBackground.Kind?) -> Void)?
@@ -60,7 +58,6 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .clear
-        view.accessibilityViewIsModal = true
         blur.frame = view.bounds
         blur.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(blur)
@@ -120,18 +117,25 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
             backgroundsPage?.scroll.topEdgeEffect.style = Self.edgeStyle
         }
 
-        backButton.setImage(UIImage(systemName: "chevron.left", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
-        backButton.tintColor = .label
-        backButton.accessibilityLabel = String(localized: "conversation.header.back", defaultValue: "Back", bundle: .module)
-        backButton.accessibilityIdentifier = "conversation.details.back"
-        backButton.addAction(UIAction { [weak self] _ in self?.close() }, for: .touchUpInside)
-        backGlass.contentView.addSubview(backButton)
-        view.addSubview(backGlass)
+        // The back button is the navigation bar's own item, as in Messages'
+        // CommunicationDetails: UIKit's zoom then carries the bar level into
+        // the conversation's header on close (iOS 26.5, 60 fps: the button
+        // slides right at a constant y), where a glass view of our own drops
+        // 31 pt in the first frames as the content shrinks.
+        let backItem = UIBarButtonItem(image: UIImage(systemName: "chevron.backward"), primaryAction: UIAction { [weak self] _ in self?.close() })
+        backItem.accessibilityLabel = String(localized: "conversation.header.back", defaultValue: "Back", bundle: .module)
+        backItem.accessibilityIdentifier = "conversation.details.back"
+        backItem.tintColor = .label
+        navigationItem.leftBarButtonItem = backItem
+        let appearance = UINavigationBarAppearance()
+        appearance.configureWithTransparentBackground()
+        navigationItem.standardAppearance = appearance
+        navigationItem.scrollEdgeAppearance = appearance
         accessibilityElementsOrder()
     }
 
     private func accessibilityElementsOrder() {
-        var elements: [Any] = [backGlass, header]
+        var elements: [Any] = [header]
         if let tabBar { elements.append(tabBar) }
         elements.append(pages)
         view.accessibilityElements = elements
@@ -209,16 +213,15 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
         pages.contentSize = CGSize(width: bounds.width * CGFloat(count), height: bounds.height)
         infoPage.table.frame = bounds
         backgroundsPage?.scroll.frame = bounds.offsetBy(dx: bounds.width, dy: 0)
-        let top = view.safeAreaInsets.top
         let margin = ConversationHeaderGeometry.sideMargin(layoutMargin: view.layoutMargins.left)
-        backGlass.frame = CGRect(x: margin, y: top, width: ConversationHeaderGeometry.buttonSize, height: ConversationHeaderGeometry.buttonSize)
-        backButton.frame = CGRect(x: 2, y: ConversationHeaderGeometry.backChevronDrop, width: 40, height: 44)
         let rest = headerLayout(offset: 0)
         infoPage.setSideMargin(margin)
         infoPage.setHeaderHeight(rest.height, bottomInset: view.safeAreaInsets.bottom)
         backgroundsPage?.setHeaderHeight(rest.height, bottomInset: view.safeAreaInsets.bottom)
         layoutHeader()
     }
+
+    private var safeTop: CGFloat { navigationController?.view.safeAreaInsets.top ?? view.safeAreaInsets.top }
 
     /// The current page's scroll offset drives the header.
     private var currentOffset: CGFloat {
@@ -239,7 +242,7 @@ final class ConversationDetailsViewController: UIViewController, UIScrollViewDel
     private func headerLayout(offset: CGFloat) -> ConversationDetailsHeaderLayout {
         let width = view.bounds.width
         return ConversationDetailsHeaderGeometry.layout(
-            width: width, safeTop: view.safeAreaInsets.top, offset: offset, showsTabs: tabBar != nil, isGroup: isGroup,
+            width: width, safeTop: safeTop, offset: offset, showsTabs: tabBar != nil, isGroup: isGroup,
             titleHeight: header.titleHeight(width: width),
             quickActionSize: ConversationDetailsHeaderView.quickActionSize(for: traitCollection),
             tabBarHeight: tabBar?.barHeight ?? ConversationDetailsHeaderGeometry.tabBarHeight

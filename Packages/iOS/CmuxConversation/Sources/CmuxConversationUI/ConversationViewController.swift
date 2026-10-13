@@ -1358,8 +1358,10 @@ public final class ConversationViewController: UIViewController {
         // Wrapped like ChatKit's: UIKit's zoom then closes the bare content
         // (no card platter or shadow) as it does in Messages.
         let container = UINavigationController(rootViewController: details)
-        container.setNavigationBarHidden(true, animated: false)
+        // Its bar shows only the back item, which UIKit's zoom carries
+        // level on close as in Messages.
         container.view.backgroundColor = .clear
+        container.view.accessibilityViewIsModal = true
         container.modalPresentationStyle = .overFullScreen
         if #available(iOS 18.0, *) {
             let options = UIViewController.Transition.ZoomOptions()
