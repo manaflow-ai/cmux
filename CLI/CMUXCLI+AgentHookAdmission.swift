@@ -210,12 +210,17 @@ extension CMUXCLI {
             return environment
         }
         let pidEnvironmentKey = Self.agentHookPIDEnvironmentVariable(agentName: agent)
-        if runsInHookProcess, !client.isRelayBacked {
+        // A spool record names the process that ran its hook; a CLI hook is
+        // that process's descendant.
+        let recordedInvokerPID = environment.removeValue(
+            forKey: AgentHookDeliveryPolicy.invokerPIDEnvironmentKey
+        ).flatMap(Int.init)
+        if !client.isRelayBacked, runsInHookProcess || recordedInvokerPID != nil {
             // The exported PID can be inherited from an agent in another pane
             // (#20186); the agent that ran this hook names the hook's pane.
             if let agentPID = AgentHookDeliveryPolicy().hookAgentPID(
                 environmentPID: environment[pidEnvironmentKey].flatMap(Int.init),
-                invocationAgentPID: inferredAgentPID(),
+                invocationAgentPID: runsInHookProcess ? inferredAgentPID() : recordedInvokerPID,
                 controllingTerminal: controllingTerminalDevice(of:)
             ) {
                 environment[pidEnvironmentKey] = String(agentPID)
@@ -953,6 +958,7 @@ extension CMUXCLI {
             "CMUX_AGENT_MANAGED_SUBAGENT", "CMUX_SUPPRESS_SUBAGENT_NOTIFICATIONS",
             "CMUX_SURFACE_ID", "CMUX_WORKSPACE_ID", agentHookRouteSnapshotEnvironmentKey,
             agentHookPIDEnvironmentVariable(agentName: agent),
+            AgentHookDeliveryPolicy.invokerPIDEnvironmentKey,
         ] + routedLaunchKeys
     }
 

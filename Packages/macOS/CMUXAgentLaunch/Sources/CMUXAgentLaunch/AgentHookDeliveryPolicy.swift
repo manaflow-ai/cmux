@@ -10,6 +10,10 @@ public struct AgentHookDeliveryPolicy: Sendable {
     public static let routeSnapshotEnvironmentKey =
         "CMUX_AGENT_HOOK_ROUTE_SNAPSHOT"
 
+    /// The PID of the process that ran a spooled hook, recorded by the spool
+    /// producer so a later forwarder can apply ``hookAgentPID(environmentPID:invocationAgentPID:controllingTerminal:)``.
+    public static let invokerPIDEnvironmentKey = "CMUX_AGENT_HOOK_INVOKER_PID"
+
     /// The largest payload accepted by the local delivery queue.
     public static let maximumPayloadBytes = 64 * 1_024
 
