@@ -211,6 +211,19 @@ class DefaultsGuardTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('DEFAULTS setting.sidebar.numbering: "allItems" -> "workspacesOnly"', result.stdout)
 
+    def test_a_linked_file_in_a_checked_out_head_is_refused(self):
+        secret = self.repo.root.parent / f"{self.repo.root.name}-runner-secret.json"
+        secret.write_text(json.dumps({"rows": [{"key": "leak", "default": "runner file"}]}), encoding="utf-8")
+        head = self.repo.root.parent / f"{self.repo.root.name}-linked-head"
+        self.repo.git("worktree", "add", "-q", "--detach", str(head), self.base)
+        settings = head / "schemas/settings/settings-schema.json"
+        settings.unlink()
+        settings.symlink_to(secret)
+        result = self.repo.guard("check", "--base", str(self.repo.root), "--head", str(head), "--head-sha", self.base)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("is a symbolic link", result.stdout + result.stderr)
+        self.assertNotIn("runner file", result.stdout + result.stderr)
+
     # The snapshot itself.
 
     def test_a_branch_from_before_the_snapshot_is_judged_by_its_sources(self):
