@@ -63,39 +63,6 @@ impl PtySurface {
         }
     }
 
-    /// A failed journal writer, or one that stays full past the durable
-    /// deadline, stops this terminal's capture; the terminal reader, the
-    /// terminal and the daemon keep running. The journal gets a
-    /// `terminal.output.gap` record when it still accepts one. The failure is
-    /// involuntary, so it must not take the user shutdown path
-    /// (`request_daemon_shutdown` marks a session shutdown, which records
-    /// signal deaths as session_shutdown).
-    pub(super) fn stop_journal_capture(
-        &self,
-        mux: &Mux,
-        terminal_id: Arc<TerminalPublicId>,
-        reason: &'static str,
-        deadline: Option<Instant>,
-        error: &str,
-    ) {
-        self.journal_capture_disabled.store(true, Ordering::Release);
-        let generation = self.journal_generation.clone();
-        let gap = match deadline {
-            Some(deadline) => {
-                mux.try_journal_terminal_output_gap_until(terminal_id, generation, reason, deadline)
-            }
-            None => mux.try_journal_terminal_output_gap(terminal_id, generation, reason),
-        };
-        if gap.is_err() {
-            eprintln!(
-                "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
-            );
-        }
-        eprintln!(
-            "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
-        );
-    }
-
     pub(super) fn journal_geometry(&self, geometry: PtyGeometry) {
         let (Some(terminal_id), Some(mux)) = (self.terminal_public_id.clone(), self.mux.upgrade())
         else {
@@ -724,5 +691,40 @@ impl PtySurface {
         // one consistent boundary for text and dimensions.
         self.stream_progress.notify();
         Ok(true)
+    }
+}
+
+impl PtyTerminalRuntime {
+    /// A failed journal writer, or one that stays full past the durable
+    /// deadline, stops this terminal's capture; the terminal reader, the
+    /// terminal and the daemon keep running. The journal gets a
+    /// `terminal.output.gap` record when it still accepts one. The failure is
+    /// involuntary, so it must not take the user shutdown path
+    /// (`request_daemon_shutdown` marks a session shutdown, which records
+    /// signal deaths as session_shutdown).
+    pub(super) fn stop_journal_capture(
+        &self,
+        mux: &Mux,
+        terminal_id: Arc<TerminalPublicId>,
+        reason: &'static str,
+        deadline: Option<Instant>,
+        error: &str,
+    ) {
+        self.journal_capture_disabled.store(true, Ordering::Release);
+        let generation = self.journal_generation.clone();
+        let gap = match deadline {
+            Some(deadline) => {
+                mux.try_journal_terminal_output_gap_until(terminal_id, generation, reason, deadline)
+            }
+            None => mux.try_journal_terminal_output_gap(terminal_id, generation, reason),
+        };
+        if gap.is_err() {
+            eprintln!(
+                "cmux-tui: terminal journal gap marker could not be recorded; terminal capture remains disabled"
+            );
+        }
+        eprintln!(
+            "cmux-tui: terminal journal capture disabled after a write failure; daemon remains available: {error}"
+        );
     }
 }

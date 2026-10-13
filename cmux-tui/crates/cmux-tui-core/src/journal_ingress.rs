@@ -1059,10 +1059,6 @@ impl JournalIngressSender {
         }
     }
 
-    pub(crate) fn wait_for_queue_space(&self, observed: u64) -> Result<(), String> {
-        self.state.wait_for_queue_space_change(observed)
-    }
-
     fn writer_error(&self) -> String {
         self.state.admission_error().unwrap_or_else(|| "session journal writer stopped".into())
     }

@@ -7,11 +7,7 @@ const path = require("node:path");
 // notice stay complete with exactly these).
 const IMMUTABLE_RELEASE_ASSETS = [
   "cmux-macos.dmg",
-  "cmux-macos-arm64.dmg",
-  "cmux-macos-x86_64.dmg",
   "appcast.xml",
-  "appcast-arm64.xml",
-  "appcast-x86_64.xml",
   "cmuxd-remote-darwin-arm64",
   "cmuxd-remote-darwin-amd64",
   "cmuxd-remote-linux-arm64",

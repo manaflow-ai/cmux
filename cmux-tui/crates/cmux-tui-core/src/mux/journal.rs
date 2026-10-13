@@ -70,10 +70,6 @@ impl Mux {
         }
     }
 
-    pub(crate) fn wait_for_terminal_journal_space(&self, observed: u64) -> Result<(), String> {
-        self.journal_ingress.wait_for_queue_space(observed)
-    }
-
     pub(crate) fn wait_for_terminal_journal_space_until(
         &self,
         observed: u64,

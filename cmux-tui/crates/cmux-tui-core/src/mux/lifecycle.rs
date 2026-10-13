@@ -110,6 +110,8 @@ impl Mux {
     pub fn shutdown(&self) {
         let screen_checkpoint = self.wants_shutdown_checkpoint();
         self.shutting_down.store(true, Ordering::Release);
+        // An in-flight maintenance tick must not delay the rest of shutdown.
+        self.stop_journal_maintenance();
         self.begin_session_shutdown();
         self.terminal_respawns.wake_all();
         // Hosts of closed terminals were already asked to exit; give them
@@ -121,7 +123,6 @@ impl Mux {
             eprintln!("cmux-tui: closed terminal hosts did not exit before shutdown");
         }
         self.config_reload_changed.notify_all();
-        self.stop_journal_maintenance();
         self.journal_plugin.shutdown();
         self.journal_kernel.wake_waiters();
         let hook_deadline = Instant::now() + crate::journal_hooks::SHUTDOWN_WAIT;
