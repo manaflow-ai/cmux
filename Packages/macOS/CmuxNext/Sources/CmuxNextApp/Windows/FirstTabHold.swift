@@ -43,6 +43,8 @@ enum FirstTabHold {
     private static func release(_ id: String, _ windows: WindowManager) {
         guard waiting.remove(id) != nil else { return }
         windows.reconcileMembership()
+        // The page shows in its window now: keys held since Cmd-N may go to its field.
+        windows.services.keyRouter.newTabInputCoordinator.flushAll()
     }
 
     /// Returns once workspace `id` has a tab in the store, or after ``limit``.

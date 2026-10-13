@@ -50,6 +50,7 @@
     "credential.verify",
     "frontend_projection.get",
     "frontend_projection.put",
+    "git.branches",
     "git.checkpoint.create",
     "git.checkpoint.diff",
     "git.checkpoint.get",
