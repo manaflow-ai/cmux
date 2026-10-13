@@ -15,6 +15,7 @@ struct ComposerBar: View {
     var placeholder: String
 
     @FocusState private var focused: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @State private var showPhotos = false
     @State private var showFiles = false
     @State private var showCamera = false
@@ -92,9 +93,12 @@ struct ComposerBar: View {
 
     private var textCapsule: some View {
         HStack(alignment: .bottom, spacing: 6) {
-            TextField(placeholder, text: $model.text, axis: .vertical)
+            TextField(fittingPlaceholder, text: $model.text, axis: .vertical)
                 .lineLimit(1...6)
                 .font(.body)
+                // Past AX3 the capsule would take most of the screen while
+                // the text still wraps fine; Messages stops growing there too.
+                .dynamicTypeSize(...DynamicTypeSize.accessibility3)
                 .focused($focused)
                 .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
@@ -109,6 +113,12 @@ struct ComposerBar: View {
         }
         .frame(minHeight: 44)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
+    }
+
+    /// A placeholder never wraps: at accessibility sizes "Type a command"
+    /// or "Message Claude" was cut to "Type a…", so it becomes one word.
+    private var fittingPlaceholder: String {
+        dynamicTypeSize.isAccessibilitySize ? String(localized: "Message") : placeholder
     }
 
     /// Always reachable: shows the keyboard, or hides it while it's up.

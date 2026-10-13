@@ -155,6 +155,9 @@ final class TerminalKeyBarView: UIInputView {
         self.handler = handler
         super.init(frame: CGRect(x: 0, y: 0, width: 0, height: 52), inputViewStyle: .keyboard)
         allowsSelfSizing = true
+        // The terminal is always dark; a light keyboard backdrop flashed
+        // white under it in light mode.
+        overrideUserInterfaceStyle = .dark
         build()
     }
 
@@ -201,16 +204,18 @@ final class TerminalKeyBarView: UIInputView {
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             scroll.trailingAnchor.constraint(equalTo: dismiss.leadingAnchor, constant: -6),
             scroll.topAnchor.constraint(equalTo: topAnchor, constant: 6),
-            scroll.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
+            // With a hardware keyboard the bar sits at the screen's bottom
+            // edge: keep the keys above the home indicator.
+            scroll.bottomAnchor.constraint(equalTo: safeAreaLayoutGuide.bottomAnchor, constant: -6),
+            scroll.heightAnchor.constraint(equalToConstant: 40),
             stack.leadingAnchor.constraint(equalTo: scroll.contentLayoutGuide.leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: scroll.contentLayoutGuide.trailingAnchor),
             stack.topAnchor.constraint(equalTo: scroll.contentLayoutGuide.topAnchor),
             stack.bottomAnchor.constraint(equalTo: scroll.contentLayoutGuide.bottomAnchor),
             stack.heightAnchor.constraint(equalTo: scroll.frameLayoutGuide.heightAnchor),
             dismiss.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
-            dismiss.centerYAnchor.constraint(equalTo: centerYAnchor),
+            dismiss.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
             dismiss.widthAnchor.constraint(equalToConstant: 48),
-            heightAnchor.constraint(equalToConstant: 52),
         ])
     }
 
