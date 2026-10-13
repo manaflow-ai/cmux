@@ -44,6 +44,7 @@ type cloudCLIBridge struct {
 	servers    map[*rpcServer]struct{}
 	pending    map[string]cloudCLIPendingRequest
 	listener   net.Listener
+	socketInfo os.FileInfo
 }
 
 func newCloudCLIBridge() *cloudCLIBridge {
@@ -80,8 +81,7 @@ func (b *cloudCLIBridge) start(ctx context.Context, socketPath string, stderr io
 	if err := os.MkdirAll(filepath.Dir(socketPath), 0o755); err != nil {
 		return err
 	}
-	_ = os.Remove(socketPath)
-	listener, err := net.Listen("unix", socketPath)
+	listener, err := listenCloudCLIBridgeSocket(socketPath)
 	if err != nil {
 		return err
 	}
@@ -90,20 +90,73 @@ func (b *cloudCLIBridge) start(ctx context.Context, socketPath string, stderr io
 		_ = os.Remove(socketPath)
 		return err
 	}
+	socketInfo, err := os.Lstat(socketPath)
+	if err != nil {
+		_ = listener.Close()
+		return err
+	}
 	b.mu.Lock()
 	b.listener = listener
+	b.socketInfo = socketInfo
 	b.mu.Unlock()
 	_, _ = fmt.Fprintf(stderr, "cmuxd-remote cloud CLI bridge listening on %s\n", socketPath)
 	go func() {
 		<-ctx.Done()
 		_ = listener.Close()
 	}()
-	go b.acceptLoop(listener, socketPath, stderr)
+	go b.acceptLoop(listener, socketPath, socketInfo, stderr)
 	return nil
 }
 
-func (b *cloudCLIBridge) acceptLoop(listener net.Listener, socketPath string, stderr io.Writer) {
-	defer os.Remove(socketPath)
+// listenCloudCLIBridgeSocket preserves a live bridge and only removes a Unix
+// socket after an ECONNREFUSED probe confirms that it is stale.
+func listenCloudCLIBridgeSocket(socketPath string) (net.Listener, error) {
+	listener, err := net.Listen("unix", socketPath)
+	if err == nil {
+		return listener, nil
+	}
+	info, statErr := os.Lstat(socketPath)
+	if statErr != nil || info.Mode().Type() != os.ModeSocket {
+		return nil, err
+	}
+	probe, probeErr := net.DialTimeout("unix", socketPath, 100*time.Millisecond)
+	if probeErr == nil {
+		_ = probe.Close()
+		return nil, err
+	}
+	if !errors.Is(probeErr, syscall.ECONNREFUSED) {
+		return nil, err
+	}
+	latestInfo, statErr := os.Lstat(socketPath)
+	if statErr != nil || !os.SameFile(info, latestInfo) {
+		return nil, err
+	}
+	if removeErr := os.Remove(socketPath); removeErr != nil {
+		return nil, err
+	}
+	return net.Listen("unix", socketPath)
+}
+
+// removeCloudCLIBridgeSocketIfOwned avoids removing a replacement bridge's
+// path when an older accept loop finishes after a restart.
+func removeCloudCLIBridgeSocketIfOwned(socketPath string, ownerInfo os.FileInfo) {
+	if ownerInfo == nil {
+		return
+	}
+	currentInfo, err := os.Lstat(socketPath)
+	if err != nil || !os.SameFile(ownerInfo, currentInfo) {
+		return
+	}
+	_ = os.Remove(socketPath)
+}
+
+func (b *cloudCLIBridge) acceptLoop(
+	listener net.Listener,
+	socketPath string,
+	ownerInfo os.FileInfo,
+	stderr io.Writer,
+) {
+	defer removeCloudCLIBridgeSocketIfOwned(socketPath, ownerInfo)
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
