@@ -163,6 +163,11 @@ pub struct SessionMeta {
     /// the harness on it (``SessionMeta::apply_chat_store``).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chat_store: Option<PathBuf>,
+    /// The adopted conversation's recorded cwd when it was gone here (a chat
+    /// moved from another machine) and the session runs in a remapped folder
+    /// instead (`hub/adoption.rs` `remapped_cwd`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adopted_cwd: Option<PathBuf>,
     /// Chat store roots the harness's launch env named at its last spawn
     /// (ALL-CHATS-ON-DEVICE C3): absolute, existing folders only.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

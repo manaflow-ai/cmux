@@ -196,25 +196,36 @@ fn indexed_stores(
 
 /// The new session's cwd: the one given, else the adopted conversation's
 /// recorded one, else home; made absolute and required to be a directory.
+/// The second value is the recorded cwd when it is gone and the session runs
+/// in the given folder instead (`remapped_cwd`).
 pub(super) fn session_cwd(
     cwd: Option<PathBuf>,
     recorded: Option<PathBuf>,
     family: &str,
-) -> Result<PathBuf, RpcError> {
+    cwd_map: &[(PathBuf, PathBuf)],
+) -> Result<(PathBuf, Option<PathBuf>), RpcError> {
+    let mut remapped_from = None;
     let cwd = match (cwd, recorded) {
         // Claude keeps a conversation under its cwd's project; resuming elsewhere finds nothing.
         // The client's folder is only its default (the page's private agent-home folder), so the
         // conversation's own folder wins while it exists (nxdog93: "cwd mismatch" on an
-        // agent-home chat). A gone folder needs the person's pick (`needsFolder`).
+        // agent-home chat). A gone folder needs the person's pick (`needsFolder`), which must
+        // stand in for it: a chat moved from another machine records that machine's folder.
         (Some(given), Some(recorded)) if family == "claude" && !same_dir(&given, &recorded) => {
-            if !recorded.is_dir() {
-                return Err(RpcError::invalid_params(format!(
-                    "cwd {} does not match the adopted session's {}, which is gone",
-                    given.display(),
-                    recorded.display()
-                )));
+            if recorded.is_dir() {
+                recorded
+            } else {
+                let home = dirs::home_dir();
+                remapped_cwd(&given, &recorded, cwd_map, home.as_deref()).map_err(|why| {
+                    RpcError::invalid_params(format!(
+                        "cwd {} does not match the adopted session's {}, which is gone: {why}",
+                        given.display(),
+                        recorded.display()
+                    ))
+                })?;
+                remapped_from = Some(recorded);
+                given
             }
-            recorded
         }
         (Some(given), _) => given,
         (None, Some(recorded)) => recorded,
@@ -232,7 +243,17 @@ pub(super) fn session_cwd(
     if !cwd.is_dir() {
         return Err(RpcError::invalid_params(format!("cwd {} is not a directory", cwd.display())));
     }
-    Ok(cwd)
+    Ok((cwd, remapped_from))
+}
+
+/// Ok when `given` stands in for the gone `recorded` folder; else why not.
+pub(super) fn remapped_cwd(
+    _given: &Path,
+    _recorded: &Path,
+    _cwd_map: &[(PathBuf, PathBuf)],
+    _home: Option<&Path>,
+) -> Result<(), String> {
+    Err("pass the chat's own folder".into())
 }
 
 /// The session in `sessions` that adopted `agent_session_id` in `family`.
@@ -347,5 +368,129 @@ impl Hub {
                 ended,
             );
         }
+    }
+}
+
+// The tests name Unix paths of another machine.
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::process::Command;
+
+    /// A fresh folder for one test, canonical (macOS's temp dir is a symlink).
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir()
+            .join(format!("acpmux-adopt-cwd-remap-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::canonicalize(dir).unwrap()
+    }
+
+    /// A git checkout at `dir` with a `sub` folder and `remote` as origin.
+    fn checkout(dir: &Path, remote: &str) {
+        std::fs::create_dir_all(dir.join("sub")).unwrap();
+        for args in [&["init", "-q"][..], &["remote", "add", "origin", remote]] {
+            let ok = Command::new("git").arg("-C").arg(dir).args(args).status().unwrap().success();
+            assert!(ok, "git {args:?}");
+        }
+    }
+
+    /// Another machine's home, gone here.
+    const GONE: &str = "/acpmux-gone-host/leo";
+
+    fn map_to(root: &Path) -> Vec<(PathBuf, PathBuf)> {
+        vec![(PathBuf::from(GONE), root.to_path_buf())]
+    }
+
+    #[test]
+    fn adopt_cwd_remap_explicit_map_opens_the_mapped_folder() {
+        let root = scratch("explicit");
+        let given = root.join("Projects");
+        std::fs::create_dir_all(&given).unwrap();
+        let recorded = PathBuf::from(GONE).join("Projects");
+        let got =
+            session_cwd(Some(given.clone()), Some(recorded.clone()), "claude", &map_to(&root))
+                .unwrap();
+        assert_eq!(got, (given, Some(recorded)));
+    }
+
+    #[test]
+    fn adopt_cwd_remap_accepts_another_checkout_of_the_same_repo() {
+        let root = scratch("same-repo");
+        checkout(&root.join("a"), "git@github.com:manaflow-ai/cmux.git");
+        checkout(&root.join("b"), "https://GitHub.com/manaflow-ai/cmux/");
+        let recorded = PathBuf::from(GONE).join("a/sub");
+        let given = root.join("b/sub");
+        let got =
+            session_cwd(Some(given.clone()), Some(recorded.clone()), "claude", &map_to(&root))
+                .unwrap();
+        assert_eq!(got, (given, Some(recorded)));
+    }
+
+    #[test]
+    fn adopt_cwd_remap_refuses_another_repo() {
+        let root = scratch("other-repo");
+        checkout(&root.join("a"), "git@github.com:manaflow-ai/cmux.git");
+        checkout(&root.join("b"), "git@github.com:manaflow-ai/other.git");
+        let recorded = PathBuf::from(GONE).join("a/sub");
+        let err = session_cwd(Some(root.join("b/sub")), Some(recorded), "claude", &map_to(&root))
+            .unwrap_err();
+        assert!(err.message.contains("which is gone"), "{}", err.message);
+    }
+
+    #[test]
+    fn adopt_cwd_remap_refuses_another_folder_of_the_same_repo() {
+        let root = scratch("other-folder");
+        checkout(&root.join("a"), "git@github.com:manaflow-ai/cmux.git");
+        checkout(&root.join("b"), "git@github.com:manaflow-ai/cmux.git");
+        let recorded = PathBuf::from(GONE).join("a/sub");
+        let err = session_cwd(Some(root.join("b")), Some(recorded), "claude", &map_to(&root))
+            .unwrap_err();
+        assert!(err.message.contains("which is gone"), "{}", err.message);
+    }
+
+    #[test]
+    fn adopt_cwd_remap_home_swap_needs_the_same_repo() {
+        let root = scratch("home-swap");
+        checkout(&root.join("a"), "git@github.com:manaflow-ai/cmux.git");
+        std::fs::create_dir_all(root.join("Projects")).unwrap();
+        // Another machine's home maps onto this one's, for a checkout of one repo.
+        let swapped =
+            remapped_cwd(&root.join("a/sub"), Path::new("/home/leo/a/sub"), &[], Some(&root));
+        assert_eq!(swapped, Ok(()));
+        // A folder that is no checkout needs an explicit map.
+        let plain =
+            remapped_cwd(&root.join("Projects"), Path::new("/home/leo/Projects"), &[], Some(&root));
+        assert!(plain.is_err());
+        // A folder under no home maps nowhere.
+        assert!(
+            remapped_cwd(&root.join("a/sub"), Path::new("/srv/a/sub"), &[], Some(&root)).is_err()
+        );
+    }
+
+    #[test]
+    fn adopt_cwd_remap_gone_folder_without_a_map_is_refused() {
+        let root = scratch("no-map");
+        let err = session_cwd(
+            Some(root.clone()),
+            Some(PathBuf::from("/srv/acpmux-gone/x")),
+            "claude",
+            &[],
+        )
+        .unwrap_err();
+        assert!(err.message.contains("which is gone"), "{}", err.message);
+    }
+
+    #[test]
+    fn adopt_cwd_remap_reads_the_adopt_cwd_map() {
+        let meta =
+            json!({"adopt": {"agentSessionId": "abc", "cwdMap": ["/home/leo=/Users/leoli"]}});
+        let adopt = AdoptRequest::from_meta(Some(&meta)).unwrap().unwrap();
+        assert_eq!(
+            adopt.cwd_map,
+            vec![(PathBuf::from("/home/leo"), PathBuf::from("/Users/leoli"))]
+        );
+        let bad = json!({"adopt": {"agentSessionId": "abc", "cwdMap": ["home=/Users/leoli"]}});
+        assert!(AdoptRequest::from_meta(Some(&bad)).is_err());
     }
 }
