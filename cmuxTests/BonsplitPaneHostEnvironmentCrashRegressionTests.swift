@@ -3,6 +3,19 @@ import Bonsplit
 import SwiftUI
 import Testing
 
+/// Reads the public controller from inside the pane's separately hosted view.
+/// The production pane also reads this environment, but keeping the probe in
+/// the regression test makes the missing-host-injection failure explicit and
+/// independent of which pane chrome SwiftUI decides to lay out first.
+private struct BonsplitControllerEnvironmentProbe: View {
+    @Environment(BonsplitController.self) private var controller
+
+    var body: some View {
+        Text(controller.focusedPaneId?.description ?? "no-focused-pane")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 /// Reproduces the SwiftUI environment trap reported in cmux issues #20194 and
 /// #20181. A split pane is hosted by its own `NSHostingController`; during a
 /// drag-time nested run loop, deferred divider work can lay that host out after
@@ -19,9 +32,9 @@ struct BonsplitPaneHostEnvironmentCrashRegressionTests {
 
         let hostingView = NSHostingView(
             rootView: BonsplitView(controller: controller) { _, _ in
-                Color.clear
+                BonsplitControllerEnvironmentProbe()
             } emptyPane: { _ in
-                Color.clear
+                BonsplitControllerEnvironmentProbe()
             }
         )
         let window = NSWindow(
@@ -60,6 +73,16 @@ struct BonsplitPaneHostEnvironmentCrashRegressionTests {
         // Bonsplit hierarchy before the queued divider callback runs.
         hostingView.removeFromSuperview()
         window.close()
+        // The crash reports show a queued terminal refresh forcing a detached
+        // pane host through AppKit layout during a nested drag run loop. Walk
+        // every retained hosting view explicitly so this test exercises that
+        // same detached-host update even on macOS versions whose window-close
+        // path does not request a layout by itself.
+        for paneHostingView in Self.hostingViews(in: splitView) {
+            paneHostingView.needsLayout = true
+            paneHostingView.layoutSubtreeIfNeeded()
+            paneHostingView.displayIfNeeded()
+        }
         RunLoop.current.run(until: Date().addingTimeInterval(0.2))
 
         #expect(splitView.window == nil)
@@ -71,5 +94,16 @@ struct BonsplitPaneHostEnvironmentCrashRegressionTests {
             if let splitView = firstSplitView(in: subview) { return splitView }
         }
         return nil
+    }
+
+    private static func hostingViews(in root: NSView) -> [NSView] {
+        var result: [NSView] = []
+        if root is NSHostingView<AnyView> {
+            result.append(root)
+        }
+        for subview in root.subviews {
+            result.append(contentsOf: hostingViews(in: subview))
+        }
+        return result
     }
 }
