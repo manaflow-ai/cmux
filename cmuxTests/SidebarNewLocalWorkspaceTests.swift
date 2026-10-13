@@ -125,6 +125,26 @@ struct SidebarNewLocalWorkspaceTests {
         #expect(created.currentDirectory == nested.path)
     }
 
+    @Test func commandNDoesNotImplicitlyJoinDelegationGroup() throws {
+        let fixture = try Fixture()
+        defer { fixture.tearDown() }
+        let selected = try #require(fixture.manager.selectedWorkspace)
+        let groupID = try #require(fixture.manager.createWorkspaceGroup(
+            name: "⚑ Explicit delegation",
+            childWorkspaceIds: [selected.id],
+            externalID: "wave:lord-session"
+        ))
+
+        #expect(fixture.app.performNewLocalWorkspaceAction(
+            tabManager: fixture.manager,
+            debugSource: "test.delegation.commandN"
+        ))
+
+        let created = try #require(fixture.manager.selectedWorkspace)
+        #expect(fixture.manager.workspaceGroups.contains { $0.id == groupID })
+        #expect(created.groupId == nil, "Cmd-N creates an independent workspace; the group + action is the explicit delegation path")
+    }
+
     @Test func commandNWithoutExplicitContextDoesNotInheritCloudDirectory() throws {
         let fixture = try Fixture()
         defer { fixture.tearDown() }
