@@ -62,7 +62,26 @@ const readOnlyPlan = (metadata: unknown): string | null => {
   return typeof plan === "string" && plan.length > 0 && plan.length <= 64 ? plan : null
 }
 
-export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = (r) => fetch(r)): StackServer | undefined => {
+/**
+ * One retry after a 429 (cx-f5tk4): the sign-in service rate-limits our server reads. The wait is
+ * its Retry-After (seconds), 1 s when absent, and never more than RETRY_429_MAX_MS, so a retry stays
+ * inside a webhook delivery's deadline; a longer Retry-After or a second 429 throws (the delivery
+ * answers a retryable 503).
+ */
+export const RETRY_429_MAX_MS = 2000
+export const retryAfterMs = (res: Response): number | null => {
+  const raw = res.headers.get("retry-after")
+  const seconds = raw === null ? 1 : Number(raw)
+  if (!Number.isFinite(seconds) || seconds < 0) return null
+  const ms = Math.ceil(seconds * 1000)
+  return ms <= RETRY_429_MAX_MS ? ms : null
+}
+
+export const stackServer = (
+  env: Env,
+  http: (r: Request) => Promise<Response> = (r) => fetch(r),
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))
+): StackServer | undefined => {
   const key = env.STACK_SECRET_SERVER_KEY
   if (!key) return undefined
   const headers = {
@@ -71,15 +90,25 @@ export const stackServer = (env: Env, http: (r: Request) => Promise<Response> = 
     "x-stack-project-id": env.STACK_PROJECT_ID,
     "x-stack-secret-server-key": key
   }
+  /** The request, sent once more after a short 429 (retryAfterMs); any other answer is returned as is. */
+  const send = async (make: () => Request): Promise<Response> => {
+    const res = await http(make())
+    if (res.status !== 429) return res
+    const ms = retryAfterMs(res)
+    if (ms === null) return res
+    await res.body?.cancel()
+    await wait(ms)
+    return http(make())
+  }
   const call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
-    const res = await http(new Request(`${API}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(10_000) }))
+    const res = await send(() => new Request(`${API}${path}`, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(10_000) }))
     // Never echo Stack's response body (it may carry user data) into our errors.
     if (!res.ok) throw new Error(`stack ${method} ${path.split("?")[0]} returned ${res.status}`)
     return (await res.json()) as T
   }
   /** A GET whose 404 with one of Stack's known errors `gone` is an answer, not a failure; any other error throws. */
   const lookup = async <T>(path: string, label: string, gone: ReadonlyArray<string>): Promise<T | { gone: string }> => {
-    const res = await http(new Request(`${API}${path}`, { method: "GET", headers, signal: AbortSignal.timeout(10_000) }))
+    const res = await send(() => new Request(`${API}${path}`, { method: "GET", headers, signal: AbortSignal.timeout(10_000) }))
     const known = res.headers.get("x-stack-known-error") ?? ""
     if (res.status === 404 && gone.includes(known)) return { gone: known }
     if (!res.ok) throw new Error(`stack GET ${label} returned ${res.status}`)
