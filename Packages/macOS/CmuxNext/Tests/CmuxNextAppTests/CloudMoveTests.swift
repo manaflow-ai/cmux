@@ -106,7 +106,7 @@ struct CloudMoveTests {
 
     /// A machine whose cmux-tui is too old for the move (cx-rppd.13) is named as one in plain words,
     /// whether the folder copy or the chat move found it, and nothing moves: this Mac's tab stays and
-    /// Retry runs the move again on that machine once it is updated.
+    /// the toast offers "Update Machine" on that machine.
     @Test(arguments: ["syncOutdated", "outdated"])
     func anOutdatedMachineIsNamedAndTheChatStaysHere(_ mode: String) async throws {
         try await Self.withMove(mode) { move in
@@ -114,7 +114,53 @@ struct CloudMoveTests {
             #expect(error.message == CloudMoveStrings.outdatedMachine("Move VM"), "\(error.message)")
             #expect(move.calls().count == (mode == "syncOutdated" ? 1 : 2), "\(move.calls())")
             #expect(move.services.locateTab(move.tabID) != nil, "this Mac's tab closed though its chat did not move")
-            #expect(move.services.cloud.moveRetries[move.key] == .move(machineID: "vm-move"))
+            #expect(move.services.cloud.moveRetries[move.key] == .update(machineID: "vm-move"))
+        }
+    }
+
+    /// "Update Machine" (cx-rppd.13): after a move stopped on a machine whose cmux-tui is too old,
+    /// only the person's button (an invocation from this app's own UI) updates the machine, through
+    /// `cmux link machine update` with nothing but the machine's socket, then moves the chat there.
+    /// The same argument from the CLI updates nothing.
+    @Test func updateMachineUpdatesAnOutdatedMachineThenMovesTheChat() async throws {
+        try await Self.withMove("updates") { move in
+            #expect(await move.run() != nil, "the move did not report the older machine")
+            #expect(move.services.cloud.moveRetries[move.key] == .update(machineID: "vm-move"))
+
+            // The argument from the CLI: never an update.
+            _ = await move.run(extra: [CloudMachineUpdate.argument: .bool(true)])
+            #expect(!move.calls().contains { $0.prefix(3) == ["link", "machine", "update"] }, "the CLI updated the machine: \(move.calls())")
+            #expect(move.services.locateTab(move.tabID) != nil)
+
+            // The toast's "Update Machine".
+            let before = move.calls().count
+            let update = ActionInvocation(target: ActionTargetRef(kind: .tab, id: move.key),
+                                          arguments: [CloudMachineUpdate.argument: .bool(true), "path": .string(move.project.path), "machine": .string("vm-move")],
+                                          origin: .user)
+            #expect(move.services.registry.perform(CloudMove.action, invocation: update))
+            let moved = try await move.read()
+            let calls = Array(moved.calls.dropFirst(before))
+            #expect(calls.first == ["link", "machine", "update", "--socket", move.vmSocket], "\(calls)")
+            #expect(calls.dropFirst().map { Array($0.prefix(3)) } == [["link", "sync", "push"], ["link", "agent", "move"]], "\(calls)")
+            #expect(moved.machineTab?.agentSession?.session == "chat-on-vm", "the chat did not move after the update")
+            #expect(!moved.macStillHasTab)
+        }
+    }
+
+    /// A machine too old to update in place says so and offers no button: retrying can't help.
+    @Test func aMachineTooOldToUpdateSaysSoAndKeepsTheChat() async throws {
+        try await Self.withMove("updateUnsupported") { move in
+            #expect(await move.run() != nil)
+            let update = ActionInvocation(target: ActionTargetRef(kind: .tab, id: move.key),
+                                          arguments: [CloudMachineUpdate.argument: .bool(true), "path": .string(move.project.path), "machine": .string("vm-move")],
+                                          origin: .user)
+            #expect(move.services.registry.perform(CloudMove.action, invocation: update))
+            let deadline = ContinuousClock.now + .seconds(30)
+            while move.services.cloud.moveRetries[move.key] != nil, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
+            #expect(move.services.cloud.moveRetries[move.key] == nil, "a machine too old to update offers a retry")
+            let calls = move.calls()
+            #expect(calls.last == ["link", "machine", "update", "--socket", move.vmSocket], "the move ran after a refused update: \(calls)")
+            #expect(move.services.locateTab(move.tabID) != nil, "this Mac's tab closed though its chat did not move")
         }
     }
 
@@ -213,9 +259,9 @@ struct CloudMoveTests {
         }
 
         /// `cmux cloud move` on the chat tab; its error when it stopped.
-        func run() async -> ControlError? {
+        func run(extra: [String: CmuxNextSettings.JSONValue] = [:]) async -> ControlError? {
             await send(["action": .string("cloud move"), "cli": .bool(true), "origin": .string("cli"), "wait": .bool(true),
-                        "target": .string("tab:" + tabID), "args": .object(["path": .string(project.path)])])
+                        "target": .string("tab:" + tabID), "args": .object(["path": .string(project.path)].merging(extra) { $1 })])
         }
 
         /// `action` as the chat's own agent runs it from its shell: the CLI names the agent's session
@@ -417,7 +463,20 @@ struct CloudMoveTests {
                 for target in "$@"; do :; done
                 [ '\(mode)' = tabFailed ] || mkdir -p "$target"
                 echo '{"ok":true,"written":1,"unchanged":0,"deleted":0,"skipped":0,"bytes":4}' ;;
+            "link machine update")
+                case '\(mode)' in
+                updates) : > '\(root.path)/updated'; echo '{"ok":true,"updated":true,"build":"new","previous_build":"0000old"}' ;;
+                updateUnsupported) echo '{"ok":false,"error":"too old to update in place","error_code":"machine_update_unsupported"}'; exit 1 ;;
+                *) exit 64 ;;
+                esac ;;
             "link agent move")
+                case '\(mode)' in
+                updates | updateUnsupported)
+                    if [ ! -e '\(root.path)/updated' ]; then
+                        echo '{"ok":false,"error":"the machine runs an older cmux-tui (0000old) without agent-transfer-v1; update the machine","error_code":"machine_outdated"}'
+                        exit 1
+                    fi ;;
+                esac
                 case '\(mode)' in
                 unresolved) echo '{"ok":false,"error":"the move did not finish","error_code":"move_unresolved","retry_after_seconds":5}'; exit 1 ;;
                 inProgress) echo '{"ok":false,"error":"the chat is moving","error_code":"move_in_progress"}'; exit 1 ;;
