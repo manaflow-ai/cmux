@@ -4045,6 +4045,24 @@ jobs:
           rm -f notes/previous-index.json notes/previous-index.json.sig
           # Announcement cards (R114): the reviewed release-notes/next/announcements.json, when present.
           signed=("notes/$NIGHTLY_BUILD.json" notes/index.json)
+          # Older published notes without summary lines or structured items get them (cx-urd.61.6):
+          # fetched from either feed, verified, filled from their commit subjects, re-signed below and
+          # uploaded with this build's notes. Builds already carrying both are left alone.
+          # The files are written apart and join notes/ only when the whole backfill succeeded, so a
+          # crash can never upload rewritten notes without their new signatures.
+          backfill_dir="$(mktemp -d)"
+          if listed="$(python3 scripts/cmux-next/release-notes.py backfill --index notes/index.json \
+               --base "$NIGHTLY_NEXT_FEED_BASE" --base "$NIGHTLY_NEXT_LEGACY_FEED_BASE" \
+               --public-key "$CONTENT_PUBLIC_KEY" --out "$backfill_dir" --existing notes)"; then
+            while IFS= read -r file; do
+              [ -n "$file" ] || continue
+              mv "$file" "notes/$(basename "$file")"
+              signed+=("notes/$(basename "$file")")
+            done <<< "$listed"
+          else
+            echo "::warning::release notes backfill failed; this build's notes publish without it"
+          fi
+          rm -rf "$backfill_dir"
           if [ -f release-notes/next/announcements.json ]; then
             python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("version")==1 and isinstance(d.get("items"),list)' release-notes/next/announcements.json
             cp release-notes/next/announcements.json notes/announcements.json
@@ -4092,7 +4110,7 @@ jobs:
             name="$(basename "$file")"
             key="${NIGHTLY_NEXT_R2_PREFIX}notes/$name"
             python3 scripts/ci/nightly-next-guard.py r2-key "$NIGHTLY_NEXT_R2_BUCKET" "$key"
-            case "$name" in index.json|index.json.sig|announcements.json|announcements.json.sig) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=31536000, immutable" ;; esac
+            case "$name" in index.json|index.json.sig|announcements.json|announcements.json.sig) cache="no-cache, no-store, must-revalidate" ;; *) cache="public, max-age=3600" ;; esac
             case "$name" in *.json) type="application/json" ;; *) type="text/plain" ;; esac
             python3 scripts/ci/upload-r2-object.py --file "$file" --endpoint-url "$R2_ENDPOINT" \
               --bucket "$NIGHTLY_NEXT_R2_BUCKET" --key "$key" --content-type "$type" --cache-control "$cache"

@@ -32,6 +32,7 @@ writes the same lines as plain text into the build's appcast <description>.
   release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
+  release-notes.py backfill --index I --base URL... --public-key K --out DIR   adds summary/items to old notes
   release-notes.py since --index index.json [--not SHA]  prints the newest build's head commit (the next span's start)
   release-notes.py sign --key KEY.pem FILE...       writes FILE.sig
   release-notes.py verify --public-key BASE64 FILE  checks FILE.sig
@@ -58,11 +59,12 @@ INTERNAL_WORDS = re.compile(
     r"e2e|gallery|release notes?|publish\w*|pipeline|workflow|telemetry|crash reporting|exception reporting|benchmark|"
     r"frame budget|osc \d+|terminal host|seed|record\w*|nightly|headless|ffi|rust|regenerate|decode|renderer|texture|"
     r"machine code|scene captures?|policy log|host log|force unwrap|store intent|property model|false positive|inventory|"
-    r"boundary)\b", re.I)
+    r"boundary|on the wire|debug reports?|dom events?|keybind actions?|main actor|shims?|"
+    r"consumers?|metrics)\b", re.I)
 # Code-looking subjects (dotted names, snake_case, versioned ids, backticks) are internal.
-CODE_LIKE = re.compile(r"`|\b\w+\.\w+\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*")
+CODE_LIKE = re.compile(r"`|\b\w+\.\w+\b|\w_\w|\w-v\d\b|\[cx-|\b[a-z]+[A-Z]\w*|\b[A-Z][a-z]+[A-Z]\w*|\b[A-Z]{2,}(?:-[A-Z]+)+\b|\{\w+\}")
 CONVENTIONAL = re.compile(r"^(?P<type>[A-Za-z-]+)(?:\((?P<scope>[^)]*)\))?!?:\s*(?P<rest>.+)$")
-AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+)?|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
+AREA_PREFIX = re.compile(r"^(cmux-next(?: \w+){0,2}|cmuxnext|cmux next|acpmux|apps?|browser|gallery|release notes?|cx-[\w.]+|feed [\d.]+|cmux-tui)\s*:\s*", re.I)
 # "(#123)", "(cx-abc)", "(cx-2y2 items 6, 10)", "(red)": references, anywhere in the subject.
 REFS = re.compile(r"\s*\((?:[^()]*\bcx-[\w.]+[^()]*|#\d+|red)\)", re.I)
 
@@ -273,17 +275,72 @@ def sign(args):
         print(path + ".sig")
 
 
-def verify(args):
-    der = bytes.fromhex("302a300506032b6570032100") + base64.b64decode(args.public_key)
+def backfill(args):
+    """Published notes from before summary lines and structured items get them (cx-urd.61.6): for
+    each build in the index that has no file in --out yet, fetch its notes from the first --base that
+    serves a copy whose signature verifies, add "summary" and "items" from its commit subjects when
+    missing, and write it to --out for re-signing. Prints the written paths. Never fails the job: a
+    build that cannot be fetched or verified is skipped."""
+    with open(args.index, encoding="utf-8") as f:
+        builds = [b.get("build", "") for b in json.load(f).get("builds", []) if isinstance(b, dict)][: args.limit]
+    written = []
+    for build in builds:
+        out_path = os.path.join(args.out, f"{build}.json")
+        if not re.fullmatch(r"[0-9.]+", build) or os.path.exists(os.path.join(args.existing or args.out, f"{build}.json")):
+            continue
+        try:
+            notes = fetch_verified_notes(build, args.base, args.public_key)
+        except Exception as error:  # one bad build never stops the others or the job
+            print(f"backfill: skipped {build}: {error}", file=sys.stderr)
+            continue
+        if not isinstance(notes, dict) or notes.get("build") != build or ("summary" in notes and "items" in notes):
+            continue
+        changes = [c for c in notes.get("changes", []) if isinstance(c, str)]
+        notes.setdefault("summary", summarize_changes(changes))
+        notes.setdefault("items", [change_item(c, "") for c in changes])
+        with open(out_path, "w", encoding="utf-8") as out:
+            json.dump(notes, out, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        written.append(out_path)
+    print("\n".join(written))
+    return 0
+
+
+def fetch_verified_notes(build, bases, public_key):
+    """The notes of `build` from the first base whose copy verifies, else None."""
+    import urllib.request
+    for base in bases:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, f"{build}.json")
+            try:
+                for name in (f"{build}.json", f"{build}.json.sig"):
+                    request = urllib.request.Request(f"{base.rstrip('/')}/notes/{name}", headers={"User-Agent": "cmux-release-notes/1"})
+                    with urllib.request.urlopen(request, timeout=20) as response, open(os.path.join(tmp, name), "wb") as f:
+                        f.write(response.read())
+                if not verified(path, public_key):
+                    continue
+            except Exception:
+                continue
+            with open(path, encoding="utf-8") as f:
+                return json.load(f)
+    return None
+
+
+def verified(path, public_key):
+    """Whether path + ".sig" is a valid Ed25519 signature of path by public_key (raw, base64)."""
+    der = bytes.fromhex("302a300506032b6570032100") + base64.b64decode(public_key)
     with tempfile.TemporaryDirectory() as tmp:
         key_der, key_pem, sig = (os.path.join(tmp, n) for n in ("pub.der", "pub.pem", "sig.bin"))
         with open(key_der, "wb") as f:
             f.write(der)
         subprocess.run(["openssl", "pkey", "-pubin", "-inform", "DER", "-in", key_der, "-out", key_pem], check=True, capture_output=True)
-        with open(args.file + ".sig") as f, open(sig, "wb") as out:
+        with open(path + ".sig") as f, open(sig, "wb") as out:
             out.write(base64.b64decode(f.read().strip()))
-        ok = subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", key_pem, "-rawin", "-in", args.file,
-                             "-sigfile", sig], capture_output=True).returncode == 0
+        return subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey", key_pem, "-rawin", "-in", path,
+                               "-sigfile", sig], capture_output=True).returncode == 0
+
+
+def verify(args):
+    ok = verified(args.file, args.public_key)
     print("verified" if ok else "BAD SIGNATURE")
     return 0 if ok else 1
 
@@ -309,6 +366,13 @@ def main():
     i.add_argument("--previous")
     i.add_argument("--keep", type=int, default=50)
     i.add_argument("--out", required=True)
+    f = sub.add_parser("backfill")
+    f.add_argument("--index", required=True)
+    f.add_argument("--base", action="append", required=True)
+    f.add_argument("--public-key", required=True)
+    f.add_argument("--out", required=True)
+    f.add_argument("--existing", help="a folder whose notes are not backfilled (this build's)")
+    f.add_argument("--limit", type=int, default=50)
     n = sub.add_parser("since")
     n.add_argument("--index", required=True)
     n.add_argument("--not", dest="skip", default="")
@@ -319,7 +383,7 @@ def main():
     v.add_argument("--public-key", required=True)
     v.add_argument("file")
     args = parser.parse_args()
-    return {"build": build, "appcast": appcast, "index": index, "since": since, "sign": sign, "verify": verify}[args.cmd](args) or 0
+    return {"build": build, "appcast": appcast, "index": index, "since": since, "backfill": backfill, "sign": sign, "verify": verify}[args.cmd](args) or 0
 
 
 if __name__ == "__main__":
