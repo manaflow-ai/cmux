@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextActions
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeEngine
 import CmuxNextWakeups
 
 /// A conversation tab's content (`conversation-tabs-v1`, home.md 7): the
