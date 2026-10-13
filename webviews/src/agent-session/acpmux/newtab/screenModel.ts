@@ -150,30 +150,36 @@ export function canonicalAddress(url: string): string {
     return bareAddress(text.toLowerCase());
   }
   if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return text;
-  const kept = [...parsed.searchParams].filter(([name, value]) => !noiseParameter(name, value));
+  const parameters = [...parsed.searchParams];
+  const challenge = parameters.some(([name]) => /_challenge$|^__cf_chl_/i.test(name));
+  const kept = parameters.filter(
+    ([name]) => !NOISE_PARAMETER.test(name) && !(challenge && CHALLENGE_ANSWER.test(name)),
+  );
   const query = new URLSearchParams(kept).toString();
   const host = parsed.hostname.replace(/^www\./, "") + (parsed.port ? `:${parsed.port}` : "");
   return `${host}${parsed.pathname.replace(/\/+$/, "")}${query ? `?${query}` : ""}`;
 }
 
-const TRACKING_PARAMETER =
-  /^(utm_\w+|fbclid|gclid|dclid|gbraid|wbraid|msclkid|yclid|twclid|igshid|mc_[ce]id|_ga|_gl|ref|ref_src|ref_url|si|spm|nonce|__cf\w*|\w*challenge\w*|\w*token\w*)$/i;
-
-/// A tracking parameter, or an opaque token (a long run of letters and digits, never a word).
-function noiseParameter(name: string, value: string): boolean {
-  if (TRACKING_PARAMETER.test(name)) return true;
-  return value.length >= 20 && /^[\w.~%+/=-]+$/.test(value) && /\d/.test(value) && /[a-z]/i.test(value);
-}
+/// Parameters that only track the click or carry a bot check's one-off answer (reddit's
+/// `?solution=…&js_challenge=1`). An id, a list, a query, a commit or a page token names the page:
+/// it stays.
+const NOISE_PARAMETER =
+  /^(utm_\w+|fbclid|gclid|dclid|gbraid|wbraid|msclkid|yclid|twclid|igshid|mc_[ce]id|_ga|_gl|_hsenc|_hsmi|mkt_tok|ref_src|ref_url|si|spm|\w*_challenge|__cf_chl_\w+)$/i;
+/// A bot check's answer, noise only beside the check's own parameter.
+const CHALLENGE_ANSWER = /^(solution|token)$/i;
 
 /// The host a row shows for a page: `reddit.com`.
+/// A page not on the web shows its path.
 export function shortHost(address: string): string {
+  if (/^file:/i.test(address.trim())) return address.trim().replace(/^file:\/\//i, "");
   return canonicalAddress(address).split(/[/?]/)[0] ?? address;
 }
 
 const TITLE_SEPARATOR = /\s+[-|·—–]\s+/g;
 
-/// A page's title without its site's tagline ("Reddit - The heart of the internet" is "Reddit")
-/// or its trailing site name ("Borrowing in loops : r/rust - Reddit"): the row shows the host.
+/// A page's title without its site's tagline on its front page ("Reddit - The heart of the
+/// internet" is "Reddit"; off it, "GitHub - owner/repo" names the page) or its trailing site name
+/// ("Borrowing in loops : r/rust - Reddit"): the row shows the host.
 export function cleanTitle(title: string, url: string): string {
   const labels = shortHost(url).split(":")[0]!.split(".");
   const site = labels.length > 1 ? labels[labels.length - 2] : labels[0];
@@ -183,7 +189,8 @@ export function cleanTitle(title: string, url: string): string {
   if (!site || !first || !last) return title;
   const word = (part: string) => part.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
   const head = title.slice(0, first.index).trim();
-  if (head && word(head) === site) return head;
+  const front = !/[/?]/.test(canonicalAddress(url));
+  if (front && head && word(head) === site) return head;
   const rest = title.slice(0, last.index).trim();
   if (rest && word(title.slice(last.index + last[0].length)) === site) return rest;
   return title;

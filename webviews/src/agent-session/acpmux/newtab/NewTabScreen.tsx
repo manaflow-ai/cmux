@@ -168,10 +168,11 @@ export function NewTabScreen(props: Props) {
   const [dismissed, setDismissed] = useState<string>();
   const textRef = useRef(text);
   textRef.current = text;
-  const rows = useMemo(
-    () => (touched && !shell && text !== dismissed ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
-    [touched, shell, text, dismissed, omnibar, home, ask],
+  const suggested = useMemo(
+    () => (touched && !shell ? screenRows(text, { omnibar, home, ...(ask ? { ask } : {}) }) : []),
+    [touched, shell, text, omnibar, home, ask],
   );
+  const rows = text !== dismissed ? suggested : [];
   // New tabs or pages from the host can shorten the rows under a highlight.
   const current = selected === undefined ? defaultSelection(rows) : selected < rows.length ? selected : -1;
   const t = useT();
@@ -296,7 +297,8 @@ export function NewTabScreen(props: Props) {
     setNoAgent(false);
   };
   const submit = () => {
-    const row = rows[current];
+    // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
+    const row = rows.length ? rows[current] : suggested[defaultSelection(suggested)];
     if (row) return activate(row);
     const prompt = text.trim();
     if (!prompt || isAddress(prompt, home)) return;
@@ -515,7 +517,8 @@ export function NewTabScreen(props: Props) {
       {rows.length > 0 && box && (
         <Popover
           open
-          // The rows follow the field (Escape there clears it): the popover never closes itself.
+          // The rows follow the field (Escape there and a press outside close them): the popover
+          // never closes itself.
           onOpenChange={() => undefined}
           anchor={box}
           label={nt("suggestions")}
