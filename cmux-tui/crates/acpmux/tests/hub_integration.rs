@@ -1476,8 +1476,6 @@ async fn a_resend_after_a_restart_is_answered_from_the_log() {
 
 #[path = "hub_integration/adopt.rs"]
 mod adopt;
-#[path = "hub_integration/claude_model_choices.rs"]
-mod claude_model_choices;
 #[path = "hub_integration/preset_args.rs"]
 #[cfg(unix)]
 mod preset_args;
