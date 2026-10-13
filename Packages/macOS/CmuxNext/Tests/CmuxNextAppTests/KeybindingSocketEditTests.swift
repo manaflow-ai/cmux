@@ -55,7 +55,8 @@ struct KeybindingSocketEditTests {
             #expect(Self.code(garbled) == "invalid_params", "\(garbled)")
             let unknown = await router.handle(ControlRequest(id: "3", method: "keybinding.set", params: ["command": "no.such.action", "key": .string(Self.key)]))
             #expect(Self.code(unknown) == "invalid_params", "\(unknown)")
-            #expect(try await Self.winner("k", router) == nil)
+            let bareRuns = try await Self.winner("k", router)
+            #expect(bareRuns == nil, "the refused bare key runs \(bareRuns ?? "")")
         }
     }
 
