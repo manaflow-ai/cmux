@@ -395,7 +395,6 @@
 		D0B10002A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */; };
 		AA1B2C3D4E5F60718 /* BonsplitTabDragUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */; };
 		B07700010000000000000002 /* BottomStatusBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = B07700010000000000000001 /* BottomStatusBar.swift */; };
-		D82C6608990DCD4CEE8E2174 /* BottomStatusBarRunTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C1585CD366D62550402A1A6C /* BottomStatusBarRunTests.swift */; };
 		B7E1A0000000000000000002 /* browser-repl in Resources */ = {isa = PBXBuildFile; fileRef = B7E1A0000000000000000001 /* browser-repl */; };
 		986900080000000000000001 /* BrowserAction.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900080000000000000002 /* BrowserAction.swift */; };
 		986900020000000000000001 /* BrowserActionDispatcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 986900020000000000000002 /* BrowserActionDispatcher.swift */; };
@@ -1570,6 +1569,8 @@
 		7837E0017837E0017837E001 /* CmuxSocketEventMapperTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7837E0027837E0027837E002 /* CmuxSocketEventMapperTests.swift */; };
 		C3677002000000000000001 /* CmuxSSHURLRequest.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677002000000000000002 /* CmuxSSHURLRequest.swift */; };
 		C3677001000000000000001 /* CmuxSSHURLRequestTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C3677001000000000000002 /* CmuxSSHURLRequestTests.swift */; };
+		B07700010000000000000005 /* CmuxStatusBar in Frameworks */ = {isa = PBXBuildFile; productRef = B07700010000000000000004 /* CmuxStatusBar */; };
+		B07700010000000000000006 /* CmuxStatusBar in Frameworks */ = {isa = PBXBuildFile; productRef = B07700010000000000000004 /* CmuxStatusBar */; };
 		D96970000000000000000001 /* CmuxSudoBroker in Frameworks */ = {isa = PBXBuildFile; productRef = D96973000000000000000001 /* CmuxSudoBroker */; };
 		D96970000000000000000002 /* CmuxSudoBroker in Frameworks */ = {isa = PBXBuildFile; productRef = D96973000000000000000001 /* CmuxSudoBroker */; };
 		D96970000000000000000003 /* CmuxSudoBroker in Frameworks */ = {isa = PBXBuildFile; productRef = D96973000000000000000001 /* CmuxSudoBroker */; };
@@ -5095,7 +5096,6 @@
 		D0B10003A1B2C3D4E5F60001 /* BonsplitTabBarPassThrough.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabBarPassThrough.swift; sourceTree = "<group>"; };
 		AA1B2C3D4E5F60719 /* BonsplitTabDragUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BonsplitTabDragUITests.swift; sourceTree = "<group>"; };
 		B07700010000000000000001 /* BottomStatusBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BottomStatusBar.swift; sourceTree = "<group>"; };
-		C1585CD366D62550402A1A6C /* BottomStatusBarRunTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "BottomStatusBarRunTests.swift"; sourceTree = "<group>"; };
 		B7E1A0000000000000000001 /* browser-repl */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; path = "browser-repl"; sourceTree = "<group>"; };
 		986900080000000000000002 /* BrowserAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserAction.swift; sourceTree = "<group>"; };
 		986900020000000000000002 /* BrowserActionDispatcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserActionDispatcher.swift; sourceTree = "<group>"; };
@@ -9205,6 +9205,7 @@
 				799F1BEF876006EEB8CD5757 /* CmuxSimulatorStreamKit in Frameworks */,
 				C51A700000000000000000B3 /* CmuxSimulatorUI in Frameworks */,
 				C51A700000000000000000C3 /* CmuxSimulatorWorker in Frameworks */,
+				B07700010000000000000005 /* CmuxStatusBar in Frameworks */,
 				D96970000000000000000001 /* CmuxSudoBroker in Frameworks */,
 				D96970000000000000000004 /* CmuxSudoBrokerUI in Frameworks */,
 				5CA7A1060000000000000005 /* CmuxSurfaceCatalogModel in Frameworks */,
@@ -9304,6 +9305,7 @@
 				1A0B0C0D0E0F101112132004 /* CmuxMobileTransport in Frameworks */,
 				F0C0A1000000000000000004 /* CmuxPhonePush in Frameworks */,
 				C0DE4A000000000000000005 /* CmuxSidebarProviderKit in Frameworks */,
+				B07700010000000000000006 /* CmuxStatusBar in Frameworks */,
 				D96970000000000000000003 /* CmuxSudoBroker in Frameworks */,
 				D96970000000000000000005 /* CmuxSudoBrokerUI in Frameworks */,
 				5CA7A1060000000000000004 /* CmuxSurfaceCatalogModel in Frameworks */,
@@ -13837,7 +13839,6 @@
 				6363F4EA9220ADE6FA369B16 /* CLIMuseHookInstallTests.swift */,
 				80B2BBAC8B90CA286F4B2BF7 /* MainWindowHitTestMutationMonitorTests.swift */,
 				DB2534FB1BD7FDBD3A7474EE /* CloudManualMirrorHandshakeTests.swift */,
-				C1585CD366D62550402A1A6C /* BottomStatusBarRunTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -13966,6 +13967,7 @@
 			name = cmux;
 			packageProductDependencies = (
 				D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */,
+				B07700010000000000000004 /* CmuxStatusBar */,
 				C10DC1000000000000000002 /* CmuxCloud */,
 				C10DC1000000000000000005 /* CmuxCloudResizeCore */,
 				C1D7A0000000000000000002 /* CmuxCloudTui */,
@@ -14130,6 +14132,7 @@
 			name = cmuxTests;
 			packageProductDependencies = (
 				D0F6A0000000000000000002 /* CmuxAgentDeliveryCore */,
+				B07700010000000000000004 /* CmuxStatusBar */,
 				5CA7A1060000000000000003 /* CmuxSurfaceCatalogModel */,
 				C10DC1000000000000000005 /* CmuxCloudResizeCore */,
 				79E4513469FB44C7A3690415 /* CmuxCloudMachines */,
@@ -14305,6 +14308,7 @@
 				CE57E10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxSentryTelemetry" */,
 				CC0DE00000000000000000A1 /* XCLocalSwiftPackageReference "CmuxCore" */,
 				D0F6A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */,
+				B07700010000000000000003 /* XCLocalSwiftPackageReference "CmuxStatusBar" */,
 				CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */,
 				CC0DE20000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteWorkspace" */,
 				CC0DE30000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteSession" */,
@@ -17832,7 +17836,6 @@
 				74AB3F34FE3B4974A3A5D264 /* AutoNamingHookPayloadAdapterTests.swift in Sources */,
 				048825756F06479D745E276B /* AutoNamingOpenCodeArgumentsTests.swift in Sources */,
 				B00FC393AB29CFA85FB6D9F5 /* BackgroundPrimeStartableSurfaceTests.swift in Sources */,
-				D82C6608990DCD4CEE8E2174 /* BottomStatusBarRunTests.swift in Sources */,
 				D3622000A1B2C3D4E5F60718 /* BrowserArrowKeyForwardingTests.swift in Sources */,
 				8054B0030000000000000003 /* BrowserAutomationRecoveryLifecycleTests.swift in Sources */,
 				BCBC0A0E0000000000000D01 /* BrowserChromeMetricsTests.swift in Sources */,
@@ -19825,6 +19828,10 @@
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxAgentDeliveryCore;
 		};
+		B07700010000000000000003 /* XCLocalSwiftPackageReference "CmuxStatusBar" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/macOS/CmuxStatusBar;
+		};
 		CC0DE10000000000000000A1 /* XCLocalSwiftPackageReference "CmuxRemoteDaemon" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Packages/macOS/CmuxRemoteDaemon;
@@ -20204,6 +20211,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D0F6A0000000000000000001 /* XCLocalSwiftPackageReference "CmuxAgentDeliveryCore" */;
 			productName = CmuxAgentDeliveryCore;
+		};
+		B07700010000000000000004 /* CmuxStatusBar */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B07700010000000000000003 /* XCLocalSwiftPackageReference "CmuxStatusBar" */;
+			productName = CmuxStatusBar;
 		};
 		CC0DE10000000000000000A2 /* CmuxRemoteDaemon */ = {
 			isa = XCSwiftPackageProductDependency;
