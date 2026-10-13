@@ -24,7 +24,7 @@ FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any promp
 FAKE_CODEX_STORE=1 (with CODEX_HOME): Codex's own store, as codex-acp keeps it:
 each session is <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl,
 a session_meta line, then per prompt task_started, the user message and
-task_complete. session/load finds a rollout by the id in its file name (an
+task_complete, written a moment after the turn answers. session/load finds a rollout by the id in its file name (an
 unknown id fails), and "history-probe" replies with the prompts and session
 ids the loaded rollout holds.
 
@@ -121,8 +121,11 @@ def codex_store_prompt(rid, params):
             "sessions": sorted({r["payload"]["id"] for r in records if r["type"] == "session_meta"}),
         })
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
-    codex_write(sid, "event_msg", {"type": "task_complete"})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+    # Codex's rollout writer flushes a turn's last records after the turn
+    # answers, so they can be stamped after acpmux logs the turn's end.
+    time.sleep(0.05)
+    codex_write(sid, "event_msg", {"type": "task_complete"})
 
 
 def update(sid, upd):
