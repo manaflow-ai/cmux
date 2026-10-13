@@ -173,6 +173,8 @@ export default agentPaneEntry({
             );
           },
         );
+        if (!under.some((item) => item.closest(".nt-no-agent")))
+          throw new Error("the suggestions do not reach No agent to ask under the field");
         for (const item of under) {
           const rect = item.getBoundingClientRect();
           const y = Math.min((rect.top + rect.bottom) / 2, cover.bottom - 2);
