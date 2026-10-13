@@ -91,7 +91,7 @@ final class ConversationPhotoSheetController: UIViewController, PHPickerViewCont
     private func showPicker() {
         guard picker == nil else { return }
         var configuration = PHPickerConfiguration(photoLibrary: .shared())
-        configuration.selectionLimit = PhotoDrawerGeometry.selectionLimit
+        configuration.selectionLimit = PhotoDrawerGeometry.selectionLimit(iOS27: ConversationComposerView.isIOS27)
         configuration.selection = .continuousAndOrdered
         configuration.preferredAssetRepresentationMode = .current
         configuration.preselectedAssetIdentifiers = selection
