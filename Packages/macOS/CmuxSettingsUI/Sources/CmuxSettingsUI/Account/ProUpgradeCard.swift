@@ -26,18 +26,16 @@ struct ProUpgradeCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer(minLength: 12)
-            if shouldShowAction {
-                Button {
-                    if flow?.canManageBilling == true {
-                        flow?.openBillingPortal()
-                    } else {
-                        flow?.openProUpgrade()
-                    }
-                } label: {
-                    Text(buttonTitle)
+            Button {
+                if flow?.canManageBilling == true {
+                    flow?.openBillingPortal()
+                } else {
+                    flow?.openProUpgrade()
                 }
-                .controlSize(.small)
+            } label: {
+                Text(buttonTitle)
             }
+            .controlSize(.small)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
@@ -79,9 +77,5 @@ struct ProUpgradeCard: View {
             return String(localized: "settings.account.pro.manageBilling", defaultValue: "Manage billing")
         }
         return String(localized: "settings.account.pro.upgrade", defaultValue: "Upgrade…")
-    }
-
-    private var shouldShowAction: Bool {
-        flow?.isProActive != true || flow?.canManageBilling == true
     }
 }
