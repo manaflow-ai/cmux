@@ -7,7 +7,8 @@ import CmuxNextSidebar
 import Testing
 
 /// `appearance.sidebarSurface` (Leo 2026-10-12): by default the sidebar draws the main pane's own
-/// surface, with no shade of its own; "separate" keeps the old look, where the sidebar and the
+/// surface, with no shade of its own while pane outlines part them and a faint step beside the
+/// default flush, divided panes; "separate" keeps the old look, where the sidebar and the
 /// chrome around the curved main pane are shaded darker than the pane. The setting applies live,
 /// from cmux.json through the settings applier to the open window.
 @MainActor @Suite(.serialized) struct SidebarSurfaceTests {
@@ -35,6 +36,13 @@ import Testing
 
     func appearance(_ members: [String: JSONValue]) -> JSONValue {
         .object(["appearance": .object(members)])
+    }
+
+    /// `appearance` members with outlined panes (`layout.paneSeparation` borders): the pane
+    /// outlines part the sidebar from the main pane, so the shared surface takes no step. Inside
+    /// the curved main pane the default separation is dividers, which draws no outline.
+    func outlined(_ members: [String: JSONValue] = [:]) -> JSONValue {
+        .object(["appearance": .object(members), "layout": .object(["paneSeparation": .string("borders")])])
     }
 
     /// The color the window shows at `point` (root coordinates) under its chrome: the window's
@@ -75,8 +83,9 @@ import Testing
         }
     }
 
-    @Test func byDefaultTheSidebarDrawsTheMainPanesSurface() async {
-        load(.object([:]))
+    @Test func withPaneOutlinesTheSidebarDrawsTheMainPanesSurface() async {
+        defer { load(.object([:])) }
+        load(outlined())
         let (window, root) = openRoot()
         defer { window.close() }
         await settle(root) { same(sidebarBackground(root), mainPaneBackground(root)) }
@@ -96,29 +105,29 @@ import Testing
 
     @Test func switchingTheSettingRepaintsTheOpenWindow() async {
         defer { load(.object([:])) }
-        load(.object([:]))
+        load(outlined())
         let (window, root) = openRoot()
         defer { window.close() }
 
-        load(appearance(["sidebarSurface": .string("separate")]))
+        load(outlined(["sidebarSurface": .string("separate")]))
         await settle(root) { same(sidebarBackground(root), separateSidebar(root)) }
         #expect(same(sidebarBackground(root), separateSidebar(root)))
 
-        load(appearance(["sidebarSurface": .string("same")]))
+        load(outlined(["sidebarSurface": .string("same")]))
         await settle(root) { same(sidebarBackground(root), mainPaneBackground(root)) }
         #expect(same(sidebarBackground(root), mainPaneBackground(root)))
 
         // Removing the key from the file returns to the default.
-        load(appearance(["sidebarSurface": .string("separate")]))
+        load(outlined(["sidebarSurface": .string("separate")]))
         await settle(root) { same(sidebarBackground(root), separateSidebar(root)) }
-        load(.object([:]))
+        load(outlined())
         await settle(root) { same(sidebarBackground(root), mainPaneBackground(root)) }
         #expect(same(sidebarBackground(root), mainPaneBackground(root)))
     }
 
     @Test func aBadValueKeepsTheDefaultAndSaysWhy() async {
         defer { load(.object([:])) }
-        let diagnostics = load(appearance(["sidebarSurface": .string("purple")]))
+        let diagnostics = load(outlined(["sidebarSurface": .string("purple")]))
         #expect(diagnostics.contains { $0.path == "appearance.sidebarSurface" && $0.kind == .invalidValue })
         let (window, root) = openRoot()
         defer { window.close() }
@@ -142,6 +151,19 @@ import Testing
         }
         #expect(luminance(sidebarBackground(root)) < luminance(pane))
         #expect(luminance(sidebarBackground(root)) > luminance(separateSidebar(root)))
+        #expect(same(mainPaneBackground(root), pane))
+    }
+
+    /// The default inside the curved main pane: panes are flush and divided by one line, with no
+    /// outline beside the sidebar, so the shared surface keeps the faint step there.
+    @Test func byDefaultFlushPanesKeepAFaintStepBesideTheSidebar() async {
+        load(.object([:]))
+        let (window, root) = openRoot()
+        defer { window.close() }
+        let pane = root.themeTokens.surfaceBackground.withAlpha(1)
+        await settle(root) { sidebarBackground(root).relativeLuminance < pane.relativeLuminance }
+        #expect(sidebarBackground(root).relativeLuminance < pane.relativeLuminance)
+        #expect(sidebarBackground(root).relativeLuminance > separateSidebar(root).relativeLuminance)
         #expect(same(mainPaneBackground(root), pane))
     }
 

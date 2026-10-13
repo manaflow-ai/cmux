@@ -1777,10 +1777,8 @@
 			<string>string</string>
 		</dict>
 		<dict>
-			<key>pfm_default</key>
-			<string>borders</string>
 			<key>pfm_description</key>
-			<string>How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them.</string>
+			<string>How panes are told apart. None draws no border or divider at all; dragging between panes still resizes them. Default: dividers inside the curved main pane, borders otherwise.</string>
 			<key>pfm_name</key>
 			<string>layout.paneSeparation</string>
 			<key>pfm_range_list</key>
@@ -2302,7 +2300,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<false/>
+			<true/>
 			<key>pfm_description</key>
 			<string>A shell command that runs a while shows as busy.</string>
 			<key>pfm_name</key>
@@ -2671,11 +2669,11 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once.</string>
+			<string>A "Did you know" card above the account button shows one cmux feature a day that you have not used yet.</string>
 			<key>pfm_name</key>
 			<string>sidebar.cards.tips</string>
 			<key>pfm_title</key>
-			<string>Show Hints</string>
+			<string>Show Tips</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
