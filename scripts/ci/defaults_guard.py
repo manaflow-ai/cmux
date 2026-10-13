@@ -23,8 +23,9 @@ trees are read with git as data; nothing from the head runs). A change passes
 only with an approving review, on the head commit, from a call owner in
 .github/defaults-call-owners.json who is not the pull request's author: the
 `needs a call` label alone never passes, and a push after the approval needs
-a new one. The workflow runs this script and reads the owners file from the
-base branch, so a pull request cannot approve itself by editing either.
+a new one. The workflow (pull_request_target only) runs this script and reads
+the owners file from the base branch, so a pull request cannot approve itself
+by editing either.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -46,6 +48,9 @@ OWNERS = ".github/defaults-call-owners.json"
 ACTION_SURFACES = "plans/cmux-next/action-surfaces.json"
 SETTINGS_SCHEMA = "schemas/settings/settings-schema.json"
 SWIFT_SOURCES = "Packages/macOS/CmuxNext/Sources"
+# Default bindings that step aside in a context (a code editor, a focused terminal): a change to
+# one changes what a key does there.
+KEY_BINDING_DEFAULTS = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift"
 MARKER = "<!-- cmux:defaults-guard -->"
 REGENERATE = "python3 scripts/ci/defaults_guard.py snapshot"
 # The guard's own files: changing how defaults are read or who approves is a call too.
@@ -53,6 +58,7 @@ GUARD_FILES = (
     "scripts/ci/defaults_guard.py",
     OWNERS,
     ".github/workflows/cmux-next-defaults-guard.yml",
+    ".github/workflows/cmux-next-defaults-guard-review.yml",
 )
 
 # AppKit's function-key characters, as the catalog export writes them.
@@ -65,6 +71,7 @@ NAMED_KEYS = {"\t": "tab", "\r": "return", "\n": "return", " ": "space", "\x1b":
 MODIFIER_ORDER = ("ctrl", "opt", "shift", "cmd")
 
 KEYBIND_RE = re.compile(r'"keybind\s*=\s*([^"=]+?)\s*=\s*([^"]*)"')
+YIELDS_RE = re.compile(r"static\s+let\s+(yieldsTo\w+)\s*:\s*Set<ActionID>\s*=\s*\[(.*?)\]", re.S)
 FLAG_RE = re.compile(r"\bstatic\s+(?:let|var)\s+(\w*Enabled)\s*(?::\s*Bool\s*)?=\s*(true|false)\b")
 
 
@@ -186,9 +193,17 @@ def defaults(tree: Tree) -> dict[str, object]:
             # An interpolated line (`\(trigger)`) is built at run time from the user's config, not a default.
             if "\\(" not in trigger + action:
                 found[f"ghostty.{trigger.strip()}"] = action.strip()
+    for name, block in YIELDS_RE.findall(tree.read(KEY_BINDING_DEFAULTS) or ""):
+        found[f"steps-aside.{name}"] = sorted(re.findall(r'"([^"]+)"', block))
     for name, line in tree.grep(r"static +(let|var) +[A-Za-z0-9_]*Enabled *(: *Bool *)?= *(true|false)", SWIFT_SOURCES):
         for flag, value in FLAG_RE.findall(line):
-            found[f"flag.{Path(name).stem}.{flag}"] = value == "true"
+            # The file's path under the sources keeps two `isEnabled` flags apart; a second one in
+            # the same file gets a number, in file order.
+            base = f"flag.{name.removeprefix(SWIFT_SOURCES + '/').removesuffix('.swift')}.{flag}"
+            key, n = base, 2
+            while key in found:
+                key, n = f"{base}#{n}", n + 1
+            found[key] = value == "true"
     return dict(sorted(found.items()))
 
 
@@ -205,6 +220,23 @@ def snapshot_of(tree: Tree) -> dict[str, object] | None:
 
 
 # MARK: Changes
+
+
+def plain(text: str) -> str:
+    """Text from the head on one line: a newline cannot start a workflow command or a Markdown block."""
+    return text.replace("\r", "\\r").replace("\n", "\\n")
+
+
+def command_text(text: str) -> str:
+    """A workflow command's message, encoded as the runner expects."""
+    return plain(text).replace("%", "%25")
+
+
+def code(text: str) -> str:
+    """Head text as a Markdown code span: no formatting, links or mentions."""
+    text = plain(text)
+    fence = "``" if "`" in text else "`"
+    return f"{fence} {text} {fence}" if fence == "``" else f"`{text}`"
 
 
 @dataclass(frozen=True)
@@ -232,7 +264,7 @@ class Change:
 
     @property
     def line(self) -> str:
-        return f"DEFAULTS {self.id}: {self.detail}"
+        return plain(f"DEFAULTS {self.id}: {self.detail}")
 
 
 def changes(old: Mapping[str, object], new: Mapping[str, object]) -> list[Change]:
@@ -338,7 +370,7 @@ def comment_body(found: list[Change], verdict: Approval | None, head: str, merge
     lines.append(f"This pull request changes {len(found)} default{'s' if len(found) != 1 else ''} at `{head[:12]}` "
                  "(what everyone gets without configuring anything):")
     lines.append("")
-    lines += [f"- `{c.id}`: {c.detail}" for c in found]
+    lines += [f"- {code(c.id)}: {code(c.detail)}" for c in found]
     lines.append("")
     if verdict is not None:
         if verdict.approved:
@@ -360,7 +392,7 @@ def comment_body(found: list[Change], verdict: Approval | None, head: str, merge
 
 def annotate(found: list[Change]) -> None:
     for c in found:
-        print(f"::warning title=Default changed::{c.line}")
+        print(f"::warning title=Default changed::{command_text(c.line)}")
 
 
 def summary(text: str) -> None:
@@ -430,6 +462,12 @@ def command_check(args: argparse.Namespace) -> int:
         pull = json.loads(Path(args.pull_json).read_text(encoding="utf-8"))
     elif args.pr and args.repo:
         pull = fetch_pull(args.repo, args.pr)
+        # Right after a push GitHub can still report the previous head for a few seconds.
+        for _ in range(4):
+            if str(pull.get("headRefOid") or "") == head_sha:
+                break
+            time.sleep(5)
+            pull = fetch_pull(args.repo, args.pr)
     verdict = approval(owners, pull) if pull is not None else None
     if pull is not None and verdict is not None and verdict.head != head_sha:
         problems.append(f"DEFAULTS head: the pull request's head is {verdict.head[:12]}, not {head_sha[:12]}; re-run on the new head")
@@ -437,7 +475,7 @@ def command_check(args: argparse.Namespace) -> int:
     body = comment_body(found, verdict, head_sha, merged)
     annotate(found)
     for problem in problems:
-        print(f"::error title=Defaults snapshot::{problem}" if not problem.startswith("  ") else problem)
+        print(f"::error title=Defaults snapshot::{command_text(problem)}" if not problem.startswith("  ") else plain(problem))
     for c in found:
         print(c.line)
     summary(body)

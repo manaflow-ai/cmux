@@ -11,22 +11,25 @@ name: cmux-next defaults guard
 # Every changed default is a warning annotation and a sticky comment that says
 # who must approve; both stay after it passes, and the merge adds a receipt.
 #
-# Trust: pull_request_target and pull_request_review both run the guard and
-# read the owners file from the base checkout. The head is only read as data
-# (JSON exports and Swift text); nothing from it runs, so a pull request can
-# neither edit the owners file nor the guard to pass itself, and a change to
-# either is listed as a default change too.
+# Trust: only pull_request_target runs this, so the workflow, the guard and
+# the owners file are always the base's. The head is only read as data (JSON
+# exports and Swift text); nothing from it runs, so a pull request can neither
+# edit the owners file nor the guard to pass itself, and a change to either is
+# listed as a default change too. A review does not run this workflow (a
+# pull_request_review run would use the pull request's own copy):
+# cmux-next-defaults-guard-review.yml re-runs this run, which reads the
+# reviews afresh. A fork's review event cannot re-run it (read-only token):
+# a maintainer re-runs the check, or the next push does.
 on:
   pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review, closed]
     branches: [feat-cmux-next]
-  pull_request_review:
-    types: [submitted, dismissed, edited]
 
 permissions: {}
 
 concurrency:
-  group: cmux-next-defaults-guard-${{ github.event.pull_request.number }}
+  # The merge receipt (closed) never waits behind or cancels a review's re-run.
+  group: cmux-next-defaults-guard-${{ github.event.pull_request.number }}-${{ github.event.action == 'closed' && 'merged' || 'open' }}
   cancel-in-progress: ${{ github.event.action != 'closed' }}
 
 jobs:
@@ -76,6 +79,8 @@ jobs:
             scripts/ci/defaults_guard.py
             .github/defaults-call-owners.json
             .github/workflows/cmux-next-defaults-guard.yml
+            .github/workflows/cmux-next-defaults-guard-review.yml
+            Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift
           sparse-checkout-cone-mode: false
 
       - name: Check out the head's defaults (data, never run)

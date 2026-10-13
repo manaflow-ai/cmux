@@ -3,8 +3,8 @@
   "regenerate": "python3 scripts/ci/defaults_guard.py snapshot",
   "version": 1,
   "defaults": {
-    "flag.MotionTrace.isEnabled": false,
-    "flag.PaneSplitCommand.optimisticSplitEnabled": true,
+    "flag.CmuxNextApp/Handlers/PaneSplitCommand.optimisticSplitEnabled": true,
+    "flag.CmuxNextDesign/Motion/MotionTrace.isEnabled": false,
     "ghostty.super+alt+shift+w": "unbind",
     "ghostty.super+alt+w": "unbind",
     "ghostty.super+enter": "unbind",
@@ -536,6 +536,8 @@
     "setting.window.titlebar": "minimal",
     "setting.window.titlebarButtons": "hover",
     "setting.window.trafficLightClearance": 72,
-    "setting.workspaces.newPlacement": "top"
+    "setting.workspaces.newPlacement": "top",
+    "steps-aside.yieldsToCodeEditor": ["focusDown", "focusLocation", "focusUp", "globalSearch", "groupSelectedWorkspaces", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "openBrowser", "palette.newAgentChat", "space.next", "space.previous", "splitRight"],
+    "steps-aside.yieldsToTerminal": ["decreaseWorkspaceTerminalFontSize", "focusHistoryBack", "focusHistoryForward", "groupSelectedWorkspaces", "increaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "toggleChecklistItemComplete"]
   }
 }
