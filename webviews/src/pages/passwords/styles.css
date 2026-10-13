@@ -73,7 +73,7 @@
 
 .pw-button:disabled,
 .pw-select:disabled {
-  color: var(--page-text-3);
+  color: var(--page-text-disabled);
 }
 
 .pw-notice {
