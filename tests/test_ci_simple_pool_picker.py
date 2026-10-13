@@ -361,6 +361,25 @@ class LiveReaderTests(unittest.TestCase):
         self.assertEqual(len(api.paths), 1)
         self.assertIn("/orgs/manaflow-ai/actions/runners", api.paths[0])
 
+    def test_a_vendored_pin_bump_keeps_its_shards_on_macos_27(self):
+        # The owned minis run macOS 27. A pin bump's shards that fall back to
+        # Blacksmith take its macOS 27 image, never macos-26 (#19672 passed
+        # shard 3 on Blacksmith macos-26 and crashed on the macOS 27 minis).
+        env = {"RUN_MACOS": "true", "RUN_FULL_SUITE": "true", "RUN_MACOS27": "true"}
+        values = picker.write_outputs(picker.Choice("blacksmith-6vcpu-macos-26", "overflow"), 9, env=env)
+        self.assertEqual(values["shard_runner"], "blacksmith-6vcpu-macos-27")
+        self.assertEqual(values["retry_runner"], "blacksmith-6vcpu-macos-27")
+        self.assertEqual(values["runner"], "blacksmith-6vcpu-macos-26")  # admission compiles where it was placed
+        values = picker.write_outputs(picker.Choice("blacksmith-12vcpu-macos-26", "overflow"), 9, env=env)
+        self.assertEqual(values["shard_runner"], "blacksmith-12vcpu-macos-27")
+        values = picker.write_outputs(
+            picker.Choice("glaeda-std-xcode-26.6", "owned", owned=True, retry_label="blacksmith-6vcpu-macos-26"), 9, env=env)
+        self.assertEqual(values["shard_runner"], "glaeda-std-xcode-26.6")
+        self.assertEqual(values["retry_runner"], "blacksmith-6vcpu-macos-27")
+        values = picker.write_outputs(picker.Choice("blacksmith-6vcpu-macos-26", "overflow"), 9,
+                                      env={"RUN_MACOS": "true", "RUN_FULL_SUITE": "true"})
+        self.assertEqual(values["shard_runner"], "blacksmith-6vcpu-macos-26")
+
     def test_outputs_keep_workflow_contract_for_owned_choice(self):
         values = picker.write_outputs(
             picker.Choice("glaeda-std-xcode-26.6", "owned", owned=True), 3,
