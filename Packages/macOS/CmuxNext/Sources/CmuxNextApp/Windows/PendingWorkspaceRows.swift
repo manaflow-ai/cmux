@@ -68,7 +68,7 @@ final class PendingWorkspaceRows {
     /// before its room shows it (the pin can come after the workspace), and
     /// a row forgotten then left a gap.
     func forget(in window: String, listed: Set<String>, elsewhere: (String) -> Bool) {
-        let done: (Row) -> Bool = { row in row.window == window && (listed.contains(row.id) || elsewhere(row.id)) }
+        func done(_ row: Row) -> Bool { row.window == window && (listed.contains(row.id) || elsewhere(row.id)) }
         for entry in waiting where done(entry.row) { entry.timer.cancel() }
         waiting.removeAll { done($0.row) }
         guard rows.contains(where: done) else { return }
