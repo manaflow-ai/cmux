@@ -397,12 +397,48 @@ pub fn set_extra_allow(names: Vec<String>) {
     *EXTRA_ALLOW.write().unwrap_or_else(|e| e.into_inner()) = names;
 }
 
-fn truthy(key: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
-    // The profile's own switch first; a daemon inside a Claude Code session:
-    // that session's switch is not the person's.
-    let own = std::env::var(key).ok().filter(|_| daemon_has(key));
-    let v = profile.and_then(|p| p.get(key).cloned()).or(own).or_else(|| var(key));
+fn is_on(v: Option<String>) -> bool {
     v.is_some_and(|v| !v.is_empty() && v != "0" && !v.eq_ignore_ascii_case("false"))
+}
+
+/// The person's own switch: the daemon's environment (not a parent Claude
+/// Code session's) or the login shell. Only this one unlocks secrets.
+fn person_switch(key: &str) -> bool {
+    is_on(std::env::var(key).ok().filter(|_| daemon_has(key)).or_else(|| var(key)))
+}
+
+/// A harness profile's own switch. Any local client can add a profile (an
+/// agent too, through ACPMUX_SOCKET), so it unlocks only non-secret names.
+fn profile_switch(key: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
+    is_on(profile.and_then(|p| p.get(key).cloned()))
+}
+
+/// The AWS names a profile's Bedrock switch may unlock.
+const AWS_PUBLIC: [&str; 5] = [
+    "AWS_PROFILE",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+    "AWS_CONFIG_FILE",
+    "AWS_SHARED_CREDENTIALS_FILE",
+];
+
+fn aws_allowed(key: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
+    key.starts_with("AWS_")
+        && (person_switch("CLAUDE_CODE_USE_BEDROCK")
+            || (AWS_PUBLIC.contains(&key) && profile_switch("CLAUDE_CODE_USE_BEDROCK", profile)))
+}
+
+fn vertex_allowed(key: &str, value: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
+    // Region names: CLOUD_ML_REGION exactly, VERTEX_REGION_* when not secret.
+    let region =
+        key == "CLOUD_ML_REGION" || (key.starts_with("VERTEX_REGION_") && !is_secret(key, value));
+    let google =
+        key.starts_with("GOOGLE_") || key.starts_with("CLOUDSDK_") || key.starts_with("GCLOUD_");
+    if !region && !google {
+        return false;
+    }
+    person_switch("CLAUDE_CODE_USE_VERTEX")
+        || (profile_switch("CLAUDE_CODE_USE_VERTEX", profile) && !is_secret(key, value))
 }
 
 /// The allow-list: which login-shell variables a child of `family`
@@ -411,13 +447,25 @@ fn truthy(key: &str, profile: Option<&BTreeMap<String, String>>) -> bool {
 /// its name to `loginEnvAllow`.
 ///
 /// - Every child: PATH (login PATH first); version-manager variables that
-///   find the binary (MISE_*, ASDF_*, NVM_*, VOLTA_*, BUN_INSTALL,
-///   DIRENV_*); proxies (HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, NO_PROXY, both
-///   cases); custom CA (NODE_EXTRA_CA_CERTS, SSL_CERT_FILE, SSL_CERT_DIR).
+///   find the binary (MISE_*, ASDF_*, NVM_*, VOLTA_*, never a secret under
+///   them; BUN_INSTALL); proxies (HTTPS_PROXY, HTTP_PROXY, ALL_PROXY,
+///   NO_PROXY, both cases); custom CA (NODE_EXTRA_CA_CERTS, SSL_CERT_FILE,
+///   SSL_CERT_DIR).
 /// - Claude: ANTHROPIC_*, CLAUDE_* (CLAUDE_CODE_* included), DISABLE_* and
-///   *_TELEMETRY; AWS_* only when CLAUDE_CODE_USE_BEDROCK is set; GOOGLE_*,
-///   CLOUDSDK_*, GCLOUD_* only when CLAUDE_CODE_USE_VERTEX is set.
+///   *_TELEMETRY. With the person's own CLAUDE_CODE_USE_BEDROCK (daemon env
+///   or login shell): AWS_*; with only a profile's switch: AWS_PROFILE,
+///   AWS_REGION, AWS_DEFAULT_REGION, AWS_CONFIG_FILE,
+///   AWS_SHARED_CREDENTIALS_FILE. With the person's own
+///   CLAUDE_CODE_USE_VERTEX: GOOGLE_*, CLOUDSDK_*, GCLOUD_*, CLOUD_ML_REGION,
+///   VERTEX_REGION_* (not secret); with only a profile's switch, the
+///   non-secret ones of those.
 /// - Codex: OPENAI_*, CODEX_*.
+///
+/// Known limit: the family comes from the profile (`config::derive_family`),
+/// and any local client can add a profile (an agent through ACPMUX_SOCKET).
+/// A profile whose id or argv names `claude` gets the Claude list
+/// (ANTHROPIC_*, CLAUDE_CODE_OAUTH_TOKEN): the same reach an agent has by
+/// running `zsh -lic env` itself.
 pub fn allowed(key: &str, value: &str, family: Option<&str>) -> bool {
     allowed_with(key, value, family, None)
 }
@@ -430,7 +478,8 @@ pub fn allowed_with(
     family: Option<&str>,
     profile: Option<&BTreeMap<String, String>>,
 ) -> bool {
-    const COMMON_PREFIXES: [&str; 5] = ["MISE_", "ASDF_", "NVM_", "VOLTA_", "DIRENV_"];
+    // No DIRENV_: DIRENV_DIFF and DIRENV_WATCHES encode .envrc diffs, which can hold secrets.
+    const COMMON_PREFIXES: [&str; 4] = ["MISE_", "ASDF_", "NVM_", "VOLTA_"];
     const COMMON: [&str; 12] = [
         "PATH",
         "BUN_INSTALL",
@@ -462,13 +511,8 @@ pub fn allowed_with(
                 || key.starts_with("CLAUDE_")
                 || key.starts_with("DISABLE_")
                 || key.ends_with("_TELEMETRY")
-                || (key.starts_with("AWS_") && truthy("CLAUDE_CODE_USE_BEDROCK", profile))
-                || ((key.starts_with("GOOGLE_")
-                    || key.starts_with("CLOUDSDK_")
-                    || key.starts_with("GCLOUD_")
-                    || key == "CLOUD_ML_REGION"
-                    || key.starts_with("VERTEX_REGION_"))
-                    && truthy("CLAUDE_CODE_USE_VERTEX", profile))
+                || aws_allowed(key, profile)
+                || vertex_allowed(key, value, profile)
         }
         Some("codex") => key.starts_with("OPENAI_") || key.starts_with("CODEX_"),
         _ => false,
@@ -500,7 +544,7 @@ fn storable(key: &str, value: &str) -> bool {
             .any(|p| key.starts_with(p))
         || key.ends_with("_TELEMETRY")
         || key == "CLOUD_ML_REGION"
-        || key.starts_with("VERTEX_REGION_")
+        || (key.starts_with("VERTEX_REGION_") && !is_secret(key, value))
 }
 
 /// A login variable a profile or route may name as `${env:VAR}`: only one
@@ -720,8 +764,12 @@ fn fingerprint() -> String {
         std::env::var_os("HOME").map(PathBuf::from).or_else(dirs::home_dir).unwrap_or_default();
     let zdot = std::env::var_os("ZDOTDIR").map(PathBuf::from).unwrap_or_else(|| home.clone());
     let shell = std::env::var("SHELL").unwrap_or_default();
-    let mut files: Vec<PathBuf> =
-        [".zshenv", ".zprofile", ".zshrc", ".zlogin"].iter().map(|f| zdot.join(f)).collect();
+    // The shell starts without ZDOTDIR (run_shell), so zsh reads the files in
+    // $HOME; a ZDOTDIR the rc files set is covered too.
+    let mut files: Vec<PathBuf> = [".zshenv", ".zprofile", ".zshrc", ".zlogin"]
+        .iter()
+        .flat_map(|f| [home.join(f), zdot.join(f)])
+        .collect();
     for f in [
         ".bash_profile",
         ".bash_login",
