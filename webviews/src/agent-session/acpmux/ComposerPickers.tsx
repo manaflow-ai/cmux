@@ -164,7 +164,10 @@ export function ComposerPickers({
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
   // installed, not signed in) stays behind the rail's +, unless this chat runs it. A failed model
   // probe alone (a timeout) keeps it.
-  const pickerEntries: ModelPickerProps["catalog"] = pickerCatalog
+  // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
+  // harness's models only, and another harness is Continue in…, never a pick.
+  const locked = !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
+  const allEntries: ModelPickerProps["catalog"] = pickerCatalog
     ? [
         ...pickerCatalog.harnesses
           .filter(
@@ -183,6 +186,8 @@ export function ComposerPickers({
         ...snapshot.catalog.filter((entry) => entry.folder),
       ]
     : snapshot.catalog;
+  const pickerEntries = locked ? allEntries.filter((entry) => entry.id === summary?.harness) : allEntries;
+  const switchHarness = locked ? undefined : onHarness;
   // An agent's own default remains an internal sentinel. The picker omits it
   // instead of exposing a separate "Default" row.
   const models: Choice[] = sessionModels(snapshot.catalog, summary);
@@ -304,10 +309,10 @@ export function ComposerPickers({
     crossing.current = undefined;
     fastWanted.current = undefined;
     if (picked.harness !== harness) {
-      if (!onHarness) return;
+      if (!switchHarness) return;
       crossing.current = { ...picked, from: summary?.sessionId };
       if (remembers) rememberPick({ harness: picked.harness, model: picked.model }, folder ?? summary?.cwd);
-      onHarness(picked.harness, picked.model);
+      switchHarness(picked.harness, picked.model);
       return;
     }
     land(picked.model, picked.effort);
@@ -428,7 +433,7 @@ export function ComposerPickers({
             pending.current = undefined;
             if (effort) onEffort(effort.id, value);
           }}
-          onHarness={onHarness}
+          onHarness={switchHarness}
           onCombo={combo}
           onHarnessHint={onHarnessHint}
           onHarnessEnable={onHarnessEnable}

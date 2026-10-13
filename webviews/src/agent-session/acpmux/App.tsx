@@ -1903,10 +1903,11 @@ function DefaultComposerChips({
     if (!startsChat || !harness || snapshot.summary?.sessionId) return;
     void callNative("chat.new", { harness, ...inFolder }).catch(() => undefined);
   };
-  const picker = usePickerCatalog(snapshot.catalog, {
-    harness: snapshot.summary?.harness,
-    configOptions: snapshot.summary?.configOptions,
-  });
+  const picker = usePickerCatalog(
+    snapshot.catalog,
+    { harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions },
+    snapshot.sessions,
+  );
   const [refreshStatus, setRefreshStatus] = useState<"idle" | "fetching" | "updated" | "error">("idle");
   const refreshCatalog = useCallback(async () => {
     setRefreshStatus("fetching");
@@ -2521,7 +2522,7 @@ function AcpmuxPane() {
     () => ({ harness: snapshot.summary?.harness, configOptions: snapshot.summary?.configOptions }),
     [snapshot.summary?.harness, snapshot.summary?.configOptions],
   );
-  const pickerState = usePickerCatalog(snapshot.catalog, pickerSession);
+  const pickerState = usePickerCatalog(snapshot.catalog, pickerSession, snapshot.sessions);
   const pickerCatalog = pickerState.catalog;
   // The first open after a launch: acpmux has not listed its harnesses yet, so none is missing yet.
   const harnessesChecking = useIsFetching({ queryKey: ["acpmux", "harnesses"] }) > 0 && snapshot.catalog.length === 0;

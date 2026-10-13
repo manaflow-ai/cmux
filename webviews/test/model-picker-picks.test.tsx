@@ -89,7 +89,7 @@ type Sent = { method: "model" | "harness" | "effort"; value: string };
 async function mount(start: {
   harness: string;
   extra?: { id: string; name: string; family?: string; unavailable?: string; probeFailed?: boolean }[];
-  /// Completed turns of the shown chat: 0 is a chat with no message yet.
+  /// Completed turns of the shown chat: none (the default) is a chat with no message yet.
   turnCount?: number;
   /// acpmux's session list (the sidebar's Chats).
   sessions?: import("../src/agent-session/acpmux/model").AcpmuxSnapshot["sessions"];
@@ -132,7 +132,7 @@ async function mount(start: {
         sessionId: state.sessionId,
         harness: state.harness,
         model: state.model,
-        turnCount: start.turnCount ?? 1,
+        turnCount: start.turnCount ?? 0,
         configOptions: [
           {
             id: "effort",
@@ -224,7 +224,7 @@ for (const provider of [
 }
 
 test("before its first message, a row of another provider starts that provider on that row's model", async () => {
-  const { sent } = await mount({ harness: "claude", turnCount: 0 });
+  const { sent } = await mount({ harness: "claude" });
   await openOn("Codex");
   const astra = rows().find((row) => row.dataset.key === "model:gpt-6-astra")!;
   await act(async () => astra.click());
@@ -240,6 +240,7 @@ test("before its first message, a row of another provider starts that provider o
 test("a started chat's picker lists only its own harness, and no pick or search leaves it", async () => {
   const { sent } = await mount({
     harness: "claude-sr",
+    turnCount: 1,
     extra: [{ id: "claude-sr", name: "Claude Code (subrouter)", family: "claude" }],
   });
   await act(async () => {
@@ -267,7 +268,6 @@ test("a started chat's picker lists only its own harness, and no pick or search 
 test("a provider's pick starts the profile this person's chats last completed a turn on", async () => {
   const { sent } = await mount({
     harness: "codex",
-    turnCount: 0,
     extra: [{ id: "claude-sr", name: "Claude Code (subrouter)", family: "claude" }],
     sessions: [
       { sessionId: "stray", displayTitle: "claude", harness: "claude", updatedAt: 3, worked: false },

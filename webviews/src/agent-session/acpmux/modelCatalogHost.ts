@@ -6,6 +6,7 @@ import type { AcpmuxSnapshot } from "./model";
 import {
   BUNDLED_MODEL_CATALOG,
   buildPickerCatalog,
+  workedProfiles,
   readModelCatalog,
   type ModelCatalog,
   type PickerCatalog,
@@ -86,12 +87,23 @@ export function usePickerCatalog(
     harness?: string;
     configOptions?: NonNullable<AcpmuxSnapshot["summary"]>["configOptions"];
   },
+  /** acpmux's chats: a provider's pick starts the profile its chats last completed a turn on. */
+  sessions: AcpmuxSnapshot["sessions"] = [],
 ): { catalog: PickerCatalog; date?: string; refresh(): Promise<void> } {
   const { catalog, user, provisional } = useModelCatalogState();
   const queryClient = useQueryClient();
+  const workedKey = workedProfiles(sessions).join("\n");
   const picker = useMemo(
-    () => buildPickerCatalog({ catalog, user, acpmux, session, provisional }),
-    [catalog, user, acpmux, session, provisional],
+    () =>
+      buildPickerCatalog({
+        catalog,
+        user,
+        acpmux,
+        session,
+        worked: workedKey ? workedKey.split("\n") : [],
+        provisional,
+      }),
+    [catalog, user, acpmux, session, workedKey, provisional],
   );
   return {
     catalog: picker,
