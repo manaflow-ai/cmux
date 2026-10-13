@@ -257,7 +257,17 @@ class EveryTier(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
         self.assertIn("vendored_pin: ${{ steps.route.outputs.vendored_pin }}", workflow)
         swift_test = workflow[workflow.index("\n  swift-test:\n"):workflow.index("\n  daemon-test:\n")]
-        self.assertIn("needs.path_route.outputs.vendored_pin == 'true'", swift_test)
+        # swift test runs on every app-touching feat-cmux-next PR on the
+        # macOS 27 minis: report-only, except on a pin bump, where it blocks.
+        condition = next(line for line in swift_test.splitlines() if line.startswith("    if: "))
+        self.assertNotIn("github.base_ref == 'feat-cmux-next'", condition)
+        self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
+        report_only = (
+            "github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next'"
+            " && needs.path_route.outputs.vendored_pin != 'true'"
+        )
+        self.assertIn(f"    continue-on-error: ${{{{ {report_only} }}}}\n", swift_test)
+        self.assertIn(f"    name: ${{{{ {report_only} && 'cmux-next swift test (macOS 27, report-only)' || 'cmux-next swift test' }}}}\n", swift_test)
 
 
 class PushAttribution(unittest.TestCase):
