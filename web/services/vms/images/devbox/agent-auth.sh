@@ -80,7 +80,9 @@ sys.exit(0 if isinstance(auth, dict) and auth else 1)
 
 # Whether the team's CodeRouter can serve <agent> on this machine:
 # 0 it has an account for the agent, 1 it has none, 2 no answer (no model
-# plane, edge unreachable, unreadable reply, a server without the endpoint).
+# plane, an error or unreadable reply, a server without the endpoint),
+# 3 CodeRouter is unreachable from this machine (its address does not
+# resolve or connect), so team mode could not work either.
 # One GET /api/coderouter/agent-access answers every agent; the answer is
 # reused for 60 s (~/.cache/cmux/agent-access) so back-to-back launches,
 # including headless runs, pay for the check at most once a minute. `cr use`
@@ -108,10 +110,11 @@ cmux_agent_team_access() {
     { mkdir -p "${cmux_aa_cache%/*}" && printf '%s\n' "$cmux_aa_line" > "$cmux_aa_cache"; } 2>/dev/null || :
   fi
   cmux_aa_code=$(printf '%s\n' "$cmux_aa_line" | cut -d ' ' -f "$cmux_aa_field")
-  case "$cmux_aa_code" in 0|1) return "$cmux_aa_code" ;; *) return 2 ;; esac
+  case "$cmux_aa_code" in 0|1|3) return "$cmux_aa_code" ;; *) return 2 ;; esac
 }
 
-# Prints "<claude> <codex> <opencode>" codes (0 account, 1 none, 2 unknown).
+# Prints "<claude> <codex> <opencode>" codes (0 account, 1 none, 2 unknown,
+# 3 unreachable).
 cmux_agent_team_access_fetch() {
   cmux_aa_origin="${CMUX_CODEROUTER_URL-}"
   case "$cmux_aa_origin" in https://*) ;; *) echo "2 2 2"; return 0 ;; esac
@@ -120,7 +123,12 @@ cmux_agent_team_access_fetch() {
   if [ -f /usr/local/share/ca-certificates/freestyle-tls.crt ]; then
     set -- "$@" --cacert /usr/local/share/ca-certificates/freestyle-tls.crt
   fi
-  curl "$@" "${cmux_aa_origin%/}/api/coderouter/agent-access" 2>/dev/null | python3 -c '
+  if cmux_aa_body=$(curl "$@" "${cmux_aa_origin%/}/api/coderouter/agent-access" 2>/dev/null); then :; else
+    # 6 the name does not resolve, 7 nothing accepts the connection: no
+    # request through CodeRouter can succeed. Anything else may be passing.
+    case "$?" in 6|7) echo "3 3 3"; return 0 ;; esac
+  fi
+  printf '%s' "$cmux_aa_body" | python3 -c '
 import json, sys
 try:
     agents = json.load(sys.stdin)["agents"]
@@ -139,6 +147,8 @@ print(code("claude"), code("codex"), code("opencode"))
 #   login           no choice; the agent has its own sign-in here
 #   team-account    no choice or sign-in; the team has an account for it
 #   no-team-account no choice or sign-in; the team has none
+#   team-unreachable no choice or sign-in; CodeRouter cannot be reached from
+#                   this machine, so team mode could not work
 #   team-unknown    no choice or sign-in; the account check got no answer,
 #                   so the long-standing default (team) applies
 cmux_agent_auth_resolve() {
@@ -160,6 +170,7 @@ cmux_agent_auth_resolve() {
   case "$cmux_aa_rc" in
     0) cmux_agent_auth_mode=team; cmux_agent_auth_reason=team-account ;;
     1) cmux_agent_auth_mode=own; cmux_agent_auth_reason=no-team-account ;;
+    3) cmux_agent_auth_mode=own; cmux_agent_auth_reason=team-unreachable ;;
     *) cmux_agent_auth_mode=team; cmux_agent_auth_reason=team-unknown ;;
   esac
 }

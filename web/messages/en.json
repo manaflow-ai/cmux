@@ -137,6 +137,7 @@
     "useReasonLogin": "signed in on this machine",
     "useReasonTeamAccount": "default: the team has an account for it",
     "useReasonNoTeamAccount": "default: the team has no account for it",
+    "useReasonTeamUnreachable": "default: CodeRouter cannot be reached from this machine",
     "useReasonTeamUnknown": "default: the team's accounts could not be checked",
     "useNextLaunch": "This applies the next time you start each agent; running sessions keep their current sign-in.",
     "useEnvOverride": "  ANTHROPIC_API_KEY or ANTHROPIC_BASE_URL is set in this environment; Claude Code started from here uses that instead of either mode.",

@@ -60,7 +60,8 @@ function machine(): Machine {
       'case "$*" in',
       // The catalog fetch asks for the status line (curl -w '\n%{http_code}').
       `  */opencode/config*) printf '%s\\n200' ${JSON.stringify(OPENCODE_CATALOG)} ;;`,
-      '  *) [ -n "${FAKE_ACCESS-}" ] || exit 7; printf \'%s\' "$FAKE_ACCESS" ;;',
+      // No answer is an HTTP error (curl -f: 22) unless a test names another exit.
+      '  *) [ -n "${FAKE_ACCESS-}" ] || exit "${FAKE_CURL_EXIT:-22}"; printf \'%s\' "$FAKE_ACCESS" ;;',
       "esac",
       "",
     ].join("\n"),
@@ -400,6 +401,18 @@ describe("the default for every agent", () => {
       const extra: Record<string, string> = answer === undefined ? {} : { FAKE_ACCESS: answer };
       expect((await launch(m, "claude", extra)).ANTHROPIC_API_KEY).toBe(PLACEHOLDER);
       expect((await launch(m, "codex", extra)).args).toBe("--resume x");
+    }
+  });
+
+  test("CodeRouter unreachable from the machine means the agent's own sign-in", async () => {
+    // Team mode cannot work when the CodeRouter address does not resolve (6)
+    // or connect (7); a dev environment without the edge is one such machine.
+    for (const exit of ["6", "7"]) {
+      const m = machine();
+      cmuxCodexConfig(m);
+      expect((await launch(m, "claude", { FAKE_CURL_EXIT: exit })).ANTHROPIC_API_KEY).toBe("<unset>");
+      expect((await launch(m, "codex", { FAKE_CURL_EXIT: exit })).args).toBe('-c model_provider="openai" --resume x');
+      expect((await launch(m, "opencode", { FAKE_CURL_EXIT: exit })).OPENCODE_CONFIG).toBe("<unset>");
     }
   });
 

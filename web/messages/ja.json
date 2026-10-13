@@ -137,6 +137,7 @@
     "useReasonLogin": "このマシンでサインイン済み",
     "useReasonTeamAccount": "既定: チームにアカウントがあります",
     "useReasonNoTeamAccount": "既定: チームにアカウントがありません",
+    "useReasonTeamUnreachable": "既定: このマシンから CodeRouter に接続できません",
     "useReasonTeamUnknown": "既定: チームのアカウントを確認できませんでした",
     "useNextLaunch": "次に各エージェントを起動したときに反映されます。実行中のセッションは現在のサインインのままです。",
     "useEnvOverride": "  この環境には ANTHROPIC_API_KEY または ANTHROPIC_BASE_URL が設定されています。ここから起動した Claude Code はどちらのモードでもなく、その設定を使います。",
