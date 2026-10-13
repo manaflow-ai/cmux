@@ -271,6 +271,11 @@ Set these Vercel environment variables per production/staging environment:
 - Preserve `sslmode=verify-full` on the PlanetScale URL.
 - `CMUX_VM_CREATE_ENABLED`, global create kill switch. Set `0` to block new paid creates while
   keeping list, attach, and delete available.
+- `CMUX_VM_RESTRICTED_IMAGE_USER_IDS`, comma- or space-separated Stack user ids that may create a
+  machine on a manifest entry marked `restricted: true` by naming its image id or version. Such an
+  entry is never a default; everyone else, and everyone while this is empty, gets the unknown-image
+  refusal. A restricted image is not confidential (a teammate can fork a machine built on it), only
+  not selectable.
 - `CMUX_VM_ALLOW_FREE_PROVISIONING`, explicit opt-out of the paid-plan Cloud VM gate. Leave unset
   (or set to `0`) in every shared environment; set to `1` only for a deliberate demo/rollback. When
   enabled, `CMUX_VM_FREE_MAX_ACTIVE_VMS` and the plan-specific free limit are honored again.

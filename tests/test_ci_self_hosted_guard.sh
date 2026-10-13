@@ -1236,6 +1236,9 @@ check_no_github_hosted_runners() {
     "sdk-release-cut.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance verification"
     "tui-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
     "relay-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a github-hosted runner"
+    "coderouter-publish-npm.yml:    runs-on: ubuntu-latest # github-hosted-required: npm provenance needs a GitHub-hosted runner"
+    # PyPI trusted publishing accepts only GitHub-hosted runners too.
+    "coderouter-publish-pypi.yml:    runs-on: ubuntu-latest # github-hosted-required: PyPI trusted publishing needs a GitHub-hosted runner"
     "cmux-tui-build-package.yml:    runs-on: ubuntu-latest # github-hosted-required: artifact attestations need GitHub OIDC"
     # Detects a Blacksmith outage, so it must run where Blacksmith is not.
     "ci-cloud-overflow-probe.yml:    runs-on: ubuntu-24.04 # github-hosted-required: must run while Blacksmith starts nothing"
