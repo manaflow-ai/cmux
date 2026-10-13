@@ -1105,8 +1105,9 @@ def load_rows(variant, launched):
     RESULTS.append((f"{variant}: pages report after the relaunch", bool(first), timings or "no page reported", "browser"))
     if not opts.hist_file:
         # WebKit's own restore may show the page from its cache (0 requests): still one load.
-        RESULTS.append((f"{variant}: page[hist] loads once after the reopen", "hist" in first and hist_loads <= 1,
-                        f"the server sent /hist-c {hist_loads} times", "browser"))
+        # A restored Chromium page in a workspace nobody shows loads when it is shown, after this row.
+        RESULTS.append((f"{variant}: page[hist] loads once after the reopen", hist_loads <= 1,
+                        f"the server sent /hist-c {hist_loads} times" + ("" if "hist" in first else " (not shown yet)"), "browser"))
     def page_status():
         status = rpc("debug.browser.page_status", {"tab": HIST.get("tab")}) if HIST.get("tab") else {}
         return status if isinstance(status, dict) else {}
