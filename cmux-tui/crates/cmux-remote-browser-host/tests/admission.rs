@@ -12,7 +12,9 @@ use std::time::Duration;
 
 use cmux_rd_proto::control::Control as RdControl;
 use cmux_rd_proto::{STREAM_CONTROL, STREAM_DATAGRAM, StreamDeframer, encode_stream_frame};
-use cmux_remote_browser_host::launch::{Admission, accept_viewers, admit_within};
+use cmux_remote_browser_host::launch::{
+    Admission, MAX_PENDING_HELLOS, accept_viewers, admit_within,
+};
 
 const SECRET: &str = "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a";
 
@@ -191,6 +193,28 @@ fn silent_callers_do_not_hold_the_slot_from_the_apps_viewer() {
     assert!(
         matches!(admitted, Ok(RdControl::Hello { .. })),
         "the app's viewer waited behind {} silent callers",
+        silent.len()
+    );
+}
+
+/// Filling every waiting admission with silent callers does not keep the
+/// app's viewer out either: the newest caller pushes out the oldest.
+#[test]
+fn a_full_set_of_silent_callers_does_not_refuse_the_apps_viewer() {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("addr").port();
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        accept_viewers(listener, Some(SECRET.into()), Duration::from_secs(60), |viewer| {
+            let _ = tx.send(viewer.hello);
+        });
+    });
+    let silent: Vec<TcpStream> = (0..MAX_PENDING_HELLOS + 4).map(|_| connect(port, b"")).collect();
+    let _app = connect(port, &hello(Some(SECRET)));
+    let admitted = rx.recv_timeout(Duration::from_secs(5));
+    assert!(
+        matches!(admitted, Ok(RdControl::Hello { .. })),
+        "the app's viewer was refused behind {} silent callers",
         silent.len()
     );
 }
