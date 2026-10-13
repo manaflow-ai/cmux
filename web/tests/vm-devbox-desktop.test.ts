@@ -186,7 +186,7 @@ describe("devbox desktop layer", () => {
     // The app's desktop port: the noVNC web client must answer on 6901.
     expect(await launchedWebsockifyArguments()).toEqual([
       "--web", "/usr/share/novnc", "--heartbeat", "30",
-      `[::]:${DEVBOX_DESKTOP_NOVNC_PORT}`, `127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}`,
+      `127.0.0.1:${DEVBOX_DESKTOP_NOVNC_PORT}`, `127.0.0.1:${DEVBOX_DESKTOP_RFB_PORT}`,
     ]);
     expect(dockerfile).toContain("ln -s vnc.html /usr/share/novnc/index.html");
     expect(freestyleBake).toContain("ln -s vnc.html /usr/share/novnc/index.html");
