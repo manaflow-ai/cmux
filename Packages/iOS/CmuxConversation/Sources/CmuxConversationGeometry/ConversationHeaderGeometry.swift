@@ -17,6 +17,21 @@ public enum ConversationHeaderGeometry {
         max(16, layoutMargin)
     }
 
+    // MARK: Group cluster
+
+    /// A group's first three other members on the header's 60 pt disc,
+    /// largest first, measured on a real iPhone 17 Pro Max (iOS 26.4): the
+    /// discs sit about 2 pt apart and never overlap.
+    public static let groupClusterSlots: [CGRect] = [
+        CGRect(x: 22.0 / 3, y: 22.0 / 3, width: 85.0 / 3, height: 85.0 / 3),
+        CGRect(x: 34, y: 73.0 / 3, width: 65.0 / 3, height: 65.0 / 3),
+        CGRect(x: 52.0 / 3, y: 112.0 / 3, width: 52.0 / 3, height: 52.0 / 3),
+    ]
+
+    /// The cluster's discs are drawn bare; with the gaps no ring separates
+    /// them.
+    public static let groupClusterRingWidth: CGFloat = 0
+
     // MARK: Name
 
     /// The name capsule's bold type for the headline size Dynamic Type asks

@@ -145,8 +145,7 @@ final class ConversationHeaderView: UIView {
         avatars = shown.map { participant in
             let view = ConversationAvatarView()
             view.configure(initials: participant.initials, colorHex: nil)
-            view.layer.borderWidth = info.kind == .group ? 1.5 : 0
-            view.layer.borderColor = ConversationTheme.background.resolvedColor(with: traitCollection).cgColor
+            view.layer.borderWidth = info.kind == .group ? ConversationHeaderGeometry.groupClusterRingWidth : 0
             avatarContainer.addSubview(view)
             return view
         }
@@ -246,9 +245,7 @@ final class ConversationHeaderView: UIView {
         } else {
             // Cluster: the first large, the rest small and offset.
             clusterDisc.frame = avatarContainer.bounds
-            avatars[0].frame = CGRect(x: 5, y: 6, width: 32, height: 32)
-            if avatars.count > 1 { avatars[1].frame = CGRect(x: 32, y: 18, width: 24, height: 24) }
-            if avatars.count > 2 { avatars[2].frame = CGRect(x: 16, y: 36, width: 18, height: 18) }
+            for (avatar, slot) in zip(avatars, ConversationHeaderGeometry.groupClusterSlots) { avatar.frame = slot }
         }
         let clusterBottom = avatars.isEmpty ? top + 60 : top + (avatars.map(\.frame.maxY).max() ?? 60)
         avatarTapButton.frame = CGRect(x: centerX - 40, y: top, width: 80, height: clusterBottom - top)
@@ -325,8 +322,7 @@ final class ConversationHeaderView: UIView {
             avatars.first?.frame = avatarContainer.bounds
         } else {
             clusterDisc.frame = avatarContainer.bounds
-            let cluster = [CGRect(x: 5, y: 6, width: 32, height: 32), CGRect(x: 32, y: 18, width: 24, height: 24), CGRect(x: 16, y: 36, width: 18, height: 18)]
-            for (avatar, frame) in zip(avatars, cluster) {
+            for (avatar, frame) in zip(avatars, ConversationHeaderGeometry.groupClusterSlots) {
                 avatar.frame = CGRect(x: frame.minX * scale, y: frame.minY * scale, width: frame.width * scale, height: frame.height * scale)
             }
         }
