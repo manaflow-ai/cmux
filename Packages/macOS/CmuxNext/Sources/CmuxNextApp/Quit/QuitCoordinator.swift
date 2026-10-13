@@ -29,6 +29,8 @@ final class QuitCoordinator {
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
     /// stops its debug hang assertion.
     weak var watchdog: MainThreadWatchdog?
+    /// Ends the process if the engine stop never returns (cx-ccjnn).
+    let deadline = QuitDeadline()
     #if DEBUG
     /// `debug.quit {wedge_engine_stop: true}`: the next quit's engine stop
     /// blocks the main thread for good, as a wedged CefShutdown did (cx-ccjnn).
@@ -181,6 +183,11 @@ final class QuitCoordinator {
                 return await QuitAgents.end(QuitAgents.environment(services), waitForShutdown: attempts.isRetry())
             },
             stopBrowserEngines: { [weak self] in
+                // CefShutdown runs on the main thread and can block it for
+                // good: from here the quit ends by a deadline whatever it
+                // does, and a debug build reports that hang, never asserts it.
+                self?.deadline.arm(after: QuitDeadline.engineStopLimit)
+                self?.watchdog?.endHangAssertions()
                 #if DEBUG
                 if self?.wedgesEngineStop == true { QuitEngineWedge.block(self?.watchdog) }
                 #endif
