@@ -168,6 +168,9 @@ public final class AgentTurnStateStore {
     /// `install:<id>` of this Mac; a chat tab of another host has no state
     /// here (its acpmux runs elsewhere).
     public var localHost: String?
+    /// The watch is up and `states` is acpmux's: false before its first page and after it
+    /// closes, when a chat with no state may still be working.
+    public var watching = false
 
     public init() {}
 
