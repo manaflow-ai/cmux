@@ -13,8 +13,12 @@ ffi) and the app. Change this file first, then the implementations.
   `9790718f-14cd-4f7e-824d-eaf527a82b82`, so dev and production app builds share
   it. The token's `iss` picks the project; signature, `iss`
   (`https://api.stack-auth.com/api/v1/projects/<id>`) and `aud` (`<id>`) are then
-  checked against that project only. Other projects, anonymous users and
-  mismatched `iss`/`aud` pairs get 401.
+  checked against that project only. Other projects, anonymous users,
+  restricted users (Stack's `is_restricted`, e.g. sign-up not finished; their
+  tokens are signed by keys outside the default JWKS) and mismatched
+  `iss`/`aud` pairs get 401. A token whose `kid` is missing from the cached
+  JWKS, or a JWKS fetch that failed, refetches the project's keys once at
+  once and verifies again (no 30 s cooldown on that path).
 - A user is the pair (Stack project, `sub`): the same `sub` in two projects is
   two users. Membership is asked of the caller's own project with the caller's
   own token; a team, a personal space, device ownership and link admission
@@ -44,7 +48,11 @@ ffi) and the app. Change this file first, then the implementations.
 
 ## HTTP (base `https://cnx-ios-api-<env>.debussy.workers.dev`; `debussy` is the account's workers.dev subdomain)
 
-Errors are `{"error":{"code","message"}}` with codes `unauthorized` (401),
+Errors are `{"error":{"code","message"}}` with codes `unauthorized` (401; the
+message ends with the reason in parentheses, one of `malformed`,
+`unknown_project`, `expired`, `not_yet_valid`, `bad_claims`, `unknown_key`,
+`keys_unavailable`, `bad_signature`, `anonymous`, `restricted`, and never
+echoes the token),
 `bad_request` (400), `not_member` / `not_owner` / `wrong_team` (403),
 `membership_unavailable` / `invite_failed` (502).
 
@@ -52,6 +60,7 @@ Errors are `{"error":{"code","message"}}` with codes `unauthorized` (401),
 | --- | --- |
 | `POST /v1/devices` | `{deviceId, kind, name, teamId, wgPublicKey?}` → `{device:{deviceId,ownerUserId,teamId,kind,name,wgPublicKey,createdAt,updatedAt,lastSeenAt}}` (upsert; caller must be a team member; a deviceId owned by another user is `403 not_owner`) |
 | `GET /v1/teams/:teamId/macs` | → `{macs:[{deviceId,name,online,lastSeenAt,ownerUserId}]}` |
+| `GET /v1/me/macs` | → `{macs:[{deviceId,name,teamId,online,lastSeenAt,ownerUserId}]}`: the caller's own Macs (registered by the caller, the only Macs v1 lets it dial) in every team the caller still belongs to and in its personal space, with presence from each team's hub. Added in 0.5.0 so a phone finds its Mac whichever team either side has selected; the app polls it (every 4 s while its active team has no online Mac, else every 30 s) and moves to the team of an online Mac. `502 membership_unavailable` when Stack cannot list the caller's teams |
 | `GET /v1/teams/:teamId/prefs` | → `{color, emoji}` for the caller (per user per team) |
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace) |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |

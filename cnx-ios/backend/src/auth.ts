@@ -1,4 +1,4 @@
-import { createLocalJWKSet, createRemoteJWKSet, decodeJwt, jwtVerify, type JWK, type JWTVerifyGetKey } from "jose"
+import { createLocalJWKSet, createRemoteJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify, type JWK, type JWTPayload, type JWTVerifyGetKey } from "jose"
 import type { Env } from "./env.ts"
 
 const STACK_API = "https://api.stack-auth.com"
@@ -44,12 +44,19 @@ export interface Caller {
 
 const issuerOf = (projectId: string) => `${STACK_API}/api/v1/projects/${projectId}`
 
-const keySets = new Map<string, JWTVerifyGetKey>()
-const stackKeys = (env: Env, projectId: string): JWTVerifyGetKey => {
-  if (env.ENVIRONMENT === "test" && env.STACK_TEST_JWKS) return createLocalJWKSet(JSON.parse(env.STACK_TEST_JWKS) as { keys: Array<JWK> })
+/** A project's signing keys, and a way to refetch them now (an unknown `kid`, a failed fetch). */
+export interface KeySet {
+  readonly get: JWTVerifyGetKey
+  readonly reload?: () => Promise<void>
+}
+
+const keySets = new Map<string, KeySet>()
+const stackKeys = (env: Env, projectId: string): KeySet => {
+  if (env.ENVIRONMENT === "test" && env.STACK_TEST_JWKS) return { get: createLocalJWKSet(JSON.parse(env.STACK_TEST_JWKS) as { keys: Array<JWK> }) }
   let keys = keySets.get(projectId)
   if (!keys) {
-    keys = createRemoteJWKSet(new URL(`${issuerOf(projectId)}/.well-known/jwks.json`), { cacheMaxAge: 10 * 60_000, cooldownDuration: 30_000 })
+    const remote = createRemoteJWKSet(new URL(`${issuerOf(projectId)}/.well-known/jwks.json`), { cacheMaxAge: 10 * 60_000, cooldownDuration: 30_000 })
+    keys = { get: remote, reload: () => remote.reload() }
     keySets.set(projectId, keys)
   }
   return keys
@@ -64,27 +71,95 @@ export const bearerOf = (req: Request): { token: string; viaSubprotocol: boolean
   return b ? { token: b.slice(7), viaSubprotocol: true } : undefined
 }
 
+/** Why a token was refused, for the 401 message and the log (never the token or its subject). */
+export type Rejection = "malformed" | "unknown_project" | "expired" | "not_yet_valid" | "bad_claims" | "unknown_key" | "keys_unavailable" | "bad_signature" | "anonymous" | "restricted"
+
+/** Errors where refetching the project's keys can help: a key Stack added since the cached set, or a fetch that failed. */
+const KEY_RETRY = new Set(["ERR_JWKS_NO_MATCHING_KEY", "ERR_JWKS_TIMEOUT", "ERR_JWKS_INVALID", "ERR_JOSE_GENERIC"])
+
+const rejectionOf = (e: unknown): Rejection => {
+  const code = (e as { code?: string } | null)?.code
+  switch (code) {
+    case "ERR_JWT_EXPIRED":
+      return "expired"
+    case "ERR_JWT_CLAIM_VALIDATION_FAILED":
+      return (e as { claim?: string }).claim === "nbf" || (e as { claim?: string }).claim === "iat" ? "not_yet_valid" : "bad_claims"
+    case "ERR_JWKS_NO_MATCHING_KEY":
+      return "unknown_key"
+    case "ERR_JWS_SIGNATURE_VERIFICATION_FAILED":
+      return "bad_signature"
+    case "ERR_JWT_INVALID":
+    case "ERR_JWS_INVALID":
+      return "malformed"
+    default:
+      // A JWKS fetch that failed or timed out (a network TypeError has no code).
+      return "keys_unavailable"
+  }
+}
+
+/**
+ * Verifies `token` against one project's keys. When the keys cannot verify it because Stack published a
+ * key after the cached set was fetched, or the fetch itself failed, the set is refetched once at once
+ * (jose's own refetch waits out a 30 s cooldown) and the token tried again.
+ */
+export const verifyWithKeys = async (token: string, keys: KeySet, project: string): Promise<{ ok: true; payload: JWTPayload } | { ok: false; rejection: Rejection }> => {
+  const options = { algorithms: ["ES256"], issuer: issuerOf(project), audience: project, clockTolerance: 60 }
+  try {
+    return { ok: true, payload: (await jwtVerify(token, keys.get, options)).payload }
+  } catch (first) {
+    const code = (first as { code?: string } | null)?.code
+    if (!keys.reload || !(code === undefined || KEY_RETRY.has(code))) return { ok: false, rejection: rejectionOf(first) }
+    try {
+      await keys.reload()
+      return { ok: true, payload: (await jwtVerify(token, keys.get, options)).payload }
+    } catch (second) {
+      return { ok: false, rejection: rejectionOf(second) }
+    }
+  }
+}
+
+/** The token's own claims and header, unverified: only to explain a refusal. */
+const peek = (token: string): { kid?: string; restricted: boolean; anonymous: boolean } => {
+  try {
+    const claims = decodeJwt(token)
+    const kid = decodeProtectedHeader(token).kid
+    return { ...(kid ? { kid } : {}), restricted: claims.is_restricted === true, anonymous: claims.is_anonymous === true }
+  } catch {
+    return { restricted: false, anonymous: false }
+  }
+}
+
 /**
  * Verifies a Stack access token from any configured project. The unverified `iss` only picks which
  * project's JWKS to try; the signature, issuer and audience are then checked against that project, so a
  * token never verifies under another project's keys or claims.
  */
-export const verifyStackToken = async (env: Env, token: string): Promise<Caller | undefined> => {
-  if (!token) return undefined
-  const projects = stackProjects(env)
+export const authenticate = async (env: Env, token: string): Promise<{ caller: Caller } | { rejection: Rejection }> => {
+  if (!token) return { rejection: "malformed" }
+  let iss: string | undefined
   try {
-    const iss = decodeJwt(token).iss
-    const project = projects.find((p) => issuerOf(p.id) === iss)
-    if (!project) return undefined
-    const { payload } = await jwtVerify(token, stackKeys(env, project.id), {
-      algorithms: ["ES256"],
-      issuer: issuerOf(project.id),
-      audience: project.id,
-      clockTolerance: 60
-    })
-    if (typeof payload.sub !== "string" || !payload.sub || payload.is_anonymous === true) return undefined
-    return { userId: payload.sub, projectId: project.id, token }
+    iss = decodeJwt(token).iss
   } catch {
-    return undefined
+    return { rejection: "malformed" }
   }
+  const project = stackProjects(env).find((p) => issuerOf(p.id) === iss)
+  if (!project) return { rejection: "unknown_project" }
+  const result = await verifyWithKeys(token, stackKeys(env, project.id), project.id)
+  const seen = peek(token)
+  // A restricted user (sign-up not finished, e.g. an unverified email) gets tokens signed by keys outside
+  // the default JWKS, so they fail as an unknown key; name the actual reason.
+  const rejection: Rejection | undefined = !result.ok ? (seen.restricted ? "restricted" : result.rejection) : seen.anonymous ? "anonymous" : seen.restricted ? "restricted" : undefined
+  if (rejection || !result.ok) {
+    console.log(JSON.stringify({ msg: "token rejected", project: project.label, rejection, kid: seen.kid ?? null }))
+    return { rejection: rejection ?? "bad_claims" }
+  }
+  const sub = result.payload.sub
+  if (typeof sub !== "string" || !sub || result.payload.is_anonymous === true) return { rejection: "anonymous" }
+  return { caller: { userId: sub, projectId: project.id, token } }
+}
+
+/** `authenticate` without the reason. */
+export const verifyStackToken = async (env: Env, token: string): Promise<Caller | undefined> => {
+  const r = await authenticate(env, token)
+  return "caller" in r ? r.caller : undefined
 }

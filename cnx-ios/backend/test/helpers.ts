@@ -10,8 +10,8 @@ export const PROD_PROJECT = projects.find((p) => p.label === "prod")!.id
 export const worker = (exports as unknown as { default: Fetcher }).default
 
 /** A Stack access token signed by the test key; `project` picks the issuer (default the dev project). */
-export const token = async (sub: string, opts: { audience?: string; anonymous?: boolean; project?: string } = {}) =>
-  new SignJWT({ ...(opts.anonymous ? { is_anonymous: true } : {}) })
+export const token = async (sub: string, opts: { audience?: string; anonymous?: boolean; restricted?: boolean; project?: string } = {}) =>
+  new SignJWT({ ...(opts.anonymous ? { is_anonymous: true } : {}), ...(opts.restricted ? { is_restricted: true } : {}) })
     .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
     .setIssuer(`https://api.stack-auth.com/api/v1/projects/${opts.project ?? DEV_PROJECT}`)
     .setAudience(opts.audience ?? opts.project ?? DEV_PROJECT)

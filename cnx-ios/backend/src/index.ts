@@ -1,7 +1,7 @@
-import { bearerOf, primaryProject, stackProjects, verifyStackToken, type Caller } from "./auth.ts"
+import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
-import { sendTeamInvite } from "./stack.ts"
+import { sendTeamInvite, userTeams } from "./stack.ts"
 import { openStore, type Device, type Store } from "./store.ts"
 import type { Attachment } from "./team-hub.ts"
 
@@ -99,8 +99,11 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   if (path === "/v1/health" && method === "GET") return json({ ok: true, version: env.API_VERSION, stackProjects: stackProjects(env).map((p) => p.id) })
 
   const bearer = bearerOf(req)
-  const caller = bearer ? await verifyStackToken(env, bearer.token) : undefined
-  if (!caller) return fail(401, "unauthorized", "missing or invalid Stack access token")
+  if (!bearer) return fail(401, "unauthorized", "missing or invalid Stack access token")
+  const auth = await authenticate(env, bearer.token)
+  // The reason (expired, restricted, unknown_key, ...) names why without echoing the token.
+  if (!("caller" in auth)) return fail(401, "unauthorized", `missing or invalid Stack access token (${auth.rejection})`)
+  const caller = auth.caller
 
   if (path === "/v1/ice" && method === "GET") {
     const { iceServers: list, ttl } = await iceServers(env)
@@ -125,6 +128,33 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     if (r.device.kind === "mac")
       await hub(env, caller, teamId).registerMac({ deviceId: r.device.deviceId, name: r.device.name, ownerUserId: caller.userId, ownerProjectId: caller.projectId })
     return json({ device: publicDevice(env, r.device) })
+  }
+
+  if (path === "/v1/me/macs" && method === "GET") {
+    // The caller's own Macs in every space they can reach (PROTOCOL.md): a phone finds its Mac whatever
+    // team either side has selected. Only Macs the caller registered (the v1 admission rule), only teams
+    // the caller still belongs to, presence from each team's hub.
+    const rows = await withStore(env, ctx, (s) => s.listOwnerMacs(ownerKey(env, caller)))
+    const teamIds = [...new Set(rows.map((d) => d.teamId))]
+    let stackTeams: ReadonlySet<string> = new Set()
+    if (teamIds.some((t) => !t.startsWith(PERSONAL))) {
+      try {
+        stackTeams = new Set(await userTeams(env, caller))
+      } catch (e) {
+        console.log(JSON.stringify({ msg: "membership check failed", error: String(e) }))
+        throw new HttpError(502, "membership_unavailable", "could not check team membership")
+      }
+    }
+    const reachable = teamIds.filter((t) => (t.startsWith(PERSONAL) ? t === personalTeamId(caller.userId) : stackTeams.has(t)))
+    const live = new Map(await Promise.all(reachable.map(async (t) => [t, new Map((await hub(env, caller, t).macs()).map((m) => [m.deviceId, m]))] as const)))
+    return json({
+      macs: rows.flatMap((d) => {
+        const presence = live.get(d.teamId)
+        if (!presence) return []
+        const p = presence.get(d.deviceId)
+        return [{ deviceId: d.deviceId, name: d.name, teamId: d.teamId, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: caller.userId }]
+      })
+    })
   }
 
   const team = path.match(/^\/v1\/teams\/([^/]+)\/(macs|prefs|invites|signal)$/)

@@ -12,11 +12,14 @@ import OSLog
 
 private let log = Logger(subsystem: "dev.cmux.cnx", category: "live")
 
-/// Wires the signed-in app to real data: registers this phone in the active
-/// team (the personal space `personal-<userId>` when the account has no
-/// teams), keeps the team's Macs live from presence, holds a link to the
-/// selected online Mac over the Settings transport, and feeds the daemon's
-/// workspaces, acpmux chats, the Feed and Chief from that link.
+/// Wires the signed-in app to real data, from sign-in on (setup included):
+/// registers this phone in the active team (the personal space
+/// `personal-<userId>` when the account has no teams), keeps the team's Macs
+/// live from presence, finds the account's Macs in every other team and the
+/// personal space (`GET /v1/me/macs`) and moves to the one where a Mac is,
+/// holds a link to the selected online Mac over the Settings transport, and
+/// feeds the daemon's workspaces, acpmux chats, the Feed and Chief from that
+/// link.
 @MainActor
 @Observable
 public final class LiveCoordinator {
@@ -24,6 +27,20 @@ public final class LiveCoordinator {
     public private(set) var registeredTeamID: String?
     public private(set) var presenceConnected = false
     public private(set) var chiefStatus: String?
+    /// The last time the phone moved to another team because one of the
+    /// account's Macs is there (the shell shows a toast).
+    public private(set) var followed: Followed?
+
+    /// A move to the team where the account's Mac is.
+    public struct Followed: Equatable, Sendable {
+        public let serial: Int
+        public let teamID: String
+        public let teamName: String
+        public let macName: String
+    }
+
+    /// Called after a move to another team (persists the Stack selection).
+    @ObservationIgnored public var onFollow: ((String) -> Void)?
 
     public let link: LinkController
     public let workspaces: WorkspaceSync
@@ -44,6 +61,14 @@ public final class LiveCoordinator {
     /// The link to the targeted Mac, for terminal tabs (each attaches on its own channel).
     @ObservationIgnored private var currentLink: (any MacLink)?
     @ObservationIgnored private var chiefLive = false
+    @ObservationIgnored private var discoveryTask: Task<Void, Never>?
+    /// The account's Macs that were online at the last look (nil before the first).
+    @ObservationIgnored private var previouslyOnline: Set<String>?
+    /// A team the user picked in the sidebar: discovery leaves it while it is empty.
+    @ObservationIgnored private var pinnedTeamID: String?
+    /// How often discovery looks while the active team has no online Mac, and otherwise.
+    static let waitingPoll: Duration = .seconds(4)
+    static let idlePoll: Duration = .seconds(30)
 
     /// The personal space id for a user (PROTOCOL.md "Personal space").
     public static func personalTeamID(userID: String) -> String { "personal-\(userID)" }
@@ -99,17 +124,29 @@ public final class LiveCoordinator {
 
     // MARK: Teams
 
-    /// Applies the account's teams (or the personal space) and starts the active one.
-    public func applyAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?) {
-        let list = teams.isEmpty ? [AppStore.AccountTeam(id: Self.personalTeamID(userID: userID), name: "Personal")] : teams
-        store.applyLiveTeams(list, selectedID: selectedID)
-        activeTeamChanged()
-        for team in list { loadPrefs(team.id) }
+    private var personal: AppStore.AccountTeam {
+        AppStore.AccountTeam(id: Self.personalTeamID(userID: userID), name: "Personal")
     }
 
-    /// Call after `store.selectTeam`: re-registers, reloads Macs, re-targets the link.
-    public func activeTeamChanged() {
+    /// Applies the account's teams (or the personal space) and starts the
+    /// active one. The personal space stays listed next to Stack teams while
+    /// one of the account's Macs is in it. Starts Mac discovery.
+    public func applyAccountTeams(_ teams: [AppStore.AccountTeam], selectedID: String?) {
+        var list = teams.isEmpty ? [personal] : teams
+        if !teams.isEmpty, store.teams.contains(where: { $0.id == personal.id && !$0.macs.isEmpty }) { list.append(personal) }
+        // A team the phone already shows (picked, or followed to a Mac) stays active.
+        let keep = list.contains { $0.id == store.activeTeamID } ? store.activeTeamID : selectedID
+        store.applyLiveTeams(list, selectedID: keep)
+        activeTeamChanged()
+        for team in list { loadPrefs(team.id) }
+        if discoveryTask == nil { startDiscovery() }
+    }
+
+    /// Call after `store.selectTeam`: re-registers, reloads Macs, re-targets
+    /// the link. `byUser` marks a sidebar pick, which discovery respects.
+    public func activeTeamChanged(byUser: Bool = false) {
         let teamID = store.activeTeamID
+        if byUser { pinnedTeamID = teamID }
         guard !teamID.isEmpty, teamID != registeredTeamID else { return }
         teamTask?.cancel()
         presence?.stop()
@@ -189,6 +226,63 @@ public final class LiveCoordinator {
         retarget()
     }
 
+    // MARK: Discovery across spaces
+
+    private func startDiscovery() {
+        discoveryTask?.cancel()
+        discoveryTask = Task { [weak self] in await self?.discover() }
+    }
+
+    private func discover() async {
+        while !Task.isCancelled {
+            await discoverOnce()
+            let waiting = !(store.activeTeam?.macs.contains(where: \.isOnline) ?? false)
+            do { try await clock.sleep(for: waiting ? Self.waitingPoll : Self.idlePoll) } catch { return }
+        }
+    }
+
+    /// One look at the account's Macs everywhere: shows each in its team and
+    /// moves to the team of an online Mac while the active team has none.
+    func discoverOnce() async {
+        do {
+            let macs = try await api.myMacs()
+            guard !Task.isCancelled else { return }
+            let found = macs.compactMap { mac -> DiscoveredMac? in
+                guard let teamID = mac.teamId else { return nil }
+                return DiscoveredMac(id: mac.deviceId, name: mac.name, isOnline: mac.online, lastSeenAt: mac.lastSeenDate, teamID: teamID)
+            }
+            store.mergeDiscoveredMacs(found, personal: personal)
+            if store.accountMacCount != found.count { store.accountMacCount = found.count }
+            if let team = store.teamToFollow(found, previouslyOnline: previouslyOnline, pinnedTeamID: pinnedTeamID) {
+                follow(team, macName: found.first { $0.teamID == team.id && $0.isOnline }?.name ?? "Your Mac")
+            }
+            previouslyOnline = Set(found.filter(\.isOnline).map(\.placement))
+            retarget()
+        } catch {
+            guard !Task.isCancelled else { return }
+            log.error("Mac discovery failed: \(String(describing: error), privacy: .public)")
+        }
+    }
+
+    private func follow(_ team: Team, macName: String) {
+        log.info("following \(macName, privacy: .private) to team \(team.id, privacy: .private)")
+        store.selectTeam(team.id)
+        activeTeamChanged()
+        followed = Followed(serial: (followed?.serial ?? 0) + 1, teamID: team.id, teamName: team.name, macName: macName)
+        onFollow?(team.id)
+    }
+
+    /// Sign-out: stops discovery, presence and the link.
+    public func stop() {
+        discoveryTask?.cancel()
+        discoveryTask = nil
+        teamTask?.cancel()
+        presence?.stop()
+        presence = nil
+        registeredTeamID = nil
+        link.send(.target(nil))
+    }
+
     // MARK: Prefs and invites
 
     private func loadPrefs(_ teamID: String) {
@@ -223,6 +317,7 @@ public final class LiveCoordinator {
     /// App foreground: probe or redial the link and the presence socket.
     public func foreground() {
         presence?.kick()
+        if discoveryTask != nil { startDiscovery() }
         link.send(.foreground)
     }
 

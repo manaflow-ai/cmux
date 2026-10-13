@@ -4,28 +4,65 @@ import SwiftUI
 private let theme = CnxTheme.standard
 
 /// How a Mac reaches this iPhone: there is no pairing code. A Mac signed in
-/// to the same account and team, with iPhone connections allowed, appears by
-/// itself (PROTOCOL.md). Two numbered steps and a live status line that
-/// flips when the Mac shows up. Used by the Workspaces empty state and the
-/// first-run setup.
+/// to the same account, with iPhone connections allowed, appears by itself
+/// in whichever team or personal space it uses (PROTOCOL.md
+/// `GET /v1/me/macs`). Two numbered steps and a live status line that flips
+/// when the Mac shows up. Used by the Workspaces empty state and the
+/// first-run setup. The Mac's switch lives in its Settings → Mobile.
 public struct ConnectMacSteps: View {
     let email: String?
     /// The first online Mac, once one appears.
     let onlineMac: String?
+    /// The team the Mac was found in, when the account has several.
+    let teamName: String?
+    /// The account has no Mac in any space: the Mac may use another account.
+    let noMacsForAccount: Bool
+    /// Opens Settings → Account (the shell only).
+    let openAccount: (() -> Void)?
 
-    public init(email: String?, onlineMac: String?) {
+    public init(email: String?, onlineMac: String?, teamName: String? = nil,
+                noMacsForAccount: Bool = false, openAccount: (() -> Void)? = nil) {
         self.email = email
         self.onlineMac = onlineMac
+        self.teamName = teamName
+        self.noMacsForAccount = noMacsForAccount
+        self.openAccount = openAccount
     }
 
     public var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             step(1, signInText)
-            step(2, Text("In cmux on your Mac, turn on \(Text("Settings → iPhone → Allow iPhone connections").fontWeight(.semibold))."))
+            step(2, Text("In cmux on your Mac, turn on \(Text("Settings → Mobile → Allow iPhone Connections").fontWeight(.semibold))."))
             status
                 .padding(.top, 6)
+            if onlineMac == nil, noMacsForAccount { otherAccount }
         }
         .frame(maxWidth: 340, alignment: .leading)
+    }
+
+    /// Said plainly when no Mac is signed in to this account anywhere: the
+    /// usual cause is a Mac signed in with another account (another sign-in
+    /// method can make another account for the same person).
+    private var otherAccount: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Group {
+                if let email, !email.isEmpty {
+                    Text("No Macs are signed in as \(Text(email).fontWeight(.semibold)). If your Mac uses a different account, sign in with the same one on both.")
+                } else {
+                    Text("No Macs are signed in to this account. If your Mac uses a different account, sign in with the same one on both.")
+                }
+            }
+            .font(theme.type.rowSubtitle)
+            .foregroundStyle(theme.colors.label2)
+            .fixedSize(horizontal: false, vertical: true)
+            if let openAccount {
+                Button("Account Settings", action: openAccount)
+                    .font(theme.type.rowSubtitle.weight(.semibold))
+                    .foregroundStyle(theme.colors.label)
+                    .accessibilityIdentifier("connect-mac.account")
+            }
+        }
+        .accessibilityIdentifier("connect-mac.other-account")
     }
 
     private var signInText: Text {
@@ -55,7 +92,11 @@ public struct ConnectMacSteps: View {
             if let onlineMac {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(theme.colors.success.color)
-                Text("\(onlineMac) is online")
+                if let teamName {
+                    Text("\(onlineMac) is online in \(teamName)")
+                } else {
+                    Text("\(onlineMac) is online")
+                }
             } else {
                 ProgressView().controlSize(.small)
                 Text("Waiting for your Mac…")
