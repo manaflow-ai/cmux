@@ -27,11 +27,11 @@
 //! (`<img>`, a data URL, or a native image), never inlined into a DOM
 //! (plans/cmux-next/icons.md 1).
 
-use anyhow::{bail, Context};
-use quick_xml::escape::escape;
-use quick_xml::events::{BytesStart, Event};
+use anyhow::{Context, bail};
 use quick_xml::Reader;
 use quick_xml::XmlVersion;
+use quick_xml::escape::escape;
+use quick_xml::events::{BytesStart, Event};
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 
@@ -439,11 +439,7 @@ fn is_icon_id(id: &str) -> bool {
 /// The id in the icon namespace; already prefixed ids stay as they are, so
 /// the output is a fixed point.
 fn prefixed_id(id: &str) -> String {
-    if id.starts_with(ID_PREFIX) {
-        id.to_owned()
-    } else {
-        format!("{ID_PREFIX}{id}")
-    }
+    if id.starts_with(ID_PREFIX) { id.to_owned() } else { format!("{ID_PREFIX}{id}") }
 }
 
 /// A presentation or geometry value that cannot reach outside the icon:
