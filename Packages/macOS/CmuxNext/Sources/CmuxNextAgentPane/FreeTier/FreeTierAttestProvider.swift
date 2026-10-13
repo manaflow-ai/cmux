@@ -1,7 +1,7 @@
 public import CmuxAppAttest
 import CmuxNextWakeups
 public import Foundation
-import os
+public import os
 
 /// The app's half of the free tier (cx-ds09i): an App Attest provider for the
 /// local model relay (cmux-tui crate cmux-coderouter, `free_tier.rs`).
