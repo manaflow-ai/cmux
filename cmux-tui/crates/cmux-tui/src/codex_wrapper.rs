@@ -81,7 +81,7 @@ fn current_executable() -> anyhow::Result<PathBuf> {
 }
 
 fn prepare_hooks(args: &[OsString]) -> anyhow::Result<Option<Vec<OsString>>> {
-    let Some((socket, Some(terminal))) = crate::hook_helper::session_route() else {
+    let Some((socket, Some(terminal))) = crate::hook_helper::session_route("codex") else {
         return Ok(None);
     };
     if !fs::metadata(&socket).is_ok_and(|metadata| metadata.file_type().is_socket()) {
