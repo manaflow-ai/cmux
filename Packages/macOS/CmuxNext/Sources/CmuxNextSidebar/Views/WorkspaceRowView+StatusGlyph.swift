@@ -12,6 +12,13 @@ extension WorkspaceRowView {
         let font = title.font
         let center = titleTop + font.ascender - font.capHeight / 2
         let scale = window?.backingScaleFactor ?? 2
-        return NSRect(x: trailing - side, y: ((center - side / 2) * scale).rounded() / scale, width: side, height: side)
+        func snapped(_ value: CGFloat) -> CGFloat { (value * scale).rounded() / scale }
+        return NSRect(x: snapped(trailing - side), y: snapped(center - side / 2), width: side, height: side)
+    }
+
+    /// The agent mark's image size: the status mark's when it stands in for the status, the
+    /// indicator size when it sits beside the title, so its brand variant matches the box it fills.
+    var agentMarkSize: CGFloat {
+        agentMarkVariant == .replacesStatus ? SidebarStyle.statusGlyphSize : SidebarStyle.indicatorSize
     }
 }

@@ -11,7 +11,7 @@ sidebar's status glyphs (`debug.sidebar_rows` "status_glyphs"). For each state:
 
   1. the mark's mask is crisp at 1x and 2x (drawn at its pixel size, not resampled);
   2. the glyph box is as tall as the unread badge, and the drawn mark fills most of it;
-  3. the drawn mark is centered on the title's cap height (0.25 pt).
+  3. the drawn mark is centered on the title's cap height (0.25 pt at 2x, 0.5 pt at 1x).
 
 Exits 1 when a check fails.
 """
@@ -23,8 +23,9 @@ opts = parser.parse_args()
 SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
 CLI = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cmux-debug-cli.sh")
 TOLERANCE = 0.5
-# The mark's center against the title's capitals: on the 2x pixel grid (Leo saw 0.4 pt low as low).
-CENTER = 0.25
+# The mark's center against the title's capitals: one pixel at 2x (Leo saw 0.4 pt low as low);
+# at 1x the pixel snap alone can move it half a point.
+CENTER = {2: 0.25, 1: 0.5}
 # Partly covered pixels per fully covered one. A 16 pt SF Symbol mark drawn at its pixel size
 # measures about 0.56 at 1x and 0.24 at 2x; rendered at 2x and resampled, 3.0 and 0.53.
 SOFT_1X, SOFT_2X = 1.0, 0.4
@@ -63,12 +64,12 @@ def cli(*args):
     return subprocess.run([CLI, "--app-socket", SOCKET, *args], env=env, capture_output=True, text=True, timeout=60)
 
 
-def glyphs(state):
-    """The sidebar's status glyphs once one shows `state` (a few seconds at most)."""
+def glyphs(state, name):
+    """The status glyphs on the row titled `name` once it shows `state` (a few seconds at most)."""
     deadline = time.monotonic() + 8
     while time.monotonic() < deadline:  # bounded wait for the app to apply the report
         windows = (rpc("debug.sidebar_rows") or {}).get("windows") or []
-        found = [g for w in windows for g in w.get("status_glyphs") or [] if g.get("state", "").startswith(state)]
+        found = [g for w in windows for g in w.get("status_glyphs") or [] if g.get("state", "").startswith(state) and (g.get("title") or {}).get("text") == name]
         if found:
             return found
         time.sleep(0.25)
@@ -90,7 +91,8 @@ def check_glyph(glyph, label):
         return
     check(drawn[3] >= FILL * badge, f"{label}: the drawn mark fills the badge height ({drawn[3]:g} >= {FILL * badge:g})")
     center = drawn[1] + drawn[3] / 2
-    check(abs(center - title["cap_center_y"]) <= CENTER,
+    tolerance = CENTER[2 if glyph.get("scale", 2) >= 2 else 1]
+    check(abs(center - title["cap_center_y"]) <= tolerance,
           f"{label}: centered on the title's cap height ({center:.2f} vs {title['cap_center_y']:.2f})")
 
 
@@ -139,12 +141,12 @@ def main():
     done = new_workspace("glyph-done")
     working = new_workspace("glyph-working")
     check(done is not None and working is not None, "two workspaces with a terminal each")
-    for terminal, state, shown in ((done, "done", "success"), (working, "working", "working")):
+    for terminal, state, shown, name in ((done, "done", "success", "glyph-done"), (working, "working", "working", "glyph-working")):
         # A working record lasts while its program runs; done stays until it is seen.
         written = report(terminal or "", state, "; sleep 60" if state == "working" else "")
         check(written.returncode == 0, f"{state}: the program reports it ({written.stderr.strip()[-120:]})")
-        found = glyphs(shown)
-        check(bool(found), f"{state}: a sidebar row shows the {shown} mark")
+        found = glyphs(shown, name)
+        check(bool(found), f"{state}: the {name} row shows the {shown} mark")
         for glyph in found[:1]:
             check_glyph(glyph, state)
     if working:
