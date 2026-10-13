@@ -13,7 +13,7 @@ struct HibernationPlanner {
         var host: String?
         var isPinned = false
         var hasDevTools = false
-        /// Camera or microphone in use (Page Info).
+        /// Camera or microphone in use (Page Info); the probe finds the rest (`PageProbe.capturing`).
         var isCapturing = false
         /// The engine can save and restore its history.
         var canRestore = true
