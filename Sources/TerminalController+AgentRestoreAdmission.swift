@@ -87,7 +87,18 @@ extension TerminalController {
                 indexComplete = index.isComplete(
                     forWorkspaceId: inputs.workspaceID, panelId: inputs.surfaceID, kind: inputs.kind
                 )
+#if DEBUG
+                if !indexComplete {
+                    cmuxDebugLog(
+                        "agentRestore.admit.indexIncomplete kind=\(inputs.kind) " +
+                        "completion=\(index.completionFingerprint.sorted().joined(separator: ","))"
+                    )
+                }
+#endif
             case .timedOut, .cancelled:
+#if DEBUG
+                cmuxDebugLog("agentRestore.admit.indexTimedOut kind=\(inputs.kind)")
+#endif
                 liveOwner = nil
                 indexComplete = false
             }
