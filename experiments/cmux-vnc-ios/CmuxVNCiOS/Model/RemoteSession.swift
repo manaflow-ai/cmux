@@ -53,6 +53,13 @@ final class RemoteSession {
     @ObservationIgnored private var demo: VNCDemoServer?
     @ObservationIgnored private var statsWindow = (start: CACurrentMediaTime(), frames: 0, bytes: 0)
     @ObservationIgnored private var heldButtons: VNCButtons = []
+    /// Set for a Mac paired as a screen stream (WebRTC video + input channel).
+    @ObservationIgnored private(set) var stream: ScreenStreamViewer?
+    @ObservationIgnored var onVideoTrack: ((VideoTrackBox) -> Void)?
+    /// Stream displays (sizes) and the one streaming.
+    @ObservationIgnored var onStreamDisplays: (([CGSize], Int) -> Void)?
+    private(set) var streamPath = "WebRTC"
+    var isStream: Bool { pairing?.isStream == true }
     /// The remote pointer in framebuffer pixels.
     @ObservationIgnored private(set) var pointer = CGPoint(x: 100, y: 100)
 
@@ -75,7 +82,7 @@ final class RemoteSession {
     }
 
     /// "WebRTC" or "Direct", for the stats line.
-    var pathLabel: String { pairing != nil ? "WebRTC" : (isDemo ? "Loopback" : "Direct") }
+    var pathLabel: String { isStream ? "Video · \(streamPath)" : (pairing != nil ? "WebRTC" : (isDemo ? "Loopback" : "Direct")) }
 
     /// The built-in demo desktop on a loopback server in this app.
     init(demoPreferences: SessionPreferences) {
@@ -91,6 +98,10 @@ final class RemoteSession {
     func connect() {
         disconnect(silently: true)
         phase = .connecting
+        if let pairing, pairing.isStream {
+            connectStream(pairing)
+            return
+        }
         tasks.append(Task { [weak self] in
             guard let self else { return }
             var target = endpoint
@@ -146,11 +157,76 @@ final class RemoteSession {
         Task { await client.connect() }
     }
 
+    // MARK: Stream
+
+    private func connectStream(_ pairing: VNCPairing) {
+        let viewer = ScreenStreamViewer(pairing: pairing)
+        stream = viewer
+        viewer.onVideo = { [weak self] box in Task { @MainActor in self?.onVideoTrack?(box) } }
+        viewer.onDisplays = { [weak self] message in
+            Task { @MainActor in
+                let sizes = (message.displays ?? []).map { CGSize(width: $0.w, height: $0.h) }
+                self?.onStreamDisplays?(sizes, message.current ?? 0)
+            }
+        }
+        viewer.onPath = { [weak self] path in Task { @MainActor in self?.streamPath = path } }
+        viewer.onState = { [weak self] message in
+            Task { @MainActor in if let message { self?.phase = .failed(message: message, needsSignIn: false) } }
+        }
+        tasks.append(Task { [weak self] in
+            do {
+                try await viewer.connect()
+                guard let self else { return }
+                phase = .connected(VNCServerInfo(width: 0, height: 0, name: pairing.name, nativeFormat: .bgrx,
+                                                 protocolMinor: 8, securityType: 0))
+                await pollStreamStats(viewer)
+            } catch {
+                self?.phase = .failed(message: "Could not reach the Mac: \(error)", needsSignIn: false)
+            }
+        })
+    }
+
+    /// WebRTC's own numbers, once a second, for the stats line.
+    private func pollStreamStats(_ viewer: ScreenStreamViewer) async {
+        var lastBytes = 0.0
+        var lastTime = CACurrentMediaTime()
+        while !Task.isCancelled, stream === viewer {
+            try? await Task.sleep(for: .seconds(1)) // stats sampling period
+            let video = await viewer.videoStats()
+            let now = CACurrentMediaTime()
+            var next = stats
+            next.fps = video.fps ?? 0
+            next.kilobytesPerSecond = (video.bytesReceived - lastBytes) / 1024 / max(now - lastTime, 0.001)
+            next.latencyMs = video.rttMs
+            next.encoding = [video.codec, video.decoder == "VideoToolbox" ? "HW" : video.decoder].compactMap { $0 }.joined(separator: " ")
+            stats = next
+            lastBytes = video.bytesReceived
+            lastTime = now
+        }
+    }
+
+    /// Streams display `index` (the Mac crops to it).
+    func selectDisplay(_ index: Int) {
+        stream?.send(ScreenInput(t: "display", i: index))
+    }
+
+    /// The pointer as a fraction of the streamed display.
+    private func normalized(_ point: CGPoint) -> (Double, Double) {
+        (Double(point.x / max(frameSize.width, 1)), Double(point.y / max(frameSize.height, 1)))
+    }
+
+    /// The video's pixel size (the streamed display).
+    func setStreamFrameSize(_ size: CGSize) {
+        frameSize = size
+    }
+
     func disconnect(silently: Bool = false) {
         for task in tasks { task.cancel() }
         tasks.removeAll()
         if let client { Task { await client.disconnect() } }
         client = nil
+        stream?.close()
+        stream = nil
         if !silently { phase = .ended }
     }
 
@@ -203,6 +279,12 @@ final class RemoteSession {
 
     /// Moves the pointer to framebuffer point `point`.
     func movePointer(to point: CGPoint) {
+        if let stream {
+            pointer = clamp(point)
+            let (x, y) = normalized(pointer)
+            stream.send(ScreenInput(t: "move", x: x, y: y, b: heldButtons.rawValue))
+            return
+        }
         guard let client else { return }
         pointer = clamp(point)
         let target = pointer
@@ -210,6 +292,12 @@ final class RemoteSession {
     }
 
     func press(_ button: VNCButtons, down: Bool) {
+        if let stream {
+            if down { perf.input("press"); heldButtons.insert(button) } else { heldButtons.remove(button) }
+            let (x, y) = normalized(pointer)
+            stream.send(ScreenInput(t: "move", x: x, y: y, b: heldButtons.rawValue))
+            return
+        }
         guard let client else { return }
         if down { perf.input("press") }
         if down { heldButtons.insert(button) } else { heldButtons.remove(button) }
@@ -217,6 +305,13 @@ final class RemoteSession {
     }
 
     func click(_ button: VNCButtons = .left) {
+        if let stream {
+            perf.input(button == .right ? "right-click" : "click")
+            let (x, y) = normalized(pointer)
+            stream.send(ScreenInput(t: "move", x: x, y: y, b: heldButtons.union(button).rawValue))
+            stream.send(ScreenInput(t: "move", x: x, y: y, b: heldButtons.rawValue))
+            return
+        }
         guard let client else { return }
         perf.input(button == .right ? "right-click" : "click")
         Task {
@@ -226,12 +321,29 @@ final class RemoteSession {
     }
 
     func scroll(dx: Int, dy: Int) {
+        if let stream, dx != 0 || dy != 0 {
+            perf.input("scroll")
+            let (x, y) = normalized(pointer)
+            stream.send(ScreenInput(t: "scroll", x: x, y: y, dx: dx, dy: dy))
+            return
+        }
         guard let client, dx != 0 || dy != 0 else { return }
         perf.input("scroll")
         Task { await client.scroll(dx: dx, dy: dy) }
     }
 
     func type(_ text: String, modifiers: [VNCKeysym] = []) {
+        if let stream {
+            perf.input("type")
+            if modifiers.isEmpty {
+                stream.send(ScreenInput(t: "text", s: text))
+            } else {
+                for character in text {
+                    stream.send(ScreenInput(t: "chord", k: VNCKeysym(character: character).rawValue, m: modifiers.map(\.rawValue)))
+                }
+            }
+            return
+        }
         guard let client else { return }
         perf.input("type")
         if modifiers.isEmpty {
@@ -244,17 +356,30 @@ final class RemoteSession {
     }
 
     func tap(_ key: VNCKeysym, modifiers: [VNCKeysym] = []) {
+        if let stream {
+            perf.input(modifiers.isEmpty ? "key" : "shortcut")
+            stream.send(ScreenInput(t: "chord", k: key.rawValue, m: modifiers.map(\.rawValue)))
+            return
+        }
         guard let client else { return }
         perf.input(modifiers.isEmpty ? "key" : "shortcut")
         Task { await client.chord(modifiers, key) }
     }
 
     func key(_ key: VNCKeysym, down: Bool) {
+        if let stream {
+            stream.send(ScreenInput(t: "key", k: key.rawValue, d: down))
+            return
+        }
         guard let client else { return }
         Task { await client.key(key, down: down) }
     }
 
     func refresh() {
+        if let stream {
+            stream.send(ScreenInput(t: "refresh"))
+            return
+        }
         guard let client else { return }
         Task { await client.refresh() }
     }

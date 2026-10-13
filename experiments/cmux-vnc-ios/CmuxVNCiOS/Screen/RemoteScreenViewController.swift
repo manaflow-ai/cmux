@@ -1,4 +1,5 @@
 import CmuxVNC
+import CmuxVNCWebRTC
 import UIKit
 
 /// The remote screen: a zoomable view of the framebuffer, the local cursor,
@@ -33,6 +34,9 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     private var paged = false
     private let pageControl = UIPageControl()
     private var lastDetection = CFTimeInterval(0)
+    /// Stream mode: the Mac's video, and its displays (each streams on its own).
+    private var videoView: ScreenVideoView?
+    private var streamDisplays: [CGSize] = []
 
     init(session: RemoteSession) {
         self.session = session
@@ -73,6 +77,10 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         pageControl.translatesAutoresizingMaskIntoConstraints = false
         pageControl.addAction(UIAction { [weak self] _ in
             guard let self else { return }
+            if session.isStream {
+                session.selectDisplay(pageControl.currentPage)
+                return
+            }
             show(page: pageControl.currentPage, animated: true)
         }, for: .valueChanged)
         view.addSubview(pageControl)
@@ -82,6 +90,7 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
         ])
 
         session.onFrame = { [weak self] frame in self?.show(frame) }
+        if session.isStream { installVideo() }
         session.onCursor = { [weak self] cursor in self?.setCursor(cursor) }
         session.onScreens = { [weak self] screens in
             self?.screensFromServer = true
@@ -102,6 +111,38 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     }
 
     // MARK: Frames
+
+    /// Stream mode: the video view fills the content; its pixel size is the frame size.
+    private func installVideo() {
+        let video = ScreenVideoView(frame: content.bounds)
+        video.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        content.insertSubview(video, at: 0)
+        videoView = video
+        video.onSize = { [weak self] size in self?.applyFrameSize(size) }
+        video.onFrame = { [weak self] in self?.session.perf.streamFrame() }
+        session.onVideoTrack = { [weak video] box in video?.attach(box) }
+        session.onStreamDisplays = { [weak self] sizes, current in
+            guard let self else { return }
+            streamDisplays = sizes
+            page = current
+            pageControl.numberOfPages = sizes.count
+            pageControl.currentPage = current
+            pageControl.isHidden = sizes.count < 2
+        }
+    }
+
+    /// A new frame size (VNC framebuffer or video): reset the content and refit.
+    private func applyFrameSize(_ size: CGSize) {
+        guard size != frameSize, size.width > 0 else { return }
+        frameSize = size
+        session.setStreamFrameSize(size)
+        scrollView.zoomScale = 1
+        content.frame = CGRect(origin: .zero, size: size)
+        screenLayer.frame = content.bounds
+        videoView?.frame = content.bounds
+        scrollView.contentSize = size
+        updateZoomLimits(resetToFit: true)
+    }
 
     private func show(_ frame: VNCFrame) {
         let size = CGSize(width: frame.width, height: frame.height)
@@ -212,7 +253,7 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     /// Fits display `index` to the view.
     private func show(page index: Int, animated: Bool) {
         guard frameSize != .zero, view.bounds.width > 0 else { return }
-        page = screens.indices.contains(index) ? index : 0
+        page = screens.indices.contains(index) || session.isStream ? index : 0
         paged = true
         pageControl.currentPage = page
         let rect = focusRect
@@ -254,7 +295,7 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard fitToDisplay, frameSize != .zero else { return }
         // A swipe at fit may move sideways (to page); everything else stays in the display.
-        let paging = scrollView.isDragging && screens.count > 1 && atFit
+        let paging = scrollView.isDragging && (screens.count > 1 || streamDisplays.count > 1) && atFit
         let next = clamped(scrollView.contentOffset, allowHorizontal: paging)
         if next != scrollView.contentOffset { scrollView.contentOffset = next }
     }
@@ -263,6 +304,21 @@ final class RemoteScreenViewController: UIViewController, UIScrollViewDelegate, 
     /// panning stops at the display's edges.
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint,
                                    targetContentOffset: UnsafeMutablePointer<CGPoint>) {
+        // Stream mode: each display is its own video; a swipe at fit asks the Mac for the next one.
+        if session.isStream, streamDisplays.count > 1, atFit {
+            let home = centeredOffset(focusRect, scale: scrollView.zoomScale).x
+            let moved = scrollView.contentOffset.x - home
+            var target = page
+            if velocity.x > 0.3 || moved > view.bounds.width * 0.25 { target = min(page + 1, streamDisplays.count - 1) }
+            if velocity.x < -0.3 || moved < -view.bounds.width * 0.25 { target = max(page - 1, 0) }
+            targetContentOffset.pointee = scrollView.contentOffset
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if target != page { session.selectDisplay(target) }
+                show(page: page, animated: true)
+            }
+            return
+        }
         let pages = paged && screens.count > 1 && (atFit || !fitToDisplay)
         guard pages else {
             if fitToDisplay { targetContentOffset.pointee = clamped(targetContentOffset.pointee, allowHorizontal: false) }

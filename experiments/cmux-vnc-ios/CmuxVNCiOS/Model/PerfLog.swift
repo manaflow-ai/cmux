@@ -45,6 +45,16 @@ final class PerfLog {
         write(line)
     }
 
+    /// Stream mode: a rendered video frame (WebRTC) — closes an input's
+    /// input → frame timing. Frames repeat while idle (refresh), so a
+    /// measurement is the first frame after the input, an upper bound.
+    func streamFrame() {
+        guard let input = pendingInput else { return }
+        pendingInput = nil
+        write(["event": "frame", "t": ms(CACurrentMediaTime() - start), "input": input.name,
+               "input_to_frame_ms": ms(CACurrentMediaTime() - input.at), "stream": true])
+    }
+
     private func ms(_ seconds: CFTimeInterval) -> Double { (seconds * 1000).rounded() }
 
     private func write(_ line: [String: Any]) {
