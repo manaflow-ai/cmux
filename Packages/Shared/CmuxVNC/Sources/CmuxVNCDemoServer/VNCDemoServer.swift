@@ -33,7 +33,7 @@ public final class VNCDemoServer: @unchecked Sendable {
     private let queue = DispatchQueue(label: "cmux.vnc.demo-server")
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: DemoConnection] = [:]
-    private var timer: DispatchSourceTimer?
+    private var timer: (any DispatchSourceTimer)?
     private var scene: DemoScene?
 
     public init(configuration: Configuration = Configuration()) {
@@ -134,7 +134,8 @@ final class ResumeGuard: @unchecked Sendable {
 
 /// One viewer: the handshake and message state machine, its pending damage
 /// and whether it has an update request outstanding. Confined to the queue.
-final class DemoConnection {
+final class DemoConnection: @unchecked Sendable {
+    // @unchecked: confined to the server queue.
     private enum Phase {
         case version, security, auth, clientInit, normal
     }
@@ -301,8 +302,8 @@ final class DemoConnection {
         let text = Array(reason.utf8)
         bytes.u32(text.count)
         bytes.append(text)
-        send(bytes.data)
-        connection.cancel()
+        // Close once the reason is on the wire.
+        connection.send(content: Data(bytes.data), completion: .contentProcessed { [connection] _ in connection.cancel() })
     }
 
     // MARK: Updates

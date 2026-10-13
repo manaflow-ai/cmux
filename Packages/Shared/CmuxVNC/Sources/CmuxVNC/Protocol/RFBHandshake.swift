@@ -67,7 +67,13 @@ struct RFBHandshake {
         }
         // SecurityResult: always in 3.8; after real authentication in 3.3 and 3.7.
         if minor == 8 || type != RFBSecurityType.none {
-            let result = try await reader.u32()
+            let result: UInt32
+            do {
+                result = try await reader.u32()
+            } catch RFBError.connectionClosed where type != RFBSecurityType.none {
+                // Some servers drop the connection instead of sending a failed result.
+                throw RFBError.authenticationFailed("")
+            }
             if result != 0 {
                 let reason = minor == 8 ? (try? await reader.lengthPrefixedString(limit: 4096)) ?? "" : ""
                 throw RFBError.authenticationFailed(reason)

@@ -2,6 +2,7 @@ import Foundation
 import Testing
 import zlib
 @testable import CmuxVNC
+@testable import CmuxVNCDemoServer
 
 /// Feeds one rectangle body through the decoder from scripted bytes.
 func decode(_ header: RFBRectangleHeader, body: [UInt8], into framebuffer: Framebuffer,
@@ -74,31 +75,16 @@ struct DecoderTests {
         // Rect 1: solid tile. Rect 2: packed palette (2 colours, 1 bit). Rect 3: palette RLE.
         let solid: [UInt8] = [1] + cpixel(green)
         let packed: [UInt8] = [2] + cpixel(red) + cpixel(blue) + [0b0101_0000, 0b1010_0000]
-        let paletteRLE: [UInt8] = [130] + cpixel(red) + cpixel(green) + [0x80, 2, 1]
-        var stream = z_stream()
-        deflateInit_(&stream, Z_DEFAULT_COMPRESSION, ZLIB_VERSION, Int32(MemoryLayout<z_stream>.size))
-        defer { deflateEnd(&stream) }
-        func compress(_ input: [UInt8]) -> [UInt8] {
-            var source = input
-            var out = [UInt8](repeating: 0, count: 256)
-            source.withUnsafeMutableBufferPointer { inBuffer in
-                out.withUnsafeMutableBufferPointer { outBuffer in
-                    stream.next_in = inBuffer.baseAddress
-                    stream.avail_in = uInt(inBuffer.count)
-                    stream.next_out = outBuffer.baseAddress
-                    stream.avail_out = 256
-                    deflate(&stream, Z_SYNC_FLUSH)
-                }
-            }
-            return Array(out.prefix(256 - Int(stream.avail_out)))
-        }
+        let paletteRLE: [UInt8] = [130] + cpixel(red) + cpixel(green) + [0x80, 2, 0x81, 4]
+        // One deflate stream across rectangles (z_stream must not move: heap-allocated).
+        let deflater = Deflater()
+        func compress(_ input: [UInt8]) -> [UInt8] { deflater.deflate(input) }
         for (index, tile) in [solid, packed, paletteRLE].enumerated() {
             let compressed = compress(tile)
             var body = Bytes()
             body.u32(compressed.count)
             body.data += compressed
-            let header = index == 0 ? RFBRectangleHeader(x: 0, y: 0, width: 4, height: 2, encoding: 16)
-                : RFBRectangleHeader(x: 0, y: 0, width: 4, height: 2, encoding: 16)
+            let header = RFBRectangleHeader(x: 0, y: 0, width: 4, height: 2, encoding: 16)
             _ = try await decode(header, body: body.data, into: framebuffer, decoder: decoder)
             switch index {
             case 0: #expect(framebuffer.pixels == [UInt32](repeating: green, count: 8))
