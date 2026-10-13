@@ -26,12 +26,7 @@ fn send(server: &HeadlessServer, request: Value) -> Value {
 
 fn ok(server: &HeadlessServer, request: Value) -> Value {
     let response = send(server, request.clone());
-    assert_eq!(
-        response["ok"],
-        true,
-        "{request} failed: {response}\n{}",
-        server.stderr_tail()
-    );
+    assert_eq!(response["ok"], true, "{request} failed: {response}\n{}", server.stderr_tail());
     response["data"].clone()
 }
 
@@ -81,7 +76,10 @@ fn guarded_close_spares_a_tab_opened_after_the_move_and_closes_an_empty_workspac
     let server = HeadlessServer::start("close-if-empty");
     let identify = ok(&server, json!({"id": 0, "cmd": "identify"}));
     let capabilities = identify["capabilities"].as_array().unwrap();
-    assert!(capabilities.iter().any(|c| c == CAPABILITY), "{CAPABILITY} not advertised: {identify}");
+    assert!(
+        capabilities.iter().any(|c| c == CAPABILITY),
+        "{CAPABILITY} not advertised: {identify}"
+    );
 
     let (destination_key, destination) = workspace(&server, "destination");
     open_tab(&server, &destination_key);
