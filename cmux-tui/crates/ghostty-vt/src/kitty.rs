@@ -194,8 +194,11 @@ impl KittyInFlightTracker {
     }
 
     pub(crate) fn has_unreplayable_command(&self) -> bool {
-        self.overflowed
-            || matches!(&self.scan, KittyStreamScan::Kitty(command) if command.overflowed)
+        // A tracker-level overflow can also mean that a completed multipart
+        // chunk exceeded the retention budget. CAN cannot undo that command
+        // after the parser has returned to ground, so only an actively
+        // overflowed command is recoverable here.
+        matches!(&self.scan, KittyStreamScan::Kitty(command) if command.overflowed)
     }
 
     pub(crate) fn discard_unreplayable(&mut self) {

@@ -1219,3 +1219,16 @@ fn oversized_kitty_upload_is_not_resumable() {
     assert!(term.discard_unreplayable_replay().is_some());
     assert!(term.vt_replay_resumes_stream());
 }
+
+#[test]
+fn completed_oversized_kitty_chunk_is_not_can_recoverable() {
+    let mut term = Terminal::new(20, 4, 100, Callbacks::default()).unwrap();
+    term.set_kitty_inflight_storage_limit(64);
+    let mut chunk = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+    chunk.resize(1024, b'A');
+    chunk.extend_from_slice(b"\x1b\\");
+    term.vt_write(&chunk);
+
+    assert!(term.vt_replay_resumes_stream());
+    assert!(term.discard_unreplayable_replay().is_none());
+}
