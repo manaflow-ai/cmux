@@ -31,6 +31,13 @@ final class AppModel {
         } catch {
             startupError = HostConnection.describe(error)
         }
+        #if DEBUG
+        // Simulator checks: `simctl launch <udid> dev.cmux.ios.wg -pairLink <link>`
+        // pairs without the URL-open confirmation.
+        if let index = CommandLine.arguments.firstIndex(of: "-pairLink"), index + 1 < CommandLine.arguments.count {
+            pair(link: CommandLine.arguments[index + 1])
+        }
+        #endif
     }
 
     var selected: HostConnection? {
