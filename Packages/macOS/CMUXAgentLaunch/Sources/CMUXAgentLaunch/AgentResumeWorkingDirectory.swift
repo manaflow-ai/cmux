@@ -64,7 +64,7 @@ public struct AgentResumeWorkingDirectory: Sendable, Equatable {
         case .byDirectory:
             if kind == "claude",
                let transcriptProject = transcriptProjectDirectoryName(transcriptPath),
-               let transcriptCwd = [launch, runtime].first(where: {
+               let transcriptCwd = [launch, runtime].compactMap { $0 }.first(where: {
                    encodedProjectDirectoryName(forPath: $0) == transcriptProject
                }) {
                 return transcriptCwd
