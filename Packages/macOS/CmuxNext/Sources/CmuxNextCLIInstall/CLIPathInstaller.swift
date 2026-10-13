@@ -1,61 +1,88 @@
-import Foundation
+public import Foundation
 
 /// Install cmux CLI in PATH: a symlink at /usr/local/bin/cmux to the bundled
 /// CLI (Contents/Resources/bin/cmux), as the old app made it. When the user
 /// cannot write /usr/local/bin, the same commands run once more through an
 /// administrator prompt (osascript `with administrator privileges`).
-nonisolated struct CLIPathInstaller: Sendable {
-    nonisolated struct InstallOutcome: Equatable, Sendable {
-        let usedAdministratorPrivileges: Bool
-        let destination: URL
-        let source: URL
+public nonisolated struct CLIPathInstaller: Sendable {
+    /// What ``install(replacing:)`` did.
+    public nonisolated struct InstallOutcome: Equatable, Sendable {
+        /// The link was made through the administrator prompt.
+        public let usedAdministratorPrivileges: Bool
+        /// The link made, such as `/usr/local/bin/cmux`.
+        public let destination: URL
+        /// The bundled CLI it points to.
+        public let source: URL
         /// What was at the destination before, when the caller chose to
         /// replace something that was not this app's link.
-        var replaced: Replaced? = nil
+        public var replaced: Replaced? = nil
     }
 
-    nonisolated enum Replaced: Equatable, Sendable {
+    /// An entry at the destination that was not this app's link.
+    public nonisolated enum Replaced: Equatable, Sendable {
         /// A symlink, with its target as written.
         case link(target: String)
         /// A file or other non-link entry.
         case file
     }
 
-    nonisolated struct UninstallOutcome: Equatable, Sendable {
-        let usedAdministratorPrivileges: Bool
-        let destination: URL
-        let removedExistingEntry: Bool
+    /// What ``uninstall()`` did.
+    public nonisolated struct UninstallOutcome: Equatable, Sendable {
+        /// The entry was removed through the administrator prompt.
+        public let usedAdministratorPrivileges: Bool
+        /// The path uninstalled.
+        public let destination: URL
+        /// Something was there to remove.
+        public let removedExistingEntry: Bool
     }
 
     /// The command name to install. `cmux-next` never shadows another
     /// app's `cmux`.
-    nonisolated enum Name: String, Sendable, CaseIterable {
+    public nonisolated enum Name: String, Sendable, CaseIterable {
+        /// `/usr/local/bin/cmux`.
         case cmux
+        /// `/usr/local/bin/cmux-next`.
         case cmuxNext = "cmux-next"
 
-        var destination: URL { URL(fileURLWithPath: "/usr/local/bin").appendingPathComponent(rawValue) }
+        /// The link's path in `/usr/local/bin`.
+        public var destination: URL { URL(fileURLWithPath: "/usr/local/bin").appendingPathComponent(rawValue) }
     }
 
-    nonisolated enum Failure: Error, Equatable {
+    /// Why an install or uninstall did not finish.
+    public nonisolated enum Failure: Error, Equatable {
+        /// No CLI at `path` in the app bundle.
         case bundledCLIMissing(path: String)
         /// Another app's CLI (a link elsewhere) or a file is at `path`;
         /// install replaces it only when asked to (`replacing: true`).
         case occupied(path: String, existing: Replaced)
+        /// The link's folder, `path`, is a file.
         case destinationParentNotDirectory(path: String)
+        /// A folder is at the link's `path`; it is never removed.
         case destinationIsDirectory(path: String)
+        /// The link at `path` does not point to the bundled CLI afterwards.
         case installVerificationFailed(path: String)
+        /// Something is still at `path` after removing it.
         case uninstallVerificationFailed(path: String)
+        /// The administrator prompt was refused or its command failed.
         case privilegedCommandFailed(message: String)
     }
 
     /// Runs a shell command as administrator; throws `privilegedCommandFailed`.
-    typealias Privileged = @Sendable (_ command: String) async throws -> Void
+    public typealias Privileged = @Sendable (_ command: String) async throws -> Void
 
-    let destination: URL
-    let source: URL
+    /// Where the link goes.
+    public let destination: URL
+    /// The bundled CLI the link points to.
+    public let source: URL
     let privileged: Privileged
 
-    init(destination: URL = Name.cmux.destination,
+    /// An installer for one link.
+    ///
+    /// - Parameter destination: The link's path; `cmux` in `/usr/local/bin` by default.
+    /// - Parameter source: The CLI to link to; this app's bundled CLI by default.
+    /// - Parameter privileged: Runs a shell command as administrator when a direct write is refused;
+    ///   tests pass a stand-in.
+    public init(destination: URL = Name.cmux.destination,
          source: URL = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/bin/cmux"),
          privileged: @escaping Privileged = CLIPathInstaller.runAsAdministrator) {
         self.destination = destination
@@ -67,7 +94,7 @@ nonisolated struct CLIPathInstaller: Sendable {
     /// already this app's link is refused (`Failure.occupied`) unless
     /// `replacing` is true, so another app's `cmux` never disappears
     /// silently.
-    @concurrent func install(replacing: Bool = false) async throws -> InstallOutcome {
+    @concurrent public func install(replacing: Bool = false) async throws -> InstallOutcome {
         let source = try bundledCLI()
         let replaced = previousEntry()
         if let replaced, !replacing {
@@ -87,7 +114,8 @@ nonisolated struct CLIPathInstaller: Sendable {
         }
     }
 
-    @concurrent func uninstall() async throws -> UninstallOutcome {
+    /// Removes the destination, through the administrator prompt when a direct removal is refused.
+    @concurrent public func uninstall() async throws -> UninstallOutcome {
         do {
             let removed = try uninstallDirectly()
             return UninstallOutcome(usedAdministratorPrivileges: false, destination: destination, removedExistingEntry: removed)
@@ -102,7 +130,7 @@ nonisolated struct CLIPathInstaller: Sendable {
     }
 
     /// Whether the destination is a symlink to this app's CLI.
-    func isInstalled() -> Bool {
+    public func isInstalled() -> Bool {
         linkTarget() == source
     }
 
@@ -189,7 +217,7 @@ nonisolated struct CLIPathInstaller: Sendable {
 
     /// `do shell script … with administrator privileges`, the command passed
     /// as an argument so it needs no AppleScript quoting.
-    @concurrent static func runAsAdministrator(_ command: String) async throws {
+    @concurrent public static func runAsAdministrator(_ command: String) async throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
         process.arguments = ["-e", "on run argv", "-e", "do shell script (item 1 of argv) with administrator privileges",
