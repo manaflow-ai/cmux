@@ -57,7 +57,7 @@ extension BrowserChromeView {
         for button in BrowserToolbarButton.allCases {
             if let view = toolbarButtons.button(button) { record(button.identifier, view) }
         }
-        let probed = probe.map(region(atTopLeft:))
+        let probed = probe.flatMap(region(atTopLeft:))
         return BrowserPointerDebug(
             barHovering: addressBar.pill.debugHovering,
             hoveredButtons: hovered.sorted(),
