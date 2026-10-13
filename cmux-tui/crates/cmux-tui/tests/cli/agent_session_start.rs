@@ -283,3 +283,47 @@ fn agent_session_start_starts_the_sample_harness_in_its_asking_mode() {
     assert!(started["data"]["session"].as_str().is_some_and(|s| !s.is_empty()), "{started}");
     assert_eq!(daemon.acpmux_sessions(), 1, "{started}");
 }
+
+/// The person answers the folder trust question of a chat of this machine
+/// from the app (cx-1bhjj): `agent-session-trust` reads the folder's trust
+/// on this machine and records the person's Trust in its acpmux, and the
+/// start that was refused for the untrusted folder then runs. Only an agent
+/// tab of this store and only acpmux's three levels are taken.
+#[test]
+fn agent_session_trust_records_the_persons_answer_and_the_start_runs() {
+    let config = json!({
+        "harnesses": {"sample": {"argv": ["env", "FAKE_ASK_MODE=1", "python3", FAKE_AGENT],
+                                 "family": "sample"}},
+        "defaultHarness": "sample",
+        "webAskingModes": {"sample": ["ask"]},
+    });
+    let daemon = Daemon::start_with("trust", None, Some(config));
+    let surface = daemon.own_agent_tab();
+    let identity = daemon.rpc(json!({"id": 10, "cmd": "identify"}));
+    assert!(identity["data"]["capabilities"].to_string().contains("agent-session-trust-v1"));
+    let untrusted = daemon.start_chat_with(surface, "sample");
+    assert_eq!(untrusted["error_code"], "agent_session.untrusted_folder", "{untrusted}");
+    let work = daemon.dir.join("work");
+    let cwd = work.to_str().unwrap();
+    let trust = |id: u64, extra: Value| {
+        let mut request = json!({"id": id, "cmd": "agent-session-trust", "surface": surface,
+                                 "cwd": cwd});
+        request.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        daemon.rpc(request)
+    };
+    let read = trust(11, json!({}));
+    assert_eq!(read["ok"], true, "{read}");
+    assert_ne!(read["data"]["level"], "trusted", "{read}");
+    let bad = trust(12, json!({"level": "always"}));
+    assert_eq!(bad["error_code"], "agent_session.bad_request", "{bad}");
+    let other = daemon.rpc(json!({"id": 13, "cmd": "agent-session-trust", "surface": 999_999,
+                                  "cwd": cwd, "level": "trusted"}));
+    assert_eq!(other["error_code"], "agent_session.unknown_tab", "{other}");
+    let set = trust(14, json!({"level": "trusted"}));
+    assert_eq!(set["ok"], true, "{set}");
+    let again = trust(15, json!({}));
+    assert_eq!(again["data"]["level"], "trusted", "{again}");
+    let started = daemon.start_chat_with(surface, "sample");
+    assert_eq!(started["ok"], true, "{started}");
+    assert_eq!(daemon.acpmux_sessions(), 1, "{started}");
+}
