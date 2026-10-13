@@ -13,7 +13,7 @@ USAGE
   cmux browser profile move --profile <id-or-name> --index <n>
   cmux browser profile delete --profile <id-or-name>
   cmux browser profile open <url> --engine webkit|cef --profile <id-or-name>
-    [--pane <selector>] [--title <value>] [--background]
+    [--pane <numeric-pane-id>] [--title <value>] [--background true|false]
   cmux browser <selector> show|navigate|back|forward|reload|activate
   cmux browser <selector> key|text [OPTIONS]
   cmux browser <selector> mouse|wheel --pointer-frame-seq <decimal> [OPTIONS]

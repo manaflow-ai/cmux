@@ -226,12 +226,17 @@ fn parse_browser_profile_open(
     params.insert("url".into(), Value::String(url));
     params.insert("engine".into(), Value::String(flags.required("engine")?));
     params.insert("profile_id".into(), Value::String(flags.required("profile")?));
-    insert_optional_string(&mut params, flags, "pane", "pane");
+    if let Some(pane) = flags.take("pane") {
+        insert_u32(&mut params, "pane", "--pane", pane)?;
+    }
     insert_optional_string(&mut params, flags, "title", "title");
     insert_optional_string(&mut params, flags, "owner", "owner");
     insert_optional_string(&mut params, flags, "idempotency-key", "idempotency_key");
-    if flags.boolean("background") {
-        params.insert("activate".into(), Value::Bool(false));
+    if let Some(background) = flags.take("background") {
+        validate_one_of("--background", &background, &["true", "false"])?;
+        if background == "true" {
+            params.insert("activate".into(), Value::Bool(false));
+        }
     }
     Ok(private_browser_command("new-frontend-browser-tab", params))
 }
