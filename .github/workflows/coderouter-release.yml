@@ -100,6 +100,7 @@ jobs:
     needs: validate
     # Releases are cut only in manaflow-ai, where the Blacksmith runners exist.
     if: github.repository_owner == 'manaflow-ai'
+    environment: release
     strategy:
       fail-fast: false
       matrix:

@@ -399,6 +399,35 @@ struct CloudWorkspaceLiveProjectionTests {
         #expect(catalog.projectionVersions[machine] == version)
     }
 
+    /// CMUXTERM-MACOS-41NZ: a pane whose coordinates lag the graph is both obsolete
+    /// (old coordinates) and the pane `project` reuses for the missing placement.
+    /// Closing it after the reuse destroyed the pane the pass had just corrected, so
+    /// the next pass created it again: a terminal that flickers in and out.
+    @Test("Reconcile keeps the pane it reused for a missing placement")
+    func reusedObsoletePaneIsNotClosed() async throws {
+        var closed: [SurfaceProjection] = []
+        let fixture = boundWorkspaceFixture(closed: { closed.append($0) })
+        defer { fixture.workspace.teardownAllPanels() }
+        let catalog = fixture.catalog
+        let provider = CloudPlacementTestProvider(machine: machine)
+        catalog.register(provider)
+        install(try graph(["first": "a"], revision: 1), catalog: catalog)
+        await fixture.coordinator.waitForIdle()
+        let shown = try #require(catalog.projections.first { $0.workspaceID == fixture.workspace.id })
+        #expect(shown.remoteWorkspaceID == "a" && shown.remoteTabID == "first")
+        let materializations = provider.adoptions.count
+
+        // The same daemon tab, recorded against a stale remote workspace.
+        catalog.setRemotePlacement(for: shown, workspaceID: "b", tabID: "first")
+        fixture.coordinator.request(machine: machine, catalog: catalog)
+        await fixture.coordinator.waitForIdle()
+
+        #expect(closed.isEmpty)
+        #expect(provider.adoptions.count == materializations, "The reused pane must not be rebuilt")
+        let current = try #require(catalog.projection(forPanel: shown.panelID))
+        #expect(current.remoteWorkspaceID == "a" && current.remoteTabID == "first")
+    }
+
     /// Any consumer that requests another pass without changing the graph (the
     /// nightly b36a9b3 livelock) must end in a bounded number of passes.
     @Test("Reconciling one graph stops when every pass requests another")
