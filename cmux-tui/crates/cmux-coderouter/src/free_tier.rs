@@ -792,9 +792,11 @@ pub fn provider_peer_allowed(stream: &tokio::net::UnixStream) -> bool {
     #[cfg(target_os = "macos")]
     {
         use std::os::fd::AsRawFd;
-        if cmux_link::signed_app_build() {
-            let Some(token) = cmux_link::peer_token(stream.as_raw_fd()) else { return false };
-            return cmux_link::verify_containing_app(&token).is_ok();
+        if cmux_link::app_caller::signed_app_build() {
+            let Some(token) = cmux_link::app_caller::peer_token(stream.as_raw_fd()) else {
+                return false;
+            };
+            return cmux_link::app_caller::verify_containing_app(&token).is_ok();
         }
     }
     true
