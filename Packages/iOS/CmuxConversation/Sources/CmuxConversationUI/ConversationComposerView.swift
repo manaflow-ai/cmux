@@ -283,8 +283,20 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     /// Messages' record-audio waveform in place of the microphone
     /// (`ComposerBarGeometry.showsRecordGlyph`).
     func showRecordGlyph() {
-        micButton.setImage(UIImage(systemName: "waveform", withConfiguration: UIImage.SymbolConfiguration(pointSize: 17, weight: .semibold)), for: .normal)
+        micButton.setImage(Self.recordGlyph, for: .normal)
     }
+
+    /// `ComposerBarGeometry.recordGlyphBars` as a template image.
+    private static let recordGlyph: UIImage = {
+        let side = ComposerBarGeometry.recordGlyphSide
+        let image = UIGraphicsImageRenderer(size: CGSize(width: side, height: side)).image { _ in
+            UIColor.black.setFill()
+            for bar in ComposerBarGeometry.recordGlyphBars {
+                UIBezierPath(roundedRect: bar, cornerRadius: bar.width / 2).fill()
+            }
+        }
+        return image.withRenderingMode(.alwaysTemplate)
+    }()
 
     /// Turns Send Later on (a date) or off (nil): the chip appears at the top
     /// of the field, which takes the Send Later fill and placeholder.

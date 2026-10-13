@@ -59,6 +59,13 @@ public enum ComposerBarGeometry {
     public static func disabledPlusInk(iOS27: Bool) -> DisabledPlusInk {
         iOS27 ? .tertiaryHue(lightAlpha: 0.335, darkAlpha: 0.21) : .label(alpha: 0.24)
     }
+    /// Messages' record glyph, which ChatKit draws itself (a 44 pt image
+    /// shown at 22 pt): five capsules 2 pt wide on a 4 pt pitch, 4, 8, 16,
+    /// 8 and 4 pt tall, centered in a 22 pt square.
+    public static let recordGlyphSide: CGFloat = 22
+    public static let recordGlyphBars: [CGRect] = [4, 8, 16, 8, 4].enumerated().map { index, height in
+        CGRect(x: 2 + 4 * CGFloat(index), y: (recordGlyphSide - height) / 2, width: 2, height: height)
+    }
     /// The send glyph: SF Symbol `arrow.up`, bold, medium scale: 13 by 16 pt
     /// of ink with a 2.33 pt stroke. The size is the best pixel fit to
     /// Messages' arrow in place (16.6 to 18 pt searched in 0.1 pt steps).
