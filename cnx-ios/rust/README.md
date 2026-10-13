@@ -73,7 +73,12 @@ restores `Cargo.lock` afterwards. Host builds use stock nix.
 func connect(baseUrl: String, token: String, teamId: String, deviceId: String,
              macDeviceId: String, transport: Transport,
              observer: LinkObserver?) async throws -> LinkHandle   // throws CnxError
+func connectWithOptions(baseUrl: String, token: String, teamId: String, deviceId: String,
+             macDeviceId: String, transport: Transport, options: ConnectOptions,
+             observer: LinkObserver?) async throws -> LinkHandle
 func cnxVersion() -> String
+
+struct ConnectOptions { var relayOnly: Bool = false }   // ConnectOptions() is a plain dial
 
 enum Transport { case webRtc, wireGuard }
 enum LinkPath { case direct, relay, turn }
@@ -110,7 +115,14 @@ enum CnxError: Error {   // uniffi keeps the Rust variant case for errors
 `deviceId` is the phone's Keychain UUID; `macDeviceId` comes from
 `GET /v1/teams/:teamId/macs`. `connect` fetches `GET /v1/ice` (8 s budget; on
 failure it dials with host candidates only), opens the signaling socket and
-dials. The observer is called on a library thread. Device ids must be UUIDs
+dials. The observer is called on a library thread.
+
+`relayOnly` is the app's debug "simulate distant network" mode (Settings →
+Developer). It skips every direct path. WebRTC uses ICE transport policy
+`relay` with the `/v1/ice` TURN servers, so the path is `turn`; with no TURN
+server the dial fails at once (`Transport`). WireGuard sends no endpoints and
+ignores the Mac's, so the path stays `relay` (the backend relay frames). The
+Mac side needs no change. Device ids must be UUIDs
 (WireGuard relay frames carry them as 16 bytes).
 
 ## cnx-hostd
@@ -186,9 +198,10 @@ Services (default deny, `unknown_service` otherwise):
 ## Test binaries (cnx-hostd)
 
 - `cnx-dial`: dials a Mac and prints one JSON line per transport: connect
-  time, path, ping RTT, echo throughput, `daemon` identify.
-  `--transport webrtc|wireguard` (repeatable), `--force-relay` (TURN-only
-  ICE, or WireGuard relay frames only), `--exclude-cgnat` (never offer or use
+  time, path, ping RTT (min, median, p95, max), echo throughput, the number of
+  TURN URLs `/v1/ice` offered, and `daemon` identify.
+  `--transport webrtc|wireguard` (repeatable), `--relay-only` (alias
+  `--force-relay`: TURN-only ICE, or WireGuard relay frames only), `--exclude-cgnat` (never offer or use
   100.64.0.0/10 Tailscale addresses), `--bytes N`, `--daemon`.
 - `cnx-stub-tui <dir> [session]`: a stand-in cmux-tui socket that answers
   every line `ok`, for Macs without cmux-tui.

@@ -1120,6 +1120,72 @@ public func FfiConverterTypeLinkObserver_lower(_ value: LinkObserver) -> UInt64 
 
 
 
+
+/**
+ * Dial options beyond the transport. Every field has a default, so
+ * `ConnectOptions()` in Swift is the plain dial.
+ */
+public struct ConnectOptions: Equatable, Hashable {
+    /**
+     * Debug "simulate distant network": skip every direct path. WebRTC
+     * uses ICE transport policy `relay` with the service's TURN servers
+     * (path `Turn`; no TURN server fails the dial), WireGuard uses only the
+     * backend relay frames (path `Relay`).
+     */
+    public var relayOnly: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * Debug "simulate distant network": skip every direct path. WebRTC
+         * uses ICE transport policy `relay` with the service's TURN servers
+         * (path `Turn`; no TURN server fails the dial), WireGuard uses only the
+         * backend relay frames (path `Relay`).
+         */relayOnly: Bool = false) {
+        self.relayOnly = relayOnly
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension ConnectOptions: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeConnectOptions: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> ConnectOptions {
+        return
+            try ConnectOptions(
+                relayOnly: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: ConnectOptions, into buf: inout [UInt8]) {
+        FfiConverterBool.write(value.relayOnly, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConnectOptions_lift(_ buf: RustBuffer) throws -> ConnectOptions {
+    return try FfiConverterTypeConnectOptions.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeConnectOptions_lower(_ value: ConnectOptions) -> RustBuffer {
+    return FfiConverterTypeConnectOptions.lower(value)
+}
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -1662,12 +1728,30 @@ public func cnxVersion() -> String  {
  * Dial `mac_device_id` from this phone (`device_id`) over `transport`.
  * `base_url` is the backend (`https://cnx-ios-api-…workers.dev`), `token`
  * a Stack access token, `team_id` the team whose signaling hub to use.
+ * Same as `connect_with_options` with default options.
  */
 public func connect(baseUrl: String, token: String, teamId: String, deviceId: String, macDeviceId: String, transport: Transport, observer: LinkObserver?)async throws  -> LinkHandle  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
                 uniffi_cnx_ffi_fn_func_connect(FfiConverterString.lower(baseUrl),FfiConverterString.lower(token),FfiConverterString.lower(teamId),FfiConverterString.lower(deviceId),FfiConverterString.lower(macDeviceId),FfiConverterTypeTransport_lower(transport),FfiConverterOptionTypeLinkObserver.lower(observer)
+                )
+            },
+            pollFunc: ffi_cnx_ffi_rust_future_poll_u64,
+            completeFunc: ffi_cnx_ffi_rust_future_complete_u64,
+            freeFunc: ffi_cnx_ffi_rust_future_free_u64,
+            liftFunc: FfiConverterTypeLinkHandle_lift,
+            errorHandler: FfiConverterTypeCnxError_lift
+        )
+}
+/**
+ * `connect` with `options` (relay only).
+ */
+public func connectWithOptions(baseUrl: String, token: String, teamId: String, deviceId: String, macDeviceId: String, transport: Transport, options: ConnectOptions, observer: LinkObserver?)async throws  -> LinkHandle  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_cnx_ffi_fn_func_connect_with_options(FfiConverterString.lower(baseUrl),FfiConverterString.lower(token),FfiConverterString.lower(teamId),FfiConverterString.lower(deviceId),FfiConverterString.lower(macDeviceId),FfiConverterTypeTransport_lower(transport),FfiConverterTypeConnectOptions_lower(options),FfiConverterOptionTypeLinkObserver.lower(observer)
                 )
             },
             pollFunc: ffi_cnx_ffi_rust_future_poll_u64,
@@ -1696,7 +1780,10 @@ private let initializationResult: InitializationResult = {
     if (uniffi_cnx_ffi_checksum_func_cnx_version() != 54199) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_cnx_ffi_checksum_func_connect() != 20723) {
+    if (uniffi_cnx_ffi_checksum_func_connect() != 25724) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_cnx_ffi_checksum_func_connect_with_options() != 14347) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_cnx_ffi_checksum_method_channelhandle_close() != 24044) {

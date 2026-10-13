@@ -36,6 +36,8 @@ public struct LinkMachine: Sendable {
     public enum Event: Equatable, Sendable {
         case target(Target?)
         case transport(TransportKind)
+        /// Debug relay-only mode on or off; a change redials.
+        case relayOnly(Bool)
         case dialSucceeded(generation: Int, path: LinkPathKind)
         case dialFailed(generation: Int, reason: String)
         /// The link reported a new path or RTT.
@@ -59,12 +61,15 @@ public struct LinkMachine: Sendable {
     public private(set) var phase: Phase = .idle
     public private(set) var target: Target?
     public private(set) var transport: TransportKind
+    /// Debug "simulate distant network": dials skip every direct path.
+    public private(set) var relayOnly: Bool
     public private(set) var generation = 0
     /// Retry delays in seconds; the last one repeats.
     public var backoff: [Int] = [1, 2, 4, 8, 15, 30]
 
-    public init(transport: TransportKind) {
+    public init(transport: TransportKind, relayOnly: Bool = false) {
         self.transport = transport
+        self.relayOnly = relayOnly
     }
 
     public mutating func handle(_ event: Event) -> [Effect] {
@@ -79,6 +84,11 @@ public struct LinkMachine: Sendable {
         case .transport(let next):
             guard next != transport else { return [] }
             transport = next
+            guard let target, target.isOnline else { return [] }
+            return dial(attempt: 1, closing: true)
+        case .relayOnly(let next):
+            guard next != relayOnly else { return [] }
+            relayOnly = next
             guard let target, target.isOnline else { return [] }
             return dial(attempt: 1, closing: true)
         case .dialSucceeded(let gen, let path):

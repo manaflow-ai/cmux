@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Demo builds of cnx-ios from one committed SHA, for hand installs and
-# feedback. Nothing is uploaded anywhere (no App Store, no TestFlight).
+# Demo and production builds of cnx-ios from one committed SHA, for hand
+# installs and feedback. Nothing is uploaded anywhere (no App Store, no TestFlight).
 #
-# usage: cnx-ios/scripts/demo-build.sh [--ref <git ref>] [--tag <tag>]
-#          [--install-device <udid>] [--skip-device] [--skip-mac]
+# usage: cnx-ios/scripts/demo-build.sh [--config Demo|Production] [--ref <git ref>]
+#          [--tag <tag>] [--install-device <udid>] [--skip-device] [--skip-mac]
 #
 # Output: ~/cnx-ios-builds/<UTC date>-<shortsha>[-<tag>]/
 #   ios-device/cnx-<tag>.ipa            Demo config, bundle dev.cmux.cnx.<tag>
@@ -16,6 +16,12 @@
 # scripted demos), the dev Worker. The source is `git archive` of the SHA, so
 # uncommitted changes never reach a demo build.
 #
+# --config Production builds the "Production" configuration instead: -O, no
+# DEBUG (no dev sign-in, no Settings → Developer, no mock data or demo
+# drivers), the production Stack project, bundle dev.cmux.cnx.prod ("cmux
+# cnx") beside the demo install, and the dev Worker (which accepts production
+# Stack users). Its tag is always "prod": ~/cnx-ios-builds/<date>-<sha>-prod/.
+#
 # Environment:
 #   CNX_BUILDS_ROOT      output root (default ~/cnx-ios-builds)
 #   CNX_MAC_BUILD_HOST   ssh host that builds the Mac binaries (default
@@ -27,23 +33,29 @@
 set -euo pipefail
 export DEVELOPER_DIR="${DEVELOPER_DIR:-/Applications/Xcode.app/Contents/Developer}"
 
-ref=HEAD tag=cnx install_device="" skip_device=0 skip_mac=0
+ref=HEAD tag=cnx install_device="" skip_device=0 skip_mac=0 build_config=Demo
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --config) build_config=$2; shift 2 ;;
     --ref) ref=$2; shift 2 ;;
     --tag) tag=$2; shift 2 ;;
     --install-device) install_device=$2; shift 2 ;;
     --skip-device) skip_device=1; shift ;;
     --skip-mac) skip_mac=1; shift ;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,34p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
+case "$build_config" in
+  Demo) [[ "$tag" != prod ]] || { echo "error: tag prod is the Production build's; use --config Production" >&2; exit 2; } ;;
+  Production) tag=prod ;;
+  *) echo "error: --config must be Demo or Production" >&2; exit 2 ;;
+esac
 [[ "$tag" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || { echo "error: tag must be lowercase letters, digits, dashes" >&2; exit 2; }
 
 team=7WLXT3NR37
 bundle_id="dev.cmux.cnx.$tag"
-display_name="cmux cnx"; [[ "$tag" == cnx ]] || display_name="cnx $tag"
+display_name="cmux cnx"; [[ "$tag" == cnx || "$tag" == prod ]] || display_name="cnx $tag"
 jobs=${JOBS:-8}
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 repo=$(git -C "$script_dir" rev-parse --show-toplevel)
@@ -61,7 +73,7 @@ notes=()   # known build-time issues for the manifest
 
 rm -rf "$out" "$work"
 mkdir -p "$out" "$work/src" "$work/logs" "$cache"
-log "cnx-ios demo build $sha (tag $tag) -> $out"
+log "cnx-ios $build_config build $sha (tag $tag) -> $out"
 
 # --- Source ---------------------------------------------------------------
 # Everything the app and the Rust crates read, from the commit only.
@@ -99,21 +111,27 @@ fi
 # --- iOS builds -----------------------------------------------------------
 cd "$work/src/cnx-ios"
 xcodegen generate -q
-# Refs from before the Demo configuration build Debug with the same overrides.
-config=Demo
+config=$build_config
 # Refs before the CnxDesign ToastHost fix fail to link at -O (default CMO
 # inlines a public .task(id:) caller into other modules); build them -Osize.
 opt=-O
 grep -q 'struct ToastHost' CnxKit/Sources/CnxDesign/States.swift || { opt=-Osize; notes+=("This ref predates the -O link fix; built with -Osize."); }
-grep -q '^  Demo: release' project.yml || { config=Debug; notes+=("This ref has no Demo configuration; built Debug (no Settings → Developer)."); }
 common=(-project CnxApp.xcodeproj -scheme CnxApp -configuration "$config"
         -clonedSourcePackagesDirPath "$cache/spm"
-        CNX_TAG=".$tag" "CNX_DISPLAY_NAME=$display_name"
-        # $(inherited) keeps each package's own conditions (swift-crypto needs them).
-        'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CNX_DEMO'
         SWIFT_OPTIMIZATION_LEVEL=$opt
         MARKETING_VERSION="${CNX_MARKETING_VERSION:-0.1.0}"
         CURRENT_PROJECT_VERSION="$(git -C "$repo" rev-list --count "$sha")")
+if [[ $config == Production ]]; then
+  # Everything (bundle id, name, Stack project, service, entitlements, no
+  # DEBUG) comes from the Production configuration in project.yml.
+  grep -q '^  Production: release' project.yml || { echo "error: $sha has no Production configuration" >&2; exit 1; }
+else
+  # Refs from before the Demo configuration build Debug with the same overrides.
+  grep -q '^  Demo: release' project.yml || { config=Debug; notes+=("This ref has no Demo configuration; built Debug (no Settings → Developer)."); }
+  common+=(CNX_TAG=".$tag" "CNX_DISPLAY_NAME=$display_name"
+           # $(inherited) keeps each package's own conditions (swift-crypto needs them).
+           'SWIFT_ACTIVE_COMPILATION_CONDITIONS=$(inherited) DEBUG CNX_DEMO')
+fi
 xcb() { local logf=$1; shift; xcodebuild "$@" > "$logf" 2>&1 || { grep -E "error:|BUILD FAILED" "$logf" | sort -u | head -20; return 1; }; }
 
 log "iOS simulator build"
@@ -124,6 +142,19 @@ mkdir -p "$out/ios-simulator"
 ditto -c -k --keepParent "$sim_app" "$out/ios-simulator/cnx-$tag-sim.app.zip"
 app_version=$(plutil -extract CFBundleShortVersionString raw "$sim_app/Info.plist" 2>/dev/null || echo "?")
 app_build=$(plutil -extract CFBundleVersion raw "$sim_app/Info.plist" 2>/dev/null || echo "?")
+
+# A Production build must carry none of the DEBUG surface and the right identity.
+check_production() {  # <app dir>
+  local app=$1 bad=() s
+  [[ "$(plutil -extract CFBundleIdentifier raw "$app/Info.plist")" == "$bundle_id" ]] || bad+=("bundle id")
+  [[ "$(plutil -extract CNXAPIBase raw "$app/Info.plist" 2>/dev/null)" == https://* ]] || bad+=("CNXAPIBase")
+  # Strings that exist only in DEBUG code: launch overrides, the Developer page, demo drivers.
+  for s in CNX_MOCK_AUTH CNX_STACK_EMAIL CNX_CLEAR_AUTH "Demo at next launch" DemoDriver TerminalDemoRoot -cnx-demo; do
+    if strings -a "$app/CnxApp" | grep -qF -- "$s"; then bad+=("DEBUG string '$s'"); fi
+  done
+  [[ ${#bad[@]} == 0 ]] || { echo "error: $app is not a clean Production build: ${bad[*]}" >&2; exit 1; }
+}
+[[ $config != Production ]] || check_production "$sim_app"
 
 # A development profile for the bundle (or the team wildcard) whose
 # certificate is in this keychain. Prints "<uuid> <cert sha1>".
@@ -176,6 +207,9 @@ if [[ $skip_device == 0 ]]; then
     device_ipa="$out/ios-device/cnx-$tag.ipa"
     devices=$(security cms -D -i "$dev_app/embedded.mobileprovision" 2>/dev/null \
       | plutil -extract ProvisionedDevices json -o - - 2>/dev/null || echo '[]')
+    keychain_groups=$(codesign -d --entitlements - --xml "$dev_app" 2>/dev/null \
+      | plutil -extract keychain-access-groups json -o - - 2>/dev/null || echo '[]')
+    [[ $config != Production ]] || check_production "$dev_app"
   fi
 fi
 
@@ -222,7 +256,54 @@ if [[ -n "$install_device" && -n "$device_ipa" ]]; then
 fi
 
 # --- Manifest -------------------------------------------------------------
+production_manifest() {
+  cat <<EOF
+# cnx-ios production build $name
+
+| | |
+| --- | --- |
+| Commit | \`$sha\` ($(git -C "$repo" log -1 --format='%s' "$sha")) |
+| Built | $(date -u +%Y-%m-%dT%H:%M:%SZ) on $(scutil --get LocalHostName 2>/dev/null || hostname), $(xcodebuild -version | head -1)$([[ $skip_mac == 1 ]] || echo ", Mac binaries on \`$mac_host\`") |
+| App | "$display_name", bundle \`$bundle_id\`, version $app_version ($app_build), configuration Production ($opt, no DEBUG), iOS 26.0+ |
+| Device signing | $signing |
+| Keychain access groups | $(echo "${keychain_groups:-[]}" | tr -d '\n ') (its own group; no app group: the app shares no container) |
+
+Not for the App Store or TestFlight; nothing here was uploaded. It installs
+beside the demo build (\`dev.cmux.cnx.cnx\`); both are named "cmux cnx".
+
+## Production vs dev, exactly
+
+| Part | This build |
+| --- | --- |
+| Compilation | Production configuration: Release optimization ($opt), \`CNX_PRODUCTION\`, no \`DEBUG\` in the app or any package. The build checks the binaries for DEBUG-only strings. |
+| Stack Auth | **Production** project \`9790718f-14cd-4f7e-824d-eaf527a82b82\`, no publishable key, email callback \`https://cmux.com/auth/callback\` (CmuxAuthRuntime \`AuthConfig(environment: .production)\`). Sign in with a real account: email code, Google or GitHub. |
+| Backend | **Dev** Worker \`https://cnx-ios-api-dev.debussy.workers.dev\` (API 0.4.0 or later), which accepts dev and production Stack users. A production user is a separate user there (Stack project plus user id). |
+| Developer surface | None: no "42" dev sign-in, no Settings → Developer, no mock data toggle, no scripted demos, no launch overrides. |
+| Error reporting | None (the app has none configured). |
+| Data before a Mac links | Empty: no sample teams or Macs. Placeholders that the live link replaces (Chief, agent chat history) are the same code as in the demo build. |
+
+## Contents
+
+- \`ios-device/cnx-$tag.ipa\`: the phone build. Provisioned devices: $(echo "${devices:-[]}" | tr -d '\n ' ).
+- \`ios-simulator/cnx-$tag-sim.app.zip\`: the simulator build (arm64).
+$([[ $skip_mac == 1 ]] || echo "- \`cnx-host-macos-arm64/\` and \`.tar.gz\`: the Mac side; start it with \`./run-host.sh --prod\`.")
+
+## Install
+
+- Phone: \`unzip -q ios-device/cnx-$tag.ipa -d /tmp/cnx-prod && xcrun devicectl device install app --device <udid> /tmp/cnx-prod/Payload/CnxApp.app\`.
+- Simulator: \`ditto -x -k ios-simulator/cnx-$tag-sim.app.zip /tmp/cnx-prod-sim && xcrun simctl install <udid> /tmp/cnx-prod-sim/CnxApp.app && xcrun simctl launch <udid> $bundle_id\`.
+- Mac: \`./run-host.sh --prod\` (from this or a demo build's host package, if its run-host.sh has \`--prod\`). It signs in to the **production** Stack project, with its own state in \`~/.cnx-host-prod\` beside a dev host in \`~/.cnx-host\`. \`./stop-host.sh --prod\` stops it. Use the phone's production account: the phone and the Mac must be the same user in the same project.
+
+## Known gaps
+
+- Sign in with Apple needs the Sign in with Apple capability and an Apple client for \`$bundle_id\` in the production Stack project. Neither exists, so use email, Google or GitHub.
+- Team invitation emails link to \`https://cmux.com/handler/team-invitation\`.
+- The demo build's known gaps apply too: no terminal over the link, agent permissions can only be denied, and Chief over the link is not allowlisted.
+EOF
+}
+
 {
+  if [[ $config == Production ]]; then production_manifest; else
   cat <<EOF
 # cnx-ios demo build $name
 
@@ -280,6 +361,8 @@ Not for the App Store or TestFlight; nothing here was uploaded.
 - Workspace activity times are first-seen times. Light mode and iOS 27 were not recorded in the live pass.
 - The first dial right after registration can get a 401; the app retries with a fresh token.
 EOF
+  fi
+  [[ ${#notes[@]} == 0 ]] || printf '\n## Build notes\n\n'
   for n in "${notes[@]+"${notes[@]}"}"; do echo "- $n"; done
   [[ -z "$installed" ]] || printf '\nInstalled on device %s at build time.\n' "$installed"
 } > "$out/MANIFEST.md"

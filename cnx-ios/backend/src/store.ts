@@ -6,6 +6,7 @@ export type DeviceKind = "mac" | "phone"
 
 export interface Device {
   deviceId: string
+  /** The owner key: the bare Stack sub for the primary project, `<projectId>:<sub>` otherwise (src/index.ts ownerKey). */
   ownerUserId: string
   teamId: string
   kind: DeviceKind

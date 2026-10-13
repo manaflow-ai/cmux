@@ -139,20 +139,38 @@ public final class WorkspaceDemoDirector {
     }
 }
 
-/// SwiftUI disables the navigation controller's edge-swipe pop while the
-/// bar is hidden. A workspace hides the bar but must still swipe back like
-/// any pushed screen, so this re-enables the system recognizer (with a
-/// delegate that only allows it when there is something to pop).
+/// SwiftUI disables the navigation controller's back swipes while the bar
+/// is hidden. A workspace hides the bar (TabsKit draws its own chrome, with
+/// the back chevron bottom-leading) but must still swipe back like any
+/// pushed screen: this re-enables the edge pop and, on iOS 26, the
+/// full-width content pop, every time SwiftUI could have reset them (appear
+/// and layout), with a delegate that allows them only when there is
+/// something to pop.
 private struct InteractivePopEnabler: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> Controller { Controller() }
-    func updateUIViewController(_ controller: Controller, context: Context) {}
+    func updateUIViewController(_ controller: Controller, context: Context) { controller.enable() }
 
     final class Controller: UIViewController, UIGestureRecognizerDelegate {
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
-            guard let navigation = navigationController, let pop = navigation.interactivePopGestureRecognizer else { return }
-            pop.isEnabled = true
-            pop.delegate = self
+            enable()
+        }
+
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            enable()
+        }
+
+        func enable() {
+            guard let navigation = navigationController else { return }
+            if let pop = navigation.interactivePopGestureRecognizer {
+                pop.isEnabled = true
+                pop.delegate = self
+            }
+            if #available(iOS 26.0, *), let content = navigation.interactiveContentPopGestureRecognizer {
+                content.isEnabled = true
+                content.delegate = self
+            }
         }
 
         func gestureRecognizerShouldBegin(_ recognizer: UIGestureRecognizer) -> Bool {

@@ -87,6 +87,18 @@ public struct AgentAttachment: Hashable, Sendable, Identifiable {
         self.name = name
         self.data = data
     }
+
+    /// The image MIME type from the data's signature (nil: not an image an
+    /// agent accepts; the composer re-encodes others as JPEG).
+    public var imageMIMEType: String? {
+        guard kind == .image, let data, data.count >= 12 else { return nil }
+        let bytes = [UInt8](data.prefix(12))
+        if bytes.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
+        if bytes.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
+        if bytes.starts(with: [0x47, 0x49, 0x46, 0x38]) { return "image/gif" }
+        if bytes.starts(with: [0x52, 0x49, 0x46, 0x46]), bytes[8...11] == [0x57, 0x45, 0x42, 0x50] { return "image/webp" }
+        return nil
+    }
 }
 
 /// The data side of an agent chat. The mock streams a scripted session offline;

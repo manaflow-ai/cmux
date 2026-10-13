@@ -53,6 +53,7 @@ async fn round_trip(transport: Transport) {
             mac_device_id: mac_id,
             transport,
             include_loopback: true,
+            relay_only: false,
         },
         Some(recorder.clone() as Arc<dyn LinkObserver>),
     )
@@ -102,4 +103,80 @@ async fn webrtc_round_trip() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn wireguard_round_trip() {
     round_trip(Transport::WireGuard).await;
+}
+
+/// Relay only: WireGuard never leaves the backend relay frames.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn wireguard_relay_only_stays_on_the_relay() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let recorder = Arc::new(Recorder::default());
+    let handle = connect_inner(
+        ConnectRequest {
+            base_url: server.base_url.clone(),
+            token: "user:alice".into(),
+            team_id: "team".into(),
+            device_id: uuid::Uuid::new_v4().to_string(),
+            mac_device_id: mac_id,
+            transport: Transport::WireGuard,
+            include_loopback: true,
+            relay_only: true,
+        },
+        Some(recorder.clone() as Arc<dyn LinkObserver>),
+    )
+    .await
+    .expect("connect");
+    assert_eq!(handle.path(), LinkPath::Relay);
+    let channel = handle.open_channel("echo".into(), String::new()).await.unwrap();
+    let payload = vec![7u8; 200_000];
+    channel.send(payload.clone()).await.unwrap();
+    let mut received = Vec::new();
+    while received.len() < payload.len() {
+        match channel.recv().await {
+            ChannelMessage::Data { bytes } => received.extend(bytes),
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+    assert_eq!(received, payload);
+    // The direct UDP path would have been confirmed well within this.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(handle.path(), LinkPath::Relay);
+    let events = recorder.0.lock().unwrap().clone();
+    assert!(
+        events.contains(&LinkEvent::Connected { transport: Transport::WireGuard, path: LinkPath::Relay }),
+        "{events:?}"
+    );
+    assert!(!events.contains(&LinkEvent::PathChanged { path: LinkPath::Direct }), "{events:?}");
+    handle.close();
+}
+
+/// Relay only over WebRTC needs TURN; the fake backend offers none, so the
+/// dial fails at once instead of waiting for ICE to time out.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn webrtc_relay_only_without_turn_fails_fast() {
+    let server = FakeSignaling::start(FakeOptions::default()).await;
+    let mac_id = uuid::Uuid::new_v4().to_string();
+    spawn_echo_mac(SignalingClient::connect(&server.base_url, "user:alice", "team", &mac_id).await.unwrap());
+    let started = std::time::Instant::now();
+    let result = connect_inner(
+        ConnectRequest {
+            base_url: server.base_url.clone(),
+            token: "user:alice".into(),
+            team_id: "team".into(),
+            device_id: uuid::Uuid::new_v4().to_string(),
+            mac_device_id: mac_id,
+            transport: Transport::WebRtc,
+            include_loopback: true,
+            relay_only: true,
+        },
+        None,
+    )
+    .await;
+    match result {
+        Err(cnx_ffi::CnxError::Transport { message }) => assert!(message.contains("TURN"), "{message}"),
+        Err(other) => panic!("unexpected error {other:?}"),
+        Ok(_) => panic!("relay-only WebRTC connected without TURN"),
+    }
+    assert!(started.elapsed() < Duration::from_secs(10));
 }

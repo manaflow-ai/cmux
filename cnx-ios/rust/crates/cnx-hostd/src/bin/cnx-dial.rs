@@ -1,11 +1,15 @@
 //! cnx-dial: dial a Mac running cnx-hostd and measure the link.
 //!
 //!   cnx-dial --base-url URL --token-file PATH --team TEAM --mac MAC_DEVICE_ID
-//!            [--transport webrtc|wireguard]... [--force-relay] [--exclude-cgnat]
+//!            [--transport webrtc|wireguard]... [--relay-only] [--exclude-cgnat]
 //!            [--bytes N] [--daemon] [--pings N]
 //!
 //! Prints one JSON line per transport: connect time, path, RTT, echo
 //! throughput, and the daemon `identify` answer.
+//!
+//! `--relay-only` (alias `--force-relay`) skips every direct path, as a
+//! distant network would: WebRTC uses only TURN candidates, WireGuard only
+//! the backend relay frames.
 
 use std::time::{Duration, Instant};
 
@@ -21,7 +25,7 @@ struct Args {
     team: String,
     mac: String,
     transports: Vec<TransportKind>,
-    force_relay: bool,
+    relay_only: bool,
     exclude_cgnat: bool,
     bytes: usize,
     daemon: bool,
@@ -32,7 +36,7 @@ fn parse() -> Result<Args> {
     let mut args = std::env::args().skip(1);
     let (mut base_url, mut token_file, mut team, mut mac) = (None, None, None, None);
     let mut transports = Vec::new();
-    let (mut force_relay, mut exclude_cgnat, mut daemon) = (false, false, false);
+    let (mut relay_only, mut exclude_cgnat, mut daemon) = (false, false, false);
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
@@ -48,7 +52,7 @@ fn parse() -> Result<Args> {
             }),
             "--bytes" => bytes = value()?.parse()?,
             "--pings" => pings = value()?.parse()?,
-            "--force-relay" => force_relay = true,
+            "--relay-only" | "--force-relay" => relay_only = true,
             "--exclude-cgnat" => exclude_cgnat = true,
             "--daemon" => daemon = true,
             other => bail!("unknown argument {other}"),
@@ -65,7 +69,7 @@ fn parse() -> Result<Args> {
         team: team.context("--team is required")?,
         mac: mac.context("--mac is required")?,
         transports,
-        force_relay,
+        relay_only,
         exclude_cgnat,
         bytes,
         daemon,
@@ -80,6 +84,7 @@ fn millis(duration: Duration) -> f64 {
 async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     let api = ApiClient::new(&args.base_url, &args.token);
     let ice_servers = api.ice().await.map(|c| c.ice_servers).unwrap_or_default();
+    let turn_urls = cnx_link::dial::turn_url_count(&ice_servers);
     let device = uuid::Uuid::new_v4().to_string();
     // The backend admits a signaling socket only for a registered device.
     api.register_device(&cnx_link::api::DeviceRegistration {
@@ -97,7 +102,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     let options = DialOptions {
         ice_servers,
         exclude_cgnat: args.exclude_cgnat,
-        force_relay: args.force_relay,
+        relay_only: args.relay_only,
         ..DialOptions::default()
     };
     let connected =
@@ -111,6 +116,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     }
     rtts.sort();
     let median = rtts.get(rtts.len() / 2).copied().unwrap_or_default();
+    let p95 = rtts.get((rtts.len() * 95).div_ceil(100).saturating_sub(1)).copied().unwrap_or_default();
 
     // Echo: send `bytes` and read them back, writing and reading concurrently.
     let mut echo = link.open("echo", json!({})).await?;
@@ -166,11 +172,13 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     signaling.close();
     Ok(json!({
         "transport": format!("{kind:?}").to_lowercase(),
-        "force_relay": args.force_relay,
+        "relay_only": args.relay_only,
         "path": path,
         "signaling_ms": millis(signaled),
         "connect_ms": millis(connect),
-        "rtt_ms": {"min": millis(rtts[0]), "median": millis(median), "max": millis(*rtts.last().unwrap())},
+        "ice_turn_urls": turn_urls,
+        "pings": rtts.len(),
+        "rtt_ms": {"min": millis(rtts[0]), "median": millis(median), "p95": millis(p95), "max": millis(*rtts.last().unwrap())},
         "first_echo_ms": millis(first_echo),
         "echo_bytes": total,
         "echo_seconds": (echo_time.as_secs_f64() * 1000.0).round() / 1000.0,
@@ -197,7 +205,7 @@ async fn main() -> Result<()> {
                 failed = true;
                 println!(
                     "{}",
-                    json!({"transport": format!("{kind:?}").to_lowercase(), "force_relay": args.force_relay, "error": format!("{error:#}")})
+                    json!({"transport": format!("{kind:?}").to_lowercase(), "relay_only": args.relay_only, "error": format!("{error:#}")})
                 );
             }
         }

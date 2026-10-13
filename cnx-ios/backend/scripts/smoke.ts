@@ -40,6 +40,7 @@ const api = async (method: string, path: string, body?: unknown, auth = true) =>
 const health = await api("GET", "/v1/health", undefined, false)
 check("health", health.status === 200 && health.json?.ok === true, `version ${health.json?.version}`)
 check("rejects missing token", (await api("GET", "/v1/ice", undefined, false)).status === 401)
+check("accepts the token's project", (health.json?.stackProjects ?? []).includes(PROJECT), `${(health.json?.stackProjects ?? []).length} projects`)
 
 // 2. the team: CNX_TEAM=personal uses the caller's personal space, else the first Stack team
 const sub = JSON.parse(Buffer.from(token.split(".")[1]!, "base64url").toString()).sub as string

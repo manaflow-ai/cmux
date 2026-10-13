@@ -8,6 +8,12 @@ configs:
   # (dev sign-in, Settings → Developer, scripted demos). Built by
   # scripts/demo-build.sh for hand-installed demo builds; never uploaded.
   Demo: release
+  # Production: a real production build for verification. Release
+  # optimization (-O), no DEBUG (no dev sign-in, no Settings → Developer, no
+  # mock data or demo drivers compiled in), the production Stack project, its
+  # own bundle id (dev.cmux.cnx.prod) and keychain group so it installs beside
+  # the Demo build. Built by scripts/demo-build.sh --config Production.
+  Production: release
 options:
   bundleIdPrefix: dev.cmux.cnx
   deploymentTarget:
@@ -16,10 +22,20 @@ settings:
   base:
     CNX_TAG: ""
     CNX_DISPLAY_NAME: cmux
+    # The cnx-ios-api base URL baked into Info.plist (CNXAPIBase). DEBUG
+    # builds fall back to the dev Worker when it is empty.
+    CNX_API_BASE: ""
   configs:
     Demo:
       SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG CNX_DEMO
       SWIFT_OPTIMIZATION_LEVEL: -O
+    Production:
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: CNX_PRODUCTION
+      SWIFT_OPTIMIZATION_LEVEL: -O
+      CNX_TAG: .prod
+      CNX_DISPLAY_NAME: cmux cnx
+      # The dev Worker accepts production Stack users (backend/README.md).
+      CNX_API_BASE: https:/$()/cnx-ios-api-dev.debussy.workers.dev
 packages:
   CnxKit:
     path: CnxKit
@@ -51,11 +67,18 @@ targets:
         CODE_SIGN_STYLE: Automatic
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         "EXCLUDED_ARCHS[sdk=iphonesimulator*]": x86_64
+      configs:
+        Production:
+          # Its own keychain access group ($(AppIdentifierPrefix)dev.cmux.cnx.prod):
+          # Stack tokens never mix with the Demo or Debug installs. No app group:
+          # the app shares no container with anything.
+          CODE_SIGN_ENTITLEMENTS: App/CnxApp-Production.entitlements
     info:
       path: App/Info.plist
       properties:
         CFBundleDisplayName: $(CNX_DISPLAY_NAME)
         CNXTag: $(CNX_TAG)
+        CNXAPIBase: $(CNX_API_BASE)
         NSCameraUsageDescription: Take a photo to attach to a message for your agent.
         NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
         NSPhotoLibraryUsageDescription: Attach photos to messages for Chief and your agents.

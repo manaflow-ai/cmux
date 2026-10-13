@@ -5,6 +5,7 @@ export const devices = pgTable(
   "devices",
   {
     deviceId: uuid("device_id").primaryKey(),
+    /** Owner key: the Stack sub (primary project) or `<projectId>:<sub>` (other projects). */
     ownerUserId: text("owner_user_id").notNull(),
     teamId: text("team_id").notNull(),
     kind: text("kind", { enum: ["mac", "phone"] }).notNull(),
@@ -17,7 +18,7 @@ export const devices = pgTable(
   (t) => [index("devices_team_kind_idx").on(t.teamId, t.kind), index("devices_owner_idx").on(t.ownerUserId)]
 )
 
-/** Per user, per team appearance in the app's team sidebar. */
+/** Per user, per team appearance in the app's team sidebar. `user_id` is the owner key, as in devices. */
 export const teamPrefs = pgTable(
   "team_prefs",
   {

@@ -1,8 +1,8 @@
-import { bearerOf, verifyStackToken, type Caller } from "./auth.ts"
+import { bearerOf, primaryProject, stackProjects, verifyStackToken, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { sendTeamInvite } from "./stack.ts"
-import { openStore, type Store } from "./store.ts"
+import { openStore, type Device, type Store } from "./store.ts"
 import type { Attachment } from "./team-hub.ts"
 
 export { TeamHub } from "./team-hub.ts"
@@ -10,6 +10,12 @@ export { TeamHub } from "./team-hub.ts"
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const TEAM_ID = /^[A-Za-z0-9_-]{1,128}$/
 const PERSONAL = "personal-"
+/**
+ * The personal space of a user. Keyed by `sub` alone so the wire format stays `personal-<sub>`: Stack
+ * subs are random v4 UUIDs, so dev and prod users never share one in practice, and every owner check
+ * behind it (device ownership, link admission) compares (project, sub), so even a shared sub could not
+ * reach the other project's Macs.
+ */
 export const personalTeamId = (userId: string) => `${PERSONAL}${userId}`
 const COLOR = /^#[0-9A-Fa-f]{6}$/
 const WG_KEY = /^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/
@@ -36,7 +42,23 @@ const readJson = async (req: Request): Promise<Record<string, unknown>> => {
   throw new HttpError(400, "bad_request", "body must be a JSON object")
 }
 
-const hub = (env: Env, teamId: string) => env.TEAM_HUB.get(env.TEAM_HUB.idFromName(teamId))
+/**
+ * Per-project namespacing. The primary project keeps its bare names (existing hubs and rows stay where
+ * they are); every other project's hubs and prefs rows are prefixed with its project id, so a team id or
+ * personal space id that appeared in two projects would still be two separate spaces.
+ */
+const scoped = (env: Env, caller: Caller, key: string) => (caller.projectId === primaryProject(env).id ? key : `${caller.projectId}:${key}`)
+const hub = (env: Env, caller: Caller, teamId: string) => env.TEAM_HUB.get(env.TEAM_HUB.idFromName(scoped(env, caller, teamId)))
+/**
+ * The caller's identity in stored rows (devices.owner_user_id, team_prefs.user_id): the bare sub for the
+ * primary project, `<projectId>:<sub>` otherwise. This records the project without a schema change, and the
+ * existing ownership checks on owner_user_id then compare (project, sub). Stack subs are UUIDs (no ":").
+ */
+const ownerKey = (env: Env, caller: Caller) => scoped(env, caller, caller.userId)
+const splitOwner = (env: Env, key: string): { projectId: string; userId: string } => {
+  const i = key.indexOf(":")
+  return i < 0 ? { projectId: primaryProject(env).id, userId: key } : { projectId: key.slice(0, i), userId: key.slice(i + 1) }
+}
 
 const requireMember = async (env: Env, teamId: string, caller: Caller) => {
   if (!TEAM_ID.test(teamId)) throw new HttpError(400, "bad_request", "invalid teamId")
@@ -47,7 +69,7 @@ const requireMember = async (env: Env, teamId: string, caller: Caller) => {
   }
   let ok: boolean
   try {
-    ok = await hub(env, teamId).isMember(teamId, caller)
+    ok = await hub(env, caller, teamId).isMember(teamId, caller)
   } catch (e) {
     console.log(JSON.stringify({ msg: "membership check failed", error: String(e) }))
     throw new HttpError(502, "membership_unavailable", "could not check team membership")
@@ -64,6 +86,9 @@ const withStore = async <T>(env: Env, ctx: ExecutionContext, f: (s: Store) => Pr
   }
 }
 
+/** The PROTOCOL.md device object: `ownerUserId` is the bare sub (the project is recorded, not returned). */
+const publicDevice = (env: Env, d: Device): Device => ({ ...d, ownerUserId: splitOwner(env, d.ownerUserId).userId })
+
 const later = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b)
 
 const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Response> => {
@@ -71,7 +96,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   const path = url.pathname.replace(/\/+$/, "") || "/"
   const method = req.method
 
-  if (path === "/v1/health" && method === "GET") return json({ ok: true, version: env.API_VERSION })
+  if (path === "/v1/health" && method === "GET") return json({ ok: true, version: env.API_VERSION, stackProjects: stackProjects(env).map((p) => p.id) })
 
   const bearer = bearerOf(req)
   const caller = bearer ? await verifyStackToken(env, bearer.token) : undefined
@@ -93,12 +118,13 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       throw new HttpError(400, "bad_request", "wgPublicKey must be a base64 Curve25519 key")
     await requireMember(env, teamId, caller)
     const r = await withStore(env, ctx, (s) =>
-      s.upsertDevice({ deviceId: deviceId.toLowerCase(), ownerUserId: caller.userId, teamId, kind, name: name.trim(), wgPublicKey: (wgPublicKey as string | null | undefined) ?? null })
+      s.upsertDevice({ deviceId: deviceId.toLowerCase(), ownerUserId: ownerKey(env, caller), teamId, kind, name: name.trim(), wgPublicKey: (wgPublicKey as string | null | undefined) ?? null })
     )
     if (r === "not_owner") throw new HttpError(403, "not_owner", "this deviceId belongs to another user")
-    if (r.previousTeamId) await hub(env, r.previousTeamId).forgetMac(r.device.deviceId)
-    if (r.device.kind === "mac") await hub(env, teamId).registerMac({ deviceId: r.device.deviceId, name: r.device.name, ownerUserId: r.device.ownerUserId })
-    return json({ device: r.device })
+    if (r.previousTeamId) await hub(env, caller, r.previousTeamId).forgetMac(r.device.deviceId)
+    if (r.device.kind === "mac")
+      await hub(env, caller, teamId).registerMac({ deviceId: r.device.deviceId, name: r.device.name, ownerUserId: caller.userId, ownerProjectId: caller.projectId })
+    return json({ device: publicDevice(env, r.device) })
   }
 
   const team = path.match(/^\/v1\/teams\/([^/]+)\/(macs|prefs|invites|signal)$/)
@@ -112,30 +138,33 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     if (!UUID.test(deviceId)) throw new HttpError(400, "bad_request", "deviceId must be a UUID")
     await requireMember(env, teamId, caller)
     const device = await withStore(env, ctx, (s) => s.getDevice(deviceId))
-    if (!device || device.ownerUserId !== caller.userId) throw new HttpError(403, "not_owner", "register this device first")
+    if (!device || device.ownerUserId !== ownerKey(env, caller)) throw new HttpError(403, "not_owner", "register this device first")
     if (device.teamId !== teamId) throw new HttpError(403, "wrong_team", "device is registered in another team")
-    const att: Attachment = { userId: caller.userId, deviceId, kind: device.kind, name: device.name }
+    const att: Attachment = { userId: caller.userId, projectId: caller.projectId, deviceId, kind: device.kind, name: device.name }
     const headers = new Headers({ upgrade: "websocket", "x-cnx-attachment": JSON.stringify(att) })
     // Echo only cnx.v1; the bearer subprotocol is never selected (it would echo the token back).
     if (bearer?.viaSubprotocol || (req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === "cnx.v1")) headers.set("x-cnx-subprotocol", "cnx.v1")
-    return hub(env, teamId).fetch("https://team-hub/signal", { headers })
+    return hub(env, caller, teamId).fetch("https://team-hub/signal", { headers })
   }
 
   if (action === "macs" && method === "GET") {
     await requireMember(env, teamId, caller)
-    const [rows, live] = await Promise.all([withStore(env, ctx, (s) => s.listMacs(teamId)), hub(env, teamId).macs()])
+    const [rows, live] = await Promise.all([withStore(env, ctx, (s) => s.listMacs(teamId)), hub(env, caller, teamId).macs()])
     const byId = new Map(live.map((m) => [m.deviceId, m]))
     return json({
-      macs: rows.map((d) => {
+      // Only Macs of the caller's project: a team (and a personal space) never spans projects.
+      macs: rows.flatMap((d) => {
+        const owner = splitOwner(env, d.ownerUserId)
+        if (owner.projectId !== caller.projectId) return []
         const p = byId.get(d.deviceId)
-        return { deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: d.ownerUserId }
+        return [{ deviceId: d.deviceId, name: d.name, online: p?.online ?? false, lastSeenAt: later(d.lastSeenAt, p?.lastSeenAt ?? null), ownerUserId: owner.userId }]
       })
     })
   }
 
   if (action === "prefs" && method === "GET") {
     await requireMember(env, teamId, caller)
-    return json(await withStore(env, ctx, (s) => s.getPrefs(caller.userId, teamId)))
+    return json(await withStore(env, ctx, (s) => s.getPrefs(ownerKey(env, caller), teamId)))
   }
 
   if (action === "prefs" && method === "PUT") {
@@ -152,7 +181,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       patch.emoji = b.emoji as string | null
     }
     await requireMember(env, teamId, caller)
-    return json(await withStore(env, ctx, (s) => s.putPrefs(caller.userId, teamId, patch)))
+    return json(await withStore(env, ctx, (s) => s.putPrefs(ownerKey(env, caller), teamId, patch)))
   }
 
   if (action === "invites" && method === "POST") {

@@ -194,8 +194,7 @@ public struct AgentChatScreen: View {
     private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .principal) {
             Menu {
-                Button("Rename", systemImage: "pencil") {}
-                Button("Open terminal", systemImage: "apple.terminal") {}
+
                 Button("Files and artifacts", systemImage: "folder") { surface.showArtifacts = true }
                 Button("Changes", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) }
                 AgentParityMenuItems(store: store, surface: surface)
@@ -221,11 +220,9 @@ public struct AgentChatScreen: View {
             .accessibilityLabel(Text("\(store.summary.name), \(store.summary.agentName) in \(store.summary.workspaceTitle)"))
         }
         ToolbarItemGroup(placement: .topBarTrailing) {
-            Button("New session", systemImage: "square.and.pencil") {}
             Menu {
                 Button("Files and artifacts", systemImage: "folder") { surface.showArtifacts = true }
                 ShareLink(item: AgentChatSurface.transcriptText(store)) { Label("Share transcript", systemImage: "square.and.arrow.up") }
-                Button("Archive", systemImage: "archivebox") {}
                 Button("Stop agent", systemImage: "stop.circle", role: .destructive) { store.cancel() }
             } label: {
                 Image(systemName: "ellipsis")
@@ -587,8 +584,7 @@ struct UserBubble: View {
             if !turn.attachments.isEmpty {
                 HStack(spacing: 6) {
                     ForEach(turn.attachments) { attachment in
-                        AttachmentThumb(attachment: attachment) {}
-                            .allowsHitTesting(false)
+                        AttachmentThumb(attachment: attachment)
                     }
                 }
             }
@@ -657,9 +653,7 @@ struct AnswerActionRow: View {
             Menu {
                 Section(turn.promptAt.formatted(.dateTime.weekday(.wide).hour().minute())) {
                     Button("Copy as Markdown", systemImage: "text.document") { UIPasteboard.general.string = turn.answerMarkdown }
-                    Button("Fork from here", systemImage: "arrow.triangle.branch") {}
                     Button("Retry", systemImage: "arrow.clockwise", action: retry)
-                    Button("Report issue", systemImage: "flag") {}
                 }
             } label: {
                 Image(systemName: "ellipsis")

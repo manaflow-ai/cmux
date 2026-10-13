@@ -7,8 +7,22 @@ ffi) and the app. Change this file first, then the implementations.
 
 - Every HTTP call and WebSocket carries `Authorization: Bearer <Stack access token>`
   (WebSocket may use subprotocol `cnx.v1, bearer.<token>` instead).
-  The Worker verifies the JWT against Stack JWKS for the configured project
-  (dev `454ecd03-1db2-4050-845e-4ce5b0cd9895`) and takes `sub` as `userId`.
+  The Worker verifies the JWT against the Stack JWKS of one of its configured
+  projects and takes `sub` as `userId`. The dev Worker accepts the dev project
+  `454ecd03-1db2-4050-845e-4ce5b0cd9895` (primary) and the production project
+  `9790718f-14cd-4f7e-824d-eaf527a82b82`, so dev and production app builds share
+  it. The token's `iss` picks the project; signature, `iss`
+  (`https://api.stack-auth.com/api/v1/projects/<id>`) and `aud` (`<id>`) are then
+  checked against that project only. Other projects, anonymous users and
+  mismatched `iss`/`aud` pairs get 401.
+- A user is the pair (Stack project, `sub`): the same `sub` in two projects is
+  two users. Membership is asked of the caller's own project with the caller's
+  own token; a team, a personal space, device ownership and link admission
+  never span projects. Stored rows record the project in the owner key
+  (`<sub>` for the primary project, `<projectId>:<sub>` otherwise; Stack subs
+  are UUIDs and never contain `:`), and the TeamHub of a non-primary project's
+  team is named `<projectId>:<teamId>`. Every `userId`/`ownerUserId`/
+  `fromUserId` on the wire stays the bare `sub`.
 - Team membership is checked through Stack (cached 60 s, refusals 15 s, in the
   TeamHub DO): the server API when the Worker has `STACK_SECRET_SERVER_KEY`,
   otherwise the client API (`GET /teams?user_id=me`) with the caller's own
@@ -17,7 +31,10 @@ ffi) and the app. Change this file first, then the implementations.
   same Stack user (the Mac's registering user). Team members cannot dial
   each other's Macs in v1.
 - Personal space: teamId `personal-<userId>` (userId = the verified JWT `sub`)
-  is a team of one. It is admitted for that user only, with no Stack membership
+  is a team of one. The id carries no project: Stack subs are random v4 UUIDs, so
+  a dev and a production user never share one in practice, and the space behind
+  the id is still per project (above), so even a shared sub would give two
+  separate spaces. It is admitted for that user only, with no Stack membership
   call; any other user gets `403 not_member`. Every route works with it
   (devices, macs, prefs, signal WebSocket, relay) except
   `POST /v1/teams/:teamId/invites`, which answers `400 bad_request`
@@ -39,7 +56,7 @@ Errors are `{"error":{"code","message"}}` with codes `unauthorized` (401),
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace) |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
 | `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable) |
-| `GET /v1/health` | → `{ok:true, version}` |
+| `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId]}` (accepted Stack projects, primary first) |
 
 ## Signaling WebSocket `GET /v1/teams/:teamId/signal?deviceId=<id>`
 
@@ -87,7 +104,7 @@ with 4001 `moved`.
   (burst 8000; excess binary frames are dropped silently).
 
 Admission: the DO forwards `signal` only when `to` is a Mac owned by the
-sender's userId, or the reply direction of an existing sessionId. A sessionId
+sender's user (same `sub` in the same Stack project), or the reply direction of an existing sessionId. A sessionId
 is bound to the two devices of its first admitted signal.
 
 ## Link (inside either transport)
@@ -126,3 +143,8 @@ refusal uses `unknown_service`, `forbidden`, `bad_request`, `not_found` or
 
 The app exposes Settings → Connection → Transport: `WebRTC` or `WireGuard`.
 Both produce the same `Link`; switching tears the link down and redials.
+
+Debug builds add Settings → Developer → "Relay only (simulate distant
+network)". It is a phone-side dial policy with no wire change: WebRTC gathers
+only TURN relay candidates (path `turn`), and WireGuard sends empty
+`endpoints` and ignores the Mac's (path `relay`). Changing it redials.

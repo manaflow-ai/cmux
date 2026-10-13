@@ -62,12 +62,16 @@ public struct LinkEndpoint: Sendable, Hashable {
     public var teamID: String
     public var deviceID: String
     public var macDeviceID: String
+    /// Debug "simulate distant network": no direct path. WebRTC uses only
+    /// TURN (path `turn`), WireGuard only the service's relay (path `relay`).
+    public var relayOnly: Bool
 
-    public init(baseURL: URL, teamID: String, deviceID: String, macDeviceID: String) {
+    public init(baseURL: URL, teamID: String, deviceID: String, macDeviceID: String, relayOnly: Bool = false) {
         self.baseURL = baseURL
         self.teamID = teamID
         self.deviceID = deviceID
         self.macDeviceID = macDeviceID
+        self.relayOnly = relayOnly
     }
 }
 

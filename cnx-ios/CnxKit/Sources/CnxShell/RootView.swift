@@ -174,6 +174,9 @@ struct ShellView: View {
     @State private var shell: ShellModel
     @Environment(\.scenePhase) private var scenePhase
     @State private var inviteEmail = ""
+    /// Settings → Developer "Relay only"; read through `DeveloperOptions`,
+    /// which ignores it outside DEBUG builds.
+    @AppStorage(DeveloperOptions.relayOnlyKey) private var relayOnlyPreference = false
     private let options: ShellLaunchOptions
 
     init(store: AppStore, auth: CnxAuthModel, settings: SettingsStore, sidebar: SidebarModel, options: ShellLaunchOptions) {
@@ -222,6 +225,9 @@ struct ShellView: View {
         .onChange(of: shell.settings.transport) { _, transport in
             shell.live?.setTransport(transport.link)
         }
+        .onChange(of: relayOnlyPreference) { _, _ in
+            shell.live?.setRelayOnly(DeveloperOptions.relayOnly)
+        }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { shell.live?.foreground() }
         }
@@ -250,6 +256,7 @@ extension ShellView {
             userID: user.id,
             deviceName: UIDevice.current.name,
             transport: shell.settings.transport.link,
+            relayOnly: DeveloperOptions.relayOnly,
             dialer: FFIMacLinkDialer()
         )
         shell.live = live
@@ -281,7 +288,7 @@ struct ShellTabs: View {
             }
             .badge(shell.store.activeWorkspaces.filter(\.needsAttention).count)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
-                CnxFeed.FeedScreen { SidebarToolbarItem(sidebar: shell.sidebar) }
+                CnxFeed.FeedScreen(path: $shell.feedPath) { SidebarToolbarItem(sidebar: shell.sidebar) }
             }
             .badge(FeedStore.shared.needsYouCount)
             Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {

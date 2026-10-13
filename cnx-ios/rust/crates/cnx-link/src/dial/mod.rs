@@ -63,10 +63,12 @@ pub struct DialOptions {
     /// Never offer or use addresses in 100.64.0.0/10 (Tailscale and other
     /// carrier-grade NAT overlays), so a test measures the public path.
     pub exclude_cgnat: bool,
-    /// Skip direct paths: WebRTC gathers only TURN relay candidates, and
-    /// WireGuard sends no endpoints and ignores the peer's, so every
-    /// datagram goes through the backend relay frames.
-    pub force_relay: bool,
+    /// Relay only (the app's debug "simulate distant network" mode): skip
+    /// every direct path. WebRTC uses ICE transport policy `relay` (only
+    /// TURN candidates from `ice_servers`; a dial without a TURN server
+    /// fails at once), and WireGuard sends no endpoints and ignores the
+    /// peer's, so every datagram goes through the backend relay frames.
+    pub relay_only: bool,
     /// Test support: WireGuard silently drops every UDP datagram this side
     /// sends, as when the OS refuses the route (macOS Local Network
     /// privacy) or a firewall drops outbound UDP. Inbound UDP still works.
@@ -82,11 +84,20 @@ impl Default for DialOptions {
             ice_servers: Vec::new(),
             include_loopback: false,
             exclude_cgnat: false,
-            force_relay: false,
+            relay_only: false,
             drop_outbound_udp: false,
             timeout: Duration::from_secs(25),
         }
     }
+}
+
+/// The number of TURN URLs (`turn:` or `turns:`) among `servers`.
+pub fn turn_url_count(servers: &[IceServer]) -> usize {
+    servers
+        .iter()
+        .flat_map(|server| &server.urls)
+        .filter(|url| url.starts_with("turn:") || url.starts_with("turns:"))
+        .count()
 }
 
 /// Whether `ip` is in 100.64.0.0/10 (Tailscale and other CGNAT overlays).
@@ -203,6 +214,11 @@ pub async fn connect(
     options: &DialOptions,
     link_config: LinkConfig,
 ) -> Result<Connected, DialError> {
+    if options.relay_only && kind == TransportKind::WebRtc && turn_url_count(&options.ice_servers) == 0 {
+        return Err(DialError::Transport(
+            "relay only needs a TURN server, and the service offered none".into(),
+        ));
+    }
     let session_id = uuid::Uuid::new_v4().to_string();
     let events = SessionEvents::subscribe(signaling, &session_id);
     let dialer = kind.dialer();

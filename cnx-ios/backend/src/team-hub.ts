@@ -1,11 +1,13 @@
 import { DurableObject } from "cloudflare:workers"
-import type { Caller } from "./auth.ts"
+import { primaryProject, type Caller } from "./auth.ts"
 import type { Env } from "./env.ts"
 import { userTeams } from "./stack.ts"
 
 /** Per-socket identity, set by the Worker after auth and device checks (never by the client). */
 export interface Attachment {
   userId: string
+  /** The Stack project of `userId`; identity is the pair. */
+  projectId: string
   deviceId: string
   kind: "mac" | "phone"
   name: string
@@ -59,6 +61,9 @@ export class TeamHub extends DurableObject<Env> {
     super(ctx, env)
     this.sql = ctx.storage.sql
     this.sql.exec(`CREATE TABLE IF NOT EXISTS macs (device_id TEXT PRIMARY KEY, name TEXT NOT NULL, owner_user_id TEXT NOT NULL, last_seen_at INTEGER)`)
+    // owner_project_id: added with multi-project support; NULL (older rows) means the primary project.
+    if (!this.sql.exec<{ name: string }>(`PRAGMA table_info(macs)`).toArray().some((c) => c.name === "owner_project_id"))
+      this.sql.exec(`ALTER TABLE macs ADD COLUMN owner_project_id TEXT`)
     this.sql.exec(`CREATE TABLE IF NOT EXISTS sessions (session_id TEXT PRIMARY KEY, initiator TEXT NOT NULL, responder TEXT NOT NULL, created_at INTEGER NOT NULL)`)
   }
 
@@ -66,23 +71,25 @@ export class TeamHub extends DurableObject<Env> {
 
   /** Team membership through Stack, cached 60 s (15 s for a refusal). Throws when Stack fails. */
   async isMember(teamId: string, caller: Caller): Promise<boolean> {
-    const hit = this.members.get(caller.userId)
+    const key = `${caller.projectId}\u0000${caller.userId}`
+    const hit = this.members.get(key)
     const now = Date.now()
     if (hit && now - hit.at < (hit.ok ? MEMBER_TTL_MS : NON_MEMBER_TTL_MS)) return hit.ok
     const ok = (await userTeams(this.env, caller)).includes(teamId)
-    this.members.set(caller.userId, { ok, at: now })
+    this.members.set(key, { ok, at: now })
     return ok
   }
 
   /** A Mac registered (or renamed) in this team. Broadcasts presence when the name changed. */
-  async registerMac(m: { deviceId: string; name: string; ownerUserId: string }): Promise<void> {
+  async registerMac(m: { deviceId: string; name: string; ownerUserId: string; ownerProjectId: string }): Promise<void> {
     const prev = this.macRow(m.deviceId)
     this.sql.exec(
-      `INSERT INTO macs (device_id, name, owner_user_id, last_seen_at) VALUES (?, ?, ?, NULL)
-       ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id`,
+      `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, last_seen_at) VALUES (?, ?, ?, ?, NULL)
+       ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id`,
       m.deviceId,
       m.name,
-      m.ownerUserId
+      m.ownerUserId,
+      m.ownerProjectId
     )
     if (!prev || prev.name !== m.name) this.broadcast(JSON.stringify({ type: "presence", mac: this.presenceOf(m.deviceId) }))
   }
@@ -124,11 +131,12 @@ export class TeamHub extends DurableObject<Env> {
     server.serializeAttachment(att)
     if (att.kind === "mac") {
       this.sql.exec(
-        `INSERT INTO macs (device_id, name, owner_user_id, last_seen_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, last_seen_at = excluded.last_seen_at`,
+        `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, last_seen_at) VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, owner_user_id = excluded.owner_user_id, owner_project_id = excluded.owner_project_id, last_seen_at = excluded.last_seen_at`,
         att.deviceId,
         att.name,
         att.userId,
+        att.projectId,
         Date.now()
       )
     }
@@ -190,6 +198,11 @@ export class TeamHub extends DurableObject<Env> {
 
   // ---- internals -------------------------------------------------------------------------------
 
+  /** Rows and attachments from before multi-project support carry no project: they are the primary project's. */
+  private get primary(): string {
+    return primaryProject(this.env).id
+  }
+
   private attach(ws: WebSocket): Attachment {
     return ws.deserializeAttachment() as Attachment
   }
@@ -211,7 +224,7 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   /**
-   * PROTOCOL.md admission: `to` is a Mac owned by the sender's user (this opens or continues the
+   * PROTOCOL.md admission: `to` is a Mac owned by the sender's user, the same sub in the same Stack project (this opens or continues the
    * session), or the sender is the Mac answering an existing session. A sessionId is bound to its
    * first two parties; reusing it for anyone else is refused.
    */
@@ -220,7 +233,7 @@ export class TeamHub extends DurableObject<Env> {
     const s = this.session(sessionId)
     if (s) return (s.initiator === att.deviceId && s.responder === to) || (s.initiator === to && s.responder === att.deviceId)
     const mac = this.macRow(to)
-    if (!mac || mac.owner_user_id !== att.userId) return false
+    if (!mac || mac.owner_user_id !== att.userId || (mac.owner_project_id ?? this.primary) !== (att.projectId ?? this.primary)) return false
     const now = Date.now()
     this.sql.exec(`DELETE FROM sessions WHERE created_at < ?`, now - SESSION_TTL_MS)
     this.sql.exec(`INSERT INTO sessions (session_id, initiator, responder, created_at) VALUES (?, ?, ?, ?)`, sessionId, att.deviceId, to, now)
@@ -244,7 +257,12 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   private macRow(deviceId: string) {
-    return this.sql.exec<{ name: string; owner_user_id: string; last_seen_at: number | null }>(`SELECT name, owner_user_id, last_seen_at FROM macs WHERE device_id = ?`, deviceId).toArray()[0]
+    return this.sql
+      .exec<{ name: string; owner_user_id: string; owner_project_id: string | null; last_seen_at: number | null }>(
+        `SELECT name, owner_user_id, owner_project_id, last_seen_at FROM macs WHERE device_id = ?`,
+        deviceId
+      )
+      .toArray()[0]
   }
 
   private presence(deviceId: string): MacPresence | undefined {
