@@ -163,17 +163,24 @@ struct MachineIconTests {
             == [.folder(.appearance, [.action("machine.setIcon"), .action("machine.clearIcon")])])
     }
 
-    /// Every machine header's right-click menu offers Set Icon under Appearance, aimed at that
-    /// machine, after its own rows (This Mac keeps the sidebar's rows); Remove Icon shows only
-    /// while the machine has an icon.
-    @Test func thisMacsHeaderMenuOffersItsIconUnderAppearance() throws {
+    /// Every machine header's right-click menu offers Set Icon, aimed at that machine, beside its
+    /// own rows (This Mac keeps the sidebar's rows) and within the 12-row top level (the
+    /// sidebar's menu is full, so This Mac's goes in a folder); Remove Icon shows only while the
+    /// machine has an icon.
+    @Test func thisMacsHeaderMenuOffersItsIconWithinTheTopLevelLimit() throws {
         let services = Self.services()
         AppActions.bind(services)
+        func allItems(_ items: [NSMenuItem]) -> [NSMenuItem] {
+            items.flatMap { item in [item] + (item.submenu.map { allItems($0.items) } ?? []) }
+        }
         func iconRuns() throws -> [(id: ActionID, target: ActionTargetRef?)] {
             let menu = SidebarContextMenus.machineMenu(MachineRegistry.localID, services: services)
-            #expect(menu.items.contains { !$0.isSeparatorItem && $0.title != MenuFolder.appearance.title }, "the sidebar's own rows stay")
-            let appearance = try #require(menu.items.first { $0.title == MenuFolder.appearance.title }?.submenu)
-            return appearance.items.compactMap { ActionRegistry.menuRun(of: $0) }.map { (id: $0.id, target: $0.target) }
+            let background = services.registry.makeContextMenu(for: .sidebarBackground)
+            #expect(menu.items.filter { !$0.isSeparatorItem }.count <= 12, "a menu keeps at most 12 top-level rows")
+            #expect(menu.items.filter { !$0.isSeparatorItem }.count >= background.items.filter { !$0.isSeparatorItem }.count,
+                    "the sidebar's own rows stay")
+            return allItems(menu.items).compactMap { ActionRegistry.menuRun(of: $0) }
+                .filter { $0.id.rawValue.hasPrefix("machine.") }.map { (id: $0.id, target: $0.target) }
         }
         Self.record(services, icon: nil)
         let plain = try iconRuns()
