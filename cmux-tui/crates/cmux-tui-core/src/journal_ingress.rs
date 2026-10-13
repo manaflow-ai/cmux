@@ -758,7 +758,8 @@ impl JournalIngressSender {
     pub(crate) fn try_send_terminal_gap(&self, event: JournalIngressEvent) -> anyhow::Result<()> {
         debug_assert!(matches!(&event, JournalIngressEvent::TerminalOutputGap { .. }));
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
-        let _admission = self.state.enqueue_admission.lock().unwrap();
+        let _admission =
+            self.state.enqueue_admission.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(error) = self.state.admission_error() {
             anyhow::bail!(error);
         }

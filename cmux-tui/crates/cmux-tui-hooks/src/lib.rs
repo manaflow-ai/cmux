@@ -1967,7 +1967,11 @@ fn codex_session_hook_settings_with_context(
     context: &Context,
 ) -> anyhow::Result<Vec<String>> {
     let mut settings = Vec::new();
-    let provider = PROVIDERS.iter().copied().find(|provider| provider.id == "codex").unwrap();
+    let provider = PROVIDERS
+        .iter()
+        .copied()
+        .find(|provider| provider.id == "codex")
+        .ok_or_else(|| anyhow::anyhow!("the codex hook provider is missing"))?;
     let path = context.provider_path(provider);
     let root = read_json_object(&path)?;
     let key_path =

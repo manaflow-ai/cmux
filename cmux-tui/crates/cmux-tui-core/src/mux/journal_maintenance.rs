@@ -69,7 +69,13 @@ impl JournalMaintenance {
 
 impl Mux {
     pub(super) fn start_journal_maintenance(self: &Arc<Self>) -> anyhow::Result<()> {
-        if self.workspace_registry.lock().unwrap().session_journal_database_path().is_some() {
+        if self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .session_journal_database_path()
+            .is_some()
+        {
             let maintenance = JournalMaintenance::start(self)?;
             *self.journal_maintenance.lock().unwrap_or_else(PoisonError::into_inner) =
                 Some(maintenance);
@@ -95,23 +101,43 @@ impl Mux {
             return;
         }
         let result = (|| -> anyhow::Result<()> {
-            if self.workspace_registry.lock().unwrap().migrate_journal_auto_vacuum()? {
+            if self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .migrate_journal_auto_vacuum()?
+            {
                 // A legacy registry migration performs one full VACUUM. Keep
                 // that rewrite isolated to this maintenance tick before
                 // attempting checkpoint or sealing work.
                 return Ok(());
             }
-            let head = self.workspace_registry.lock().unwrap().session_journal_head()?;
-            let latest =
-                self.workspace_registry.lock().unwrap().journal_checkpoints()?.into_iter().next();
+            let head = self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .session_journal_head()?;
+            let latest = self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .journal_checkpoints()?
+                .into_iter()
+                .next();
             let checkpoint_source = latest.map_or(0, |checkpoint| checkpoint.source_sequence);
-            let mut sealed_through =
-                self.workspace_registry.lock().unwrap().journal_segments_end()?;
+            let mut sealed_through = self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .journal_segments_end()?;
             let pending_seal = checkpoint_source > sealed_through;
             if !pending_seal
                 && head.saturating_sub(checkpoint_source) < JOURNAL_MAINTENANCE_CHECKPOINT_RECORDS
             {
-                self.workspace_registry.lock().unwrap().incremental_journal_vacuum()?;
+                self.workspace_registry
+                    .lock()
+                    .unwrap_or_else(PoisonError::into_inner)
+                    .incremental_journal_vacuum()?;
                 return Ok(());
             }
 
@@ -138,7 +164,10 @@ impl Mux {
                 }
                 sealed_through = commit.through_sequence;
             }
-            self.workspace_registry.lock().unwrap().incremental_journal_vacuum()?;
+            self.workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .incremental_journal_vacuum()?;
             Ok(())
         })();
         if let Err(error) = result {
@@ -154,7 +183,7 @@ impl Mux {
     pub(crate) fn journal_hook_states(
         &self,
     ) -> anyhow::Result<Vec<crate::workspace_registry::JournalHookState>> {
-        self.workspace_registry.lock().unwrap().journal_hook_states()
+        self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).journal_hook_states()
     }
 
     pub(crate) fn journal_events_caused_by_hooks(
@@ -162,7 +191,10 @@ impl Mux {
         hook_ids: &[String],
         event_ids: &[String],
     ) -> anyhow::Result<HashSet<(String, String)>> {
-        self.workspace_registry.lock().unwrap().journal_events_caused_by_hooks(hook_ids, event_ids)
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .journal_events_caused_by_hooks(hook_ids, event_ids)
     }
 
     pub(crate) fn put_journal_hook(
@@ -171,11 +203,11 @@ impl Mux {
         origin: &str,
         idempotency_key: &str,
     ) -> anyhow::Result<crate::JournalAppendCommit> {
-        let commit = self.workspace_registry.lock().unwrap().put_journal_hook(
-            manifest,
-            origin,
-            idempotency_key,
-        )?;
+        let commit = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .put_journal_hook(manifest, origin, idempotency_key)?;
         if !commit.replayed {
             self.publish_journal_event();
         }
@@ -201,13 +233,20 @@ impl Mux {
         &self,
         scans: &[crate::workspace_registry::JournalHookScan],
     ) -> anyhow::Result<Vec<bool>> {
-        self.workspace_registry.lock().unwrap().schedule_journal_hook_deliveries(scans)
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .schedule_journal_hook_deliveries(scans)
     }
 
     /// When the next scheduled hook retry is due, if any.
     pub(crate) fn next_journal_hook_attempt_deadline(&self) -> anyhow::Result<Option<Instant>> {
         let now_ms = crate::workspace_registry::unix_epoch_ms()?;
-        let next = self.workspace_registry.lock().unwrap().next_journal_hook_attempt_at_ms()?;
+        let next = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .next_journal_hook_attempt_at_ms()?;
         Ok(next.map(|at| Instant::now() + Duration::from_millis(at.saturating_sub(now_ms))))
     }
 
@@ -216,15 +255,21 @@ impl Mux {
         limit: usize,
     ) -> anyhow::Result<Vec<crate::workspace_registry::JournalHookDelivery>> {
         let now_ms = crate::workspace_registry::unix_epoch_ms()?;
-        self.workspace_registry.lock().unwrap().pending_journal_hook_deliveries(now_ms, limit)
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pending_journal_hook_deliveries(now_ms, limit)
     }
 
     pub(crate) fn start_journal_hook_deliveries(
         &self,
         deliveries: &[crate::workspace_registry::JournalHookDelivery],
     ) -> anyhow::Result<Vec<crate::workspace_registry::JournalHookAttempt>> {
-        let attempts =
-            self.workspace_registry.lock().unwrap().start_journal_hook_deliveries(deliveries)?;
+        let attempts = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .start_journal_hook_deliveries(deliveries)?;
         if !attempts.is_empty() {
             self.publish_journal_event();
         }
@@ -235,7 +280,10 @@ impl Mux {
         &self,
         results: &[crate::workspace_registry::JournalHookDeliveryResult],
     ) -> anyhow::Result<()> {
-        self.workspace_registry.lock().unwrap().finish_journal_hook_deliveries(results)?;
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .finish_journal_hook_deliveries(results)?;
         if !results.is_empty() {
             self.publish_journal_event();
         }
@@ -317,7 +365,7 @@ impl Mux {
             if let Some(commit) = self
                 .workspace_registry
                 .lock()
-                .unwrap()
+                .unwrap_or_else(PoisonError::into_inner)
                 .journal_checkpoint_receipt(origin, idempotency_key)?
             {
                 return Ok(commit);
@@ -335,14 +383,18 @@ impl Mux {
                 }
                 Err(error) => return Err(error),
             };
-            match self.workspace_registry.lock().unwrap().create_journal_checkpoint(
-                captured.source_sequence,
-                crate::journal_checkpoint::JOURNAL_REDUCER_VERSION,
-                &captured.state,
-                &captured.blobs,
-                origin,
-                idempotency_key,
-            ) {
+            match self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .create_journal_checkpoint(
+                    captured.source_sequence,
+                    crate::journal_checkpoint::JOURNAL_REDUCER_VERSION,
+                    &captured.state,
+                    &captured.blobs,
+                    origin,
+                    idempotency_key,
+                ) {
                 Ok(commit) => {
                     if !commit.journal.replayed {
                         self.publish_journal_event();
@@ -366,7 +418,7 @@ impl Mux {
     pub(crate) fn journal_checkpoints(
         &self,
     ) -> anyhow::Result<Vec<crate::workspace_registry::JournalCheckpointSummary>> {
-        self.workspace_registry.lock().unwrap().journal_checkpoints()
+        self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).journal_checkpoints()
     }
 
     pub(crate) fn journal_restore_preview(&self, selector: &str) -> anyhow::Result<Value> {
@@ -378,7 +430,11 @@ impl Mux {
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;
 
-        let database_path = self.workspace_registry.lock().unwrap().session_journal_database_path();
+        let database_path = self
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .session_journal_database_path();
         if let Some(database_path) = database_path {
             let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;
             let mut cursor = reader.restore_cursor(checkpoint.source_sequence)?;
@@ -418,7 +474,7 @@ impl Mux {
     }
 
     pub(crate) fn journal_segments(&self) -> anyhow::Result<Vec<crate::JournalSegment>> {
-        self.workspace_registry.lock().unwrap().journal_segments()
+        self.workspace_registry.lock().unwrap_or_else(PoisonError::into_inner).journal_segments()
     }
 
     pub(crate) fn seal_journal_segments(
@@ -435,11 +491,11 @@ impl Mux {
             .context("journal segment sealing requires a persistent session")?;
         let reader = crate::workspace_registry::SessionJournalReader::open(&database_path)?;
         for _ in 0..4 {
-            let start = self.workspace_registry.lock().unwrap().begin_journal_segment_seal(
-                through_sequence,
-                origin,
-                idempotency_key,
-            )?;
+            let start = self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .begin_journal_segment_seal(through_sequence, origin, idempotency_key)?;
             let plan = match start {
                 crate::workspace_registry::JournalSegmentSealStart::Replay(commit) => {
                     return Ok(commit);
@@ -451,11 +507,11 @@ impl Mux {
                 hook();
             }
             let prepared = plan.prepare(&reader)?;
-            let commit = self.workspace_registry.lock().unwrap().commit_journal_segment_seal(
-                prepared,
-                origin,
-                idempotency_key,
-            )?;
+            let commit = self
+                .workspace_registry
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .commit_journal_segment_seal(prepared, origin, idempotency_key)?;
             if let Some(commit) = commit {
                 if !commit.journal.replayed {
                     self.publish_journal_event();
@@ -490,16 +546,25 @@ impl Mux {
 
     #[cfg(test)]
     pub(crate) fn resource_mutation_count_for_test(&self) -> anyhow::Result<u64> {
-        self.workspace_registry.lock().unwrap().resource_mutation_count_for_test()
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .resource_mutation_count_for_test()
     }
 
     #[cfg(test)]
     pub(crate) fn resource_agent_projection_count_for_test(&self) -> anyhow::Result<u64> {
-        self.workspace_registry.lock().unwrap().resource_agent_projection_count_for_test()
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .resource_agent_projection_count_for_test()
     }
 
     #[cfg(test)]
     pub(crate) fn corrupt_agent_projection_for_test(&self, terminal_id: &TerminalPublicId) {
-        self.workspace_registry.lock().unwrap().corrupt_agent_projection_for_test(terminal_id);
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .corrupt_agent_projection_for_test(terminal_id);
     }
 }
