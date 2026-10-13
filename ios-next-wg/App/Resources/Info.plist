@@ -35,6 +35,10 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Scan the pairing code your Mac shows.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_cmux-wg._udp</string>
+	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>cmux connects to your Mac over your local network.</string>
 	<key>UIApplicationSceneManifest</key>

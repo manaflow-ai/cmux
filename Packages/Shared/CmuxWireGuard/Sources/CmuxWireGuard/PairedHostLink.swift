@@ -43,6 +43,13 @@ public final class PairedHostLink: Sendable {
                 return stream
             }
         }
+        // Every saved address is stale: look for the Mac on this network.
+        for candidate in await WireGuardHostDiscovery().endpoints(hostID: host.hostID) where !order.contains(candidate) {
+            try resetPeer(endpoint: candidate)
+            if let stream = try? await tunnel.connect(host: host.hostAddress, port: port, timeout: perEndpoint) {
+                return stream
+            }
+        }
         throw PairingError.unreachable
     }
 

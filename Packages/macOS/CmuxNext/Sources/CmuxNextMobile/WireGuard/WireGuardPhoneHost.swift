@@ -25,6 +25,7 @@ public actor WireGuardPhoneHost {
         public var listenPort: UInt16?
         public var endpoints: [String] = []
         public var hostName = ""
+        public var hostID = ""
         public var hostKeyFingerprint = ""
         public var phones: [WireGuardPairedPhone] = []
         /// Phone id -> open daemon connections.
@@ -171,6 +172,7 @@ public actor WireGuardPhoneHost {
         snapshot.connections = connections
         if let state {
             snapshot.hostKeyFingerprint = state.privateKey.publicKey.fingerprint
+            snapshot.hostID = state.hostID
             snapshot.phones = state.phones
         }
         if let tunnel {

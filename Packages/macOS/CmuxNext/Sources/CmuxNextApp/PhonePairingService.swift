@@ -15,6 +15,7 @@ final class PhonePairingService {
     private(set) var host: WireGuardPhoneHost?
     let model = PhonePairingModel()
     private var controller: PhonePairingWindowController?
+    private let advertiser = WireGuardBonjourAdvertiser()
     private var starting: Task<Void, Never>?
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.phone-pairing")
 
@@ -46,6 +47,7 @@ final class PhonePairingService {
     }
 
     func stop() {
+        advertiser.stop()
         starting?.cancel()
         starting = nil
         let host = host
@@ -93,6 +95,11 @@ final class PhonePairingService {
     }
 
     private func apply(_ snapshot: WireGuardPhoneHost.Snapshot) {
+        if snapshot.running, let port = snapshot.listenPort, !snapshot.hostID.isEmpty {
+            advertiser.publish(name: snapshot.hostName, hostID: snapshot.hostID, port: port)
+        } else {
+            advertiser.stop()
+        }
         model.failure = snapshot.failure
         model.endpoints = snapshot.endpoints
         model.hostFingerprint = snapshot.hostKeyFingerprint
