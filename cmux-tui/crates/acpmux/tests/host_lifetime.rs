@@ -39,7 +39,7 @@ fn start_daemon(home: &Path) -> Child {
         .env("ACPMUX_HOME", home)
         .env("ACPMUX_SOCKET", home.join("s.sock"))
         .env_remove("ACPMUX_AGENT_HOSTS")
-        .env_remove("ACPMUX_LOGIN_ENV")
+        .env("ACPMUX_LOGIN_ENV", "0")
         .env_remove("ACPMUX_LOCAL_ROUTER")
         .env_remove("XPC_SERVICE_NAME")
         .env_remove("ACPMUX_IDLE_CHILD_SECS")
