@@ -2001,8 +2001,8 @@
     },
     "sidebar.cards.tips" : {
       "default" : true,
-      "description" : "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once.",
-      "title" : "Show Hints",
+      "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once.",
+      "title" : "Show Tips",
       "type" : "boolean"
     },
     "sidebar.cmd9" : {
@@ -2730,25 +2730,6 @@
       ],
       "title" : "Tab Bar in Terminal Panes",
       "type" : "string"
-    },
-    "tabs.toolbarButtons" : {
-      "default" : [
-
-      ],
-      "description" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.",
-      "items" : {
-        "enum" : [
-          "splitRight",
-          "splitDown",
-          "openDiffViewer",
-          "file.open",
-          "agentPane.searchChats",
-          "toggleSplitZoom"
-        ],
-        "type" : "string"
-      },
-      "title" : "Tab Bar Buttons",
-      "type" : "array"
     },
     "tasks.layout" : {
       "default" : "inbox",

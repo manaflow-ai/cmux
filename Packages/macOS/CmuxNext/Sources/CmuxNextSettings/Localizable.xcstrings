@@ -68072,7 +68072,7 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Show Hints"
+            "value" : "Show Tips"
           }
         },
         "ja" : {
@@ -68084,37 +68084,37 @@
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "إظهار التلميحات"
+            "value" : "إظهار النصائح"
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Prikaži nagovještaje"
+            "value" : "Prikaži savjete"
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Vis hints"
+            "value" : "Vis tips"
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hinweise anzeigen"
+            "value" : "Tipps anzeigen"
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Mostrar pistas"
+            "value" : "Mostrar consejos"
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Afficher les indices"
+            "value" : "Afficher les astuces"
           }
         },
         "it" : {
@@ -68126,25 +68126,25 @@
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "បង្ហាញការណែនាំ"
+            "value" : "បង្ហាញគន្លឹះ"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "힌트 표시"
+            "value" : "팁 표시"
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Vis hint"
+            "value" : "Vis tips"
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Pokazuj podpowiedzi"
+            "value" : "Pokaż wskazówki"
           }
         },
         "pt-BR" : {
@@ -68156,13 +68156,13 @@
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Показывать подсказки"
+            "value" : "Показывать советы"
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "แสดงคำแนะนำ"
+            "value" : "แสดงเคล็ดลับ"
           }
         },
         "tr" : {
@@ -68174,13 +68174,13 @@
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Показувати підказки"
+            "value" : "Показувати поради"
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hiện gợi ý"
+            "value" : "Hiển thị mẹo"
           }
         },
         "zh-Hans" : {
@@ -68203,127 +68203,127 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once."
+            "value" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "アカウントボタンの上のヒントカードに、まだ使っていない cmux の機能を 1 日に 1 つ表示します。各ヒントは一度だけ表示されます。"
+            "value" : "アカウントボタンの上の「ご存知でしたか」カードに、まだ使っていない cmux の機能を 1 日に 1 つ表示します。各ヒントは一度だけ表示されます。"
           }
         },
         "ar" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "تعرض بطاقة تلميح فوق زر الحساب ميزة واحدة من cmux يوميًا لم تستخدمها بعد. يظهر كل تلميح مرة واحدة فقط."
+            "value" : "تعرض بطاقة \"هل تعلم\" فوق زر الحساب ميزة واحدة من cmux يوميًا لم تستخدمها بعد. تظهر كل نصيحة مرة واحدة فقط."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Kartica s nagovještajem iznad dugmeta računa prikazuje jednu cmux funkciju dnevno koju još niste koristili. Svaki nagovještaj se prikazuje samo jednom."
+            "value" : "Kartica \"Jeste li znali\" iznad dugmeta računa prikazuje jednu cmux funkciju dnevno koju još niste koristili. Svaki savjet se prikazuje samo jednom."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Et hint-kort over kontoknappen viser én cmux-funktion om dagen, som du ikke har brugt endnu. Hvert hint vises kun én gang."
+            "value" : "Et \"Vidste du\"-kort over kontoknappen viser én cmux-funktion om dagen, som du ikke har brugt endnu. Hvert tip vises kun én gang."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Eine Hinweiskarte über der Kontotaste zeigt täglich eine cmux-Funktion, die du noch nicht genutzt hast. Jeder Hinweis erscheint nur einmal."
+            "value" : "Eine „Schon gewusst?“-Karte über der Kontotaste zeigt täglich eine cmux-Funktion, die du noch nicht genutzt hast. Jeder Tipp erscheint nur einmal."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Una tarjeta de pista sobre el botón de cuenta muestra cada día una función de cmux que aún no has usado. Cada pista aparece solo una vez."
+            "value" : "Una tarjeta «¿Sabías que?» sobre el botón de cuenta muestra cada día una función de cmux que aún no has usado. Cada consejo aparece solo una vez."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Une carte d’indice au-dessus du bouton de compte présente chaque jour une fonction de cmux que vous n’avez pas encore utilisée. Chaque indice n’apparaît qu’une fois."
+            "value" : "Une carte « Le saviez-vous ? » au-dessus du bouton du compte présente chaque jour une fonctionnalité de cmux que vous n’avez pas encore utilisée. Chaque astuce n’apparaît qu’une fois."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Una scheda di suggerimento sopra il pulsante dell’account mostra ogni giorno una funzione di cmux che non hai ancora usato. Ogni suggerimento appare una sola volta."
+            "value" : "Una scheda «Lo sapevi?» sopra il pulsante dell’account mostra ogni giorno una funzione di cmux che non hai ancora usato. Ogni suggerimento appare una sola volta."
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "កាតការណែនាំនៅលើប៊ូតុងគណនីបង្ហាញមុខងារ cmux មួយក្នុងមួយថ្ងៃ ដែលអ្នកមិនទាន់បានប្រើ។ ការណែនាំនីមួយៗបង្ហាញតែម្តងប៉ុណ្ណោះ។"
+            "value" : "កាត \"តើអ្នកដឹងទេ\" នៅលើប៊ូតុងគណនី បង្ហាញមុខងារ cmux មួយក្នុងមួយថ្ងៃ ដែលអ្នកមិនទាន់បានប្រើ។ គន្លឹះនីមួយៗបង្ហាញតែម្តងប៉ុណ្ណោះ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "계정 버튼 위의 힌트 카드가 아직 사용하지 않은 cmux 기능을 하루에 하나씩 보여 줍니다. 각 힌트는 한 번만 표시됩니다."
+            "value" : "계정 버튼 위의 \"알고 계셨나요\" 카드가 아직 사용하지 않은 cmux 기능을 하루에 하나씩 보여 줍니다. 각 팁은 한 번만 표시됩니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Et hintkort over kontoknappen viser én cmux-funksjon om dagen som du ikke har brukt ennå. Hvert hint vises bare én gang."
+            "value" : "Et «Visste du»-kort over kontoknappen viser én cmux-funksjon om dagen som du ikke har brukt ennå. Hvert tips vises bare én gang."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Karta podpowiedzi nad przyciskiem konta pokazuje codziennie jedną funkcję cmux, której jeszcze nie używasz. Każda podpowiedź pojawia się tylko raz."
+            "value" : "Karta „Czy wiesz, że” nad przyciskiem konta pokazuje codziennie jedną funkcję cmux, której jeszcze nie używasz. Każda wskazówka pojawia się tylko raz."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Um cartão de dica acima do botão da conta mostra por dia um recurso do cmux que você ainda não usou. Cada dica aparece só uma vez."
+            "value" : "Um cartão \"Você sabia?\" acima do botão da conta mostra, por dia, um recurso do cmux que você ainda não usou. Cada dica aparece só uma vez."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Карточка подсказки над кнопкой учётной записи каждый день показывает одну функцию cmux, которой вы ещё не пользовались. Каждая подсказка показывается только один раз."
+            "value" : "Карточка «А вы знали?» над кнопкой учётной записи раз в день показывает функцию cmux, которой вы ещё не пользовались. Каждый совет показывается только один раз."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "การ์ดคำแนะนำเหนือปุ่มบัญชีจะแสดงฟีเจอร์ของ cmux ที่คุณยังไม่เคยใช้วันละหนึ่งอย่าง คำแนะนำแต่ละรายการจะแสดงเพียงครั้งเดียว"
+            "value" : "การ์ด \"รู้หรือไม่\" เหนือปุ่มบัญชีจะแสดงฟีเจอร์ของ cmux ที่คุณยังไม่เคยใช้วันละหนึ่งอย่าง เคล็ดลับแต่ละรายการจะแสดงเพียงครั้งเดียว"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Hesap düğmesinin üstündeki ipucu kartı, henüz kullanmadığınız bir cmux özelliğini her gün gösterir. Her ipucu yalnızca bir kez gösterilir."
+            "value" : "Hesap düğmesinin üstündeki \"Biliyor muydunuz?\" kartı, henüz kullanmadığınız bir cmux özelliğini günde bir kez gösterir. Her ipucu yalnızca bir kez gösterilir."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Картка підказки над кнопкою облікового запису щодня показує одну функцію cmux, якою ви ще не користувалися. Кожна підказка з’являється лише один раз."
+            "value" : "Картка «А ви знали?» над кнопкою облікового запису раз на день показує функцію cmux, якою ви ще не користувалися. Кожна порада з’являється лише один раз."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "Thẻ gợi ý phía trên nút tài khoản mỗi ngày hiện một tính năng cmux bạn chưa dùng. Mỗi gợi ý chỉ hiện một lần."
+            "value" : "Thẻ \"Bạn có biết\" phía trên nút tài khoản mỗi ngày giới thiệu một tính năng cmux bạn chưa dùng. Mỗi mẹo chỉ hiện một lần."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "账户按钮上方的提示卡片每天展示一项你还没用过的 cmux 功能。每条提示只显示一次。"
+            "value" : "账户按钮上方的“你知道吗”卡片每天介绍一项你还没用过的 cmux 功能。每条提示只显示一次。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "needs_review",
-            "value" : "帳號按鈕上方的提示卡片每天展示一項你還沒用過的 cmux 功能。每則提示只顯示一次。"
+            "value" : "帳號按鈕上方的「你知道嗎」卡片每天介紹一項你還沒用過的 cmux 功能。每則提示只顯示一次。"
           }
         }
       }
@@ -82113,49 +82113,49 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "A daily hint about a feature you haven't used"
+            "value": "A daily tip about a feature you haven't used"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تلميح يومي عن ميزة لم تستخدمها بعد"
+            "value": "نصيحة يومية عن ميزة لم تستخدمها بعد"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dnevni nagovještaj o funkciji koju niste koristili"
+            "value": "Dnevni savjet o funkciji koju niste koristili"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Et dagligt hint om en funktion, du ikke har brugt"
+            "value": "Et dagligt tip om en funktion, du ikke har brugt"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Täglich ein Hinweis zu einer ungenutzten Funktion"
+            "value": "Täglich ein Tipp zu einer ungenutzten Funktion"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Una pista diaria sobre una función que no has usado"
+            "value": "Un consejo diario sobre una función que no has usado"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un indice quotidien sur une fonction que vous n’avez pas utilisée"
+            "value": "Une astuce par jour sur une fonction jamais utilisée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Un suggerimento al giorno su una funzione che non hai usato"
+            "value": "Un consiglio al giorno su una funzione mai usata"
           }
         },
         "ja": {
@@ -82167,25 +82167,25 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ការណែនាំប្រចាំថ្ងៃអំពីមុខងារដែលអ្នកមិនទាន់បានប្រើ"
+            "value": "គន្លឹះប្រចាំថ្ងៃអំពីមុខងារដែលអ្នកមិនទាន់បានប្រើ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "아직 사용하지 않은 기능에 대한 하루 한 번의 힌트"
+            "value": "아직 쓰지 않은 기능을 매일 하나씩 소개"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Et daglig hint om en funksjon du ikke har brukt"
+            "value": "Et daglig tips om en funksjon du ikke har brukt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Codzienna podpowiedź o funkcji, której nie używasz"
+            "value": "Codzienna wskazówka o nieużywanej funkcji"
           }
         },
         "pt-BR": {
@@ -82197,43 +82197,43 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ежедневная подсказка о функции, которой вы не пользовались"
+            "value": "Совет дня о функции, которой вы ещё не пользовались"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "คำแนะนำรายวันเกี่ยวกับฟีเจอร์ที่คุณยังไม่ได้ใช้"
+            "value": "เคล็ดลับรายวันเกี่ยวกับฟีเจอร์ที่คุณยังไม่ได้ใช้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kullanmadığınız bir özellik hakkında günlük ipucu"
+            "value": "Henüz kullanmadığınız bir özellik için günlük ipucu"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Щоденна підказка про функцію, якою ви не користувалися"
+            "value": "Щоденна порада про функцію, якою ви ще не користувалися"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gợi ý hằng ngày về một tính năng bạn chưa dùng"
+            "value": "Mẹo mỗi ngày về một tính năng bạn chưa dùng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "每天一条关于未用功能的提示"
+            "value": "每天介绍一项你还没用过的功能"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "每天一則關於未用功能的提示"
+            "value": "每天介紹一項你還沒用過的功能"
           }
         }
       }
