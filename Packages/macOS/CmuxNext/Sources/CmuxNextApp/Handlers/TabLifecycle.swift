@@ -75,11 +75,9 @@ enum TabLifecycle {
         let named = ctx.namesPane(invocation)
         guard let pane = named ? ctx.daemonPane(invocation) : ctx.services.windows.active?.focusedPane?.pane else {
             guard !named else { return }
-            // Cmd-T (and Cmd-I through it) can arrive while the active
-            // workspace is still empty and has no pane controller. Repair
-            // that exact workspace through the shared first-terminal owner;
-            // callers awaiting tracked work then observe the pane mount
-            // without switching workspaces.
+            // Cmd-T (and Cmd-I through it) can arrive while the active workspace is still empty (no pane
+            // controller): populate it through the shared first-terminal owner (awaiting callers see the pane
+            // mount). A person gets the New Tab page, as on a pane (cx-hvc57); a script or remote, a terminal.
             guard invocation.target == nil,
                   let workspace = ctx.scope(invocation).workspace,
                   let key = workspace.key,
@@ -87,10 +85,12 @@ enum TabLifecycle {
                   let connection = daemon.connection else { ctx.registry.refuse(MiscHandlerStrings.noPane); return }
             let repair = ctx.services.machines.emptyWorkspaceRepair(daemon.machineID, local: ctx.services.emptyWorkspaces)
             guard repair.states[key] == nil else { return }
+            let services = ctx.services, page = invocation.origin == .user && followsSetting && services.agentTabs.opensFirstPage(on: daemon)
             ctx.registry.track(Task { @MainActor in
                 do {
                     _ = try await repair.populating(key) {
-                        try await connection.createTerminal(in: key, cwd: daemon.defaultCwd).surface
+                        if page { return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services) }
+                        return try await connection.createTerminal(in: key, cwd: daemon.defaultCwd).surface
                     }
                     return nil
                 } catch {
