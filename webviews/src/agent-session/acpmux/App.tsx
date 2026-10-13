@@ -2843,6 +2843,9 @@ function AcpmuxPane() {
   const rowsRef = useRef<readonly AcpmuxRow[]>([]);
   /// The newest snapshot, for host requests that read it (pane.context).
   const snapshotRef = useRef<AcpmuxSnapshot | undefined>(undefined);
+  /// The Continue in… this page opened in its own tab (a host without `chat.openTab`): its discard
+  /// returns this tab to the chat it came from rather than closing it.
+  const preparedHere = useRef<string | undefined>(undefined);
   /// The chat menu shows New side chat: the right-click menu then opens one from any turn that forks.
   const opensSideChat = useRef(false);
   const archiveChatRef = useRef<(() => void) | undefined>(undefined);
@@ -3384,6 +3387,14 @@ function AcpmuxPane() {
           sessionId && !mock
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
+        /// Opens a chat this one made in a tab of its own (`chat.openTab`); false when the host opens none.
+        const openOwnTab = (sessionId: string) =>
+          mock
+            ? Promise.resolve(false)
+            : callNative("chat.openTab", { sessionId }).then(
+                () => true,
+                () => false,
+              );
         /// Settles when the turn ends. `accepted` runs once acpmux took the prompt; a sender that
         /// passes it (the composer) still holds the prompt until then, so a refusal loses nothing.
         /// Without it a refused prompt goes back into the composer.
@@ -3594,9 +3605,14 @@ function AcpmuxPane() {
           "chat.menu.openImage": async () => openReportedImage(),
           // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
           "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
+          // A fork and a Continue in… open in a tab of their own, so the chat keeps its tab and stays
+          // in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the floating
+          // chat) gets the new chat in this tab, as before.
           "chat.fork": async ({ throughSeq }) => {
             harnessSwitch.cancel();
-            return persistSession(await client.fork(Number(throughSeq)));
+            const forked = await client.fork(Number(throughSeq), undefined, true);
+            if (!forked || (await openOwnTab(forked))) return forked;
+            return persistSession(await client.select(forked));
           },
           // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
           // edited text with the prompt's attachments; the original chat stays as it was.
@@ -3632,12 +3648,23 @@ function AcpmuxPane() {
           },
           "chat.handoff.prepare": async ({ harness }) => {
             harnessSwitch.cancel();
-            return persistSession(await client.continueIn(String(harness)));
+            const target = await client.continueIn(String(harness), true);
+            if (!target || (await openOwnTab(target))) return target;
+            preparedHere.current = target;
+            return persistSession(await client.select(target));
           },
           "chat.handoff.get": () => client.refreshHandoff(),
           "chat.handoff.draft": ({ review }) => client.saveHandoff(review as HandoffReviewInput),
           "chat.handoff.start": ({ review }) => client.startHandoff(review as HandoffReviewInput),
-          "chat.handoff.discard": async () => persistSession(await client.discardHandoff()),
+          // A Continue in… in its own tab closes with its discard: the chat it came from has a tab.
+          "chat.handoff.discard": async () => {
+            const target = snapshotRef.current?.sessionId;
+            const ownTab = !!target && preparedHere.current !== target;
+            const source = await client.discardHandoff(ownTab);
+            if (!ownTab) return persistSession(source);
+            if (source) await callNative("pane.action", { id: HEADER_ACTIONS.close }).catch(() => undefined);
+            return source;
+          },
           "git.diff": ({ scope, paths, context_lines }) =>
             client.gitDiff(String(scope), {
               ...(Array.isArray(paths) ? { paths: paths.map(String) } : {}),

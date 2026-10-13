@@ -30,7 +30,8 @@ extension AgentTabStore {
         }, tabState: {
             // The page reads the state when a chat opens; its changes are pushed.
             watch.read()
-        }, openSide: { [weak self] session in self?.openSide(session, beside: provisional) }, sideTabs: { [weak self] in
+        }, openSide: { [weak self] session in self?.openSide(session, beside: provisional) },
+        openTab: { [weak self] session in self?.openTab(session, beside: provisional) }, sideTabs: { [weak self] in
             guard let self else { return nil }
             let chat = resolve(provisional)
             return toggles.sideTabs(chat: chat, store: lookup(chat)?.store, actions: actions) { [weak self] in
@@ -52,6 +53,12 @@ extension AgentTabStore {
     /// (`tab.moveToNewSplit`), so the chat stays where it is.
     private func openSide(_ session: String, beside provisional: String) {
         openBeside(provisional) { pane, daemon in try self.open(in: pane, of: daemon, session: session) }
+    }
+
+    /// A tab on `session` in the chat's pane (a fork, a Continue in…): the chat keeps its tab.
+    private func openTab(_ session: String, beside provisional: String) {
+        guard let (pane, daemon) = locate(resolve(provisional)) else { return }
+        _ = try? open(in: pane, of: daemon, session: session)
     }
 
     /// [+] New tab's column: a New Tab page in the chat's folder, moved to a new split on its right

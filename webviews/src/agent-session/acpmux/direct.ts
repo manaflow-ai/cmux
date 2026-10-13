@@ -1935,12 +1935,13 @@ export class AcpmuxDirectClient {
   retryAttachmentsFor(rowId: string): ComposerAttachment[] {
     return this.retryAttachments.get(rowId) ?? [];
   }
-  async continueIn(harness: string): Promise<string | undefined> {
+  /// Prepares Continue in `harness`; `stay` keeps this chat open and only answers the new one.
+  async continueIn(harness: string, stay = false): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;
     const generation = this.selectionGeneration;
     const record = await this.handoff.prepare(harness);
     if (!record || generation !== this.selectionGeneration) return;
-    return this.select(record.target.sessionId);
+    return stay ? record.target.sessionId : this.select(record.target.sessionId);
   }
   saveHandoff(review: HandoffReviewInput) {
     return this.handoff.save(review);
@@ -1948,11 +1949,12 @@ export class AcpmuxDirectClient {
   startHandoff(review: HandoffReviewInput) {
     return this.handoff.start(review);
   }
-  async discardHandoff(): Promise<string | undefined> {
+  /// Discards the open Continue in…; `stay` answers the chat it came from without opening it.
+  async discardHandoff(stay = false): Promise<string | undefined> {
     const generation = this.selectionGeneration;
     const record = await this.handoff.discard();
     if (!record || generation !== this.selectionGeneration) return;
-    return this.select(record.source.sessionId);
+    return stay ? record.source.sessionId : this.select(record.source.sessionId);
   }
   refreshHandoff() {
     return this.handoff.refresh();
@@ -2263,14 +2265,15 @@ export class AcpmuxDirectClient {
   /// Forks the open session (or `from`, the chat it was forked from) through the turn whose summary
   /// is `throughSeq`, and opens the fork. One fork at a time; a second click while acpmux forks does
   /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
-  /// stays there.
-  async fork(throughSeq: number, from?: string): Promise<string | undefined> {
+  /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab.
+  async fork(throughSeq: number, from?: string, stay = false): Promise<string | undefined> {
     if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {
       const result = await this.request(FORK_OP, { sessionId: from ?? this.selectedSessionId, throughSeq });
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
+      if (stay) return String(result.sessionId);
       return await this.select(String(result.sessionId));
     } catch (error) {
       if (generation === this.selectionGeneration) {
