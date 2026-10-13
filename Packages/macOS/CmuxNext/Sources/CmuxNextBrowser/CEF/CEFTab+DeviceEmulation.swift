@@ -51,12 +51,14 @@ extension CEFTab: BrowserEmulating {
 nonisolated enum CEFDeviceEmulation {
     /// The DevTools calls that end an emulation (the inverse of what the
     /// daemon's calls set: metrics, user agent, touch).
-    static let reset: [(String, [String: Any])] = [
-        ("Emulation.clearDeviceMetricsOverride", [:]),
-        ("Emulation.setUserAgentOverride", ["userAgent": ""]),
-        ("Emulation.setTouchEmulationEnabled", ["enabled": false]),
-        ("Emulation.setEmitTouchEventsForMouse", ["enabled": false]),
-    ]
+    static var reset: [(String, [String: Any])] {
+        [
+            ("Emulation.clearDeviceMetricsOverride", [:]),
+            ("Emulation.setUserAgentOverride", ["userAgent": ""]),
+            ("Emulation.setTouchEmulationEnabled", ["enabled": false]),
+            ("Emulation.setEmitTouchEventsForMouse", ["enabled": false]),
+        ]
+    }
 
     static func calls(_ emulation: BrowserEmulation?, scale: CGFloat) -> [(String, [String: Any])] {
         guard let emulation else { return reset }
