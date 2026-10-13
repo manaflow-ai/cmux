@@ -160,6 +160,43 @@ impl Client {
     fn store(&mut self, op: &str, args: Value, origin: &str) -> Value {
         self.rpc(json!({ "cmd": "apps-store", "op": op, "args": args, "origin": origin }))
     }
+
+    /// A `cmux.protocol/2` request as a page host sends it (selectors
+    /// current, a string id); `extra` adds envelope members.
+    fn v2(&mut self, operation: &str, params: Value, extra: Value) -> Value {
+        self.next += 1;
+        let id = format!("v2-{}", self.next);
+        let mut params = params;
+        params["machine"] = json!("current");
+        params["session"] = json!("current");
+        let mut request = json!({
+            "protocol": "cmux.protocol/2", "type": "request", "id": id,
+            "operation": operation, "params": params,
+        });
+        for (key, value) in extra.as_object().unwrap() {
+            request[key] = value.clone();
+        }
+        writeln!(self.reader.get_mut(), "{request}").unwrap();
+        loop {
+            let mut line = String::new();
+            assert_ne!(self.reader.read_line(&mut line).unwrap(), 0, "the daemon closed");
+            let reply: Value = serde_json::from_str(&line).unwrap();
+            if reply["id"] == json!(id) {
+                return reply;
+            }
+        }
+    }
+}
+
+fn v2_ok(reply: &Value) -> &Value {
+    assert_eq!(reply["ok"], true, "{reply}");
+    &reply["result"]
+}
+
+fn v2_reason(reply: &Value) -> &str {
+    assert_eq!(reply["ok"], false, "{reply}");
+    assert_eq!(reply["error"]["code"], "origin.forbidden", "{reply}");
+    reply["error"]["details"]["reason"].as_str().unwrap_or_default()
 }
 
 fn error_code(reply: &Value) -> &str {
@@ -825,4 +862,61 @@ fn app_socket_folder_refuses_a_symlink_or_an_open_folder() {
     );
     stop_daemon(&apps);
     let _ = std::fs::remove_dir_all(&socket_dir);
+}
+
+/// The App Store answers v2 `apps.*` requests (page-router-v1 routed
+/// namespace) on every page host: a plain connection, the app's page relay
+/// for page `apps`; another page's relay is refused, and an install from the
+/// Apps page needs the person's confirmation (a token the verified app
+/// minted for exactly that request).
+#[test]
+fn the_app_store_answers_v2_namespace_requests_for_the_apps_page() {
+    use sha2::Digest;
+    let apps = Apps::new("v2");
+    write_app(&apps.dir.join("first-party"), "cmux", "fp", json!({}));
+    write_app(&apps.dir.join("bundled"), "acme", "tool", json!({}));
+    apps.start();
+
+    // A plain connection reads the catalog through the v2 name.
+    let mut agent = apps.agent();
+    let reply = agent.v2("apps.catalog.list", json!({}), json!({}));
+    let catalog = v2_ok(&reply);
+    assert_eq!(listing(catalog, "acme/tool")["install"], Value::Null, "{reply}");
+    let detail = agent.v2("apps.catalog.get", json!({"app": "cmux/fp"}), json!({}));
+    assert_eq!(v2_ok(&detail)["app"], "cmux/fp", "{detail}");
+    // An agent installs nothing (Gate A2).
+    let refused =
+        agent.v2("apps.install", json!({"app": "acme/tool"}), json!({"idempotency_key": "g0"}));
+    assert_eq!(refused["error"]["details"]["required"], "user", "{refused}");
+
+    // The Apps page's relay reads the catalog; another page's relay may not.
+    let mut relay = apps.agent();
+    let hello = relay.rpc(json!({"cmd": "client-hello", "role": "page_relay", "page": "apps"}));
+    let relay_id = ok(&hello)["connection_id"].as_str().unwrap().to_owned();
+    let page = json!({"origin": {"claim": "page"}});
+    let reply = relay.v2("apps.catalog.list", json!({}), page.clone());
+    assert!(v2_ok(&reply)["listings"].as_array().is_some_and(|l| !l.is_empty()), "{reply}");
+    let mut history = apps.agent();
+    history.rpc(json!({"cmd": "client-hello", "role": "page_relay", "page": "history"}));
+    let refused = history.v2("apps.catalog.list", json!({}), page);
+    assert_eq!(v2_reason(&refused), "page_not_allowed");
+
+    // An install from the Apps page needs the person's confirmation.
+    let install = json!({"app": "acme/tool"});
+    let refused = relay.v2("apps.install", install.clone(), json!({"idempotency_key": "g1"}));
+    assert_eq!(v2_reason(&refused), "gesture_required");
+    let digest =
+        sha2::Sha256::digest(br#"{"app":"acme/tool","machine":"current","session":"current"}"#);
+    let digest: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+    let mut app = apps.app();
+    let issued = app.v2(
+        "origin.confirmation.issue",
+        json!({"operation": "apps.install", "params_sha256": digest, "relay_connection_id": relay_id}),
+        json!({}),
+    );
+    let token = v2_ok(&issued)["token"].as_str().unwrap().to_owned();
+    let confirmed =
+        json!({"idempotency_key": "g2", "origin": {"claim": "user", "confirmation": token}});
+    let reply = relay.v2("apps.install", install, confirmed);
+    assert_eq!(v2_ok(&reply)["app"]["state"]["installed"], true, "{reply}");
 }
