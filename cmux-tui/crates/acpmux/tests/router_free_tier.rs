@@ -245,7 +245,7 @@ fn sha(text: &str) -> Vec<u8> {
 }
 
 #[test]
-fn a_signed_out_request_is_served_with_the_device_token_the_app_proved() {
+fn free_tier_a_signed_out_request_is_served_with_the_device_token_the_app_proved() {
     let api = Arc::new(Mutex::new(Api::default()));
     api.lock().unwrap().answers = vec![
         ("/v1/inference/free/attest".into(), vec![token_answer("free-token-1")]),
@@ -311,7 +311,7 @@ fn a_signed_out_request_is_served_with_the_device_token_the_app_proved() {
 }
 
 #[test]
-fn a_known_key_renews_by_assertion_and_a_new_month_takes_a_fresh_key() {
+fn free_tier_a_known_key_renews_by_assertion_and_a_new_month_takes_a_fresh_key() {
     let api = Arc::new(Mutex::new(Api::default()));
     api.lock().unwrap().answers = vec![
         // The grant's month ended: the assertion is refused, then a fresh key attests.
@@ -348,7 +348,7 @@ fn a_known_key_renews_by_assertion_and_a_new_month_takes_a_fresh_key() {
 }
 
 #[test]
-fn a_device_that_used_its_month_gets_the_sign_in_answer() {
+fn free_tier_a_device_that_used_its_month_gets_the_sign_in_answer() {
     let api = Arc::new(Mutex::new(Api::default()));
     api.lock().unwrap().answers = vec![(
         "/v1/inference/free/attest".into(),
@@ -375,7 +375,7 @@ fn a_device_that_used_its_month_gets_the_sign_in_answer() {
 }
 
 #[test]
-fn the_account_bearer_wins_and_no_proof_is_asked() {
+fn free_tier_the_account_bearer_wins_and_no_proof_is_asked() {
     let api = Arc::new(Mutex::new(Api::default()));
     let origin = start_api(api.clone());
     let dir = scratch("acct");
@@ -396,7 +396,7 @@ fn the_account_bearer_wins_and_no_proof_is_asked() {
 }
 
 #[test]
-fn a_provider_for_an_unknown_origin_is_refused() {
+fn free_tier_a_provider_for_an_unknown_origin_is_refused() {
     let dir = scratch("orig");
     let relay = start_relay(&dir, "http://127.0.0.1:1");
     for origin in
@@ -416,7 +416,7 @@ fn a_provider_for_an_unknown_origin_is_refused() {
 }
 
 #[test]
-fn a_signed_in_app_never_takes_a_free_lease() {
+fn free_tier_a_signed_in_app_never_takes_a_free_lease() {
     let api = Arc::new(Mutex::new(Api::default()));
     let origin = start_api(api.clone());
     let dir = scratch("sgin");
@@ -435,7 +435,8 @@ fn a_signed_in_app_never_takes_a_free_lease() {
 }
 
 #[test]
-fn a_lease_in_flight_stores_no_token_after_the_setting_turns_off_or_an_account_signs_in() {
+fn free_tier_a_lease_in_flight_stores_no_token_after_the_setting_turns_off_or_an_account_signs_in()
+{
     for change in [
         json!({"enabled": false, "managed": false, "signed_in": false}),
         json!({"enabled": true, "managed": false, "signed_in": true}),
