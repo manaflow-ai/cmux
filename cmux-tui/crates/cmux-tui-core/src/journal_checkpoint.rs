@@ -1445,6 +1445,42 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn checkpoint_capture_recovers_from_an_unreplayable_kitty_upload() {
+        let root = std::env::temp_dir().join(format!(
+            "cmux-journal-checkpoint-kitty-overflow-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
+        let mux = Mux::open_persistent(
+            "checkpoint-kitty-overflow",
+            crate::SurfaceOptions::default(),
+            &root,
+        )
+        .unwrap();
+        let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+        let surface_id = mux
+            .seed_running_terminal_for_test(
+                "00000000000040008000000000000070",
+                "10000000000040008000000000000070",
+                &workspace.key,
+            )
+            .unwrap();
+        let surface = mux.surface(surface_id).unwrap();
+        let mut upload = b"\x1b_Ga=t,t=d,f=24,i=197,s=1,v=1,m=1,q=2;".to_vec();
+        upload.resize(ghostty_vt::KITTY_INFLIGHT_REPLAY_MAX_BYTES + 1, b'A');
+        surface.apply_local_pty_output_for_test(&upload).unwrap();
+
+        let captured =
+            capture(&mux).expect("checkpoint capture should recover the terminal parser");
+        assert_eq!(captured.blobs.len(), 1);
+
+        drop(surface);
+        drop(mux);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn checkpoint_capture_resolves_public_terminal_ids() {
         let root = std::env::temp_dir().join(format!(
             "cmux-journal-checkpoint-terminal-{}-{}",
