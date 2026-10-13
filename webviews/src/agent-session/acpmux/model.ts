@@ -100,6 +100,10 @@ export type AcpmuxActivity = {
 /// `line` is where the change starts, when the tool call's locations name it.
 export type AcpmuxFileDiff = { path: string; oldText?: string; newText: string; line?: number };
 
+/// An agent's ask for a secret (cx-ncc.42, acpmux `hub/secrets.rs`): the `secret_request` record
+/// holds only the name and reason, never a value. The card answers with `_acpmux/secret_submit`.
+export type AcpmuxSecretAsk = { secretId: string; name: string; reason: string };
+
 export type AcpmuxPermission = {
   permissionId: string;
   groupId?: string;
@@ -207,6 +211,7 @@ export type AcpmuxSnapshot = {
   permissionGroups?: PermissionClientState;
   queue: { id: string; prompt: string }[];
   permission?: AcpmuxPermission;
+  secret?: AcpmuxSecretAsk;
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
   catalog: {
