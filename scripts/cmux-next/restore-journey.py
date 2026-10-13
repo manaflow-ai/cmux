@@ -21,7 +21,12 @@ Variants:
           default is pressed, as Return does, and the row records whether that keeps sessions);
   update  what Sparkle does before it relaunches into an update
           (`debug.updater {action: "relaunch"}`: the updater's relaunch hook, then terminate);
-  crash   the app's exact pid is killed (SIGKILL), so none of its quit path runs.
+  crash   the app's exact pid is killed (SIGKILL), so none of its quit path runs;
+  slow    the quit path, then a relaunch against a slow daemon (cx-wwtam; debug builds only):
+          `CMUX_NEXT_DEBUG_SLOW_ATTACH=SLOW_ATTACH` makes every terminal attach wait, and the
+          first ones of each terminal fail, as before a late daemon answers. With no input, every
+          shown terminal must still attach (restore settles), and a terminal still attaching must
+          say "Restoring…" (`debug.surfaces` link `restoring`).
 Each relaunch reuses the app's own launch environment (read from the running process), so a
 capture slot keeps its HOME, TMPDIR, socket and config file. It never runs `defaults delete`:
 UserDefaults survive, as on a person's Mac. If the slot's app copy is gone after the quit,
@@ -138,6 +143,10 @@ def dump(name, value):
 
 # ---- the app process: identity, environment, quit, relaunch -----------------------------
 
+# The slow variant's daemon: each terminal's first 3 attaches fail, every attach waits 1 s.
+SLOW_ATTACH = "3:1000"
+
+
 class App:
     def __init__(self):
         self.refresh()
@@ -244,7 +253,7 @@ class App:
         subprocess.run(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", self.bundle], capture_output=True)
         return True
 
-    def relaunch(self):
+    def relaunch(self, extra_env=None):
         if not self.ensure_bundle():
             return False
         # The updater's hook may relaunch the app itself: never start a second copy beside it.
@@ -259,6 +268,8 @@ class App:
         for key, value in self.env.items():
             if opts.activate and key == "CMUX_NEXT_NO_ACTIVATE":
                 continue
+            args += ["--env", f"{key}={value}"]
+        for key, value in (extra_env or {}).items():
             args += ["--env", f"{key}={value}"]
         subprocess.run(args, check=True)
         up = wait(lambda: os.path.exists(opts.socket) and (lambda r: isinstance(r, dict) and r.get("pid"))(rpc("system.identify", timeout=5)), 60, 0.5)
@@ -1080,9 +1091,22 @@ def journey(base):
         if not APP.quit(variant):
             RESULTS.append((f"{variant}: app ends ({'killed' if variant == 'crash' else 'its quit path'})", False, "still running", "app quit"))
             return
-        if not APP.relaunch():
+        if not APP.relaunch({"CMUX_NEXT_DEBUG_SLOW_ATTACH": SLOW_ATTACH} if variant == "slow" else None):
             RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
             return
+        if variant == "slow":
+            # No input from here on: the terminals must come back by themselves.
+            links = set()
+            def restoring_seen():
+                report = rpc("debug.surfaces", timeout=10)
+                for window in report.get("windows", []) if isinstance(report, dict) else []:
+                    for pane in window.get("panes", []):
+                        if pane.get("kind") == "terminal" and pane.get("presence") == "visible":
+                            links.add(str(pane.get("link")))
+                return "restoring" in links
+            seen = wait(restoring_seen, 15, 0.25)
+            RESULTS.append((f"{variant}: a terminal still attaching says Restoring…", bool(seen),
+                            f"links seen: {sorted(links)}", "terminal"))
         ok = wait(lambda: settled(expected), opts.settle, 1)
         took = time.time() - started
         say(f"  restore {'settled' if ok else 'did NOT settle'} {took:.1f} s after the quit")

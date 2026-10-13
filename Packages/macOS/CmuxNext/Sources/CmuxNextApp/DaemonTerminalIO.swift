@@ -62,6 +62,9 @@ nonisolated final class DaemonTerminalIO: TerminalIO {
                     guard let resolved = await gate.value() else { throw CancellationError() }
                     attachment = resolved
                 }
+                #if DEBUG
+                try await DebugSlowAttach.shared.beforeAttach(surface: String(surface))
+                #endif
                 return try await TerminalAttachment.attach(endpoint: try await endpoint(), target: attachment,
                                                     size: size, claimGeometry: false,
                                                     snapshotVersion: Self.attachSnapshotVersion,
