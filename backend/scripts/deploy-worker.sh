@@ -89,6 +89,10 @@ fi
 # Production config gate (cx-f5tk4, cx-w1ald): every secret the production config needs is set
 # (names only), e.g. HOME_INVITES_SEND "on" needs HOME_INVITE_FROM. Refuses before the deploy.
 if [ "$env_name" = production ]; then
+  # The version tag must name exactly the code that runs: no change and no untracked file (cx-w1ald review P2).
+  if [ -n "$(git -C ../../.. status --porcelain --untracked-files=all)" ]; then
+    echo "refused: production deploys only from a clean checkout (git status --porcelain is not empty)" >&2; exit 2
+  fi
   bun ../../../scripts/cmux-next/release/prod-promote.ts config --config wrangler.jsonc
 fi
 # Every version names its source (cx-w1ald): tag = the commit's first 12 hex digits, message = the full SHA

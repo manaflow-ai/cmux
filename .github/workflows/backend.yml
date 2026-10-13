@@ -276,6 +276,8 @@ jobs:
           exit "$errors"
 
   deploy-staging:
+    # G1 of the production promotion counts a staging deploy only when the tests passed (cx-w1ald review P1).
+    needs: [test]
     if: (github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'staging')
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     environment: cmux-next-staging
@@ -431,6 +433,10 @@ jobs:
     if: always() && ((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'workflow_dispatch' && inputs.target == 'promote'))
     needs: [deploy-staging]
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # One repository-wide queue with promote-production and deploy-production (review P2).
+    concurrency:
+      group: cmux-next-deploy-production
+      cancel-in-progress: false
     permissions:
       contents: read
       actions: read
@@ -451,7 +457,12 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           GITHUB_TOKEN: ${{ github.token }}
-        run: bun scripts/cmux-next/release/prod-promote.ts stale --issue || echo "::warning title=cmux-api production is stale::see the prod-stale issue"
+        # 0 current, 1 stale (the issue pages), 4 unknown (no green evidence; the issue is left alone); errors fail the step.
+        run: |
+          set +e
+          bun scripts/cmux-next/release/prod-promote.ts stale --issue
+          rc=$?
+          case "$rc" in 0|4) ;; 1) echo "::warning title=cmux-api production is stale::see the prod-stale issue" ;; *) exit "$rc" ;; esac
       - name: Promotion gates G1-G7 and the hold switch
         id: gates
         env:
@@ -492,10 +503,14 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun install --frozen-lockfile
         working-directory: scripts/cmux-next/release
-      - name: Hold switch, read again inside the production environment
+      # Right before the deploy: hold released, 6 h spacing, production's commit a strict ancestor of
+      # the candidate (a re-run or an older job never downgrades). Exit 3 = hold: the job fails.
+      - name: Recheck the hold, the spacing and the lineage
+        working-directory: .
         env:
-          HOLD_REPO: ${{ vars.CMUX_NEXT_PRODUCTION_HOLD }}
-        run: if [ -n "$HOLD_REPO" ]; then echo "::error::hold switch is set"; exit 1; fi
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CMUX_NEXT_PRODUCTION_HOLD: ${{ vars.CMUX_NEXT_PRODUCTION_HOLD }}
+        run: bun scripts/cmux-next/release/prod-promote.ts recheck --candidate "${{ needs.promote-gates.outputs.candidate }}"
       # No secrets are sent: production keeps JWT_PRIVATE_JWK and the rest (CMUX_DEPLOY_NO_SECRETS with
       # CMUX_RELEASE_PROMOTE). deploy-worker.sh runs migrate.ts --verify (G4) and the config gate first.
       - name: Deploy the staging-proven commit (records the rollback target)
@@ -538,6 +553,12 @@ jobs:
         with:
           node-version: "24"
       - run: bun install --frozen-lockfile
+      # The same hold switch as the promotion (cx-w1ald review P2): only "released" deploys. deploy-worker.sh
+      # runs the production config gate itself.
+      - name: Hold switch
+        env:
+          HOLD: ${{ vars.CMUX_NEXT_PRODUCTION_HOLD }}
+        run: if [ "$HOLD" != released ]; then echo "::error::production hold switch is not released"; exit 1; fi
       - name: Deploy API Worker (refuses if production lacks a migration; records the rollback target)
         id: deploy-api
         env:

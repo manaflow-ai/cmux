@@ -9,24 +9,37 @@
  *   bun prod-promote.ts gates [--github-output FILE]
  *       Picks the staging-proven candidate and runs G1-G7. Exit 0 = promote (writes
  *       candidate=<sha> to FILE); exit 3 = nothing to do or a gate holds (the reason is printed).
+ *   bun prod-promote.ts recheck --candidate SHA
+ *       Right before the deploy: hold released, spacing, and production's commit a strict ancestor
+ *       of SHA (a re-run never downgrades). Exit 0 = deploy; 3 = hold.
  *   bun prod-promote.ts stale [--issue]
- *       Exit 1 when production is stale (no source tag, more than STALE_HOURS behind the oldest
- *       staging-proven commit it lacks, or more than STALE_COMMITS backend commits behind).
- *       --issue opens, updates or closes the GitHub issue labeled `prod-stale`.
+ *       Exit 1 = stale (no source tag, a staging-proven commit older than STALE_HOURS missing, or
+ *       more than STALE_COMMITS backend commits behind); 0 = current, proven by at least one green
+ *       staging run that production has; 4 = unknown (no green evidence). Errors exit 2.
+ *       --issue opens the `prod-stale` issue, comments once per state change, and closes it only
+ *       on "current".
  *
  * Environment: CLOUDFLARE_API_TOKEN (read: scripts, versions, deployments, secret names),
  * GITHUB_TOKEN or GH_TOKEN and GITHUB_REPOSITORY (read: Actions runs; issues for --issue),
- * CMUX_NEXT_PRODUCTION_HOLD (G6; non-empty = hold). Runs from the repo root.
+ * CMUX_NEXT_PRODUCTION_HOLD (G6; only "released" releases). Runs from the repo root, except
+ * `config`, which reads the approvals next to this file.
  */
 import { execFileSync } from "node:child_process"
 import { appendFileSync, readFileSync } from "node:fs"
+import { join } from "node:path"
 import { stripJsonc } from "./worker-release.ts"
 
 const ACCOUNT = "0c1675e0def6de1ab3a50a4e17dc5656"
 const PRODUCTION = "cmux-api"
 const STAGING = "cmux-api-staging"
 const WRANGLER = "backend/apps/api/wrangler.jsonc"
+/** Repo-relative (for `git show <sha>:`) and on disk next to this script (deploy-worker.sh runs from backend/apps/api). */
 const APPROVALS = "scripts/cmux-next/release/production-approvals.json"
+const APPROVALS_ON_DISK = join(import.meta.dir, "production-approvals.json")
+/** G6: the hold releases only on exactly this value; empty, missing or anything else holds (lead, 2026-10-13). */
+export const HOLD_RELEASED = "released"
+/** A hold value as safe log text: no workflow commands, no newlines. */
+export const holdText = (v: string | undefined) => (v ?? "<unset>").replace(/[^A-Za-z0-9 ._()'-]/g, "?").slice(0, 120)
 /** G1: a candidate's staging deploy must be this old, with no red staging deploy after it in that window. */
 export const SOAK_MINUTES = 60
 /** At most one promotion per this many hours. */
@@ -90,7 +103,7 @@ export const guardedVarGate = (prod: ProdEnv, cand: ProdEnv, approvals: Approval
 export const missingSecrets = (env: ProdEnv, approvals: Approvals, have: ReadonlySet<string>): Array<string> => {
   const need = new Set(approvals.required_secrets)
   if (env.vars.HOME_INVITES_SEND === "on") need.add("HOME_INVITE_FROM")
-  return [...need].filter((n) => !have.has(n) && env.vars[n] === undefined).sort()
+  return [...need].map((n) => (env.vars[n] !== undefined ? `${n} (a plain var shadows the secret)` : !have.has(n) ? n : "")).filter(Boolean).sort()
 }
 
 // ---- I/O ----
@@ -115,15 +128,20 @@ const gh = async (path: string, init: RequestInit = {}): Promise<any> => {
 const git = (...args: Array<string>) => execFileSync("git", args, { encoding: "utf8" }).trim()
 const fileAt = (sha: string, path: string) => git("show", `${sha}:${path}`)
 
-/** The serving version of a Worker: its id, the source commit from the version tag (12 hex), and when code last changed. */
+/**
+ * The serving version of a Worker, its source commit (version tag, 12 hex) and when its code last
+ * changed. A secret-only deployment (`wrangler secret put`) makes a new version of the same code
+ * without the tag, so the tag comes from the newest code deployment.
+ */
 export const serving = async (script: string): Promise<{ version: string; sourceTag?: string; codeDeployedAt?: number }> => {
-  const deps = ((await cf(`/workers/scripts/${script}/deployments`)) as { deployments: Array<any> }).deployments
+  const deps = [...((await cf(`/workers/scripts/${script}/deployments`)) as { deployments: Array<any> }).deployments].sort((a, b) => Date.parse(b.created_on) - Date.parse(a.created_on))
   const top = deps[0]
   if (!top || top.versions.length !== 1 || top.versions[0].percentage !== 100) throw new Error(`${script}: no single version at 100%`)
   const version = top.versions[0].version_id as string
-  const v = await cf(`/workers/scripts/${script}/versions/${version}`)
-  const tag = v?.annotations?.["workers/tag"] as string | undefined
   const code = deps.find((d) => d.annotations?.["workers/triggered_by"] !== "secret")
+  const codeVersion = code && code.versions.length === 1 ? (code.versions[0].version_id as string) : undefined
+  const v = codeVersion ? await cf(`/workers/scripts/${script}/versions/${codeVersion}`) : undefined
+  const tag = v?.annotations?.["workers/tag"] as string | undefined
   return { version, ...(tag && /^[0-9a-f]{12}$/.test(tag) ? { sourceTag: tag } : {}), ...(code ? { codeDeployedAt: Date.parse(code.created_on) } : {}) }
 }
 
@@ -138,7 +156,9 @@ export const stagingRuns = async (limit = 30): Promise<Array<StagingRun>> => {
     const job = jobs.find((j) => j.name === "deploy-staging")
     if (!job || job.conclusion === "skipped") continue
     const smoke = (job.steps as Array<any>).find((s) => String(s.name).startsWith("Smoke the API Worker"))
-    out.push({ sha: run.head_sha, at: Date.parse(job.completed_at), green: job.conclusion === "success" && smoke?.conclusion === "success" })
+    // G1 proves the tests too: the run's test and migrations-push-guard jobs passed.
+    const passed = (name: string) => jobs.some((j) => j.name === name && j.conclusion === "success")
+    out.push({ sha: run.head_sha, at: Date.parse(job.completed_at), green: job.conclusion === "success" && smoke?.conclusion === "success" && passed("test") && passed("migrations-push-guard") })
   }
   return out
 }
@@ -158,7 +178,7 @@ const isAncestor = (a: string, b: string) => {
 
 const backendCommits = (from: string, to: string) => Number(git("rev-list", "--count", `${from}..${to}`, "--", "backend/"))
 
-const loadApprovals = (sha?: string): Approvals => JSON.parse(sha ? fileAt(sha, APPROVALS) : readFileSync(APPROVALS, "utf8")) as Approvals
+const loadApprovals = (sha?: string): Approvals => JSON.parse(sha ? fileAt(sha, APPROVALS) : readFileSync(APPROVALS_ON_DISK, "utf8")) as Approvals
 
 const secretNames = async (script: string) => new Set(((await cf(`/workers/scripts/${script}/secrets`)) as Array<{ name: string }>).map((s) => s.name))
 
@@ -183,7 +203,7 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
   if (cmd === "gates") {
     const hold = (n: string, why: string) => (console.log(`prod-promote: HOLD (${n}) ${why}`), 3)
     // G6 first: a hold switch stops everything, even the reads.
-    if (process.env.CMUX_NEXT_PRODUCTION_HOLD) return hold("G6", `hold switch is set: ${process.env.CMUX_NEXT_PRODUCTION_HOLD}`)
+    if (process.env.CMUX_NEXT_PRODUCTION_HOLD !== HOLD_RELEASED) return hold("G6", `hold switch: ${holdText(process.env.CMUX_NEXT_PRODUCTION_HOLD)}`)
     const now = Date.now()
     const prod = await serving(PRODUCTION)
     if (!prod.sourceTag) return hold("source", `production version ${prod.version} has no source tag; the first promotion is the hand rail with Lawrence's go`)
@@ -194,8 +214,11 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     if (cand.sha === prodSha || isAncestor(cand.sha, prodSha)) return hold("none", `production ${prodSha.slice(0, 12)} already has the staging-proven ${cand.sha.slice(0, 12)}`)
     if (!isAncestor(prodSha, cand.sha)) return hold("lineage", `${cand.sha.slice(0, 12)} does not descend from production ${prodSha.slice(0, 12)}`)
     // G2: an open regression issue (P0/P1) blocks; the chief applies the label or the hold.
-    const issues = (await gh(`/issues?state=open&labels=cmux-next-regression&per_page=20`)) as Array<{ number: number; labels: Array<{ name: string }> }>
-    const blocking = issues.filter((i) => i.labels.some((l) => l.name === "P0" || l.name === "P1"))
+    const blocking: Array<{ number: number }> = []
+    for (const p of ["P0", "P1"]) {
+      const found = (await gh(`/issues?state=open&labels=cmux-next-regression,${p}&per_page=50`)) as Array<{ number: number; pull_request?: unknown }>
+      blocking.push(...found.filter((i) => !i.pull_request))
+    }
     if (blocking.length) return hold("G2", `open P0/P1 regression issues: ${blocking.map((i) => `#${i.number}`).join(", ")}`)
     const approvals = loadApprovals(cand.sha)
     const prodEnv = productionEnv(fileAt(prodSha, WRANGLER))
@@ -212,33 +235,70 @@ export const main = async (argv: ReadonlyArray<string>): Promise<number> => {
     if (out) appendFileSync(out, `candidate=${cand.sha}\n`)
     return 0
   }
+  if (cmd === "recheck") {
+    const hold = (why: string) => (console.log(`prod-promote recheck: HOLD ${why}`), 3)
+    if (process.env.CMUX_NEXT_PRODUCTION_HOLD !== HOLD_RELEASED) return hold(`hold switch: ${holdText(process.env.CMUX_NEXT_PRODUCTION_HOLD)}`)
+    const cand = opt("--candidate")
+    if (!cand || !/^[0-9a-f]{40}$/.test(cand)) return hold("--candidate must be a 40-hex SHA")
+    const prod = await serving(PRODUCTION)
+    if (!prod.sourceTag) return hold(`production version ${prod.version} has no source tag`)
+    if (prod.codeDeployedAt && Date.now() - prod.codeDeployedAt < SPACING_HOURS * 3600_000) return hold(`production code changed less than ${SPACING_HOURS} h ago`)
+    const prodSha = fullSha(prod.sourceTag)
+    // Strict ancestor: equal or older candidates (a re-run, a stale job) never deploy.
+    if (prodSha === cand || !isAncestor(prodSha, cand)) return hold(`production ${prodSha.slice(0, 12)} is not a strict ancestor of ${cand.slice(0, 12)}`)
+    console.log(`prod-promote recheck: ok, ${prodSha.slice(0, 12)} -> ${cand.slice(0, 12)}`)
+    return 0
+  }
   if (cmd === "stale") {
     const now = Date.now()
     const prod = await serving(PRODUCTION)
     const runs = await stagingRuns()
-    let reason: string | undefined
-    if (!prod.sourceTag) reason = `production version ${prod.version} has no source tag (unknown code)`
+    // state: a stable key per situation (one comment per change); reason: the text.
+    let state: "current" | "unknown" | string
+    let reason: string
+    if (!prod.sourceTag) [state, reason] = [`no-tag:${prod.version}`, `production version ${prod.version} has no source tag (unknown code)`]
     else {
       const prodSha = fullSha(prod.sourceTag)
       const missing = runs.filter((r) => r.green && !isAncestor(r.sha, prodSha))
+      const proven = runs.some((r) => r.green && isAncestor(r.sha, prodSha))
       const oldest = missing.at(-1)
       const newest = missing[0]
       const behind = newest ? backendCommits(prodSha, newest.sha) : 0
-      if (oldest && now - oldest.at > STALE_HOURS * 3600_000) reason = `production ${prodSha.slice(0, 12)} lacks a commit staging proved ${Math.round((now - oldest.at) / 3600_000)} h ago`
-      else if (behind > STALE_COMMITS) reason = `production ${prodSha.slice(0, 12)} is ${behind} backend commits behind staging-proven ${newest!.sha.slice(0, 12)}`
+      if (oldest && now - oldest.at > STALE_HOURS * 3600_000) [state, reason] = [`age:${prodSha.slice(0, 12)}`, `production ${prodSha.slice(0, 12)} lacks a commit staging proved ${Math.round((now - oldest.at) / 3600_000)} h ago`]
+      else if (behind > STALE_COMMITS) [state, reason] = [`behind:${prodSha.slice(0, 12)}`, `production ${prodSha.slice(0, 12)} is ${behind} backend commits behind staging-proven ${newest!.sha.slice(0, 12)}`]
+      else if (proven || missing.length) [state, reason] = ["current", `production ${prodSha.slice(0, 12)} is current`]
+      else [state, reason] = ["unknown", "no green staging run in the window to compare with"]
     }
-    console.log(reason ? `prod-promote: STALE ${reason}` : "prod-promote: production is current")
+    const stale = state !== "current" && state !== "unknown"
+    console.log(`prod-promote: ${stale ? "STALE" : state.toUpperCase()} ${reason}`)
     if (rest.includes("--issue")) {
-      const open = ((await gh(`/issues?state=open&labels=prod-stale&per_page=5`)) as Array<{ number: number }>)[0]
-      const body = `${reason ?? "current"}\n\nChecked ${new Date(now).toISOString()} by backend.yml prod-stale (scripts/cmux-next/release/prod-promote.ts). Fix: promote the staging-proven commit (backend.yml promote-production) or clear the hold.`
-      if (reason && open) await gh(`/issues/${open.number}/comments`, { method: "POST", body: JSON.stringify({ body }) })
-      else if (reason) await gh(`/issues`, { method: "POST", body: JSON.stringify({ title: "cmux-api production is stale", body, labels: ["prod-stale"] }) })
-      else if (open) await gh(`/issues/${open.number}`, { method: "PATCH", body: JSON.stringify({ state: "closed", state_reason: "completed" }) })
+      const marker = `<!-- prod-stale state: ${state} -->`
+      const open = ((await gh(`/issues?state=open&labels=prod-stale&per_page=5`)) as Array<{ number: number; body?: string; pull_request?: unknown }>).filter((i) => !i.pull_request)[0]
+      const body = `${reason}\n\nChecked ${new Date(now).toISOString()} by backend.yml promote-gates (scripts/cmux-next/release/prod-promote.ts). Fix: promote the staging-proven commit or release the hold.\n${marker}`
+      if (stale && !open) await gh(`/issues`, { method: "POST", body: JSON.stringify({ title: "cmux-api production is stale", body, labels: ["prod-stale"] }) })
+      else if (stale && open) {
+        const comments = (await gh(`/issues/${open.number}/comments?per_page=100`)) as Array<{ body: string }>
+        const last = [open.body ?? "", ...comments.map((c) => c.body)].reverse().find((b) => b.includes("<!-- prod-stale state:")) ?? ""
+        if (!last.includes(marker)) await gh(`/issues/${open.number}/comments`, { method: "POST", body: JSON.stringify({ body }) })
+      } else if (state === "current" && open) {
+        await gh(`/issues/${open.number}/comments`, { method: "POST", body: JSON.stringify({ body }) })
+        await gh(`/issues/${open.number}`, { method: "PATCH", body: JSON.stringify({ state: "closed", state_reason: "completed" }) })
+      }
+      // unknown: no change to the issue.
     }
-    return reason ? 1 : 0
+    return stale ? 1 : state === "unknown" ? 4 : 0
   }
   console.error("usage: prod-promote.ts config|gates|stale (see the header)")
   return 2
 }
 
-if (import.meta.main) process.exit(await main(process.argv.slice(2)))
+if (import.meta.main) {
+  let code: number
+  try {
+    code = await main(process.argv.slice(2))
+  } catch (e) {
+    console.error(`prod-promote: error: ${e instanceof Error ? e.message : String(e)}`)
+    code = 2
+  }
+  process.exit(code)
+}
