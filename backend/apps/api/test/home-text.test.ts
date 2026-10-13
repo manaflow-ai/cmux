@@ -36,7 +36,7 @@ describe("invite texts (stage C part 2)", { timeout: 60_000 }, () => {
     const token = await sessionToken("text-off-owner")
     await op(token, "user.ensure", {})
     const user = userIdFor(testEnv.STACK_PROJECT_ID, "text-off-owner")
-    const phone = "+14155550124"
+    const phone = "+14155550127"
     const address = invites.addressId(testEnv.HOME_ADDRESS_KEY, invites.normalizePhone(phone) as invites.Address)
     const addr = testEnv.ADDRESS_DO.get(testEnv.ADDRESS_DO.idFromName(address))
     expect((await op(token, "dm.open", { peer: { phone } })).ok).toBe(true)
