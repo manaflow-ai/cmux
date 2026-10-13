@@ -614,6 +614,7 @@ mod unix {
     #[cfg(test)]
     use super::shared::host_parser::{ParserSignals, run_guarded_host_parser, run_host_parser};
     use super::shared::host_start::start_host_runtime;
+    pub(crate) use adopt_launch::launch_terminal_host_adopting_with_program_status;
     pub use adopt_launch::{TerminalHostAdoption, launch_terminal_host_adopting};
     pub use host_session::enter_terminal_host_process;
     pub(crate) use host_session::{OWNER_FLAG, host_owner_args, host_session_env};
@@ -702,7 +703,7 @@ mod unix {
         crate::debug_spans::mark("host.child_spawned");
         let process_group_leader = master.process_group_leader();
         let child = HostChild::Spawned(SpawnedPtyChild::new(child, process_group_leader));
-        start_host_runtime(launch, bootstrapped, master, child, &launch.seed)
+        start_host_runtime(launch, bootstrapped, master, child, &launch.seed, None)
     }
 
     #[cfg(test)]
@@ -763,6 +764,8 @@ pub(crate) use sys::{
 };
 #[cfg(all(unix, test))]
 pub(crate) use unix::input_ack_surface_fixture;
+#[cfg(unix)]
+pub(crate) use unix::launch_terminal_host_adopting_with_program_status;
 #[cfg(unix)]
 pub(crate) use unix::sweep_released_pty_locks;
 #[cfg(unix)]

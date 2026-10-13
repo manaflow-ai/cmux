@@ -92,6 +92,13 @@ enum DebugAgentPane {
             }
             return .object(["pane": .string(pane), "pid": .number(Double(pid))])
         }
+        if action == "crash_notice" {
+            // The notice a page that keeps crashing shows; {"press": "reload"} presses its Reload first.
+            let pressed = params["press"]?.stringValue == "reload" && AgentPaneCrashNoticeDebug.pressReload(view)
+            let texts = AgentPaneCrashNoticeDebug.texts(view)
+            return .object(["pane": .string(pane), "shown": .bool(texts != nil), "texts": .array((texts ?? []).map(JSONValue.string)),
+                            "pressed": .bool(pressed)])
+        }
         if action == "gesture_state" {
             // The relay's gesture record (no ticket value), for a live repro of a gesture refusal.
             let state = view.model.transport.gestures.debugState

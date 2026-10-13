@@ -206,7 +206,7 @@ impl Mux {
         color: Option<String>,
         collapsed: Option<bool>,
     ) -> anyhow::Result<ScreenGroupOutcome> {
-        self.update_screen_group_as(&Actor::Daemon, group, name, color, collapsed)
+        self.update_screen_group_as(&Actor::Daemon, group, name, color, collapsed, None)
     }
 
     pub(crate) fn add_screens_to_screen_group(
@@ -259,7 +259,7 @@ impl Mux {
         color: Option<String>,
         collapsed: Option<bool>,
     ) -> anyhow::Result<TabGroupOutcome> {
-        self.update_tab_group_as(&Actor::Daemon, group, name, color, collapsed)
+        self.update_tab_group_as(&Actor::Daemon, group, name, color, collapsed, None)
     }
 
     pub(crate) fn add_tabs_to_tab_group(

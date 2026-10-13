@@ -5608,6 +5608,17 @@
             }
           },
           "description": "The saved group this live group syncs with."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "tab-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -5760,6 +5771,17 @@
             "kind": "primitive",
             "name": "decimal"
           }
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "tab-group-icon-v1: the saved group's icon, the shared icon string; a reopen gives the live group this icon. null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -6163,6 +6185,17 @@
             }
           },
           "description": "Members in screen order; they are contiguous."
+        },
+        "icon": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "screen-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset), or null for none. Absent from daemons without the capability."
         }
       },
       "extra": false
@@ -6632,6 +6665,56 @@
               "resource": "tab"
             }
           }
+        }
+      },
+      "extra": false
+    },
+    "LayoutBulkResult": {
+      "kind": "object",
+      "fields": {
+        "tab_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "tab"
+            }
+          },
+          "description": "Every tab the call closed, in container order."
+        },
+        "pane_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "pane"
+            }
+          },
+          "description": "At level `pane`: the panes the selector chose; else empty."
+        },
+        "screen_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "screen"
+            }
+          },
+          "description": "At level `screen`: the screens the selector chose; else empty."
+        },
+        "workspace_ids": {
+          "required": true,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "At level `workspace`: the workspaces the selector chose; else empty."
         }
       },
       "extra": false
@@ -17133,6 +17216,133 @@
         "validation.invalid"
       ]
     },
+    "layout.bulk": {
+      "class": "mutation",
+      "idempotency": "required",
+      "target": "session",
+      "ancestors": [
+        "machine"
+      ],
+      "params": {
+        "selectors": {
+          "machine": "required",
+          "session": "required",
+          "workspace": "optional",
+          "screen": "optional",
+          "pane": "optional",
+          "tab": "optional"
+        },
+        "fields": {
+          "verb": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "close"
+              ]
+            },
+            "description": "`close` archives the chosen objects as one closed group."
+          },
+          "level": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "tab",
+                "pane",
+                "screen",
+                "workspace"
+              ]
+            }
+          },
+          "selector": {
+            "required": true,
+            "type": {
+              "kind": "enum",
+              "values": [
+                "this",
+                "others",
+                "to_right",
+                "to_left",
+                "all",
+                "selection"
+              ]
+            },
+            "description": "`this`, `others`, `to_right`, `to_left` and `all` work in the anchor's container, in its order: the pane's tabs, the screen's panes, the workspace's screens, the session's workspaces. `selection` closes `ids`."
+          },
+          "anchor": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 256
+            },
+            "description": "Public id at `level` the selector is relative to. Omit to use the object the selectors name at `level` (`tab: current`)."
+          },
+          "ids": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "min_length": 1,
+                "max_length": 256
+              },
+              "min_items": 1,
+              "max_items": 4096
+            },
+            "description": "Public ids at `level` for `selection`, from any containers."
+          },
+          "include_pinned": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "Also close pinned tabs, screens and workspaces. Default false: every selector but `this` and `selection` skips them."
+          },
+          "end_terminals": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "End the terminals whose every view closes, as a workspace close does. Default false."
+          }
+        },
+        "extra": false,
+        "constraints": [
+          "One call is one commit and one closed group: Reopen Closed restores every object it closed.",
+          "Containers the close empties close in the same commit and join the group.",
+          "The home workspace anchors a selector but never closes; an object with no tab has nothing to close and is not reported. A call with nothing to close commits nothing and keeps no idempotency receipt.",
+          "`to_right` and `to_left` are refused at level `pane`.",
+          "At most 4096 tabs per call."
+        ]
+      },
+      "result": {
+        "kind": "apply",
+        "name": "MutationResult",
+        "arguments": [
+          {
+            "kind": "ref",
+            "name": "LayoutBulkResult"
+          }
+        ]
+      },
+      "errors": [
+        "idempotency.conflict",
+        "operation.failed",
+        "origin.forbidden",
+        "resource.not_found",
+        "selector.ambiguous",
+        "selector.invalid",
+        "selector.not_found",
+        "selector.wrong_parent",
+        "validation.invalid"
+      ]
+    },
     "machine.get": {
       "class": "read",
       "idempotency": "forbidden",
@@ -20933,6 +21143,17 @@
               "name": "boolean"
             }
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "screen-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset, put-blob); null clears it. An asset the daemon does not store is refused with validation.invalid."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -20944,7 +21165,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, or collapsed is present."
+          "At least one of name, color, collapsed, or icon is present."
         ]
       },
       "result": {
@@ -24063,6 +24284,17 @@
               "name": "boolean"
             }
           },
+          "icon": {
+            "required": false,
+            "type": {
+              "kind": "nullable",
+              "value": {
+                "kind": "primitive",
+                "name": "string"
+              }
+            },
+            "description": "tab-group-icon-v1: the group's icon, the shared icon string (an SF Symbol name, one emoji, or a stored image:sha256-<hex> or svg:sha256-<hex> asset, put-blob); null clears it. A linked saved group follows. An asset the daemon does not store is refused with validation.invalid."
+          },
           "expected_revision": {
             "required": false,
             "type": {
@@ -24074,7 +24306,7 @@
         },
         "extra": false,
         "constraints": [
-          "At least one of name, color, or collapsed is present."
+          "At least one of name, color, collapsed, or icon is present."
         ]
       },
       "result": {

@@ -94,7 +94,7 @@ final class CloudMoveAsks {
             AgentPaneToolCard.Action(id: answer.rawValue, title: Self.title(answer), hint: answer == .always ? CloudMoveAskStrings.alwaysHint(folder) : nil)
         }
         let card = AgentPaneToolCard(id: "cloud-move-" + tab, state: state, text: text, actions: actions)
-        return services.cloud.toolCards.set([card], owner: Self.owner, tab: tab) { [weak self, weak services] _, action in
+        return services.cloud.toolCards.set([card], owner: Self.owner, tab: tab) { [weak self, weak services] _, action, _ in
             guard let self, let services, let answer = Answer(rawValue: action) else { return }
             self.answer(answer, tab: tab, services: services)
         }
@@ -130,7 +130,7 @@ final class CloudMoveAsks {
 
     private func close(_ tab: String, services: AppServices) {
         asks[tab] = nil
-        services.cloud.toolCards.set([], owner: Self.owner, tab: tab) { _, _ in }
+        services.cloud.toolCards.set([], owner: Self.owner, tab: tab) { _, _, _ in }
     }
 
     /// The local chat tab of agent session `session`, with its pane.

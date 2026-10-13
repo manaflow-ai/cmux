@@ -5868,6 +5868,7 @@
       "accepts" : [
         "neutral",
         "theme",
+        "art",
         "red",
         "green",
         "yellow",
@@ -5891,6 +5892,13 @@
             "text" : "Theme Color"
           },
           "value" : "theme"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.accent.art",
+            "text" : "Art Color"
+          },
+          "value" : "art"
         },
         {
           "title" : {
@@ -19691,6 +19699,151 @@
       "consumers" : [
         "cmux-next"
       ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.passwords.offerToSave.help",
+        "text" : "A browser tab asks to save a sign-in you submit. Tabs an agent drives never ask."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.passwords.offerToSave",
+      "keywords" : [
+        "password",
+        "save",
+        "sign in",
+        "login",
+        "credentials"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "passwords",
+        "offerToSave"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.passwords.offerToSave",
+        "text" : "Offer to Save Passwords"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.passwords.generate.help",
+        "text" : "Offers a generated password when a site asks for a new one, and saves it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.passwords.generate",
+      "keywords" : [
+        "password",
+        "generate",
+        "strong",
+        "suggest"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "passwords",
+        "generate"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.passwords.generate",
+        "text" : "Suggest Strong Passwords"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.passwords",
+        "text" : "Passwords"
+      },
+      "help" : {
+        "key" : "settings.browser.passwords.allowExport.help",
+        "text" : "Lets the Passwords page write every saved password to a plain-text CSV file, after you confirm with Touch ID or your password."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.passwords.allowExport",
+      "keywords" : [
+        "password",
+        "export",
+        "csv",
+        "backup"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "passwords",
+        "allowExport"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.passwords.allowExport",
+        "text" : "Allow Password Export"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
       "default" : false,
       "default_label" : null,
       "group" : {
@@ -22642,7 +22795,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "16d5fb63f70e050b0e550a96f4dc8a9d7a2ca3e6fc0038d4ef5dec204383f6e7",
+  "schema_hash" : "c2169bbb37d76fad6c15203e9eaad3cccda0dd0b1ade5056bd0be9b45727a049",
   "sections" : [
     {
       "id" : "general",

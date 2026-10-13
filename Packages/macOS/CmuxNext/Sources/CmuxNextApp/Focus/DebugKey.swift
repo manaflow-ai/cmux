@@ -231,7 +231,7 @@ enum DebugKey {
     }
 
     /// The Chromium page window over `pane`'s selected Chromium tab.
-    private static func pageWindow(of pane: String, in controller: WindowController) -> NSWindow? {
+    static func pageWindow(of pane: String, in controller: WindowController) -> NSWindow? {
         guard let window = controller.window, let paneController = controller.content?.paneController(key: pane),
               case .browser(let entry)? = paneController.currentContent, entry.tab.presentation == .childWindow else { return nil }
         let content = entry.tab.contentView

@@ -112,7 +112,8 @@ final class DaemonService {
             retryWake = prestart.wake
         } else {
             do {
-                launcher = try DaemonLauncher.forApp(tag: launch.tag, terminalEnvironment: terminalEnvironment,
+                launcher = try DaemonLauncher.forApp(tag: launch.tag, bundleID: launch.bundleID,
+                                                terminalEnvironment: terminalEnvironment,
                                                 daemonEnvironment: AppsService.daemonEnvironment)
             } catch {
                 noteStartupFailure((error as? DaemonError) ?? .launchFailed(String(describing: error)))
@@ -120,10 +121,8 @@ final class DaemonService {
             }
         }
         endpointProvider = launcher.endpointProvider
-        if let session = try? DaemonLauncher.sessionName(tag: launch.tag) {
-            launchSnapshotSession = session
-            showLaunchSnapshot(session: session, stateDirectory: launcher.configuration.stateDirectory)
-        }
+        launchSnapshotSession = launcher.configuration.session
+        showLaunchSnapshot(session: launcher.configuration.session, stateDirectory: launcher.configuration.stateDirectory)
         let configuration = Self.localConfiguration(terminalEnvironment: terminalEnvironmentProvider,
                                                     resolvesShellIntegration: resolvesShellIntegration,
                                                     installKey: launcher.configuration.installKey, retryWake: retryWake)

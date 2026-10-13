@@ -239,8 +239,11 @@ pub(super) fn update_tab_group(
     name: Option<String>,
     color: Option<String>,
     collapsed: Option<bool>,
+    icon: Option<Option<String>>,
 ) -> anyhow::Result<Value> {
-    Ok(tab_group_outcome_json(&mux.update_tab_group_as(&actor, &group, name, color, collapsed)?))
+    Ok(tab_group_outcome_json(
+        &mux.update_tab_group_as(&actor, &group, name, color, collapsed, icon)?,
+    ))
 }
 
 pub(super) fn add_tabs_to_tab_group(

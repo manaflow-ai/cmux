@@ -4,6 +4,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("composer-history.test.ts", async () => {
@@ -74,6 +75,6 @@ await requireBrowserLane("composer-history.test.ts", async () => {
 
   test("↑ and ↓ in an empty prompt step through the chat's earlier prompts", async () => {
     const result = await play("history-recall");
-    expect(result.play, result.report).toBe("pass");
+    expect(playFailures(result.report)).toEqual([]);
   });
 });

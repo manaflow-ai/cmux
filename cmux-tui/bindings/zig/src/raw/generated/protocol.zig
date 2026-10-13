@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff";
+pub const ir_sha256 = "e171857910d090c4b08a6ba35a4542510f7ff9fb14155b8ebecc662d497b6c4c";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -8596,6 +8596,7 @@ pub const UpdateScreenGroupRequest = struct {
     collapsed: wire.Field(bool) = .absent,
     color: wire.Field([]const u8) = .absent,
     group: []const u8,
+    icon: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
 };
 
@@ -8609,6 +8610,9 @@ pub fn updateScreenGroup(client: anytype, request: UpdateScreenGroupRequest) !wi
             .authority = "control",
             .since = 12,
             .capability = "screen-groups-v1",
+            .fields = &.{
+                .{ .name = "icon", .since = 12, .capability = "screen-group-icon-v1" },
+            },
         },
         request,
     );
@@ -8618,6 +8622,7 @@ pub const UpdateTabGroupRequest = struct {
     collapsed: wire.Field(bool) = .absent,
     color: wire.Field([]const u8) = .absent,
     group: []const u8,
+    icon: wire.Field([]const u8) = .absent,
     name: wire.Field([]const u8) = .absent,
 };
 
@@ -8631,6 +8636,9 @@ pub fn updateTabGroup(client: anytype, request: UpdateTabGroupRequest) !wire.Dec
             .authority = "control",
             .since = 12,
             .capability = "tab-groups-v1",
+            .fields = &.{
+                .{ .name = "icon", .since = 12, .capability = "tab-group-icon-v1" },
+            },
         },
         request,
     );

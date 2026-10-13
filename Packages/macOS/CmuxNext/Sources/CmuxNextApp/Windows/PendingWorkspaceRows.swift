@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Observation
 
 /// A new workspace's sidebar row from the press (cx-9a7wx): a window's
@@ -8,7 +9,11 @@ import Observation
 /// a placeholder at the slot the workspace will take, under the workspace's
 /// own id, and the workspace's row replaces it in place once the window
 /// lists it. A close that takes the create, or a create that fails, removes
-/// the row.
+/// the row. A lone create's row waits ``grace`` first: a create the daemon
+/// reports by then changes the sidebar once, in the frame that shows the
+/// workspace and its page, never a placeholder row beside the old content
+/// (cx-21zkz). A create queued behind another in its window shows its row at
+/// the press, with the rows before it.
 @MainActor @Observable
 final class PendingWorkspaceRows {
     static let shared = PendingWorkspaceRows()
@@ -24,18 +29,42 @@ final class PendingWorkspaceRows {
         let byDefault: NewWorkspaceDefaultSlot?
     }
 
+    /// About the time a local create takes to be reported when its window has no other create
+    /// waiting (Cmd-N: ~70 ms in the frame strips); a queued create shows its row after it.
+    static let grace: Duration = .milliseconds(150)
+
     private(set) var rows: [Row] = []
+    /// Rows within their ``grace``, in press order.
+    @ObservationIgnored private var waiting: [(row: Row, timer: DemandTimer)] = []
 
     func add(_ row: Row) {
-        rows.append(row)
+        let window = row.window
+        if rows.contains(where: { $0.window == window }) || waiting.contains(where: { $0.row.window == window }) {
+            // Queued behind another create (key repeat): every row shows at its press.
+            let earlier = waiting.filter { $0.row.window == window }
+            waiting.removeAll { $0.row.window == window }
+            for entry in earlier { entry.timer.cancel() }
+            rows += earlier.map(\.row) + [row]
+            return
+        }
+        let timer = DemandTimer(owner: "PendingWorkspaceRows.grace")
+        waiting.append((row, timer))
+        timer.schedule(after: Self.grace) { @MainActor [weak self] in
+            guard let self, let index = waiting.firstIndex(where: { $0.row.id == row.id }) else { return }
+            waiting.remove(at: index)
+            rows.append(row)
+        }
     }
 
     func remove(_ id: String) {
+        if let index = waiting.firstIndex(where: { $0.row.id == id }) { waiting.remove(at: index).timer.cancel() }
         rows.removeAll { $0.id == id }
     }
 
     /// Forgets the rows of workspaces a window now owns: their own rows show.
     func forget(owned: (String) -> Bool) {
+        for entry in waiting where owned(entry.row.id) { entry.timer.cancel() }
+        waiting.removeAll { owned($0.row.id) }
         guard rows.contains(where: { owned($0.id) }) else { return }
         rows.removeAll { owned($0.id) }
     }

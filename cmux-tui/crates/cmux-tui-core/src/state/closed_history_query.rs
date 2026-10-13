@@ -111,6 +111,14 @@ pub(crate) fn public_item(record: &Value) -> Value {
         "member_count": members.len(),
         "members": members.iter().map(public_member).collect::<Vec<_>>(),
     });
+    // An ungrouped tab or screen group (no member) sits in its workspace.
+    // No pane: the app would take it for a closed tab of that pane.
+    let ungrouped = ["tab_group", "screen_group"]
+        .into_iter()
+        .find_map(|field| record.get(field).filter(|group| group.is_object()));
+    if let Some(group) = ungrouped {
+        item["workspace_id"] = group["workspace_id"].clone();
+    }
     // A deleted personal workspace group names the group it forms again.
     if let Some(group) = record.get("group").filter(|group| group.is_object()) {
         item["group"] =

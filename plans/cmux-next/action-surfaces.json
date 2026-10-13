@@ -13528,6 +13528,33 @@
       "title_table" : "ActionCatalog"
     },
     {
+      "cli" : "offered",
+      "cli_name" : "browser back-to-pinned-page",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "tab"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browser.resetPinnedTab",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Back to Pinned Page",
+      "title_key" : "action.browser.resetPinnedTab",
+      "title_table" : "ActionCatalog"
+    },
+    {
       "cli" : "guiOnly",
       "cli_name" : "browser media",
       "context_menu" : "guiOnly",
@@ -15828,6 +15855,33 @@
       "palette_suggested" : null,
       "title" : "Duplicate Tab into Browser Profile…",
       "title_key" : "action.browserProfile.duplicateTab",
+      "title_table" : "BrowserProfileActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "browser-profile clear-browsing-data",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "browserProfile"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "browserProfile.clearBrowsingData",
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.browser",
+        "order" : 106,
+        "title" : "Browser and Viewers",
+        "title_key" : "category.browser",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Clear Browsing Data…",
+      "title_key" : "action.browserProfile.clearBrowsingData",
       "title_table" : "BrowserProfileActions"
     },
     {
@@ -28177,9 +28231,26 @@
         },
         {
           "enabled_when" : "can_perform",
-          "id" : "browserProfile.delete",
+          "id" : "browserProfile.clearBrowsingData",
           "kind" : "action",
           "order" : 14,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 15
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "browserProfile.delete",
+          "kind" : "action",
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -32064,6 +32135,19 @@
               "order" : 3
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "browser.resetPinnedTab",
+              "kind" : "action",
+              "order" : 4,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "children" : [
                 {
                   "enabled_when" : "can_perform",
@@ -32353,14 +32437,14 @@
               ],
               "folder" : "options",
               "kind" : "folder",
-              "order" : 4,
+              "order" : 5,
               "title" : "Options",
               "title_key" : "menu.folder.options",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 5
+              "order" : 6
             },
             {
               "children" : [
@@ -32406,14 +32490,14 @@
               ],
               "folder" : "group",
               "kind" : "folder",
-              "order" : 6,
+              "order" : 7,
               "title" : "Group",
               "title_key" : "menu.folder.group",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 7
+              "order" : 8
             },
             {
               "children" : [
@@ -32632,14 +32716,14 @@
               ],
               "folder" : "move",
               "kind" : "folder",
-              "order" : 8,
+              "order" : 9,
               "title" : "Move",
               "title_key" : "menu.folder.move",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 9
+              "order" : 10
             },
             {
               "children" : [
@@ -32711,14 +32795,14 @@
               ],
               "folder" : "copy",
               "kind" : "folder",
-              "order" : 10,
+              "order" : 11,
               "title" : "Copy",
               "title_key" : "menu.folder.copy",
               "title_table" : "Localizable"
             },
             {
               "kind" : "separator",
-              "order" : 11
+              "order" : 12
             },
             {
               "children" : [
@@ -32764,7 +32848,7 @@
               ],
               "folder" : "close",
               "kind" : "folder",
-              "order" : 12,
+              "order" : 13,
               "title" : "Close",
               "title_key" : "menu.folder.close",
               "title_table" : "Localizable"

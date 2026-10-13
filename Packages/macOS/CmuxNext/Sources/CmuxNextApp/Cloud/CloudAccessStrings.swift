@@ -1,6 +1,6 @@
 import Foundation
 
-/// A Cloud chat's file ask card's text (``CloudAccessAsks``). Keys live in Resources/Cloud.xcstrings.
+/// A Cloud chat's file and secret ask cards' text (``CloudAccessAsks``). Keys live in Resources/Cloud.xcstrings.
 enum CloudAccessStrings {
     static func ask(_ machine: String, _ path: String) -> String {
         String(format: String(localized: "cloud.access.ask", defaultValue: "An agent on %1$@ asks for %2$@ from this Mac.", table: "Cloud", bundle: .module),
@@ -33,5 +33,13 @@ enum CloudAccessStrings {
     static func answerFailed(_ path: String) -> String {
         String(format: String(localized: "cloud.access.answerFailed", defaultValue: "Couldn't answer the request for %@.", table: "Cloud", bundle: .module), path)
     }
+    static func secretAsk(_ machine: String, _ name: String) -> String {
+        String(format: String(localized: "cloud.access.secretAsk", defaultValue: "An agent on %1$@ asks you for the secret %2$@. What you enter goes to this one request only.",
+                              table: "Cloud", bundle: .module), machine, name)
+    }
+    static var secretPlaceholder: String {
+        String(localized: "cloud.access.secretPlaceholder", defaultValue: "Type or paste the secret", table: "Cloud", bundle: .module)
+    }
+    static var shareOnce: String { String(localized: "cloud.access.shareOnce", defaultValue: "Share once", table: "Cloud", bundle: .module) }
     static var deny: String { String(localized: "cloud.access.deny", defaultValue: "Deny", table: "Cloud", bundle: .module) }
 }

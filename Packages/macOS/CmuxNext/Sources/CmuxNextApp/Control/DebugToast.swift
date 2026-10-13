@@ -13,6 +13,8 @@ import CmuxNextSettings
 ///   answers a question (`debug.dialog` refuses the user-only ones).
 /// - `{undo: true, window?}` runs the newest undo toast of the window (the
 ///   active one by default) as Cmd-Z does.
+/// - `{press: "<toast id>", window?}` runs the action of the newest toast
+///   with that id, as its button does.
 @MainActor
 enum DebugToast {
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
@@ -37,11 +39,14 @@ enum DebugToast {
             let invocation = ActionInvocation(target: target, arguments: arguments, origin: .user)
             result["performed"] = .bool(services.registry.perform(ActionID(rawValue: id), invocation: invocation))
         }
+        let windowID = params["window"]?.stringValue
+        let window = windowID.flatMap { id in services.windows.controllers.first { $0.state.id == id }?.window }
+            ?? services.windows.active?.window
         if params["undo"]?.boolValue == true {
-            let windowID = params["window"]?.stringValue
-            let window = windowID.flatMap { id in services.windows.controllers.first { $0.state.id == id }?.window }
-                ?? services.windows.active?.window
             result["undone"] = .bool(window.map { CmuxToastCenter.shared.runUndo(in: $0) } ?? false)
+        }
+        if let toastID = params["press"]?.stringValue {
+            result["pressed"] = .bool(window.map { CmuxToastCenter.shared.runAction(id: toastID, in: $0) } ?? false)
         }
         var windows: [JSONValue] = []
         for controller in services.windows.controllers {
