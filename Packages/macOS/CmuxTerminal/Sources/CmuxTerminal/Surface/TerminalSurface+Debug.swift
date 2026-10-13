@@ -201,6 +201,7 @@ extension TerminalSurface {
         }
 
         let retiredRemoteOutputLane = retireRemoteOutputLane()
+        ghostty_surface_request_process_termination(surfaceToFree)
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         surface = nil
         runtimeDisplayLayer?.detachRendererDisplayCallback()
@@ -226,6 +227,7 @@ extension TerminalSurface {
         }
 
         let retiredRemoteOutputLane = retireRemoteOutputLane()
+        ghostty_surface_request_process_termination(surfaceToFree)
         registry.unregisterRuntimeSurface(surfaceToFree, ownerId: id)
         runtimeDisplayLayer?.detachRendererDisplayCallback()
         runtimeDisplayLayer = nil
