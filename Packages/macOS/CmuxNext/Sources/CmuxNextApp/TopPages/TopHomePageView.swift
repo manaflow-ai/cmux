@@ -4,6 +4,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHome
+import CmuxNextHomeEngine
 import Observation
 
 /// The Home top page, two columns: MessagesLab's conversation list
