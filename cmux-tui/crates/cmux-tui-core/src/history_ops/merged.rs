@@ -7,13 +7,13 @@
 //!
 //! What each kind allows (history.md section 3): page visits are deleted
 //! into a backup (restore id); agent and command entries live in the
-//! append-only journal and are hidden (`history.hidden`); closed items age
-//! out in the closed-history store and are left alone; locations are the
-//! app's view state and are refused.
+//! append-only journal and are hidden (`history.hidden`); closed items are
+//! deleted from the closed-history store for good (closed.rs, as
+//! `closed.delete`); locations are the app's view state and are refused.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, PoisonError};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use cmux_history::{
     AgentSessionFold, EntryContext, HiddenHistory, HistoryEntry, HistoryKind, TerminalCommandFold,
@@ -22,7 +22,7 @@ use cmux_history::{
 use serde_json::{Map, Value, json};
 
 use super::pages::{self, run, wire};
-use super::{hidden_doc, journal_feed, sources, store_failed};
+use super::{closed, hidden_doc, journal_feed, sources, store_failed};
 use crate::Mux;
 use crate::resource::ResourceError;
 use crate::workspace_registry::Actor;
@@ -152,7 +152,7 @@ fn failed(operation: &str, error: &anyhow::Error) -> ResourceError {
 
 /// `history.entries.list`: every selected kind, newest first.
 pub(super) fn list(
-    mux: &std::sync::Arc<Mux>,
+    mux: &Arc<Mux>,
     fields: &Map<String, Value>,
     now_ms: i64,
     day_start_ms: i64,
@@ -204,7 +204,7 @@ pub(super) fn list(
 /// Runs one mutation once (the caller checked the key): its result value
 /// and the kinds it changed.
 pub(super) fn mutate(
-    mux: &Mux,
+    mux: &Arc<Mux>,
     key: &str,
     actor: &Actor,
     operation: &str,
@@ -212,7 +212,7 @@ pub(super) fn mutate(
     now_ms: i64,
     day_start_ms: i64,
 ) -> Result<(Value, Vec<HistoryKind>), ResourceError> {
-    let pages_only = |mux: &Mux| -> Result<(Value, Vec<HistoryKind>), ResourceError> {
+    let pages_only = |mux: &Arc<Mux>| -> Result<(Value, Vec<HistoryKind>), ResourceError> {
         let value = pages::with_stores(mux, operation, |stores| {
             run(stores, operation, fields, now_ms, day_start_ms)
         })?;
@@ -236,9 +236,10 @@ fn changed_pages(value: &Value) -> Vec<HistoryKind> {
 }
 
 /// `history.entries.remove`: page visits into a backup, agent and command
-/// entries hidden; any location id refuses the whole request.
+/// entries hidden, closed groups deleted; any location id refuses the whole
+/// request.
 fn remove(
-    mux: &Mux,
+    mux: &Arc<Mux>,
     key: &str,
     actor: &Actor,
     fields: &Map<String, Value>,
@@ -254,6 +255,9 @@ fn remove(
             json!({"id": location, "message": "locations belong to the app's trail; remove them in the app"}),
         ));
     }
+    // Closed groups first: a failure there leaves no page backup without
+    // its restore id.
+    let deleted = closed::remove(mux, key, actor, &ids)?;
     let mut changed = Vec::new();
     let mut value = json!({"removed": 0, "restore_id": null});
     if ids.iter().any(|id| id.starts_with("page:")) {
@@ -288,15 +292,20 @@ fn remove(
             }
         }
     }
+    if deleted > 0 {
+        let before = value["removed"].as_u64().unwrap_or(0);
+        value["removed"] = json!(before + deleted);
+        changed.push(HistoryKind::Closed);
+    }
     Ok((value, changed))
 }
 
 /// `history.clear`: page visits of the range into a backup (in `profile` or
-/// every profile); agent and command entries hidden by range unless a
-/// profile narrows the clear to pages. Closed and location entries are
-/// never touched.
+/// every profile); agent and command entries hidden and closed groups
+/// deleted by range unless a profile narrows the clear to pages. Location
+/// entries are never touched.
 fn clear(
-    mux: &Mux,
+    mux: &Arc<Mux>,
     key: &str,
     actor: &Actor,
     fields: &Map<String, Value>,
@@ -308,6 +317,11 @@ fn clear(
     let wants = |kind| kinds.is_empty() || kinds.contains(&kind);
     let since = pages::range(fields, true)?.start(now_ms, day_start_ms);
     let profile = pages::text(fields, "profile")?;
+    // Closed groups first, as in remove.
+    let deleted = match profile {
+        None if wants(HistoryKind::Closed) => closed::clear(mux, key, actor, since)?,
+        _ => 0,
+    };
     let mut changed = Vec::new();
     let mut value = json!({"removed": 0, "restore_id": null});
     if wants(HistoryKind::Page) && pages::shared(mux, OPERATION)?.is_some() {
@@ -328,6 +342,11 @@ fn clear(
         })
         .map_err(|error| failed(OPERATION, &error))?;
         changed.extend(hidden);
+    }
+    if deleted > 0 {
+        let before = value["removed"].as_u64().unwrap_or(0);
+        value["removed"] = json!(before + deleted);
+        changed.push(HistoryKind::Closed);
     }
     Ok((value, changed))
 }
