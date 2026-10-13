@@ -125,4 +125,26 @@ export const HARNESS_OVERRIDES: HarnessOverride[] = [
     defaultModel: "anthropic/claude-sonnet-5",
     groupByProvider: true,
   },
+  {
+    // Gemini CLI takes a Gemini API model id (`--model`). Last in the list so a database seeded
+    // before it keeps every other harness's position (cx-miuo, migration 20261013040000).
+    id: "gemini", docsUrl: "https://github.com/google-gemini/gemini-cli",
+    name: "Gemini CLI",
+    brand: "gemini",
+    families: ["gemini"],
+    modelSource: "catalog",
+    sources: [
+      {
+        provider: "google",
+        include: ["gemini-"],
+        exclude: ["gemini-embedding", "gemini-omni", "gemini-2.5-computer-use", "*-latest", "*-customtools", "*-live-preview", "*-translate-preview", "*-tts", "*-tts-preview", "*-image", "*-image-preview"],
+        minReleaseDate: "2025-06-01",
+      },
+    ],
+    defaultModel: "gemini-3.1-pro-preview",
+    // Gemini CLI has no effort setting.
+    dropEfforts: ["none", "minimal", "low", "medium", "high", "xhigh", "max"],
+    shortNamePrefix: "Gemini ",
+    familyNames: { "gemini-pro": "Pro", "gemini-flash": "Flash", "gemini-flash-lite": "Flash Lite" },
+  },
 ];

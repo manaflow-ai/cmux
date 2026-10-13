@@ -27,13 +27,14 @@ function harness(catalog: ModelCatalog, id: string) {
 describe("projectCatalog", () => {
   const catalog = projectCatalog(feed, NOW);
 
-  test("lists the five composer harnesses in order with names and brand marks", () => {
+  test("lists the six composer harnesses in order with names and brand marks", () => {
     expect(catalog.harnesses.map((entry) => [entry.id, entry.name, entry.brand, entry.modelSource])).toEqual([
       ["claude", "Claude Code", "claude", "catalog"],
       ["codex", "Codex", "openai", "catalog"],
       ["opencode", "OpenCode", "opencode", "probe"],
       ["pi", "Pi", "pi", "probe"],
       ["vercel-ai-gateway", "Vercel AI Gateway", "vercel", "catalog"],
+      ["gemini", "Gemini CLI", "gemini", "catalog"],
     ]);
     expect(catalog).toMatchObject({ schemaVersion: 1, generatedAt: NOW.toISOString(), source: "live" });
   });
@@ -182,10 +183,24 @@ describe("the checked-in catalog", () => {
   test("the snapshot is valid, every harness is present, and it is well under the size limit", () => {
     const catalog = bundledSnapshot();
     expect(catalog.source).toBe("snapshot");
-    expect(catalog.harnesses.map((entry) => entry.id)).toEqual(["claude", "codex", "opencode", "pi", "vercel-ai-gateway"]);
+    expect(catalog.harnesses.map((entry) => entry.id)).toEqual(["claude", "codex", "opencode", "pi", "vercel-ai-gateway", "gemini"]);
     expect(harness(catalog, "claude").models.length).toBeGreaterThan(0);
     expect(Buffer.byteLength(JSON.stringify(catalog))).toBeLessThan(MAX_CATALOG_BYTES);
     expect(MAX_CATALOG_BYTES).toBeLessThan(2 * 1024 * 1024);
+  });
+
+  // cx-miuo: Gemini CLI's models come from the catalog, not a hand list. Only chat models that call
+  // tools, under the ids Gemini CLI's --model takes, and no effort (Gemini CLI has no such setting).
+  test("Gemini CLI offers the feed's Gemini chat models and its default", () => {
+    const gemini = harness(bundledSnapshot(), "gemini");
+    const ids = gemini.models.map((model) => model.id);
+    expect(gemini.defaultModel).toBe("gemini-3.1-pro-preview");
+    expect(ids).toEqual(expect.arrayContaining(["gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-2.5-flash"]));
+    for (const id of ids) {
+      expect(id).toMatch(/^gemini-[0-9]/);
+      expect(id).not.toMatch(/(tts|image|embedding|latest|live|customtools|computer-use)/);
+    }
+    expect(gemini.models.every((model) => model.efforts === undefined && model.ref === `google/${model.id}`)).toBe(true);
   });
 
   // cx-jqkx: each aliased Claude family's newest model carries the alias Claude Code resolves to it
