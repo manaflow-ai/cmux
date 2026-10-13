@@ -187,6 +187,9 @@ public nonisolated enum RefusalStrings {
     public static var hibernateUnsupported: String {
         text("handlers.refusal.hibernateUnsupported", "This page cannot keep its history when it hibernates.")
     }
+    public static var hibernateFormSubmission: String {
+        text("handlers.refusal.hibernateFormSubmission", "This page shows the result of a form. It stays loaded so the form is not sent again.")
+    }
     public static var wakeNotHibernated: String { text("handlers.refusal.wakeNotHibernated", "This tab is not hibernated.") }
     public static var terminalCannotReload: String { text("handlers.refusal.terminalCannotReload", "terminal tabs cannot reload; use Reconnect Pane") }
     public static var fullWidthTabUnported: String { text("handlers.refusal.fullWidthTabUnported", "needs full-width tab support in the cmux-next tab strip") }
