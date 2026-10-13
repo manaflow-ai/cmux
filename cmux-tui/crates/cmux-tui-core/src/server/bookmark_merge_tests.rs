@@ -136,7 +136,7 @@ fn merge_keeps_chromium_only_bookmarks_and_never_duplicates() {
             ),
             ("bar".into(), "folder".into(), "Reading".into(), None),
             (
-                "bm_7a0c0c3711114111811100000000000006".into(),
+                "bm_7a0c0c37111141118111000000000006".into(),
                 "url".into(),
                 "Paper".into(),
                 Some("https://example.com/paper".into())
@@ -154,7 +154,7 @@ fn merge_keeps_chromium_only_bookmarks_and_never_duplicates() {
     let listing =
         run(&mux, json!({"cmd":"list-bookmarks","browser_profile_id":"default"})).unwrap();
     let only = node(&listing, "Only Chromium");
-    assert_eq!(only["id"], "bm_7a0c0c3711114111811100000000000002");
+    assert_eq!(only["id"], "bm_7a0c0c37111141118111000000000002");
     assert_eq!(only["created_ms"], 13_370_000_000_000_000_u64 / 1000 - 11_644_473_600_000);
     let changed = events
         .try_iter()
@@ -165,7 +165,7 @@ fn merge_keeps_chromium_only_bookmarks_and_never_duplicates() {
 
     // The key is recorded: a later merge of the store changes nothing, so a
     // bookmark deleted in cmux stays deleted.
-    run(&mux, json!({"cmd":"delete-bookmark","bookmark":"bm_7a0c0c3711114111811100000000000002"}))
+    run(&mux, json!({"cmd":"delete-bookmark","bookmark":"bm_7a0c0c37111141118111000000000002"}))
         .unwrap();
     let before = tree(&mux);
     let again = merge(&mux, STORE, &file).unwrap();
