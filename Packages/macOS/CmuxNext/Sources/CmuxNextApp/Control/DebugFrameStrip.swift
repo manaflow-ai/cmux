@@ -1,6 +1,7 @@
 #if DEBUG
 import AppKit
 import CmuxNextSettings
+import CmuxNextTabs
 import CmuxNextWakeups
 import Darwin
 import ImageIO
@@ -26,7 +27,11 @@ import UniformTypeIdentifiers
 /// frame that had not yet moved), and `moving` counts the frames between
 /// before and final (0 when the change applied in one step). `modifiers`
 /// (default ["command"]) and `key` choose the gesture: `d` is Cmd-D, `d`
-/// with ["command","shift"] Cmd-Shift-D, `w` closes. PNGs of every frame
+/// with ["command","shift"] Cmd-Shift-D, `w` closes; `gesture: "plus"`
+/// presses the focused strip's + (its intent) instead of a key. `content: "panes"`
+/// (splits) leaves every pane's content area, before the key and at the
+/// end, out of the chrome counts, so a new terminal painting its prompt is
+/// not read as motion; only pane chrome, tab bars and dividers count. PNGs of every frame
 /// and one strip (`strip.png`, the frames side by side) go to `dir`.
 @MainActor
 enum DebugFrameStrip {
@@ -53,24 +58,36 @@ enum DebugFrameStrip {
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
             lead.schedule(after: .milliseconds(120)) { @MainActor in done.resume() }
         }
+        let panesMode = params["content"]?.stringValue == "panes"
+        let panesBefore = panesMode ? paneContentRects(controller, window: window) : []
         let modifiers = params["modifiers"] ?? .array([.string("command")])
-        let sent = DebugKey.send(["key": .string(params["key"]?.stringValue ?? "n"), "modifiers": modifiers,
+        let sent: JSONValue
+        if params["gesture"]?.stringValue == "plus", let pane = controller.content?.focusedPane {
+            // The strip's + button: the same intent its press sends.
+            pane.stripModel.send(.newTab(after: nil))
+            sent = .string("plus")
+        } else {
+            sent = DebugKey.send(["key": .string(params["key"]?.stringValue ?? "n"), "modifiers": modifiers,
                                   "window": .string(controller.state.id)], services: services)
+        }
         let sentAt = BenchSpans.ms(.now - start)
         let frames = await recording.value
         let spans = BenchSpans.end()
         guard let first = frames.first, let last = frames.last, let before = frames.last(where: { $0.milliseconds < sentAt }) else {
             return .object(["error": .string("no frames"), "key": sent])
         }
-        let content = params["content"]?.stringValue == "none" ? nil : contentRect(controller, window: window, frame: first)
+        let content = params["content"]?.stringValue == "none" || panesMode ? nil : contentRect(controller, window: window, frame: first)
+        // Splits: every pane's content (before and after) is out of the chrome counts.
+        let paneRects = panesMode ? (panesBefore + paneContentRects(controller, window: window)).map { scaled($0, window: window, frame: first) } : []
+        let excluded = content.map { [$0] } ?? paneRects
         let jump = params["jump"]?.doubleValue ?? 0.6
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         var rows: [JSONValue] = []
         var intermediate = 0, blank = 0, contentIntermediate = 0, moving = 0, reversals = 0, jumps = 0
         var previous: Double?, maxStep = 0.0, peak = 0.0
         for (index, frame) in frames.enumerated() where frame.milliseconds >= before.milliseconds {
-            let outsideBefore = difference(frame, before, excluding: content)
-            let outsideFinal = difference(frame, last, excluding: content)
+            let outsideBefore = difference(frame, before, excluding: excluded)
+            let outsideFinal = difference(frame, last, excluding: excluded)
             let isIntermediate = outsideBefore > tolerance && outsideFinal > tolerance
             // Chrome progress from before (0) to final (1).
             let progress = outsideBefore + outsideFinal > 0 ? outsideBefore / (outsideBefore + outsideFinal) : (outsideBefore > 0 ? 1 : 0)
@@ -120,6 +137,21 @@ enum DebugFrameStrip {
         return CGRect(x: rect.minX * sx, y: (windowHeight - rect.maxY) * sy, width: rect.width * sx, height: rect.height * sy)
     }
 
+    /// Every pane's content area in window coordinates (bottom-left origin).
+    private static func paneContentRects(_ controller: WindowController, window: NSWindow) -> [CGRect] {
+        (controller.content?.panes.values.map { $0 } ?? []).compactMap { pane in
+            let host = pane.view.contentHost
+            return host.window === window ? host.convert(host.bounds, to: nil) : nil
+        }
+    }
+
+    /// A window rect in `frame` pixels (top-left origin).
+    private static func scaled(_ rect: CGRect, window: NSWindow, frame: Frame) -> CGRect {
+        let windowHeight = window.contentView?.superview?.bounds.height ?? window.contentView?.bounds.height ?? window.frame.height
+        let sx = Double(frame.width) / window.frame.width, sy = Double(frame.height) / windowHeight
+        return CGRect(x: rect.minX * sx, y: (windowHeight - rect.maxY) * sy, width: rect.width * sx, height: rect.height * sy)
+    }
+
     /// Reads the window's composited image back to back until `until` ms after `start`.
     @concurrent nonisolated static func record(_ window: CGWindowID, scale: Double, from start: ContinuousClock.Instant,
                                                until: Double) async -> [Frame] {
@@ -152,14 +184,14 @@ enum DebugFrameStrip {
     }
 
     /// The share of pixels outside `excluded` (or only those `within` it) whose color differs by more than a small step.
-    nonisolated static func difference(_ a: Frame, _ b: Frame, excluding excluded: CGRect? = nil, within: CGRect? = nil) -> Double {
+    nonisolated static func difference(_ a: Frame, _ b: Frame, excluding excluded: [CGRect] = [], within: CGRect? = nil) -> Double {
         guard a.width == b.width, a.height == b.height else { return 1 }
         var differing = 0, counted = 0
         for y in 0..<a.height {
             for x in 0..<a.width {
                 // Rows run bottom-up in the bitmap; the rects are top-left based.
                 let point = CGPoint(x: Double(x) + 0.5, y: Double(a.height - 1 - y) + 0.5)
-                if let excluded, excluded.contains(point) { continue }
+                if excluded.contains(where: { $0.contains(point) }) { continue }
                 if let within, !within.contains(point) { continue }
                 let i = (y * a.width + x) * 4
                 counted += 1
