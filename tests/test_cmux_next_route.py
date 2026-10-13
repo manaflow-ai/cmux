@@ -243,6 +243,32 @@ class EveryTier(unittest.TestCase):
     def test_an_unknown_diff_runs_every_tier(self):
         self.assert_everything(tiers([]))
 
+    def test_a_vendored_pin_bump_runs_every_tier_and_the_swift_tests(self):
+        # The GhosttyNextKit binary pin and the CEF pin change code no app diff
+        # shows (classic's #19672 passed on macos-26 and crashed on macOS 27).
+        # A pin bump runs every tier, and swift test runs on that pull request
+        # although feat-cmux-next PRs otherwise skip it.
+        for pin in ("Packages/Shared/CmuxGhosttyKit/Package.swift", "scripts/cmux-next/cef-manifest.json"):
+            result = tiers([pin])
+            self.assert_everything(result)
+            self.assertEqual(result["vendored_pin"], "true", pin)
+        self.assertEqual(tiers(PR_17470)["vendored_pin"], "false")
+        self.assertEqual(tiers([], event="push")["vendored_pin"], "false")
+        workflow = (ROOT / ".github/workflows/cmux-next.yml").read_text(encoding="utf-8")
+        self.assertIn("vendored_pin: ${{ steps.route.outputs.vendored_pin }}", workflow)
+        swift_test = workflow[workflow.index("\n  swift-test:\n"):workflow.index("\n  daemon-test:\n")]
+        # swift test runs on every app-touching feat-cmux-next PR on the
+        # macOS 27 minis: report-only, except on a pin bump, where it blocks.
+        condition = next(line for line in swift_test.splitlines() if line.startswith("    if: "))
+        self.assertNotIn("github.base_ref == 'feat-cmux-next'", condition)
+        self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
+        report_only = (
+            "github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next'"
+            " && needs.path_route.outputs.vendored_pin != 'true'"
+        )
+        self.assertIn(f"    continue-on-error: ${{{{ {report_only} }}}}\n", swift_test)
+        self.assertIn(f"    name: ${{{{ {report_only} && 'cmux-next swift test (macOS 27, report-only)' || 'cmux-next swift test' }}}}\n", swift_test)
+
 
 class PushAttribution(unittest.TestCase):
     def test_skipped_jobs_do_not_end_the_range(self):

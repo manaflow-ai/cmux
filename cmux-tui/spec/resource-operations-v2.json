@@ -16974,7 +16974,7 @@
       ],
       "constraints": [
         "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
-        "Page visits in the range are removed; agent and command entries are hidden by range (not with a profile); closed and location entries are never touched; removed counts visits."
+        "Page visits in the range are removed; agent and command entries are hidden by range and closed groups closed in the range are deleted for good as closed.delete (neither with a profile); location entries are never touched; removed counts visits and deleted closed groups."
       ]
     },
     "history.entries.list": {
@@ -17120,7 +17120,7 @@
       ],
       "constraints": [
         "Every removal of page visits moves them to a backup and answers its restore_id (recoverable by default); the backup ends at history.restore, history.backups.purge (origin user) or the 90-day retention.",
-        "Page visits are removed; agent and command entries are hidden; closed entries are left to age out; any location id refuses the whole request with operation.failed reason history.location_client_owned (the app owns its trail)."
+        "Page visits are removed; agent and command entries are hidden; closed entries delete their closed group for good as closed.delete (it cannot be reopened; no restore id; an already gone group counts nothing); any location id refuses the whole request with operation.failed reason history.location_client_owned (the app owns its trail)."
       ]
     },
     "history.restore": {

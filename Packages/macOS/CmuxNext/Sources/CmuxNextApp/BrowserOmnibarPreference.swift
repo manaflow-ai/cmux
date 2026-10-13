@@ -5,11 +5,6 @@ import Observation
 import os
 
 extension OmniboxConfiguration {
-    /// Pure: cmux.json's address bar keys as the browser module's value.
-    init(_ setting: BrowserOmnibarSetting) {
-        self = Self.resolve(setting).configuration
-    }
-
     /// The configuration, and whether the chosen custom engine is unusable
     /// (no search address with `%s` or `{searchTerms}`). Then the address
     /// bar searches with Google, never with the broken address; the caller
@@ -51,6 +46,8 @@ enum BrowserOmnibarPreference {
                     logger.fault("browser.searchEngine is custom without a usable browser.customSearchEngine.search; searching with Google")
                 }
                 reported = resolved.invalidCustomEngine ? setting : nil
+                OmnibarGlassAppearance.shared.apply(glass: setting.glass, tint: setting.glassTint, tintStrength: setting.glassTintStrength,
+                                                    cornerRadius: setting.cornerRadius, shadow: setting.shadow)
                 cache.omniboxConfiguration = resolved.configuration
                 for engine in cache.suggestionEngines { engine.apply(cache.omniboxConfiguration) }
             }

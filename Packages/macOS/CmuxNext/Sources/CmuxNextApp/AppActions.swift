@@ -130,7 +130,7 @@ enum AppActions {
         registry.bind("quitKeepSessions") { services.quit.requestQuit(.explicit(.keep)) }
         registry.bind("quitEndSessions") { services.quit.requestQuit(.explicit(.endKeepLayout)) }
         registry.bind("quitEndEverything") { services.quit.requestQuit(.explicit(.endEverything)) }
-        registry.bind("newWindow") { services.windows.newWindow() }
+        registry.bind("newWindow") { services.windows.newWindow(holdingKeysFrom: services.windows.active?.window) }
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
         registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
             services.windows.active?.window?.performClose(nil)
