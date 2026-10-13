@@ -36,6 +36,11 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
             | Op::TabPin
             | Op::TabUnpin
             | Op::TabUpdate
+            | Op::BrowserDevicesList
+            | Op::BrowserDevicesAddCustom
+            | Op::BrowserDevicesRemoveCustom
+            | Op::BrowserTabEmulate
+            | Op::BrowserTabEmulateClear
             | Op::TabGroupList
             | Op::TabGroupGet
             | Op::TabGroupCreate
@@ -286,7 +291,45 @@ pub(crate) fn dispatch(
                 forward: fields.contains_key("forward").then(|| strings(fields, "forward")),
                 owner: string(fields, "owner"),
                 icon: nullable_string(fields, "icon"),
+                emulation: None,
             };
+            let commit = mux
+                .state_update_tab(strip_request(&request)?, selectors.clone(), update)
+                .map_err(state_error)?;
+            patch_result(mux, commit)
+        }
+        // browser-devices-v1 (cx-ocbf3): the device list and per-tab emulation.
+        Op::BrowserDevicesList => {
+            ensure_session(mux, selectors)?;
+            read(mux, crate::state::browser_devices::list)
+        }
+        Op::BrowserDevicesAddCustom => {
+            ensure_session(mux, selectors)?;
+            let device = fields.get("device").cloned().unwrap_or(Value::Null);
+            let commit =
+                mux.state_browser_device_add(&mutation(&request)?, &device).map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::BrowserDevicesRemoveCustom => {
+            ensure_session(mux, selectors)?;
+            let title = string(fields, "title").unwrap_or_default();
+            let commit = mux
+                .state_browser_device_remove(&mutation(&request)?, &title)
+                .map_err(state_error)?;
+            state_result(mux, commit)
+        }
+        Op::BrowserTabEmulate | Op::BrowserTabEmulateClear => {
+            use crate::state::browser_devices::EmulationChange;
+            let change = if operation == Op::BrowserTabEmulateClear {
+                EmulationChange::Clear
+            } else {
+                EmulationChange::Set {
+                    device: string(fields, "device"),
+                    custom: fields.get("custom").filter(|value| !value.is_null()).cloned(),
+                    orientation: string(fields, "orientation"),
+                }
+            };
+            let update = TabStateUpdate { emulation: Some(change), ..Default::default() };
             let commit = mux
                 .state_update_tab(strip_request(&request)?, selectors.clone(), update)
                 .map_err(state_error)?;

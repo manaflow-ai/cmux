@@ -85,6 +85,18 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.devices.add_custom": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.devices.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.devices.remove_custom": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.forward": {
       "scope": "browser:write",
       "class": "mutation"
@@ -118,6 +130,14 @@
       "class": "mutation"
     },
     "browser.reload": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.tab.emulate": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.tab.emulate.clear": {
       "scope": "browser:write",
       "class": "mutation"
     },

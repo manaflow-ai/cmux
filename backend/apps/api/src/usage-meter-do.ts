@@ -4,7 +4,7 @@ import { Schema } from "effect"
 import { ceilingUsd, MONEY_METERS, recordMicros, METERS, summarize, usageDomain, utcMonth, type MeterCounter, type UsageState } from "./domains/usage.ts"
 import type { Env } from "./env.ts"
 import { OwnerDO, type ReadResult } from "./owner-do.ts"
-import { addUserSpend, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleUser, userSpentMicros, type UserReserve } from "./usage-user.ts"
+import { addUserSpend, ensureUserTables, expireUserReservations, nextUserWake, recordCostMicros, reserveUser, settleCall, userSpentMicros, type UserReserve } from "./usage-user.ts"
 
 /** How long a record key is remembered for dedupe (longer than any run's retry window that records it twice). */
 export const USAGE_KEY_RETENTION_MS = 35 * 24 * 3600_000
@@ -49,6 +49,10 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
       key TEXT PRIMARY KEY, meter TEXT NOT NULL, quantity REAL NOT NULL, month TEXT NOT NULL, source TEXT NOT NULL,
       run TEXT, automation TEXT, step TEXT, attempt INTEGER, commit_sha TEXT, observed_at INTEGER NOT NULL, recorded_at INTEGER NOT NULL)`)
     ctx.storage.sql.exec(`CREATE INDEX IF NOT EXISTS usage_ledger_recorded ON usage_ledger (recorded_at)`)
+    // A fact names its member, and a correction names the fact it corrects (cx-y79zh S1); older objects get the columns.
+    const ledgerCols = new Set(ctx.storage.sql.exec<{ name: string }>(`PRAGMA table_info(usage_ledger)`).toArray().map((c) => c.name))
+    if (!ledgerCols.has("user")) ctx.storage.sql.exec(`ALTER TABLE usage_ledger ADD COLUMN user TEXT`)
+    if (!ledgerCols.has("corrects")) ctx.storage.sql.exec(`ALTER TABLE usage_ledger ADD COLUMN corrects TEXT`)
     // One row per team: the current egress minute and its count (a fixed window).
     ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS egress_minute (id INTEGER PRIMARY KEY CHECK (id = 1), minute INTEGER NOT NULL, n INTEGER NOT NULL)`)
     // usd_micros: integer micro-dollars, the only money column (summed exactly).
@@ -73,10 +77,19 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
     return r
   }
 
-  /** The call ended (`actualMicros`) or never reached a provider (null: the reservation is dropped). */
-  async settleUser(entity: string, id: string, actualMicros: number | null): Promise<void> {
+  /**
+   * The call ended (`actualMicros`) or never reached a provider (null: the reservation is dropped).
+   * One transaction writes the call's one fact, the member's spend and the team's model spend
+   * (usage-user.ts settleCall), so the member limit and the team counter cannot disagree.
+   */
+  async settleCall(entity: string, id: string, actualMicros: number | null): Promise<void> {
     this.bind(entity)
-    settleUser(this.ctx.storage, id, actualMicros)
+    settleCall(this.ctx.storage, id, actualMicros, Date.now())
+  }
+
+  /** The pre-S1 name, kept for one release: a Worker isolate from before the deploy still calls it (review P3). */
+  async settleUser(entity: string, id: string, actualMicros: number | null): Promise<void> {
+    return this.settleCall(entity, id, actualMicros)
   }
 
   /** team.ai_limit.get: this month's spend (USD, settled plus open) of the users named, and only those. */
@@ -156,8 +169,8 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
         }
         const month = utcMonth(now)
         const inserted = sql.exec(
-          `INSERT OR IGNORE INTO usage_ledger (key, meter, quantity, month, source, run, automation, step, attempt, commit_sha, observed_at, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          v.key, v.meter, v.quantity, month, v.source, v.run ?? null, v.automation ?? null, v.step ?? null, v.attempt ?? null, v.commit ?? null, v.observed_at, now
+          `INSERT OR IGNORE INTO usage_ledger (key, meter, quantity, month, source, run, automation, step, attempt, commit_sha, user, observed_at, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          v.key, v.meter, v.quantity, month, v.source, v.run ?? null, v.automation ?? null, v.step ?? null, v.attempt ?? null, v.commit ?? null, v.user ?? null, v.observed_at, now
         ).rowsWritten
         if (inserted === 0) {
           duplicates++

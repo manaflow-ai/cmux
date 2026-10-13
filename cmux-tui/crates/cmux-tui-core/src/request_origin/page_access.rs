@@ -250,6 +250,11 @@ const fn access(operation: Op) -> Access {
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
         | Op::SidebarLayoutUpdate
+        | Op::BrowserDevicesList
+        | Op::BrowserDevicesAddCustom
+        | Op::BrowserDevicesRemoveCustom
+        | Op::BrowserTabEmulate
+        | Op::BrowserTabEmulateClear
         | Op::PaletteUsageGet
         | Op::PaletteUsageRecord
         | Op::PaletteUsageImport

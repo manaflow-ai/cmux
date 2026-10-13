@@ -17,6 +17,9 @@ declare namespace Cmux {
   type BrowserAttachItem = unknown
   type BrowserAttachSnapshot = { kind: "snapshot"; browser: Cmux.BrowserSnapshot; size: Cmux.PixelSize }
   type BrowserAttachState = { kind: "state"; url: string; title: string; loading: boolean }
+  type BrowserDeviceAddResult = { device: Cmux.JsonValue }
+  type BrowserDeviceList = { chrome: Cmux.JsonValue; devices: Array<Cmux.JsonValue> }
+  type BrowserDeviceRemoveResult = { removed: boolean }
   type BrowserSnapshot = { id: string /* browser_… */; tab_id: string /* tab_… */; url: string; title: string; loading: boolean; source: Cmux.BrowserSource; status: Cmux.BrowserStatus; error: string | null; frames_stalled: boolean; size: Cmux.Size; extra?: Record<string, Cmux.JsonValue> }
   type BrowserSource = "external" | "launched"
   type BrowserStatus = "starting" | "live" | "failed"
@@ -479,6 +482,14 @@ interface CmuxGlobal {
     activate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
     /** `browser.back` (mutation, scope `browser:write`) */
     back: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
+    devices: {
+      /** `browser.devices.add_custom` (mutation, scope `browser:write`) */
+      add_custom: CmuxOp<{ machine?: string; session?: string; device: Cmux.JsonValue }, Cmux.MutationResult<Cmux.BrowserDeviceAddResult>>
+      /** `browser.devices.list` (read, scope `browser:read`) */
+      list: CmuxOp<{ machine?: string; session?: string }, Cmux.BrowserDeviceList>
+      /** `browser.devices.remove_custom` (mutation, scope `browser:write`) */
+      remove_custom: CmuxOp<{ machine?: string; session?: string; title: string }, Cmux.MutationResult<Cmux.BrowserDeviceRemoveResult>>
+    }
     /** `browser.forward` (mutation, scope `browser:write`) */
     forward: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
     /** `browser.get` (read, scope `browser:read`) */
@@ -499,6 +510,13 @@ interface CmuxGlobal {
     navigate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; url: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
     /** `browser.reload` (mutation, scope `browser:write`) */
     reload: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab?: string; browser: string; expected_revision?: string }, Cmux.MutationResult<Cmux.BrowserSnapshot>>
+    tab: {
+      /** `browser.tab.emulate` (mutation, scope `browser:write`) */
+      emulate: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; device?: string; custom?: Cmux.JsonValue; orientation?: "vertical" | "horizontal" | "vertical-spanned" | "horizontal-spanned" | "portrait" | "landscape" | "unfolded-portrait" | "unfolded-landscape"; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>> & {
+        /** `browser.tab.emulate.clear` (mutation, scope `browser:write`) */
+        clear: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
+      }
+    }
   }
   caffeinate: {
     /** `caffeinate.cycle_variant` (mutation, scope `caffeinate:write`, owner `app:cmux/caffeinate`): Switch to the next Caffeinate design variant (DEV and NIGHTLY). */

@@ -18,6 +18,8 @@ pub(crate) mod agent_message_store;
 pub(crate) mod agent_messages;
 pub(crate) mod agent_start;
 pub(crate) mod app_workspaces;
+pub(crate) mod browser_devices;
+pub(crate) mod browser_devices_ops;
 #[cfg(test)]
 mod closed_browser_history_tests;
 pub(crate) mod closed_history;

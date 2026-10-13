@@ -1250,6 +1250,22 @@ pre.cv-math-source {
   flex: none;
   white-space: nowrap;
 }
+/* Its Details fold: the chat's chevron after the label, no browser triangle. */
+.cv-turn-note__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  list-style: none;
+  cursor: pointer;
+  font-size: var(--text-detail);
+  color: var(--cv-text-dim);
+}
+.cv-turn-note__summary::-webkit-details-marker {
+  display: none;
+}
+.cv-turn-note__summary:hover {
+  color: var(--cv-text);
+}
 /* A failed turn's note: a block above its footer row, where an answer would be. */
 .cv-turn-note {
   padding-block: 2px 4px;

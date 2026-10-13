@@ -3664,6 +3664,9 @@ mod all_sessions_scope;
 #[path = "cli/app_workspaces.rs"]
 mod app_workspaces;
 #[cfg(unix)]
+#[path = "cli/browser_devices.rs"]
+mod browser_devices;
+#[cfg(unix)]
 #[path = "cli/chief.rs"]
 mod chief;
 #[path = "cli/closed_delete.rs"]
