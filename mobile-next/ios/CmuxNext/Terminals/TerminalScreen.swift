@@ -144,7 +144,7 @@ struct TerminalScreen: View {
     var body: some View {
         VStack(spacing: 0) {
             TerminalSurface(controller: controller)
-                .id(replacementID ?? terminalID)
+                .id(ObjectIdentifier(controller))
                 .ignoresSafeArea(.container, edges: .bottom)
             if controller.keyboardShown {
                 KeyBar(controlArmed: controlArmed) { key in controller.press(key) }
@@ -201,7 +201,7 @@ struct TerminalScreen: View {
         .onAppear {
             controller.onTitle = { title = $0 }
             controller.onControl = { controlArmed = $0 }
-            controller.start(host: host, terminal: terminalID)
+            controller.start(host: host, terminal: replacementID ?? terminalID)
         }
         .onDisappear { controller.stop() }
         .animation(.snappy(duration: 0.2), value: controller.keyboardShown)

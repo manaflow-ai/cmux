@@ -93,17 +93,13 @@ struct AgentChatView: View {
         guard !work.isEmpty else { return turn.items.map(DisplayEntry.item) }
         let steps = work.filter { if case .tool = $0 { true } else { false } }.count
         // The turn's edits, last version per file, as one card under the answer.
-        var byPath: [String: FileDiff] = [:]
-        var order: [String] = []
+        // Each hunk as the agent sent it (Edit diffs are snippets, so
+        // successive edits to a file can't be merged into one).
+        var edits: [FileDiff] = []
         for item in work {
             guard case .tool(let call) = item, call.status != .failed else { continue }
-            for diff in call.diffs {
-                if byPath[diff.path] == nil { order.append(diff.path) }
-                let first = byPath[diff.path]
-                byPath[diff.path] = FileDiff(path: diff.path, oldText: first?.oldText ?? diff.oldText, newText: diff.newText)
-            }
+            edits.append(contentsOf: call.diffs)
         }
-        let edits = order.compactMap { byPath[$0] }
         var result = head + [.worked(duration: duration, steps: steps, expanded: expanded)]
             + (expanded ? work.map(DisplayEntry.item) : []) + tail
         if !edits.isEmpty {
@@ -340,12 +336,30 @@ struct EditedFilesCard: View {
     let diffs: [FileDiff]
     @State private var reviewing = false
 
+    private struct FileTotal { let path: String; var added: Int; var removed: Int }
+
+    /// Hunks summed per file, in first-edit order.
+    private var perFile: [FileTotal] {
+        var totals: [FileTotal] = []
+        for diff in diffs {
+            if let index = totals.firstIndex(where: { $0.path == diff.path }) {
+                totals[index].added += diff.added
+                totals[index].removed += diff.removed
+            } else {
+                totals.append(FileTotal(path: diff.path, added: diff.added, removed: diff.removed))
+            }
+        }
+        return totals
+    }
+
+    private var fileCount: Int { perFile.count }
+
     var body: some View {
         Button { reviewing = true } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "doc.badge.ellipsis").font(.system(size: 13))
-                    Text(diffs.count == 1 ? String(localized: "1 file changed") : String(localized: "\(diffs.count) files changed"))
+                    Text(fileCount == 1 ? String(localized: "1 file changed") : String(localized: "\(fileCount) files changed"))
                         .font(.system(size: 15, weight: .semibold))
                     Text("+\(diffs.reduce(0) { $0 + $1.added })").foregroundStyle(CmuxTheme.success)
                     Text("−\(diffs.reduce(0) { $0 + $1.removed })").foregroundStyle(CmuxTheme.danger)
@@ -353,12 +367,12 @@ struct EditedFilesCard: View {
                     Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(.tertiary)
                 }
                 .font(.system(size: 13, weight: .medium, design: .monospaced))
-                ForEach(diffs.prefix(4), id: \.path) { diff in
+                ForEach(perFile.prefix(4), id: \.path) { file in
                     HStack(spacing: 6) {
-                        Text((diff.path as NSString).lastPathComponent).font(.system(size: 13, design: .monospaced)).lineLimit(1)
+                        Text((file.path as NSString).lastPathComponent).font(.system(size: 13, design: .monospaced)).lineLimit(1)
                         Spacer()
-                        Text("+\(diff.added)").foregroundStyle(CmuxTheme.success)
-                        Text("−\(diff.removed)").foregroundStyle(CmuxTheme.danger)
+                        Text("+\(file.added)").foregroundStyle(CmuxTheme.success)
+                        Text("−\(file.removed)").foregroundStyle(CmuxTheme.danger)
                     }
                     .font(.system(size: 12, weight: .medium, design: .monospaced))
                     .foregroundStyle(.secondary)
@@ -374,11 +388,11 @@ struct EditedFilesCard: View {
             NavigationStack {
                 ScrollView {
                     VStack(spacing: 12) {
-                        ForEach(diffs, id: \.path) { DiffView(diff: $0) }
+                        ForEach(Array(diffs.enumerated()), id: \.offset) { DiffView(diff: $0.element) }
                     }
                     .padding(16)
                 }
-                .navigationTitle(diffs.count == 1 ? String(localized: "1 file changed") : String(localized: "\(diffs.count) files changed"))
+                .navigationTitle(fileCount == 1 ? String(localized: "1 file changed") : String(localized: "\(fileCount) files changed"))
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarTrailing) { Button("Done") { reviewing = false }.accessibilityIdentifier("edited.done") }

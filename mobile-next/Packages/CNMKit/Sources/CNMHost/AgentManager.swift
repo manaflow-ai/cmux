@@ -36,6 +36,11 @@ final class AgentManager: @unchecked Sendable {
         /// While the agent replays history during `session/load`, its updates
         /// are already in our log; drop them.
         var replaying = false
+        /// Set while the host stops an agent on purpose (shutdown), so its
+        /// exit isn't logged as a crash.
+        var stopping = false
+        /// A restart in progress; other prompts wait for it.
+        var restartTask: Task<Void, Error>?
         var permissionWaiters: [String: CheckedContinuation<String?, Never>] = [:]
         var prompting = false
         init(info: AgentSessionInfo) { self.info = info }
@@ -134,8 +139,11 @@ final class AgentManager: @unchecked Sendable {
         process.onExit = { [weak self] status, tail in
             guard let self else { return }
             guard let session = self.lock.withLock({ self.sessions[sessionID] }) else { return }
+            // An old process exiting after a restart, or a deliberate stop.
+            let current = self.lock.withLock { session.process === process && !session.stopping }
+            guard current else { return }
             self.resumeWaiters(session)
-            if session.info.state != .exited {
+            if session.info.state != .exited, session.info.state != .failed {
                 let detail = tail.split(separator: "\n").suffix(3).joined(separator: "\n")
                 self.append(session, .error, ["message": .string("The agent exited (\(status)). \(detail)")])
                 self.setState(session, .exited)
@@ -156,10 +164,19 @@ final class AgentManager: @unchecked Sendable {
                 // Same conversation, new process: the agent keeps its memory.
                 lock.withLock { session.replaying = true }
                 defer { lock.withLock { session.replaying = false } }
-                result = try await process.request("session/load", [
-                    "sessionId": .string(resume), "cwd": .string(session.info.cwd), "mcpServers": [],
-                ], timeout: .seconds(120))
-                acpID = resume
+                do {
+                    result = try await process.request("session/load", [
+                        "sessionId": .string(resume), "cwd": .string(session.info.cwd), "mcpServers": [],
+                    ], timeout: .seconds(120))
+                    acpID = resume
+                } catch {
+                    // The old session is gone (file deleted, folder moved): start fresh.
+                    append(session, .error, ["message": "Couldn't resume the earlier session; this chat continues in a fresh one."])
+                    result = try await process.request("session/new", [
+                        "cwd": .string(session.info.cwd), "mcpServers": [],
+                    ], timeout: .seconds(90))
+                    acpID = result["sessionId"]?.stringValue
+                }
             } else {
                 if resume != nil {
                     append(session, .error, ["message": "This agent can't resume its old session; it starts fresh with the same folder."])
@@ -207,14 +224,22 @@ final class AgentManager: @unchecked Sendable {
         guard let session = lock.withLock({ sessions[params.session] }) else {
             throw RPCError(code: -32030, message: "No such agent session")
         }
+        if let pending = lock.withLock({ session.restartTask }) { try await pending.value }
         var (process, acpID) = lock.withLock { (session.process, session.acpSessionID) }
         if process?.isRunning != true || acpID == nil {
-            // The agent ended (host restart, crash): bring it back first.
+            // The agent ended (host restart, crash): bring it back first, once.
             guard let spec = HarnessSpec.builtIn.first(where: { $0.id == session.info.harness }), let command = resolve(spec) else {
                 throw RPCError(code: -32034, message: "This agent is no longer installed on this Mac.")
             }
-            setState(session, .starting)
-            try await start(session, command: command, resume: acpID)
+            let resumeID = acpID
+            let restart: Task<Void, Error> = lock.withLock {
+                if let running = session.restartTask { return running }
+                let task = makeRestart(session, command: command, resume: resumeID)
+                session.restartTask = task
+                return task
+            }
+            defer { lock.withLock { session.restartTask = nil } }
+            try await restart.value
             (process, acpID) = lock.withLock { (session.process, session.acpSessionID) }
         }
         guard let process, let acpID else {
@@ -242,6 +267,13 @@ final class AgentManager: @unchecked Sendable {
             }
             self.lock.withLock { session.prompting = false }
             if session.info.state != .exited { self.setState(session, .idle) }
+        }
+    }
+
+    private func makeRestart(_ session: Session, command: [String], resume: String?) -> Task<Void, Error> {
+        Task { [self] in
+            setState(session, .starting)
+            try await start(session, command: command, resume: resume)
         }
     }
 
@@ -293,6 +325,7 @@ final class AgentManager: @unchecked Sendable {
     func shutdown() {
         let all = lock.withLock { Array(sessions.values) }
         for session in all {
+            lock.withLock { session.stopping = true }
             resumeWaiters(session)
             session.process?.terminate()
         }

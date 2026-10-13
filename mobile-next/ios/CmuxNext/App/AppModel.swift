@@ -162,7 +162,7 @@ final class AppModel {
                     await self.applyPresence(peers)
                     self.presenceKnown = true
                 case .closed:
-                    for host in self.hosts { host.setOnline(false) }
+                    for host in self.hosts { host.signalingLost() }
                 default:
                     break
                 }

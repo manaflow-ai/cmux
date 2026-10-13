@@ -37,14 +37,15 @@ final class HostConnection: Identifiable {
 
     var terminals: [TerminalInfo] = []
 
-    @ObservationIgnored private var transcriptCache: [String: (count: Int, builder: TranscriptBuilder)] = [:]
+    @ObservationIgnored private var transcriptCache: [String: (count: Int, lastSeq: Int, builder: TranscriptBuilder)] = [:]
 
     /// The folded transcript, rebuilt only when the session's log grew.
     func transcript(for session: String) -> TranscriptBuilder {
         let events = agentEvents[session] ?? []
-        if let cached = transcriptCache[session], cached.count == events.count { return cached.builder }
+        let lastSeq = events.last?.seq ?? -1
+        if let cached = transcriptCache[session], cached.count == events.count, cached.lastSeq == lastSeq { return cached.builder }
         let builder = TranscriptBuilder(events: events)
-        transcriptCache[session] = (events.count, builder)
+        transcriptCache[session] = (events.count, lastSeq, builder)
         return builder
     }
 
@@ -55,6 +56,7 @@ final class HostConnection: Identifiable {
     @ObservationIgnored private var attaching: [String: [AgentEvent]] = [:]
     @ObservationIgnored private var dialTask: Task<Void, Never>?
     @ObservationIgnored private var online = false
+    @ObservationIgnored private var dialGeneration: UUID?
     @ObservationIgnored private var offlineDropTask: Task<Void, Never>?
     @ObservationIgnored private var retry = 0
     @ObservationIgnored private let dialer: PeerDialer
@@ -67,6 +69,13 @@ final class HostConnection: Identifiable {
     }
 
     // MARK: Link lifecycle
+
+    /// The phone's own signaling socket dropped: presence is unknown, so a
+    /// live link is left alone (it doesn't depend on signaling).
+    func signalingLost() {
+        online = false
+        if peer == nil { status = .offline }
+    }
 
     func setOnline(_ online: Bool) {
         let cameOnline = online && !self.online
@@ -90,7 +99,7 @@ final class HostConnection: Identifiable {
                 try? await Task.sleep(for: .seconds(3))
                 guard let self, !Task.isCancelled, !self.online, let peer = self.peer else { return }
                 peer.close()
-                self.dropped("Mac went offline")
+                self.dropped("Mac went offline", peer: peer)
             }
         }
         if online { offlineDropTask?.cancel() }
@@ -99,19 +108,21 @@ final class HostConnection: Identifiable {
     func connect() {
         guard dialTask == nil else { return }
         status = .connecting
+        let generation = UUID()
+        dialGeneration = generation
         dialTask = Task { [weak self] in
             guard let self else { return }
             do {
                 let link = try await dialer.dial(peerID: peerID)
-                // Disconnected or removed while dialing: drop the link.
-                guard !Task.isCancelled, self.online else {
+                // Superseded, disconnected or removed while dialing: drop it.
+                guard !Task.isCancelled, self.online, self.dialGeneration == generation, self.peer == nil else {
                     link.close()
-                    self.dialTask = nil
+                    if self.dialGeneration == generation { self.dialTask = nil }
                     return
                 }
                 await self.attach(link)
             } catch {
-                guard !Task.isCancelled else { return }
+                guard !Task.isCancelled, self.dialGeneration == generation else { return }
                 self.status = self.online ? .failed(error.localizedDescription) : .offline
                 self.dialTask = nil
                 self.scheduleRetry()
@@ -145,11 +156,11 @@ final class HostConnection: Identifiable {
             for await state in link.states {
                 switch state {
                 case .connected(let route): self?.status = .connected(route: route)
-                case .disconnected(let reason): self?.dropped(reason)
+                case .disconnected(let reason): self?.dropped(reason, peer: peer)
                 case .connecting: break
                 }
             }
-            self?.dropped(nil)
+            self?.dropped(nil, peer: peer)
         }
         if case .connecting = status { status = .connected(route: "direct") }
         retry = 0
@@ -162,8 +173,10 @@ final class HostConnection: Identifiable {
         for session in agentEvents.keys { await attachAgent(session) }
     }
 
-    private func dropped(_ reason: String?) {
-        guard peer != nil else { return }
+    /// Only the current link's end counts; an old link ending later must
+    /// not clear a healthy newer one.
+    private func dropped(_ reason: String?, peer ended: RPCPeer? = nil) {
+        guard let current = peer, ended == nil || ended === current else { return }
         peer = nil
         status = online ? .failed(reason ?? "Disconnected") : .offline
         scheduleRetry()
@@ -178,7 +191,7 @@ final class HostConnection: Identifiable {
         } catch {
             guard self.peer === peer else { return }
             peer.close()
-            dropped("No answer after resuming")
+            dropped("No answer after resuming", peer: peer)
         }
     }
 
@@ -374,7 +387,8 @@ final class HostConnection: Identifiable {
     }
 
     func prompt(_ session: String, blocks: [JSONValue]) async throws {
-        _ = try await requirePeer().request(.agentPrompt, params: try .encode(AgentPromptParams(session: session, prompt: blocks)))
+        // The Mac may first restart the agent (install, load its session).
+        _ = try await requirePeer().request(.agentPrompt, params: try .encode(AgentPromptParams(session: session, prompt: blocks)), timeout: .seconds(180))
     }
 
     func cancel(_ session: String) {

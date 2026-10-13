@@ -455,6 +455,8 @@ final class FlowTests: XCTestCase {
         app.typeText("echo after-restart-$((6*7))\n")
         pause(4)
         snap(app, "b2-after")
+        pause(12)
+        snap(app, "b3-later")
     }
 
     /// An agent is resumed after the host restarts and still remembers.

@@ -155,11 +155,15 @@ public final class HostRuntime {
         }
     }
 
-    /// Forgets this Mac's pairing here and on the server.
-    public func unpair() {
+    /// Forgets this Mac's pairing here and on the server (waits up to 5 s
+    /// for the server so a CLI that exits right after still revokes).
+    public func unpair() async {
         if let token = identity?.hostToken {
             let backend = backend
-            Task { try? await backend.unpairHost(token: token) }
+            let request = Task { try? await backend.unpairHost(token: token) }
+            let timeout = Task { try? await Task.sleep(for: .seconds(5)); request.cancel() }
+            _ = await request.value
+            timeout.cancel()
         }
         stop()
         try? FileManager.default.removeItem(at: identityURL)
@@ -212,8 +216,10 @@ public final class HostRuntime {
                     // A host token never expires: unauthorized means revoked.
                     if reason == "revoked" || reason == "unauthorized" {
                         self?.log("this Mac was removed from the account; pairing again")
-                        self?.unpair()
-                        self?.start()
+                        Task {
+                            await self?.unpair()
+                            self?.start()
+                        }
                     }
                 default:
                     break

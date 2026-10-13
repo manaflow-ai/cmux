@@ -55,7 +55,7 @@ public struct HostMenu: View {
                 }
             HStack {
                 if runtime.identity != nil {
-                    Button("Unpair") { runtime.unpair(); runtime.start() }
+                    Button("Unpair") { Task { await runtime.unpair(); runtime.start() } }
                 }
                 Spacer()
                 Button("Quit") { NSApplication.shared.terminate(nil) }

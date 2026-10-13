@@ -18,7 +18,9 @@ public final class HostServer: @unchecked Sendable {
     private var terminals: [UInt32: PTYTerminal] = [:]
     /// terminal id → peers attached to it.
     private var viewers: [UInt32: Set<ObjectIdentifier>] = [:]
-    private var nextTerminalID: UInt32 = 1
+    /// Random start: ids from a previous run of the host must not be reused,
+    /// or a phone would mistake a new shell for one that died with it.
+    private var nextTerminalID = UInt32.random(in: 1_000...2_000_000_000)
     private var log: @Sendable (String) -> Void
 
     public init(hostName: String, hostID: String, environment: HostEnvironment, log: @escaping @Sendable (String) -> Void = { _ in }) {
