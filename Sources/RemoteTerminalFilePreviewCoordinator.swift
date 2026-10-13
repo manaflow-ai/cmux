@@ -46,7 +46,7 @@ final class RemoteTerminalFilePreviewCoordinator {
             destination: configuration.destination,
             port: configuration.port,
             identityFile: configuration.identityFile,
-            sshOptions: configuration.sshOptions,
+            sshOptions: configuration.openSSHOptions,
             displayTarget: configuration.displayTarget,
             homePath: "",
             isAvailable: true,
