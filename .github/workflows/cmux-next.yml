@@ -1132,7 +1132,7 @@ jobs:
             ${{ steps.test-notification-centers.outcome }}|Tests inject their notification center
             ${{ steps.l10n.outcome }}|String tables (21 languages)
             ${{ steps.module-resources.outcome }}|Module resource bundles
-            ${{ steps.scrollbars.outcome }}|Scrollbars follow macOS
+            ${{ steps.scrollbars.outcome }}|Scrollbars thin, one style
             ${{ steps.motion.outcome }}|Motion tokens
             ${{ steps.protected-folders.outcome }}|Protected-folder copies
             ${{ steps.stale-pcm-cleanup.outcome }}|Stale scheme PCM cleanup
