@@ -18,7 +18,9 @@ extension CmuxTuiSurfaceProvider {
             base = snapshot.displays.map { $0.resource(on: machine, address: info.privateAddress) }
         } else {
             base = [CmuxTuiSnapshotParser.display(machine: machine,
-                directURL: info.privateAddress.map { Self.privateDesktopURL(privateAddress: $0) })]
+                directURL: info.privateAddress.map {
+                    Self.privateDesktopURL(privateAddress: $0, port: info.desktopPort ?? CmuxTuiSnapshotParser.desktopPort)
+                }, desktopPort: info.desktopPort ?? CmuxTuiSnapshotParser.desktopPort)]
         }
         // A named display carries its name everywhere it is listed or shown.
         let names = cloudState?.displayNames ?? [:]

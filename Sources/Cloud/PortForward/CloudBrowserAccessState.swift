@@ -585,7 +585,7 @@ final class CloudBrowserAccessState {
         if model?.usesBrowserProxy == true {
             guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
                   Self.browserRouteHostsMatch(url.host, remoteURL.host) else { return false }
-            if let resourceID, let expectedPort = Self.resourcePort(for: resourceID) {
+            if let resourceID, let expectedPort = Self.resourcePort(for: resourceID, model: model) {
                 let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
                 return requestedPort == expectedPort
             }
@@ -687,11 +687,15 @@ final class CloudBrowserAccessState {
         return PrivateNetworkHostPolicy().isLoopback(host: host) ? "127.0.0.1" : host
     }
 
-    private static func resourcePort(for resource: SurfaceResourceID) -> Int? {
-        if resource.kind == .display,
-           let number = Int(resource.key.split(separator: ":").last ?? ""),
-           (1...16).contains(number) {
-            return 6900 + number
+    private static func resourcePort(for resource: SurfaceResourceID, model: CloudPortAccessModel?) -> Int? {
+        if resource.kind == .display {
+            // The access model is keyed by the actual guest port, so it is the
+            // authoritative value for both legacy and server-advertised slots.
+            if let port = model?.target.port { return port }
+            if let number = Int(resource.key.split(separator: ":").last ?? ""), (1...16).contains(number) {
+                return 6900 + number
+            }
+            return nil
         }
         if resource.kind == .browser, resource.key.hasPrefix("port:") {
             return Int(resource.key.dropFirst("port:".count))

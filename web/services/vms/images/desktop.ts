@@ -7,10 +7,10 @@
  * The desktop is a TigerVNC X server (`Xvnc :1`) running an openbox session
  * with a tint2 dock, started and supervised as the work user by the
  * `cmux-desktop` systemd unit (desktop/start-vnc.sh, desktop/cmux-desktop-boot).
- * Two fixed ports carry it: RFB on 5901, loopback only and with no VNC-level
- * auth, and noVNC through websockify on 6901. The Mac app opens the noVNC page
- * (`CmuxTuiSnapshotParser.desktopPort`, CLI `cloudVMDesktopPort`), so these
- * values are a contract with shipped clients, not tunables.
+ * Two image ports carry it: RFB on 5901, loopback only and with no VNC-level
+ * auth, and noVNC through websockify on 6901. The Cloud API advertises the
+ * noVNC listener to clients as runtime metadata; legacy clients fall back to
+ * 6901 for compatibility.
  */
 import { DEVBOX_WORK_HOME, DEVBOX_WORK_USER } from "./workUser";
 
