@@ -111,7 +111,7 @@ struct FeedCell: View {
             Button("Copy", systemImage: "doc.on.doc") { UIPasteboard.general.string = item.markdown }
             Button("Mark as read", systemImage: "envelope.open") { store.markRead(item.id) }
             Button("Mute this workspace", systemImage: "bell.slash") {
-                withAnimation(.cnxSmooth) { store.mutedWorkspaces.insert(item.workspaceID) }
+                withAnimation(.cnxSmooth) { _ = store.mutedWorkspaces.insert(item.workspaceID) }
             }
         }
     }

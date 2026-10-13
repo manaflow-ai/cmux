@@ -13,6 +13,9 @@ import SwiftUI
 final class GhosttyTerminalTabContent: TerminalTabContent {
     private var hosts: [String: TerminalTabHost] = [:]
     private var workspaceOwner: [String: String] = [:]
+    /// Live mode: a session on the Mac for a terminal tab (a daemon surface),
+    /// or nil to fall back to the mock.
+    var sessionProvider: (@MainActor (WorkspaceTab) -> (any TerminalSession)?)?
 
     private func host(for tab: WorkspaceTab, in workspace: Workspace) -> TerminalTabHost {
         if let host = hosts[tab.id] { return host }
@@ -22,7 +25,8 @@ final class GhosttyTerminalTabContent: TerminalTabContent {
             hosts[id] = nil
             workspaceOwner[id] = nil
         }
-        let model = TerminalModel(session: MockTerminalSession(), artifactSource: MockArtifactSource(), title: tab.title)
+        let session = sessionProvider?(tab) ?? MockTerminalSession()
+        let model = TerminalModel(session: session, artifactSource: MockArtifactSource(), title: tab.title)
         let host = TerminalTabHost(model: model)
         hosts[tab.id] = host
         workspaceOwner[tab.id] = workspace.id
