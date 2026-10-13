@@ -204,8 +204,13 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 statusScrim.isUserInteractionEnabled = false
                 statusScrim.translatesAutoresizingMaskIntoConstraints = false
                 let base = CnxGhosttyApp.background
-                statusScrim.gradient.colors = [base.withAlphaComponent(0.92).cgColor, base.withAlphaComponent(0.6).cgColor, base.withAlphaComponent(0).cgColor]
-                statusScrim.gradient.locations = [0, 0.6, 1]
+                // A top bar under the status bar: solid terminal background
+                // to the status bar's bottom, then a short fade. (A 92 %
+                // gradient left scrollback legible under the clock; on iOS 26
+                // the page read as having no top bar.)
+                statusScrim.gradient.colors = [base.cgColor, base.cgColor, base.withAlphaComponent(0).cgColor]
+                statusScrim.gradient.locations = [0, 0.75, 1]
+                statusScrim.layer.zPosition = 1
                 view.addSubview(statusScrim)
             }
         }
@@ -342,6 +347,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         embeddedInsets = insets
         tuiTop.constant = insets.top
         statusScrimHeight?.constant = insets.top + 18
+        if insets.top > 0 { statusScrim.gradient.locations = [0, NSNumber(value: Double(insets.top / (insets.top + 18))), 1] }
         // The composer rests 8 pt above the toolbar capsule, like a tab
         // accessory; the 8 pt below the (hidden) key bar are inside the stack.
         stackRestingLimit.constant = -(insets.bottom - 8)

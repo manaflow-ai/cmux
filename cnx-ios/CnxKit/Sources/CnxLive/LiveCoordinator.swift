@@ -58,6 +58,8 @@ public final class LiveCoordinator {
     @ObservationIgnored private var bannerTask: Task<Void, Never>?
     @ObservationIgnored private var everConnected = false
     @ObservationIgnored private var tree: DaemonTree?
+    /// The acpmux session each cached chat store was built for (nil: unbound).
+    @ObservationIgnored private var sourcedSessions: [String: String?] = [:]
     /// The link to the targeted Mac, for terminal tabs (each attaches on its own channel).
     @ObservationIgnored private var currentLink: (any MacLink)?
     /// Terminal tabs handed out, reattached on every new link.
@@ -117,8 +119,10 @@ public final class LiveCoordinator {
             self.workspaces.setPending(self.acpmux.sessions.mapValues { $0.pendingPermissions > 0 })
         }
         AgentSessionDirectory.shared.makeSource = { [weak self] summary in
-            guard let self, let session = self.tree?.agentTabs[summary.id]?.session else {
-                return UnboundAgentSource(summary: summary)
+            let session = self?.tree?.agentTabs[summary.id]?.session
+            self?.sourcedSessions[summary.id] = .some(session)
+            guard let self, let session else {
+                return UnboundAgentSource(summary: summary, macName: self?.link.target?.name)
             }
             return self.acpmux.source(sessionID: session, summary: summary)
         }
@@ -413,6 +417,13 @@ public final class LiveCoordinator {
     private func apply(_ tree: DaemonTree) {
         guard let macID = link.target?.macID else { return }
         self.tree = tree
+        // A chat opened before its tab had a session (a new chat the Mac
+        // started later, or a tab shown from the list before the tree came)
+        // was built unbound and cached; rebuild it on the bound session.
+        for (tabID, used) in sourcedSessions where tree.agentTabs[tabID]?.session != used {
+            sourcedSessions[tabID] = nil
+            AgentSessionDirectory.shared.invalidate(id: tabID)
+        }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
     }
 
@@ -480,22 +491,38 @@ public final class LiveCoordinator {
     }
 }
 
-/// An agent tab with no acpmux session yet (a new chat the Mac has not started).
+/// An agent tab with no acpmux session yet: a new chat on the Mac that has
+/// not had its first message. The Mac starts a chat's session from its own
+/// first send (the daemon starts only `registry:` tabs), so the phone says so;
+/// once the Mac binds the session the coordinator rebuilds the store live.
 @MainActor
 final class UnboundAgentSource: AgentSessionSource {
     let summary: AgentSessionSummary
+    let macName: String
 
-    init(summary: AgentSessionSummary) {
+    init(summary: AgentSessionSummary, macName: String?) {
         self.summary = summary
+        self.macName = macName ?? summary.macName
     }
+
+    static func notStarted(agent: String, mac: String) -> String {
+        "\(agent) hasn't started in this tab yet. Send the first message from cmux on \(mac); the chat continues here."
+    }
+
+    private var continuations: [AsyncStream<AgentSessionEvent>.Continuation] = []
 
     func events() -> AsyncStream<AgentSessionEvent> {
-        AsyncStream { continuation in
-            continuation.yield(.clientError("This chat hasn't started on the Mac yet."))
-        }
+        let (stream, continuation) = AsyncStream<AgentSessionEvent>.makeStream()
+        continuation.yield(.clientError(Self.notStarted(agent: summary.agentName, mac: macName)))
+        continuations.append(continuation)
+        return stream
     }
 
-    func send(_ intent: AgentClientIntent) {}
+    /// A prompt can't start the chat from the phone: say why again.
+    func send(_ intent: AgentClientIntent) {
+        let message = Self.notStarted(agent: summary.agentName, mac: macName)
+        for continuation in continuations { continuation.yield(.clientError(message)) }
+    }
 
     var artifactSource: any ArtifactSource {
         LinkFileArtifactSource(macName: summary.macName, baseDirectory: summary.cwd) { nil }
