@@ -562,6 +562,9 @@ struct Args {
     /// Private launch contract of `local_owner`: readiness and install key pipes.
     owner_ready_fd: Option<i32>,
     owner_install_key_fd: Option<i32>,
+    /// Windows: the install key came on stdin.
+    #[cfg(windows)]
+    owner_install_key_stdin: bool,
     terminal_reap_grace: Option<std::time::Duration>,
 }
 
@@ -672,6 +675,8 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
         owner_host_bg: None,
         owner_ready_fd: None,
         owner_install_key_fd: None,
+        #[cfg(windows)]
+        owner_install_key_stdin: false,
         terminal_reap_grace: None,
     };
     let mut args = args.into_iter().peekable();
@@ -925,6 +930,10 @@ fn parse_args_result(args: impl IntoIterator<Item = String>) -> Result<Args, Str
             }
             local_owner::OWNER_READY_FD_ARG | local_owner::OWNER_INSTALL_KEY_FD_ARG => {
                 local_owner::claim_fd_arg(&arg, args.next(), &mut out)?;
+            }
+            #[cfg(windows)]
+            local_owner::OWNER_INSTALL_KEY_STDIN_ARG => {
+                local_owner::claim_install_key_stdin(&mut out)?;
             }
             // Private launch contract used by cmux-browser. It configures
             // Vercel agent-browser to attach through the local provider
@@ -2324,7 +2333,7 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
-    local_owner::install_key_from_fd(&mux, args.owner_install_key_fd);
+    local_owner::install_key_from_launcher(&mux, args.owner_install_key_fd);
     // Headless sessions have no host terminal to query. The first
     // interactive client may provide a private host-color handoff; use it
     // only to fill unspecified config values before any surface is created.
