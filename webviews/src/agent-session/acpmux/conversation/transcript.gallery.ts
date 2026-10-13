@@ -79,6 +79,35 @@ const groupedShellRows = [
   summary(2.4, { id: "gallery-shell-group-summary", status: "completed", toolCount: 2 }),
 ];
 
+/// One call in the gallery's log: a host bridge call, or `acpmux <method>` for a request the page
+/// sent to the in-page mock daemon (mock.ts).
+type GalleryCall = { method: string; params?: { id?: string; sessionId?: string; archived?: unknown } };
+/// The pane's client attached the mock daemon's chat (the menu can show before, from the stage's
+/// snapshot), and its header offers the chat menu.
+const chatMenuReady = async (ctx: PlayContext) => {
+  const log = (ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] }).cmuxGalleryLog;
+  await ctx.waitFor(() => log.some(({ method }) => method === "acpmux _acpmux/attach"), { capMs: 10_000 });
+  await ctx.waitFor(() => ctx.document.querySelector('[aria-label="Chat actions"]'), { capMs: 10_000 });
+};
+/// The plays that run the pane's real client against the in-page mock daemon.
+const mockDaemonFrames = {
+  longFrameFailMs: {
+    value: 150,
+    reason:
+      "The mock daemon's attach and the first transcript mount share the menu's first frame on the CPU-only gallery VM (51-78 ms measured); these plays gate which requests reach acpmux, not frame time.",
+  },
+  layoutShiftMax: {
+    value: 0.05,
+    reason:
+      "The mock daemon's answer swaps the stage's snapshot for the client's own chat (0.013 measured); the transcript plays above gate layout shift.",
+  },
+  settleMaxMs: {
+    value: 1000,
+    reason:
+      "A menu pick waits for the in-page mock daemon's round trip and its session change (268 ms measured on the CPU-only VM); this play gates the request, not latency.",
+  },
+};
+
 const openWorked = async (ctx: PlayContext) => {
   await ctx.click({ selector: ".cv-worked" });
   await ctx.waitFor(() => ctx.find({ selector: ".cv-worked" }).getAttribute("aria-expanded") === "true");
@@ -390,18 +419,27 @@ export default agentPaneEntry({
       },
     },
     "archive-chat-key": {
-      note: "Play: Archive Chat (cx-ncc.72) archives the chat through the same host call as the chat menu's Archive.",
+      note: "Play: Archive Chat (cx-ncc.72) archives the chat over the pane's own acpmux connection (cx-jlzsf), then asks the app to close its tab.",
+      ready: { transport: "mock" },
       snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      checks: mockDaemonFrames,
       play: async (ctx) => {
-        await ctx.focus({ selector: "[contenteditable='true']" });
         const page = ctx.document.defaultView as unknown as {
           cmuxAcpmuxBridge?: { command?(name: string): void };
-          cmuxGalleryLog: { method: string; params?: { archived?: boolean } }[];
+          cmuxGalleryLog: GalleryCall[];
         };
+        await chatMenuReady(ctx);
+        await ctx.focus({ selector: "[contenteditable='true']" });
         page.cmuxAcpmuxBridge?.command?.("archiveChat");
+        // The tab closes only after acpmux took the tag.
         await ctx.waitFor(() =>
-          page.cmuxGalleryLog.some(({ method, params }) => method === "chat.archive" && params?.archived === true),
+          page.cmuxGalleryLog.some(({ method, params }) => method === "pane.action" && params?.id === "closeTab"),
         );
+        const archived = page.cmuxGalleryLog.find(({ method }) => method === "acpmux _acpmux/archive");
+        if (archived?.params?.archived !== true || !archived.params.sessionId)
+          throw new Error(`Archive did not go to acpmux: ${JSON.stringify(archived)}`);
+        if (page.cmuxGalleryLog.some(({ method }) => method === "chat.archive"))
+          throw new Error("archive went to the host bridge");
       },
     },
     "fork-any-turn": {
@@ -423,13 +461,30 @@ export default agentPaneEntry({
       },
     },
     "mark-unread-menu": {
-      note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks the host to mark the chat unread.",
+      note: "Play: the chat menu's Mark as Unread (cx-ncc.78, Codex parity) asks acpmux on the pane's own connection (cx-jlzsf), never the host.",
+      // The whole chat menu fits, so its last rows are on screen for the click.
+      height: 900,
+      ready: { transport: "mock" },
       snapshot: chat([user(prompt, 2), assistant("Done.", 1), summary(0.9, { status: "completed" })]),
+      checks: mockDaemonFrames,
       play: async (ctx) => {
-        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: { method: string }[] };
+        const page = ctx.document.defaultView as unknown as { cmuxGalleryLog: GalleryCall[] };
+        await chatMenuReady(ctx);
         await ctx.click({ role: "button", name: "Chat actions" });
         await ctx.click({ role: "menuitem", name: "Mark as Unread" });
-        await ctx.waitFor(() => page.cmuxGalleryLog.some(({ method }) => method === "chat.markUnread"));
+        await ctx
+          .waitFor(() =>
+            page.cmuxGalleryLog.some(
+              ({ method, params }) => method === "acpmux _acpmux/markUnread" && params?.sessionId,
+            ),
+          )
+          .catch((error: unknown) => {
+            throw new Error(
+              `${String(error)}; calls: ${JSON.stringify(page.cmuxGalleryLog.slice(-12).map((c) => c.method))}`,
+            );
+          });
+        if (page.cmuxGalleryLog.some(({ method }) => method === "chat.markUnread"))
+          throw new Error("mark unread went to the host bridge");
       },
     },
     "thought-row": {
