@@ -383,6 +383,7 @@ class Bookmark:
     parent: str
     title: str
     favicon_key: Union[str, MissingType] = field(default=MISSING)
+    icon: Union[str, MissingType] = field(default=MISSING)
     last_used_ms: Union[int, MissingType] = field(default=MISSING)
     source_key: Union[str, MissingType] = field(default=MISSING)
     url: Union[str, MissingType] = field(default=MISSING)
@@ -4274,6 +4275,7 @@ class UpdateBookmarkRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/update-bookmark/request'
     bookmark: str
     favicon_key: Union[str, None, MissingType] = field(default=MISSING)
+    icon: Union[str, None, MissingType] = field(default=MISSING)
     last_used_ms: Union[int, None, MissingType] = field(default=MISSING)
     mutation_id: Union[str, None, MissingType] = field(default=MISSING)
     origin: Union[str, None, MissingType] = field(default=MISSING)

@@ -424,7 +424,7 @@ pub const PERSONAL_TERMINALS_CAPABILITY: &str = "personal-terminals-v1";
 /// Browser profile records in personal state: `browser_profiles` in
 /// `list-personal` and the `*-browser-profile` commands (plans/cmux-next/data-model.md section 5).
 pub const BROWSER_PROFILES_CAPABILITY: &str = "browser-profiles-v1";
-pub use bookmarks::BOOKMARKS_CAPABILITY;
+pub use bookmarks::{BOOKMARK_ICON_CAPABILITY, BOOKMARKS_CAPABILITY};
 /// Screen presentation: `set-screen-metadata`, `set-screen-pinned`,
 /// `move-screen`, `new-screen` with `screen_name`/`color`/`icon`/`pinned`/
 /// `index`/`group`/`cwd`, the `color`/`icon`/`pinned`/`group` screen fields,

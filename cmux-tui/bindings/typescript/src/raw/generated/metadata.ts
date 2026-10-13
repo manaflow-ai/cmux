@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff. */
+/* cmux-tui mux protocol 12, IR ecdf8e30a9c364d93374a8043682ee6b5eb5dfc59d599d6b568fd576c23cbd31. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "be8526aab0a8faacf3356fa1fce5fcdcdd8a2689620e9486b2dcefa27b166aff" as const;
+export const SDK_IR_SHA256 = "ecdf8e30a9c364d93374a8043682ee6b5eb5dfc59d599d6b568fd576c23cbd31" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3003,7 +3003,12 @@ export const COMMAND_METADATA = {
     "authority": "control",
     "since": 12,
     "capability": "bookmarks-v1",
-    "fields": {},
+    "fields": {
+      "icon": {
+        "since": 12,
+        "capability": "bookmark-icon-v1"
+      }
+    },
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
@@ -4103,6 +4108,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "favicon_key": {
         "nullable": false,
         "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "icon": {
+        "capability": "bookmark-icon-v1",
+        "description": "Folders only, capability bookmark-icon-v1: one emoji, an SF Symbol name, image:sha256-<hex> or svg:sha256-<hex>.",
+        "nullable": false,
+        "presence": "optional",
+        "since": 12,
         "type": {
           "kind": "scalar",
           "name": "string"
@@ -23732,6 +23748,18 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           "default": null,
           "nullable": true,
           "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "icon": {
+          "capability": "bookmark-icon-v1",
+          "default": null,
+          "description": "Folders only; null clears. Refused on a url node.",
+          "nullable": true,
+          "presence": "optional",
+          "since": 12,
           "type": {
             "kind": "scalar",
             "name": "string"
