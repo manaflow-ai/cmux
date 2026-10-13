@@ -109,7 +109,8 @@ pub fn agent_path() -> Option<OsString> {
         return path;
     };
     let rest = path.iter().flat_map(std::env::split_paths).filter(|entry| *entry != bin);
-    std::env::join_paths(std::iter::once(bin).chain(rest)).ok().or(path)
+    let joined = std::env::join_paths(std::iter::once(bin.clone()).chain(rest)).ok();
+    joined.or(path)
 }
 
 /// The app's bundled `cmux` (BundledCLIEnvironment.swift).
