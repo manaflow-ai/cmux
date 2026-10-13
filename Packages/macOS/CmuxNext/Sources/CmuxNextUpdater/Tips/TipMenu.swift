@@ -44,9 +44,21 @@ extension UpdaterService {
     /// The x's tooltip and VoiceOver label (it opens ``tipMenu``).
     public static var tipMenuLabel: String { UpdaterStrings.text("updater.tip.options", "Hide or Mute Tips") }
 
-    /// A tip card button or menu item: "Try It" (`try`) or a ``TipMenuOption``.
+    /// The action the tip card sends once its tip is on screen (``markTipSeen(_:)``).
+    public static let tipShownAction = "shown"
+    /// The action the tip card sends when a tip it showed leaves the card
+    /// (another card took the slot): a seen tip does not come back.
+    public static let tipHiddenAction = "hidden"
+
+    /// A tip card button or menu item: "Try It" (`try`), a ``TipMenuOption``,
+    /// or ``tipShownAction``.
     public func tipCardAction(_ id: String, _ action: String) {
         if action == "try" { return tryTip(id) }
+        if action == Self.tipShownAction { return markTipSeen(id) }
+        if action == Self.tipHiddenAction {
+            if tip?.id == id, tipState.seen.contains(id) { tip = nil }
+            return
+        }
         guard let option = TipMenuOption(rawValue: action) else { return }
         if let length = option.muteLength {
             muteTips(until: now().addingTimeInterval(length))
@@ -78,6 +90,15 @@ extension UpdaterService {
         return false
     }
 
+    /// The person saw tip `id` on the card: it is never picked again (it
+    /// stays on the card for now).
+    func markTipSeen(_ id: String) {
+        guard !tipState.seen.contains(id), TipCatalog.all.contains(where: { $0.id == id }) else { return }
+        var state = tipState
+        state.seen.insert(id)
+        storeTipState(state)
+    }
+
     /// `sidebar.cards.tips` turned on again: a timed mute ends too.
     func tipsTurnedOn() {
         guard tipState.mutedUntil != nil else { return }
@@ -89,10 +110,14 @@ extension UpdaterService {
     /// `debug.updater {action: "tips", press?, at?}` (socket proofs): presses
     /// `press` on the shown tip (`try` or a ``TipMenuOption`` id) like its
     /// card does, or else picks as at launch at `at` (epoch seconds, default
-    /// now); returns the tip shown, `sidebar.cards.tips` and the mute's end
-    /// (`error` when `press` finds no tip shown).
+    /// now); returns the tip shown, `sidebar.cards.tips`, the mute's end and
+    /// the seen tips (`error` when `press` finds no tip shown). `press:
+    /// "reset"` forgets everything the tips remember (a fresh install).
     public func debugTips(press: String?, at epoch: Double?) -> [String: String] {
-        if let press {
+        if press == "reset" {
+            tip = nil
+            storeTipState(TipState())
+        } else if let press {
             guard let id = tip?.id else { return ["error": "no tip shown to press \(press) on"] }
             tipCardAction(id, press)
         } else {
@@ -101,6 +126,7 @@ extension UpdaterService {
         var state = ["enabled": tipsEnabled.map(String.init) ?? "unknown"]
         state["tip"] = tip?.id
         state["mutedUntil"] = tipState.mutedUntil.map { ISO8601DateFormatter().string(from: $0) }
+        state["seen"] = tipState.seen.sorted().joined(separator: ",")
         return state
     }
 }

@@ -31,7 +31,11 @@ struct PageFactory {
     /// ``AppsPageConfirmations``; the sheet reads the listing first so it can name the scopes.
     func appsWebPage(route: String?) -> PageWebView? {
         guard PageTunables.appStore.value == .web else { return nil }
-        let relay = DaemonPageRelay(services: services)
+        // The organization's DisabledFeatures `apps` turns the store off for this page too (the
+        // native store reads the same transport state), checked on every call.
+        let relay = PolicyGatedPageProvider(inner: DaemonPageRelay(services: services)) { [weak apps = services.apps] in
+            apps?.transport.turnedOff
+        }
         let confirming = ConfirmingPageProvider(inner: relay, presenter: DialogPageConfirmationPresenter()) { op, params in
             guard AppsPageConfirmations.needsDetail(op), let app = params["app"]?.stringValue else { return nil }
             let detail = try? await relay.call("cmux.apps.catalog.get", params: ["app": .string(app)],

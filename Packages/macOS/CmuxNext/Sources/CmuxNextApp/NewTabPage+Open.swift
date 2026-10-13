@@ -21,8 +21,8 @@ extension NewTabPage {
     /// (NewTabSparePool), else loading cold. A static of the page, not the pane (the godfile
     /// limit counts PaneController's extensions). Everything happens in this one main-actor
     /// turn, with no hop: the spare waited at this pane's content size, so its adoption changes
-    /// no size and WebKit shows the page at its final layout; the strip shows the tab now at full
-    /// width; and the turn's one commit puts the tab and the page on screen in the same frame.
+    /// no size and WebKit shows the page at its final layout; the strip starts the tab's grow now;
+    /// and the turn's one commit puts the tab and the page on screen in the same frame.
     /// `reusingShown` (Focus Location Bar, an empty submit): a New Tab page the pane already
     /// shows takes the keyboard instead. Otherwise (Cmd-T) a new tab opens, also from a New Tab
     /// page (Leo 2026-10-10).
@@ -74,7 +74,8 @@ extension NewTabPage {
         if spare != nil, services.presentation.showNow(pane) {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
         }
-        BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true, animating: false) }
+        // Its tab grows in at its slot as the page shows (Leo 2026-10-13: no pop, no neighbour jump).
+        BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
                                            milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
     }
@@ -97,6 +98,7 @@ extension NewTabPage {
             guard !keep else { return }
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
+        if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:

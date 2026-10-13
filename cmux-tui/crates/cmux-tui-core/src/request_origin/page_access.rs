@@ -1,22 +1,23 @@
 //! What origin `page` may call (plans/cmux-next/request-origin.md, "Page
-//! access"; coordinator decisions 2026-10-04 and 2026-10-05).
+//! access"; coordinator decisions 2026-10-04 and 2026-10-05; page-router-v1,
+//! cmux-tui/spec/page-router.md).
 //!
-//! A page's JS reaches the daemon only through a page relay, and what an
-//! operation returns reaches that JS. Origin page is refused EVERY catalog
-//! operation unless an allow entry names it. The match below names every
-//! catalog operation with no wildcard, so a new operation does not compile
-//! until someone classifies it, and an allow entry is a deliberate edit.
+//! A page's JS reaches the daemon only through a page relay or a page
+//! connection, and what an operation returns reaches that JS. The match
+//! below names every catalog operation with no wildcard, so a new operation
+//! does not compile until someone classifies it.
 //!
-//! The allow list is empty: no shipped cmux-next page calls a catalog
-//! operation (the page relay carries only `history.*` and `apps.*`, which
-//! are not catalog operations). Precondition for any allow entry: a
-//! per-page identity on the relay (today one relay connection carries every
-//! page, so the daemon cannot tell which page sent a request), a rule that
-//! limits the entry to that page's own object (never "any terminal by id"),
-//! and its own test.
+//! A connection with no page id (a page relay without `page` in its hello)
+//! is refused EVERY catalog operation. A connection with a page id gets its
+//! page's allow list (spec/page-router.json, the one source): `read`
+//! operations, and `gesture` operations only with a host confirmation for
+//! exactly that request. The hard classes (input, screen reads, attach,
+//! renderer grants, the file system) stay refused whatever a list names:
+//! only a [`Denied::NotAllowed`] operation can be allow-listed.
 
 use serde_json::{Value, json};
 
+use super::page_router_table::{self, PageGrant};
 use super::{RequestOrigin, forbidden};
 use crate::resource::{ResourceError, ResourceOperation as Op};
 
@@ -249,6 +250,11 @@ const fn access(operation: Op) -> Access {
         | Op::WindowRecordDelete
         | Op::SidebarLayoutGet
         | Op::SidebarLayoutUpdate
+        | Op::BrowserDevicesList
+        | Op::BrowserDevicesAddCustom
+        | Op::BrowserDevicesRemoveCustom
+        | Op::BrowserTabEmulate
+        | Op::BrowserTabEmulateClear
         | Op::PaletteUsageGet
         | Op::PaletteUsageRecord
         | Op::PaletteUsageImport
@@ -341,4 +347,58 @@ pub(super) fn refusal(operation: Op, params: &Value) -> Option<ResourceError> {
         "derived": RequestOrigin::Page.wire_name(),
     });
     Some(forbidden(denied.message(), details))
+}
+
+/// The refusal of `operation` with `params` for a connection of page
+/// `page` whose request origin (after its claim) is `origin`, or `None`
+/// when the page's allow list admits it.
+pub(super) fn page_refusal(
+    page: &str,
+    operation: Op,
+    params: &Value,
+    origin: RequestOrigin,
+) -> Option<ResourceError> {
+    // A hard class is refused whatever the list names (fail closed).
+    let hard = match access(operation) {
+        Access::Denied(Denied::NotAllowed) => false,
+        Access::Denied(_) => true,
+        Access::DeniedWithCwd => params.get("cwd").is_some_and(|cwd| !cwd.is_null()),
+    };
+    if hard {
+        // The connection's own origin (a WebSocket page derives agent).
+        let mut error = refusal(operation, params)?;
+        error.details["derived"] = json!(origin.wire_name());
+        return Some(error);
+    }
+    let grant = page_router_table::grant(page, operation.wire_name());
+    if matches!(grant, PageGrant::Gesture | PageGrant::Confirm) && origin == RequestOrigin::User {
+        return None;
+    }
+    let reason = page_router_table::missing_confirmation_reason(grant)?;
+    Some(page_forbidden(page, operation.wire_name(), reason, origin))
+}
+
+/// `origin.forbidden` for page `page`: `page_not_allowed` (not on its
+/// list), `gesture_required` or `confirmation_required` (on its list,
+/// without the person's gesture or confirmation).
+pub(crate) fn page_forbidden(
+    page: &str,
+    operation: &str,
+    reason: &str,
+    origin: RequestOrigin,
+) -> ResourceError {
+    let message = match reason {
+        "gesture_required" => {
+            format!("page {page} may call {operation} only on the person's gesture")
+        }
+        "confirmation_required" => {
+            format!("page {page} may call {operation} only after the person confirms it")
+        }
+        _ => format!("page {page} may not call {operation}"),
+    };
+    let mut details = json!({"derived": origin.wire_name(), "reason": reason});
+    if reason != "page_not_allowed" {
+        details["required"] = json!(RequestOrigin::User.wire_name());
+    }
+    ResourceError::new(super::ORIGIN_FORBIDDEN, message, details, false)
 }

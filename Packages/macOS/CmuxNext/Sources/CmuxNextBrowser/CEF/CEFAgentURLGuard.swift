@@ -28,15 +28,26 @@ enum CEFAgentURLGuard {
 
     /// The URL a new browser is created with. Its first navigation starts
     /// before the guard can be set, so an agent-driven tab never starts on
-    /// a refused page.
+    /// a refused page (and loads no other page before the guard is set:
+    /// `defersCreationLoad`).
     static func creationURL(_ pending: URL?, agentDriven: Bool) -> String {
         guard let pending else { return BrowserNewTabPage.blankURL }
         return agentDriven && AgentURLPolicy.refuses(pending) ? BrowserNewTabPage.blankURL : pending.absoluteString
     }
 
+    /// An agent-driven tab is created without navigating, and its page loads
+    /// after the guard is set (`CEFTab.attach`): a certificate error before
+    /// it (an https page, or a redirect to one) would show Chromium's
+    /// interstitial, whose Proceed the agent's page script could press (the
+    /// shim shows cmux's warning only for tabs it knows are agent-driven).
+    static func defersCreationLoad(_ pending: URL?, agentDriven: Bool) -> Bool {
+        guard agentDriven, let pending, !AgentURLPolicy.refuses(pending) else { return false }
+        return !pending.absoluteString.isEmpty
+    }
+
     static func check(_ tab: CEFTab, after event: CEFShimEvent) {
         switch event {
-        case .loadStart(_, let url), .address(_, let url): leave(tab, URL(string: url))
+        case .loadStart(_, let url, _), .address(_, let url): leave(tab, URL(string: url))
         default: break
         }
     }

@@ -36,10 +36,13 @@ final class BrowserHistoryWriter {
     private var pending: Task<Void, Never>?
     private var leaving: Task<Void, Never>?
     private var resignObserver: (any NSObjectProtocol)?
+    /// Where it hears that the app resigned active (tests post to their own).
+    private let center: NotificationCenter
 
     init(page: Page, recorded: FrontendBrowserHistory?, keepsEngineState: Bool = false, delay: Duration,
-         sleep: @escaping BrowserRecordWriter.Sleep, send: @escaping Send) {
+         sleep: @escaping BrowserRecordWriter.Sleep, center: NotificationCenter = .default, send: @escaping Send) {
         self.page = page
+        self.center = center
         self.recorded = recorded
         self.keepsEngineState = keepsEngineState
         self.delay = delay
@@ -50,8 +53,8 @@ final class BrowserHistoryWriter {
                 self?.pageDidChange(state)
             }
         }
-        resignObserver = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification,
-                                                                object: nil, queue: .main) { [weak self] _ in
+        resignObserver = center.addObserver(forName: NSApplication.didResignActiveNotification,
+                                             object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.appDidResignActive() } // main-proof: observer on queue: .main
         }
     }
@@ -86,7 +89,7 @@ final class BrowserHistoryWriter {
         observation = nil
         pending = nil
         leaving = nil
-        if let resignObserver { NotificationCenter.default.removeObserver(resignObserver) }
+        if let resignObserver { center.removeObserver(resignObserver) }
         resignObserver = nil
     }
 
@@ -125,7 +128,7 @@ final class BrowserHistoryWriter {
     /// `session` as the daemon stores it, bounded.
     static func history(_ session: BrowserSavedSession) -> FrontendBrowserHistory? {
         FrontendBrowserHistory(entries: session.entries.map { entry in
-            FrontendBrowserHistory.Entry(url: entry.url.absoluteString, title: entry.title, scrollY: entry.scrollY)
+            FrontendBrowserHistory.Entry(url: entry.url.absoluteString, title: entry.title, scrollY: entry.scrollY, formPost: entry.formPost ? true : nil)
         }, index: session.current).bounded()
     }
 
@@ -167,7 +170,7 @@ final class BrowserHistoryWriter {
     /// The saved entries of `history` (nil when it has none to restore).
     static func session(_ history: FrontendBrowserHistory) -> BrowserSavedSession? {
         let entries = history.entries.compactMap { entry in
-            URL(string: entry.url).map { BrowserSavedEntry(url: $0, title: entry.title, scrollY: entry.scrollY) }
+            URL(string: entry.url).map { BrowserSavedEntry(url: $0, title: entry.title, scrollY: entry.scrollY, formPost: entry.formPost == true) }
         }
         guard entries.count == history.entries.count, entries.indices.contains(history.index) else { return nil }
         return BrowserSavedSession(entries: entries, current: history.index)

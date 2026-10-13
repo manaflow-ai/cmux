@@ -222,10 +222,23 @@ try:
             if not (isinstance(opened, dict) and "error" in opened):
                 PANE = candidate
                 break
+    if isinstance(opened, dict) and "error" in opened:
+        # A pane is found only in a workspace a window shows (ActionScope): after the WORK tab was
+        # focused, the focused pane takes the chat when no target is named.
+        opened = rpc("action.run", {"action": "palette.newAgentChat", "focus": True})
+        say("open agent chat in the focused pane", json.dumps(opened)[:300])
+        if not (isinstance(opened, dict) and "error" in opened):
+            PANE = None
     def state():
         s = pane("chat_state", pane=PANE)
         return s if isinstance(s, dict) and "error" not in s and s.get("connection") else None
     st = wait(state, 60, 0.5)
+    if not st and isinstance(opened, dict) and not opened.get("created"):
+        # The action ran on a pane but opened nothing there: open the chat in the focused pane.
+        opened = rpc("action.run", {"action": "palette.newAgentChat", "focus": True})
+        say("open agent chat again in the focused pane", json.dumps(opened)[:300])
+        PANE = None
+        st = wait(state, 60, 0.5)
     say("chat_state", json.dumps(st)[:1500])
     if not st:
         say("snapshot after open", json.dumps(rpc("snapshot.get"))[:3000])
@@ -340,6 +353,39 @@ try:
             say("SWITCH", json.dumps(row))
             cur_h = target
         raise SystemExit(0)
+    if STAGE == "subagents":
+        # Native Codex subagents (cx-07ezn): a Codex chat that starts two subagents shows them as one
+        # group whose children have their own turns, as the page's wire log and a desktop shot show.
+        for name, body in (("a.txt", "alpha\n"), ("b.txt", "beta\n")):
+            with open(os.path.join(WORK, name), "w") as f:
+                f.write(body)
+        say("subagents new_chat", json.dumps(pane("new_chat", pane=PANE, harness=os.environ.get("CMUX_LIVE_HARNESS", "codex"))))
+        time.sleep(5)
+        if os.environ.get("CMUX_LIVE_MODEL"):
+            say("subagents set_model", json.dumps(pane("set_model", pane=PANE, model=os.environ["CMUX_LIVE_MODEL"])))
+            time.sleep(2)
+        say("subagents send", json.dumps(pane("send_prompt", pane=PANE, text=(
+            "Spawn two subagents in parallel with your agent-spawning tool: the first reads a.txt and reports "
+            "its contents, the second reads b.txt and reports its contents. Wait for both, then reply with one "
+            "line combining their answers."))))
+        def wire():
+            log = pane("acp_log", pane=PANE, limit=2000)
+            return "".join(e.get("text", "") for e in ((log.get("entries") if isinstance(log, dict) else None) or []))
+        done = wait(lambda: (lambda t: t if t.count("subagent_state_update") >= 2 else None)(wire()), 420, 2)
+        text = done or wire()
+        children = set(re.findall(r'"subagent":"([^"]+)"', text))
+        say("SUBAGENTS spawned:", text.count("subagent_spawned"), "ended:", text.count("subagent_state_update"),
+            "children with own updates:", len(children), "legacy start lines:", text.count("Start subagent"))
+        rpc("debug.focus")
+        time.sleep(2)
+        cua = os.path.expanduser("~/.local/bin/cua-driver")
+        shot = os.path.join(OUT, "subagents.png")
+        r = subprocess.run([cua, "call", "get_desktop_state", json.dumps({"screenshot_out_file": shot})],
+                           capture_output=True, text=True, timeout=60)
+        say("screenshot", shot, os.path.exists(shot), r.returncode, r.stderr[-300:])
+        report["subagents"] = {"spawned": text.count("subagent_spawned"), "children": len(children)}
+        wire_dump("subagents")
+        raise SystemExit(0 if children else 1)
     if STAGE == "perm":
         marker = os.path.join(WORK, "perm-marker")
         say("perm new_chat", json.dumps(pane("new_chat", pane=PANE, harness="claude")))

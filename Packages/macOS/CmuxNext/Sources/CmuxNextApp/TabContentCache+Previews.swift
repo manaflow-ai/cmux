@@ -13,10 +13,9 @@ extension TabContentCache {
     /// `captureIfMissing` (a tab drag, never a hover) captures a page that
     /// has no cached image.
     func previewImage(for key: String, maxPixelSize: CGSize, captureIfMissing: Bool = false) async -> CGImage? {
-        if let entry = terminals[key],
-           let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) {
-            previews.insert(image, for: key)
-            return image
+        if let entry = terminals[key] {
+            guard TerminalOutput.shows(entry.session) else { return nil } // a new shell's prompt: nothing to picture
+            if let image = await entry.session.snapshotInBackground(maxPixelSize: max(maxPixelSize.width, maxPixelSize.height)) { previews.insert(image, for: key); return image }
         }
         if let image = pageThumbnails.image(for: key) ?? previews.image(for: key) {
             return await TabPreviewFitting.fit(image, maxPixelSize)
