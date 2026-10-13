@@ -474,10 +474,14 @@ export default agentPaneEntry({
         await ctx.click({ role: "menuitem", name: "Mark as Unread" });
         await ctx
           .waitFor(() =>
-            page.cmuxGalleryLog.some(({ method, params }) => method === "acpmux _acpmux/markUnread" && params?.sessionId),
+            page.cmuxGalleryLog.some(
+              ({ method, params }) => method === "acpmux _acpmux/markUnread" && params?.sessionId,
+            ),
           )
           .catch((error: unknown) => {
-            throw new Error(`${String(error)}; calls: ${JSON.stringify(page.cmuxGalleryLog.slice(-12).map((c) => c.method))}`);
+            throw new Error(
+              `${String(error)}; calls: ${JSON.stringify(page.cmuxGalleryLog.slice(-12).map((c) => c.method))}`,
+            );
           });
         if (page.cmuxGalleryLog.some(({ method }) => method === "chat.markUnread"))
           throw new Error("mark unread went to the host bridge");
