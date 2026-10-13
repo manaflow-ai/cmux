@@ -201,6 +201,10 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
 
   const tried = new Set<ProviderId>()
   let last: Response | undefined
+  // Until a request goes to a provider, nothing was billed: a throw (a guard RPC, a body bug) drops
+  // the member's reservation at once instead of holding it for an hour (review P2).
+  let sent = false
+  try {
   for (let attempt = 0; attempt < routes.length; attempt++) {
     const candidates = routes.map((r) => r.provider).filter((p) => !tried.has(p))
     const plan = await guard(env).plan(id, caller.kind === "free" ? `device:${caller.device}` : `team:${caller.team}`, candidates, maxMicros, free)
@@ -215,6 +219,7 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
     }
     tried.add(plan.provider)
     const route = routes.find((r) => r.provider === plan.provider)!
+    sent = true
     const outcome = await callUpstream(env, ctx, {
       id,
       model,
@@ -223,8 +228,9 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
       onDone: async (r) => {
         const usd = r.usage ? (r.usage.costUsd ?? cardCost(model, r.usage.input, r.usage.output)) : r.charged === "none" ? 0 : maxUsd
         if (usd > maxUsd * 1.0001) console.warn(JSON.stringify({ msg: "inference.cost_over_bound", id, model: model.id, provider: plan.provider, usd, max_usd: maxUsd }))
-        await guard(env).settle(id, plan.provider, usd * 1_000_000, r.ttfbMs)
-        await settleMember(usd * 1_000_000)
+        // The global line and the member settle independently: one failed call never blocks the other (review P2).
+        const settled = await Promise.allSettled([guard(env).settle(id, plan.provider, usd * 1_000_000, r.ttfbMs), settleMember(usd * 1_000_000)])
+        for (const x of settled) if (x.status === "rejected") console.error(JSON.stringify({ msg: "inference.settle_failed", id, error: String(x.reason).slice(0, 160) }))
         if (caller.kind === "free") await freeSettle(env, caller.device, id, r.usage ? r.usage.input + r.usage.output : r.charged === "none" ? 0 : Math.min(promptBound, model.context) + maxTokens)
         else if (usd > 0) {
           const meter = env.USAGE_METER_DO.get(env.USAGE_METER_DO.idFromName(caller.team))
@@ -244,8 +250,14 @@ export const serveChat = async (env: Env, ctx: ExecutionContext, caller: Caller,
     }
     // Failed before the first byte: drop the reservation, count the failure, try the next provider.
     await guard(env).fail(id, plan.provider)
+    // Failed before the first byte: still nothing billed.
+    sent = false
     log(env, { id, model: model.id, provider: plan.provider, caller: caller.kind, status: "upstream.failed", upstream_status: outcome.status, attempt })
     last = err(502, "upstream.failed", "the model provider failed; retry", { retryable: true })
+  }
+  } catch (e) {
+    if (!sent) await settleMember(null).catch(() => undefined)
+    throw e
   }
   if (caller.kind === "free") await freeSettle(env, caller.device, id, 0)
   await settleMember(null)
