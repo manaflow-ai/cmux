@@ -2600,7 +2600,7 @@ export type HexclaveWebhookOutcome = "processed" | "ignored" | "invalid" | "fail
 /**
  * Verified Hexclave webhook deliveries waiting to be applied. The webhook
  * answers 200 once a delivery is stored here; a rate-limited drain (the
- * webhook's own after-response kick and the every-minute cron) applies them,
+ * webhook's own after-response kick and the every-minute `hexclave-inbox` cron) applies them,
  * coalescing events for one user or team into one Hexclave read, and backs
  * off on Hexclave 429/5xx using its Retry-After. A row is deleted once
  * applied (and recorded in `hexclave_webhook_events`); nothing is dropped.

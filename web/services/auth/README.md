@@ -35,7 +35,7 @@ the Hexclave package's own yup schema for its type (`webhookEvents.ts`): a
 schema failure answers 400 and is never processed, and an unknown type answers
 200 and is logged. A verified, schema-valid delivery is stored in `hexclave_webhook_inbox` and
 answered 200; a drain applies it (`hexclave/inbox.ts`). The drain runs after
-each delivery and from the every-minute `vm-runtime-limits` cron, at most two
+each delivery and from the every-minute `hexclave-inbox` cron, at most two
 at once. It coalesces every pending event of one user or team into one
 reconcile and stops on a Hexclave 429/5xx/timeout, rescheduling with
 Hexclave's Retry-After or backoff, so a redelivery burst cannot keep Hexclave
