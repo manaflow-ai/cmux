@@ -140,10 +140,7 @@ struct TranscriptBuilder {
         case .userPrompt:
             let blocks = event.payload["prompt"]?.arrayValue ?? []
             let text = blocks.compactMap { $0["text"]?.stringValue }.joined(separator: "\n")
-            let images = blocks.compactMap { block -> Data? in
-                guard block["type"]?.stringValue == "image", let data = block["data"]?.stringValue else { return nil }
-                return Data(base64Encoded: data)
-            }
+            let images = Self.images(in: blocks, key: "\(event.session)/\(event.seq)")
             // Photos sit above the message, as in ChatGPT and Claude.
             if !images.isEmpty { items.append(.userImages(id: key + "-images", images: images)) }
             items.append(.user(id: key, text: text, at: event.at))
@@ -240,6 +237,20 @@ struct TranscriptBuilder {
         default:
             break
         }
+    }
+
+    /// Decoded photos per prompt event; transcripts rebuild on every streamed
+    /// chunk, and base64-decoding megabytes each time adds up.
+    nonisolated(unsafe) private static let imageCache = NSCache<NSString, NSArray>()
+
+    private static func images(in blocks: [JSONValue], key: String) -> [Data] {
+        if let cached = imageCache.object(forKey: key as NSString) as? [Data] { return cached }
+        let images = blocks.compactMap { block -> Data? in
+            guard block["type"]?.stringValue == "image", let data = block["data"]?.stringValue else { return nil }
+            return Data(base64Encoded: data)
+        }
+        imageCache.setObject(images as NSArray, forKey: key as NSString)
+        return images
     }
 
     private static func merge(_ update: JSONValue, into call: inout ToolCall) {

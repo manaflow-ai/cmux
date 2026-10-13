@@ -34,7 +34,7 @@ struct AttachButton: View {
     @State private var selection: [PhotosPickerItem] = []
 
     var body: some View {
-        PhotosPicker(selection: $selection, maxSelectionCount: 4, matching: .images) {
+        PhotosPicker(selection: $selection, maxSelectionCount: max(1, 4 - attachments.count), matching: .images) {
             Image(systemName: "plus")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(.secondary)
@@ -47,7 +47,7 @@ struct AttachButton: View {
         .onChange(of: selection) { _, items in
             guard !items.isEmpty else { return }
             Task {
-                for item in items {
+                for item in items where attachments.count < 4 {
                     if let data = try? await item.loadTransferable(type: Data.self), let image = ComposerImage.make(from: data) {
                         attachments.append(image)
                     }
@@ -94,6 +94,19 @@ struct AttachmentStrip: View {
 }
 
 /// Photos the user sent, right-aligned above their message like ChatGPT.
+/// Decoded `UIImage`s for transcript photos (bodies re-run often).
+@MainActor
+enum DecodedImages {
+    private static let cache = NSCache<NSData, UIImage>()
+
+    static func image(_ data: Data) -> UIImage? {
+        if let image = cache.object(forKey: data as NSData) { return image }
+        guard let image = UIImage(data: data) else { return nil }
+        cache.setObject(image, forKey: data as NSData)
+        return image
+    }
+}
+
 struct UserImagesRow: View {
     let images: [Data]
     @State private var viewing: ViewedImage?
@@ -108,7 +121,7 @@ struct UserImagesRow: View {
         HStack(spacing: 6) {
             Spacer(minLength: 48)
             ForEach(Array(images.enumerated()), id: \.offset) { index, data in
-                if let image = UIImage(data: data) {
+                if let image = DecodedImages.image(data) {
                     Button { viewing = ViewedImage(id: index, image: image) } label: {
                         Image(uiImage: image)
                             .resizable()
