@@ -32269,6 +32269,22 @@ struct CMUXCLI {
             let resolvedSurface = resolvedTarget
             let surfaceId = resolvedSurface.surfaceId
             sendClaudeFeedTelemetry(workspaceId: workspaceId, surfaceId: surfaceId)
+            // A helper can invoke PreToolUse after the parent turn's Stop hook.
+            // That event belongs to the completed turn, so it must not reopen
+            // the parent session as Running. A new parent turn always passes
+            // through UserPromptSubmit first, which replaces this settled
+            // lifecycle and clears the guard.
+            let previousHookEvent = mappedSession?.hookEventName?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            let parentTurnAlreadyEnded = mappedSession?.agentLifecycle != .running
+                && (previousHookEvent == "stop"
+                    || ClaudeStopFailure.isStopFailureEvent(mappedSession?.hookEventName))
+            guard !parentTurnAlreadyEnded else {
+                telemetry.breadcrumb("claude-hook.pre-tool-use.after-stop")
+                printClaudeHookAck()
+                return
+            }
             let claudePid = localClaudePID(mapped: mappedSession)
             // One ancestry walk per hook event, shared by the suppression gate
             // and the notify payload's subagent tag.

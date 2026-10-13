@@ -100,7 +100,8 @@ struct ClaudeBackgroundWorkNotifyTests {
         // This helper has no subagent marker or turn id, matching #19781.
         runHook("pre-tool-use", tool)
         let afterTool = Array(context.state.snapshot().dropFirst(commandCountAfterBoundary))
-        #expect(try lifecycle() == (expectRunning ? "running" : "idle"))
+        let expectedLifecycle = expectRunning ? "running" : (pendingWork ? "backgroundWorkPending" : "idle")
+        #expect(try lifecycle() == expectedLifecycle)
         let runningEvents = AgentJournalAppendCapture.captures(in: afterTool).filter {
             $0.kind == "agent.state.changed" && $0.draft["declared_phase"] as? String == "running"
         }
