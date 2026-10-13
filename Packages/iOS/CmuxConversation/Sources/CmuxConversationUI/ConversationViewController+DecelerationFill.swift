@@ -6,6 +6,10 @@ import UIKit
 /// `ConversationDecelerationFill`): the transcript's rows are drawn where
 /// that frame's step would have taken them until the offset catches up.
 ///
+/// DEBUG lab only (`CMUX_UITEST_CONVERSATION_FILL=1`) until a device run
+/// shows UIKit's skipped frame on the phone: drawing ahead is a guess, and
+/// a wrong one (a finger catching the fling) flickered there.
+///
 /// It runs in the update cycle after the display links, where UIKit's
 /// deceleration has (or has not) moved the offset for the frame. It stays
 /// passive: asking for updates at the lift moves UIKit's deceleration start
@@ -30,6 +34,11 @@ final class ConversationDecelerationFillDriver {
         }
         link.isEnabled = true
         self.link = link
+    }
+
+    /// The finger lifted into a fling.
+    func flingBegan() {
+        fill.expectSkippedFrame()
     }
 
     /// The offset moved by `delta` to keep the rows in place.

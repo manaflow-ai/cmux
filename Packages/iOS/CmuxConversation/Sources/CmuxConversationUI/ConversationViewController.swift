@@ -354,13 +354,15 @@ public final class ConversationViewController: UIViewController {
         startDecelerationFill()
     }
 
+    /// DEBUG lab: `CMUX_UITEST_CONVERSATION_FILL=1` draws the frame UIKit
+    /// skips at a fling's lift (see `ConversationDecelerationFillDriver`).
+    /// Off by default: on the phone a caught fling read as a skipped frame
+    /// and flickered; it waits for a device run that shows the skip.
     private func startDecelerationFill() {
         #if DEBUG
-        // The lab's dynamics draw every frame themselves;
-        // CMUX_UITEST_CONVERSATION_FILL=0 turns the fill off for A/B runs.
-        if transcriptDynamics?.dynamics == true || ProcessInfo.processInfo.environment["CMUX_UITEST_CONVERSATION_FILL"] == "0" { return }
-        #endif
+        guard transcriptDynamics?.dynamics != true, ProcessInfo.processInfo.environment["CMUX_UITEST_CONVERSATION_FILL"] == "1" else { return }
         decelerationFill.start()
+        #endif
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
@@ -1614,6 +1616,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
 
     public func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         if velocity.y < 0 { maybeLoadOlder(targetOffsetY: targetContentOffset.pointee.y) }
+        if velocity.y != 0 { decelerationFill.flingBegan() }
         #if DEBUG
         transcriptDynamics?.dragEnded(targetOffsetY: targetContentOffset.pointee.y)
         #endif

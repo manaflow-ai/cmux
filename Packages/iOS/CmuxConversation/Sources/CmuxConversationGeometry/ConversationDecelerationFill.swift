@@ -23,6 +23,8 @@ public struct ConversationDecelerationFill: Sendable, Equatable {
     private var velocity: CGFloat = 0
     /// Time since UIKit last moved the offset.
     private var sinceMove: Double = 0
+    /// Decelerating updates in which a frozen offset is a skipped frame.
+    private var armed = 0
 
     /// A skipped frame is drawn only at fling speeds, where a stall shows.
     public static let minimumStep: CGFloat = 2
@@ -37,15 +39,28 @@ public struct ConversationDecelerationFill: Sendable, Equatable {
     static let absorption: CGFloat = 0.15
     /// Share of the lead kept per frame once the motion turns.
     static let turnDecay: CGFloat = 0.6
+    /// UIKit skips the first or second frame after the lift (iOS 26.5
+    /// simulator, 8 flings: 7 the first, 1 the second).
+    static let skipWindow = 3
 
     public init() {}
+
+    /// The finger lifted into a fling: UIKit is about to skip a frame.
+    /// A frozen offset at any other time is not drawn ahead: a finger that
+    /// catches a fling freezes it too while UIKit still reports
+    /// decelerating, and drawing ahead there snapped back as a flicker.
+    public mutating func expectSkippedFrame() {
+        armed = Self.skipWindow
+    }
 
     /// The offset was moved to keep the rows where they are (an older page
     /// landed above them): that move is not motion. UIKit restarts its
     /// deceleration when the offset is set, and skips the next frame then
     /// too, which the next update draws.
     public mutating func shift(by delta: CGFloat) {
+        guard delta != 0 else { return }
         lastOffset = lastOffset.map { $0 + delta }
+        armed = max(armed, 2)
     }
 
     /// One UI update after UIKit's display links: the offset this frame
@@ -63,11 +78,13 @@ public struct ConversationDecelerationFill: Sendable, Equatable {
         sinceMove += duration
         let step = offset - previous
         let frame = CGFloat(duration)
+        let expectsSkip = armed > 0
+        armed = max(0, armed - 1)
         if abs(step) < 0.01 {
             // UIKit skipped this frame: draw the step it would have taken,
             // unless it is not a fling's or would run into an edge.
             let predicted = velocity * frame
-            guard abs(predicted) > Self.minimumStep, abs(velocity) <= Self.maximumSpeed else { return lead }
+            guard expectsSkip, abs(predicted) > Self.minimumStep, abs(velocity) <= Self.maximumSpeed else { return lead }
             let target = lead + predicted
             if let range {
                 let low = range.lowerBound + abs(predicted), high = range.upperBound - abs(predicted)
