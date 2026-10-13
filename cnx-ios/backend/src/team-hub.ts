@@ -30,9 +30,17 @@ const NON_MEMBER_TTL_MS = 15_000
 const SESSION_TTL_MS = 24 * 3600_000
 const MAX_TEXT_FRAME = 64 * 1024
 const MAX_BINARY_FRAME = 32 + 65_535
+/**
+ * At most one relay refusal per socket and session in this interval. A tunnel whose peer left keeps sending
+ * (WireGuard keepalives, TCP retransmits); answering every frame flooded the socket with `offline` errors.
+ */
+export const RELAY_ERROR_INTERVAL_MS = 5000
 
-/** Token buckets: text (signaling) and binary (WireGuard relay) per socket, in memory only. */
-const BUCKETS = { text: { rate: 20, burst: 60 }, binary: { rate: 4000, burst: 8000 } } as const
+/**
+ * Token buckets: text (signaling) and binary (WireGuard relay) per socket, in memory only. The binary rate
+ * covers about 100 Mbit/s of 1280-byte WireGuard datagrams plus their ACKs; excess frames are dropped.
+ */
+export const BUCKETS = { text: { rate: 20, burst: 60 }, binary: { rate: 12000, burst: 24000 } } as const
 
 export const uuidToBytes = (id: string): Uint8Array => {
   const hex = id.replace(/-/g, "")
@@ -56,6 +64,12 @@ export class TeamHub extends DurableObject<Env> {
   private readonly members = new Map<string, { ok: boolean; at: number }>()
   private readonly buckets = new WeakMap<WebSocket, { text: { t: number; at: number }; binary: { t: number; at: number } }>()
   private readonly sessions = new Map<string, { initiator: string; responder: string }>()
+  /** Deserialized attachments: the relay reads one per frame, and deserializing each time is the costly part. */
+  private readonly attachments = new WeakMap<WebSocket, Attachment>()
+  private colo: string | null | undefined
+  private readonly relayErrors = new WeakMap<WebSocket, Map<string, number>>()
+  /** The open socket of each device, so a relay frame needs no socket scan (rebuilt lazily after hibernation). */
+  private readonly live = new Map<string, WebSocket>()
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
@@ -98,11 +112,25 @@ export class TeamHub extends DurableObject<Env> {
   async forgetMac(deviceId: string): Promise<void> {
     this.sql.exec(`DELETE FROM macs WHERE device_id = ?`, deviceId)
     for (const ws of this.ctx.getWebSockets(deviceId)) {
-      ws.serializeAttachment({ ...this.attach(ws), replaced: true })
+      this.setAttach(ws, { ...this.attach(ws), replaced: true })
       try {
         ws.close(4001, "moved")
       } catch {}
     }
+  }
+
+  /** The colo this hub runs in (diagnostics: a hub stays where it was first created). */
+  async placement(): Promise<{ colo: string | null }> {
+    if (this.env.ENVIRONMENT === "test") return { colo: null }
+    if (this.colo === undefined) {
+      try {
+        const trace = await (await fetch("https://www.cloudflare.com/cdn-cgi/trace")).text()
+        this.colo = /^colo=(\w+)$/m.exec(trace)?.[1] ?? null
+      } catch {
+        return { colo: null }
+      }
+    }
+    return { colo: this.colo }
   }
 
   async macs(): Promise<Array<MacPresence>> {
@@ -120,7 +148,7 @@ export class TeamHub extends DurableObject<Env> {
     if (!att) return new Response("missing identity", { status: 400 })
     // One live socket per device: a reconnect replaces the old socket without an offline blip.
     for (const old of this.ctx.getWebSockets(att.deviceId)) {
-      old.serializeAttachment({ ...this.attach(old), replaced: true })
+      this.setAttach(old, { ...this.attach(old), replaced: true })
       try {
         old.close(4000, "replaced")
       } catch {}
@@ -128,7 +156,8 @@ export class TeamHub extends DurableObject<Env> {
     const pair = new WebSocketPair()
     const [client, server] = [pair[0], pair[1]]
     this.ctx.acceptWebSocket(server, [att.deviceId])
-    server.serializeAttachment(att)
+    this.setAttach(server, att)
+    this.live.set(att.deviceId, server)
     if (att.kind === "mac") {
       this.sql.exec(
         `INSERT INTO macs (device_id, name, owner_user_id, owner_project_id, last_seen_at) VALUES (?, ?, ?, ?, ?)
@@ -180,9 +209,9 @@ export class TeamHub extends DurableObject<Env> {
     const to = bytesToUuid(bytes.subarray(16, 32))
     const s = this.session(sessionId)
     const ok = s && ((s.initiator === att.deviceId && s.responder === to) || (s.initiator === to && s.responder === att.deviceId))
-    if (!ok) return this.error(ws, "not_owner", "no relay session with this device", sessionId)
+    if (!ok) return this.relayError(ws, "not_owner", "no relay session with this device", sessionId)
     const target = this.open(to)
-    if (!target) return this.error(ws, "offline", "device is offline", sessionId)
+    if (!target) return this.relayError(ws, "offline", "device is offline", sessionId)
     const out = new Uint8Array(bytes)
     out.set(uuidToBytes(att.deviceId), 16)
     target.send(out)
@@ -204,7 +233,17 @@ export class TeamHub extends DurableObject<Env> {
   }
 
   private attach(ws: WebSocket): Attachment {
-    return ws.deserializeAttachment() as Attachment
+    let att = this.attachments.get(ws)
+    if (!att) {
+      att = ws.deserializeAttachment() as Attachment
+      if (att) this.attachments.set(ws, att)
+    }
+    return att
+  }
+
+  private setAttach(ws: WebSocket, att: Attachment) {
+    ws.serializeAttachment(att)
+    this.attachments.set(ws, att)
   }
 
   private gone(ws: WebSocket) {
@@ -220,7 +259,13 @@ export class TeamHub extends DurableObject<Env> {
 
   /** The open, non-replaced socket of a device (excluding `except`). */
   private open(deviceId: string, except?: WebSocket): WebSocket | undefined {
-    return this.ctx.getWebSockets(deviceId).find((w) => w !== except && w.readyState === WebSocket.OPEN && !this.attach(w).replaced)
+    const usable = (w: WebSocket) => w !== except && w.readyState === WebSocket.OPEN && !this.attach(w).replaced
+    const hit = this.live.get(deviceId)
+    if (hit && usable(hit)) return hit
+    const found = this.ctx.getWebSockets(deviceId).find(usable)
+    if (found) this.live.set(deviceId, found)
+    else if (hit && hit !== except) this.live.delete(deviceId)
+    return found
   }
 
   /**
@@ -290,6 +335,20 @@ export class TeamHub extends DurableObject<Env> {
     try {
       ws.send(JSON.stringify({ type: "error", code, message, ...(sessionId ? { sessionId } : {}) }))
     } catch {}
+  }
+
+  private relayError(ws: WebSocket, code: string, message: string, sessionId: string) {
+    let sent = this.relayErrors.get(ws)
+    if (!sent) {
+      sent = new Map()
+      this.relayErrors.set(ws, sent)
+    }
+    const now = Date.now()
+    const last = sent.get(sessionId)
+    if (last !== undefined && now - last < RELAY_ERROR_INTERVAL_MS) return
+    if (sent.size >= 256) sent.clear()
+    sent.set(sessionId, now)
+    this.error(ws, code, message, sessionId)
   }
 
   private take(ws: WebSocket, kind: "text" | "binary"): boolean {

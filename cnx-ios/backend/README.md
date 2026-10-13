@@ -6,7 +6,10 @@ parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 - `src/index.ts`: routes, Stack JWT auth, validation.
 - `src/team-hub.ts`: `TeamHub` Durable Object, one per team (SQLite-backed,
   hibernating WebSockets): signaling admission, Mac presence, WireGuard relay,
-  60 s membership cache.
+  60 s membership cache. A hub is created with a `locationHint` from the
+  caller's geolocation (`locationHintFor` in `src/index.ts`), since a hub
+  never moves and free-plan requests are sometimes received in a far colo.
+  `GET /v1/teams/:teamId/hub` reports the ingress colo and the hub's colo.
 - `src/store.ts`, `src/schema.ts`, `drizzle/`: PlanetScale Postgres through
   Hyperdrive (Drizzle). Tests use an in-memory store.
 - `src/stack.ts`: Stack team membership and invitations.

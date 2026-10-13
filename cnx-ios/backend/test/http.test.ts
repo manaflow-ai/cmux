@@ -4,7 +4,8 @@ import { call, DEV_PROJECT, PROD_PROJECT, register, token } from "./helpers.ts"
 describe("HTTP API", () => {
   it("health is public", async () => {
     const r = await call("GET", "/v1/health", undefined)
-    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.5.0", stackProjects: [DEV_PROJECT, PROD_PROJECT] } })
+    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.6.0", stackProjects: [DEV_PROJECT, PROD_PROJECT] } })
+    expect(r.json).toHaveProperty("colo")
   })
 
   it("rejects missing, forged, wrong-audience and anonymous tokens", async () => {
@@ -136,5 +137,22 @@ describe("dev and production Stack projects", () => {
     // The device object keeps its PROTOCOL.md shape (the project is recorded, not returned).
     const r = await call("POST", "/v1/devices", prodAlice, { deviceId: prodMac, kind: "mac", name: "Prod Mac", teamId: "personal-alice" })
     expect(Object.keys(r.json.device).sort()).toEqual(["createdAt", "deviceId", "kind", "lastSeenAt", "name", "ownerUserId", "teamId", "updatedAt", "wgPublicKey"])
+  })
+})
+
+describe("hub placement", () => {
+  it("maps the caller's location to a Durable Object region", async () => {
+    const { locationHintFor } = await import("../src/index.ts")
+    expect(locationHintFor({ continent: "NA", longitude: "-122.4" })).toBe("wnam")
+    expect(locationHintFor({ continent: "NA", longitude: "-74.0" })).toBe("enam")
+    expect(locationHintFor({ continent: "EU", longitude: "2.3" })).toBe("weur")
+    expect(locationHintFor({ continent: "EU", longitude: "37.6" })).toBe("eeur")
+    expect(locationHintFor({ continent: "AS", country: "JP" })).toBe("apac")
+    expect(locationHintFor({ continent: "AS", country: "AE" })).toBe("me")
+    expect(locationHintFor({ continent: "OC" })).toBe("oc")
+    expect(locationHintFor({ continent: "SA" })).toBe("sam")
+    expect(locationHintFor({ continent: "AF" })).toBe("afr")
+    expect(locationHintFor(undefined)).toBeUndefined()
+    expect(locationHintFor({ continent: "AN" })).toBeUndefined()
   })
 })

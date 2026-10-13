@@ -66,14 +66,21 @@ pub struct DialOptions {
     /// Relay only (the app's debug "simulate distant network" mode): skip
     /// every direct path. WebRTC uses ICE transport policy `relay` (only
     /// TURN candidates from `ice_servers`; a dial without a TURN server
-    /// fails at once), and WireGuard sends no endpoints and ignores the
-    /// peer's, so every datagram goes through the backend relay frames.
+    /// fails at once). WireGuard never sends plain UDP: with a TURN server
+    /// it offers only its relayed address and reaches the peer through
+    /// TURN (path `turn`), otherwise every datagram goes through the
+    /// backend relay frames (path `relay`).
     pub relay_only: bool,
     /// Test support: WireGuard silently drops every UDP datagram this side
     /// sends, as when the OS refuses the route (macOS Local Network
     /// privacy) or a firewall drops outbound UDP. Inbound UDP still works.
     #[doc(hidden)]
     pub drop_outbound_udp: bool,
+    /// Test support: WireGuard's plain UDP sends to addresses this returns
+    /// true for fail as refused by the OS (`EHOSTUNREACH`, as macOS Local
+    /// Network privacy answers for LAN peers).
+    #[doc(hidden)]
+    pub refuse_udp_to: Option<fn(&std::net::SocketAddr) -> bool>,
     /// Bound on the whole dial or answer.
     pub timeout: Duration,
 }
@@ -86,6 +93,7 @@ impl Default for DialOptions {
             exclude_cgnat: false,
             relay_only: false,
             drop_outbound_udp: false,
+            refuse_udp_to: None,
             timeout: Duration::from_secs(25),
         }
     }
@@ -171,14 +179,22 @@ pub trait Dialer: Send + Sync {
 pub struct SessionEvents {
     pub session: mpsc::UnboundedReceiver<SessionEvent>,
     pub backend: tokio::sync::broadcast::Receiver<SignalingEvent>,
+    /// This session's id: a backend error naming another session (say a
+    /// relay frame of an ended tunnel answered `offline`) is not ours.
+    pub session_id: String,
 }
 
 impl SessionEvents {
     pub fn subscribe(signaling: &SignalingClient, session_id: &str) -> Self {
-        Self { backend: signaling.events(), session: signaling.subscribe(session_id) }
+        Self {
+            backend: signaling.events(),
+            session: signaling.subscribe(session_id),
+            session_id: session_id.to_owned(),
+        }
     }
 
-    /// The next session event; a backend error or a disconnect is an error.
+    /// The next session event; a backend error for this session (or for no
+    /// session in particular) or a disconnect is an error.
     pub async fn next(&mut self) -> Result<SessionEvent, DialError> {
         loop {
             tokio::select! {
@@ -189,7 +205,11 @@ impl SessionEvents {
                     };
                 }
                 event = self.backend.recv() => match event {
-                    Ok(SignalingEvent::Error { code, message }) => return Err(DialError::Refused { code, message }),
+                    Ok(SignalingEvent::Error { code, message, session_id })
+                        if session_id.as_ref().is_none_or(|id| *id == self.session_id) =>
+                    {
+                        return Err(DialError::Refused { code, message });
+                    }
                     Ok(SignalingEvent::Disconnected(reason)) => return Err(DialError::Signaling(reason)),
                     _ => {}
                 },
@@ -272,4 +292,35 @@ pub async fn answer(
     };
     let link = Link::new(dialed.stream, Role::Mac, link_config, Some(dialed.guard));
     Ok(Connected { link, transport: kind, path: dialed.path, session_id })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn error(session_id: Option<&str>) -> SignalingEvent {
+        SignalingEvent::Error {
+            code: "offline".into(),
+            message: "device is offline".into(),
+            session_id: session_id.map(str::to_owned),
+        }
+    }
+
+    /// A relay frame of an ended tunnel is answered `offline` with that
+    /// tunnel's session id; a new dial on the same socket must not fail on it.
+    #[tokio::test]
+    async fn another_sessions_error_does_not_fail_this_session() {
+        let (session_tx, session) = mpsc::unbounded_channel();
+        let (backend_tx, backend) = tokio::sync::broadcast::channel(8);
+        let mut events = SessionEvents { session, backend, session_id: "new".into() };
+        backend_tx.send(error(Some("old"))).unwrap();
+        tokio::task::yield_now().await;
+        session_tx.send(SessionEvent::Relay(bytes::Bytes::from_static(b"x"))).unwrap();
+        assert!(matches!(events.next().await, Ok(SessionEvent::Relay(_))));
+
+        backend_tx.send(error(Some("new"))).unwrap();
+        assert!(matches!(events.next().await, Err(DialError::Refused { .. })));
+        backend_tx.send(error(None)).unwrap();
+        assert!(matches!(events.next().await, Err(DialError::Refused { .. })));
+    }
 }

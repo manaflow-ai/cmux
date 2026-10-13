@@ -113,8 +113,8 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
             },
             event = events.recv() => match event {
                 Ok(cnx_link::signaling::SignalingEvent::Disconnected(reason)) => return reason,
-                Ok(cnx_link::signaling::SignalingEvent::Error { code, message }) => {
-                    tracing::warn!(code, message, "backend error");
+                Ok(cnx_link::signaling::SignalingEvent::Error { code, message, session_id }) => {
+                    tracing::debug!(code, message, ?session_id, "backend error");
                     continue;
                 }
                 Ok(_) | Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -133,7 +133,11 @@ pub async fn serve_signaling(signaling: SignalingClient, context: AnswerContext)
             );
             continue;
         }
-        let session_events = SessionEvents { session: session.events, backend: signaling.events() };
+        let session_events = SessionEvents {
+            session: session.events,
+            backend: signaling.events(),
+            session_id: envelope.session_id.clone(),
+        };
         tokio::spawn(answer_session(signaling.clone(), envelope, session_events, kind, context.clone()));
     }
 }

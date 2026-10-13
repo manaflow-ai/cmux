@@ -12,7 +12,7 @@
   "observability": { "enabled": true },
   "vars": {
     "ENVIRONMENT": "local",
-    "API_VERSION": "0.5.0",
+    "API_VERSION": "0.6.0",
     // Stack projects whose users are accepted, primary first (src/auth.ts StackProject).
     "STACK_PROJECTS": "[{\"id\":\"454ecd03-1db2-4050-845e-4ce5b0cd9895\",\"label\":\"dev\",\"publishableClientKey\":\"pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g\",\"inviteCallbackUrl\":\"http://localhost:8102/handler/team-invitation\"},{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
   },
@@ -27,7 +27,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "dev",
-        "API_VERSION": "0.5.0",
+        "API_VERSION": "0.6.0",
         // Dev (primary) and production Stack users: production cnx builds use this dev Worker too.
         "STACK_PROJECTS": "[{\"id\":\"454ecd03-1db2-4050-845e-4ce5b0cd9895\",\"label\":\"dev\",\"publishableClientKey\":\"pck_xb63160bwe9699vtxfzfj6emmxpafg5mkjrtp6ehzxv5g\",\"inviteCallbackUrl\":\"http://localhost:8102/handler/team-invitation\"},{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
@@ -46,7 +46,7 @@
       "observability": { "enabled": true, "logs": { "enabled": true, "invocation_logs": false } },
       "vars": {
         "ENVIRONMENT": "prod",
-        "API_VERSION": "0.5.0",
+        "API_VERSION": "0.6.0",
         "STACK_PROJECTS": "[{\"id\":\"9790718f-14cd-4f7e-824d-eaf527a82b82\",\"label\":\"prod\",\"publishableClientKey\":\"\",\"inviteCallbackUrl\":\"https://cmux.com/handler/team-invitation\"}]"
       },
       "durable_objects": { "bindings": [{ "name": "TEAM_HUB", "class_name": "TeamHub" }] },

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { uuidToBytes } from "../src/team-hub.ts"
+import { BUCKETS, uuidToBytes } from "../src/team-hub.ts"
 import { call, connect, PROD_PROJECT, register, token, worker } from "./helpers.ts"
 
 const offer = (from: string, to: string, sessionId = crypto.randomUUID()) => ({ type: "signal", to, from, sessionId, payload: { kind: "webrtc-offer", sdp: "v=0" } })
@@ -158,11 +158,54 @@ describe("TeamHub signaling", () => {
     await p.until((s) => s.binary.length === 1)
     expect([...p.binary[0]!.subarray(16, 32)]).toEqual([...uuidToBytes(mac)])
 
-    // A device outside the session cannot inject frames.
-    bp.ws.send(frame(mac))
+    // A device outside the session cannot inject frames, and a burst of refused frames gets one error.
+    for (let i = 0; i < 10; i++) bp.ws.send(frame(mac))
     await bp.until((s) => s.frames.some((f) => f.type === "error" && f.code === "not_owner"))
+    p.send({ type: "nope" })
+    await p.until((s) => s.frames.some((f) => f.type === "error" && f.code === "bad_request"))
+    bp.send({ type: "nope" })
+    await bp.until((s) => s.frames.some((f) => f.type === "error" && f.code === "bad_request"))
+    expect(bp.frames.filter((f) => f.type === "error" && f.code === "not_owner")).toHaveLength(1)
+    expect(bp.frames.find((f) => f.code === "not_owner")).toMatchObject({ sessionId })
     expect(m.binary).toHaveLength(1)
     for (const s of [p, m, bp]) s.ws.close()
+  })
+
+  it("relays a burst of frames in order, with room for about 100 Mbit/s", async () => {
+    const solo = await token("burst")
+    const team = "personal-burst"
+    const phone = await register(solo, "phone", team)
+    const mac = await register(solo, "mac", team)
+    const p = await connect(solo, team, phone)
+    const m = await connect(solo, team, mac)
+    for (const s of [p, m]) await s.until((x) => x.frames.some((f) => f.type === "hello"))
+    const sessionId = crypto.randomUUID()
+    p.send({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "wg-init", publicKey: "k", endpoints: [], overlayIP: "10.77.0.2" } })
+    await m.until((s) => s.frames.some((f) => f.type === "signal"))
+    expect(BUCKETS.binary.burst).toBeGreaterThanOrEqual(20000)
+    const count = 2000
+    const b = new Uint8Array(32 + 40)
+    b.set(uuidToBytes(sessionId), 0)
+    b.set(uuidToBytes(mac), 16)
+    for (let i = 0; i < count; i++) {
+      b[32] = i & 0xff
+      b[33] = i >> 8
+      p.ws.send(b)
+    }
+    const deadline = Date.now() + 20000
+    while (m.binary.length < count && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50))
+    expect(m.binary.length).toBe(count)
+    expect(m.binary.every((f, i) => f[32] === (i & 0xff) && f[33] === i >> 8)).toBe(true)
+    for (const s of [p, m]) s.ws.close()
+  }, 30000)
+
+  it("reports where a team's hub runs", async () => {
+    const alice = await token("alice")
+    const r = await call("GET", "/v1/teams/team-a/hub", alice)
+    expect(r.status).toBe(200)
+    expect(r.json).toHaveProperty("hubColo")
+    expect(r.json).toHaveProperty("ingressColo")
+    expect((await call("GET", "/v1/teams/team-a/hub", await token("mallory"))).status).toBe(403)
   })
 
   it("a reconnect replaces the old socket without an offline blip", async () => {

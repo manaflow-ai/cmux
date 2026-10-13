@@ -65,11 +65,18 @@ echoes the token),
 | `PUT /v1/teams/:teamId/prefs` | `{color?: "#RRGGBB", emoji?: string\|null}`. `emoji` is the avatar glyph: `null` = automatic (team initial), `""` = none (color only), otherwise exactly one grapheme (letter, digit, symbol or emoji; not whitespace) |
 | `POST /v1/teams/:teamId/invites` | `{email}` → `{url, sent:true}`: Stack emails a team invitation whose link opens `url` (the configured callback) with the code. Changed from a bare link: without a Stack server key the API can only send the invitation email, not mint a shareable link. Needs the caller's `$invite_members` team permission. |
 | `GET /v1/ice` | → `{iceServers:[{urls:[...],username?,credential?}], ttl}` from the Cloudflare TURN key (generate-ice-servers), STUN `stun:stun.cloudflare.com:3478` always included (STUN only if TURN is unavailable) |
-| `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId]}` (accepted Stack projects, primary first) |
+| `GET /v1/health` | → `{ok:true, version, stackProjects:[projectId], colo}` (accepted Stack projects, primary first; `colo` is the Cloudflare colo that received the request, added in 0.6.0) |
+| `GET /v1/teams/:teamId/hub` | → `{ingressColo, hubColo, locationHint}`: diagnostics added in 0.6.0. Where this request entered Cloudflare, where the team's `TeamHub` runs, and the region a hub created by this request would get (`null` when unknown) |
 
 ## Signaling WebSocket `GET /v1/teams/:teamId/signal?deviceId=<id>`
 
-One `TeamHub` Durable Object per team (hibernating WebSockets). JSON text
+One `TeamHub` Durable Object per team (hibernating WebSockets). A hub stays
+where it is first created. Since 0.6.0 the Worker creates it with a
+`locationHint` from the caller's own location (Cloudflare's geolocation of
+the client: `wnam`, `enam`, `weur`, ...), not from the colo that received the
+request. Free-plan traffic is sometimes received far from the client (on
+2026-10-13 a California client was served from Paris), and a hub created then
+would stay across an ocean. Existing hubs keep their place. JSON text
 frames:
 
 The socket is admitted only for a member of `teamId` whose `deviceId` is
@@ -97,20 +104,37 @@ with 4001 `moved`.
   admitted session between exactly those two devices (opened by a `signal`,
   ended by `bye` or after 24 h); datagrams up to 65535 bytes.
   A relay datagram of the single byte `0xff` is a reachability marker, "your
-  UDP reaches me" (WireGuard messages are at least 32 bytes and start with
-  type 1 to 4). A side sends it when authenticated UDP from its peer arrives
-  (at most every 3 s). A side goes UDP-only only after receiving the marker;
-  until then it sends every datagram through the relay as well, because UDP
-  reachability can be one-way.
+  datagrams reach me" (WireGuard messages are at least 32 bytes and start
+  with type 1 to 4). A side sends it when an authenticated datagram from its
+  peer arrives over UDP or TURN (at most every 3 s). A side leaves the relay
+  only after receiving the marker; until then it sends every datagram
+  through the relay as well, because reachability can be one-way. An address
+  the OS refuses to send to (macOS Local Network privacy answers
+  `EHOSTUNREACH` for LAN peers) is never chosen as the route again.
 - WireGuard specifics: `publicKey` is base64 Curve25519; `endpoints` are
   `ip:port` strings (host and STUN-reflexive addresses of the tunnel's UDP
   socket); `overlayIP` is the sender's IPv4 address inside the tunnel (the
   dialer uses `10.77.0.2`, the answerer `10.77.0.1`).
+- WireGuard over TURN (no wire change, so older Macs take part as they
+  are): when `/v1/ice` lists a `turn:` UDP server, the dialer allocates a
+  TURN relay and adds the relayed address to its `endpoints`. The Mac sends
+  plain UDP to it like to any endpoint. The dialer sends through its
+  allocation to the Mac's public endpoints and reports the path `turn` once
+  that route is confirmed. TURN servers sit on well-routed anycast
+  addresses, so this is usually far nearer than the Worker relay: on
+  2026-10-13 it measured 16 ms RTT against 240 to 345 ms through the
+  Worker. The relay frames stay as the fallback.
 - `{"type":"error","code","message","sessionId"?}` for refusals (`not_owner`,
   `offline`, `rate_limited`, `bad_request` for malformed frames or a `from`
-  that is not the socket's device).
-- Rate limits per socket: 20 text frames/s (burst 60), 4000 binary frames/s
-  (burst 8000; excess binary frames are dropped silently).
+  that is not the socket's device). A refused relay frame is answered at most
+  once per socket and session every 5 s (0.6.0; before, every frame of a
+  tunnel whose peer had left drew an error). A client fails a dial only on
+  an error for that dial's session or one without `sessionId`, never on an
+  error naming another session. A WireGuard side that closes its tunnel
+  sends `bye {reason:"closed"}` so the peer's tunnel stops too.
+- Rate limits per socket: 20 text frames/s (burst 60), 12000 binary frames/s
+  (burst 24000; excess binary frames are dropped silently). Raised from
+  4000/8000 in 0.6.0: about 100 Mbit/s of 1280-byte datagrams plus ACKs.
 
 Admission: the DO forwards `signal` only when `to` is a Mac owned by the
 sender's user (same `sub` in the same Stack project), or the reply direction of an existing sessionId. A sessionId
@@ -130,6 +154,12 @@ at most 256 KiB; larger writes are split into several `data` frames.
 | 1 `data` | raw bytes |
 | 2 `close` | payload JSON `{"code","reason"}` |
 | 3 `ping` / 4 `pong` | channel 0, 8-byte nonce |
+
+A side sends `ping` and `pong` ahead of queued channel data. The keepalive
+pings every 15 s and closes the link (`keepalive timed out`) only when
+nothing at all, not a pong and no other frame, arrived for 20 s after a
+ping. (Before, a ping queued behind megabytes of data on a slow relay and a
+healthy link closed during a 10 MiB transfer.)
 
 Phone opens odd channel ids, Mac even. Services exposed by `cnx-hostd`
 (default deny; anything else is refused with `close {code:"unknown_service"}`):
@@ -155,5 +185,7 @@ Both produce the same `Link`; switching tears the link down and redials.
 
 Debug builds add Settings → Developer → "Relay only (simulate distant
 network)". It is a phone-side dial policy with no wire change: WebRTC gathers
-only TURN relay candidates (path `turn`), and WireGuard sends empty
-`endpoints` and ignores the Mac's (path `relay`). Changing it redials.
+only TURN relay candidates (path `turn`), and WireGuard never sends plain
+UDP: it offers only its TURN relayed address and sends through TURN (path
+`turn`), or, without a TURN server, sends empty `endpoints`, ignores the
+Mac's and stays on the relay frames (path `relay`). Changing it redials.

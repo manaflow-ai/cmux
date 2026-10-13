@@ -48,7 +48,37 @@ const readJson = async (req: Request): Promise<Record<string, unknown>> => {
  * personal space id that appeared in two projects would still be two separate spaces.
  */
 const scoped = (env: Env, caller: Caller, key: string) => (caller.projectId === primaryProject(env).id ? key : `${caller.projectId}:${key}`)
-const hub = (env: Env, caller: Caller, teamId: string) => env.TEAM_HUB.get(env.TEAM_HUB.idFromName(scoped(env, caller, teamId)))
+/**
+ * Where a new TeamHub should live: the region of the caller's own location (Cloudflare's geolocation of the
+ * client), not of the colo that received the request. A Durable Object stays where it is first created, and
+ * free-plan traffic is sometimes received far away (a California client was served from Paris on 2026-10-13),
+ * so creating hubs next to the ingress colo stranded them across an ocean. Only affects a hub's creation.
+ */
+export const locationHintFor = (cf: { continent?: unknown; longitude?: unknown; country?: unknown } | undefined): DurableObjectLocationHint | undefined => {
+  if (!cf || typeof cf.continent !== "string") return undefined
+  const lon = typeof cf.longitude === "string" ? Number.parseFloat(cf.longitude) : typeof cf.longitude === "number" ? cf.longitude : Number.NaN
+  switch (cf.continent) {
+    case "NA":
+      return Number.isFinite(lon) && lon < -100 ? "wnam" : "enam"
+    case "SA":
+      return "sam"
+    case "EU":
+      return Number.isFinite(lon) && lon > 20 ? "eeur" : "weur"
+    case "AF":
+      return "afr"
+    case "OC":
+      return "oc"
+    case "AS":
+      return ["AE", "BH", "IL", "IQ", "IR", "JO", "KW", "LB", "OM", "QA", "SA", "SY", "YE"].includes(String(cf.country)) ? "me" : "apac"
+    default:
+      return undefined
+  }
+}
+
+/** The caller's identity plus where a hub created by this request should live. */
+type Ctx = Caller & { readonly hint?: DurableObjectLocationHint }
+const hub = (env: Env, caller: Ctx, teamId: string) =>
+  env.TEAM_HUB.get(env.TEAM_HUB.idFromName(scoped(env, caller, teamId)), caller.hint ? { locationHint: caller.hint } : undefined)
 /**
  * The caller's identity in stored rows (devices.owner_user_id, team_prefs.user_id): the bare sub for the
  * primary project, `<projectId>:<sub>` otherwise. This records the project without a schema change, and the
@@ -60,7 +90,7 @@ const splitOwner = (env: Env, key: string): { projectId: string; userId: string 
   return i < 0 ? { projectId: primaryProject(env).id, userId: key } : { projectId: key.slice(0, i), userId: key.slice(i + 1) }
 }
 
-const requireMember = async (env: Env, teamId: string, caller: Caller) => {
+const requireMember = async (env: Env, teamId: string, caller: Ctx) => {
   if (!TEAM_ID.test(teamId)) throw new HttpError(400, "bad_request", "invalid teamId")
   // Personal space (PROTOCOL.md): `personal-<userId>` belongs to that user alone; no Stack call.
   if (teamId.startsWith(PERSONAL)) {
@@ -89,6 +119,11 @@ const withStore = async <T>(env: Env, ctx: ExecutionContext, f: (s: Store) => Pr
 /** The PROTOCOL.md device object: `ownerUserId` is the bare sub (the project is recorded, not returned). */
 const publicDevice = (env: Env, d: Device): Device => ({ ...d, ownerUserId: splitOwner(env, d.ownerUserId).userId })
 
+const colo = (req: Request): string | null => {
+  const c = (req as Request & { cf?: { colo?: unknown } }).cf?.colo
+  return typeof c === "string" ? c : null
+}
+
 const later = (a: string | null, b: string | null) => (!a ? b : !b ? a : a > b ? a : b)
 
 const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Response> => {
@@ -96,14 +131,15 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
   const path = url.pathname.replace(/\/+$/, "") || "/"
   const method = req.method
 
-  if (path === "/v1/health" && method === "GET") return json({ ok: true, version: env.API_VERSION, stackProjects: stackProjects(env).map((p) => p.id) })
+  if (path === "/v1/health" && method === "GET")
+    return json({ ok: true, version: env.API_VERSION, stackProjects: stackProjects(env).map((p) => p.id), colo: colo(req) })
 
   const bearer = bearerOf(req)
   if (!bearer) return fail(401, "unauthorized", "missing or invalid Stack access token")
   const auth = await authenticate(env, bearer.token)
   // The reason (expired, restricted, unknown_key, ...) names why without echoing the token.
   if (!("caller" in auth)) return fail(401, "unauthorized", `missing or invalid Stack access token (${auth.rejection})`)
-  const caller = auth.caller
+  const caller: Ctx = { ...auth.caller, hint: locationHintFor((req as { cf?: { continent?: unknown; longitude?: unknown; country?: unknown } }).cf) }
 
   if (path === "/v1/ice" && method === "GET") {
     const { iceServers: list, ttl } = await iceServers(env)
@@ -157,7 +193,7 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     })
   }
 
-  const team = path.match(/^\/v1\/teams\/([^/]+)\/(macs|prefs|invites|signal)$/)
+  const team = path.match(/^\/v1\/teams\/([^/]+)\/(macs|prefs|invites|signal|hub)$/)
   if (!team) return fail(404, "not_found", "no such route")
   const teamId = decodeURIComponent(team[1]!)
   const action = team[2]!
@@ -175,6 +211,13 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
     // Echo only cnx.v1; the bearer subprotocol is never selected (it would echo the token back).
     if (bearer?.viaSubprotocol || (req.headers.get("sec-websocket-protocol") ?? "").split(",").some((p) => p.trim() === "cnx.v1")) headers.set("x-cnx-subprotocol", "cnx.v1")
     return hub(env, caller, teamId).fetch("https://team-hub/signal", { headers })
+  }
+
+  if (action === "hub" && method === "GET") {
+    // Diagnostics (PROTOCOL.md): where this request entered Cloudflare and where the team's hub runs.
+    await requireMember(env, teamId, caller)
+    const placed = await hub(env, caller, teamId).placement()
+    return json({ ingressColo: colo(req), hubColo: placed.colo, locationHint: caller.hint ?? null })
   }
 
   if (action === "macs" && method === "GET") {

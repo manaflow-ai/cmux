@@ -2,14 +2,16 @@
 //!
 //!   cnx-dial --base-url URL --token-file PATH --team TEAM --mac MAC_DEVICE_ID
 //!            [--transport webrtc|wireguard]... [--relay-only] [--exclude-cgnat]
-//!            [--bytes N] [--daemon] [--pings N]
+//!            [--bytes N] [--daemon] [--pings N] [--no-turn]
 //!
 //! Prints one JSON line per transport: connect time, path, RTT, echo
 //! throughput, and the daemon `identify` answer.
 //!
 //! `--relay-only` (alias `--force-relay`) skips every direct path, as a
 //! distant network would: WebRTC uses only TURN candidates, WireGuard only
-//! the backend relay frames.
+//! TURN (or, without a TURN server, the backend relay frames). `--no-turn`
+//! drops the TURN servers `/v1/ice` returned, so WireGuard relay only
+//! measures the backend relay frames.
 
 use std::time::{Duration, Instant};
 
@@ -26,6 +28,7 @@ struct Args {
     mac: String,
     transports: Vec<TransportKind>,
     relay_only: bool,
+    no_turn: bool,
     exclude_cgnat: bool,
     bytes: usize,
     daemon: bool,
@@ -36,7 +39,7 @@ fn parse() -> Result<Args> {
     let mut args = std::env::args().skip(1);
     let (mut base_url, mut token_file, mut team, mut mac) = (None, None, None, None);
     let mut transports = Vec::new();
-    let (mut relay_only, mut exclude_cgnat, mut daemon) = (false, false, false);
+    let (mut relay_only, mut exclude_cgnat, mut daemon, mut no_turn) = (false, false, false, false);
     let (mut bytes, mut pings) = (10 * 1024 * 1024, 20);
     while let Some(arg) = args.next() {
         let mut value = || args.next().with_context(|| format!("{arg} needs a value"));
@@ -54,6 +57,7 @@ fn parse() -> Result<Args> {
             "--pings" => pings = value()?.parse()?,
             "--relay-only" | "--force-relay" => relay_only = true,
             "--exclude-cgnat" => exclude_cgnat = true,
+            "--no-turn" => no_turn = true,
             "--daemon" => daemon = true,
             other => bail!("unknown argument {other}"),
         }
@@ -70,6 +74,7 @@ fn parse() -> Result<Args> {
         mac: mac.context("--mac is required")?,
         transports,
         relay_only,
+        no_turn,
         exclude_cgnat,
         bytes,
         daemon,
@@ -83,7 +88,13 @@ fn millis(duration: Duration) -> f64 {
 
 async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     let api = ApiClient::new(&args.base_url, &args.token);
-    let ice_servers = api.ice().await.map(|c| c.ice_servers).unwrap_or_default();
+    let mut ice_servers = api.ice().await.map(|c| c.ice_servers).unwrap_or_default();
+    if args.no_turn {
+        for server in &mut ice_servers {
+            server.urls.retain(|url| !url.starts_with("turn:") && !url.starts_with("turns:"));
+        }
+        ice_servers.retain(|server| !server.urls.is_empty());
+    }
     let turn_urls = cnx_link::dial::turn_url_count(&ice_servers);
     let device = uuid::Uuid::new_v4().to_string();
     // The backend admits a signaling socket only for a registered device.
@@ -173,6 +184,7 @@ async fn run(args: &Args, kind: TransportKind) -> Result<serde_json::Value> {
     Ok(json!({
         "transport": format!("{kind:?}").to_lowercase(),
         "relay_only": args.relay_only,
+        "no_turn": args.no_turn,
         "path": path,
         "signaling_ms": millis(signaled),
         "connect_ms": millis(connect),

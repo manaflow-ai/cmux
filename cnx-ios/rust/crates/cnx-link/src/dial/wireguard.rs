@@ -1,12 +1,14 @@
 //! WireGuard transport: a per-session userspace tunnel (cmux-wg: boringtun
 //! plus smoltcp). Keys, endpoints and overlay addresses travel in
 //! `wg-init` / `wg-resp`. Endpoints are the host address and the
-//! STUN-discovered reflexive address of the tunnel's UDP socket. Until a UDP
-//! datagram from the peer authenticates, every datagram goes through the
-//! backend relay and is also sprayed at the peer's endpoints (the hole
-//! punch); the first authenticated UDP datagram switches the path to direct.
-//! The link is one TCP stream to `overlayIP:7420`.
+//! STUN-discovered reflexive address of the tunnel's UDP socket; the dialer
+//! adds the relayed address of a TURN allocation when `/v1/ice` offers a
+//! TURN server. Until the peer confirms a UDP or TURN route, every datagram
+//! goes through the backend relay and is also sprayed at the peer's
+//! endpoints (the hole punch). The link is one TCP stream to
+//! `overlayIP:7420`.
 
+use std::collections::HashSet;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError};
@@ -20,8 +22,10 @@ use cmux_wg::{InterfaceAddress, IpNetwork, Origin, Received, Underlay, WgConfig,
 use tokio::io::ReadBuf;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, watch};
+use tokio::task::JoinHandle;
 use tokio::time::Instant;
 use uuid::Uuid;
+use webrtc::util::Conn;
 use zeroize::Zeroizing;
 
 use super::{DialError, DialFuture, DialOptions, Dialed, Dialer, LinkPath, SessionEvents, TransportKind};
@@ -37,10 +41,17 @@ const ANSWER_OVERLAY: Ipv4Addr = Ipv4Addr::new(10, 77, 0, 1);
 /// Room for the relay frame header and WebSocket framing.
 const MTU: u16 = 1280;
 const KEEPALIVE_SECONDS: u16 = 10;
-/// A direct path silent this long while relay datagrams still arrive falls
-/// back to the relay.
-const DIRECT_STALE: Duration = Duration::from_secs(25);
+/// A direct route silent this long falls back to the relay: when relay
+/// datagrams still arrive, or when this side keeps sending into it. Longer
+/// than the WireGuard keepalive (10 s), shorter than the link keepalive
+/// timeout (20 s), so a route that dies in both directions recovers on the
+/// relay before the link gives up.
+const DIRECT_STALE: Duration = Duration::from_secs(14);
 const STUN_WAIT: Duration = Duration::from_millis(1500);
+/// Bound on a TURN allocation; the dial goes on without one after this.
+const TURN_WAIT: Duration = Duration::from_millis(2000);
+/// Datagrams queued toward the TURN server before new ones are dropped.
+const TURN_QUEUE: usize = 1024;
 
 pub struct WireGuardDialer;
 
@@ -132,6 +143,164 @@ async fn gather_endpoints(socket: &UdpSocket, options: &DialOptions) -> Vec<Stri
         .collect()
 }
 
+/// The first plain `turn:` URL over UDP and its credentials, as
+/// `(host:port, username, credential)`.
+fn turn_server(servers: &[crate::api::IceServer]) -> Option<(String, String, String)> {
+    servers.iter().find_map(|server| {
+        let username = server.username.clone()?;
+        let credential = server.credential.clone()?;
+        server.urls.iter().find_map(|url| {
+            let rest = url.strip_prefix("turn:")?;
+            let (host, query) = rest.split_once('?').unwrap_or((rest, ""));
+            if !query.is_empty() && !query.split('&').any(|pair| pair == "transport=udp") {
+                return None;
+            }
+            let address = if host.rsplit_once(':').is_some_and(|(_, port)| port.parse::<u16>().is_ok()) {
+                host.to_owned()
+            } else {
+                format!("{host}:3478")
+            };
+            Some((address, username.clone(), credential.clone()))
+        })
+    })
+}
+
+/// A TURN allocation used as one more WireGuard carrier (PROTOCOL.md): the
+/// peer sends plain UDP to `relayed`, and this side sends through the TURN
+/// server to the peer's public endpoints. TURN servers sit on well-routed
+/// anycast addresses, so this relay is usually much nearer than the
+/// backend's.
+struct TurnCarrier {
+    relayed: SocketAddr,
+    out: mpsc::Sender<(Bytes, SocketAddr)>,
+    inbound: mpsc::Receiver<(Bytes, SocketAddr)>,
+    tasks: Vec<JoinHandle<()>>,
+    relay: Arc<dyn Conn + Send + Sync>,
+    client: webrtc::turn::client::Client,
+}
+
+impl TurnCarrier {
+    /// Allocate on the first UDP TURN server of `servers`; `None` when there
+    /// is none or the allocation fails within [`TURN_WAIT`].
+    async fn allocate(servers: &[crate::api::IceServer]) -> Option<Self> {
+        let (address, username, password) = turn_server(servers)?;
+        let attempt = async {
+            let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(|e| e.to_string())?;
+            let config = webrtc::turn::client::ClientConfig {
+                stun_serv_addr: String::new(),
+                turn_serv_addr: address.clone(),
+                username,
+                password,
+                realm: String::new(),
+                software: String::new(),
+                rto_in_ms: 0,
+                conn: Arc::new(socket),
+                vnet: None,
+            };
+            let client = webrtc::turn::client::Client::new(config).await.map_err(|e| e.to_string())?;
+            client.listen().await.map_err(|e| e.to_string())?;
+            match client.allocate().await {
+                Ok(relay) => Ok::<_, String>((client, Arc::new(relay) as Arc<dyn Conn + Send + Sync>)),
+                Err(error) => {
+                    let _ = client.close().await;
+                    Err(error.to_string())
+                }
+            }
+        };
+        let (client, relay) = match tokio::time::timeout(TURN_WAIT, attempt).await {
+            Ok(Ok(allocated)) => allocated,
+            Ok(Err(error)) => {
+                tracing::debug!(%error, %address, "TURN allocation failed; WireGuard goes without it");
+                return None;
+            }
+            Err(_) => {
+                tracing::debug!(%address, "TURN allocation timed out; WireGuard goes without it");
+                return None;
+            }
+        };
+        let relayed = relay.local_addr().ok()?;
+        let (out, mut outgoing) = mpsc::channel::<(Bytes, SocketAddr)>(TURN_QUEUE);
+        let (inbound_tx, inbound) = mpsc::channel(TURN_QUEUE);
+        let sender = {
+            let relay = Arc::clone(&relay);
+            tokio::spawn(async move {
+                while let Some((datagram, to)) = outgoing.recv().await {
+                    if let Err(error) = relay.send_to(&datagram, to).await {
+                        tracing::trace!(%error, %to, "TURN send failed");
+                    }
+                }
+            })
+        };
+        let receiver = {
+            let relay = Arc::clone(&relay);
+            tokio::spawn(async move {
+                let mut buffer = vec![0u8; 65_536];
+                while let Ok((len, from)) = relay.recv_from(&mut buffer).await {
+                    match inbound_tx.try_send((Bytes::copy_from_slice(&buffer[..len]), from)) {
+                        Ok(()) | Err(mpsc::error::TrySendError::Full(_)) => {}
+                        Err(mpsc::error::TrySendError::Closed(_)) => return,
+                    }
+                }
+            })
+        };
+        tracing::debug!(%relayed, %address, "TURN allocation for WireGuard");
+        Some(Self { relayed, out, inbound, tasks: vec![sender, receiver], relay, client })
+    }
+
+    /// Queue one datagram to `to` through the TURN server (dropped when the
+    /// queue is full; WireGuard and TCP retransmit).
+    fn send(&self, datagram: &[u8], to: SocketAddr) {
+        let _ = self.out.try_send((Bytes::copy_from_slice(datagram), to));
+    }
+}
+
+impl Drop for TurnCarrier {
+    fn drop(&mut self) {
+        for task in &self.tasks {
+            task.abort();
+        }
+        // Release the allocation; without a runtime it simply expires.
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let (relay, client) = (Arc::clone(&self.relay), self.client.clone());
+            runtime.spawn(async move {
+                let _ = relay.close().await;
+                let _ = client.close().await;
+            });
+        }
+    }
+}
+
+/// Whether a TURN server may relay to `addr`: public unicast only (TURN
+/// servers refuse private and loopback peers), except loopback in tests.
+fn turn_reachable(addr: &SocketAddr, options: &DialOptions) -> bool {
+    match addr.ip() {
+        IpAddr::V4(ip) => {
+            (options.include_loopback && ip.is_loopback())
+                || !(ip.is_private()
+                    || ip.is_loopback()
+                    || ip.is_link_local()
+                    || ip.is_unspecified()
+                    || super::is_cgnat(IpAddr::V4(ip)))
+        }
+        IpAddr::V6(ip) => {
+            (options.include_loopback && ip.is_loopback())
+                || !(ip.is_loopback() || ip.is_unspecified() || (ip.segments()[0] & 0xfe00) == 0xfc00)
+        }
+    }
+}
+
+/// The peer endpoints this side sends to through its TURN allocation. Relay
+/// only keeps these: like WebRTC's `relay` policy, only this side's
+/// candidates are restricted to relayed ones.
+fn turn_targets(endpoints: &[String], options: &DialOptions) -> Vec<SocketAddr> {
+    endpoints
+        .iter()
+        .filter_map(|text| text.parse::<SocketAddr>().ok())
+        .filter(|addr| !(options.exclude_cgnat && super::is_cgnat(addr.ip())))
+        .filter(|addr| turn_reachable(addr, options))
+        .collect()
+}
+
 /// Sends one datagram through the backend relay.
 type RelaySend = Box<dyn Fn(&[u8]) + Send>;
 
@@ -156,22 +325,53 @@ const REACHABLE_MARKER: [u8; 1] = [0xff];
 /// Time between "your UDP reaches me" markers while UDP keeps arriving.
 const MARKER_INTERVAL: Duration = Duration::from_secs(3);
 
-/// The carrier: one UDP socket for direct paths plus the backend relay.
+/// How a direct route reaches the peer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Carrier {
+    /// Plain UDP from the tunnel's socket.
+    Udp,
+    /// Through this side's TURN allocation.
+    Turn,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Route {
+    carrier: Carrier,
+    addr: SocketAddr,
+}
+
+/// The carriers: one UDP socket for direct paths, an optional TURN
+/// allocation, and the backend relay.
 ///
 /// Reachability can be one-way (one side's OS or firewall drops its
 /// outbound UDP), so receiving the peer's UDP proves only the peer→us
-/// direction. Until the peer confirms it receives *our* UDP, every datagram
-/// goes through the relay as well as UDP. The confirmation is a relay frame
-/// whose datagram is the single byte `0xff` (PROTOCOL.md), sent by a side whenever
-/// authenticated UDP from its peer arrives (at most every 3 s).
+/// direction. Until the peer confirms it receives what we send, every
+/// datagram goes through the backend relay as well. The confirmation is a
+/// relay frame whose datagram is the single byte `0xff` (PROTOCOL.md), sent
+/// by a side whenever an authenticated UDP or TURN datagram from its peer
+/// arrives (at most every 3 s).
+///
+/// An address the OS refuses to send to (macOS Local Network privacy
+/// returns `EHOSTUNREACH` for LAN peers) is never chosen as the route again,
+/// so a peer reachable on the LAN one way and through TURN the other way
+/// settles on TURN instead of flapping.
 struct HybridUnderlay {
     socket: UdpSocket,
     drop_outbound_udp: bool,
+    refuse_udp_to: Option<fn(&SocketAddr) -> bool>,
+    /// Peer endpoints for plain UDP.
     candidates: Vec<SocketAddr>,
-    /// The peer's address as seen on authenticated UDP (peer→us works).
-    direct: Option<SocketAddr>,
+    turn: Option<TurnCarrier>,
+    /// Peer endpoints this side reaches through its TURN allocation.
+    turn_targets: Vec<SocketAddr>,
+    /// The route of the latest authenticated peer datagram (peer→us works).
+    direct: Option<Route>,
     last_direct: Option<Instant>,
-    /// The peer said it receives our UDP (us→peer works).
+    /// When plain UDP from the peer last authenticated.
+    last_udp: Option<Instant>,
+    /// Addresses the OS refused plain UDP to.
+    refused: HashSet<SocketAddr>,
+    /// The peer said it receives what we send (us→peer works).
     confirmed: bool,
     last_marker: Option<Instant>,
     relay_out: RelaySend,
@@ -181,10 +381,14 @@ struct HybridUnderlay {
 
 const UDP_PATH: PathId = PathId(0);
 const RELAY_PATH: PathId = PathId(1);
+const TURN_PATH: PathId = PathId(2);
 
 impl HybridUnderlay {
     /// Send one UDP datagram; `false` when the OS refused it.
     fn send_udp(&self, datagram: &[u8], target: SocketAddr) -> bool {
+        if self.refuse_udp_to.is_some_and(|refuse| refuse(&target)) {
+            return false;
+        }
         if self.drop_outbound_udp {
             return true;
         }
@@ -199,12 +403,39 @@ impl HybridUnderlay {
         }
     }
 
+    /// Send on `route`; `false` when the OS refused it (the address is then
+    /// never used for plain UDP again).
+    fn send_on(&mut self, route: Route, datagram: &[u8]) -> bool {
+        match route.carrier {
+            Carrier::Udp => {
+                if self.send_udp(datagram, route.addr) {
+                    return true;
+                }
+                self.refused.insert(route.addr);
+                false
+            }
+            Carrier::Turn => match &self.turn {
+                Some(turn) => {
+                    turn.send(datagram, route.addr);
+                    true
+                }
+                None => false,
+            },
+        }
+    }
+
     fn direct_only(&self) -> bool {
         self.confirmed && self.direct.is_some()
     }
 
     fn publish_path(&self) {
-        let path = if self.direct_only() { LinkPath::Direct } else { LinkPath::Relay };
+        let path = match self.direct {
+            Some(route) if self.confirmed => match route.carrier {
+                Carrier::Udp => LinkPath::Direct,
+                Carrier::Turn => LinkPath::Turn,
+            },
+            _ => LinkPath::Relay,
+        };
         self.path.send_if_modified(|current| std::mem::replace(current, path) != path);
     }
 
@@ -219,10 +450,16 @@ impl HybridUnderlay {
 
 impl Underlay for HybridUnderlay {
     fn send(&mut self, datagram: &[u8]) {
+        if self.direct_only() && self.last_direct.is_some_and(|last| last.elapsed() > DIRECT_STALE) {
+            // Nothing came back on the route for a while: offer the relay
+            // again (and the peer's marker re-confirms the route if it works).
+            self.demote("direct route silent");
+        }
         if self.direct_only()
-            && let Some(direct) = self.direct
+            && let Some(route) = self.direct
         {
-            if !self.send_udp(datagram, direct) {
+            if !self.send_on(route, datagram) {
+                self.direct = None;
                 self.demote("send refused");
                 (self.relay_out)(datagram);
             }
@@ -230,12 +467,33 @@ impl Underlay for HybridUnderlay {
         }
         (self.relay_out)(datagram);
         match self.direct {
-            Some(direct) => {
-                self.send_udp(datagram, direct);
+            Some(route) => {
+                if !self.send_on(route, datagram) {
+                    self.direct = None;
+                    self.publish_path();
+                }
+                // Until confirmed, keep offering TURN too: the route may be
+                // a plain UDP address the peer never receives from us.
+                if route.carrier == Carrier::Udp
+                    && let Some(turn) = &self.turn
+                {
+                    for target in &self.turn_targets {
+                        turn.send(datagram, *target);
+                    }
+                }
             }
             None => {
+                let mut refused = Vec::new();
                 for candidate in &self.candidates {
-                    self.send_udp(datagram, *candidate);
+                    if !self.refused.contains(candidate) && !self.send_udp(datagram, *candidate) {
+                        refused.push(*candidate);
+                    }
+                }
+                self.refused.extend(refused);
+                if let Some(turn) = &self.turn {
+                    for target in &self.turn_targets {
+                        turn.send(datagram, *target);
+                    }
                 }
             }
         }
@@ -260,12 +518,19 @@ impl Underlay for HybridUnderlay {
                 Poll::Pending => break,
             }
         }
+        if let Some(turn) = &mut self.turn
+            && let Poll::Ready(Some((datagram, from))) = turn.inbound.poll_recv(cx)
+        {
+            let len = datagram.len().min(buffer.len());
+            buffer[..len].copy_from_slice(&datagram[..len]);
+            return Poll::Ready(Ok(Received { len, origin: Origin { path: TURN_PATH, addr: Some(from) } }));
+        }
         loop {
             match self.relay_in.poll_recv(cx) {
-                // The peer receives our UDP.
+                // The peer receives what we send.
                 Poll::Ready(Some(datagram)) if datagram[..] == REACHABLE_MARKER => {
                     if !self.confirmed {
-                        tracing::debug!("peer confirmed our UDP reaches it");
+                        tracing::debug!("peer confirmed our datagrams reach it");
                     }
                     self.confirmed = true;
                     self.publish_path();
@@ -285,10 +550,33 @@ impl Underlay for HybridUnderlay {
 
     fn authenticated(&mut self, origin: Origin) {
         let now = Instant::now();
-        if origin.path == UDP_PATH
-            && let Some(addr) = origin.addr
-        {
-            self.direct = Some(addr);
+        let carrier = match origin.path {
+            UDP_PATH => Some(Carrier::Udp),
+            TURN_PATH => Some(Carrier::Turn),
+            _ => None,
+        };
+        if let (Some(carrier), Some(addr)) = (carrier, origin.addr) {
+            let route = Route { carrier, addr };
+            if carrier == Carrier::Udp {
+                self.last_udp = Some(now);
+            }
+            // Plain UDP wins over TURN while it keeps arriving, and an
+            // address the OS refuses to send to is never the route.
+            let udp_fresh = self.last_udp.is_some_and(|last| now.duration_since(last) <= DIRECT_STALE);
+            let keep_udp = carrier == Carrier::Turn
+                && udp_fresh
+                && self.direct.is_some_and(|current| current.carrier == Carrier::Udp);
+            let refused = carrier == Carrier::Udp && self.refused.contains(&addr);
+            if !keep_udp && !refused && self.direct != Some(route) {
+                if self.direct.is_some() {
+                    // The marker confirmed the old route, not this one (our
+                    // UDP may be dropped silently): relay again until the
+                    // peer confirms what arrives on the new route.
+                    tracing::debug!(?route, "WireGuard direct route changed");
+                    self.confirmed = false;
+                }
+                self.direct = Some(route);
+            }
             self.last_direct = Some(now);
             if self.last_marker.is_none_or(|last| now.duration_since(last) >= MARKER_INTERVAL) {
                 self.last_marker = Some(now);
@@ -310,7 +598,7 @@ impl Underlay for HybridUnderlay {
     }
 
     fn peer_hint(&self) -> Option<SocketAddr> {
-        self.direct
+        self.direct.map(|route| route.addr)
     }
 }
 
@@ -320,13 +608,22 @@ struct Guard {
     task: tokio::task::JoinHandle<()>,
     signaling: SignalingClient,
     session_id: String,
+    peer: String,
 }
 
 impl Drop for Guard {
     fn drop(&mut self) {
         self.task.abort();
+        // Tell the peer, so its tunnel stops sending relay frames the
+        // backend can only answer with `offline` or `not_owner`.
+        if self.net.lock().unwrap_or_else(PoisonError::into_inner).take().is_some() {
+            let _ = self.signaling.send_signal(
+                &self.peer,
+                &self.session_id,
+                SignalPayload::Bye { reason: "closed".into() },
+            );
+        }
         self.signaling.unsubscribe(&self.session_id);
-        self.net.lock().unwrap_or_else(PoisonError::into_inner).take();
     }
 }
 
@@ -347,6 +644,7 @@ fn start_tunnel(
     own_ip: Ipv4Addr,
     peer_ip: Ipv4Addr,
     peer_endpoints: &[String],
+    turn: Option<TurnCarrier>,
     options: &DialOptions,
 ) -> Result<Tunnel, DialError> {
     let session_uuid =
@@ -367,9 +665,17 @@ fn start_tunnel(
     let underlay = HybridUnderlay {
         socket,
         drop_outbound_udp: options.drop_outbound_udp,
-        candidates: peer_endpoints.iter().filter_map(|text| text.parse().ok()).collect(),
+        refuse_udp_to: options.refuse_udp_to,
+        candidates: usable_endpoints(peer_endpoints, options)
+            .iter()
+            .filter_map(|text| text.parse().ok())
+            .collect(),
+        turn_targets: if turn.is_some() { turn_targets(peer_endpoints, options) } else { Vec::new() },
+        turn,
         direct: None,
         last_direct: None,
+        last_udp: None,
+        refused: HashSet::new(),
         confirmed: false,
         last_marker: None,
         relay_out,
@@ -438,7 +744,11 @@ impl Dialer for WireGuardDialer {
     ) -> DialFuture<'a> {
         Box::pin(async move {
             let socket = UdpSocket::bind("0.0.0.0:0").await.map_err(transport_error)?;
-            let endpoints = gather_endpoints(&socket, options).await;
+            let (mut endpoints, turn) =
+                tokio::join!(gather_endpoints(&socket, options), TurnCarrier::allocate(&options.ice_servers));
+            if let Some(turn) = &turn {
+                endpoints.push(turn.relayed.to_string());
+            }
             let (private_key, public_key) = keypair();
             signaling
                 .send_signal(
@@ -480,7 +790,8 @@ impl Dialer for WireGuardDialer {
                 peer_key,
                 DIALER_OVERLAY,
                 peer_ip,
-                &usable_endpoints(&peer_endpoints, options),
+                &peer_endpoints,
+                turn,
                 options,
             )?;
             for datagram in early_relay {
@@ -492,6 +803,7 @@ impl Dialer for WireGuardDialer {
                 task,
                 signaling: signaling.clone(),
                 session_id: session_id.to_owned(),
+                peer: mac.to_owned(),
             };
             let net = running(&tunnel.net)?;
             let stream = net
@@ -532,7 +844,8 @@ impl Dialer for WireGuardDialer {
                 peer_key,
                 own_ip,
                 peer_ip,
-                &usable_endpoints(&peer_endpoints, options),
+                &peer_endpoints,
+                None,
                 options,
             )?;
             let task = follow(events, &tunnel);
@@ -541,6 +854,7 @@ impl Dialer for WireGuardDialer {
                 task,
                 signaling: signaling.clone(),
                 session_id: first.session_id.clone(),
+                peer: first.from.clone(),
             };
             let net = running(&tunnel.net)?;
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;

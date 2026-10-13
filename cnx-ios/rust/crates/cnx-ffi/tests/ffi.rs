@@ -21,7 +21,11 @@ fn spawn_echo_mac(mac: SignalingClient) {
     tokio::spawn(async move {
         while let Some(session) = mac.next_session().await {
             let first = session.first;
-            let events = SessionEvents { session: session.events, backend: mac.events() };
+            let events = SessionEvents {
+                backend: mac.events(),
+                session_id: first.session_id.clone(),
+                session: session.events,
+            };
             let mac = mac.clone();
             tokio::spawn(async move {
                 let options = DialOptions { include_loopback: true, ..DialOptions::default() };
