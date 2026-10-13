@@ -1181,6 +1181,8 @@ public actor VMClient {
     private static let attachTimeoutSeconds: TimeInterval = 16 * 60
 
     private let session: URLSession
+    /// The caller budget each request states and stops at (``CloudRequestBudget``).
+    nonisolated let requestBudget: CloudRequestBudget
     let auth: AuthCoordinator
     private let checkpointRenames: CloudRenameCoordinator
     private let telemetry: VMClientTelemetry
@@ -1203,8 +1205,10 @@ public actor VMClient {
         isDisabledByManagedPolicy: (@Sendable () -> Bool)? = nil,
         readRequests: CloudReadRequestCoordinator = CloudReadRequestCoordinator(),
         isCloudEnabled: @escaping @Sendable () -> Bool = { true },
-        isCloudAvailable: @escaping @Sendable () -> Bool = { true }
+        isCloudAvailable: @escaping @Sendable () -> Bool = { true },
+        requestBudget: CloudRequestBudget = .live
     ) {
+        self.requestBudget = requestBudget
         self.session = session
         self.auth = auth
         self.resourceStats = resourceStats
@@ -2012,7 +2016,11 @@ public actor VMClient {
                 path: "/api/vm/\(encodedID)/fork",
                 jsonBody: body,
                 extraHeaders: ["Idempotency-Key": idempotencyKey],
-                timeoutSeconds: Self.createTimeoutSeconds * 2
+                // The fork route runs at most its 600 s maxDuration and answers
+                // "still in progress" before then (routeDeadline.ts); a retry
+                // reuses the Idempotency-Key. A longer wait can never be used,
+                // and it exceeded the socket worker's 17 min limit.
+                timeoutSeconds: Self.createTimeoutSeconds
             )
             try ensureOK(http, data: data)
             let obj = try decodeJSONObject(data)
@@ -2574,7 +2582,12 @@ public actor VMClient {
             let teamID = explicitTeamID ?? selectedTeamID
             let key = CloudReadRequestCoordinator.Key(path: path, accountID: identity.accountID,
                 generation: identity.generation, teamID: teamID)
+            let transportBudgetSeconds = self.readRequests.transportBudgetSeconds
             let value = try await self.readRequests.read(key, deadline: deadline) {
+                // The shared transport answers every waiter, so it states the
+                // coordinator's own lifetime cap, never the first caller's
+                // shorter deadline; each waiter's deadline still applies to it.
+                try await self.requestBudget.withReplacedBudget(seconds: transportBudgetSeconds) {
                 try await CloudOperationContext.withCurrent(context) {
                     let (data, http) = try await self.requestMeasured(
                         method,
@@ -2585,6 +2598,7 @@ public actor VMClient {
                         teamBinding: teamBinding
                     )
                     return CloudReadRequestCoordinator.Response(data: data, http: http)
+                }
                 }
             }
             try Task.checkCancellation()
@@ -2813,6 +2827,11 @@ public actor VMClient {
         var retriesLeft = 2
         while true {
             try Task.checkCancellation()
+            // No attempt starts once the caller's budget is spent: the answer
+            // would reach no one (CloudRequestBudget).
+            if let remaining = requestBudget.remainingSeconds(), remaining <= 0 {
+                throw URLError(.timedOut)
+            }
             if let expectedTeamScope, !(await auth.isAuthenticatedTeamScopeCurrent(expectedTeamScope)) { throw VMClientError.notSignedIn }
             if followsSelectedTeam {
                 guard await auth.resolvedTeamID == requestedTeamID else {
@@ -2831,6 +2850,13 @@ public actor VMClient {
                 requestSpan = await context.recorder.beginChild(of: context, phase: .request, attempt: attempt)
             } else { requestSpan = nil }
             if let requestSpan { req.setValue(requestSpan.traceparent, forHTTPHeaderField: "traceparent") }
+            // The request waits no longer than the earliest layer waits for it
+            // (socket worker, CLI, shared-read budget), and states that budget
+            // so the server answers inside it. Recomputed per attempt: a retry
+            // wait spends the same budget.
+            let budget = requestBudget.effectiveTimeout(urlTimeout: timeoutSeconds)
+            req.timeoutInterval = budget
+            req.setValue(requestBudget.headerValue(seconds: budget), forHTTPHeaderField: CloudRequestBudget.headerField)
             let progressTask: Task<Void, Never>?
             if let requestSpan, method != "GET" {
                 let progressRequest = req
@@ -2866,29 +2892,31 @@ public actor VMClient {
                     response: .init(data: data, http: http))
                 if !canRetry { return (data, http) }
             }
-            if http.statusCode == 429, retriesLeft > 0 {
+            if http.statusCode == 429, retriesLeft > 0,
+               let delaySeconds = waitFitsBudget(Self.retryDelaySeconds(
+                   statusCode: http.statusCode,
+                   retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
+               ) ?? 2) {
                 retriesLeft -= 1
                 onRetry()
-                let delaySeconds = Self.retryDelaySeconds(
-                    statusCode: http.statusCode,
-                    retryAfterHeader: http.value(forHTTPHeaderField: "Retry-After")
-                ) ?? 2
                 try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: delaySeconds) }
                 continue
             }
             if retryTransientServiceUnavailable,
                retriesLeft > 0,
-               let delaySeconds = Self.transientVMRetryDelay(http: http, data: data) {
+               let transientDelay = Self.transientVMRetryDelay(http: http, data: data),
+               let delaySeconds = waitFitsBudget(TimeInterval(transientDelay.components.seconds)) {
                 retriesLeft -= 1
                 onRetry()
-                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: TimeInterval(delaySeconds.components.seconds)) }
+                try await CloudOperationContext.phase(.retryWait, attempt: attempt) { try await CmxRetryAfterPolicy().sleep(seconds: delaySeconds) }
                 continue
             }
             // The private gateway has not forwarded this request yet. Every
             // verb is safe to retry while its tagged backend is starting.
             if http.statusCode == 503, retriesLeft > 0,
                resolved.host == "cmux-dev-backend-1.tail137216.ts.net",
-               Self.cloudVMErrorCode(http: http, data: data) == "dev_backend_starting" {
+               Self.cloudVMErrorCode(http: http, data: data) == "dev_backend_starting",
+               waitFitsBudget(2) != nil {
                 retriesLeft -= 1
                 onRetry()
                 try await CloudOperationContext.phase(.retryWait, attempt: attempt) {
@@ -2922,6 +2950,14 @@ public actor VMClient {
             return (data, http)
         }
     }
+    /// `seconds` when a retry wait of that length still ends before the
+    /// caller's budget, else nil: a wait past it would answer no one, so the
+    /// response at hand is returned instead.
+    func waitFitsBudget(_ seconds: TimeInterval) -> TimeInterval? {
+        guard let remaining = requestBudget.remainingSeconds() else { return seconds }
+        return seconds < remaining ? seconds : nil
+    }
+
     private func pollOperationProgress(context: CloudOperationContext, request: URLRequest) async {
         struct ProgressResponse: Decodable { let steps: [CloudRemoteOperationStep] }
         var progress = request

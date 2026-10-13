@@ -35,6 +35,11 @@
       "message": "Bu makine zamanında yanıt vermediği için istek tamamlanamadı.",
       "action": "Makineyi duraklatın, ardından sürdürün ve tekrar deneyin. Mac uygulamasında Makineyi duraklat'ı, ardından Makineyi sürdür'ü seçin. Terminalde cmux vm pause '<machine>', ardından cmux vm resume '<machine>' çalıştırın."
     },
+    "inProgress": {
+      "title": "Hâlâ devam ediyor",
+      "message": "Bulut sağlayıcısı bu değişikliği henüz tamamlamadı. Değişiklik yine de tamamlanabilir.",
+      "action": "Tekrar denemeden önce makinenin durumunu cmux vm ls ile veya makine listesinde kontrol edin."
+    },
     "providerTimeout": {
       "title": "Bulut sağlayıcısı yavaş",
       "message": "Bulut sağlayıcısı zamanında yanıt vermedi.",

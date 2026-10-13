@@ -35,6 +35,11 @@
       "message": "这台机器未能及时响应，因此请求无法完成。",
       "action": "先暂停机器，再继续运行，然后重试。在 Mac 应用中，先选择“暂停机器”，再选择“继续运行机器”。在终端中，先运行 cmux vm pause '<machine>'，再运行 cmux vm resume '<machine>'。"
     },
+    "inProgress": {
+      "title": "仍在进行中",
+      "message": "云服务提供商尚未完成此更改，它稍后仍可能完成。",
+      "action": "重试之前，请使用 cmux vm ls 或在机器列表中查看机器状态。"
+    },
     "providerTimeout": {
       "title": "云服务提供商响应缓慢",
       "message": "云服务提供商未能及时响应。",

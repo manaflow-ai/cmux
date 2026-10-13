@@ -35,6 +35,11 @@
       "message": "Ova mašina nije odgovorila na vrijeme, pa zahtjev nije mogao biti završen.",
       "action": "Pauzirajte mašinu, zatim je nastavite i pokušajte ponovo. U Mac aplikaciji odaberite Pauziraj mašinu, zatim Nastavi mašinu. U terminalu pokrenite cmux vm pause '<machine>', zatim cmux vm resume '<machine>'."
     },
+    "inProgress": {
+      "title": "Još je u toku",
+      "message": "Cloud provajder još nije završio ovu promjenu. Možda će se još završiti.",
+      "action": "Provjerite status mašine pomoću cmux vm ls ili na listi mašina prije nego što pokušate ponovo."
+    },
     "providerTimeout": {
       "title": "Cloud provajder je spor",
       "message": "Cloud provajder nije odgovorio na vrijeme.",
