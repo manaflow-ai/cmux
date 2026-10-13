@@ -63,7 +63,7 @@ struct WorkspacesScreen: View {
                     SidebarToolbarItem(sidebar: shell.sidebar)
                     ScreenTitle(title: "Workspaces")
                 }
-                .cnxBanner(shell.store.isOffline ? .offline : nil)
+                .cnxBanner(shell.banner)
         }
     }
 }

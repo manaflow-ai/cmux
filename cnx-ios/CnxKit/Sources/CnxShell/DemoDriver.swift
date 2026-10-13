@@ -1,11 +1,17 @@
 #if os(iOS) && DEBUG
+import CmuxAgentQuestion
+import CnxAgentChat
 import CnxChief
 import CnxDesign
+import CnxFeed
 import CnxModel
 import CnxWorkspaces
 import QuartzCore
 import SwiftUI
 import UIKit
+import OSLog
+
+private let demoLog = Logger(subsystem: "dev.cmux.cnx", category: "demo")
 
 /// DEBUG-only scripted choreography for simulator recordings (`-cnx-demo <name>`).
 /// Drawer drags feed synthetic finger positions, one per display frame, into
@@ -27,6 +33,7 @@ struct DemoDriver {
         case "workspaces": await workspaces()
         case "workspaces-reopen": await workspacesReopen()
         case "chief": await chief()
+        case "live": await live()
         default: break
         }
     }
@@ -164,6 +171,92 @@ struct DemoDriver {
         await pause(2.6)
         tabs.post(.exit)
         await pause(1.5)
+    }
+
+    /// Waits (polling each 0.25 s) for `condition`, up to `timeout` seconds.
+    @discardableResult
+    private func until(_ timeout: Double, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() > deadline { return false }
+            await pause(0.25)
+        }
+        return true
+    }
+
+    /// Live end to end (real Mac): Mac online and connected, the daemon's
+    /// workspaces, an agent tab streaming acpmux, Feed answers sent back,
+    /// then a WebRTC ↔ WireGuard switch.
+    private func live() async {
+        step("start")
+        shell.tab = .workspaces
+        guard await until(60, { shell.live?.link.phase.isConnected == true }) else { return }
+        guard await until(30, { !shell.store.workspaces.isEmpty }) else { return }
+        await pause(2.5)
+        // The sidebar: the personal space as "Personal" with its live Mac dots.
+        step("sidebar")
+        shell.sidebar.open()
+        await pause(3)
+        shell.sidebar.close()
+        await pause(1.5)
+        // Open the workspace that has an agent tab, on that tab.
+        guard let ws = shell.store.workspaces.first(where: { $0.tabs.contains { $0.kind == .agent } }),
+              let agent = ws.tabs.first(where: { $0.kind == .agent }) else { return }
+        shell.store.noteOpened(tabID: agent.id, in: ws.id)
+        step("open workspace \(ws.title) on \(agent.title)")
+        shell.workspacesPath = [ws]
+        await pause(4)
+        let mac = shell.store.activeTeam?.macs.first { $0.id == ws.macID }?.name ?? "Mac"
+        let chat = AgentSessionDirectory.shared.store(workspace: ws, tab: agent, macName: mac)
+        chat.send(prompt: "What does the README say?")
+        await pause(5)
+        step("prompt ask")
+        chat.send(prompt: "ask: rm -rf build")
+        await until(15) { chat.pendingPermission != nil }
+        await pause(2.5)
+        // Answer from the Feed: Allow (refused for a phone), then Deny (reaches the Mac).
+        shell.workspacesPath = []
+        await pause(1)
+        step("feed")
+        shell.tab = .feed
+        await pause(3)
+        let feed = FeedStore.shared
+        await until(10) { feed.items.contains { if case .permission = $0.kind { return $0.needsYou }; return false } }
+        if let item = feed.items.first(where: { if case .permission = $0.kind { return $0.needsYou }; return false }),
+           case .permission(let request) = item.kind {
+            step("feed allow \(item.id)")
+            if let allow = request.options.first(where: \.isAllow) { feed.respond(item.id, option: allow) }
+            await pause(3.5)
+            step("feed deny \(item.id)")
+            if let deny = request.options.first(where: { !$0.isAllow }) { feed.respond(item.id, option: deny) }
+            await pause(3)
+        }
+        // A question: answered from the Feed.
+        step("prompt question")
+        chat.send(prompt: "question: Which approach?")
+        await until(15) { feed.items.contains { if case .question = $0.kind { return $0.needsYou }; return false } }
+        await pause(2.5)
+        if let item = feed.items.first(where: { if case .question = $0.kind { return $0.needsYou }; return false }),
+           case .question(let question) = item.kind, let first = question.items.first, let option = first.options.first {
+            step("feed answer \(item.id)")
+            feed.answer(item.id, answer: AgentQuestionAnswer(selections: [first.id: .init(optionIDs: [option.id])]))
+            await pause(3.5)
+        }
+        // Transport switch: WebRTC (no TURN: fails gracefully), then back to WireGuard.
+        shell.tab = .workspaces
+        await pause(2)
+        step("transport webrtc")
+        shell.settings.transport = .webrtc
+        await until(45) { if case .waiting = shell.live?.link.phase { return true }; return false }
+        await pause(4)
+        step("transport wireguard")
+        shell.settings.transport = .wireguard
+        await until(30) { shell.live?.link.phase.isConnected == true }
+        await pause(4)
+    }
+
+    private func step(_ name: String) {
+        demoLog.info("demo step: \(name, privacy: .public)")
     }
 
     /// After a relaunch: the workspace opens on the tab used last before it.
