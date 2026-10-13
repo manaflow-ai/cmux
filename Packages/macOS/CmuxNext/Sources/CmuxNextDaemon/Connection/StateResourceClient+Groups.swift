@@ -20,11 +20,14 @@ extension StateResourceClient {
         return try await stateMutation("tab_group.create", params, as: CreatedGroup.self)
     }
 
-    public func updateTabGroup(_ group: String, name: String? = nil, color: String? = nil, collapsed: Bool? = nil) async throws {
+    /// `icon` (`tab-group-icon-v1`): `.clear` sends `null`, which removes it.
+    public func updateTabGroup(_ group: String, name: String? = nil, color: String? = nil, collapsed: Bool? = nil,
+                               icon: FieldUpdate<String> = .unchanged) async throws {
         var params: [String: JSONValue] = ["tab_group": .string(group)]
         if let name { params["name"] = .string(name) }
         if let color { params["color"] = .string(color) }
         if let collapsed { params["collapsed"] = .bool(collapsed) }
+        Self.field(icon, into: &params, "icon") { .string($0) }
         try await stateMutation("tab_group.update", params)
     }
 
