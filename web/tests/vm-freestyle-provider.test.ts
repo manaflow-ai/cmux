@@ -38,14 +38,12 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
   const networkData = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
   const creates: unknown[] = [];
   const execs: string[] = [];
-  const execUsers: Array<string | undefined> = [];
   const writes: Array<{ path: string; content: string }> = [];
   const deletes: string[] = [];
   let guestCliProbeSeen = false;
   const vm = {
-    exec: async ({ command, linuxUser }: { command: string; linuxUser?: string }) => {
+    exec: async ({ command }: { command: string }) => {
       execs.push(command);
-      execUsers.push(linuxUser);
       const statusCode = command.includes("sha256sum") && !guestCliProbeSeen
         ? (guestCliProbeSeen = true, input.guestCliExit ?? 0)
         : command.includes("/api/coderouter/vm-usage/self") ? input.probeExit : 0;
@@ -75,7 +73,7 @@ function fakeFreestyle(input: { readonly probeExit: number; readonly guestCliExi
       ref: () => vm,
     },
   } as unknown as Freestyle;
-  return { client, creates, execs, execUsers, writes, deletes };
+  return { client, creates, execs, writes, deletes };
 }
 
 function providerWith(fake: { readonly client: Freestyle }): FreestyleProvider {
@@ -463,7 +461,6 @@ describe("Freestyle platform contract", () => {
     const result = await providerWith(fake).exec(VM_ID, "echo hi", { timeoutMs: 5_000 });
     expect(result.exitCode).toBe(0);
     expect(fake.execs).toEqual(["echo hi"]);
-    expect(fake.execUsers).toEqual([undefined]);
     expect(fake.writes).toHaveLength(0);
   });
 
@@ -473,7 +470,6 @@ describe("Freestyle platform contract", () => {
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(0);
     expect(fake.execs).toEqual(["cmux self --json"]);
-    expect(fake.execUsers).toEqual([undefined]);
   });
 
   test("exec timeouts clamp to the per-exec cap; killed execs read as 124", () => {
@@ -896,20 +892,15 @@ describe("Freestyle attach route source", () => {
 });
 
 describe("Freestyle client configuration", () => {
-  test("driver maintenance execs stay pinned to root", () => {
-    // Public vm exec intentionally uses the provider's uid-1000 default so it
-    // lands in the same home as Cloud terminals. Driver maintenance must keep
-    // its explicit root pin so installs and probes retain their privileged
-    // layout.
+  test("every guest exec is pinned to root", () => {
+    // The 0.2 API's linuxUser default is uid 1000, not root. The devbox image
+    // ships such a user, so an unpinned exec would silently move the daemon,
+    // its install, and the model-plane write off the root layout.
     const execCalls = driverSource.match(/\.exec\(\{[\s\S]*?\}\)/g) ?? [];
     expect(execCalls.length).toBeGreaterThan(0);
-    for (const call of execCalls.filter((call) => !call.includes("command, timeoutMs }"))) {
+    for (const call of execCalls) {
       expect(call).toContain("linuxUser");
     }
-  });
-
-  test("public vm exec leaves the guest user to the provider default", () => {
-    expect(driverSource).toContain("const r = await vm.exec({ command, timeoutMs });");
   });
 
   test("the driver talks to the SDK's default public edge unless overridden", () => {
