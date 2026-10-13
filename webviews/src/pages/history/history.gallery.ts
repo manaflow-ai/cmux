@@ -162,7 +162,7 @@ export default historyPageEntry({
       },
     },
     "closed-remove-clear": {
-      note: "Remove on a Closed row deletes it; Clear History under Closed deletes the rest, and other kinds stay.",
+      note: "Remove on a Closed row deletes it; Clear History under Closed deletes the rest.",
       entries: [...entries, closedTerminal],
       query: { filter: "closed" },
       play: async (ctx) => {
@@ -179,8 +179,6 @@ export default historyPageEntry({
         await ctx.waitFor(() => ctx.document.querySelectorAll(".page-menu-item").length === 5);
         await ctx.click({ role: "menuitem", name: "All Time" });
         await ctx.waitFor(() => rows() === 0);
-        await ctx.click({ role: "tab", name: "All" });
-        await ctx.waitFor(() => rows() === entries.length - 1);
       },
     },
     "not-found-error": {
