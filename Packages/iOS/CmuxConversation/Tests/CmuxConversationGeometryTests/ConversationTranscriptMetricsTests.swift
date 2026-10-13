@@ -73,6 +73,18 @@ import Testing
         #expect(abs(xl.bubbleOffset - (15.6667 + 5.6667)) < 0.001)
     }
 
+    /// A group avatar's bottom meets the tail's tip, not the body's bottom.
+    /// Real iPhone 17 Pro Max (iOS 26.4, en-US + ar): "Let's go" body ends
+    /// 676.0, avatar 651.67-683.33 (tail drop 7.5 for a 44.33 pt line);
+    /// ours ended the avatar at the body (7.67 pt high).
+    @Test func groupAvatarBottomMeetsTheTailTip() {
+        let drop = ConversationBubbleGeometry.iOSTailDrop(radius: 44.3333 / 2)
+        let tailed = ConversationTranscriptMetrics.avatarMinY(bodyBottom: 676, tailDrop: drop, avatarSize: 32)
+        #expect(abs(tailed + 32 - 683.33) < 0.34)
+        // Without a tail it still sits on the body.
+        #expect(ConversationTranscriptMetrics.avatarMinY(bodyBottom: 676, tailDrop: nil, avatarSize: 32) == 644)
+    }
+
     @Test func spacesScaleWithTheCaptionLineSpacing() {
         func space(_ base: CGFloat, _ line: CGFloat) -> CGFloat {
             ConversationTranscriptMetrics.space(base, captionLineSpacing: line, scale: 3)
