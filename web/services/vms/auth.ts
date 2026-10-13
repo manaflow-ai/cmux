@@ -110,6 +110,12 @@ type VerifyRequestOptions = {
    * partial one would later deny a team the user really belongs to.
    */
   readonly forceCompleteTeamList?: boolean;
+  /**
+   * List every team when Stack can, without failing when it cannot: a broken
+   * or oversized page chain answers this request from the pages it got and is
+   * not stored as a snapshot. Polled reads refresh their snapshot this way.
+   */
+  readonly preferCompleteTeamList?: boolean;
   /** Publication management must recheck every membership and ignore stale team selection. */
   readonly requireFreshTeamMembership?: boolean;
 };
@@ -157,6 +163,7 @@ function nativeAuthCacheKey(
     options.allowDeletingAccount === true ? "1" : "0",
     options.listAllTeams === true ? "1" : "0",
     options.forceCompleteTeamList === true ? "1" : "0",
+    options.preferCompleteTeamList === true ? "1" : "0",
   ].join("\n");
   return createHash("sha256").update(material).digest("hex");
 }
@@ -231,6 +238,17 @@ export function invalidateNativeAuthCacheForUser(userId: string): void {
   for (const [key, entry] of nativeAuthCache) {
     if (entry.user.id === userId) nativeAuthCache.delete(key);
   }
+}
+
+/**
+ * Forget every cached view of a user's identity after this server changed it
+ * in Stack (selected team, a new team). The Stack webhook does the same a few
+ * seconds later; this closes that window for the instance that made the
+ * change and, through the shared snapshot table, for every other instance.
+ */
+export async function forgetCachedIdentity(userId: string): Promise<void> {
+  invalidateNativeAuthCacheForUser(userId);
+  await deleteIdentitySnapshot(userId);
 }
 
 // Stack throttles per project, not per caller. Once one native verification is
@@ -663,57 +681,16 @@ async function verifyNativeRequest(
  */
 export async function verifyRequestFromSnapshot(
   request: Request,
-  options: {
+  options: SnapshotAnswerOptions & {
     readonly requestedTeamId?: string | null;
-    readonly maxSnapshotAgeMs?: number;
-    /** Test seam for the local token verifier. */
-    readonly verifyAccessToken?: (
-      accessToken: string,
-    ) => Promise<StackAccessTokenIdentity | null>;
-    /** Test seam for the account-deletion tombstone lookup. */
-    readonly isAccountDeleted?: (userId: string) => Promise<boolean>;
   } = {},
 ): Promise<AuthedUser | null> {
   if (!isStackConfigured()) return null;
   const tokens = parseNativeStackTokens(request);
   if (tokens) {
-    const verifier = options.verifyAccessToken
-      ? null
-      : stackAccessTokenVerifierFromEnv();
-    const local = options.verifyAccessToken
-      ? await options.verifyAccessToken(tokens.accessToken)
-      : verifier
-      ? await verifyStackAccessTokenLocally(tokens.accessToken, verifier)
-      : null;
-    if (local) {
-      const snapshot = await readIdentitySnapshot(
-        local.userId,
-        options.maxSnapshotAgeMs ?? identitySnapshotTtlMs(),
-      );
-      if (snapshot) {
-        // Stack's deletion metadata is not in the token, so the tombstone is
-        // read directly rather than behind the usual metadata short-circuit.
-        const isDeleted = options.isAccountDeleted ?? isAccountDeletionTombstoned;
-        if (await isDeleted(local.userId)) {
-          await deleteIdentitySnapshot(local.userId);
-          return null;
-        }
-        recordAuthResolution({
-          source: "snapshot",
-          providerCalled: false,
-          snapshotAgeMs: snapshot.ageMs,
-        });
-        return snapshot.user;
-      }
-    } else {
-      recordAuthResolution({
-        source: "stack",
-        providerCalled: true,
-        localVerifyMiss: verifier || options.verifyAccessToken
-          ? "rejected"
-          : "not_configured",
-      });
-    }
+    const answer = await answerFromIdentitySnapshot(tokens, options);
+    if (answer.kind === "user") return answer.user;
+    if (answer.kind === "deleted") return null;
   }
   // Refreshing needs the complete team list, or the snapshot it writes could
   // later deny a team the user really belongs to.
@@ -722,6 +699,169 @@ export async function verifyRequestFromSnapshot(
     allowCookie: false,
     forceCompleteTeamList: true,
   });
+}
+
+/**
+ * Verify a read-only poll without asking Stack when a shared identity snapshot
+ * can answer.
+ *
+ * The Mac app polls the Cloud sidebar (`GET /api/vm`, VM stats) and the
+ * coderouter catalog (`organizations`, `vm-usage/team`) every few tens of
+ * seconds per user. On 2026-10-12 those four routes made about 1.2M of the
+ * 1.43M Stack calls a day, one or two per poll, because their old path either
+ * never cached (deadline-gated coderouter routes) or cached per instance per
+ * token pair (VM routes), which misses on almost every Vercel instance.
+ *
+ * A native request whose access token verifies locally and whose user has a
+ * fresh snapshot (`verifyRequestFromSnapshot`'s source of truth, shared by
+ * every instance and deleted by the Stack webhook on any user, team, or
+ * membership change) is answered with no Stack call. Everything else keeps the
+ * route's existing path: cookie sessions, tokens that do not verify locally,
+ * a requested team the snapshot does not list (so a membership granted
+ * moments ago is never denied), and snapshot misses. A native miss lists the
+ * complete team list so it can refresh the snapshot for the next poll.
+ *
+ * Trade-off, stated: on the snapshot path a session revoked at Stack stays
+ * accepted until its access token expires (one hour) unless our sign-out
+ * route deleted the snapshot, and a removed membership that missed its
+ * webhook stays visible for up to the snapshot TTL. Only read-only polls may
+ * use this; mutations, billing and admin keep `verifyRequest`.
+ */
+export async function verifyPolledReadRequest(
+  request: Request,
+  options: SnapshotAnswerOptions & {
+    readonly requestedTeamId?: string | null;
+    /** Run the Stack fallback under a coderouter authorization deadline. */
+    readonly subrouterAuthorizationSignal?: AbortSignal;
+    /** The route needs every team even on the cookie path (the catalog). */
+    readonly listAllTeams?: boolean;
+    /** False for native-only routes: no cookie session is accepted. */
+    readonly allowCookie?: boolean;
+  } = {},
+): Promise<AuthedUser | null> {
+  if (!isStackConfigured()) return null;
+  const tokens = parseNativeStackTokens(request);
+  if (!tokens) {
+    return await verifyRequest(request, {
+      requestedTeamId: options.requestedTeamId,
+      subrouterAuthorizationSignal: options.subrouterAuthorizationSignal,
+      listAllTeams: options.listAllTeams,
+      allowCookie: options.allowCookie,
+    });
+  }
+  const answer = await answerFromIdentitySnapshot(tokens, options);
+  if (answer.kind === "user") return answer.user;
+  if (answer.kind === "deleted") return null;
+  const fallback = {
+    requestedTeamId: options.requestedTeamId,
+    subrouterAuthorizationSignal: options.subrouterAuthorizationSignal,
+    listAllTeams: options.listAllTeams,
+    allowCookie: options.allowCookie,
+  };
+  // A token that does not verify locally can never be answered from a
+  // snapshot, so listing every team for one would only add Stack calls.
+  if (!answer.refreshable) return await verifyRequest(request, fallback);
+  // Refresh the snapshot: list every team when Stack can. A broken page
+  // chain still answers this request and is not stored.
+  return await verifyRequest(request, { ...fallback, preferCompleteTeamList: true });
+}
+
+type SnapshotAnswerOptions = {
+  readonly requestedTeamId?: string | null;
+  readonly maxSnapshotAgeMs?: number;
+  /** Test seam for the local token verifier. */
+  readonly verifyAccessToken?: (
+    accessToken: string,
+  ) => Promise<StackAccessTokenIdentity | null>;
+  /** Test seam for the account-deletion tombstone lookup. */
+  readonly isAccountDeleted?: (userId: string) => Promise<boolean>;
+};
+
+type SnapshotAnswer =
+  | { readonly kind: "user"; readonly user: AuthedUser }
+  | { readonly kind: "deleted" }
+  /** `refreshable`: the token verified locally, so a refreshed snapshot can answer the next poll. */
+  | { readonly kind: "miss"; readonly refreshable: boolean };
+
+/**
+ * Answer a native request from the shared identity snapshot without Stack.
+ *
+ * Requires a locally verified access token (so the user id is the token's
+ * signed subject and a snapshot can never answer for another user), a
+ * snapshot younger than the TTL, no account-deletion tombstone, and, when the
+ * request names a team, that the snapshot lists it.
+ */
+async function answerFromIdentitySnapshot(
+  tokens: NativeStackTokens,
+  options: SnapshotAnswerOptions,
+): Promise<SnapshotAnswer> {
+  const local = await locallyVerifiedAccessToken(tokens.accessToken, options);
+  if (!local.identity) {
+    recordAuthResolution({ source: "stack", providerCalled: true, localVerifyMiss: local.miss });
+    return { kind: "miss", refreshable: false };
+  }
+  const userId = local.identity.userId;
+  // The database must not spend the caller's Stack budget: a slow or failed
+  // read is a miss that keeps the route's own Stack lookup.
+  const snapshot = await withinSnapshotReadBudget(readIdentitySnapshot(
+    userId,
+    options.maxSnapshotAgeMs ?? identitySnapshotTtlMs(),
+  ));
+  if (snapshot === SNAPSHOT_READ_UNAVAILABLE) return { kind: "miss", refreshable: false };
+  if (!snapshot) return { kind: "miss", refreshable: true };
+  const requestedTeamId = normalizedOptionalString(options.requestedTeamId);
+  if (requestedTeamId && requestedTeamId !== userId && !snapshot.user.teamIds.includes(requestedTeamId)) {
+    // A fresh snapshot without this team: Stack decides with the route's own
+    // targeted lookup. Relisting every team on each poll would not help, the
+    // membership webhook deletes the snapshot when the team list changes.
+    return { kind: "miss", refreshable: false };
+  }
+  // Stack's deletion metadata is not in the token, so the tombstone is
+  // read directly rather than behind the usual metadata short-circuit.
+  const isDeleted = options.isAccountDeleted ?? isAccountDeletionTombstoned;
+  const deleted = await withinSnapshotReadBudget(isDeleted(userId));
+  if (deleted === SNAPSHOT_READ_UNAVAILABLE) return { kind: "miss", refreshable: false };
+  if (deleted) {
+    await deleteIdentitySnapshot(userId);
+    return { kind: "deleted" };
+  }
+  recordAuthResolution({
+    source: "snapshot",
+    providerCalled: false,
+    snapshotAgeMs: snapshot.ageMs,
+  });
+  // The snapshot row does not store the anonymous flag; the signed token
+  // carries it, so a route that refuses anonymous users still can.
+  return { kind: "user", user: { ...snapshot.user, isAnonymous: local.identity.isAnonymous } };
+}
+
+const SNAPSHOT_READ_BUDGET_MS = 750;
+const SNAPSHOT_READ_UNAVAILABLE: unique symbol = Symbol("snapshot read unavailable");
+
+/** The read's value, or `SNAPSHOT_READ_UNAVAILABLE` when it failed or took too long. */
+async function withinSnapshotReadBudget<T>(read: Promise<T>): Promise<T | typeof SNAPSHOT_READ_UNAVAILABLE> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof SNAPSHOT_READ_UNAVAILABLE>((resolve) => {
+    timer = setTimeout(() => resolve(SNAPSHOT_READ_UNAVAILABLE), SNAPSHOT_READ_BUDGET_MS);
+  });
+  try {
+    const settled = read.catch((): typeof SNAPSHOT_READ_UNAVAILABLE => SNAPSHOT_READ_UNAVAILABLE);
+    return await Promise.race([settled, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function locallyVerifiedAccessToken(
+  accessToken: string,
+  options: Pick<SnapshotAnswerOptions, "verifyAccessToken">,
+): Promise<{ readonly identity: StackAccessTokenIdentity | null; readonly miss: "rejected" | "not_configured" }> {
+  if (options.verifyAccessToken) {
+    return { identity: await options.verifyAccessToken(accessToken), miss: "rejected" };
+  }
+  const verifier = stackAccessTokenVerifierFromEnv();
+  if (!verifier) return { identity: null, miss: "not_configured" };
+  return { identity: await verifyStackAccessTokenLocally(accessToken, verifier), miss: "rejected" };
 }
 
 /** Whether this user id has a tombstone that blocks authentication. */
@@ -861,15 +1001,15 @@ async function resolveStackTeamMembership(
   // subrouter callers resolve only the requested and selected IDs so shared VM
   // authentication does not inherit an unbounded multi-page dependency.
   const needsListedTeams = options.forceCompleteTeamList === true ||
+    options.preferCompleteTeamList === true ||
     !selectedTeam ||
     teamIdsToLookup.length > 0;
   // Whether the branch taken below enumerates every team the user belongs to.
   // Only that case may be stored as an identity snapshot.
-  let completeTeamList = options.subrouterAuthorizationSignal === undefined
-    ? needsListedTeams && typeof user.listTeams === "function"
-    : options.listAllTeams === true;
+  let completeTeamList: boolean;
   let listedTeamRaw: readonly unknown[];
   if (options.subrouterAuthorizationSignal === undefined) {
+    completeTeamList = needsListedTeams && typeof user.listTeams === "function";
     if (!completeTeamList) {
       listedTeamRaw = [];
     } else if (options.forceCompleteTeamList === true) {
@@ -884,16 +1024,13 @@ async function resolveStackTeamMembership(
       listedTeamRaw = listed.teams;
       completeTeamList = listed.complete;
     }
-  } else if (options.listAllTeams === true) {
-    listedTeamRaw = await listAllStackTeams(user, options.subrouterAuthorizationSignal);
-  } else if (teamIdsToLookup.length > 0) {
-    listedTeamRaw = (await Promise.all(teamIdsToLookup.map((teamId) => findStackTeam(
-      user,
-      teamId,
-      options.subrouterAuthorizationSignal,
-    )))).flat();
   } else {
-    listedTeamRaw = [];
+    ({ teams: listedTeamRaw, complete: completeTeamList } = await listTeamsUnderDeadline(
+      user,
+      options,
+      options.subrouterAuthorizationSignal,
+      teamIdsToLookup,
+    ));
   }
   const listedTeams = listedTeamRaw
     .map(billingTeamFromUnknown)
@@ -902,6 +1039,34 @@ async function resolveStackTeamMembership(
     ? listedTeams.find((team) => team.id === selectedTeam.id) ?? selectedTeam
     : selectedTeam;
   return { selectedTeam: resolvedSelectedTeam, listedTeams, completeTeamList };
+}
+
+/**
+ * Team listing for a deadline-gated (subrouter) caller. `complete` says
+ * whether the result enumerates every team, which only then may be stored as
+ * an identity snapshot.
+ */
+async function listTeamsUnderDeadline(
+  user: StackUserLike,
+  options: VerifyRequestOptions,
+  signal: AbortSignal,
+  teamIdsToLookup: readonly string[],
+): Promise<{ readonly teams: readonly unknown[]; readonly complete: boolean }> {
+  const lookup = async (teamIds: readonly string[]) =>
+    (await Promise.all(teamIds.map((teamId) => findStackTeam(user, teamId, signal)))).flat();
+  if (options.listAllTeams === true) {
+    return { teams: await listAllStackTeams(user, signal), complete: true };
+  }
+  if (options.preferCompleteTeamList === true) {
+    const listed = await listStackTeams(user, signal);
+    if (listed.complete) return listed;
+    // A partial walk must still find the teams this request names, as the
+    // targeted lookup would have.
+    const listedIds = new Set(listed.teams.map((team) => billingTeamFromUnknown(team)?.id));
+    const missing = teamIdsToLookup.filter((teamId) => !listedIds.has(teamId));
+    return { teams: [...listed.teams, ...await lookup(missing)], complete: false };
+  }
+  return { teams: await lookup(teamIdsToLookup), complete: false };
 }
 
 async function authedUserFromStackUser(

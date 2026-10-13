@@ -11,8 +11,10 @@ import {
   requiresBrowserMutationProtection,
 } from "../../../../services/vms/routeHelpers";
 import {
+  forgetCachedIdentity,
   isSubrouterAuthorizationError,
   unauthorized,
+  verifyPolledReadRequest,
   verifySubrouterRequest,
   withSubrouterAuthorizationDeadline,
   type AuthedUser,
@@ -66,6 +68,7 @@ export async function POST(request: Request): Promise<Response> {
       const stackUser = await getStackServerApp().getUser(user.id);
       if (!stackUser) return unauthorized();
       await stackUser.update({ selectedTeamId: team.id });
+      await forgetCachedIdentity(user.id);
       return jsonResponse({
         team: { id: team.id, name: team.displayName },
         selectedTeamId: team.id,
@@ -107,6 +110,7 @@ export async function PATCH(request: Request): Promise<Response> {
       const stackUser = await getStackServerApp().getUser(user.id);
       if (!stackUser) return unauthorized();
       await stackUser.update({ selectedTeamId: teamId });
+      await forgetCachedIdentity(user.id);
       return jsonResponse({ selectedTeamId: teamId });
     });
   } catch (error) {
@@ -135,8 +139,10 @@ export async function organizationsGet(request: Request,
   }
   try {
     return await withSubrouterAuthorizationDeadline(async (signal) => {
-      const user = await verifySubrouterRequest(request, signal, {
-        allowCookie: true,
+      // The catalog is a read the Mac app polls; a fresh identity snapshot
+      // answers it without Stack. A miss lists every team and refreshes it.
+      const user = await verifyPolledReadRequest(request, {
+        subrouterAuthorizationSignal: signal,
         listAllTeams: true,
       });
       if (!user) return unauthorized();

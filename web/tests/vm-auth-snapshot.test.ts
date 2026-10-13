@@ -103,7 +103,7 @@ describe("verifyRequestFromSnapshot", () => {
       verifyAccessToken: localIdentity,
       isAccountDeleted,
     });
-    expect(user).toEqual(snapshotUser);
+    expect(user).toEqual({ ...snapshotUser, isAnonymous: false });
     expect(getUser).toHaveBeenCalledTimes(0);
   });
 

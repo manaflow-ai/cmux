@@ -8,6 +8,7 @@ import {
 import {
   parseNativeStackTokens,
   unauthorized,
+  verifyPolledReadRequest,
   verifySubrouterRequest,
   withSubrouterAuthorizationDeadline,
   type AuthedUser,
@@ -92,8 +93,17 @@ export async function resolveCoderouterControlContext(
   };
 }
 
+export type CoderouterIdentityOptions = {
+  /**
+   * The route only reads (a poll). It may answer from the shared identity
+   * snapshot instead of Stack; see `verifyPolledReadRequest`.
+   */
+  readonly readOnly?: boolean;
+};
+
 export async function resolveCoderouterUsageTeam(
   request: Request,
+  options: CoderouterIdentityOptions = {},
 ): Promise<
   | { readonly ok: true; readonly teamId: string; readonly stackUserId: string; readonly access?: CoderouterAccountAccess; readonly vmId?: string | null }
   | { readonly ok: false; readonly response: Response }
@@ -106,7 +116,7 @@ export async function resolveCoderouterUsageTeam(
     return { ok: true, teamId: routed.teamId, stackUserId: routed.stackUserId,
       vmId: routed.vmId, access: accountAccessForIdentity(routed) };
   }
-  const resolved = await resolveCodeRouterRequestContext(request);
+  const resolved = await resolveCodeRouterRequestContext(request, options);
   return resolved.ok
     ? {
       ok: true,
@@ -119,6 +129,7 @@ export async function resolveCoderouterUsageTeam(
 
 export async function resolveCodeRouterRequestContext(
   request: Request,
+  options: CoderouterIdentityOptions = {},
 ): Promise<
   | { readonly ok: true; readonly value: CodeRouterRequestContext }
   | { readonly ok: false; readonly response: Response }
@@ -130,10 +141,15 @@ export async function resolveCodeRouterRequestContext(
   }
   return await spanned("auth", () => withSubrouterAuthorizationDeadline(async (signal) => {
     const requestedTeamId = requestedVmTeamIdFromRequest(request);
-    const user = await verifySubrouterRequest(request, signal, {
-      requestedTeamId,
-      allowCookie: true,
-    });
+    const user = options.readOnly && request.method === "GET"
+      ? await verifyPolledReadRequest(request, {
+        requestedTeamId,
+        subrouterAuthorizationSignal: signal,
+      })
+      : await verifySubrouterRequest(request, signal, {
+        requestedTeamId,
+        allowCookie: true,
+      });
     if (!user) return { ok: false, response: unauthorized() };
 
     const bearer = parseBearer(request);
