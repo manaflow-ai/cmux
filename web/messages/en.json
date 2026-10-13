@@ -4995,7 +4995,10 @@
     "title": "Signed in to cmux",
     "body": "If cmux did not open automatically, use the button below.",
     "button": "Return to cmux",
-    "switchAccountButton": "Use a different account"
+    "switchAccountButton": "Use a different account",
+    "rateLimitedTitle": "Sign-in is busy",
+    "rateLimitedBody": "Our sign-in provider is handling too many requests. Wait a few seconds, then continue. You do not need to sign in again.",
+    "retryButton": "Continue signing in"
   },
   "billingSuccess": {
     "metaTitle": "cmux Pro is active",
@@ -7209,7 +7212,10 @@
     "switchFailed": "Could not sign out. Try again.",
     "invalidTitle": "This invitation is no longer valid",
     "invalidBody": "It expired, was revoked, or was already used. Ask a team admin for a new one.",
-    "goToTeams": "Go to your teams"
+    "goToTeams": "Go to your teams",
+    "unavailableTitle": "Could not confirm your sign-in",
+    "unavailableBody": "Our sign-in provider is busy. Wait a few seconds, then try the invitation again. You do not need to sign in again.",
+    "retry": "Try again"
   },
   "mobile": {
     "agentFeed": {

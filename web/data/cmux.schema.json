@@ -2588,8 +2588,6 @@
               "tab.search",
               "newSurface",
               "toggleTerminalCopyMode",
-              "previousAgentTurn",
-              "nextAgentTurn",
               "focusTextBoxInput",
               "cycleTextBoxSubmitAction",
               "attachTextBoxFile",

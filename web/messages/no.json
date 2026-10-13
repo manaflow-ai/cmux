@@ -3413,7 +3413,10 @@
     "title": "Logget på cmux",
     "body": "Hvis cmux ikke åpnet automatisk, bruk knappen nedenfor.",
     "button": "Gå tilbake til cmux",
-    "switchAccountButton": "Bruk en annen konto"
+    "switchAccountButton": "Bruk en annen konto",
+    "rateLimitedTitle": "Innloggingen er opptatt",
+    "rateLimitedBody": "Innloggingstjenesten vår behandler for mange forespørsler. Vent noen sekunder, og fortsett deretter. Du trenger ikke å logge inn på nytt.",
+    "retryButton": "Fortsett innloggingen"
   },
   "landing": {
     "bestTerminal": {
@@ -5448,6 +5451,9 @@
     "switchFailed": "Kunne ikke logge ut. Prøv igjen.",
     "invalidTitle": "Denne invitasjonen er ikke lenger gyldig",
     "invalidBody": "Den er utløpt, tilbakekalt eller allerede brukt. Be en teamadministrator om en ny.",
-    "goToTeams": "Gå til teamene dine"
+    "goToTeams": "Gå til teamene dine",
+    "unavailableTitle": "Vi kunne ikke bekrefte innloggingen din",
+    "unavailableBody": "Innloggingstjenesten vår er opptatt. Vent noen sekunder, og åpne invitasjonen igjen. Du trenger ikke å logge inn på nytt.",
+    "retry": "Prøv igjen"
   }
 }

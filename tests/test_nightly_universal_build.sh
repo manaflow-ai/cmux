@@ -267,6 +267,19 @@ if ! awk -v helper_runner="runs-on: \${{ github.repository_owner != 'manaflow-ai
 fi
 
 if ! awk '
+  /^  build-nightly-ghostty-cli-helper:/ { job="helper"; next }
+  /^  [a-zA-Z0-9_-]+:/ { job="" }
+  job == "helper" && /uses: actions\/checkout@/ { checkout=1; next }
+  job == "helper" && checkout && /submodules: recursive/ { recursive=1 }
+  job == "helper" && /scripts\/ci\/init-submodule\.sh ghostty/ { init_line=NR }
+  job == "helper" && /name: Install Zig/ { install_line=NR }
+  END { exit !(checkout && !recursive && init_line && install_line && init_line < install_line) }
+' "$WORKFLOW_FILE"; then
+  echo "FAIL: nightly Ghostty helper checkout must use the retrying initializer before Zig consumes Ghostty"
+  exit 1
+fi
+
+if ! awk '
   /^      - name: Inject universal Ghostty CLI helper/ { in_inject=1; next }
   in_inject && /^      - name:/ { in_inject=0 }
   in_inject && /install -m 755 nightly-inputs\/ghostty\/ghostty "\$DEST"/ { saw_install=1 }
