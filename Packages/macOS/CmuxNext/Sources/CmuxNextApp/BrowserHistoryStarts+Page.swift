@@ -33,10 +33,13 @@ extension BrowserHistoryStarts {
               ["http", "https"].contains(url.scheme?.lowercased() ?? ""), MachineBrowserRecord(url: url) == nil,
               tab.isFrontendOwned, !service.isIncognitoTab(key), !service.wasOpenedHere(tab), daemon.isLocal,
               daemon.supports(DaemonCapabilities.shared.frontendBrowserHistory) else { return configuration }
-        let saved = await service.fetchHistory(daemon, tab.surface)
+        // As for a WebKit page, a slow read makes the page at its address.
+        let saved = await BrowserHistoryWriter.within(Self.budget, sleep: service.sleep) {
+            await service.fetchHistory(daemon, tab.surface)
+        }
         guard let state = BrowserHistoryWriter.restoreState(saved, at: url, engine: .cef),
               !(saved?.entries ?? []).contains(where: { URL(string: $0.url)?.isFileURL ?? true }) else {
-            outcomes[key] = saved?.engineState == nil ? "address-no-state" : "address-file-access"
+            outcomes[key] = saved == nil ? "address" : saved?.engineState == nil ? "address-no-state" : "address-file-access"
             return configuration
         }
         var restored = configuration

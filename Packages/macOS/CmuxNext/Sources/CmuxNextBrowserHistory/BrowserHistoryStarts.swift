@@ -34,13 +34,27 @@ public final class BrowserHistoryStarts {
         engineRestored.insert(tabID)
     }
 
-    /// True once after tab `tabID`'s new page restored its engine's own history: it then gets no
-    /// saved entries on top. A Chromium page also scrolls to the position saved at quit once it
-    /// loads (a WebKit page did at its start).
+    /// Forgets tab `tabID`'s mark when its page stops being tracked before the mark was taken.
+    /// A held page still starts (its timer loads its address).
+    public func forget(_ tabID: String) {
+        engineRestored.remove(tabID)
+    }
+
+    /// True once after tab `tabID`'s new page was made from its engine's own history: it then gets
+    /// no saved entries on top now. Chromium restores as its page is made, after this; once its first
+    /// load ends the page scrolls to the position saved at quit, and a page that came back without
+    /// its list (a fork that cannot restore, a refused state) gets the saved entries as before.
     public func takeEngineRestored(_ tabID: String, page: any BrowserTab, saved: FrontendBrowserHistory?) -> Bool {
         guard engineRestored.remove(tabID) != nil else { return false }
-        if page.engineKind == .cef, let saved, saved.entries.indices.contains(saved.index), let y = saved.entries[saved.index].scrollY {
-            page.scrollOnLoad(to: y)
+        guard page.engineKind == .cef, let saved, saved.entries.indices.contains(saved.index) else { return true }
+        Task { [weak page] in
+            for await done in ObservationStream({ [weak page] in page.map { Self.ended($0.state.phase) } ?? true }) where done { break }
+            guard let page, page.state.url?.absoluteString == saved.entries[saved.index].url else { return }
+            if let y = saved.entries[saved.index].scrollY { page.scrollOnLoad(to: y) }
+            if !page.state.canGoBack, !page.state.canGoForward, saved.entries.count > 1,
+               let restoring = page as? any BrowserTab & BrowserSessionRestoring, let session = BrowserHistoryWriter.session(saved) {
+                restoring.restoreSession(session.entries, current: session.current)
+            }
         }
         return true
     }
@@ -48,6 +62,8 @@ public final class BrowserHistoryStarts {
     /// Holds blank `page` of tab `tabID` until its saved history is read, at most `budget`; it then shows `url`.
     public func hold(_ page: WebKitTab, url: URL, tabID: String) {
         waiting[tabID]?.timer.cancel()
+        // A mark left by a Chromium page that could not be made is not this page's.
+        engineRestored.remove(tabID)
         let timer = Task { [weak self] in
             // wakeup-allow: one-shot fallback for a slow history read, cancelled when it answers
             do { try await Task.sleep(for: Self.budget) } catch { return }
@@ -102,6 +118,13 @@ public final class BrowserHistoryStarts {
         outcomes[tabID] = saved == nil ? "address" : saved?.engineState == nil ? "address-no-state" : "address-file-access"
         page.load(entry.url)
         return false
+    }
+
+    private static func ended(_ phase: BrowserLoadPhase) -> Bool {
+        switch phase {
+        case .finished, .failed: true
+        case .idle, .provisional, .committed: false
+        }
     }
 
     private static func committed(_ phase: BrowserLoadPhase) -> Bool {

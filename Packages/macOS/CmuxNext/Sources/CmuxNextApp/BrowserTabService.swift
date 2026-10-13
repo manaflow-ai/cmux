@@ -381,6 +381,7 @@ final class BrowserTabService {
         writers.removeValue(forKey: key)?.cancel()
         historyWriters.removeValue(forKey: key)?.cancel()
         historyFetches.removeValue(forKey: key)?.cancel()
+        historyStarts.forget(key)
     }
 
     func isTracking(_ key: String) -> Bool { writers[key] != nil }
