@@ -36,7 +36,7 @@ enum CEFAgentURLGuard {
 
     static func check(_ tab: CEFTab, after event: CEFShimEvent) {
         switch event {
-        case .loadStart(_, let url), .address(_, let url): leave(tab, URL(string: url))
+        case .loadStart(_, let url, _), .address(_, let url): leave(tab, URL(string: url))
         default: break
         }
     }
