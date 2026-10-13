@@ -1,0 +1,108 @@
+import { env, exports } from "cloudflare:workers"
+import { createExecutionContext, runInDurableObject, waitOnExecutionContext } from "cloudflare:test"
+import { importJWK, SignJWT, type JWK } from "jose"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import worker from "../src/index.ts"
+import { userIdFor } from "../src/domains/user.ts"
+import { storePlan } from "../src/inference/plan.ts"
+
+/**
+ * cx-y79zh S1 (plans/cmux-next/usage-billing.md): one model router call is one fact, and the member's
+ * monthly spend and the team's model spend read that same fact. Driven at the route
+ * (POST /v1/inference/chat/completions) with the provider faked at its HTTP boundary.
+ */
+
+const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USAGE_METER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace }
+const loopback = (exports as unknown as { default: Fetcher }).default
+const inDO = runInDurableObject as unknown as (stub: unknown, cb: (instance: any) => Promise<void>) => Promise<void>
+const MODEL = "qwen/qwen3.7-flash"
+
+const token = async (stackUser: string) => {
+  const key = await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256")
+  return new SignJWT({ email: `${stackUser}@example.com`, name: stackUser })
+    .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
+    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
+    .setAudience(testEnv.STACK_PROJECT_ID)
+    .setSubject(stackUser)
+    .setIssuedAt()
+    .setExpirationTime("10m")
+    .sign(key)
+}
+const post = async (path: string, t: string, body: unknown) => {
+  const res = await loopback.fetch(`https://api.test${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}` }, body: JSON.stringify(body) })
+  return (await res.json()) as any
+}
+
+/** A signed-in person on a paid personal plan (the plan copy TeamDO keeps, inference/plan.ts). */
+const paidPerson = async (stackUser: string) => {
+  const t = await token(stackUser)
+  const ensured = await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })
+  const team = ensured.value.personal_team as string
+  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => storePlan(i.ctx.storage.sql, "pro", Date.now()))
+  return { t, team, user: userIdFor(testEnv.STACK_PROJECT_ID, stackUser) }
+}
+
+/** One chat call through the Worker's fetch handler; returns after every waitUntil (the settle) ended. */
+const chat = async (t: string) => {
+  const ctx = createExecutionContext()
+  const res = await worker.fetch!(
+    new Request("https://api.test/v1/inference/chat/completions", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}` }, body: JSON.stringify({ model: MODEL, max_tokens: 64, messages: [{ role: "user", content: "hi" }] }) }) as any,
+    env as any,
+    ctx
+  )
+  const text = await res.text()
+  await waitOnExecutionContext(ctx)
+  return { status: res.status, text }
+}
+
+/** The provider's chat/completions endpoint answers `reply`; every other request goes out as usual. */
+const fakeProvider = (reply: () => Response) => {
+  const real = globalThis.fetch
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = input instanceof Request ? input.url : String(input)
+    return url.startsWith("https://openrouter.ai/") ? reply() : real(input, init)
+  })
+}
+
+const counters = async (t: string, team: string, user: string) => {
+  const summary = await post("/v1/read", t, { op: "usage.summary", params: {} })
+  const model = summary.value.meters.find((m: any) => m.meter === "model.spend_usd")
+  const spends = await (testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)) as any).userSpends(team, [user])
+  let facts: Array<{ key: string; quantity: number; source: string }> = []
+  await inDO(testEnv.USAGE_METER_DO.get(testEnv.USAGE_METER_DO.idFromName(team)), async (m) => {
+    facts = m.ctx.storage.sql.exec(`SELECT key, quantity, source FROM usage_ledger WHERE meter = 'model.spend_usd'`).toArray()
+  })
+  return { team_usd: model.usd as number, member_usd: spends[user] as number, facts }
+}
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
+
+describe("model router spend is one fact (cx-y79zh S1)", () => {
+  it("a settled call writes one fact that the member spend and the team spend both count", async () => {
+    const { t, team, user } = await paidPerson("spend-facts-settled")
+    fakeProvider(() => Response.json({ id: "x", choices: [{ index: 0, message: { role: "assistant", content: "hello" } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost: 0.000012 } }))
+    const r = await chat(t)
+    expect(r.status).toBe(200)
+    const c = await counters(t, team, user)
+    expect(c.facts).toHaveLength(1)
+    expect(c.facts[0]).toMatchObject({ quantity: 0.000012, source: "coderouter" })
+    expect(c.member_usd).toBeCloseTo(0.000012, 9)
+    expect(c.team_usd).toBeCloseTo(0.000012, 9)
+  })
+
+  it("a call the provider may have billed (a broken body) is charged in full on both counters", async () => {
+    const { t, team, user } = await paidPerson("spend-facts-charged")
+    fakeProvider(() => new Response("not json", { status: 200, headers: { "content-type": "application/json" } }))
+    const r = await chat(t)
+    expect(r.status).toBe(502)
+    const c = await counters(t, team, user)
+    expect(c.facts).toHaveLength(1)
+    expect(c.facts[0]).toMatchObject({ source: "coderouter" })
+    expect(c.member_usd).toBeGreaterThan(0)
+    // Before S1 the team counter stayed at 0 here: the member and the team disagreed.
+    expect(c.team_usd).toBeCloseTo(c.member_usd, 6)
+    expect(c.facts[0]!.quantity).toBeCloseTo(c.member_usd, 6)
+  })
+})
