@@ -532,6 +532,27 @@ final class ScriptedSource: AgentSessionSource {
     }
 }
 
+// MARK: Prompt content blocks
+
+@Suite struct PromptBlockTests {
+    @Test @MainActor func imagesBecomeACPImageBlocks() {
+        let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])
+        let image = AgentAttachment(kind: .image, name: "Photo", data: png)
+        let blocks = AcpmuxSessionSource.promptBlocks(text: "look", attachments: [image, AgentAttachment(kind: .file, name: "a.txt")])
+        #expect(blocks == [
+            .object(["type": .string("text"), "text": .string("look")]),
+            .object(["type": .string("image"), "mimeType": .string("image/png"), "data": .string(png.base64EncodedString())]),
+        ])
+    }
+
+    @Test @MainActor func imageOnlyPromptHasNoEmptyTextBlock() {
+        let jpeg = Data([0xFF, 0xD8, 0xFF, 0xE0, 0, 0, 0, 0, 0, 0, 0, 0])
+        let blocks = AcpmuxSessionSource.promptBlocks(text: "", attachments: [AgentAttachment(kind: .image, name: "Photo", data: jpeg)])
+        #expect(blocks.count == 1)
+        #expect(blocks.first?["mimeType"]?.stringValue == "image/jpeg")
+    }
+}
+
 // MARK: Subagents and handoff over acpmux
 
 @Suite struct AcpmuxParityTests {

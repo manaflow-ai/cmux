@@ -54,6 +54,7 @@ struct ChatComposer: View {
             .ignoresSafeArea()
         }
         .onChange(of: photoItems) { _, items in
+            guard !items.isEmpty else { return }
             Task { await loadPhotos(items) }
         }
         .sensoryFeedback(.impact(weight: .light), trigger: sendCount)
@@ -319,9 +320,13 @@ struct ChatComposer: View {
 
     private func loadPhotos(_ items: [PhotosPickerItem]) async {
         for item in items {
-            if let data = try? await item.loadTransferable(type: Data.self) {
-                attachments.append(AgentAttachment(kind: .image, name: "Photo", data: data))
+            guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
+            var attachment = AgentAttachment(kind: .image, name: "Photo", data: data)
+            // HEIC and other formats agents do not accept go over as JPEG.
+            if attachment.imageMIMEType == nil, let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.85) {
+                attachment.data = jpeg
             }
+            attachments.append(attachment)
         }
         photoItems = []
     }
@@ -330,7 +335,8 @@ struct ChatComposer: View {
 /// 56 x 56 thumbnail (images) or a 56 h chip (files) with an X badge.
 struct AttachmentThumb: View {
     let attachment: AgentAttachment
-    let remove: () -> Void
+    /// nil: a sent attachment (no remove badge).
+    var remove: (() -> Void)?
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
@@ -352,16 +358,18 @@ struct AttachmentThumb: View {
                 }
             }
             .clipShape(.rect(cornerRadius: 12, style: .continuous))
-            Button(action: remove) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Color.cnxOnAccent)
-                    .frame(width: 20, height: 20)
-                    .background(Color.cnxAccent, in: .circle)
+            if let remove {
+                Button(action: remove) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(Color.cnxOnAccent)
+                        .frame(width: 20, height: 20)
+                        .background(Color.cnxAccent, in: .circle)
+                }
+                .buttonStyle(.plain)
+                .offset(x: 6, y: -6)
+                .accessibilityLabel("Remove attachment")
             }
-            .buttonStyle(.plain)
-            .offset(x: 6, y: -6)
-            .accessibilityLabel("Remove attachment")
         }
         .padding(.top, 6)
         .padding(.trailing, 6)

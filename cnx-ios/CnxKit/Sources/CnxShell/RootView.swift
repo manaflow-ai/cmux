@@ -288,7 +288,7 @@ struct ShellTabs: View {
             }
             .badge(shell.store.activeWorkspaces.filter(\.needsAttention).count)
             Tab("Feed", systemImage: "bubble.left.and.text.bubble.right", value: RootTab.feed) {
-                CnxFeed.FeedScreen { SidebarToolbarItem(sidebar: shell.sidebar) }
+                CnxFeed.FeedScreen(path: $shell.feedPath) { SidebarToolbarItem(sidebar: shell.sidebar) }
             }
             .badge(FeedStore.shared.needsYouCount)
             Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {

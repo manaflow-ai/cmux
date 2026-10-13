@@ -113,8 +113,6 @@ public struct DiffFileScreen: View {
             ViewedToggle(isViewed: isViewed) { withAnimation(.cnxSmooth) { state.toggleViewed(file) } }
             Menu {
                 Button("Copy path", systemImage: "doc.on.doc") { UIPasteboard.general.string = file.path }
-                Button("Open file", systemImage: "doc.text") {}
-                Button("Open in terminal", systemImage: "apple.terminal") {}
             } label: {
                 Image(systemName: "ellipsis").frame(width: 32, height: 32)
             }
@@ -353,12 +351,10 @@ struct UnifiedDiffRow: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(rowColor)
         .contextMenu {
-            Button("Comment (coming soon)", systemImage: "text.bubble") {}.disabled(true)
             Button("Copy line", systemImage: "doc.on.doc") { UIPasteboard.general.string = line.text }
             Button("Copy with line number", systemImage: "number") {
                 UIPasteboard.general.string = "\(line.newNumber ?? line.oldNumber ?? 0): \(line.text)"
             }
-            Button("Open file at line", systemImage: "arrow.up.right.square") {}
         }
         .accessibilityElement()
         .accessibilityLabel(Text(accessibilityText))

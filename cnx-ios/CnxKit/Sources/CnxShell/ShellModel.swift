@@ -1,4 +1,5 @@
 #if os(iOS)
+import CnxAgentChat
 import CnxAuth
 import CnxDesign
 import CnxLive
@@ -32,8 +33,11 @@ final class ShellModel {
 
     var tab: RootTab = .home { didSet { updateInteractiveOpen() } }
     var homePath = NavigationPath() { didSet { updateInteractiveOpen() } }
+    /// Typed: a workspace page must not nest a SwiftUI NavigationStack (the
+    /// terminal tab hosts its own page), or SwiftUI traps with
+    /// `comparisonTypeMismatch` when the nested stack joins this path.
     var workspacesPath: [Workspace] = [] { didSet { updateInteractiveOpen() } }
-    var feedPath: [String] = [] { didSet { updateInteractiveOpen() } }
+    var feedPath: [AgentChatDestination] = [] { didSet { updateInteractiveOpen() } }
     var settingsPath: [SettingsRoute] = [] { didSet { updateInteractiveOpen() } }
 
     var toast: CnxToast?
