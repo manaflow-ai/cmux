@@ -334,9 +334,15 @@ public final class MessagesLabHomeView: NSView {
     public var debugWidthPasses: (passes: Int, deferred: Int) {
         (MessagesWindowView.widthPasses, MessagesWindowView.widthPassesDeferred)
     }
+    /// MessagesLab's frame budget for width passes (s): a later width change in a display frame runs at once
+    /// while that frame's passes cost less (f11642b resize-pace).
+    public var debugWidthPassBudget: Double { Double(MessagesWindowView.widthPassFrameBudget) }
 
     /// The window view's origin in window points (bottom-left origin), for automation.
     public var debugHostOrigin: CGPoint { controller.host.convert(CGPoint.zero, to: nil) }
+    /// The window view's frame in window points (bottom-left origin), for automation (its right edge: a pane
+    /// whose width is a fraction of a device pixel).
+    public var debugHostFrame: CGRect { controller.host.convert(controller.host.bounds, to: nil) }
 
     /// Automation (DEBUG socket): the text of the newest `limit` messages
     /// this view holds (its own store), oldest first.

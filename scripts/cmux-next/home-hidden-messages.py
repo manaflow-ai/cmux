@@ -213,6 +213,8 @@ try:
         has_preview = "preview" in kinds and "text" in kinds[kinds.index("preview") + 1:]
         check("thread, live reply: a thread preview shows above a text row", has_preview, kinds)
         rpc("debug.home.drive", {"action": "nudge", "dx": 0.25, "dy": 0.25})
+        # The pane's right edge on half a device pixel too (82ccac1: my rows, here the live reply, snap their right edge).
+        rpc("debug.home.drive", {"action": "resize", "trims": [0.5]})
         time.sleep(0.2)  # test harness: one display frame for the move to show
         half = rpc("debug.home.drive", {"action": "rows"}) or {}
         half_shot = os.path.join(opts.out, "thread-half-pixel.png")
@@ -220,6 +222,8 @@ try:
         check("thread, half pixel: the transcript sits on half a device pixel (both axes)", bool(half.get("ok"))
               and all(abs(((half.get(k, 0) * 2) % 1) - 0.5) < 0.01 for k in ("hostX", "hostY")),
               {k: half.get(k) for k in ("hostX", "hostY", "error")})
+        check("thread, half pixel: the transcript's right edge sits on half a device pixel",
+              abs(((half.get("hostRight", 0) * 2) % 1) - 0.5) < 0.01, {k: half.get(k) for k in ("hostRight", "trim")})
         if has_preview and half.get("ok") and os.path.exists(half_shot):
             hk = [r["kind"] for r in half["rows"]]
             below = {r["key"] for r in half["rows"][hk.index("preview") + 1:]} if "preview" in hk else set()

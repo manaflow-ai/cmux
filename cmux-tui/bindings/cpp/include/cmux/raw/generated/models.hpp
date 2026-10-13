@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "e171857910d090c4b08a6ba35a4542510f7ff9fb14155b8ebecc662d497b6c4c";
+inline constexpr std::string_view kProtocolIrSha256 = "35fe0e19e3b1b80e58d69b4ee401b6b562131839f4bd6e8b0ea148bb86f66f58";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -855,6 +855,7 @@ struct Bookmark {
     std::string browser_profile_id{};
     std::uint64_t created_ms{};
     std::optional<std::string> favicon_key{};
+    std::optional<std::string> icon{};
     std::string id{};
     std::uint64_t index{};
     std::string kind{};
@@ -5047,6 +5048,7 @@ struct UnsaveTabGroupResult {
 struct UpdateBookmarkRequest {
     std::string bookmark{};
     Field<std::string> favicon_key{};
+    Field<std::string> icon{};
     Field<std::uint64_t> last_used_ms{};
     Field<std::string> mutation_id{};
     Field<std::string> origin{};

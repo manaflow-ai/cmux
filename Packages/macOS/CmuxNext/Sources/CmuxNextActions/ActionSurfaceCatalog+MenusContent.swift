@@ -37,6 +37,8 @@ nonisolated extension ActionSurfaceCatalog {
         "screenGroup.newScreen": [p(.screenGroup, .create, 0)],
         "screenGroup.rename": [p(.screenGroup, .identity, 1)],
         "screenGroup.setColor": [p(.screenGroup, .identity, 2, .submenu, folder: .appearance)],
+        "screenGroup.setIcon": [p(.screenGroup, .identity, 5, folder: .appearance, label: IconMenuLabels.setIcon)],
+        "screenGroup.clearIcon": [p(.screenGroup, .identity, 6, folder: .appearance, label: IconMenuLabels.removeIcon)],
         "screenGroup.toggleCollapsed": [p(.screenGroup, .organize, 3)],
         "screenGroup.ungroup": [p(.screenGroup, .close, 300)],
         "screenGroup.close": [p(.screenGroup, .close, 301)],

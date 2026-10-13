@@ -195,11 +195,24 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
 
     // MARK: Display scale
 
+    /// cmux: the scale this view last rasterized and snapped at (setRenderScale).
+    private(set) var appliedRenderScale: CGFloat = Fixture.renderScale
+
     /// The window moved to a display with another scale (or a test forced
     /// one): drop every cached row bitmap and re-rasterize all bitmaps of the
     /// window at the new scale. Live morphs keep their bitmaps until they land.
+    /// The rows follow the new device pixel grid: row heights that round to it
+    /// (text thread previews, ThreadPreview.height) are made again
+    /// (`rowsForScale`), and every visible row and the typing indicator (with
+    /// its clip) snap again (RowCell.refreshSnap from decorate). A host calls
+    /// this on its backing scale change (appkit-native: HostView
+    /// viewDidChangeBackingProperties -> ChatController.displayScaleChanged).
     func setRenderScale(_ s: CGFloat) {
-        guard s > 0, Fixture.renderScale != s else { return }
+        // cmux: the guard is this view's own scale, not only the shared Fixture.renderScale: cmux Home has a window
+        // view per pane, and a second pane (or a tab shown again) whose scale is behind must still re-rasterize and
+        // re-snap after the first pane set the shared value.
+        guard s > 0, Fixture.renderScale != s || appliedRenderScale != s else { return }
+        appliedRenderScale = s
         Fixture.renderScale = s
         RowBitmaps.shared.removeAll()
         compose.rescale()
@@ -210,7 +223,36 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         walk(self)
         header.layer.contentsScale = s
         morphs.values.forEach { $0.rescale() }
-        refreshVisibleCells()
+        if !rowsForScale() { refreshVisibleCells() }
+    }
+
+    /// Rows whose height was rounded at another display scale (a text thread preview: 41.65 pt of parts is 41.5 pt at
+    /// 2x, 42 pt at 1x, ThreadPreview.height) take their height at the current one, and the visible rows keep their
+    /// places (as a width change's exact pass, measureWindow). Only the heights change: the model's own rows, no new
+    /// derivation and no measuring (a preview's box does not depend on the scale); fading rows stay. True when a row
+    /// changed (restore then decorated the visible cells); false and no work without such a row.
+    @discardableResult private func rowsForScale() -> Bool {
+        var changed = false
+        let specs: [RowSpec] = model.rows.compactMap { r in
+            guard !r.ghost else { return nil }
+            guard case let .threadPreview(pv) = r.spec.kind, r.spec.height != pv.height else { return r.spec }
+            var s = r.spec
+            s.height = pv.height
+            changed = true
+            return s
+        }
+        guard changed else { return false }
+        // The width pass's derived rows hold the old heights.
+        widthDerived = nil
+        let anchor = visibleAnchor()
+        model.set(specs, at: clock(), ghosts: true)
+        collection.reloadData()
+        _ = layout.rebaseIfNeeded(force: true)
+        layout.invalidateLayout()
+        restore(anchor)
+        // The host's native views follow the new content height (appkit-native: scroller and document height).
+        onWidthPass()
+        return true
     }
 
     // MARK: Window activity
@@ -1356,7 +1398,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         let s = max(1, Fixture.renderScale), place = windowPlace
         let top0 = windowY(contentY: layout.contentTop(i))
         let top = top0 + RowCell.snap(top0 - RowDraw.margin, place.origin.y, place.axis.y, scale: s)
-        let dx = RowCell.snap(0, place.origin.x, place.axis.x, scale: s)
+        // The anchored side of the row (RowCell.anchorX: the right edge for my row) as snapRow snaps it.
+        let dx = RowCell.snap(RowCell.anchorX(spec, layout.frame(for: i)), place.origin.x, place.axis.x, scale: s)
         // The landed balloon: RowDraw.balloon in row coordinates as the cell draws it (Messages draws an outgoing text
         // balloon 0.38 pt inside its frame from 2 lines on), moved to the snapped window place; the text stays on the
         // frame. The flying bubble keeps 16 pt per line (p.size, not bodySize; measured: its bottom is 1 pt lower than
@@ -1513,6 +1556,8 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         }
         cell.windowPlace = windowPlace
         cell.windowY = windowY(contentY: layout.frame(for: i).minY)
+        // A display scale change or a reused cell of the other side: the snap follows (no-op otherwise).
+        cell.refreshSnap()
         // Connector from the root's vertical center down to this bubble.
         if case let .part(p) = r.spec.kind, let rootKey = p.connectorRoot {
             let cellTop = layout.frame(for: i).minY

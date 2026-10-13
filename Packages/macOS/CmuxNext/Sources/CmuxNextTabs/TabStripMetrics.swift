@@ -70,6 +70,10 @@ public struct TabStripMetrics: Equatable, Sendable {
     /// Between the name and the collapsed member count.
     public var groupChipCountSpacing: CGFloat
     public var groupUnderlineHeight: CGFloat
+    /// A group chip's icon: the tab icon size, inset inside the pill's height.
+    public var groupChipIconSize: CGFloat { max(0, min(iconSize, groupChipHeight - 2 * Metrics.space1)) }
+    /// Between a group chip's icon and its name or count.
+    public var groupChipIconSpacing: CGFloat { groupChipCountSpacing }
 
     /// Vertical inset of tabs inside the strip.
     public var stripVerticalPadding: CGFloat { max(0, (stripHeight - tabHeight) / 2) }

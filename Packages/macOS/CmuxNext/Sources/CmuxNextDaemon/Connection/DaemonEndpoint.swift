@@ -236,6 +236,12 @@ public struct DaemonCapabilities: Sendable {
     public let workspaceGroupIcon = "workspace-group-icon-v1"
     /// `pinned` (saved) on `workspace_group.update` and on personal groups.
     public let workspaceGroupPin = "workspace-group-pin-v1"
+    /// `icon` on screen groups and saved screen groups, on
+    /// `screen_group.update` and raw `update-screen-group` (null clears).
+    public let screenGroupIcon = "screen-group-icon-v1"
+    /// `icon` on tab groups and saved tab groups, on `tab_group.update` and
+    /// raw `update-tab-group` (null clears).
+    public let tabGroupIcon = "tab-group-icon-v1"
     /// `attachment` parts and their bytes on the local conversation owner:
     /// `conversation-attachment-upload` and `conversation-attachment-read`.
     public let localAttachments = "local-attachments-v1"
@@ -319,7 +325,7 @@ public struct DaemonCapabilities: Sendable {
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, cloudConversations, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, paletteUsage, projectList, splitClientKeys,
-                                            workspaceGroupIcon, workspaceGroupPin, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
+                                            workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart,
                                             originClaim, sessionJournal, terminalResources, keybindings, iconAssets] }
 
     /// App code waiting for a daemon half that no branch has yet. Each
