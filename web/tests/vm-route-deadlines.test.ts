@@ -96,6 +96,7 @@ describe("VM route answer deadlines", () => {
 describe("remaining VM routes", () => {
   const expected: Array<[VmRouteDeadlineOperation, number, boolean]> = [
     ["rename", 55_000, true],
+    ["restart", 55_000, true],
     ["tunnelEnroll", 55_000, true],
     ["tunnelRevoke", 15_000, true],
     ["attach", 955_000, true],

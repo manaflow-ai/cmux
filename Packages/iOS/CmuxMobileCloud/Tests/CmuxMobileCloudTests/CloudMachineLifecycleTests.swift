@@ -59,6 +59,11 @@ import Testing
         #expect(resume.url?.absoluteString == "https://cmux.com/api/vm/vm-1/resume")
         #expect(resume.timeoutInterval == CloudAPIRequestBuilder.resumeTimeout)
 
+        let restart = try builder.restartMachine(id: "vm-1", accessToken: "a", refreshToken: "r")
+        #expect(restart.httpMethod == "POST")
+        #expect(restart.url?.absoluteString == "https://cmux.com/api/vm/vm-1/restart")
+        #expect(restart.timeoutInterval == CloudAPIRequestBuilder.restartTimeout)
+
         let delete = try builder.deleteMachine(id: "vm-1", accessToken: "a", refreshToken: "r")
         #expect(delete.httpMethod == "DELETE")
         #expect(delete.url?.absoluteString == "https://cmux.com/api/vm/vm-1")
@@ -72,6 +77,18 @@ import Testing
                 try builder.deleteMachine(id: invalidID, accessToken: "a", refreshToken: "r")
             }
         }
+    }
+
+    @Test func restartCallsTheControlPlaneAndReconcilesFromTheList() async {
+        let service = FakeCloudVMService()
+        service.machines = .success([Self.running])
+        let controller = makeController(service: service)
+
+        let ok = await controller.restartMachine(Self.running)
+
+        #expect(ok)
+        #expect(service.calls.restart == ["vm-1"])
+        #expect(controller.machineActionsInFlight.isEmpty)
     }
 
     @Test func pauseCallsTheControlPlaneAndReconcilesFromTheList() async {

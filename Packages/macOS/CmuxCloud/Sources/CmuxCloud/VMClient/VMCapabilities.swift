@@ -10,6 +10,8 @@ public struct VMCapabilities: Equatable, Sendable {
     public var fork: Bool
     public var exec: Bool
     public var stats: Bool
+    /// The provider can recover a frozen machine without using its guest channel.
+    public var restart: Bool
     /// The provider can mint a browser preview URL for a machine port.
     public var ports: Bool
     public var desktop: Bool
@@ -32,7 +34,7 @@ public struct VMCapabilities: Equatable, Sendable {
 
     public init(
         snapshot: Bool, restore: Bool, fork: Bool,
-        exec: Bool = true, stats: Bool = true, ports: Bool = true,
+        exec: Bool = true, stats: Bool = true, restart: Bool = true, ports: Bool = true,
         desktop: Bool = true, sizing: Bool = true, persistentHome: Bool = true,
         attachTransports: [String]? = nil
     ) {
@@ -41,6 +43,7 @@ public struct VMCapabilities: Equatable, Sendable {
         self.fork = fork
         self.exec = exec
         self.stats = stats
+        self.restart = restart
         self.ports = ports
         self.desktop = desktop
         self.sizing = sizing
@@ -60,7 +63,7 @@ public struct VMCapabilities: Equatable, Sendable {
             .compactMap { $0 as? String }
         self.init(
             snapshot: flag("snapshot"), restore: flag("restore"), fork: flag("fork"),
-            exec: flag("exec"), stats: flag("stats", fallback: legacyStatsSupported), ports: flag("ports"),
+            exec: flag("exec"), stats: flag("stats", fallback: legacyStatsSupported), restart: flag("restart"), ports: flag("ports"),
             desktop: flag("desktop"), sizing: flag("sizing"),
             persistentHome: flag("persistentHome"), attachTransports: transports)
     }
@@ -68,7 +71,7 @@ public struct VMCapabilities: Equatable, Sendable {
     public var jsonObject: [String: Any] {
         var object: [String: Any] = [
             "snapshot": snapshot, "restore": restore, "fork": fork,
-            "exec": exec, "stats": stats, "ports": ports, "desktop": desktop,
+            "exec": exec, "stats": stats, "restart": restart, "ports": ports, "desktop": desktop,
             "sizing": sizing, "persistentHome": persistentHome,
         ]
         if let attachTransports { object["attach_transports"] = attachTransports }

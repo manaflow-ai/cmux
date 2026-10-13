@@ -17,6 +17,7 @@ describe("vm capability derivation", () => {
       fork: false,
       exec: true,
       stats: true,
+      restart: true,
       // Port previews ride the platform's TLS edge (style.dev capability URLs).
       ports: true,
       desktop: true,
@@ -38,6 +39,7 @@ describe("vm capability derivation", () => {
     const caps = vmCapabilitiesOf(new MockVMProvider({ features: { cmuxRemote: false } }));
     expect(caps.fork).toBe(false);
     expect(caps.stats).toBe(false);
+    expect(caps.restart).toBe(false);
     expect(caps.ports).toBe(false);
     expect(caps.desktop).toBe(false);
     expect(caps.sizing).toBe(false);

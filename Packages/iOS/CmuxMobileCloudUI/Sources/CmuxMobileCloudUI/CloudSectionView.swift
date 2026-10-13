@@ -125,6 +125,7 @@ public struct CloudSectionView: View {
                             retryConnection: { controller.retryConnections() },
                             pause: { Task { await controller.pauseMachine(machine) } },
                             resume: { Task { await controller.resumeMachine(machine) } },
+                            restart: { Task { await controller.restartMachine(machine) } },
                             delete: { Task { await controller.deleteMachine(machine) } }
                         )
                     }
@@ -563,7 +564,7 @@ struct CloudCreateMachineSheet: View {
 /// One machine row: its name and a lowercased status line.
 struct CloudMachineRow: View {
     let machine: CloudMachine
-    /// A pause, resume or delete is running for this machine.
+    /// A pause, resume, restart or delete is running for this machine.
     let isBusy: Bool
     /// The last lifecycle failure, when it hit this machine.
     let failure: CloudMachineActionFailure?
@@ -573,6 +574,7 @@ struct CloudMachineRow: View {
     let retryConnection: () -> Void
     let pause: () -> Void
     let resume: () -> Void
+    let restart: () -> Void
     let delete: () -> Void
     @State private var isDeleteConfirmationPresented = false
 
@@ -642,6 +644,13 @@ struct CloudMachineRow: View {
                 .tint(.green)
                 .disabled(isBusy)
             }
+            if machine.lifecycle.canRestart {
+                Button(action: restart) {
+                    Label(L10n.string("mobile.cloud.action.restart", defaultValue: "Restart"), systemImage: "arrow.counterclockwise.circle")
+                }
+                .tint(.blue)
+                .disabled(isBusy)
+            }
         }
         .confirmationDialog(
             String(
@@ -694,6 +703,12 @@ struct CloudMachineRow: View {
             }
             .disabled(isBusy)
         }
+        if machine.lifecycle.canRestart {
+            Button(action: restart) {
+                Label(L10n.string("mobile.cloud.action.restart", defaultValue: "Restart"), systemImage: "arrow.counterclockwise.circle")
+            }
+            .disabled(isBusy)
+        }
         if machine.lifecycle.canDelete {
             Button(action: requestDelete) {
                 Label(L10n.string("mobile.cloud.action.delete", defaultValue: "Delete"), systemImage: "trash")
@@ -734,6 +749,7 @@ struct CloudMachineRow: View {
         switch failure.action {
         case .pause: format = L10n.string("mobile.cloud.action.pauseFailedFormat", defaultValue: "Couldn't pause: %@")
         case .resume: format = L10n.string("mobile.cloud.action.resumeFailedFormat", defaultValue: "Couldn't resume: %@")
+        case .restart: format = L10n.string("mobile.cloud.action.restartFailedFormat", defaultValue: "Couldn't restart: %@")
         case .delete: format = L10n.string("mobile.cloud.action.deleteFailedFormat", defaultValue: "Couldn't delete: %@")
         }
         return String(format: format, failure.failure.action ?? failure.failure.localizedMessage)

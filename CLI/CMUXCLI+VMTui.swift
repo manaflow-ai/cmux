@@ -992,8 +992,10 @@ extension CMUXCLI {
                                                               workspaces and terminal history stay. `vm ls` shows it paused.
           cmux vm resume <machine>                            Wake a paused machine: the daemon, terminals and files come back.
                                                               Opening or exec'ing a paused machine also wakes it.
+          cmux vm restart <machine>                           Recover a frozen machine through the provider control plane;
+                                                              the guest exec and terminal channels are not used.
 
-        A provider without pause says so; such machines stay available until `cmux vm rm`. Add --json for the raw result.
+        A provider without pause or restart says so; such machines stay available until `cmux vm rm`. Add --json for the raw result.
         """
 
     /// `--timeout` for `vm exec`, in whole seconds: 1…900 (the control plane's 15-minute
@@ -1026,7 +1028,7 @@ extension CMUXCLI {
         case "tree": return vmTreeUsage
         case "tui": return vmTuiUsage
         case "exec": return vmExecUsage
-        case "pause", "resume": return vmLifecycleUsage
+        case "pause", "resume", "restart": return vmLifecycleUsage
         case "agent": return vmAgentUsage
         case "run": return vmRunUsage
         case "route": return vmRouteUsage

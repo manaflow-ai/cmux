@@ -28,9 +28,10 @@ import { currentVmRequestContext } from "./requestContext";
  * through `after()` until the route's maxDuration, then it is interrupted.
  * A mutation answers `vm_operation_in_progress` so the caller checks status
  * before retrying: pause reconciles on the provider's raw pause state, resume
- * waits out a start already under way, destroy tolerates a machine already
- * gone, snapshot and resize refuse a concurrent duplicate, and create-likes
- * reuse the Idempotency-Key.
+ * waits out a start already under way, restart is safe to retry after the
+ * provider's bounded operation, destroy tolerates a machine already gone,
+ * snapshot and resize refuse a concurrent duplicate, and create-likes reuse
+ * the Idempotency-Key.
  */
 
 /** Time left for the response to reach the client after the route answers. */
@@ -91,6 +92,8 @@ export const VM_ROUTE_DEADLINES = {
   restore: { clientTimeoutMs: 960_000, maxDurationMs: 600_000, mutating: true },
   /** VMClient.updateNetworkPolicy 60 s. */
   networkUpdate: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: true },
+  /** Provider-level recovery for a frozen machine; it never waits on guest exec. */
+  restart: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: true },
   /** No native caller; the 60 s URLRequest default. */
   filesWrite: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: true },
   /** Mac VMClient.resize and CLI 120 s. */

@@ -136,7 +136,7 @@ struct CloudMenuContentTests {
         limited.capabilities.fork = false
         let plainIDs = recorder.actions.machine.submenuEntries(limited).compactMap(Self.actionID)
         #expect(plainIDs == ["machine.plain.openShell", "machine.plain.newWorkspace", "machine.plain.openFullClient",
-                             "machine.plain.rename", "machine.plain.status", "machine.plain.delete"])
+                             "machine.plain.rename", "machine.plain.restart", "machine.plain.status", "machine.plain.delete"])
 
         // Freestyle: no native fork, but the backend forks through snapshot + create.
         var snapshotForked = Self.machine("snap")

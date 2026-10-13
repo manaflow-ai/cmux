@@ -2304,6 +2304,64 @@ export function resumeVm(input: {
   });
 }
 
+export type VmRestartResult = {
+  readonly id: string;
+  readonly status: "running";
+};
+
+/**
+ * Reboot a VM through the provider control plane. There is deliberately no
+ * status or guest probe before this call: those are the channels a frozen VM
+ * has stopped answering. A successful provider restart is recorded as running
+ * and the normal attach retry observes when the daemon is ready again.
+ */
+export function restartVm(input: {
+  readonly userId: string;
+  readonly billingTeamId?: string | null;
+  readonly teamIds?: readonly string[];
+  readonly providerVmId: string;
+}): Effect.Effect<VmRestartResult, VmWorkflowError, VmRepository | VmProviderGateway> {
+  return Effect.gen(function* () {
+    const repo = yield* VmRepository;
+    const providers = yield* VmProviderGateway;
+    // Use the ownership/access read directly. The accessible variant can
+    // refresh legacy resource reservations with getStats; that provider read
+    // is exactly what a frozen VM cannot answer.
+    const vm = yield* requireUserVm(input);
+    const providerVmId = vm.providerVmId ?? input.providerVmId;
+    if (vm.status === "destroyed") {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
+    if (!providers.restart) {
+      return yield* Effect.fail(new VmOperationUnsupportedError({ provider: vm.provider, operation: "restart" }));
+    }
+    yield* providers.restart(vm.provider, providerVmId).pipe(
+      Effect.catchAll((error): Effect.Effect<never, VmWorkflowError> => isProviderNotFoundError(error)
+        ? Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }))
+        : Effect.fail(error)),
+    );
+    const recorded = yield* repo.markProviderObservedStatus({
+      id: vm.id,
+      providerVmId,
+      status: "running",
+    });
+    if (!recorded) {
+      return yield* Effect.fail(new VmNotFoundError({ vmId: input.providerVmId }));
+    }
+    yield* repo.recordUsageEvent({
+      userId: vm.userId,
+      billingTeamId: vm.billingTeamId,
+      billingPlanId: vm.billingPlanId,
+      vmId: vm.id,
+      eventType: "vm.restarted",
+      provider: vm.provider,
+      imageId: vm.imageId,
+      metadata: { source: "user", hard: true },
+    }).pipe(Effect.catchAll(() => Effect.void));
+    return { id: providerVmId, status: "running" } satisfies VmRestartResult;
+  });
+}
+
 type SnapshotProviderResources = {
   readonly vcpus: number | null;
   readonly memoryMb: number | null;
@@ -4396,15 +4454,38 @@ export function getVmStats(input: {
           && reported.resourceSampledAt <= now
           && now - reported.resourceSampledAt <= VM_RESOURCE_USAGE_MAX_AGE_MS;
         if (stats.state !== "awake" || fresh || !shouldReadVmResourceStatsDirectly() || !providers.getResourceStats) {
-          return Effect.succeed(reported);
+          return Effect.succeed({
+            ...reported,
+            ...(stats.state === "awake"
+              ? {
+                // Provider power state alone is not a guest heartbeat. Do not
+                // surface an awake VM when its reporter has gone silent.
+                state: fresh ? reported.state : "unknown" as const,
+                health: fresh ? "healthy" as const : "unknown" as const,
+              }
+              : {}),
+          });
         }
         return providers.getResourceStats(vm.provider, input.providerVmId).pipe(
-          Effect.map((sample) => sample ? applyVmResourceUsage(stats, {
-            [VM_RESOURCE_USAGE_KEY]: {
-              ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
-            },
-          }, input.providerVmId, Date.now()) : reported),
-          Effect.catchAll((error) => isProviderNotFoundError(error) ? Effect.fail(error) : Effect.succeed(reported)),
+          Effect.map((sample) => {
+            if (!sample) {
+              // A direct probe was attempted and the provider returned no
+              // guest sample. Keep capacity, but stop presenting a dead guest
+              // as awake so callers can offer restart/recovery.
+              return { ...reported, state: "unknown" as const, health: "unresponsive" as const };
+            }
+            return {
+              ...applyVmResourceUsage(stats, {
+                [VM_RESOURCE_USAGE_KEY]: {
+                  ...sample, providerVmId: input.providerVmId, receivedAt: sample.resourceSampledAt,
+                },
+              }, input.providerVmId, Date.now()),
+              health: "healthy" as const,
+            };
+          }),
+          Effect.catchAll((error) => isProviderNotFoundError(error)
+            ? Effect.fail(error)
+            : Effect.succeed({ ...reported, state: "unknown" as const, health: "unresponsive" as const })),
         );
       }),
       Effect.mapError((error): VmWorkflowError => error),

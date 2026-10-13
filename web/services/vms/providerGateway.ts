@@ -115,6 +115,8 @@ export type VmProviderGatewayShape = {
     provider: ProviderId,
     vmId: string,
   ) => Effect.Effect<VMResourceStatsResult | null, VmProviderOperationError>;
+  /** Force a provider-level reboot; unlike resume this does not probe the guest first. */
+  readonly restart?: (provider: ProviderId, vmId: string) => Effect.Effect<void, VmProviderOperationError>;
   readonly resize?: (
     provider: ProviderId,
     vmId: string,
@@ -404,6 +406,11 @@ export const VmProviderGatewayLive = Layer.succeed(VmProviderGateway, {
       throw new VmOperationUnsupportedError({ provider, operation: "getResourceStats" });
     }
     return await impl.getResourceStats(vmId);
+  }),
+  restart: (provider, vmId) => providerEffect(provider, "restart", () => {
+    const impl = getProvider(provider);
+    if (!impl.restart) throw new VmOperationUnsupportedError({ provider, operation: "restart" });
+    return impl.restart(vmId);
   }),
   resize: (provider, vmId, options) => {
     const impl = getProvider(provider);

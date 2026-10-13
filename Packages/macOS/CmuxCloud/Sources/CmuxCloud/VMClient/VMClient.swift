@@ -1888,13 +1888,27 @@ public actor VMClient {
         }
     }
 
-    private func lifecycleTransition(id: String, action: String, teamID: String?) async throws -> String {
+    /// `POST /api/vm/<id>/restart`: recover a frozen machine through the provider control plane.
+    /// This call does not probe the guest first, so it remains usable when exec and terminal access
+    /// have stopped answering. The persistent disk and machine identity are retained.
+    public func restart(id: String, teamID: String? = nil) async throws -> String {
+        return try await withOperation(.restart, foreground: true) {
+            try await lifecycleTransition(id: id, action: "restart", teamID: teamID, timeoutSeconds: 60)
+        }
+    }
+
+    private func lifecycleTransition(
+        id: String,
+        action: String,
+        teamID: String?,
+        timeoutSeconds: TimeInterval = Self.createTimeoutSeconds
+    ) async throws -> String {
         let encodedID = try pathSegment(id, fieldName: "vm id")
         let (data, http) = try await request(
             "POST",
             path: "/api/vm/\(encodedID)/\(action)",
             jsonBody: [:],
-            timeoutSeconds: Self.createTimeoutSeconds,
+            timeoutSeconds: timeoutSeconds,
             teamID: teamID
         )
         if http.statusCode == 501 {

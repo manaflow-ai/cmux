@@ -700,7 +700,36 @@ describe("FreestyleProvider create with edge rules", () => {
       // explicitly pauses or destroys it. The explicit -1 also overrides a
       // provider/account default that would otherwise idle-pause the VM.
       idleTimeoutSeconds: -1,
+      automaticRestart: true,
     });
+  });
+
+  test("uses the provider control plane for a hard restart", async () => {
+    let request: { path: string; method: string | undefined } | undefined;
+    const client = {
+      fetch: async (path: string, init?: RequestInit) => {
+        request = { path, method: init?.method };
+        return new Response(null, { status: 202 });
+      },
+    } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    await provider.restart(VM_ID);
+    expect(request).toEqual({ path: `/v5/vms/${encodeURIComponent(VM_ID)}/restart`, method: "POST" });
+  });
+
+  test("falls back to documented pause/start when the hard endpoint is not on the edge", async () => {
+    const calls: string[] = [];
+    const client = {
+      fetch: async () => Response.json({ code: "NOT_FOUND", message: "route not found" }, { status: 404 }),
+      vms: {
+        ref: () => ({
+          pause: async () => { calls.push("pause"); },
+          start: async () => { calls.push("start"); return {}; },
+        }),
+      },
+    } as unknown as Freestyle;
+    await new FreestyleProvider({ client: () => client }).restart(VM_ID);
+    expect(calls).toEqual(["pause", "start"]);
   });
 
   test("passes the rule inline and returns a snapshot-v2 machine without guest setup", async () => {

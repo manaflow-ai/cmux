@@ -1120,9 +1120,13 @@ export class FreestyleProvider implements VMProvider {
             // Do not let an account/provider idle default turn a persistent
             // machine into a one-shot box. Explicit pause/stop still works.
             idleTimeoutSeconds: FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS,
-            ...(options.runtimeBudgetSeconds !== undefined ? {
-              maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)), automaticRestart: false,
-            } : {}),
+            // Be explicit even for normal machines: images created under an
+            // account default with automatic restart disabled must not remain
+            // unrecoverable after a provider/VMM failure.
+            automaticRestart: options.runtimeBudgetSeconds === undefined,
+            ...(options.runtimeBudgetSeconds !== undefined
+              ? { maxRunTotalSeconds: Math.max(0, Math.floor(options.runtimeBudgetSeconds)) }
+              : {}),
             metadata: { cmux: "cloud" },
             firewall: { rules: freestyleFirewallRules({ publicDaemonIngress: !networkId, memberIngressNetworkId: options.network?.memberIngress ? networkId : undefined, networkRules: options.networkRules }) },
             ...(networkId ? { vpcs: [{ vpcId: networkId, ipv4: true, ipv6: true }] } : {}),
@@ -1298,6 +1302,56 @@ export class FreestyleProvider implements VMProvider {
           await this.deps.client(CREATE_TIMEOUT_MS).vms.ref(vmId).pause();
         } catch (err) {
           throw new ProviderError("freestyle", `pause(${vmId})`, err);
+        }
+      },
+    );
+  }
+
+  /**
+   * Reboot the VM at the provider boundary. This endpoint intentionally does
+   * not use `exec("reboot")`: a frozen guest is precisely the case where the
+   * guest channel is unavailable, while the provider control plane can still
+   * discard the stuck runtime and boot the same disk.
+   */
+  async restart(vmId: string): Promise<void> {
+    return withVmSpan(
+      "cmux.vm.provider.restart",
+      "provider",
+      spanAttributes(vmId, "restart"),
+      async () => {
+        const path = `/v5/vms/${encodeURIComponent(vmId)}/restart`;
+        try {
+          const fs = this.deps.client(CREATE_TIMEOUT_MS);
+          const response = await fs.fetch(path, { method: "POST" });
+          if (response.ok) return;
+          let body: { code?: unknown; message?: unknown } = {};
+          try {
+            body = await response.json() as typeof body;
+          } catch {
+            // Keep the stable HTTP status when the provider sends no JSON body.
+          }
+          // The public API added the hard-restart endpoint after the SDK
+          // release this service currently pins. Until that endpoint is
+          // available on the account's edge, use the documented provider
+          // pause/start pair as a control-plane recovery. It still avoids the
+          // guest channel and preserves the machine's disk and memory.
+          if (response.status === 404 || response.status === 405) {
+            const vm = fs.vms.ref(vmId);
+            await vm.pause();
+            await vm.start();
+            return;
+          }
+          throw new FreestyleApiError(
+            response.status,
+            {
+              code: typeof body.code === "string" ? body.code : `HTTP_${response.status}`,
+              message: typeof body.message === "string" ? body.message : `Freestyle restart failed (${response.status})`,
+            },
+            path,
+          );
+        } catch (err) {
+          if (err instanceof ProviderError) throw err;
+          throw new ProviderError("freestyle", `restart(${vmId})`, err);
         }
       },
     );

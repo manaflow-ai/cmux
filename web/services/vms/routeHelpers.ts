@@ -1380,8 +1380,8 @@ async function vmRecreateRequiredResponse(error: VmProviderOperationError, local
 /**
  * The guest did not run or finish a command the operation needed, so the
  * provider's exec channel to that machine is stuck. A retry usually meets the
- * same stuck guest, so the answer is non-retryable with a pause and resume
- * action that restarts it. Provider diagnostics stay in server traces.
+ * same stuck guest, so the answer is non-retryable with a provider restart
+ * action. Provider diagnostics stay in server traces.
  */
 async function vmGuestUnresponsiveResponse(error: VmProviderOperationError, locale: Locale): Promise<Response> {
   const copy = await vmGuestUnresponsiveCopy(locale);
@@ -1649,6 +1649,7 @@ function vmPhaseForOperation(operation: string): VmLifecyclePhase {
   if (operation.includes("restore")) return "restore";
   if (operation.includes("fork")) return "fork";
   if (operation.includes("snapshot")) return "snapshot";
+  if (operation.includes("restart")) return "resume";
   if (operation.includes("resume")) return "resume";
   if (operation.includes("resize")) return "resize";
   if (operation.includes("exec")) return "exec";

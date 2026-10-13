@@ -225,6 +225,8 @@ public enum CloudMachineLifecycle: Sendable, Equatable {
     public var canPause: Bool { self == .running }
     /// Resuming brings a paused machine's compute back.
     public var canResume: Bool { self == .paused }
+    /// Restarting recovers a running machine whose guest is unresponsive.
+    public var canRestart: Bool { self == .running }
     /// Deleting is offered for every state that still has a machine behind it.
     public var canDelete: Bool {
         switch self {
