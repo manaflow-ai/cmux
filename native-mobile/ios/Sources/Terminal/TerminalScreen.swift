@@ -13,6 +13,10 @@ final class TerminalChromeState {
     /// The terminal itself has the keyboard (no composer).
     var directTyping = false
     var beginDirectTyping: (() -> Void)?
+    /// The composer's height changed (keys row, attachments, more lines):
+    /// the terminal re-measures what it has left. Its own layout pass ran
+    /// before the hosted composer grew, so a TUI kept rows under the keys row.
+    @ObservationIgnored var composerHeightChanged: ((CGFloat) -> Void)?
 }
 
 /// One terminal: Ghostty under floating glass controls, the composer docked
@@ -187,6 +191,9 @@ struct ComposerHostContent: View {
                 .accessibilityLabel(String(localized: "Type in terminal"))
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+            chrome.composerHeightChanged?(height)
+        }
         .animation(.smooth(duration: 0.22), value: chrome.atBottom)
         .animation(.smooth(duration: 0.2), value: chrome.directTyping)
         .frame(width: chrome.width > 0 ? chrome.width : nil)
@@ -213,6 +220,7 @@ struct TerminalHost: UIViewControllerRepresentable {
         chrome.scrollToBottom = { [weak controller] in controller?.scrollToBottom(animated: true) }
         controller.onDirectTypingChange = { [chrome] typing in chrome.directTyping = typing }
         chrome.beginDirectTyping = { [weak controller] in controller?.beginDirectTyping() }
+        chrome.composerHeightChanged = { [weak controller] height in controller?.composerContentHeightChanged(height) }
         controller.onWidthChange = { [chrome] width in
             if abs(chrome.width - width) > 0.5 { chrome.width = width }
         }

@@ -47,6 +47,7 @@ owner-handoff (written up for the owning agent).
 | 38 | Terminal / VoiceOver | Reading the terminal's text (VoiceOver value, Copy All Text) ran `select_all` + read selection, leaving the whole terminal highlighted when the clear didn't land. | S2 | fixed: `ghostty_surface_read_text` over the screen or viewport, selection untouched |
 | 39 | Memory | Visited terminals kept their session and Ghostty surface for the connection's lifetime (O5). | S3 | fixed: detached sessions beyond the 4 most recent are dropped (`TerminalSessionCache`, tests) |
 | 40 | Sidebar / VoiceOver | The sidebar Mac menu had no accessibility label. | S3 | fixed: "<Mac>, connected" plus a hint |
+| 41 | Terminal / TUI | With a hardware keyboard (or before the software keyboard rose), focusing the composer showed the keys row but the TUI grid kept its rows: `less`'s ":" prompt sat under the keys row. The hosting view's frame never grew with its SwiftUI content, so `bottomInset` stayed at the bare composer (92 pt). | S2 | fixed: the composer reports its measured height (`onGeometryChange`), the controller invalidates the host's intrinsic size and fits the grid to the taller value (less: 53x41 → 53x39, prompt above the keys) |
 
 ## Open (owner handoff or needs a device run)
 

@@ -123,7 +123,11 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
         scrollView.frame = view.bounds
         onWidthChange?(view.bounds.width)
         if let host = composer?.view {
-            bottomInset = max(0, view.bounds.height - host.frame.minY)
+            // The hosting view's frame lags its content (the keys row grew
+            // the SwiftUI content but not the frame), so take the measured
+            // content height when it is taller.
+            let belowComposer = max(0, view.bounds.height - host.frame.maxY)
+            bottomInset = belowComposer + max(host.frame.height, composerContentHeight)
         }
         if let size = surface.cellSize { cell = size }
         let tui = session.isTUI
@@ -149,6 +153,16 @@ final class TerminalScrollController: UIViewController, UIScrollViewDelegate {
     /// Left edge of the grid (side inset, centered leftover).
     private var gridX: CGFloat {
         TerminalViewportMath.gridOriginX(viewWidth: view.bounds.width, cols: session.cols, cellWidth: cell.width)
+    }
+
+    /// The composer's SwiftUI content height (see `bottomInset`).
+    private var composerContentHeight: CGFloat = 0
+
+    func composerContentHeightChanged(_ height: CGFloat) {
+        guard abs(height - composerContentHeight) > 0.5 else { return }
+        composerContentHeight = height
+        composer?.view.invalidateIntrinsicContentSize()
+        view.setNeedsLayout()
     }
 
     /// Pixel height of the Mac's grid (falls back to the fitted area).
