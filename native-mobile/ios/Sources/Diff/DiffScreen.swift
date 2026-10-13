@@ -58,7 +58,16 @@ struct DiffScreen: View {
                     let root = await services.repoRoot(cwd: cwd)
                     preview = DiffPreviewTarget(path: DiffPaths.join(root, relative))
                 }
-            }
+            },
+            images: (scope, { @Sendable source in
+                switch source {
+                case .git(let relative, let rev):
+                    return try await services.gitShow(cwd: cwd, path: relative, rev: rev)
+                case .disk(let relative):
+                    let root = await services.repoRoot(cwd: cwd)
+                    return try await services.read(path: DiffPaths.join(root, relative), limit: 16 << 20).data
+                }
+            })
         )
         .id(scope)
         .toolbarTitleMenu {
@@ -142,6 +151,14 @@ extension ServiceClient {
         }
         if let path { params["path"] = .string(path) }
         return DiffPayload(reply: try await call("git.diff", params))
+    }
+
+    /// `git.show`: a repository file's bytes at `rev`, or in the index.
+    func gitShow(cwd: String, path: String, rev: String?) async throws -> Data {
+        var params: [String: JSONValue] = ["cwd": .string(cwd), "path": .string(path)]
+        if let rev { params["rev"] = .string(rev) }
+        let reply = try await call("git.show", params)
+        return Data(base64Encoded: reply["data"]?.string ?? "") ?? Data()
     }
 
     /// The repository root for `cwd` (diff paths are root-relative); falls

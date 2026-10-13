@@ -119,6 +119,9 @@ public struct ServiceMethod: RawRepresentable, Hashable, Sendable, ExpressibleBy
     public static let gitStatus: ServiceMethod = "git.status"
     public static let gitDiff: ServiceMethod = "git.diff"
     public static let gitLog: ServiceMethod = "git.log"
+    /// A file's bytes at a revision (`rev`), or in the index without one:
+    /// the old side of an image diff.
+    public static let gitShow: ServiceMethod = "git.show"
     public static let uploadPut: ServiceMethod = "upload.put"
     public static let uploadBegin: ServiceMethod = "upload.begin"
     public static let uploadChunk: ServiceMethod = "upload.chunk"
@@ -373,6 +376,29 @@ public struct GitCommit: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case sha, author, email, time, subject
         case shortSha = "short_sha"
+    }
+}
+
+public struct GitShowParams: Codable, Equatable, Sendable {
+    public var cwd: String
+    /// Repository-root-relative, as `git.diff` reports it.
+    public var path: String
+    /// A commit-ish (`HEAD`, a branch, a sha); nil reads the index.
+    public var rev: String?
+    public init(cwd: String, path: String, rev: String? = nil) {
+        self.cwd = cwd
+        self.path = path
+        self.rev = rev
+    }
+}
+
+public struct GitShowResult: Codable, Equatable, Sendable {
+    /// Base64 bytes.
+    public var data: String
+    public var size: Int
+    public init(data: String, size: Int) {
+        self.data = data
+        self.size = size
     }
 }
 

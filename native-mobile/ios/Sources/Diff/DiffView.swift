@@ -28,20 +28,25 @@ struct DiffView: View {
     @State private var viewportWidth: CGFloat = 390
     @State private var showFileList = false
     @State private var jumpTarget: Int?
+    private let images: (scope: DiffScope, loader: DiffImageLoader)?
 
     /// - Parameters:
     ///   - loader: returns unified diff text (`git diff` output) and whether the Mac cut it.
     ///   - contextLoader: returns the new-side contents of a diff path, which
     ///     enables "Expand N hidden lines"; nil shows the counts only.
     ///   - onOpenFile: "View file" action for a diff path.
+    ///   - images: the diff's scope and a byte loader; changed images then
+    ///     show as before/after instead of "Binary file not shown".
     init(
         loader: @escaping @Sendable () async throws -> DiffPayload,
         title: String,
         contextLoader: (@Sendable (String) async throws -> String)? = nil,
-        onOpenFile: ((String) -> Void)? = nil
+        onOpenFile: ((String) -> Void)? = nil,
+        images: (scope: DiffScope, loader: DiffImageLoader)? = nil
     ) {
         self.title = title
         self.onOpenFile = onOpenFile
+        self.images = images
         _model = State(initialValue: DiffViewModel(loader: loader, contextLoader: contextLoader))
     }
 
@@ -144,7 +149,11 @@ struct DiffView: View {
     }
 
     @ViewBuilder private func fileBody(_ file: DiffFile) -> some View {
-        if model.isLarge(file) {
+        if let images, !model.isCollapsed(file), DiffImageSource.isPreviewable(file) {
+            DiffPinnedWidth(offset: offset, width: viewportWidth) {
+                DiffImagePairView(file: file, plan: DiffImageSource.plan(file, scope: images.scope), loader: images.loader)
+            }
+        } else if model.isLarge(file) {
             DiffPinnedWidth(offset: offset, width: viewportWidth) {
                 VStack(spacing: 10) {
                     Text(String(localized: "Large diff (\(file.lineCount) lines) is hidden"))

@@ -125,4 +125,4 @@ owner-handoff (written up for the owning agent).
 | I4 | Diff: show "Diff truncated on the Mac" note and a per-file "Open on Mac" fallback (O6). | A cut diff currently looks complete. | S |
 | I5 | Composer: send without Return (long-press the send arrow), for building a command over several sends. | Terminal users stage commands; chat apps don't need it. | S |
 | I6 | Reconnect: show the last known screen of each terminal while reconnecting, read-only, with the status capsule (cached tree already shows). | ChatGPT/Claude keep the transcript visible offline. | M |
-| I7 | Diff: preview added or changed images (old/new side by side, like GitHub) instead of "Binary file not shown". | Agents add screenshots and assets. | M |
+| I7 | Diff: preview added or changed images (old/new side by side, like GitHub) instead of "Binary file not shown". Done in qa5: Before/After cards via `git.show`. | Agents add screenshots and assets. | done |

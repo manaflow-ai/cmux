@@ -39,6 +39,8 @@ iPhone app ──HostLink(WebRTC DC)──> host bridge (Mac) ──unix socket�
     `fs.read {path, offset?, length?}` (base64 `data`, `size`, `mime`),
     `git.status {cwd}`, `git.diff {cwd, path?, staged?, base?}` (unified diff
     text plus per-file stats), `git.log {cwd, limit}`,
+    `git.show {cwd, path, rev?}` (base64 bytes of a repository file at `rev`,
+    or in the index without one; 16 MB cap; the old side of image diffs),
     `upload.put {name, data_b64, dir?}` (returns host path; chunked with
     `upload.begin/chunk/end` above 512 KiB), `session.refs {surface_id}`,
     `feed.list {limit}`, `feed.subscribe`, `feed.reply {item_id, text}`,

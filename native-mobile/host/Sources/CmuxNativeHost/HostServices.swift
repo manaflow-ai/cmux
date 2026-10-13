@@ -103,6 +103,8 @@ public struct HostServices: Sendable {
             return try JSONValue(encoding: await git.diff(params(request, GitDiffParams.self)))
         case .gitLog:
             return try JSONValue(encoding: await git.log(params(request, GitLogParams.self)))
+        case .gitShow:
+            return try JSONValue(encoding: await git.show(params(request, GitShowParams.self)))
         case .uploadPut:
             return try JSONValue(encoding: await uploads.put(params(request, UploadPutParams.self)))
         case .uploadBegin:

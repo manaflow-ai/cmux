@@ -1,7 +1,7 @@
 import Foundation
 import CmuxNativeWire
 
-/// `git.status`, `git.diff`, `git.log` via `/usr/bin/git -C <cwd>`.
+/// `git.status`, `git.diff`, `git.log`, `git.show` via `/usr/bin/git -C <cwd>`.
 public struct GitService: Sendable {
     public static let maximumDiffBytes = 4 << 20
     public static let maximumUntrackedFiles = 200
@@ -12,6 +12,11 @@ public struct GitService: Sendable {
         "GIT_PAGER": "cat", "PAGER": "cat", "GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0",
         "LC_ALL": "C", "GIT_EXTERNAL_DIFF": "",
     ], maximumOutputBytes: GitService.maximumDiffBytes)
+
+    public static let maximumShowBytes = 16 << 20
+    let blobRunner = ProcessRunner(extraEnvironment: [
+        "GIT_PAGER": "cat", "PAGER": "cat", "GIT_TERMINAL_PROMPT": "0", "GIT_OPTIONAL_LOCKS": "0", "LC_ALL": "C",
+    ], maximumOutputBytes: GitService.maximumShowBytes + 1)
 
     public init(guardrail: PathGuard, git: String = "/usr/bin/git") {
         self.guardrail = guardrail
@@ -167,6 +172,33 @@ public struct GitService: Sendable {
             truncated = true
         }
         return GitDiffResult(diff: diffText, files: files, truncated: truncated)
+    }
+
+    // MARK: show
+
+    /// `git cat-file blob <rev>:<path>` (`:<path>` for the index). The rev
+    /// is a plain ref or sha, never an option; the path stays inside the
+    /// repository tree because git resolves it against `<rev>`'s tree.
+    public func show(_ params: GitShowParams) async throws -> GitShowResult {
+        let cwd = try checkedCwd(params.cwd)
+        let path = params.path
+        guard !path.isEmpty, !path.hasPrefix("/"), !path.contains("\0"),
+              !path.split(separator: "/").contains("..") else { throw ServiceError.badRequest("bad path") }
+        var spec = ":" + path
+        if let rev = params.rev {
+            let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./~^@{}-")
+            guard !rev.isEmpty, !rev.hasPrefix("-"), rev.unicodeScalars.allSatisfy(allowed.contains) else {
+                throw ServiceError.badRequest("bad rev")
+            }
+            spec = rev + spec
+        }
+        let top = try await root(cwd)
+        let output = try await blobRunner.run(git, ["-C", top, "--no-pager", "cat-file", "blob", spec])
+        guard output.status == 0 else { throw ServiceError.notFound("\(spec) not in the repository") }
+        guard !output.truncated, output.stdout.count <= Self.maximumShowBytes else {
+            throw ServiceError(code: "too_large", message: "\(path) is over \(Self.maximumShowBytes >> 20) MB")
+        }
+        return GitShowResult(data: output.stdout.base64EncodedString(), size: output.stdout.count)
     }
 
     static func mergeStats(numstat: Data, nameStatus: Data) -> [GitDiffFile] {
