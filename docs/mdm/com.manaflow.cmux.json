@@ -1117,6 +1117,29 @@
       "title" : "Show Bookmarks Bar",
       "type" : "boolean"
     },
+    "browser.toolbarButtons" : {
+      "default" : [
+        "media",
+        "zoom",
+        "downloads"
+      ],
+      "description" : "Buttons shown next to the address bar. The rest are in the More menu, where Show in Toolbar pins them back.",
+      "items" : {
+        "enum" : [
+          "media",
+          "zoom",
+          "favorites",
+          "downloads",
+          "designMode",
+          "profile",
+          "theme",
+          "devTools"
+        ],
+        "type" : "string"
+      },
+      "title" : "Toolbar Buttons",
+      "type" : "array"
+    },
     "browser.urlsToAlwaysOpenExternally" : {
       "default" : [
 
@@ -2582,7 +2605,7 @@
       "type" : "boolean"
     },
     "status.inferCommandBusy" : {
-      "default" : true,
+      "default" : false,
       "description" : "A shell command that runs a while shows as busy.",
       "title" : "Show Running Commands",
       "type" : "boolean"
@@ -2707,6 +2730,25 @@
       ],
       "title" : "Tab Bar in Terminal Panes",
       "type" : "string"
+    },
+    "tabs.toolbarButtons" : {
+      "default" : [
+
+      ],
+      "description" : "Actions shown as buttons next to the tab bar's More button. The rest are in the More menu, where Show in Tab Bar pins them back.",
+      "items" : {
+        "enum" : [
+          "splitRight",
+          "splitDown",
+          "openDiffViewer",
+          "file.open",
+          "agentPane.searchChats",
+          "toggleSplitZoom"
+        ],
+        "type" : "string"
+      },
+      "title" : "Tab Bar Buttons",
+      "type" : "array"
     },
     "tasks.layout" : {
       "default" : "inbox",

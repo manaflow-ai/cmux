@@ -92,6 +92,9 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case cloudMachine
     /// An SSH machine's sidebar section header.
     case sshMachine
+    /// What every machine's sidebar section header offers (its icon), shown
+    /// after that header's own menu (an SSH or Cloud machine's, else the sidebar's).
+    case machineSection
     /// A tab strip's new tab (+) button: which kind of tab to open.
     case newTab
     /// A room dot in the sidebar.
@@ -132,7 +135,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
         case .sidebarBackground, .sidebarFooter: nil
-        case .cloudMachine, .sshMachine: .machine
+        case .cloudMachine, .sshMachine, .machineSection: .machine
         case .profile: .profile
         case .browserProfile: .browserProfile
         case .bookmark: .bookmark
