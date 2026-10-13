@@ -166,7 +166,9 @@ public final class CloudMachineCreateCoordinator {
             if operation.request.retainsPendingProjection {
                 // Keep the inline failure. The retained receipt makes retry an open, never a create.
                 projection.operations[index].phase = .failed(output: completion.failureOutput)
-                projection.operations[index].refusalCode = completion.refusalCode
+                // The machine exists and a retry only opens it, so a create
+                // refusal's actions (pause, upgrade) do not apply to this row.
+                projection.operations[index].refusalCode = nil
             } else {
                 projection.operations.remove(at: index)
             }
