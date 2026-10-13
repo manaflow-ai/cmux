@@ -132,6 +132,16 @@ public nonisolated struct AgentHome: Sendable, Equatable {
         return trashed
     }
 
+    /// ``standard``'s ``emptyTrashPending(using:)`` with `FileManager.trashItem`, off the main
+    /// thread (at launch and after each closed-history delete).
+    public static func emptyStandardTrashPendingInBackground() {
+        guard let home = standard else { return }
+        // task-owner: one sweep of the trash-pending folder; nothing waits for it
+        Task.detached(priority: .utility) {
+            home.emptyTrashPending { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+        }
+    }
+
     /// Whether `path` is a folder itself (lstat: a symlink is not), owned by this user.
     static func isRealFolder(_ path: String) -> Bool {
         var info = stat()

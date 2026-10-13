@@ -174,7 +174,7 @@ enum DaemonClosedHistory {
             await daemon.store.applied(through: await connection.eventSequence())
             if item.kind == .workspace {
                 if let id = reopened.workspaceID,
-                   let workspace = await workspaceAfterReopen(id, in: daemon.store, clock: daemon.reopenClock) {
+                   let workspace = await daemon.store.workspace(afterReopen: id, clock: daemon.reopenClock) {
                     services.windows.reveal(workspaceID: workspace)
                     return nil
                 } else {
@@ -200,13 +200,7 @@ enum DaemonClosedHistory {
     /// Sends the agent-home folders of deleted closed workspaces (the
     /// daemon moved them to `.trash-pending`, cx-gzh.9.2) to the Trash, off
     /// the main thread. At launch and after each delete or clear.
-    static func emptyAgentHomeTrash() {
-        guard let home = AgentHome.standard else { return }
-        // task-owner: one sweep of the trash-pending folder; nothing waits for it
-        Task.detached(priority: .utility) {
-            home.emptyTrashPending { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
-        }
-    }
+    static func emptyAgentHomeTrash() { AgentHome.emptyStandardTrashPendingInBackground() }
 
     /// Deletes `entry` for good on its daemon (History's Remove, Search
     /// Tabs' forget): it cannot be reopened any more.
