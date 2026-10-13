@@ -145,3 +145,40 @@ import Testing
         #expect(byClass.count > 1)
     }
 }
+
+/// A row's cell must be dequeued again with the class it came from while
+/// UIKit holds it: reconfiguring with another raises
+/// NSInternalInconsistencyException ("Attempted to dequeue a cell for a
+/// different registration or reuse identifier than the existing cell when
+/// reconfiguring an item"), seen in a live conversation (iOS 27.0 sim).
+@Suite struct ConversationReuseRegistryTests {
+    /// A cell that scrolled away still shows a row that got a second cell;
+    /// reusing the first cell for another row must not forget the class
+    /// the second one came from.
+    @Test func aStaleCellMovingOnKeepsTheRowsCurrentClass() {
+        var registry = ConversationReuseRegistry<Int>()
+        registry.dequeued(1, forRow: "x", reuseClass: 6, previousRowID: nil)
+        // x is prefetched again into a second cell, with x's class.
+        let again = registry.reuseClass(forRow: "x") ?? 4
+        registry.dequeued(2, forRow: "x", reuseClass: again, previousRowID: nil)
+        // The first cell, still showing x, is reused for y.
+        registry.dequeued(1, forRow: "y", reuseClass: 4, previousRowID: "x")
+        // x grew or shrank; its cell (2) must still come from class 6.
+        #expect(registry.reuseClass(forRow: "x") == 6)
+        #expect(registry.reuseClass(forRow: "y") == 4)
+    }
+
+    @Test func theCellThatLastShowedARowFreesIt() {
+        var registry = ConversationReuseRegistry<Int>()
+        registry.dequeued(1, forRow: "x", reuseClass: 6, previousRowID: nil)
+        registry.dequeued(1, forRow: "y", reuseClass: 4, previousRowID: "x")
+        #expect(registry.reuseClass(forRow: "x") == nil)
+        registry.dequeued(1, forRow: "y", reuseClass: 4, previousRowID: "y")
+        #expect(registry.reuseClass(forRow: "y") == 4)
+        registry.forget(rowID: "y")
+        #expect(registry.reuseClass(forRow: "y") == nil)
+        registry.dequeued(3, forRow: "z", reuseClass: 2, previousRowID: nil)
+        registry.forgetAll()
+        #expect(registry.reuseClass(forRow: "z") == nil)
+    }
+}

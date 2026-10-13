@@ -40,3 +40,45 @@ public enum ConversationReuseClass {
         return Int((1.5 * viewportHeight / cellArea).rounded(.up)) + 1
     }
 }
+
+/// The reuse class each transcript row's cell was dequeued with, kept while
+/// UIKit may still hold that cell (on screen, prefetched, or rebound in a
+/// batch update): reconfiguring an item must dequeue with the identifier
+/// its existing cell came from, or UIKit raises. A row can have more than
+/// one cell at once (a cell that scrolled away still showing it while a
+/// fresh one is prefetched for it), so a row is forgotten only when the
+/// cell that last dequeued for it moves to another row.
+public struct ConversationReuseRegistry<Cell: Hashable> {
+    private var classes: [String: Int] = [:]
+    private var owners: [String: Cell] = [:]
+
+    public init() {}
+
+    /// The class `rowID`'s cell must be dequeued with, or nil when any will do.
+    public func reuseClass(forRow rowID: String) -> Int? {
+        classes[rowID]
+    }
+
+    /// `cell` was dequeued with `reuseClass` for `rowID`; it showed
+    /// `previousRowID` before (nil when fresh).
+    public mutating func dequeued(_ cell: Cell, forRow rowID: String, reuseClass: Int, previousRowID: String?) {
+        if let previousRowID, previousRowID != rowID {
+            classes[previousRowID] = nil
+            owners[previousRowID] = nil
+        }
+        classes[rowID] = reuseClass
+        owners[rowID] = cell
+    }
+
+    /// UIKit let go of `rowID`'s cells (the row was deleted).
+    public mutating func forget(rowID: String) {
+        classes[rowID] = nil
+        owners[rowID] = nil
+    }
+
+    /// After a reload UIKit holds no cell for any row.
+    public mutating func forgetAll() {
+        classes.removeAll()
+        owners.removeAll()
+    }
+}
