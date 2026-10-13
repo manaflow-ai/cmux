@@ -21,7 +21,7 @@ final class DisplayLinkDriver {
     func attach(to view: NSView) {
         detach()
         client = FrameClient(owner: "Layout.animation", view: view) { [weak self] tick in
-            let keepGoing = self?.onFrame?(tick.elapsed) ?? false
+            let keepGoing = MotionTrace.measure("layout") { self?.onFrame?(tick.elapsed) ?? false }
             if !keepGoing { MotionTrace.end("layout") }
             return keepGoing
         }
