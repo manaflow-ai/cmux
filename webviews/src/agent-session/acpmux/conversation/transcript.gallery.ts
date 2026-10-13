@@ -413,25 +413,6 @@ export default agentPaneEntry({
       snapshot: forkTurns("codex"),
       play: forkEarlierTurn,
     },
-    "side-chat-from-earlier-turn": {
-      note: "Play: right-clicking an earlier turn's reply reports its fork point and that the chat opens a side chat there (cx-a7r), for the native menu's Open in Side Chat.",
-      snapshot: forkTurns("claude"),
-      play: async (ctx) => {
-        await ctx.focus({ selector: "[contenteditable='true']" });
-        await ctx.waitFor(() => reportOnFirstReply(ctx)?.forkSeq === 3);
-        await ctx.waitFor(() => reportOnFirstReply(ctx)?.sideChat === true);
-      },
-    },
-    "side-chat-not-in-quick-chat": {
-      note: "Play: in Quick Chat (no split beside its panel) an earlier turn's reply still forks but reports no side chat.",
-      snapshot: forkTurns("claude"),
-      ready: { surface: "quick" },
-      play: async (ctx) => {
-        await ctx.focus({ selector: "[contenteditable='true']" });
-        await ctx.waitFor(() => reportOnFirstReply(ctx)?.forkSeq === 3);
-        if (reportOnFirstReply(ctx)?.sideChat) throw new Error("Quick Chat reported a side chat");
-      },
-    },
     "fork-latest-turn-only": {
       note: "Play: another agent forks only at a chat's end, so only the latest turn offers Fork.",
       snapshot: forkTurns(undefined),
@@ -1073,18 +1054,6 @@ export default agentPaneEntry({
 });
 
 /// Two completed turns of a chat whose agent family is `family` (cx-yqiv).
-/// Right-clicks the first turn's reply and returns what the page reported to the native menu.
-function reportOnFirstReply(ctx: PlayContext): { forkSeq?: number; sideChat?: boolean } | undefined {
-  const page = ctx.document.defaultView as unknown as {
-    cmuxGalleryLog: { method: string; params?: { forkSeq?: number; sideChat?: boolean } }[];
-  };
-  const reply = [...ctx.document.querySelectorAll<HTMLElement>("[data-row-id]")]
-    .filter((row) => row.textContent?.includes("three tries, doubling"))
-    .at(-1);
-  reply?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
-  return page.cmuxGalleryLog.filter(({ method }) => method === "contextMenu.report").at(-1)?.params;
-}
-
 /// Both turns offer Fork, and the earlier one's forks through that turn's summary (seq 3).
 async function forkEarlierTurn(ctx: PlayContext) {
   const page = ctx.document.defaultView as unknown as {

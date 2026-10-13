@@ -79,16 +79,6 @@ await requireBrowserLane("turn-fork.test.ts", async () => {
     expect(playFailures(result.report)).toEqual([]);
   });
 
-  test("Right-clicking an earlier turn offers a side chat through it", async () => {
-    const result = await play("side-chat-from-earlier-turn");
-    expect(playFailures(result.report)).toEqual([]);
-  });
-
-  test("Quick Chat offers no side chat on an earlier turn", async () => {
-    const result = await play("side-chat-not-in-quick-chat");
-    expect(playFailures(result.report)).toEqual([]);
-  });
-
   test("Another agent offers Fork only under its latest turn", async () => {
     const result = await play("fork-latest-turn-only");
     expect(playFailures(result.report)).toEqual([]);

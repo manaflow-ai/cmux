@@ -65,8 +65,6 @@ export async function mountAgentPane(state: AgentPaneVariant, context: StageCont
   };
   (window as unknown as { webkit: unknown }).webkit = {
     messageHandlers: {
-      // The page's right-click report (conversation/messageMenu.ts), logged as the native menu reads it.
-      cmuxAgentContextMenu: { postMessage: (report: unknown) => context.log("contextMenu.report", report) },
       agentSession: {
         postMessage: (message: Message) => {
           const reply = handle(message);
