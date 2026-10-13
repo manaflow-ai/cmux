@@ -360,7 +360,8 @@ RUN sh -n /etc/cmux/agent-auth.sh && mkdir -p /usr/local/libexec \
        && chmod 755 /etc/cmux/$a && ln -s /etc/cmux/$a /usr/local/bin/$a \
        && ln -sfn /etc/cmux/$a /opt/mise/shims/$a \
        && /usr/local/bin/$a --version >/dev/null || exit 1; \
-     done
+     done \
+  && for a in claude codex opencode; do test "$(readlink -f "$(command -v $a)")" = /etc/cmux/$a || exit 1; done
 RUN bash -n /etc/cmux/agent-config.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' > /etc/profile.d/cmux-agents.sh \
   && echo '[ -f /etc/cmux/agent-config.sh ] && . /etc/cmux/agent-config.sh' >> /etc/bash.bashrc \

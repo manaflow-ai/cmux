@@ -96,6 +96,9 @@ cmux_agent_team_access() {
       *[!0-9\ ]*|'') cmux_aa_line="" ;;
       *)
         cmux_aa_at=${cmux_aa_line%% *}
+        # A corrupt epoch longer than any real one would overflow dash's
+        # arithmetic; treat it as no answer.
+        case "$cmux_aa_at" in ?????????????*) cmux_aa_at=0 ;; esac
         if [ "$cmux_aa_now" -lt "$cmux_aa_at" ] || [ $((cmux_aa_now - cmux_aa_at)) -ge 60 ]; then cmux_aa_line=""; fi
         ;;
     esac
@@ -214,13 +217,23 @@ cmux_codex_apply_auth_mode() {
   fi
 }
 
-# opencode: team mode layers the CodeRouter providers on the user's own
-# configuration for this launch (the launcher sets OPENCODE_CONFIG); own mode
-# adds nothing and drops the model-plane env, because opencode sends a key
-# from `opencode auth login` to whatever OPENAI_BASE_URL/ANTHROPIC_BASE_URL
-# name.
+# opencode sends a key from `opencode auth login` to whatever
+# OPENAI_BASE_URL/ANTHROPIC_BASE_URL name. Team mode layers the CodeRouter
+# providers on the user's own configuration for this launch (the launcher
+# sets OPENCODE_CONFIG); each carries its own CodeRouter baseURL, so the
+# model-plane endpoints are dropped there too and an own provider still
+# reaches its own service. Only OPENAI_API_KEY stays: the team providers read
+# the placeholder from it. Own mode adds nothing and drops the whole plane.
 cmux_opencode_apply_auth_mode() {
   cmux_agent_auth_resolve opencode
-  [ "$cmux_agent_auth_mode" = own ] || return 0
+  if [ "$cmux_agent_auth_mode" = team ]; then
+    cmux_ao_key=${OPENAI_API_KEY-}
+    cmux_agent_drop_model_plane_env
+    if [ "$cmux_ao_key" = "$cmux_aa_placeholder" ]; then
+      OPENAI_API_KEY=$cmux_ao_key
+      export OPENAI_API_KEY
+    fi
+    return 0
+  fi
   cmux_agent_drop_model_plane_env
 }

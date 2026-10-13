@@ -2,10 +2,13 @@ import { coderouterControlRoute, spanned } from "@/services/coderouter/requestTe
 // Which coding agents the caller's team can run through CodeRouter: the
 // question a Cloud machine asks before it chooses, per launch, between the
 // team's accounts and the user's own sign-in (images/devbox/agent-auth.sh).
-// Each answer mirrors the proxy that would serve the agent, so `false` is
-// exactly the case where that proxy refuses with "no account". Booleans only:
-// no account names, counts, or identifiers.
-import { listClaudeAccounts } from "../../../../services/coderouter/claudeUpstream";
+// `false` means the team has no account the agent could use: for Codex and
+// OpenCode exactly the case where their proxy refuses with "no account"; for
+// Claude Code also a team whose accounts are all disabled, which the Claude
+// proxy would only ever answer with a retryable "exhausted". Booleans only:
+// no account names or counts. Every Cloud machine asks about once a minute
+// before a launch, so each answer is a metadata read (nothing is decrypted).
+import { hasActiveClaudeAccount } from "../../../../services/coderouter/claudeUpstream";
 import { hasConfiguredAccount } from "../../../../services/coderouter/repository";
 import { RESPONSES_PROVIDERS } from "../../../../services/coderouter/types";
 import { resolveCoderouterUsageTeam } from "../../../../services/coderouter/requestContext";
@@ -13,13 +16,13 @@ import { reportCoderouterFailure } from "../../../../services/coderouter/observa
 
 export type AgentAccessDependencies = {
   readonly resolveUsageTeam: typeof resolveCoderouterUsageTeam;
-  readonly listClaude: typeof listClaudeAccounts;
+  readonly hasActiveClaude: typeof hasActiveClaudeAccount;
   readonly hasConfigured: typeof hasConfiguredAccount;
 };
 
 const defaultDependencies: AgentAccessDependencies = {
   resolveUsageTeam: resolveCoderouterUsageTeam,
-  listClaude: listClaudeAccounts,
+  hasActiveClaude: hasActiveClaudeAccount,
   hasConfigured: hasConfiguredAccount,
 };
 
@@ -31,7 +34,7 @@ export function makeAgentAccessHandler(dependencies: AgentAccessDependencies = d
     try {
       const [claude, codex, opencode] = await spanned("rds", () => Promise.all([
         // The Claude proxy serves only active accounts.
-        dependencies.listClaude(teamId, access).then((accounts) => accounts.some((account) => account.state === "active")),
+        dependencies.hasActiveClaude(teamId, access),
         // The Codex and OpenCode proxies refuse only when no account of their
         // family exists (codexProxy teamHasCodexAccount, opencodeProxy
         // noUsableOpenCodeAccount).

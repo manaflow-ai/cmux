@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -27,6 +27,9 @@ const NONE = access(false, false, false);
 const OPENCODE_CATALOG = JSON.stringify({
   provider: { go: { options: { baseURL: `${ORIGIN}/api/coderouter/opencode/proxy/go`, apiKey: PLACEHOLDER } } },
 });
+
+// Each test starts several real shells and launchers.
+setDefaultTimeout(30_000);
 
 const roots: string[] = [];
 afterEach(() => {
@@ -136,6 +139,13 @@ function signIn(m: Machine, agent: Agent = "claude"): void {
   const [file, content] = files[agent];
   mkdirSync(path.dirname(path.join(m.home, file)), { recursive: true });
   writeFileSync(path.join(m.home, file), JSON.stringify(content));
+}
+
+/** agent-config.sh with its launcher directory pointed at this machine's launchers. */
+function routedAgentConfig(m: Machine): string {
+  const file = path.join(m.root, "agent-config.sh");
+  writeFileSync(file, readFileSync(path.join(templateDir, "agent-config.sh"), "utf8").replaceAll('"/etc/cmux/$cmux_ar_agent"', `"${m.root}/$cmux_ar_agent"`));
+  return file;
 }
 
 /** The codex config agent-config.sh generates: CodeRouter as the provider. */
@@ -315,7 +325,19 @@ describe("OpenCode sign-in precedence", () => {
     expect(env.OPENCODE_CONFIG).toBe(team);
     expect(JSON.parse(readFileSync(team, "utf8")).provider.go.options.apiKey).toBe("{env:OPENAI_API_KEY}");
     expect(existsSync(path.join(m.home, ".config/opencode/opencode.json"))).toBe(false);
+    // The team providers read the placeholder from OPENAI_API_KEY and carry
+    // their own CodeRouter baseURL; the shell's CodeRouter endpoints are
+    // dropped so an `opencode auth login` provider still reaches its own service.
     expect(env.OPENAI_API_KEY).toBe(PLACEHOLDER);
+    expect(env.OPENAI_BASE_URL).toBe("<unset>");
+    expect(env.ANTHROPIC_BASE_URL).toBe("<unset>");
+  });
+
+  test("a user's own OpenAI endpoint survives team mode", async () => {
+    const m = machine();
+    choose(m, "team", "opencode");
+    const env = await launch(m, "opencode", {}, "export OPENAI_BASE_URL=https://api.example.test/v1;");
+    expect(env.OPENAI_BASE_URL).toBe("https://api.example.test/v1");
   });
 
   test("own mode adds no providers and drops every CodeRouter endpoint, so own keys never reach it", async () => {
@@ -436,20 +458,50 @@ describe("the default for every agent", () => {
     for (const agent of AGENTS) choose(m, "own", agent);
     const nvm = path.join(m.root, "nvm-bin");
     mkdirSync(nvm);
-    let config = readFileSync(path.join(templateDir, "agent-config.sh"), "utf8");
     for (const agent of AGENTS) {
       writeFileSync(path.join(nvm, agent), "#!/bin/sh\necho bypassed-the-launcher\n");
       chmodSync(path.join(nvm, agent), 0o755);
-      config = config.replaceAll(`/etc/cmux/${agent}`, m.launchers[agent]);
     }
-    writeFileSync(path.join(m.root, "agent-config.sh"), config);
+    const config = routedAgentConfig(m);
     for (const agent of AGENTS) {
-      const result = await runChild("/bin/bash", ["-c", `. ${path.join(m.root, "agent-config.sh")}; ${agent} --resume x`], {
+      const result = await runChild("/bin/bash", ["-c", `. ${config}; ${agent} --resume x`], {
         env: { ...bootEnv(m), PATH: `${nvm}:${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}` },
       });
       expect(result.stdout).not.toContain("bypassed");
       expect(parse(result.stdout).OPENAI_API_KEY).toBe("<unset>");
     }
+  });
+
+  test("a cmux-tui agent shim first on PATH keeps its place in front of the launcher", async () => {
+    // The shim adds the pane's hook context, then finds the launcher further
+    // down PATH; the shell function must not jump past it.
+    const m = machine();
+    cmuxCodexConfig(m);
+    for (const agent of AGENTS) choose(m, "own", agent);
+    const shims = path.join(m.root, "shims");
+    const later = path.join(m.root, "later-bin");
+    mkdirSync(shims);
+    mkdirSync(later);
+    for (const agent of ["claude", "codex"] as const) {
+      writeFileSync(path.join(shims, agent), `#!/bin/sh\n# cmux-tui-${agent}-shim\necho via-the-shim\nexec ${m.launchers[agent]} "$@"\n`);
+      chmodSync(path.join(shims, agent), 0o755);
+    }
+    const config = routedAgentConfig(m);
+    for (const agent of ["claude", "codex"] as const) {
+      const result = await runChild("/bin/bash", ["-c", `. ${config}; ${agent} --resume x`], {
+        env: { ...bootEnv(m), PATH: `${shims}:${later}:${m.bin}:${process.env.PATH ?? "/usr/bin:/bin"}` },
+      });
+      expect(result.stdout.split("\n")[0]).toBe("via-the-shim");
+      expect(parse(result.stdout.split("\n").slice(1).join("\n")).args).toContain("--resume x");
+    }
+  });
+
+  test("codex --version from a shell needs no trust entry and no account check", async () => {
+    const m = machine();
+    const config = routedAgentConfig(m);
+    const result = await runChild("/bin/bash", ["-c", `. ${config}; codex --version`], { env: bootEnv(m, { FAKE_ACCESS: ALL }) });
+    expect(parse(result.stdout).args).toBe("--version");
+    expect(existsSync(m.calls)).toBe(false);
   });
 
   test("--version and --help skip the mode resolution", async () => {

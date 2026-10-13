@@ -277,29 +277,38 @@ with (state / "opencode-config.lock").open("a") as lock:
 CMUX_OPENCODE_CONFIG
 }
 
-# opencode sign-in mode: every launch goes through the launcher, which owns
-# the team configuration and the own-login path, whatever PATH order a shell
-# has (the base's login PATH puts nvm's bin first). The installed launcher
-# also covers exec/direct agent launches.
-opencode() {
-  if [ -x /etc/cmux/opencode ]; then
-    /etc/cmux/opencode "$@"
+# Agent sign-in modes: every claude, codex, and opencode launch from a shell
+# goes through its launcher (/etc/cmux/<agent>, which picks team or own login
+# per launch), whatever PATH order the shell has; the base's login PATH puts
+# nvm's bin first, and the bake points nvm's entries at the launchers for
+# direct execs. PATH wins when it already leads to the launcher or to a
+# cmux-tui agent shim: the shim adds the pane's hook context, then finds the
+# launcher further down PATH itself.
+cmux_agent_run() {
+  cmux_ar_agent=$1
+  shift
+  cmux_ar_path=$(
+    IFS=:
+    for cmux_ar_dir in $PATH; do
+      if [ -x "${cmux_ar_dir:-.}/$cmux_ar_agent" ] && [ ! -d "${cmux_ar_dir:-.}/$cmux_ar_agent" ]; then
+        printf '%s' "${cmux_ar_dir:-.}/$cmux_ar_agent"
+        break
+      fi
+    done
+  )
+  if [ -n "$cmux_ar_path" ] && { [ "$(readlink -f "$cmux_ar_path" 2>/dev/null)" = "/etc/cmux/$cmux_ar_agent" ] \
+    || grep -q "# cmux-tui-$cmux_ar_agent-shim" "$cmux_ar_path" 2>/dev/null; }; then
+    command "$cmux_ar_agent" "$@"
+  elif [ -x "/etc/cmux/$cmux_ar_agent" ]; then
+    "/etc/cmux/$cmux_ar_agent" "$@"
   else
-    command opencode "$@"
+    command "$cmux_ar_agent" "$@"
   fi
 }
 
-# claude sign-in mode: every launch goes through the launcher, whatever PATH
-# order a shell has (the base's login PATH puts nvm's bin first, ahead of
-# /usr/local/bin/claude). The bake also points nvm's entry at the launcher,
-# for direct execs; this covers shells on any toolchain layout.
-claude() {
-  if [ -x /etc/cmux/claude ]; then
-    /etc/cmux/claude "$@"
-  else
-    command claude "$@"
-  fi
-}
+opencode() { cmux_agent_run opencode "$@"; }
+
+claude() { cmux_agent_run claude "$@"; }
 
 # claude folder-trust gate: claude's trust check short-circuits on
 # CLAUDE_CODE_SANDBOXED (the escape its own self-hosted runner provisioning
@@ -336,6 +345,11 @@ export DISABLE_AUTOUPDATER=1
 # skipped; codex then prompts, which beats failing its config parse.
 codex() {
   local sub main d entries
+  # --version/--help need no trust entry, and the launcher answers them
+  # without resolving the sign-in mode.
+  if [ "$#" -eq 1 ]; then
+    case "$1" in --version|-V|--help|-h) cmux_agent_run codex "$@"; return $? ;; esac
+  fi
   sub=$(git rev-parse --show-toplevel 2>/dev/null) || sub=$PWD
   main=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || main=""
   case $main in */.git) main=${main%/.git} ;; *) main="" ;; esac
@@ -346,13 +360,7 @@ codex() {
     entries="${entries:+$entries, }\"$d\" = { trust_level = \"trusted\" }"
   done
   if [ -n "$entries" ]; then set -- -c "projects={ $entries }" "$@"; fi
-  # Through the sign-in launcher (/etc/cmux/codex) whatever PATH order a
-  # shell has; it picks the team or own-login provider per launch.
-  if [ -x /etc/cmux/codex ]; then
-    /etc/cmux/codex "$@"
-  else
-    command codex "$@"
-  fi
+  cmux_agent_run codex "$@"
 }
 
 # usage attribution: cmux-tui exports CMUX_WORKSPACE_ID and CMUX_SURFACE_ID
