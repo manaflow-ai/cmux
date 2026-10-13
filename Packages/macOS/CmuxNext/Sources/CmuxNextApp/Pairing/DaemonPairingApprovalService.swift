@@ -36,7 +36,7 @@ final class DaemonPairingApprovalService {
 
     private func handle(_ event: DaemonEvent) {
         guard case .unknown(let name, let payload) = event,
-              let request = payload["request"]?.doubleValue.flatMap({ UInt64(exactly: $0) }) else { return }
+              let request = payload["request_id"]?.stringValue.flatMap({ UInt64($0) }) else { return }
         switch name {
         case "pairing-requested":
             guard dialogs[request] == nil, let code = payload["code"]?.stringValue else { return }

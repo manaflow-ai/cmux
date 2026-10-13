@@ -25,7 +25,7 @@ export type DaemonSource = { kind: "url"; url: string } | { kind: "host"; load()
 
 type Phase =
   | { kind: "form"; error?: string }
-  | { kind: "connecting" }
+  | { kind: "connecting"; note?: string }
   | { kind: "pairing"; code: string }
   | { kind: "ready"; daemon: DaemonSocket; generation: number; pages?: string };
 
@@ -43,7 +43,13 @@ export function DaemonGate({ source, strings, children }: {
     source.kind === "host" || sessionStorage.getItem(storageKey(url)) ? { kind: "connecting" } : { kind: "form" },
   );
   const [credential, setCredential] = useState("");
-  const live = useRef({ mounted: true, attempt: 0, generation: 0, timer: 0 as ReturnType<typeof setTimeout> | 0 });
+  const live = useRef({
+    mounted: true,
+    attempt: 0,
+    generation: 0,
+    timer: 0 as ReturnType<typeof setTimeout> | 0,
+    daemon: null as DaemonSocket | null,
+  });
 
   /** One connect: authenticate, check the capability, then keep the socket until it drops. */
   const connect = (endpoint: string, auth: DaemonAuth, remember?: string, pages?: string) => {
@@ -57,12 +63,15 @@ export function DaemonGate({ source, strings, children }: {
           daemon.close();
           throw error;
         }
-        if (!live.current.mounted) return daemon.close();
+        // Unmounted, or a newer connection already won: this one is not used.
+        if (!live.current.mounted || live.current.daemon) return daemon.close();
         if (remember) sessionStorage.setItem(storageKey(endpoint), remember);
         live.current.attempt = 0;
+        live.current.daemon = daemon;
         const generation = ++live.current.generation;
         daemon.onClose((reason) => {
           if (!live.current.mounted || live.current.generation !== generation) return;
+          live.current.daemon = null;
           if (reason === "authentication failed" && source.kind === "url") {
             sessionStorage.removeItem(storageKey(url));
             setPhase({ kind: "form", error: reason });
@@ -76,7 +85,7 @@ export function DaemonGate({ source, strings, children }: {
         if (error.code === "auth_rejected" && source.kind === "url") {
           sessionStorage.removeItem(storageKey(url));
           setPhase({ kind: "form", error: error.message });
-        } else if (error.code === "auth_rejected" || error.code === "unreachable" || source.kind === "host") retry();
+        } else if (error.code === "auth_rejected" || error.code === "unreachable" || source.kind === "host") retry(error.message);
         else setPhase({ kind: "form", error: error.message });
       });
   };
@@ -87,7 +96,8 @@ export function DaemonGate({ source, strings, children }: {
       source
         .load()
         .then((value) => connect(value.url, { token: value.token }, undefined, value.pages))
-        .catch(() => retry());
+        // The host says why it has no endpoint (an old daemon without the listener): show it.
+        .catch((error: Error) => retry(error.message));
       return;
     }
     const saved = sessionStorage.getItem(storageKey(url));
@@ -96,9 +106,9 @@ export function DaemonGate({ source, strings, children }: {
   };
 
   /** Capped exponential backoff with jitter, one attempt in flight (spec transports.md "Reconnect"). */
-  const retry = () => {
-    if (!live.current.mounted) return;
-    setPhase({ kind: "connecting" });
+  const retry = (note?: string) => {
+    if (!live.current.mounted || live.current.daemon) return;
+    setPhase({ kind: "connecting", note });
     const step = live.current.attempt++;
     const delay = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** step) * (0.5 + Math.random() / 2);
     clearTimeout(live.current.timer);
@@ -112,6 +122,8 @@ export function DaemonGate({ source, strings, children }: {
     return () => {
       live.current.mounted = false;
       clearTimeout(live.current.timer);
+      live.current.daemon?.close();
+      live.current.daemon = null;
     };
     // Runs once per endpoint.
   }, [url, source.kind]);
@@ -124,6 +136,7 @@ export function DaemonGate({ source, strings, children }: {
       {url && <p className="hc-gate-endpoint">{url}</p>}
       {phase.kind === "pairing" && <p className="hc-gate-code">{format("connect.pairingCode", phase.code)}</p>}
       {phase.kind === "connecting" && <p>{t("connect.connecting")}</p>}
+      {phase.kind === "connecting" && phase.note && <p className="hc-gate-error">{format("connect.failed", phase.note)}</p>}
       {phase.kind === "form" && (
         <form
           onSubmit={(event) => {

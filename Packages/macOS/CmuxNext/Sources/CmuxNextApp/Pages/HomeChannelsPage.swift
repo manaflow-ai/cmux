@@ -48,18 +48,26 @@ final class DaemonCredentialPageProvider: PageProvider {
             throw PageError.unavailable("the local cmux daemon is not running")
         }
         let path = endpoint.socketPath + ".websocket.json"
+        // task-owner: one small file read off the main actor per call; ends with the read.
         return try await Task.detached(priority: .userInitiated) { try Self.read(path) }.value
     }
 
+    /// The file must be this user's, mode 0600, and name a live daemon: a stale file (a killed
+    /// daemon) or one another user planted must never send the token to whatever owns that port.
     nonisolated static func read(_ path: String) throws -> JSONValue {
-        guard let data = FileManager.default.contents(atPath: path),
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        guard (attributes?[.ownerAccountID] as? NSNumber)?.uint32Value == getuid(),
+              (attributes?[.posixPermissions] as? NSNumber)?.intValue == 0o600,
+              let data = FileManager.default.contents(atPath: path),
               let file = try? JSONDecoder().decode(CredentialFile.self, from: data),
+              file.pid > 0, kill(file.pid, 0) == 0,
               file.url.hasPrefix("ws://127.0.0.1:") || file.url.hasPrefix("ws://[::1]:")
-        else { throw PageError.unavailable("the daemon has no WebSocket listener; restart cmux to open one") }
+        else { throw PageError.unavailable("This cmux daemon has no page listener. Quit cmux and its daemon, then open cmux again.") }
         return .object(["url": .string(file.url), "token": .string(file.token), "pages": .string(file.pages)])
     }
 
     private struct CredentialFile: Decodable {
+        var pid: Int32
         var url: String
         var pages: String
         var token: String

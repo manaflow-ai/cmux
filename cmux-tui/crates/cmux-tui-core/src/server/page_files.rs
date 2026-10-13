@@ -13,8 +13,10 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 
-/// Largest request head the listener reads before it decides.
-pub(super) const REQUEST_HEAD_MAX_BYTES: usize = 8 * 1024;
+/// Largest request head the listener reads before it decides. Browsers send
+/// every 127.0.0.1 cookie (cookies ignore the port), so a handshake head can
+/// be large; a bigger one gets 431.
+pub(super) const REQUEST_HEAD_MAX_BYTES: usize = 64 * 1024;
 /// Largest page file served.
 const PAGE_FILE_MAX_BYTES: u64 = 32 * 1024 * 1024;
 
@@ -46,12 +48,13 @@ impl RequestHead {
 /// parsed head; None for a closed, oversized or malformed request.
 pub(super) fn read_request_head(stream: &mut TcpStream) -> Option<(Vec<u8>, RequestHead)> {
     let mut bytes = Vec::with_capacity(1024);
-    let mut chunk = [0u8; 1024];
+    let mut chunk = [0u8; 4096];
     let end = loop {
         if let Some(end) = bytes.windows(4).position(|window| window == b"\r\n\r\n") {
             break end;
         }
         if bytes.len() >= REQUEST_HEAD_MAX_BYTES {
+            let _ = stream.write_all(&plain(431, "Request Header Fields Too Large"));
             return None;
         }
         let read = stream.read(&mut chunk).ok()?;
@@ -123,9 +126,11 @@ fn respond(
     bytes
 }
 
-/// The page policy: no network but this listener (its WebSocket by the Host
-/// the browser used, which the listener rule already checked), no frames,
-/// no plugins, nothing else than the inline bundle and its own files.
+/// The page policy: no network but this listener's WebSocket (by the Host the
+/// browser used, which the listener rule already checked), no frames, no
+/// plugins, nothing else than the bundle and its own files. Inline script
+/// stays allowed: each page is one self-contained index.html
+/// (build-pages-web.sh).
 fn page_policy(host: Option<&str>) -> String {
     let websocket = host
         .filter(|host| {
