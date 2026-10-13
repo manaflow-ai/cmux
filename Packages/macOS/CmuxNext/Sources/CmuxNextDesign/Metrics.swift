@@ -75,6 +75,14 @@ public struct Metrics {
     public static var panelInset: CGFloat { MetricTunables.panelInset.value }
     /// Gap between strip columns.
     public static var columnGap: CGFloat { MetricTunables.columnGap.value }
+    /// The column gap the column strip uses: `columnGap` for bordered and
+    /// carded panes or when the user set it (`appearance.metrics.columnGap`
+    /// or Debug Settings); 0 for the default edge-to-edge separations, whose
+    /// columns meet at one line as split panes do.
+    public static var stripColumnGap: CGFloat {
+        let set = DesignSettings.shared.overrides[.columnGap] != nil || MetricTunables.columnGap.tunable.override != nil
+        return set || paneSeparation == .borders || paneSeparation == .cards ? columnGap : 0
+    }
     /// Divider thickness between split panes (hit area is wider).
     /// A room dot at the bottom of the sidebar (drawn size; its hit target
     /// is `roomDotSlot` wide and the bar's full height).

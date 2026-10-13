@@ -18,20 +18,22 @@ public nonisolated enum PaneSeparation: String, Sendable, CaseIterable, Codable 
     case none
     /// Edge to edge with one line between neighboring panes.
     case dividers
-    /// Padded panes, each outlined by a hairline (the default).
+    /// Padded panes, each outlined by a hairline (the default outside the
+    /// curved main pane; inside it the default is `dividers`).
     case borders
     /// Padded rounded panes with gaps and no outline.
     case cards
 
     /// What `overrides` resolve to: an explicit separation, else the legacy
     /// `layout.paneBorder` (none) and padding (0 means edge to edge), else
-    /// `unset` (`Metrics.defaultPaneSeparation`).
+    /// borders when any bordered-pane key is set (padding, corner radius,
+    /// border color or width), else `unset` (`Metrics.defaultPaneSeparation`).
     public static func resolve(_ overrides: PaneChromeOverrides, unset: PaneSeparation = .borders) -> PaneSeparation {
         if let separation = overrides.separation { return separation }
         switch overrides.border {
         case .some(.none): return overrides.padding == 0 ? .dividers : .cards
         case .some(.subtle): return .borders
-        case nil: return overrides.padding == nil ? unset : .borders
+        case nil: return overrides.describesBorderedPanes ? .borders : unset
         }
     }
 
@@ -74,6 +76,12 @@ public nonisolated struct PaneChromeOverrides: Hashable, Sendable {
         self.border = border
         self.borderColor = borderColor
         self.borderWidth = borderWidth
+    }
+
+    /// A padding, corner radius, border color or border width is set: keys
+    /// that only mean something for padded, outlined panes.
+    var describesBorderedPanes: Bool {
+        padding != nil || cornerRadius != nil || borderColor != nil || borderWidth != nil
     }
 
     public static let paddingRange: ClosedRange<CGFloat> = 0...16
