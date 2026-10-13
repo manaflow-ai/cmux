@@ -617,8 +617,7 @@ impl StandbyTerminalHost {
     pub(crate) fn spawn() -> anyhow::Result<Self> {
         let start = || -> Result<Self, String> {
             let (exe, args) = terminal_host_command().map_err(|error| error.to_string())?;
-            let mut host =
-                spawn_host_process(&exe, &args).map_err(|error| error.to_string())?;
+            let mut host = spawn_host_process(&exe, &args).map_err(|error| error.to_string())?;
             let (Some(stdin), Some(stdout)) = (host.stdin.take(), host.stdout.take()) else {
                 return Err("no bootstrap pipes".into());
             };
