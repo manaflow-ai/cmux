@@ -1,5 +1,5 @@
 import type { HexclaveWebhookOutcome } from "../../db/schema";
-import type { HexclaveInboxEntry, HexclaveInboxStore } from "../../services/auth/hexclave/inbox";
+import type { DrainSlotLease, HexclaveInboxEntry, HexclaveInboxStore } from "../../services/auth/hexclave/inbox";
 import type { HexclaveMirrorStore, HexclaveUserState } from "../../services/auth/hexclave/mirrorStore";
 import type { HexclaveSyncTarget } from "../../services/auth/hexclave/sync";
 import { HexclaveApiError } from "../../services/auth/hexclave/serverApi";
@@ -228,22 +228,25 @@ type MemoryInboxRow = {
   svixId: string;
   eventType: string;
   target: HexclaveSyncTarget;
-  payload: unknown;
   receivedOrder: number;
   attempts: number;
   nextAttemptAt: Date;
   claimedUntil: Date | null;
   lastError: string | null;
+  deadLetteredAt: Date | null;
 };
 
-/** The webhook inbox in memory, with the same claim and coalescing rules as the Drizzle store. */
+/** The webhook inbox in memory, with the same claim, lease and backoff rules as the Drizzle store. */
 export class MemoryInbox implements HexclaveInboxStore {
   rows = new Map<string, MemoryInboxRow>();
-  slots = new Map<number, Date>();
+  slots = new Map<number, { leaseId: string; leasedUntil: Date }>();
+  throttledUntil = new Date(0);
+  reported = { stuck: 0, deadLettered: 0 };
   failEnqueue: Error | null = null;
   private order = 0;
+  private leases = 0;
 
-  async enqueue(input: { svixId: string; eventType: string; target: HexclaveSyncTarget; payload: unknown }): Promise<void> {
+  async enqueue(input: { svixId: string; eventType: string; target: HexclaveSyncTarget }): Promise<void> {
     if (this.failEnqueue) throw this.failEnqueue;
     if (this.rows.has(input.svixId)) return;
     this.rows.set(input.svixId, {
@@ -253,27 +256,35 @@ export class MemoryInbox implements HexclaveInboxStore {
       nextAttemptAt: new Date(0),
       claimedUntil: null,
       lastError: null,
+      deadLetteredAt: null,
     });
   }
 
-  async claimDrainSlot(now: Date, leaseUntil: Date, slots: number): Promise<number | null> {
+  async claimDrainSlot(now: Date, leaseUntil: Date, slots: number): Promise<DrainSlotLease | null> {
+    if (this.throttledUntil > now) return null;
     for (let slot = 0; slot < slots; slot++) {
       const held = this.slots.get(slot);
-      if (!held || held <= now) {
-        this.slots.set(slot, leaseUntil);
-        return slot;
+      if (!held || held.leasedUntil <= now) {
+        const leaseId = `lease-${++this.leases}`;
+        this.slots.set(slot, { leaseId, leasedUntil: leaseUntil });
+        return { slot, leaseId };
       }
     }
     return null;
   }
 
-  async releaseDrainSlot(slot: number): Promise<void> {
-    this.slots.set(slot, new Date(0));
+  async releaseDrainSlot(lease: DrainSlotLease): Promise<void> {
+    const held = this.slots.get(lease.slot);
+    if (held?.leaseId === lease.leaseId) this.slots.set(lease.slot, { leaseId: held.leaseId, leasedUntil: new Date(0) });
+  }
+
+  async throttleUntil(until: Date): Promise<void> {
+    if (until > this.throttledUntil) this.throttledUntil = until;
   }
 
   async claimDue(now: Date, entityLimit: number, leaseUntil: Date): Promise<HexclaveInboxEntry[]> {
     const due = [...this.rows.values()]
-      .filter((row) => row.nextAttemptAt <= now && (!row.claimedUntil || row.claimedUntil <= now))
+      .filter((row) => !row.deadLetteredAt && row.nextAttemptAt <= now && (!row.claimedUntil || row.claimedUntil <= now))
       .sort((a, b) => a.receivedOrder - b.receivedOrder);
     const entities: string[] = [];
     for (const row of due) {
@@ -291,7 +302,7 @@ export class MemoryInbox implements HexclaveInboxStore {
     for (const id of svixIds) this.rows.delete(id);
   }
 
-  async retryLater(svixIds: readonly string[], input: { nextAttemptAt: Date; error: string }): Promise<void> {
+  async recordFailure(svixIds: readonly string[], input: { now: Date; nextAttemptAt: Date; error: string; maxAttempts: number }): Promise<void> {
     for (const id of svixIds) {
       const row = this.rows.get(id);
       if (!row) continue;
@@ -299,10 +310,44 @@ export class MemoryInbox implements HexclaveInboxStore {
       row.nextAttemptAt = input.nextAttemptAt;
       row.claimedUntil = null;
       row.lastError = input.error;
+      row.deadLetteredAt = row.attempts >= input.maxAttempts ? input.now : null;
     }
   }
 
-  async countStuck(attempts: number): Promise<number> {
-    return [...this.rows.values()].filter((row) => row.attempts >= attempts).length;
+  async defer(svixIds: readonly string[], nextAttemptAt: Date): Promise<void> {
+    for (const id of svixIds) {
+      const row = this.rows.get(id);
+      if (!row) continue;
+      row.nextAttemptAt = nextAttemptAt;
+      row.claimedUntil = null;
+    }
+  }
+
+  async purgeEntity(target: { kind: string; id: string }): Promise<void> {
+    for (const [id, row] of this.rows) if (row.target.kind === target.kind && row.target.id === target.id) this.rows.delete(id);
+  }
+
+  async health(attempts: number): Promise<{ stuck: number; deadLettered: number }> {
+    const rows = [...this.rows.values()];
+    return {
+      stuck: rows.filter((row) => !row.deadLetteredAt && row.attempts >= attempts).length,
+      deadLettered: rows.filter((row) => row.deadLetteredAt).length,
+    };
+  }
+
+  async recordReportedHealth(health: { stuck: number; deadLettered: number }): Promise<boolean> {
+    const changed = health.stuck !== this.reported.stuck || health.deadLettered !== this.reported.deadLettered;
+    this.reported = { ...health };
+    return changed;
+  }
+
+  async purgeDeadLettered(olderThan: Date): Promise<number> {
+    let purged = 0;
+    for (const [id, row] of this.rows) if (row.deadLetteredAt && row.deadLetteredAt < olderThan) { this.rows.delete(id); purged += 1; }
+    return purged;
+  }
+
+  async purgeProcessedEvents(): Promise<number> {
+    return 0;
   }
 }

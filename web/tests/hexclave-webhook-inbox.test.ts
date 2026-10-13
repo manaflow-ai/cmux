@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { serverUser } from "./helpers/hexclave-fixtures";
 import { inboxHarness, postBurst, userId } from "./helpers/hexclave-inbox-harness";
 import { MemoryInbox } from "./helpers/hexclave-memory";
+import { MAX_ATTEMPTS, STUCK_ATTEMPTS } from "../services/auth/hexclave/inbox";
 
 // On 2026-10-13 a Hexclave throttle made webhook deliveries fail; Svix then
 // redelivered 300+ events at once, each doing up to four Hexclave reads in
@@ -68,7 +69,7 @@ describe("Hexclave webhook inbox", () => {
     expect(harness.hexclave.calls.filter((call) => call === `getUser:${userId(5)}`)).toHaveLength(1);
   });
 
-  test("a throttle stops the drain and reschedules after Hexclave's Retry-After", async () => {
+  test("a throttle sets a global backoff: the failed entity counts an attempt, untried ones only wait", async () => {
     const harness = inboxHarness();
     for (let index = 0; index < 3; index++) {
       harness.hexclave.users.set(userId(index), serverUser({ id: userId(index) }));
@@ -78,13 +79,89 @@ describe("Hexclave webhook inbox", () => {
     const first = await harness.drain();
     expect(first).toMatchObject({ throttled: true, entities: 0, deferredEvents: 3 });
     expect(harness.hexclave.throttled).toBe(1);
-    // Rescheduled after max(Retry-After 1 s, first backoff 30 s): nothing is
-    // claimable before then, everything after.
+    const rows = (harness.inbox as MemoryInbox).rows;
+    expect([...rows.values()].map((row) => [row.svixId, row.attempts])).toEqual([["msg_0", 1], ["msg_1", 0], ["msg_2", 0]]);
     harness.hexclave.rateLimit = null;
-    harness.advance(29_000);
+    // Inside Retry-After (1 s) no drain starts at all.
+    expect((await harness.drain()).skipped).toBe(true);
+    expect(harness.hexclave.calls).toEqual([]);
+    // After it, the untried entities run; the failed one waits out its own backoff (30 s).
+    harness.advance(1_000);
+    expect((await harness.drain()).events).toBe(2);
+    harness.advance(30_000);
+    expect((await harness.drain()).events).toBe(1);
+  });
+
+  test("a global throttle set by one drain stops a second drain before it reads Hexclave", async () => {
+    const harness = inboxHarness();
+    for (let index = 0; index < 2; index++) {
+      harness.hexclave.users.set(userId(index), serverUser({ id: userId(index) }));
+      await harness.post("user.updated", serverUser({ id: userId(index) }), `msg_${index}`);
+    }
+    harness.hexclave.rateLimit = { perSecond: 0, nowMs: harness.nowMs };
+    await harness.drain(1);
+    const reads = harness.hexclave.throttled;
+    expect(await harness.drain(1)).toMatchObject({ skipped: true });
+    expect(harness.hexclave.throttled).toBe(reads);
+  });
+
+  test("user.deleted and user.updated for one user coalesce into one read and end deleted", async () => {
+    const harness = inboxHarness();
+    harness.hexclave.users.set(userId(7), serverUser({ id: userId(7) }));
+    await harness.post("user.created", serverUser({ id: userId(7) }), "msg_created");
+    await harness.drain();
+    expect(harness.mirror.users.has(userId(7))).toBe(true);
+    harness.hexclave.deleteUser(userId(7));
+    await harness.post("user.updated", serverUser({ id: userId(7) }), "msg_updated");
+    await harness.post("user.deleted", { id: userId(7), teams: [] }, "msg_deleted");
+    harness.hexclave.calls.length = 0;
+    expect(await harness.drain()).toMatchObject({ entities: 1, events: 2 });
+    expect(harness.hexclave.calls.filter((call) => call.startsWith("getUser:"))).toHaveLength(1);
+    expect(harness.mirror.users.has(userId(7))).toBe(false);
+    expect((harness.inbox as MemoryInbox).rows.size).toBe(0);
+  });
+
+  test("two concurrent drains apply each event once", async () => {
+    const harness = inboxHarness();
+    for (let index = 0; index < 20; index++) {
+      harness.hexclave.users.set(userId(index), serverUser({ id: userId(index) }));
+      await harness.post("user.updated", serverUser({ id: userId(index) }), `msg_${index}`);
+    }
+    const [a, b] = await Promise.all([harness.drain(20), harness.drain(20)]);
+    const rest = await harness.drain(20);
+    expect(a.events + b.events + rest.events).toBe(20);
+    expect(harness.hexclave.calls.filter((call) => call.startsWith("getUser:"))).toHaveLength(20);
+  });
+
+  test("a drain that crashed holding claims leaves them to be reclaimed and applied once", async () => {
+    const harness = inboxHarness();
+    harness.hexclave.users.set(userId(1), serverUser({ id: userId(1) }));
+    await harness.post("user.updated", serverUser({ id: userId(1) }), "msg_crash");
+    const now = new Date(harness.nowMs());
+    await harness.inbox.claimDrainSlot(now, new Date(now.getTime() + 120_000), 2);
+    expect(await harness.inbox.claimDue(now, 10, new Date(now.getTime() + 120_000))).toHaveLength(1);
+    harness.advance(60_000);
     expect((await harness.drain()).events).toBe(0);
-    harness.advance(2_000);
-    expect((await harness.drain()).events).toBe(3);
+    harness.advance(61_000);
+    expect((await harness.drain()).events).toBe(1);
+    expect(harness.hexclave.calls.filter((call) => call === `getUser:${userId(1)}`)).toHaveLength(1);
+  });
+
+  test("a permanently failing entity is dead-lettered after the attempt cap", async () => {
+    const harness = inboxHarness();
+    harness.hexclave.users.set(userId(3), serverUser({ id: userId(3) }));
+    await harness.post("user.updated", serverUser({ id: userId(3) }), "msg_bad");
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      harness.hexclave.failNext = new Error("mirror write failed");
+      await harness.drain();
+      harness.advance(2 * 60 * 60_000);
+    }
+    const row = (harness.inbox as MemoryInbox).rows.get("msg_bad")!;
+    expect(row.attempts).toBe(MAX_ATTEMPTS);
+    expect(row.deadLetteredAt).not.toBeNull();
+    expect(await harness.inbox.health(STUCK_ATTEMPTS)).toEqual({ stuck: 0, deadLettered: 1 });
+    // Dead letters are never drained again.
+    expect((await harness.drain()).events).toBe(0);
   });
 
   test("at most two drains run at once", async () => {

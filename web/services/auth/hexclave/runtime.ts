@@ -2,7 +2,14 @@ import { cloudDb } from "../../../db/client";
 import { invalidateNativeAuthCacheForUser } from "../../vms/auth";
 import { revokeTeamAccess, revokeTeamMemberAccess } from "../../vms/teamMemberRevocation";
 import { deleteIdentitySnapshot } from "../identitySnapshot";
-import { drainHexclaveInbox, STUCK_ATTEMPTS, type DrainResult, type HexclaveInboxStore } from "./inbox";
+import {
+  DEAD_LETTER_RETENTION_MS,
+  drainHexclaveInbox,
+  PROCESSED_EVENT_RETENTION_MS,
+  STUCK_ATTEMPTS,
+  type DrainResult,
+  type HexclaveInboxStore,
+} from "./inbox";
 import { createDrizzleHexclaveInboxStore } from "./inboxStore";
 import { createDrizzleHexclaveMirrorStore } from "./mirrorStore";
 import { createHexclaveServerApi } from "./serverApi";
@@ -50,20 +57,43 @@ export async function drainHexclaveInboxNow(config: {
   readonly projectId: string | undefined;
   readonly secretServerKey: string | undefined;
   readonly entityLimit: number;
-}): Promise<DrainResult & { readonly stuck: number }> {
+}): Promise<DrainResult> {
   const sync = hexclaveSyncDependencies(config);
+  if (!sync) return { skipped: true, entities: 0, events: 0, deferredEvents: 0, throttled: false };
+  return drainHexclaveInbox({ inbox: hexclaveInboxStore(), sync, entityLimit: config.entityLimit, log: logLine });
+}
+
+export type InboxMaintenance = {
+  readonly drain: DrainResult;
+  readonly stuck: number;
+  readonly deadLettered: number;
+  /** The stuck or dead-letter count changed to a nonzero value since the last alert. */
+  readonly alert: boolean;
+  readonly purged: { readonly deadLettered: number; readonly processedEvents: number };
+};
+
+/** The cron's run: one drain, health with change-only alerting, and retention purges. */
+export async function maintainHexclaveInbox(config: {
+  readonly projectId: string | undefined;
+  readonly secretServerKey: string | undefined;
+  readonly entityLimit: number;
+  readonly now?: Date;
+}): Promise<InboxMaintenance> {
   const inbox = hexclaveInboxStore();
-  if (!sync) return { skipped: true, entities: 0, events: 0, deferredEvents: 0, throttled: false, stuck: 0 };
-  const result = await drainHexclaveInbox({
-    inbox,
-    sync,
-    entityLimit: config.entityLimit,
-    log: (level, message, fields) => {
-      const line = JSON.stringify({ message, ...fields });
-      if (level === "error") console.error(line);
-      else if (level === "warn") console.warn(line);
-      else console.info(line);
-    },
-  });
-  return { ...result, stuck: await inbox.countStuck(STUCK_ATTEMPTS) };
+  const drain = await drainHexclaveInboxNow(config);
+  const health = await inbox.health(STUCK_ATTEMPTS);
+  const changed = await inbox.recordReportedHealth(health);
+  const now = (config.now ?? new Date()).getTime();
+  const purged = {
+    deadLettered: await inbox.purgeDeadLettered(new Date(now - DEAD_LETTER_RETENTION_MS)),
+    processedEvents: await inbox.purgeProcessedEvents(new Date(now - PROCESSED_EVENT_RETENTION_MS)),
+  };
+  return { drain, ...health, alert: changed && (health.stuck > 0 || health.deadLettered > 0), purged };
+}
+
+function logLine(level: "info" | "warn" | "error", message: string, fields: Record<string, unknown>): void {
+  const line = JSON.stringify({ message, ...fields });
+  if (level === "error") console.error(line);
+  else if (level === "warn") console.warn(line);
+  else console.info(line);
 }

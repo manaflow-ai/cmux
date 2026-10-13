@@ -16,6 +16,10 @@ import { withApiRouteSpan } from "../../../../services/telemetry";
  * the Hexclave mirror from the server API, and removals revoke Cloud machine
  * access at once. See services/auth/stackWebhook.ts for the status contract.
  */
+// Verify, store, answer; the after-response drain is bounded to
+// WEBHOOK_KICK_ENTITY_LIMIT reconciles and stops at a Hexclave throttle.
+export const maxDuration = 60;
+
 export async function POST(request: Request): Promise<Response> {
   return withApiRouteSpan(
     request,

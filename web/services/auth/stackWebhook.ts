@@ -148,7 +148,7 @@ export async function handleStackWebhook(
       await recordBestEffort(sync, log, { svixId, eventType: parsed.eventType, outcome: "ignored" });
       return json(200, { received: true, ignored: parsed.eventType });
     case "event":
-      return enqueueEvent(svixId, parsed.event, rawBody, inbox, dependencies, log);
+      return enqueueEvent(svixId, parsed.event, inbox, dependencies, log);
   }
 }
 
@@ -162,18 +162,12 @@ export async function handleStackWebhook(
 async function enqueueEvent(
   svixId: string,
   event: HexclaveWebhookEvent,
-  rawBody: string,
   inbox: HexclaveInboxStore,
   dependencies: StackWebhookDependencies,
   log: StackWebhookLog,
 ): Promise<Response> {
   try {
-    await inbox.enqueue({
-      svixId,
-      eventType: event.type,
-      target: hexclaveEventTarget(event),
-      payload: JSON.parse(rawBody) as unknown,
-    });
+    await inbox.enqueue({ svixId, eventType: event.type, target: hexclaveEventTarget(event) });
   } catch (error) {
     log("error", "stack_webhook_enqueue_failed", { svixId, eventType: event.type, error: errorSummary(error) });
     return json(503, { error: "inbox_unavailable", retryable: true }, { "retry-after": "30" });

@@ -1,6 +1,5 @@
 import { env } from "../../../env";
-import { STUCK_ATTEMPTS } from "../../../../services/auth/hexclave/inbox";
-import { CRON_DRAIN_ENTITY_LIMIT, drainHexclaveInboxNow } from "../../../../services/auth/hexclave/runtime";
+import { CRON_DRAIN_ENTITY_LIMIT, maintainHexclaveInbox } from "../../../../services/auth/hexclave/runtime";
 import { authorizeCronRequest } from "../../../../services/cronAuth";
 import { reportCronFailure, runMonitoredCron } from "../../../../services/observability/cronMonitor";
 
@@ -18,16 +17,18 @@ export async function GET(request: Request): Promise<Response> {
   if (!authorizeCronRequest(request).ok) return Response.json({ error: "unauthorized" }, { status: 401 });
   return runMonitoredCron("hexclave-inbox", async () => {
     try {
-      const result = await drainHexclaveInboxNow({
+      const result = await maintainHexclaveInbox({
         projectId: env.NEXT_PUBLIC_STACK_PROJECT_ID,
         secretServerKey: env.STACK_SECRET_SERVER_KEY,
         entityLimit: CRON_DRAIN_ENTITY_LIMIT,
       });
-      if (result.stuck > 0) {
+      // Alert only when the stuck or dead-letter count changed, so a stable
+      // backlog does not re-alert every minute.
+      if (result.alert) {
         reportCronFailure(
           "hexclave-inbox",
-          new Error(`${result.stuck} Hexclave webhook events failed ${STUCK_ATTEMPTS} or more times`),
-          { stuck: result.stuck },
+          new Error(`Hexclave webhook inbox: ${result.stuck} stuck, ${result.deadLettered} dead-lettered`),
+          { stuck: result.stuck, deadLettered: result.deadLettered },
           { stage: "stuck" },
         );
       }
