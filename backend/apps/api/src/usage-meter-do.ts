@@ -239,10 +239,13 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
 
   protected override nextWakeAt(): number | null {
     const sql = this.ctx.storage.sql
-    // One index probe per meter (usage_ledger_meter_recorded); a handful of meters.
-    const oldest = sql.exec<{ meter: string; at: number }>(`SELECT meter, MIN(recorded_at) AS at FROM usage_ledger GROUP BY meter`).toArray()
-    // One hour of slack: one wake prunes a batch of keys, not one wake per key.
-    const times = oldest.map((r) => Number(r.at) + (r.meter === "model.spend_usd" ? BILLABLE_FACT_RETENTION_MS : USAGE_KEY_RETENTION_MS) + 3600_000)
+    // One index search per meter (usage_ledger_meter_recorded, `meter = ?`); a GROUP BY scans the whole index.
+    const times: number[] = []
+    for (const meter of METERS) {
+      const at = sql.exec<{ at: number | null }>(`SELECT MIN(recorded_at) AS at FROM usage_ledger WHERE meter = ?`, meter).toArray()[0]?.at
+      // One hour of slack: one wake prunes a batch of keys, not one wake per key.
+      if (at !== null && at !== undefined) times.push(Number(at) + (MONEY_METERS.has(meter) ? BILLABLE_FACT_RETENTION_MS : USAGE_KEY_RETENTION_MS) + 3600_000)
+    }
     const reservations = nextUserWake(sql)
     if (reservations !== null) times.push(reservations)
     return times.length === 0 ? null : Math.min(...times)
