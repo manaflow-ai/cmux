@@ -20,6 +20,10 @@ struct PaneSelectionPresenter {
             pane.surfaceWasDisplaced(key)
         }
         if pane.view.stripView.window != nil { pane.view.stripView.sync(fromModel: true) }
+        // A terminal shown frames from now: keys typed meanwhile wait for it (one focus owner).
+        if pane.isFocusedInWorkspace, pane.showsLiveTerminal {
+            pane.services.keyRouter.creationInputCoordinator.holdUntilShown(in: pane.view.window)
+        }
         pane.services.presentation.setNeedsShowSelected(pane)
     }
 }
