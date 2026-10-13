@@ -1,16 +1,16 @@
 import Foundation
 import StackAuth
 
-/// Builds the one-line failure detail a sign-in error screen shows and copies.
+/// The one-line failure detail a sign-in error screen shows and copies.
 ///
 /// The line names what failed (error code, HTTP status, the sign-in service's
 /// request ID) so a user can report it. It never includes tokens, URLs, or
 /// server message bodies.
-public enum AuthFailureDiagnostic {
+extension AuthError {
     /// Detail line for a raw error from a sign-in or session call.
-    public static func summary(of error: any Error) -> String {
+    public static func failureDetail(for error: any Error) -> String {
         if let authError = error as? AuthError {
-            return summary(of: authError)
+            return authError.failureDetail
         }
         if let stackError = error as? any StackAuthErrorProtocol {
             var parts = [stackError.code.uppercased()]
@@ -29,9 +29,9 @@ public enum AuthFailureDiagnostic {
         return "\(nsError.domain) \(nsError.code)"
     }
 
-    /// Detail line for an already display-safe ``AuthError``.
-    public static func summary(of error: AuthError) -> String {
-        switch error {
+    /// Detail line for this display-safe error.
+    public var failureDetail: String {
+        switch self {
         case .offline: return "OFFLINE"
         case .networkError: return "NETWORK_ERROR"
         case .timedOut: return "TIMED_OUT"

@@ -15,7 +15,7 @@ public final class HostBrowserSignInFlow {
     public private(set) var signInIsSlow = false
     /// Display-safe failure from the most recent hosted-browser sign-in attempt.
     public private(set) var lastFailure: AuthError? {
-        didSet { lastFailureDetail = lastFailure.map(AuthFailureDiagnostic.summary(of:)) }
+        didSet { lastFailureDetail = lastFailure?.failureDetail }
     }
     /// One-line, token-free description of ``lastFailure`` (error code, HTTP
     /// status, provider request ID) that users can copy into a bug report.
@@ -532,7 +532,7 @@ public final class HostBrowserSignInFlow {
             if displaySafe != .cancelled {
                 lastFailure = displaySafe
                 lastFailureDetail = coordinator.lastExternalSignInFailureDetail
-                    ?? AuthFailureDiagnostic.summary(of: error)
+                    ?? AuthError.failureDetail(for: error)
             }
             // Do not clear seeds here. The coordinator owns raced sign-out
             // teardown credentials and concurrent publish cancellation.

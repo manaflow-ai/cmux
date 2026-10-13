@@ -491,7 +491,7 @@ public final class AuthCoordinator {
         do {
             try await completeSignIn(flow: flow)
         } catch {
-            lastExternalSignInFailureDetail = AuthFailureDiagnostic.summary(of: error)
+            lastExternalSignInFailureDetail = AuthError.failureDetail(for: error)
             throw AuthError(displaySafe: error) ?? error
         }
     }
