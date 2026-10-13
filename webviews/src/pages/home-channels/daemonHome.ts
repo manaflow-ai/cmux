@@ -426,7 +426,8 @@ export class DaemonHomeClient implements PageClient {
       return () => this.cloudListeners.delete(listener);
     })();
     const offEvent = this.daemon.onEvent((event) => {
-      const cloud = typeof event.event === "string" && event.event.startsWith("cloud-") ? this.cloud.event(event) : null;
+      const cloud =
+        typeof event.event === "string" && event.event.startsWith("cloud-") ? this.cloud.event(event) : null;
       if (cloud) {
         deliver((batch) => {
           if (cloud.message) (batch.messages ??= []).push(message(cloud.message));

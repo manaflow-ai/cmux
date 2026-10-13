@@ -298,7 +298,8 @@ function fromEntry(entry: Json): HomeConversation {
   const at = time(entry.last_at);
   const peer = typeof entry.dm_peer === "string" ? entry.dm_peer : undefined;
   const participants: HomeParticipant[] = [{ id: LOCAL_USER, kind: "human", name: "You", chief: false }];
-  if (peer) participants.push({ id: peer, kind: peer.startsWith("agent_") ? "agent" : "human", name: "", chief: false });
+  if (peer)
+    participants.push({ id: peer, kind: peer.startsWith("agent_") ? "agent" : "human", name: "", chief: false });
   return {
     id: String(entry.conversation),
     owner: "cloud",
