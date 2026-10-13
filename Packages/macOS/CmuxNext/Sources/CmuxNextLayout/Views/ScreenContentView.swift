@@ -144,6 +144,11 @@ final class ScreenContentView: NSView {
         // A zoom: the other panes stay under the zoomed one until it covers them, rather than leaving a hole.
         let covering = animate && structural && zooming
         covered.subtract(baseGeometry.panes.keys)
+        // A split still springing when the next structural update lands (the daemon's echo of the
+        // split moves the tab into the new pane ~75 ms in) keeps springing from where it shows,
+        // with its velocity, instead of snapping to the end (hq-1d: Cmd-D measured 4 frames).
+        let inFlight = splits && structural && arrivals.isEmpty && !departing
+            && paneFrames.values.contains { $0.rect != $0.targetRect }
         let carried = !arrivals.isEmpty || departing || revealing
         // Strip springs run in strip coordinates and fixed ones in the view's: a moved strip origin (a dock
         // that came or went) or a pane changing sides (a zoom shows its pane fixed) keeps it where it showed.
@@ -153,10 +158,10 @@ final class ScreenContentView: NSView {
         (carriedShown, carriedDividers) = ([:], [:])
         // A release seeds only the layout it made (`releasedDivider` from this gesture, not a stale one).
         if let released = releasedDivider, CACurrentMediaTime() - released.time > 0.5 { releasedDivider = nil }
-        let animateFrames = animate && (!structural || carried) && (releasedDivider == nil || splits)
+        let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
         // Under the zoomed pane, which every pane coming back waits beneath.
         let revealAnchor = revealing ? paneFrames.keys.compactMap { context.hosts[$0] }.first { $0.superview === self } : nil
-        if structural { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
+        if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
 
         // Panes.
         let style = context.style
