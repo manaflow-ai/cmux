@@ -2,6 +2,39 @@
 
 All notable changes to cmux are documented here.
 
+## [0.65.2] - 2026-10-13
+
+### Changed
+- Agent terminals no longer draw the agent turn rail or the restoring-session banner, so their text lines up with plain terminals again after a relaunch ([#20060](https://github.com/manaflow-ai/cmux/pull/20060))
+- The one-time Cloud welcome also shows on 0.65.2 for anyone who has not seen it yet ([#20057](https://github.com/manaflow-ai/cmux/pull/20057))
+- The Cloud VM limit header names the machines it counts and no longer counts paused ones ([#19968](https://github.com/manaflow-ai/cmux/pull/19968))
+
+### Fixed
+- Fixes dragging a sidebar workspace to reorder it, and a crash when the drag ends ([#20015](https://github.com/manaflow-ai/cmux/pull/20015), [#20018](https://github.com/manaflow-ai/cmux/pull/20018))
+- Cloud connects on the first try, re-enrolls a dead tunnel instead of timing out on every machine, and scopes sign-out to its own build ([#19961](https://github.com/manaflow-ai/cmux/pull/19961), [#19977](https://github.com/manaflow-ai/cmux/pull/19977))
+- A new Cloud split shows its terminal sooner, and New Machine is created in process ([#20016](https://github.com/manaflow-ai/cmux/pull/20016), [#18700](https://github.com/manaflow-ai/cmux/pull/18700))
+- Cloud workspaces are selected in the window that owns them, and a window closed during Cloud workspace creation is released ([#19970](https://github.com/manaflow-ai/cmux/pull/19970), [#20001](https://github.com/manaflow-ai/cmux/pull/20001))
+- Cloud machine actions answer within the app's request budget and keep running in the background ([#19982](https://github.com/manaflow-ai/cmux/pull/19982))
+- Fixes a Cloud workspace layout that kept rebuilding the pane it had just reused ([#20198](https://github.com/manaflow-ai/cmux/pull/20198))
+- Account-owned Macs stay in My Devices across team switches ([#18518](https://github.com/manaflow-ai/cmux/pull/18518)) -- thanks @azooz2003-bit!
+- Fn-Left and Fn-Right send Home and End in the terminal ([#18671](https://github.com/manaflow-ai/cmux/pull/18671))
+- The terminal reports its real color scheme to CSI 996 queries ([#20024](https://github.com/manaflow-ai/cmux/pull/20024)) -- thanks @teamleaderleo!
+- Fixes invisible terminal text on light themes when `minimum-contrast` is set ([#19921](https://github.com/manaflow-ai/cmux/pull/19921)) -- thanks @teamleaderleo!
+- Canvas mode shows the translucent window backdrop when `background-opacity` is below 1 ([#17548](https://github.com/manaflow-ai/cmux/pull/17548)) -- thanks @csyio!
+- Fixes the terminal mode reset after a hibernated agent is reaped ([#19806](https://github.com/manaflow-ai/cmux/pull/19806))
+- Agent status is reported in `cmux ssh-tmux` mirrors ([#19104](https://github.com/manaflow-ai/cmux/pull/19104))
+- The Cloud CLI bridge keeps its owner across remote reconnects ([#16213](https://github.com/manaflow-ai/cmux/pull/16213)) -- thanks @teamleaderleo!
+- `cmux browser` rejects invalid automation arguments instead of running them ([#18838](https://github.com/manaflow-ai/cmux/pull/18838)) -- thanks @soyeladice-svg!
+
+### Thanks to 6 contributors!
+
+- [@austinywang](https://github.com/austinywang)
+- [@azooz2003-bit](https://github.com/azooz2003-bit)
+- [@csyio](https://github.com/csyio)
+- [@lawrencecchen](https://github.com/lawrencecchen)
+- [@soyeladice-svg](https://github.com/soyeladice-svg)
+- [@teamleaderleo](https://github.com/teamleaderleo)
+
 ## [0.65.1] - 2026-10-12
 
 ### Added
