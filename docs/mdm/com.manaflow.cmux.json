@@ -663,6 +663,16 @@
       "title" : "Saturation",
       "type" : "number"
     },
+    "appearance.sidebarSurface" : {
+      "default" : "same",
+      "description" : "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker, as before.",
+      "enum" : [
+        "same",
+        "separate"
+      ],
+      "title" : "Sidebar Background",
+      "type" : "string"
+    },
     "appearance.statusIndicator.color" : {
       "description" : "appearance.statusIndicator.color",
       "title" : "Color",
