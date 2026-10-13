@@ -60,6 +60,7 @@ targets:
         NSPhotoLibraryAddUsageDescription: Save images from your sessions to Photos.
         NSPhotoLibraryUsageDescription: Attach photos to messages for Chief and your agents.
         NSMicrophoneUsageDescription: Record audio messages for Chief and your agents.
+        CADisableMinimumFrameDurationOnPhone: true
         UILaunchScreen:
           UIColorName: LaunchBackground
           UIImageName: LaunchMark

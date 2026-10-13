@@ -9,6 +9,6 @@ udid=$1 label=$2 dir=$3
 mkdir -p "$dir"
 export CNX_RECORD_CODEC=${CNX_RECORD_CODEC:-hevc}
 for mode in dark light; do
-  CNX_CLEAR_AUTH=1 verify/record.sh "$udid" "$dir/$label-welcome-$mode.mp4" 5 "$mode"
-  CNX_CLEAR_AUTH=1 verify/record.sh "$udid" "$dir/$label-email-$mode.mp4" 6 "$mode" -cnx-email ""
+  CNX_CLEAR_AUTH=1 verify/record.sh "$udid" "$dir/$label-welcome-$mode.mp4" 9 "$mode"
+  CNX_CLEAR_AUTH=1 verify/record.sh "$udid" "$dir/$label-email-$mode.mp4" 10 "$mode" -cnx-email ""
 done
