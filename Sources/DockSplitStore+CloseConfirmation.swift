@@ -51,7 +51,8 @@ extension DockSplitStore {
         )
         guard closeWarningStore.shouldConfirmCloseIncludingSafety(
             requiresConfirmation: dockPanelNeedsConfirmClose(panel),
-            source: closeSource
+            source: closeSource,
+            isRunningProcess: (panel as? TerminalPanel)?.shellActivity.state == .commandRunning
         ) else {
             if closeHistoryEligibleDockTabIds.contains(tab.id) {
                 stageDockClosedPanelHistory(
@@ -126,7 +127,8 @@ extension DockSplitStore {
             guard userCloseTabIds.contains(tab.id), let panel else { continue }
             if closeWarningStore.shouldConfirmCloseIncludingSafety(
                 requiresConfirmation: dockPanelNeedsConfirmClose(panel),
-                source: .shortcut
+                source: .shortcut,
+                isRunningProcess: (panel as? TerminalPanel)?.shellActivity.state == .commandRunning
             ) {
                 confirmableTabIds.insert(tab.id)
             }
@@ -232,7 +234,7 @@ extension DockSplitStore {
         let panelName = panel.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let message: String
         if !panelName.isEmpty {
-            message = String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"\(panelName)\".")
+            message = String(format: String(localized: "dialog.closeTab.messageNamed", defaultValue: "This will close \"%@\"."), locale: .current, panelName)
         } else {
             message = String(localized: "dialog.closeTab.message", defaultValue: "This will close the current tab.")
         }

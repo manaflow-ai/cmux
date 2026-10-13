@@ -153,6 +153,36 @@ struct WorkspaceCloseTabsContextMenuTests {
     }
 
     @Test
+    func activeProcessCanCloseWithoutPromptWhenOptedIn() async throws {
+        try await withCleanClosedHistory {
+            let fixture = try makeWorkspaceWithFourConfirmingTabs()
+            fixture.manager.closeTabWarningDefaults.set(false, forKey: "warnBeforeClosingTabShortcut")
+            fixture.manager.closeTabWarningDefaults.set(false, forKey: "warnBeforeClosingTabXButton")
+            fixture.manager.closeTabWarningDefaults.set(true, forKey: "closeRunningTabsWithoutConfirmation")
+            let tabId = fixture.tabIds[2]
+            let panelId = try #require(fixture.workspace.panelIdFromSurfaceId(tabId))
+            fixture.workspace.updatePanelShellActivityState(panelId: panelId, state: .commandRunning)
+            var promptCount = 0
+            fixture.manager.confirmCloseHandler = { _, _, _ in
+                promptCount += 1
+                return true
+            }
+            let tab = try #require(fixture.workspace.bonsplitController.tab(tabId))
+            #expect(fixture.workspace.splitTabBar(
+                fixture.workspace.bonsplitController,
+                shouldCloseTab: tab,
+                inPane: fixture.paneId
+            ))
+            await waitForMainActorWork(timeout: 4) {
+                fixture.workspace.panelIdFromSurfaceId(tabId) == nil
+            }
+
+            #expect(promptCount == 0)
+            #expect(fixture.workspace.panelIdFromSurfaceId(tabId) == nil)
+        }
+    }
+
+    @Test
     func middleClickUsesTheInlineCloseWarningPath() async throws {
         try await withCleanClosedHistory {
             let fixture = try makeWorkspaceWithFourConfirmingTabs()

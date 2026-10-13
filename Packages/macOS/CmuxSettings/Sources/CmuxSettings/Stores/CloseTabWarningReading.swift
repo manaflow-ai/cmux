@@ -16,11 +16,17 @@ public protocol CloseTabWarningReading: Sendable {
     /// Whether the tab close (X) button is hidden entirely.
     var hidesTabCloseButton: Bool { get }
 
+    /// Whether running terminal tabs skip process and agent warnings when closing.
+    var closesRunningTabsWithoutConfirmation: Bool { get }
+
     /// Whether closing an agent session while it is mid-turn warns first.
     var warnsBeforeClosingAgentSession: Bool { get }
 }
 
 extension CloseTabWarningReading {
+    /// Consumers retain the existing prompts unless they explicitly opt out.
+    public var closesRunningTabsWithoutConfirmation: Bool { false }
+
     /// Existing fakes and consumers default to the protected behavior while
     /// they adopt the separate agent-session setting.
     public var warnsBeforeClosingAgentSession: Bool { true }
@@ -67,21 +73,29 @@ extension CloseTabWarningReading {
         !warningKinds(requiresConfirmation: requiresConfirmation, source: source, isAgentSession: isAgentSession).isEmpty
     }
 
-    /// Whether a close should be gated by either the user's warning setting or
-    /// an active process that must never be killed silently.
+    /// Whether closing should warn, including mandatory protection for unsaved content
+    /// and running processes unless the user has opted out of process warnings.
+    ///
+    /// - Parameter isRunningProcess: The confirmation is for a terminal process,
+    ///   not unsaved content or a workspace/window close.
     public func shouldConfirmCloseIncludingSafety(
         requiresConfirmation: Bool,
         source: CloseTabCloseSource,
         isAgentSession: Bool = false,
         isRunningProcess: Bool = false
     ) -> Bool {
-        (!isAgentSession && requiresConfirmation) || shouldConfirmClose(
+        !warningKindsIncludingSafety(
             requiresConfirmation: requiresConfirmation,
             source: source,
-            isAgentSession: isAgentSession
-        )
+            isAgentSession: isAgentSession,
+            isRunningProcess: isRunningProcess
+        ).isEmpty
     }
 
+    /// Returns the reasons for a tab-close prompt, honoring the running-process opt-in.
+    ///
+    /// - Parameter isRunningProcess: Set only for a terminal process, never unsaved
+    ///   content or workspace/window protection. Idle tabs still follow their warnings.
     public func warningKindsIncludingSafety(
         requiresConfirmation: Bool,
         source: CloseTabCloseSource,
@@ -93,7 +107,16 @@ extension CloseTabWarningReading {
             source: source,
             isAgentSession: isAgentSession
         )
-        if requiresConfirmation && !isAgentSession { kinds.insert(.safety) }
+        if isRunningProcess && closesRunningTabsWithoutConfirmation {
+            // The explicit X-button warning remains independent; this setting only
+            // removes warnings whose reason is the running process itself.
+            kinds.remove(.tab)
+            kinds.remove(.agentSession)
+            kinds.remove(.safety)
+        }
+        if requiresConfirmation && !isAgentSession && !(isRunningProcess && closesRunningTabsWithoutConfirmation) {
+            kinds.insert(.safety)
+        }
         return kinds
     }
 }

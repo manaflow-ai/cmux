@@ -15431,6 +15431,65 @@
           }
         }
       }
+    },
+    "settings.app.closeRunningTabsWithoutConfirmation.subtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Skip confirmation for tabs with running processes, including active agents. Other tab, workspace, and window warnings still apply."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bestätigung für Tabs mit laufenden Prozessen, einschließlich aktiver Agenten, überspringen. Andere Warnungen für Tabs, Arbeitsbereiche und Fenster gelten weiterhin."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ignorer la confirmation pour les onglets avec des processus actifs, y compris les agents actifs. Les autres avertissements pour les onglets, espaces de travail et fenêtres restent applicables."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تخطي التأكيد لعلامات التبويب التي تحتوي على عمليات قيد التشغيل، بما في ذلك الوكلاء النشطون. تظل تحذيرات علامات التبويب ومساحات العمل والنوافذ الأخرى سارية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Omite la confirmación para las pestañas con procesos en ejecución, incluidos los agentes activos. Las demás advertencias de pestañas, espacios de trabajo y ventanas siguen aplicándose."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "略過執行中程序標籤頁的確認，包括作用中的代理程式。其他標籤頁、工作區和視窗警告仍然適用。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳过运行中进程标签页的确认，包括活跃代理。其他标签页、工作区和窗口警告仍然适用。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 에이전트를 포함하여 실행 중인 프로세스가 있는 탭의 확인을 건너뜁니다. 다른 탭, 작업 공간 및 윈도우 경고는 계속 적용됩니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブなエージェントを含め、プロセスが実行中のタブの確認を省略します。その他のタブ、ワークスペース、ウィンドウの警告は引き続き適用されます。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

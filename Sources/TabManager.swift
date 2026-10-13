@@ -3530,17 +3530,14 @@ class TabManager: ObservableObject {
             return
         }
 
-        let requiresConfirmation: Bool
-        if let terminalPanel = tab.terminalPanel(for: surfaceId),
-           tab.panelNeedsConfirmClose(panelId: surfaceId, fallbackNeedsConfirmClose: terminalPanel.needsConfirmClose()) {
-            requiresConfirmation = true
-        } else {
-            requiresConfirmation = false
-        }
-
+        let terminalPanel = tab.terminalPanel(for: surfaceId)
+        let requiresConfirmation = terminalPanel.map {
+            tab.panelNeedsConfirmClose(panelId: surfaceId, fallbackNeedsConfirmClose: $0.needsConfirmClose())
+        } ?? false
         let warningKinds = CloseTabWarningStore(defaults: closeTabWarningDefaults).warningKindsIncludingSafety(
             requiresConfirmation: requiresConfirmation,
-            source: .shortcut
+            source: .shortcut,
+            isRunningProcess: terminalPanel?.shellActivity.state == .commandRunning
         )
         if !warningKinds.isEmpty {
             guard confirmClose(

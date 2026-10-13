@@ -57,15 +57,30 @@ extension Workspace {
         }
         guard !candidates.isEmpty else { return }
 
-        let needsConfirmation = candidates.contains { candidate in
-            guard let panelId = candidate.panelId else { return false }
-            return panelNeedsConfirmClose(panelId: panelId)
+        let closeWarningStore = CloseTabWarningStore(
+            defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults
+        )
+        let needsNonRunningConfirmation = candidates.contains { candidate in
+            guard let panelId = candidate.panelId, panelNeedsConfirmClose(panelId: panelId) else { return false }
+            let isRunningProcess = panelShellActivityStates[panelId] == .commandRunning
+                || activeAgentCloseWarningInfo(panelId: panelId) != nil
+            return !isRunningProcess
         }
-
-        if CloseTabWarningStore(defaults: confirmationManager?.closeTabWarningDefaults ?? closeTabWarningDefaults).shouldConfirmCloseIncludingSafety(
-            requiresConfirmation: needsConfirmation,
+        let hasRunningProcess = candidates.contains { candidate in
+            guard let panelId = candidate.panelId else { return false }
+            return panelShellActivityStates[panelId] == .commandRunning
+                || activeAgentCloseWarningInfo(panelId: panelId) != nil
+        }
+        let needsConfirmation = closeWarningStore.shouldConfirmCloseIncludingSafety(
+            requiresConfirmation: needsNonRunningConfirmation,
             source: .shortcut
-        ) {
+        ) || (hasRunningProcess && closeWarningStore.shouldConfirmCloseIncludingSafety(
+            requiresConfirmation: true,
+            source: .shortcut,
+            isRunningProcess: true
+        ))
+
+        if needsConfirmation {
             guard let confirmationManager else { return }
             let prompt = CloseOtherTabsConfirmationPrompt(
                 titles: candidates.map { candidate in

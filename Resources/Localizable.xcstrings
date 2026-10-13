@@ -305237,6 +305237,20 @@
         }
       }
     },
+    "settings.app.closeRunningTabsWithoutConfirmation": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": { "stringUnit": { "state": "translated", "value": "Close Running Tabs Without Confirmation" } },
+        "de": { "stringUnit": { "state": "translated", "value": "Laufende Tabs ohne Bestätigung schließen" } },
+        "fr": { "stringUnit": { "state": "translated", "value": "Fermer les onglets actifs sans confirmation" } },
+        "ar": { "stringUnit": { "state": "translated", "value": "إغلاق علامات التبويب قيد التشغيل دون تأكيد" } },
+        "es": { "stringUnit": { "state": "translated", "value": "Cerrar pestañas activas sin confirmación" } },
+        "zh-Hant": { "stringUnit": { "state": "translated", "value": "關閉執行中的標籤頁而不確認" } },
+        "zh-Hans": { "stringUnit": { "state": "translated", "value": "关闭运行中的标签页而无需确认" } },
+        "ko": { "stringUnit": { "state": "translated", "value": "실행 중인 탭을 확인 없이 닫기" } },
+        "ja": { "stringUnit": { "state": "translated", "value": "実行中のタブを確認なしで閉じる" } }
+      }
+    },
     "settings.app.warnBeforeClosingTabXButton": {
       "extractionState": "manual",
       "localizations": {
