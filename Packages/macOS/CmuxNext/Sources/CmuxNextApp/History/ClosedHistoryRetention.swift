@@ -71,9 +71,8 @@ final class ClosedHistoryRetention {
     }
 
     private func check(_ machines: Set<String>) {
-        guard let services else { return }
         let nowMs = UInt64(max(0, Date().timeIntervalSince1970 * 1000))
-        for daemon in services.machines.daemons where machines.contains(daemon.machineID) {
+        for daemon in services?.machines.daemons ?? [] where machines.contains(daemon.machineID) {
             guard daemon.store.servesStateResources, case .connected = daemon.store.connectionState else { continue }
             let machine = daemon.machineID
             let items = daemon.store.closedItems
