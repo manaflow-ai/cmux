@@ -21,8 +21,8 @@ extension NewTabPage {
     /// (NewTabSparePool), else loading cold. A static of the page, not the pane (the godfile
     /// limit counts PaneController's extensions). Everything happens in this one main-actor
     /// turn, with no hop: the spare waited at this pane's content size, so its adoption changes
-    /// no size and WebKit shows the page at its final layout; the strip shows the tab now at full
-    /// width; and the turn's one commit puts the tab and the page on screen in the same frame.
+    /// no size and WebKit shows the page at its final layout; the strip starts the tab's grow-in;
+    /// and the turn's one commit puts the page on screen in one step while the chrome moves.
     /// `reusingShown` (Focus Location Bar, an empty submit): a New Tab page the pane already
     /// shows takes the keyboard instead. Otherwise (Cmd-T) a new tab opens, also from a New Tab
     /// page (Leo 2026-10-10).
@@ -74,7 +74,9 @@ extension NewTabPage {
         if spare != nil, services.presentation.showNow(pane) {
             services.windowController(showing: pane)?.focus.send(.focusPane(pane.paneKey, source: .intent))
         }
-        BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true, animating: false) }
+        // The tab grows into its slot on the strip's spring, as from +, New Terminal Tab or the
+        // socket (one path, DESIGN P7); the page itself still paints in one step.
+        BenchSpans.measure("newTab.strip") { pane.view.stripView.sync(fromModel: true) }
         services.newTabSpares.record(.init(spare: spare != nil, crossWindow: spare?.crossWindow == true,
                                            milliseconds: NewTabSparePool.milliseconds(since: start), refit: spare?.refit == true))
     }
@@ -98,6 +100,8 @@ extension NewTabPage {
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
+        // The new tab shows in the page's cell from its first frame: one step, not grow, slide and shrink.
+        if !keep { pane.view.stripView.expectReplacement(of: StripTabID(key)) }
         switch request.kind {
         case .terminal where !request.run:
             // `!` on the screen: type, never run; keys typed while the

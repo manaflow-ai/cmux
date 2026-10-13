@@ -9,6 +9,49 @@ Cmd-Shift-D splits applied in one frame until 2026-10-10, when Leo asked
 for panes that grow from their edge (cx-f6i7); the sidebar is only
 shown or hidden; tab animations must be fast and smooth.
 
+## Redesign (hq-1d, 2026-10-12)
+
+Lawrence: "new tab animation and new workspace animation needs to be redone
+from first principles", "ensure there's option to toggle animations of
+splits/new tabs", "better curves for animations of splits, think how apple
+would do it, spring curves", "proper physics". Design:
+`.cmux-scratch/motion-redesign/DESIGN.md` in hq (principles P1 to P7).
+
+- Physics: `SpringValue.step` is the closed-form damped harmonic
+  oscillator (under-, critically and over-damped), exact at any frame rate,
+  retargetable with its velocity. `SpringParameters(duration:bounce:)` is
+  SwiftUI's `Spring(duration:bounce:)`.
+- One clock: `MotionClock` is the one chrome animation client of a window's
+  `FrameScheduler`. The tab strips, the layout (panes, dividers, columns,
+  screens, drop zones) step on it with the same `dt` and it goes idle with
+  the last spring (`debug.motion` `display_links` is 0 at rest).
+- Bounce: structural tokens (`move`, `appear`, `disappear`) are critically
+  damped by default (never past the target); `ui.animations.bounce`
+  "subtle" gives them bounce `motion.spring.subtleBounce` (0.15).
+- Per kind, under `ui.animationSpeed`: `ui.animations.splits`,
+  `ui.animations.newTab`, `ui.animations.newWorkspace` (default true). Off
+  applies that change in one step. Palette: Toggle Split / New Tab / New
+  Workspace Animations, Use Bouncy Animations, Use Animations Without Bounce.
+- Reduce Motion: no movement and no crossfade standing in for it; chrome
+  takes its new places in one step (the tab strip and sidebar crossfades are
+  gone).
+- Splits: every pane edge and divider of a split, a close or a released
+  divider springs together from rest (or from the release velocity, in
+  fractions of the travel), so the change is one spring on the divider
+  fraction. A pane that changes size keeps one host frame for the motion
+  (`SplitMotion.heldFrame`) and is clipped to the presented rect: content
+  lays out once. A released divider flung onto a snap within
+  `motion.divider.releaseProjection` of its velocity lands there.
+- New tab: Cmd-T, +, New Terminal Tab and the socket all grow the tab in its
+  slot with the strip's spring; what a New Tab page turns into takes the
+  page's cell in place (`TabStripView.expectReplacement(of:)`).
+- New workspace: the row opens at its index and the rows below slide; the
+  whole-sidebar snap for Cmd-N is gone, and rows open only on animated
+  applies.
+- Check (DESIGN P1): `debug.new_tab` frame_strip asserts content in one step
+  (`content_intermediate`, `blank`) and chrome continuous (`moving`,
+  `reversals`, `jumps`, `max_step`). Proof: `scripts/cmux-next/motion-proof.py`.
+
 ## Rules
 
 1. One module. Every animation asks `Motion` for a token. No module
@@ -40,9 +83,10 @@ shown or hidden; tab animations must be fast and smooth.
      `Motion.animateTimed`, the token's visible-end duration with ease-out;
      AppKit starts a new one from the value on screen.
 7. Reduce Motion (`NSWorkspace.accessibilityDisplayShouldReduceMotion`):
-   movement (position, size, scale, scroll) is instant; opacity changes stay
-   as a crossfade of at most 0.1 s, and hover and pressed fills are
-   instant; spinners and pulses stop and show a static glyph.
+   movement (position, size, scale, scroll) is instant, and a structural
+   change (tab, row, pane) is not replaced by a crossfade; other opacity
+   changes stay as a crossfade of at most 0.1 s, and hover and pressed fills
+   are instant; spinners and pulses stop and show a static glyph.
 8. `ui.animationSpeed` in cmux.json: `"fast"` (default), `"normal"` (every
    time constant x1.5, about Apple's system pacing), `"off"` (every change in
    one frame, no crossfade, no loops). Palette actions: Use Fast Animations,

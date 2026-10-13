@@ -2,11 +2,13 @@
 """Cmd-N and Cmd-T paint stable on a running tagged build (bd cx-8g3sn).
 
 A new workspace (Cmd-N) or tab (Cmd-T) opens on the New Tab page, the prewarmed spare handed
-over (no page loads for it), with no blank or intermediate frame: the window as the window
-server composited it, read frame after frame around the key (`debug.new_tab` frame_strip),
-changes outside the pane's content area in one step (each frame equals the one before the key
-or the settled one), and the content area never turns one flat color it was not before the key.
-Fails on any such frame and prints where the frame strips are.
+over (no page loads for it). DESIGN P1 (motion redesign 2026-10-12): the window as the window
+server composited it, read frame after frame around the key (`debug.new_tab` frame_strip).
+CONTENT (the pane's content area) changes in one step: each frame there equals the one before
+the key or the settled one, and it never turns one flat color it was not before the key.
+CHROME (tab cell, sidebar row) moves continuously: its progress never goes back (no overshoot
+unless `--bounce`), and never leaps from before to final in one frame unless animations are off
+for the gesture (`--expect-snap`). Fails on any such frame and prints where the strips are.
 
 `--cold` (bd cx-ec99): the first Cmd-N goes the moment the app answers on its socket after launch,
 with no wait for a ready spare, and its content area must never turn flat (the person sees the
@@ -25,6 +27,8 @@ parser.add_argument("--keys", default="n,t", help="Command-<key> openings to che
 parser.add_argument("--out", default="/tmp/cmd-n-paint", help="where the app writes each run's frames")
 parser.add_argument("--duration-ms", type=float, default=700)
 parser.add_argument("--cold", action="store_true", help="the first Cmd-N right after launch: no ready spare, no blank frame")
+parser.add_argument("--bounce", action="store_true", help="ui.animations.bounce subtle: the chrome may pass its target once")
+parser.add_argument("--expect-snap", action="store_true", help="animations off for the gesture: chrome changes in one step")
 opts = parser.parse_args()
 
 
@@ -84,25 +88,35 @@ for run in range(opts.runs):
         if "error" in reply:
             sys.exit(f"FAIL frame_strip Cmd-{key.upper()}: {reply}")
         # Right after launch the sidebar may lead the content by a frame; the pane must never be empty.
-        bad = [f for f in reply["frames"] if f["blank"] or (f["intermediate"] and not cold)]
+        bad = [f for f in reply["frames"] if f["blank"] or (f.get("content_intermediate") and not cold)]
+        chrome = []
+        if reply.get("reversals") and not opts.bounce:
+            chrome.append(f"{reply['reversals']:.0f} reversals (overshoot without bounce)")
+        if opts.expect_snap and reply.get("moving"):
+            chrome.append(f"{reply['moving']:.0f} moving frames with the animation off")
+        if not opts.expect_snap and reply.get("jumps"):
+            chrome.append(f"chrome jumped (max step {reply.get('max_step')})")
         # The page is the prewarmed spare, handed over, not a page loaded for this opening.
         recorded = (rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or []
         opening = recorded[-1] if len(recorded) > openings else {}
         if not opening.get("spare") and not cold:
             failures.append(f"Cmd-{key.upper()} run {run} (no spare adopted: {opening or 'no opening'})")
         print(f"Cmd-{key.upper()} run {run}{' (cold)' if cold else ''}: spare={bool(opening.get('spare'))} {reply['frame_count']} frames every {reply['mean_interval_ms']:.1f} ms, "
-              f"intermediate={reply['intermediate']:.0f} blank={reply['blank']:.0f} strip={out}/strip.png", flush=True)
+              f"moving={reply.get('moving', 0):.0f} reversals={reply.get('reversals', 0):.0f} max_step={reply.get('max_step', 0)} "
+              f"content_intermediate={reply.get('content_intermediate', 0):.0f} blank={reply['blank']:.0f} strip={out}/strip.png", flush=True)
+        for problem in chrome:
+            print(f"  chrome: {problem}", flush=True)
         if reply.get("spans"):
             print("  marks: " + ", ".join(f"{span['name']} {span['ms']:+.0f} ms" for span in reply["spans"]), flush=True)
         for frame in bad:
             print(f"  {frame['file']} at {frame['ms']:+.0f} ms: outside differs {frame['outside_vs_before']:.3f} from before, "
                   f"{frame['outside_vs_final']:.3f} from final, blank={frame['blank']}", flush=True)
-        if bad:
+        if bad or chrome:
             failures.append(f"Cmd-{key.upper()} run {run}")
         # Back to one workspace and tab: Cmd-W closes the new tab (and with it a new workspace).
         rpc("debug.key", {"key": "w", "modifiers": ["command"]})
         time.sleep(0.5)  # test harness wait
 
 if failures:
-    sys.exit(f"FAIL blank or intermediate frames: {', '.join(failures)}")
-print("PASS no blank or intermediate frame")
+    sys.exit(f"FAIL content or chrome frames: {', '.join(failures)}")
+print("PASS content in one step, chrome continuous")
