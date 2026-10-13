@@ -304,6 +304,10 @@ final class ReactionBadgeView: UIView {
     private let fillContainer = UIView()
     private let fillMask = CAShapeLayer()
     private let gradient = CAGradientLayer()
+    /// Others' gray fill draws the circles' outline itself: a mask would
+    /// cost an offscreen pass per badge every frame it moves. Mine keep the
+    /// mask, which shapes the screen gradient.
+    private let grayFill = CAShapeLayer()
     private var glyphViews: [UIView] = []
     private(set) var reactions: [ConversationReaction] = []
     private var mine = false
@@ -322,7 +326,10 @@ final class ReactionBadgeView: UIView {
             outlines.append(outline)
             addSubview(outline)
         }
-        fillContainer.layer.mask = fillMask
+        // Clipped to the badge's box as the mask was (a rectangular clip on
+        // a leaf costs nothing).
+        grayFill.masksToBounds = true
+        fillContainer.layer.addSublayer(grayFill)
         fillContainer.layer.addSublayer(gradient)
         addSubview(fillContainer)
     }
@@ -354,7 +361,12 @@ final class ReactionBadgeView: UIView {
     private func updateColors() {
         let traits = traitCollection
         for outline in outlines { outline.backgroundColor = ConversationTheme.background.resolvedColor(with: traits) }
-        fillContainer.backgroundColor = mine ? nil : ConversationTheme.incomingBubble.resolvedColor(with: traits)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        grayFill.fillColor = ConversationTheme.incomingBubble.resolvedColor(with: traits).cgColor
+        grayFill.isHidden = mine
+        fillContainer.layer.mask = mine ? fillMask : nil
+        CATransaction.commit()
         gradient.isHidden = !mine
         updateScreenGradient()
     }
@@ -411,6 +423,8 @@ final class ReactionBadgeView: UIView {
         gradient.frame = bounds
         fillMask.frame = bounds
         fillMask.path = path.cgPath
+        grayFill.frame = bounds
+        grayFill.path = path.cgPath
         for (index, glyph) in glyphViews.enumerated() {
             let step = CGFloat(index) * Self.pileStep * (pointsLeft ? -1 : 1)
             let center = CGPoint(x: disc.midX + step, y: disc.midY)
