@@ -8,6 +8,10 @@
 # published for tree <key>" and how to republish, never a bare 404.
 # A binary whose bytes differ from the published .sha256 is refused.
 # CMUX_TUI_TREE_TARGET=x86_64-pc-windows-gnu fetches it from any host.
+# Windows companions (tree objects with a .sha256): cmux-tui-host-<t>.exe is
+# fetched as cmux-tui-host.exe and cmux-tui-dll-<t>.dll (the program the thin
+# cmux-tui.exe loads, cx-w0uha) as cmux_tui.dll, beside cmux-tui.exe; a tree
+# without one records `none`, and a companion whose bytes differ is refused.
 # No network: a curl shim serves the CDN from files; a uname shim plays the host.
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/../../.." && pwd)
@@ -108,6 +112,12 @@ bin=$(run $WINHOST path | tail -n 1)
 [[ "$(cat "$bin")" == win-daemon ]] || fail "Windows fetched $(cat "$bin" 2>/dev/null)"
 [[ "$(cat "$win/cmux-tui.exe.sha256")" == "$(sha256 "$bin")" ]] || fail "no sha256 record beside $bin"
 [[ ! -e "$win/cmux-app-host.sha256" ]] || fail "fetch looked for a Windows app host"
+# A tree from before the companions: both recorded as none, no files.
+for companion in cmux-tui-host.exe cmux_tui.dll; do
+  [[ "$(cat "$win/$companion.sha256")" == none ]] || fail "no none record for $companion:
+$out"
+  [[ ! -e "$win/$companion" ]] || fail "$companion written for a tree without it"
+done
 
 # A second fetch reuses the checked copy.
 out=$(run $WINHOST fetch) || fail "second fetch failed:
@@ -115,11 +125,36 @@ $out"
 grep -q 'already present' <<<"$out" || fail "second fetch did not reuse the copy:
 $out"
 
+# A thin-exe tree (cx-w0uha): host and program DLL go beside cmux-tui.exe.
+rm -rf "$win"
+publish cmux-tui-x86_64-pc-windows-gnu.exe win-thin-daemon
+publish cmux-tui-host-x86_64-pc-windows-gnu.exe win-host
+publish cmux-tui-dll-x86_64-pc-windows-gnu.dll win-program-dll
+out=$(run $WINHOST fetch) || fail "fetch of a thin-exe tree failed:
+$out"
+[[ "$(cat "$win/cmux-tui.exe")" == win-thin-daemon ]] || fail "thin fetch wrote $(cat "$win/cmux-tui.exe" 2>/dev/null)"
+[[ "$(cat "$win/cmux-tui-host.exe" 2>/dev/null)" == win-host ]] || fail "no cmux-tui-host.exe beside cmux-tui.exe:
+$out"
+[[ "$(cat "$win/cmux_tui.dll" 2>/dev/null)" == win-program-dll ]] || fail "no cmux_tui.dll beside cmux-tui.exe:
+$out"
+[[ "$(cat "$win/cmux_tui.dll.sha256")" == "$(sha256 "$win/cmux_tui.dll")" ]] || fail "no sha256 record beside cmux_tui.dll"
+
+# A program DLL whose bytes differ from its .sha256 is refused and not kept.
+rm -rf "$win"
+printf 'tampered' > "$TMP/cdn/tree/$key/cmux-tui-dll-x86_64-pc-windows-gnu.dll"
+status=0; out=$(run $WINHOST fetch) || status=$?
+[[ "$status" != 0 ]] || fail "fetch accepted a cmux_tui.dll that does not match its .sha256:
+$out"
+[[ ! -e "$win/cmux_tui.dll" ]] || fail "a refused DLL was left at $win/cmux_tui.dll"
+publish cmux-tui-dll-x86_64-pc-windows-gnu.dll win-program-dll
+
 # From macOS with CMUX_TUI_TREE_TARGET (a cross bundle).
 rm -rf "$win"
 out=$(EXTRA_ENV=CMUX_TUI_TREE_TARGET=x86_64-pc-windows-gnu run Darwin arm64 fetch) || fail "cross fetch failed:
 $out"
-[[ "$(cat "$win/cmux-tui.exe")" == win-daemon ]] || fail "cross fetch did not write $win/cmux-tui.exe:
+[[ "$(cat "$win/cmux-tui.exe")" == win-thin-daemon ]] || fail "cross fetch did not write $win/cmux-tui.exe:
+$out"
+[[ "$(cat "$win/cmux_tui.dll" 2>/dev/null)" == win-program-dll ]] || fail "cross fetch did not write $win/cmux_tui.dll:
 $out"
 
 echo "pin-cmux-tui-windows-fetch.test.sh: ok"

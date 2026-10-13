@@ -57,7 +57,13 @@ WINDOWS_NAMES = ("cmux-tui-x86_64-pc-windows-gnu.exe",)
 # published when the Windows commit manifest attests it, skipped when that
 # manifest predates it, so republishing an older tree writes the same
 # completion-windows.json bytes. --list-windows-optional-companions lists it.
-WINDOWS_OPTIONAL_NAMES = ("cmux-tui-host-x86_64-pc-windows-gnu.exe",)
+# The program DLL (cx-w0uha; fetched as cmux_tui.dll next to cmux-tui.exe):
+# a Windows build with the thin cmux-tui.exe always attests it, a build from
+# before it has a whole-program exe and no DLL, so it is optional the same way.
+WINDOWS_OPTIONAL_NAMES = (
+    "cmux-tui-host-x86_64-pc-windows-gnu.exe",
+    "cmux-tui-dll-x86_64-pc-windows-gnu.dll",
+)
 REPAIR_POINTER = "cmuxterm-hq REPAIR.md#cmux-tui-tree-publication"
 
 

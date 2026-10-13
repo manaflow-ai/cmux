@@ -92,6 +92,15 @@ NPM_RELAY_PLATFORM_FILES = frozenset(
     {"package.json", NPM_LICENSE_FILE, "bin/chatmux-relay", "bin/cmux-tui", NOTICE_FILE}
 )
 NPM_RELAY_LAUNCHER_FILES = frozenset({"package.json", NPM_LICENSE_FILE, "bin/cmux-relay.js"})
+# Windows (cx-w0uha): cmux-tui.exe is a thin launcher that loads the program
+# from cmux_tui.dll in its own folder, so every Windows package that ships
+# bin/cmux-tui.exe (cmux-tui-win32-x64 and cmux-relay-win32-x64) ships this
+# file beside it. A data file (mode 0644), not an executable.
+NPM_WINDOWS_PROGRAM_DLL = "bin/cmux_tui.dll"
+
+
+def windows_program_dll_files(target: NpmTarget) -> tuple[str, ...]:
+    return (NPM_WINDOWS_PROGRAM_DLL,) if target.os == "win32" else ()
 
 
 def npm_targets(include_windows: bool) -> tuple[NpmTarget, ...]:
@@ -453,8 +462,11 @@ def validate_npm_tree(
         # The Windows package also ships cmux-tui-host.exe, the small
         # per-terminal host the daemon spawns instead of re-exec'ing the large
         # cmux-tui.exe (cx-1vlzr). Windows only; macOS/Linux re-exec cmux-tui.
+        # Its cmux-tui.exe is a thin launcher, so bin/cmux_tui.dll rides
+        # beside it (cx-w0uha).
         host_binaries = ("cmux-tui-host",) if target.os == "win32" else ()
-        host_files = {"bin/cmux-tui-host.exe"} if target.os == "win32" else set()
+        dll_files = windows_program_dll_files(target)
+        host_files = ({"bin/cmux-tui-host.exe"} if target.os == "win32" else set()) | set(dll_files)
         _validate_package_files(
             packages_dir / target.name,
             target,
@@ -472,7 +484,7 @@ def validate_npm_tree(
             ),
             label=target.name,
             version=package_version,
-            data_files=(NPM_SSH_MANIFEST, NOTICE_FILE),
+            data_files=(*dll_files, NPM_SSH_MANIFEST, NOTICE_FILE),
         )
     _validate_ssh_manifests(packages_dir, targets)
     for target in relay_targets:
@@ -489,10 +501,11 @@ def validate_npm_tree(
                     f"bin/cmux-tui{'.exe' if target.os == 'win32' else ''}",
                     NOTICE_FILE,
                 }
+                | set(windows_program_dll_files(target))
             ),
             label=target.name,
             version=package_version,
-            data_files=(NOTICE_FILE,),
+            data_files=(*windows_program_dll_files(target), NOTICE_FILE),
         )
 
     return package_version

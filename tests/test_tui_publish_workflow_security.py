@@ -2022,6 +2022,26 @@ def test_windows_unit_tests_build_without_fat_lto() -> None:
     assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
 
 
+def test_windows_build_ships_the_thin_exe_with_its_program_dll() -> None:
+    # cx-w0uha: the published Windows cmux-tui.exe is the thin launcher
+    # (feature windows-thin-exe) and the program is the cdylib cmux_tui.dll,
+    # which the build stages and uploads beside it and whose runtime the notice
+    # check covers.
+    jobs = _package_workflow_document()["jobs"]
+    assert isinstance(jobs, dict)
+    steps = jobs["build-windows"]["steps"]
+    build = next(s for s in steps if s.get("name") == "Build libghostty-vt + cmux-tui (Windows GNU)")["run"]
+    assert "cargo build -p cmux-tui --features windows-thin-exe --bin cmux-tui " in build
+    assert "cargo rustc -p cmux-tui --lib --crate-type cdylib --release --locked --target x86_64-pc-windows-gnu" in build
+    stage = next(s for s in steps if s.get("name") == "Stage binary")["run"]
+    assert '"dist/cmux-tui-dll-x86_64-pc-windows-gnu.dll"' in stage
+    upload = next(s for s in steps if s.get("name") == "Upload binary artifact")["with"]["path"]
+    assert "dist/cmux-tui-dll-x86_64-pc-windows-gnu.dll" in upload
+    package_steps = jobs["package"]["steps"]
+    notices = next(s for s in package_steps if s.get("name") == "Verify the Windows binaries use the reviewed runtime toolchain")["run"]
+    assert "dist/binaries/*-x86_64-pc-windows-gnu.dll" in notices
+
+
 def test_package_workflow_uses_no_shared_build_cache() -> None:
     # Chief decision 2026-10-12 (#13742): the push-only Windows cargo cache was removed. A
     # pull_request_target job runs pull request code in the base branch's cache scope and gets a

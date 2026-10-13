@@ -51,6 +51,29 @@ LICENSE_SOURCE = Path(__file__).resolve().parents[1] / "npm" / "cmux" / "LICENSE
 # Every platform package ships the third-party notices of its binaries
 # (package_notices.py generate: <kind>-<rust target>.md).
 NOTICE_FILE = "THIRD_PARTY_LICENSES.md"
+# Windows (cx-w0uha): cmux-tui.exe is a thin launcher built with the
+# windows-thin-exe feature; the program is cmux_tui.dll, which the exe loads
+# by full path from its own folder. Every Windows package that ships
+# cmux-tui.exe ships the DLL beside it (build artifact
+# cmux-tui-dll-<rust target>.dll, packaged as bin/cmux_tui.dll).
+WINDOWS_PROGRAM_DLL = "cmux_tui.dll"
+
+
+def windows_program_dll_source(binaries_dir: Path, rust_target: str) -> Path:
+    return binaries_dir / f"cmux-tui-dll-{rust_target}.dll"
+
+
+def copy_windows_program_dll(binaries_dir: Path, rust_target: str, package_dir: Path) -> str:
+    """Copy the program DLL next to bin/cmux-tui.exe; returns its package path."""
+
+    src = windows_program_dll_source(binaries_dir, rust_target)
+    if not src.is_file():
+        raise SystemExit(f"missing program DLL: {src} (cmux-tui.exe is a thin launcher that loads it)")
+    dst = package_dir / "bin" / WINDOWS_PROGRAM_DLL
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(src, dst)
+    dst.chmod(0o644)
+    return f"bin/{WINDOWS_PROGRAM_DLL}"
 
 
 def copy_notice(notices_dir: Path, kind: str, rust_target: str, package_dir: Path) -> None:
@@ -201,7 +224,10 @@ def package_platforms(
             if not host_src.is_file():
                 raise SystemExit(f"missing host binary: {host_src}")
             copy_executable(host_src, package_dir / "bin" / f"cmux-tui-host{ext}")
-            host_files = [f"bin/cmux-tui-host{ext}"]
+            host_files = [
+                f"bin/cmux-tui-host{ext}",
+                copy_windows_program_dll(binaries_dir, target["rust_target"], package_dir),
+            ]
         shutil.copyfile(LICENSE_SOURCE, package_dir / "LICENSE")
         copy_notice(notices_dir, "cmux-tui", target["rust_target"], package_dir)
         manifest_path = package_dir / SSH_MANIFEST
@@ -245,6 +271,11 @@ def package_platforms(
         # platform package. The launcher resolves this bundled binary from the
         # same platform package, so a separate TUI package is not needed.
         copy_executable(tui_src, package_dir / "bin" / f"cmux-tui{ext}")
+        # The Windows cmux-tui.exe is a thin launcher: its program DLL goes
+        # beside it here too (cx-w0uha).
+        dll_files: list[str] = []
+        if target["os"] == "win32":
+            dll_files = [copy_windows_program_dll(binaries_dir, target["rust_target"], package_dir)]
         shutil.copyfile(LICENSE_SOURCE, package_dir / "LICENSE")
         copy_notice(notices_dir, "relay", target["rust_target"], package_dir)
         write_json(
@@ -261,7 +292,7 @@ def package_platforms(
                 "license": "GPL-3.0-or-later",
                 "os": [target["os"]],
                 "cpu": [target["cpu"]],
-                "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}", NOTICE_FILE],
+                "files": [f"bin/chatmux-relay{ext}", f"bin/cmux-tui{ext}", *dll_files, NOTICE_FILE],
             },
         )
 

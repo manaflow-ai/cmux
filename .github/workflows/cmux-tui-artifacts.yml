@@ -27,6 +27,10 @@ name: cmux-tui artifacts
 #   cmux-tui/tree/<tree-key>/cmux-tui-x86_64-pc-windows-gnu.exe(.sha256)  the
 #                                                  Windows daemon (unsigned) for GPUI;
 #                                                  completion-windows.json names its commit
+#   cmux-tui/tree/<tree-key>/cmux-tui-{host,dll}-x86_64-pc-windows-gnu.{exe,dll}(.sha256)
+#                                                  its terminal host and the program DLL
+#                                                  its thin exe loads (fetched as
+#                                                  cmux-tui-host.exe and cmux_tui.dll)
 #   cmux-tui-windows/<commit-sha>/cmux-tui-x86_64-pc-windows-gnu.exe  immutable, its
 #                                                  own prefix: never in cmux-tui/latest
 #   cmux-tui-windows/<commit-sha>/manifest.json
@@ -945,7 +949,9 @@ jobs:
       # The Windows build artifact (cmux-tui-x86_64-pc-windows-gnu) carries
       # the hook and both relays too. Only the daemon and its per-terminal
       # host (cmux-tui-host, cx-1vlzr: the daemon spawns it beside itself)
-      # are published, and in their own prefix (see the build job).
+      # and the program DLL its thin exe loads (cmux-tui-dll-*.dll, shipped as
+      # cmux_tui.dll, cx-w0uha) are published, and in their own prefix (see
+      # the build job).
       - name: Move the Windows daemon to its own prefix
         id: windows
         run: |
@@ -965,8 +971,15 @@ jobs:
             exit 1
           fi
           mv assets/cmux-tui/cmux-tui-host-x86_64-pc-windows-gnu.exe assets/cmux-tui-windows/
+          # cmux-tui.exe is a thin launcher (cx-w0uha): without its program
+          # DLL it cannot start, so the DLL is required beside it.
+          if [[ ! -f assets/cmux-tui/cmux-tui-dll-x86_64-pc-windows-gnu.dll ]]; then
+            echo "::error title=no Windows program DLL::the Windows build made cmux-tui-x86_64-pc-windows-gnu.exe but no cmux-tui-dll-x86_64-pc-windows-gnu.dll"
+            exit 1
+          fi
+          mv assets/cmux-tui/cmux-tui-dll-x86_64-pc-windows-gnu.dll assets/cmux-tui-windows/
           # The rest of the Windows build: the hook and both relays.
-          rm -f assets/cmux-tui/*-x86_64-pc-windows-gnu.exe
+          rm -f assets/cmux-tui/*-x86_64-pc-windows-gnu.exe assets/cmux-tui/*-x86_64-pc-windows-gnu.dll
           ls assets/cmux-tui assets/cmux-tui-windows
 
       - name: Download cmux-relay binaries
@@ -1222,6 +1235,7 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-dll-x86_64-pc-windows-gnu.dll \
             --artifact-directory assets/cmux-tui
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1230,6 +1244,7 @@ jobs:
               --require-provenance \
               --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --require-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+              --require-artifact cmux-tui-dll-x86_64-pc-windows-gnu.dll \
               --artifact-directory assets/cmux-tui-windows
           fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1438,6 +1453,7 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-dll-x86_64-pc-windows-gnu.dll \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1446,6 +1462,7 @@ jobs:
               --require-provenance \
               --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --require-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+              --require-artifact cmux-tui-dll-x86_64-pc-windows-gnu.dll \
               --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
           fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1537,6 +1554,7 @@ jobs:
             --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
             --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+            --forbid-artifact cmux-tui-dll-x86_64-pc-windows-gnu.dll \
             --artifact-base-url "https://files.cmux.com/cmux-tui/$GITHUB_SHA"
           if [[ -d assets/cmux-tui-windows ]]; then
             python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1545,6 +1563,7 @@ jobs:
               --require-provenance \
               --require-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --require-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+              --require-artifact cmux-tui-dll-x86_64-pc-windows-gnu.dll \
               --artifact-base-url "https://files.cmux.com/cmux-tui-windows/$GITHUB_SHA"
           fi
           python3 cmux-tui/scripts/verify_published_manifest.py \
@@ -1582,6 +1601,7 @@ jobs:
               --forbid-artifact cmux-tui-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-hook-x86_64-pc-windows-gnu.exe \
               --forbid-artifact cmux-tui-host-x86_64-pc-windows-gnu.exe \
+              --forbid-artifact cmux-tui-dll-x86_64-pc-windows-gnu.dll \
               --artifact-base-url "https://files.cmux.com/cmux-tui/latest"
             python3 cmux-tui/scripts/verify_published_manifest.py \
               --manifest-url "https://files.cmux.com/cmux-relay/latest/manifest.json?verify=$GITHUB_SHA" \
@@ -1840,8 +1860,8 @@ jobs:
 
       # GPUI's Windows daemon mode fetches the Windows daemon by tree key
       # (pin-cmux-tui.sh fetch on Git Bash, or CMUX_TUI_TREE_TARGET). The
-      # Windows build artifact also holds the hook and relays; only the daemon
-      # goes into the tree.
+      # Windows build artifact also holds the hook and relays; only the daemon,
+      # its terminal host and its program DLL go into the tree.
       # Optional (build windows_optional): absent when the Windows build failed.
       - name: Download the Windows x86_64 cmux-tui
         continue-on-error: true

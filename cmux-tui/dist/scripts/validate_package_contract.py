@@ -309,6 +309,7 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
         NPM_LICENSE_FILE,
         NPM_RELAY_LAUNCHER_FILES,
         NPM_SSH_MANIFEST,
+        NPM_WINDOWS_PROGRAM_DLL,
         NOTICE_FILE,
     )
 
@@ -326,6 +327,8 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
                 f"bin/cmux-tui{extension}",
                 NOTICE_FILE,
             }
+            # The Windows cmux-tui.exe is a thin launcher (cx-w0uha).
+            | ({NPM_WINDOWS_PROGRAM_DLL} if "win32" in package_name else set())
         )
     else:
         extension = ".exe" if "win32" in package_name else ""
@@ -340,6 +343,8 @@ def _validate_npm_archive(archive: Path, package_name: str) -> None:
             }
             # The Windows package also packs the per-terminal host (cx-1vlzr).
             | ({"bin/cmux-tui-host.exe"} if "win32" in package_name else set())
+            # ...and the program DLL its thin cmux-tui.exe loads (cx-w0uha).
+            | ({NPM_WINDOWS_PROGRAM_DLL} if "win32" in package_name else set())
         )
     expected_names = {f"package/{path}" for path in expected}
     try:

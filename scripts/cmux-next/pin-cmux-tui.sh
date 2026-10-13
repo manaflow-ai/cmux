@@ -752,14 +752,17 @@ fetch_tree_companion() {
   echo "fetched same-tree $file $key to $dir/$file"
 }
 
-# Windows: the per-terminal host the daemon spawns beside itself (cx-1vlzr),
-# tree object cmux-tui-host-<target>.exe, fetched as cmux-tui-host.exe next to
-# cmux-tui.exe and checked against the tree's published .sha256 like the
-# daemon. A tree published before the host has none: the daemon then re-execs
-# itself as the host (slower terminal creation, still correct).
-fetch_tree_windows_host() {
-  local key="$1" dir="$2" file=cmux-tui-host.exe asset url want temp
-  asset="cmux-tui-host-$TARGET.exe"
+# Windows companions of cmux-tui.exe, each a tree object <asset> fetched as
+# <file> next to cmux-tui.exe and checked against the tree's published .sha256
+# like the daemon; a tree published before the companion records `none`:
+# - the per-terminal host the daemon spawns beside itself (cx-1vlzr),
+#   cmux-tui-host-<target>.exe -> cmux-tui-host.exe. Without it the daemon
+#   re-execs itself as the host (slower terminal creation, still correct).
+# - the program DLL the thin cmux-tui.exe loads from its own folder
+#   (cx-w0uha), cmux-tui-dll-<target>.dll -> cmux_tui.dll. A tree without it
+#   has a whole-program cmux-tui.exe that needs no DLL.
+fetch_tree_windows_companion() {
+  local key="$1" dir="$2" asset="$3" file="$4" absent_note="$5" url want temp
   url="$BASE/tree/$key/$asset"
   if [[ -f "$dir/$file.sha256" ]]; then
     want="$(cat "$dir/$file.sha256")"
@@ -767,12 +770,12 @@ fetch_tree_windows_host() {
       return 0
     fi
   fi
-  temp="$(mktemp -d "$dir/.host.XXXXXX")"
+  temp="$(mktemp -d "$dir/.companion.XXXXXX")"
   if ! download "$url.sha256" "$temp/sha256" 2>/dev/null; then
     rm -rf "$temp"
     rm -f "$dir/$file"
     printf 'none\n' > "$dir/$file.sha256"
-    echo "note: tree $key published no $file; terminals start through cmux-tui.exe (slower)"
+    echo "note: tree $key published no $file; $absent_note"
     return 0
   fi
   want="$(awk 'NR==1 {print $1}' "$temp/sha256")"
@@ -788,10 +791,13 @@ fetch_tree_windows_host() {
 }
 
 fetch_tree_companions() {
-  # Windows has one companion, the terminal host; the Windows daemon has no
-  # app, cloud or browser host.
+  # Windows companions: the terminal host and the program DLL; the Windows
+  # daemon has no app, cloud or browser host.
   if [[ -n "$(exe_suffix)" ]]; then
-    fetch_tree_windows_host "$1" "$2"
+    fetch_tree_windows_companion "$1" "$2" "cmux-tui-host-$TARGET.exe" cmux-tui-host.exe \
+      "terminals start through cmux-tui.exe (slower)"
+    fetch_tree_windows_companion "$1" "$2" "cmux-tui-dll-$TARGET.dll" cmux_tui.dll \
+      "its cmux-tui.exe is the whole program"
     return 0
   fi
   fetch_tree_companion "$1" "$2" app-host cmux-app-host

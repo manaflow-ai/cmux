@@ -715,7 +715,15 @@ jobs:
           version="$(sed -nE 's/^[[:space:]]*\.version[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p' build.zig.zon | head -1)"
           zig build -Demit-lib-vt=true -Demit-xcframework=false -Doptimize=ReleaseFast -Dtarget=x86_64-windows-gnu -Dversion-string="$version" --prefix "$RUNNER_TEMP/ghostty-vt-win-gnu"
           cd ../cmux-tui
-          cargo build -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target x86_64-pc-windows-gnu
+          # cmux-tui.exe is a thin launcher (feature windows-thin-exe,
+          # cx-w0uha): Windows Defender scans every large image in a new
+          # shell's process lineage, so the daemon exe stays small and the
+          # program is cmux_tui.dll, which the exe loads by full path from its
+          # own folder. The cdylib build writes target/.../release/cmux_tui.dll
+          # beside cmux-tui.exe, so the smoke steps below run the shipped pair.
+          cargo build -p cmux-tui --features windows-thin-exe --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target x86_64-pc-windows-gnu
+          cargo rustc -p cmux-tui --lib --crate-type cdylib --release --locked --target x86_64-pc-windows-gnu
+          test -f target/x86_64-pc-windows-gnu/release/cmux_tui.dll
           cargo build -p cmux-relay --bin cmux-relay --release --locked --target x86_64-pc-windows-gnu
           cargo build -p chatmux-relay --bin chatmux-relay --release --locked --target x86_64-pc-windows-gnu
 
@@ -785,6 +793,9 @@ jobs:
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui.exe" "dist/cmux-tui-x86_64-pc-windows-gnu.exe"
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui-hook.exe" "dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe"
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-tui-host.exe" "dist/cmux-tui-host-x86_64-pc-windows-gnu.exe"
+          # The program DLL the thin cmux-tui.exe loads (cx-w0uha); every
+          # package and publication ships it beside cmux-tui.exe as cmux_tui.dll.
+          cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux_tui.dll" "dist/cmux-tui-dll-x86_64-pc-windows-gnu.dll"
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/cmux-relay.exe" "dist/cmux-relay-x86_64-pc-windows-gnu.exe"
           cp "cmux-tui/target/x86_64-pc-windows-gnu/release/chatmux-relay.exe" "dist/chatmux-relay-x86_64-pc-windows-gnu.exe"
           ls -la dist
@@ -798,6 +809,7 @@ jobs:
             dist/cmux-tui-x86_64-pc-windows-gnu.exe
             dist/cmux-tui-hook-x86_64-pc-windows-gnu.exe
             dist/cmux-tui-host-x86_64-pc-windows-gnu.exe
+            dist/cmux-tui-dll-x86_64-pc-windows-gnu.dll
             dist/cmux-relay-x86_64-pc-windows-gnu.exe
             dist/chatmux-relay-x86_64-pc-windows-gnu.exe
           if-no-files-found: error
@@ -877,7 +889,7 @@ jobs:
       # by another GCC build fails here until that toolchain is reviewed.
       - name: Verify the Windows binaries use the reviewed runtime toolchain
         if: inputs.include_windows
-        run: python3 cmux-tui/dist/scripts/package_notices.py check-windows-binary dist/binaries/*-x86_64-pc-windows-gnu.exe
+        run: python3 cmux-tui/dist/scripts/package_notices.py check-windows-binary dist/binaries/*-x86_64-pc-windows-gnu.exe dist/binaries/*-x86_64-pc-windows-gnu.dll
 
       # THIRD_PARTY_LICENSES.md for each platform package and wheel: the exact
       # target's Rust crates, Rust std, Zig, libghostty-vt's linked packages,

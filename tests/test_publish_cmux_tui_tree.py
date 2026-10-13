@@ -239,6 +239,55 @@ def test_windows_companion_must_match_its_manifest(tmp_path: Path) -> None:
     assert not (tmp_path / "uploads.jsonl").exists()
 
 
+WINDOWS_HOST_NAME = "cmux-tui-host-x86_64-pc-windows-gnu.exe"
+WINDOWS_DLL_NAME = "cmux-tui-dll-x86_64-pc-windows-gnu.dll"
+
+
+def test_thin_windows_exe_publishes_its_host_and_program_dll(tmp_path: Path) -> None:
+    # cx-w0uha: the thin cmux-tui.exe loads the program from cmux_tui.dll beside
+    # it, so a Windows build that attests the DLL publishes it (and the host)
+    # into the tree with .sha256 objects and completion-windows.json entries.
+    assert publisher.WINDOWS_OPTIONAL_NAMES == (WINDOWS_HOST_NAME, WINDOWS_DLL_NAME)
+    result = subprocess.run([sys.executable, str(SCRIPT), "--list-windows-optional-companions"],
+                            text=True, capture_output=True, check=True)
+    assert tuple(result.stdout.split()) == publisher.WINDOWS_OPTIONAL_NAMES
+    assets, manifest, source, uploader = _fixture(tmp_path)
+    windows_manifest = _windows_fixture(tmp_path, "c" * 40)
+    attested = json.loads(windows_manifest.read_text())
+    for name, data in ((WINDOWS_HOST_NAME, b"host" * 9), (WINDOWS_DLL_NAME, b"program-dll" * 13)):
+        (assets / name).write_bytes(data)
+        attested["binaries"][name] = hashlib.sha256(data).hexdigest()
+    windows_manifest.write_text(json.dumps(attested))
+    _contents_uploader(uploader)
+    digests = publisher.publish_tree(
+        key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+        endpoint_url="https://r2.example", bucket="cmux-binaries",
+        manifest_file=manifest, source_file=source,
+        windows_manifest_file=windows_manifest, windows_source_commit="c" * 40)
+    uploads = [json.loads(line) for line in (tmp_path / "contents.jsonl").read_text().splitlines()]
+    by_key = {item["key"].rsplit("/", 1)[-1]: item["text"] for item in uploads}
+    windows = json.loads(by_key["completion-windows.json"])
+    for name in (WINDOWS_NAME, WINDOWS_HOST_NAME, WINDOWS_DLL_NAME):
+        digest = attested["binaries"][name]
+        assert digests[name] == digest
+        assert windows["binaries"][name] == digest
+        assert by_key[f"{name}.sha256"] == f"{digest}  {name}\n"
+    assert WINDOWS_DLL_NAME not in json.loads(by_key["completion-linux.json"])["binaries"]
+
+    # A DLL whose bytes differ from the Windows manifest fails the publication.
+    (assets / WINDOWS_DLL_NAME).write_bytes(b"tampered")
+    try:
+        publisher.publish_tree(
+            key="b" * 40, source_commit="a" * 40, assets_dir=assets, uploader=uploader,
+            endpoint_url="https://r2.example", bucket="cmux-binaries",
+            manifest_file=manifest, source_file=source,
+            windows_manifest_file=windows_manifest, windows_source_commit="c" * 40)
+    except publisher.PublicationError as error:
+        assert WINDOWS_DLL_NAME in str(error) and "does not match" in str(error), error
+    else:
+        raise AssertionError("published a program DLL that does not match its manifest")
+
+
 def test_without_windows_arguments_no_windows_object_is_written(tmp_path: Path) -> None:
     # The pull_request_target publisher (base helper) passes no Windows arguments.
     _assets, digests, uploaded = _run_publish(tmp_path)

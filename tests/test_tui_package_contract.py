@@ -534,6 +534,56 @@ def test_npm_builder_ships_the_notice_of_each_target(tmp_path: Path) -> None:
     assert (relay / NOTICE).read_text() == notice_text("relay", "aarch64-apple-darwin")
 
 
+def test_npm_windows_packages_ship_the_program_dll_beside_cmux_tui_exe(tmp_path: Path) -> None:
+    # cx-w0uha: the Windows cmux-tui.exe is a thin launcher that loads the
+    # program from cmux_tui.dll in its own folder, so both Windows packages that
+    # ship bin/cmux-tui.exe (cmux-tui-win32-x64, cmux-relay-win32-x64) ship
+    # bin/cmux_tui.dll beside it, and npm packs it.
+    windows = "x86_64-pc-windows-gnu"
+    binaries = tmp_path / "binaries"
+    for target in RUST_TARGETS.values():
+        write_executable(binaries / f"cmux-tui-{target}", f"cmux-tui {target}")
+        write_executable(binaries / f"cmux-tui-hook-{target}", "hook")
+        write_relay_binary_fixture(binaries / f"chatmux-relay-{target}")
+    for name in (f"cmux-tui-{windows}.exe", f"cmux-tui-hook-{windows}.exe",
+                 f"cmux-tui-host-{windows}.exe", f"chatmux-relay-{windows}.exe"):
+        write_executable(binaries / name, name)
+    notices = write_notices(tmp_path / "notices")
+    for kind in ("cmux-tui", "relay"):
+        (notices / f"{kind}-{windows}.md").write_text(notice_text(kind, windows))
+    packages = tmp_path / "npm-packages"
+    command = [
+        sys.executable, str(NPM_BUILDER), "--binaries-dir", str(binaries), "--version", VERSION,
+        "--build-commit", BUILD_COMMIT, "--out", str(packages), "--notices-dir", str(notices),
+        "--include-windows",
+    ]
+    missing = subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
+    assert missing.returncode != 0
+    assert f"cmux-tui-dll-{windows}.dll" in missing.stderr, missing.stderr
+
+    (binaries / f"cmux-tui-dll-{windows}.dll").write_bytes(b"MZ program dll")
+    built = subprocess.run(command, cwd=ROOT, check=False, capture_output=True, text=True)
+    assert built.returncode == 0, built.stderr
+    for package, files in (
+        ("cmux-tui-win32-x64", ["bin/cmux-tui.exe", "bin/cmux-tui-hook.exe", "bin/cmux-tui-host.exe",
+                                "bin/cmux_tui.dll", SSH_MANIFEST, NOTICE]),
+        ("cmux-relay-win32-x64", ["bin/chatmux-relay.exe", "bin/cmux-tui.exe", "bin/cmux_tui.dll", NOTICE]),
+    ):
+        assert json.loads((packages / package / "package.json").read_text())["files"] == files
+        assert (packages / package / "bin/cmux_tui.dll").read_bytes() == b"MZ program dll"
+    # Unix packages carry no DLL.
+    assert not (packages / "cmux-tui-linux-x64/bin/cmux_tui.dll").exists()
+
+    # The contract (tree and packed archives) accepts the pair...
+    result = run_validator("--npm-packages", str(packages), "--version", VERSION, "--include-windows")
+    assert result.returncode == 0, result.stderr
+    # ...and refuses a Windows package without the DLL.
+    (packages / "cmux-relay-win32-x64/bin/cmux_tui.dll").unlink()
+    result = run_validator("--npm-packages", str(packages), "--version", VERSION, "--include-windows")
+    assert result.returncode != 0
+    assert "cmux-relay-win32-x64" in result.stderr and "cmux_tui.dll" in result.stderr, result.stderr
+
+
 def test_pypi_wheels_ship_the_notice_as_a_license_file(tmp_path: Path) -> None:
     import zipfile
 
@@ -673,6 +723,7 @@ def main() -> None:
         test_npm_contract_rejects_a_package_without_its_notice,
         test_npm_contract_rejects_a_notice_that_differs_from_the_generated_one,
         test_npm_builder_ships_the_notice_of_each_target,
+        test_npm_windows_packages_ship_the_program_dll_beside_cmux_tui_exe,
         test_pypi_wheels_ship_the_notice_as_a_license_file,
         test_pypi_contract_rejects_a_wheel_whose_notice_differs,
     )
