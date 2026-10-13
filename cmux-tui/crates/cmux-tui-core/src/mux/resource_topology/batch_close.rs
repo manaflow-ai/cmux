@@ -465,18 +465,15 @@ impl Mux {
 
     /// The batch close of a space delete (SPACE-DELETE-CLOSES-ITS-
     /// WORKSPACES): these tabs, ending their terminals, recorded as one
-    /// closed group; `before_patch` deletes the space in the same
-    /// transaction and `result` is the request's result. `bare` are its
-    /// workspaces with no tab, closed in the same group.
+    /// closed group, with `room` (the space's delete, its result and its
+    /// workspaces with no tab) in the same transaction.
     pub(crate) fn close_tabs_for_room_delete(
         &self,
         surfaces: Vec<SurfaceId>,
-        bare: Vec<WorkspaceId>,
         operation: &str,
         fingerprint: &Value,
         mutation: &WorkspaceMutation,
-        before_patch: &dyn Fn(&rusqlite::Transaction<'_>) -> anyhow::Result<()>,
-        result: Value,
+        room: RoomClose<'_>,
     ) -> anyhow::Result<BatchCloseOutcome> {
         self.commit_batch_close(BatchCloseRequest {
             target: BatchCloseTarget::Tabs(surfaces),
@@ -488,7 +485,7 @@ impl Mux {
             expected_workspace_revision: None,
             authorize_workspace: true,
             record_closed: true,
-            room: Some(RoomClose { before_patch, result, bare }),
+            room: Some(room),
         })
     }
 

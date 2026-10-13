@@ -178,12 +178,10 @@ impl Mux {
         };
         let outcome = self.close_tabs_for_room_delete(
             plan.closing,
-            plan.bare,
             operation,
             fingerprint,
             mutation,
-            &before_patch,
-            plan.result,
+            RoomClose { before_patch: &before_patch, result: plan.result, bare: plan.bare },
         )?;
         let personal_revision = self
             .workspace_registry
