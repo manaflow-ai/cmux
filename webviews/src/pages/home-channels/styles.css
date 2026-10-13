@@ -1138,7 +1138,7 @@ body,
   align-items: center;
   gap: 12px;
   padding: 6px 12px;
-  border-bottom: 1px solid var(--hc-border, rgba(128, 128, 128, 0.25));
+  border-bottom: 1px solid var(--page-separator);
   font-size: var(--text-detail);
 }
 .hc-instance-url {
@@ -1180,5 +1180,5 @@ body,
   font-variant-numeric: tabular-nums;
 }
 .hc-gate-error {
-  color: #d33;
+  color: var(--hc-danger);
 }
