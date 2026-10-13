@@ -662,7 +662,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Couldn't create a workspace on %1$@: %2$@"
+            "value": "Couldn’t create a workspace on %1$@: %2$@"
           }
         },
         "ja": {

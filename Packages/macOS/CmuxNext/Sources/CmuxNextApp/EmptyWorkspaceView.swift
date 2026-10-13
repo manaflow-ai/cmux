@@ -64,6 +64,14 @@ final class EmptyWorkspaceView: NSView {
         applyColors()
     }
 
+    /// The failure line wraps to the view's width (at most 520 pt), so its
+    /// height fits a narrow pane.
+    override func layout() {
+        let width = min(520, max(0, bounds.width - 2 * Metrics.space6))
+        if detailLabel.preferredMaxLayoutWidth != width { detailLabel.preferredMaxLayoutWidth = width }
+        super.layout()
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

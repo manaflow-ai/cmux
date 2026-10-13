@@ -68,6 +68,13 @@ final class EmptyWorkspaceRepair {
     /// Why the last first-terminal create of a workspace failed, until a
     /// pane shows or the person asks again.
     private(set) var failures: [WorkspaceKey: String] = [:]
+    /// The connection epoch each failure happened on: a reconnect lifts the
+    /// hold on the automatic refill (a dropped connection is not a broken
+    /// host), so a slow host still costs at most one try per connection.
+    @ObservationIgnored private var failureEpochs: [WorkspaceKey: Int] = [:]
+    /// Workspaces whose create failed and whose close afterwards failed too:
+    /// still there and empty, so they are released, not left `.closing`.
+    @ObservationIgnored private var keptAfterFailedClose: Set<WorkspaceKey> = []
     /// The last emptied workspaces and what this app did with each (closed,
     /// or kept with a new terminal), newest last, for `debug.windows`: a
     /// workspace that disappears is always explained.
@@ -166,7 +173,8 @@ final class EmptyWorkspaceRepair {
         let present = Set(store.workspaces.compactMap(\.key))
         populated = populated.filter { present.contains($0.key) }
         for key in states.keys where !present.contains(key) && states[key] == .closing { states[key] = nil }
-        for key in failures.keys where !present.contains(key) { failures[key] = nil }
+        for key in failures.keys where !present.contains(key) { clearFailure(key) }
+        keptAfterFailedClose.formIntersection(present)
     }
 
     /// The store's home workspace (workspace-kind-v1) starts empty on
@@ -182,7 +190,7 @@ final class EmptyWorkspaceRepair {
 
     private func notePopulated(_ key: WorkspaceKey) {
         populated[key] = epoch()
-        if failures[key] != nil { failures[key] = nil }
+        if failures[key] != nil { clearFailure(key) }
         // Whoever created the terminal is done, unless this app is still
         // inside its own populate call or closing it.
         if states[key] == .awaitingPane { states[key] = nil }
@@ -210,7 +218,7 @@ final class EmptyWorkspaceRepair {
                 } catch {
                     if states[key] == .awaitingPane {
                         states[key] = nil
-                        failures[key] = String(describing: error)
+                        recordFailure(key, error)
                     }
                     logger.error("refilling a workspace with a lost terminal failed: \(String(describing: error), privacy: .public)")
                 }
@@ -241,6 +249,7 @@ final class EmptyWorkspaceRepair {
     func check(_ workspace: WorkspaceModel, created: @escaping @MainActor (SurfaceID) -> Void) {
         guard let key = workspace.key, isLive(), !Self.isHome(workspace) else { return }
         guard !Self.hasPane(workspace) else { return notePopulated(key) }
+        if let failed = failureEpochs[key], failed != epoch() { clearFailure(key) }
         guard states[key] == nil, !closeIfEmptied(key), everPopulated.contains(key), failures[key] == nil else { return }
         createTab(key, create: create, created: created)
     }
@@ -250,7 +259,7 @@ final class EmptyWorkspaceRepair {
     /// delta is still in flight.
     func createFirstTab(_ key: WorkspaceKey, created: @escaping @MainActor (SurfaceID) -> Void = { _ in }) {
         guard states[key] == nil, canCreate() else { return }
-        failures[key] = nil
+        clearFailure(key)
         createTab(key, create: createFirst ?? create, created: created)
     }
 
@@ -265,7 +274,7 @@ final class EmptyWorkspaceRepair {
             } catch {
                 if states[key] == .awaitingPane {
                     states[key] = nil
-                    failures[key] = String(describing: error)
+                    recordFailure(key, error)
                 }
                 logger.error("creating a terminal for an empty workspace failed: \(String(describing: error), privacy: .public)")
             }
@@ -295,15 +304,17 @@ final class EmptyWorkspaceRepair {
     /// `populating`, no creator closes this workspace afterwards (cx-tzlqb:
     /// a failed Cmd-T on a slow host kept it blank and every later Cmd-T
     /// was dropped).
+    /// Like a repair, a timed-out start may still bring its pane late (it
+    /// clears the failure); a Return pressed before that adds a second tab.
     func fillFirstTab<T>(_ key: WorkspaceKey, _ body: () async throws -> T) async throws -> T {
         states[key] = .awaitingPane
-        failures[key] = nil
+        clearFailure(key)
         do {
             return try await body()
         } catch {
             if states[key] == .awaitingPane {
                 states[key] = nil
-                failures[key] = String(describing: error)
+                recordFailure(key, error)
             }
             throw error
         }
@@ -321,15 +332,35 @@ final class EmptyWorkspaceRepair {
             finishPopulating(key, succeeded: true)
             return value
         } catch {
-            finishPopulating(key, succeeded: false)
+            finishPopulating(key, succeeded: false, error: error)
             throw error
         }
     }
 
-    private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool) {
+    /// The creator could not close `key` after its first terminal failed
+    /// (`WorkspaceCreation`): it stays, empty, and must not stay `.closing`.
+    func closeFailed(_ key: WorkspaceKey) { keptAfterFailedClose.insert(key) }
+
+    private func recordFailure(_ key: WorkspaceKey, _ error: Error) {
+        failures[key] = String(describing: error)
+        failureEpochs[key] = epoch()
+    }
+
+    private func clearFailure(_ key: WorkspaceKey) {
+        failures[key] = nil
+        failureEpochs[key] = nil
+    }
+
+    private func finishPopulating(_ key: WorkspaceKey, succeeded: Bool, error: Error? = nil) {
         guard case .populating(let count) = states[key] else { return }
         if count > 1 {
             states[key] = .populating(count - 1)
+        } else if !succeeded, keptAfterFailedClose.remove(key) != nil {
+            // Created, its terminal failed, and the close failed too (a slow
+            // or broken host, cx-tzlqb): released with its reason, never a
+            // blank page that drops every Cmd-T.
+            states[key] = nil
+            if let error { recordFailure(key, error) }
         } else {
             // A failed create was closed again by its creator
             // (`WorkspaceCreation`): it is empty on purpose and never
