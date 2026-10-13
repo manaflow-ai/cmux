@@ -648,8 +648,6 @@ async fn admin_connection(
     port: u16,
     stop: Arc<tokio::sync::Notify>,
 ) -> anyhow::Result<()> {
-    // Read now, on this very connection, before anything is written.
-    let provider_peer = free_tier::provider_peer_allowed(&stream);
     let (read, mut write) = stream.into_split();
     let mut lines = BufReader::new(read).lines();
     while let Some(line) = lines.next_line().await? {
@@ -711,7 +709,8 @@ async fn admin_connection(
                 serde_json::json!({"upstream": null})
             }
             AdminRequest::AttestProvider(register) => {
-                if !provider_peer {
+                // The peer check runs on this very connection, before anything is written to it.
+                if !free_tier::provider_peer_allowed(lines.get_ref().get_ref().as_ref()) {
                     write.write_all(b"{\"error\":\"provider refused\"}\n").await?;
                     return Ok(());
                 }

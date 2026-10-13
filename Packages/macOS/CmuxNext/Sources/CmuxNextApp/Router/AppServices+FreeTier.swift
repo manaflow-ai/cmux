@@ -19,14 +19,19 @@ extension AppServices {
               let origin = HomeCloudLease.origin(feed.apiBaseURL) else { return nil }
         let provider = FreeTierAttestProvider(
             environment: acpmux, attest: AppleDeviceAttest(service: .shared, device: .current),
-            keys: KeychainAttestKeyStore(service: "com.cmuxterm.next.free-tier.app-attest", account: "key"),
+            // One item per app: Release, NIGHTLY and DEV builds never share an App Attest key id
+            // (another build's id is an invalid key here and would spend this Mac's monthly grant).
+            keys: KeychainAttestKeyStore(service: "com.cmuxterm.next.free-tier.app-attest.\(Bundle.main.bundleIdentifier ?? "unknown")",
+                                         account: "key"),
             logger: Logger(subsystem: "com.cmuxterm.next", category: "free-tier"))
         let settings = settings, cloud = cloud
         // task-owner: AppDelegate holds it and cancels it at termination; one provider start, then one update per setting or sign-in change
         return Task {
             var started = false
             for await (enabled, managed, signedIn) in ObservationStream({
-                (settings?.snapshot.freeModel.enabled ?? true, settings?.managedKeys["freeModel.enabled"] != nil, cloud.isSignedIn)
+                (settings?.snapshot.freeModel.enabled ?? true, settings?.managedKeys["freeModel.enabled"] != nil,
+                 // A session that is still restoring counts as signed in: no free lease meanwhile.
+                 cloud.isSignedIn || cloud.auth.isRestoring)
             }) {
                 if started {
                     await provider.update(enabled: enabled, managed: managed, signedIn: signedIn)

@@ -23,7 +23,9 @@ cleanup() {
   if [[ -n "$daemon_pid" ]]; then
     ACPMUX_HOME="$home" ACPMUX_SOCKET="$home/s.sock" "$acpmux" daemon shutdown >/dev/null 2>&1 || kill "$daemon_pid" 2>/dev/null
   fi
-  security delete-generic-password -s com.cmuxterm.next.free-tier.app-attest -a key >/dev/null 2>&1
+  if [[ -n "${bundle_id:-}" ]]; then
+    security delete-generic-password -s "com.cmuxterm.next.free-tier.app-attest.$bundle_id" -a key >/dev/null 2>&1
+  fi
   rm -rf "$root"
 }
 trap cleanup EXIT
@@ -32,6 +34,7 @@ sw_vers > "$out/host.txt"; sysctl -n hw.model kern.hv_vmm_present >> "$out/host.
 /usr/bin/ditto -x -k "$zip" "$root/app"
 app="$(find "$root/app" -maxdepth 2 -type d -name '*.app' -print -quit)"
 acpmux="$app/Contents/Resources/bin/acpmux"
+bundle_id="$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$app/Contents/Info.plist")"
 codesign --verify --deep --strict "$app" && echo "signature ok" >> "$out/host.txt"
 codesign -dv "$app" 2>&1 | grep -E '^(Identifier|TeamIdentifier)=' >> "$out/host.txt"
 

@@ -44,6 +44,8 @@ public actor FreeTierAttestProvider {
     private var reconnect: Task<Void, Never>?
     private var backoff = Backoff(initial: .seconds(2), maximum: .seconds(60))
     private var refused = false
+    /// Counts connections: a proof that finishes after a reconnect saves nothing.
+    private var generation = 0
     private let stateContinuation: AsyncStream<FreeTierState>.Continuation
 
     /// The relay's free-tier state, as it reports it (the Settings caption).
@@ -105,6 +107,7 @@ public actor FreeTierAttestProvider {
     private func connect() {
         disconnect()
         guard let origin else { return }
+        generation += 1
         let register = Self.encode([
             "op": "attest_provider", "version": 1, "platform": "mac", "origin": origin,
             "enabled": enabled, "managed": managed, "has_key": keys.load() != nil, "signed_in": signedIn,
@@ -191,17 +194,20 @@ public actor FreeTierAttestProvider {
         guard request["purpose"] as? String == Self.purpose,
               let encoded = request["client_data_hash"] as? String,
               let hash = Data(base64Encoded: encoded), hash.count == 32 else { return ["error": "refused"] }
-        guard enabled else { return ["error": "disabled"] }
+        guard enabled, !signedIn else { return ["error": "disabled"] }
         guard attest.isSupported else { return ["error": "unsupported"] }
         do {
             switch request["req"] as? String {
             case "attest":
+                let started = generation
                 if request["fresh_key"] as? Bool == true { keys.delete() }
                 let keyID: String
                 if let known = keys.load() {
                     keyID = known
                 } else {
                     keyID = try await attest.generateKey()
+                    // A reconnect while the key was made: a newer request owns the key id now.
+                    guard generation == started else { return ["error": "failed"] }
                     keys.save(keyID)
                 }
                 let attestation = try await attest.attestKey(keyID, clientDataHash: hash)

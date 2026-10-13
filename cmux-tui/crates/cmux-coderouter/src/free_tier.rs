@@ -37,12 +37,45 @@ use tokio::sync::{mpsc, oneshot};
 /// The only purpose the app signs for.
 pub const PURPOSE: &str = "cmux.free-tier.v1";
 
-/// The cmux API origins a provider may name: production, staging, the dev Worker.
-const KNOWN_ORIGINS: &[&str] = &[
-    "https://cloud-api.cmux.dev",
-    "https://cloud-api-staging.cmux.dev",
-    "https://cmux-api-development.debussy.workers.dev",
-];
+/// The production cmux API: the only origin a release relay in a release app takes.
+const PRODUCTION_ORIGIN: &str = "https://cloud-api.cmux.dev";
+/// Staging and the dev Worker: only for a DEV build (a debug relay, or a relay
+/// inside a `com.cmuxterm.app.debug*` app, the bundle id the DEV channels use).
+const DEV_ORIGINS: &[&str] =
+    &["https://cloud-api-staging.cmux.dev", "https://cmux-api-development.debussy.workers.dev"];
+
+/// Whether this relay belongs to a DEV build (module docs of [`DEV_ORIGINS`]).
+fn dev_build() -> bool {
+    static DEV: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *DEV.get_or_init(|| {
+        cfg!(debug_assertions)
+            || containing_bundle_id().is_some_and(|id| id.starts_with("com.cmuxterm.app.debug"))
+    })
+}
+
+/// The CFBundleIdentifier of the .app that contains this executable, if any.
+fn containing_bundle_id() -> Option<String> {
+    let exe = std::env::current_exe().ok()?.canonicalize().ok()?;
+    let bundle = exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app"))?;
+    let plist = bundle.join("Contents").join("Info.plist");
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("/usr/bin/plutil")
+            .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
+            .arg(&plist)
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        let id = String::from_utf8(out.stdout).ok()?.trim().to_owned();
+        (out.status.success() && !id.is_empty()).then_some(id)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = plist;
+        None
+    }
+}
 
 /// Longest wait of the request that starts a lease.
 pub const FIRST_WAIT: Duration = Duration::from_secs(20);
@@ -73,11 +106,11 @@ pub enum FreeState {
 }
 
 /// Whether `origin` (an origin string, any trailing slash) is a known cmux API
-/// origin. Debug builds also take `CMUX_ROUTER_FREE_TEST_ORIGIN`, a loopback
+/// origin: production always, staging and the dev Worker only in a DEV build. Debug builds also take `CMUX_ROUTER_FREE_TEST_ORIGIN`, a loopback
 /// origin for the relay's own tests; release builds never read it.
 pub fn known_origin(origin: &str) -> Option<String> {
     let origin = origin.trim_end_matches('/');
-    if KNOWN_ORIGINS.contains(&origin) {
+    if origin == PRODUCTION_ORIGIN || (DEV_ORIGINS.contains(&origin) && dev_build()) {
         return Some(origin.to_owned());
     }
     #[cfg(debug_assertions)]
@@ -326,6 +359,9 @@ impl FreeTier {
             inner.retry_at = None;
             inner.failures = 0;
             Self::apply_setting(&mut inner, register.enabled, register.managed, true);
+            if register.signed_in {
+                Self::set_state(&mut inner, FreeState::Off, None);
+            }
         }
         let writer = tokio::spawn(async move {
             while let Some(line) = outgoing.recv().await {
@@ -357,10 +393,12 @@ impl FreeTier {
                 let mut inner = self.lock();
                 if inner.provider.as_ref().is_some_and(|p| p.generation == generation) {
                     inner.signed_in = signed_in;
-                    if signed_in {
-                        inner.token = None;
-                    }
                     Self::apply_setting(&mut inner, enabled, managed, false);
+                    if signed_in {
+                        // The account bearer serves this Mac now: no free token, no lease.
+                        inner.token = None;
+                        Self::set_state(&mut inner, FreeState::Off, None);
+                    }
                 }
             }
         }
@@ -391,8 +429,12 @@ impl FreeTier {
         }
     }
 
-    /// The live free token for `origin`, without a lease.
+    /// The live free token for `origin`, without a lease. Never while the
+    /// setting is off or an account is signed in.
     fn live(inner: &Inner, now: u64) -> Option<(String, String)> {
+        if !inner.enabled || inner.signed_in {
+            return None;
+        }
         let token = inner.token.as_ref()?;
         if token.expires_at <= now + RENEW_MARGIN_S || token.month != utc_month(now) {
             return None;
@@ -474,6 +516,13 @@ impl FreeTier {
         let mut inner = self.lock();
         // The provider changed while the lease ran: its answers do not count.
         if inner.provider.as_ref().is_none_or(|p| p.generation != provider.generation) {
+            return Err(refusal(FreeState::Off));
+        }
+        // The setting turned off, or an account signed in, while the lease ran:
+        // its token is dropped, never stored.
+        if !inner.enabled || inner.signed_in {
+            inner.token = None;
+            Self::set_state(&mut inner, FreeState::Off, None);
             return Err(refusal(FreeState::Off));
         }
         let now = unix_now();

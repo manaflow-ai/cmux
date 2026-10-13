@@ -177,13 +177,16 @@ fn chat(port: u16, key: &str) -> (u16, Value) {
     (status, serde_json::from_str(json).unwrap_or(Value::Null))
 }
 
+/// A stand-in app that holds each answer: (arrived signal, release).
+type Gate = (std::sync::mpsc::Sender<()>, std::sync::mpsc::Receiver<()>);
+
 /// What the stand-in app was asked: (req, purpose, client_data_hash bytes, fresh_key).
 type Asked = Arc<Mutex<Vec<(String, String, Vec<u8>, Option<bool>)>>>;
 
 /// A stand-in app provider: registers, then answers every request with
 /// fixed proof strings. Returns the connection (dropping it ends the provider).
 fn provider(dir: &Path, origin: &str, has_key: bool, asked: Asked) -> UnixStream {
-    provider_with(dir, origin, has_key, false, asked)
+    provider_with(dir, origin, has_key, false, asked, None)
 }
 
 fn provider_with(
@@ -192,6 +195,7 @@ fn provider_with(
     has_key: bool,
     signed_in: bool,
     asked: Asked,
+    gate: Option<Gate>,
 ) -> UnixStream {
     let stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
     let mut write = stream.try_clone().unwrap();
@@ -217,6 +221,11 @@ fn provider_with(
                 hash,
                 message.get("fresh_key").and_then(Value::as_bool),
             ));
+            // A slow app: say the request arrived, then answer only when released.
+            if let Some((arrived, release)) = &gate {
+                let _ = arrived.send(());
+                let _ = release.recv();
+            }
             let key = "a2V5LWlkLWZvci10aGUtdGVzdC1kZXZpY2UtMDEyMzQ1Ng";
             let reply = if req == "attest" {
                 json!({"id": id, "key_id": key, "attestation": "YXR0ZXN0YXRpb24", "device_token": "ZGV2aWNlLXRva2Vu"})
@@ -415,7 +424,7 @@ fn a_signed_in_app_never_takes_a_free_lease() {
     let (key, port) = mint(&dir);
     let asked: Asked = Arc::default();
     // Signed in, but the account bearer has not reached this relay yet (a restart).
-    let _held = provider_with(&dir, &origin, true, true, asked.clone());
+    let _held = provider_with(&dir, &origin, true, true, asked.clone(), None);
 
     let (status, body) = chat(port, &key);
     assert_eq!(status, 503, "{body}");
@@ -423,4 +432,55 @@ fn a_signed_in_app_never_takes_a_free_lease() {
     assert!(asked.lock().unwrap().is_empty());
     assert!(api.lock().unwrap().seen.is_empty());
     drop(relay);
+}
+
+#[test]
+fn a_lease_in_flight_stores_no_token_after_the_setting_turns_off_or_an_account_signs_in() {
+    for change in [
+        json!({"enabled": false, "managed": false, "signed_in": false}),
+        json!({"enabled": true, "managed": false, "signed_in": true}),
+    ] {
+        let api = Arc::new(Mutex::new(Api::default()));
+        api.lock().unwrap().answers = vec![
+            ("/v1/inference/free/attest".into(), vec![token_answer("free-token-late")]),
+            ("/v1/inference/chat/completions".into(), vec![(200, json!({"served": true}))]),
+        ];
+        let origin = start_api(api.clone());
+        let dir = scratch("late");
+        let relay = start_relay(&dir, &origin);
+        let (key, port) = mint(&dir);
+        let asked: Asked = Arc::default();
+        let (arrived_tx, arrived) = std::sync::mpsc::channel();
+        let (release, release_rx) = std::sync::mpsc::channel();
+        let held = provider_with(
+            &dir,
+            &origin,
+            false,
+            false,
+            asked.clone(),
+            Some((arrived_tx, release_rx)),
+        );
+
+        let request = std::thread::spawn(move || chat(port, &key));
+        // The app is attesting (slowly) when the person turns the setting off or signs in.
+        arrived.recv_timeout(Duration::from_secs(20)).expect("the relay asked the app for a proof");
+        let mut write = held.try_clone().unwrap();
+        write.write_all(format!("{change}\n").as_bytes()).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while admin(&dir, json!({"op": "status"})).unwrap()["free"]["state"] != "off" {
+            assert!(Instant::now() < deadline, "the change was not seen: {change}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        release.send(()).unwrap();
+
+        let (status, body) = request.join().unwrap();
+        assert_ne!(status, 200, "{change}: {body}");
+        let forwarded =
+            api.lock().unwrap().seen.iter().any(|(p, _, _)| p.ends_with("chat/completions"));
+        assert!(!forwarded, "{change}: a request went out with the free token");
+        let free = admin(&dir, json!({"op": "status"})).unwrap()["free"].clone();
+        assert_eq!(free["state"], "off", "{change}");
+        held.shutdown(std::net::Shutdown::Both).unwrap();
+        drop(relay);
+    }
 }
