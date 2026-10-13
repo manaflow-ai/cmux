@@ -79,6 +79,7 @@ import {
   type VmWorkflowErrorOverrides,
 } from "../../../services/vms/routeHelpers";
 import { vmRequestLocale, vmUnsupportedCopy } from "../../../services/vms/vmErrorMessages";
+import { createRouteAnswerDeadline } from "../../../services/vms/routeDeadline";
 import { runVmRoute } from "../../../services/vms/routeWorkflow";
 import { captureVmProvisionOutcome } from "../../../services/vms/observability";
 import { annotateVmRequestBilling } from "../../../services/vms/requestContext";
@@ -94,12 +95,12 @@ import {
 import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 
 
-// Cold creates (provider VM boot, image pull, cmux-tui bootstrap) routinely
-// run minutes; without an explicit budget the platform default killed them
-// mid-provision. 600s caps a hung provider call well below the 20-minute
-// stuck-provisioning alert. The plan allows more (app/v1/responses/route.ts
-// uses 1800).
-export const maxDuration = 600;
+// Provisioning can run minutes; without an explicit budget the platform
+// default killed it mid-provision. 960 s leaves a create answered "in
+// progress" (routeDeadline.ts, 25 s) its full 15-minute provider deadline plus
+// failure bookkeeping, well below the 20-minute stuck-provisioning alert. The
+// plan allows more (app/v1/responses/route.ts uses 1800).
+export const maxDuration = 960;
 const VM_CREATE_ADMISSION_BUDGET_MS = 200;
 
 function createResourceFields(resourceReservation: { readonly vcpus: number; readonly memoryMb: number } | null | undefined) {
@@ -412,6 +413,7 @@ export async function POST(request: Request): Promise<Response> {
         deferAfterResponse: (work) => runAfterResponse(() => Effect.runPromise(work)),
       }), {
         request,
+        ...createRouteAnswerDeadline(idempotencyKey),
         onError: createErrorResponders(entitlements),
       });
       if (!run.ok) return run.response;

@@ -24,6 +24,8 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
     static func requestCounts() async -> [String: Int] { await responses.counts }
     /// The `X-Cmux-Team-Id` header of every request, in arrival order.
     static func teamHeaders() async -> [String?] { await responses.teamHeaders }
+    /// The `x-cmux-client-timeout-ms` header of every request, in arrival order.
+    static func budgetHeaders() async -> [String?] { await responses.budgetHeaders }
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() { Task { await Self.responses.start(self) } }
@@ -32,6 +34,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
     private actor Responses {
         private(set) var counts: [String: Int] = [:]
         private(set) var teamHeaders: [String?] = []
+        private(set) var budgetHeaders: [String?] = []
         private var tasks: [UUID: Task<Void, Never>] = [:]
         private var behavior = Behavior.normal
         private var held = false
@@ -65,6 +68,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             tasks.removeAll()
             counts.removeAll()
             teamHeaders.removeAll()
+            budgetHeaders.removeAll()
             behavior = .normal
             stoppedRequests.removeAll()
             stopCount = 0
@@ -76,6 +80,7 @@ final class CloudRefreshURLProtocol: URLProtocol, @unchecked Sendable {
             let method = source.request.httpMethod ?? "GET"
             counts[path, default: 0] += 1
             teamHeaders.append(source.request.value(forHTTPHeaderField: "X-Cmux-Team-Id"))
+            budgetHeaders.append(source.request.value(forHTTPHeaderField: "x-cmux-client-timeout-ms"))
             let count = counts.values.reduce(0, +)
             let ready = startWaiters.filter { $0.0 <= count }
             startWaiters.removeAll { $0.0 <= count }

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { applyHexclaveWebhookEvent, type HexclaveSyncDependencies } from "../services/auth/hexclave/sync";
 import { hexclaveWebhookEventTypes } from "../services/auth/hexclave/webhookEvents";
+import { HexclaveApiError } from "../services/auth/hexclave/serverApi";
 import { handleStackWebhook, type StackWebhookDependencies } from "../services/auth/stackWebhook";
 import {
   OTHER_TEAM_ID,
@@ -125,6 +126,30 @@ describe("Hexclave webhook boundary", () => {
     expect((await post("user.created", serverUser(), "msg_retry")).status).toBe(200);
     expect(mirror.users.get(USER_ID)?.id).toBe(USER_ID);
     expect(mirror.events.get("msg_retry")).toMatchObject({ outcome: "processed", processed: true, attempts: 2 });
+  });
+
+  test("a Hexclave throttle answers 503 with Retry-After so Svix redelivers", async () => {
+    const { hexclave, mirror, logs, post } = harness();
+    seed(hexclave);
+    hexclave.failNext = new HexclaveApiError("Hexclave GET teams failed", { status: 429 });
+    const throttled = await post("user.updated", serverUser(), "msg_throttled");
+    expect(throttled.status).toBe(503);
+    expect(throttled.headers.get("retry-after")).toBe("60");
+    expect(await throttled.json()).toEqual({ error: "provider_unavailable", retryable: true });
+    expect(mirror.events.get("msg_throttled")).toMatchObject({ outcome: "failed", processed: false });
+    expect(logs.some((entry) => entry.level === "warn" && entry.message === "stack_webhook_provider_unavailable")).toBe(true);
+    expect((await post("user.updated", serverUser(), "msg_throttled")).status).toBe(200);
+  });
+
+  test("a Hexclave 5xx or timeout answers 503, a local failure still answers 500", async () => {
+    const { hexclave, post } = harness();
+    seed(hexclave);
+    hexclave.failNext = new HexclaveApiError("Hexclave GET users failed", { status: 502 });
+    expect((await post("user.updated", serverUser())).status).toBe(503);
+    hexclave.failNext = new DOMException("The operation timed out.", "TimeoutError");
+    expect((await post("user.updated", serverUser())).status).toBe(503);
+    hexclave.failNext = new HexclaveApiError("Hexclave GET users failed schema validation", { errors: ["id"] });
+    expect((await post("user.updated", serverUser())).status).toBe(500);
   });
 
   test("a failed revocation answers 500 and the retry revokes again", async () => {
