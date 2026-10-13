@@ -83,6 +83,7 @@ public final class VNCWebRTCHost: @unchecked Sendable {
                     self?.startMetrics(link)
                 case let .message(data): self?.forwardToServer(data, from: link)
                 case .closed: self?.end(link)
+                case .video: break
                 case let .path(local, remote): self?.log("path: this Mac \(local) ↔ viewer \(remote)\(local == "relay" || remote == "relay" ? " (TURN relay)" : " (direct)")")
                 }
             }

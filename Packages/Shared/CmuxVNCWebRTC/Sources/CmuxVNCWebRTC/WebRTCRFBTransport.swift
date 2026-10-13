@@ -44,7 +44,7 @@ public final class WebRTCRFBTransport: RFBTransport, @unchecked Sendable {
                 case .closed:
                     opened.fire(RFBError.connectionClosed)
                     sink.finish()
-                case .path:
+                case .path, .video:
                     break
                 }
             }

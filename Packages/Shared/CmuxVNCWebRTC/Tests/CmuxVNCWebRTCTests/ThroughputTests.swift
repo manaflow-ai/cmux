@@ -43,7 +43,7 @@ struct ThroughputTests {
                 case .open: opened.fire(nil)
                 case let .message(data): if received.add(data.count) >= total { done.fire(nil) }
                 case let .path(local, remote): print("throughput: relay=\(relay) path \(local) ↔ \(remote)")
-                case .closed: break
+                case .closed, .video: break
                 }
             }
         }

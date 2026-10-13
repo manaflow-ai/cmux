@@ -9,22 +9,37 @@ public struct VNCPairing: Sendable, Hashable, Codable {
     public var room: String
     public var secret: String
     public var name: String
+    /// `vnc`: RFB bytes over a data channel. `stream`: the screen as a WebRTC
+    /// video track with input on a data channel (`ScreenStreamHost`).
+    public var kind: String = "vnc"
 
     public static let defaultSignal = URL(string: "https://cmux-vnc-signal.debussy.workers.dev")!
 
-    public init(signal: URL, room: String, secret: String, name: String) {
+    public init(signal: URL, room: String, secret: String, name: String, kind: String = "vnc") {
         self.signal = signal
         self.room = room
         self.secret = secret
         self.name = name
+        self.kind = kind
     }
 
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        signal = try container.decode(URL.self, forKey: .signal)
+        room = try container.decode(String.self, forKey: .room)
+        secret = try container.decode(String.self, forKey: .secret)
+        name = try container.decode(String.self, forKey: .name)
+        kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? "vnc"
+    }
+
+    public var isStream: Bool { kind == "stream" }
+
     /// A new room (128-bit id) and secret (256-bit) on `signal`.
-    public static func generate(name: String, signal: URL = defaultSignal) -> VNCPairing {
+    public static func generate(name: String, signal: URL = defaultSignal, kind: String = "vnc") -> VNCPairing {
         VNCPairing(signal: signal, room: random(16).map { String(format: "%02x", $0) }.joined(),
                    secret: Data(random(32)).base64EncodedString().replacingOccurrences(of: "+", with: "-")
                        .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: ""),
-                   name: name)
+                   name: name, kind: kind)
     }
 
     public var link: URL {
@@ -36,6 +51,7 @@ public struct VNCPairing: Sendable, Hashable, Codable {
             URLQueryItem(name: "room", value: room),
             URLQueryItem(name: "secret", value: secret),
             URLQueryItem(name: "name", value: name),
+            URLQueryItem(name: "kind", value: kind),
         ]
         return components.url!
     }
@@ -48,7 +64,8 @@ public struct VNCPairing: Sendable, Hashable, Codable {
         guard let raw = value("signal"), let signal = URL(string: raw), signal.scheme == "https",
               let room = value("room"), room.count == 32, room.allSatisfy(\.isHexDigit),
               let secret = value("secret"), (32 ... 128).contains(secret.count) else { return nil }
-        self.init(signal: signal, room: room, secret: secret, name: value("name") ?? "Mac")
+        self.init(signal: signal, room: room, secret: secret, name: value("name") ?? "Mac",
+                  kind: value("kind") == "stream" ? "stream" : "vnc")
     }
 
     func url(_ path: String, query: [URLQueryItem] = []) -> URL {

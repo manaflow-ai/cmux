@@ -31,9 +31,10 @@ let package = Package(
         ),
         .target(name: "CmuxVNCWebRTC", dependencies: ["WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
                 swiftSettings: swiftSettings),
-        .executableTarget(name: "cmux-vnc-host", dependencies: ["CmuxVNCWebRTC"], swiftSettings: swiftSettings),
+        .executableTarget(name: "cmux-vnc-host", dependencies: ["CmuxVNCWebRTC", .product(name: "CmuxVNC", package: "CmuxVNC")],
+                          swiftSettings: swiftSettings),
         .testTarget(name: "CmuxVNCWebRTCTests",
-                    dependencies: ["CmuxVNCWebRTC", .product(name: "CmuxVNC", package: "CmuxVNC"),
+                    dependencies: ["CmuxVNCWebRTC", "WebRTC", .product(name: "CmuxVNC", package: "CmuxVNC"),
                                    .product(name: "CmuxVNCDemoServer", package: "CmuxVNC")],
                     swiftSettings: swiftSettings),
     ]

@@ -14,12 +14,15 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         case closed
         /// The ICE pair in use: each side's candidate type (host, srflx, prflx, relay).
         case path(local: String, remote: String)
+        /// Viewer: the host's screen track arrived.
+        case video(VideoTrackBox)
     }
 
     // libwebrtc's factory is thread-safe and owns its threads; one per process.
     nonisolated(unsafe) private static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
-        return RTCPeerConnectionFactory()
+        // Hardware H.264 (VideoToolbox) first, then VP8/VP9/AV1 software.
+        return RTCPeerConnectionFactory(encoderFactory: RTCDefaultVideoEncoderFactory(), decoderFactory: RTCDefaultVideoDecoderFactory())
     }()
 
     /// Largest data channel message (SCTP fragments larger ones less well).
@@ -36,6 +39,7 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     private var pending: [RTCIceCandidate] = []
     private var drained: [CheckedContinuation<Void, Never>] = []
     private var ended = false
+    private var videoTransceiver: RTCRtpTransceiver?
 
     /// `relayOnly` forces the TURN relay (measurements).
     init(iceServers: [ICEServerConfig], relayOnly: Bool = false) throws {
@@ -73,22 +77,45 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
     // MARK: Negotiation
 
-    /// Viewer: opens the `rfb` channel and returns the offer SDP.
-    func offer() async throws -> String {
+    /// Viewer: opens the data channel (`rfb` bytes, or `input` for a screen
+    /// stream that also receives the host's video) and returns the offer SDP.
+    func offer(label: String = "rfb", receiveVideo: Bool = false) async throws -> String {
         let configuration = RTCDataChannelConfiguration()
         configuration.isOrdered = true
-        guard let created = connection.dataChannel(forLabel: "rfb", configuration: configuration) else {
+        guard let created = connection.dataChannel(forLabel: label, configuration: configuration) else {
             throw VNCWebRTCError.peer("could not open the data channel")
         }
         adopt(created)
-        let sdp = try await describe { self.connection.offer(for: Self.constraints, completionHandler: $0) }
+        if receiveVideo {
+            let options = RTCRtpTransceiverInit()
+            options.direction = .recvOnly
+            if let transceiver = connection.addTransceiver(of: .video, init: options) {
+                lock.withLock { videoTransceiver = transceiver }
+            }
+        }
+        var sdp = try await describe { self.connection.offer(for: Self.constraints, completionHandler: $0) }
+        // H.264 first: Apple devices encode and decode it in hardware (VP8 is software).
+        if receiveVideo { sdp = Self.preferH264(sdp) }
         try await apply { self.connection.setLocalDescription(RTCSessionDescription(type: .offer, sdp: sdp), completionHandler: $0) }
         return sdp
     }
 
-    /// Host: answers a viewer's offer.
-    func answer(offer sdp: String) async throws -> String {
+    /// Host: answers a viewer's offer; `video` (a screen source) is sent on
+    /// the viewer's receive-only video transceiver.
+    func answer(offer sdp: String, video: ScreenVideoSource? = nil) async throws -> String {
         try await setRemote(RTCSessionDescription(type: .offer, sdp: sdp))
+        if let video {
+            let track = Self.factory.videoTrack(with: video.source, trackId: "screen")
+            guard let sender = connection.add(track, streamIds: ["screen"]) else { throw VNCWebRTCError.peer("could not add the screen track") }
+            // Sharp text over smooth motion: drop frames before resolution; a generous ceiling.
+            let parameters = sender.parameters
+            parameters.degradationPreference = NSNumber(value: RTCDegradationPreference.maintainResolution.rawValue)
+            for encoding in parameters.encodings {
+                encoding.maxBitrateBps = NSNumber(value: video.maxBitrate)
+                encoding.maxFramerate = NSNumber(value: video.maxFramerate)
+            }
+            sender.parameters = parameters
+        }
         let answer = try await describe { self.connection.answer(for: Self.constraints, completionHandler: $0) }
         try await apply { self.connection.setLocalDescription(RTCSessionDescription(type: .answer, sdp: answer), completionHandler: $0) }
         return answer
@@ -97,6 +124,10 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
     /// Viewer: applies the host's answer.
     func accept(answer sdp: String) async throws {
         try await setRemote(RTCSessionDescription(type: .answer, sdp: sdp))
+        // The receive-only transceiver's track (no didAdd callback for a transceiver this side created).
+        if let track = lock.withLock({ videoTransceiver })?.receiver.track as? RTCVideoTrack {
+            sink.yield(.video(VideoTrackBox(track: track)))
+        }
     }
 
     /// A remote candidate; held until the remote description is set.
@@ -209,6 +240,12 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         finish()
     }
 
+    /// Text messages on the data channel (screen stream control and input).
+    func sendText(_ text: String) -> Bool {
+        guard let channel = lock.withLock({ channel }), channel.readyState == .open else { return false }
+        return channel.sendData(RTCDataBuffer(data: Data(text.utf8), isBinary: false))
+    }
+
     /// libwebrtc must not be closed from inside its own callbacks (signaling thread).
     private func closeOffCallback() {
         DispatchQueue.global(qos: .userInitiated).async { [self] in close() }
@@ -278,8 +315,133 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         return String(parts[index + 1])
     }
 
+    func peerConnection(_ peerConnection: RTCPeerConnection, didAdd rtpReceiver: RTCRtpReceiver, streams mediaStreams: [RTCMediaStream]) {
+        // Reported once, from accept(answer:), for the viewer's own transceiver.
+        guard lock.withLock({ videoTransceiver == nil }), let track = rtpReceiver.track as? RTCVideoTrack else { return }
+        sink.yield(.video(VideoTrackBox(track: track)))
+    }
+
     func peerConnection(_ peerConnection: RTCPeerConnection, didOpen dataChannel: RTCDataChannel) {
         // Host side: the viewer's channel.
         adopt(dataChannel)
+    }
+}
+
+/// The host's screen as a WebRTC video source. Frames are pushed by
+/// `ScreenStreamHost`; libwebrtc encodes (hardware H.264), paces and adapts.
+public final class ScreenVideoSource: @unchecked Sendable {
+    // @unchecked: libwebrtc's source and capturer are thread-safe.
+    let source: RTCVideoSource
+    private let capturer: RTCVideoCapturer
+    let maxBitrate: Int
+    let maxFramerate: Int
+
+    init(maxBitrate: Int = 12_000_000, maxFramerate: Int = 60) {
+        source = VNCPeerLink.makeScreenSource()
+        capturer = RTCVideoCapturer(delegate: source)
+        self.maxBitrate = maxBitrate
+        self.maxFramerate = maxFramerate
+    }
+
+    /// Sends `crop` of `pixelBuffer` (32BGRA or NV12) as the next frame.
+    func push(_ pixelBuffer: CVPixelBuffer, crop: CGRect, timestampNs: Int64) {
+        let x = Int32(crop.minX) & ~1, y = Int32(crop.minY) & ~1
+        let width = Int32(crop.width) & ~1, height = Int32(crop.height) & ~1
+        let buffer = RTCCVPixelBuffer(pixelBuffer: pixelBuffer, adaptedWidth: width, adaptedHeight: height,
+                                      cropWidth: width, cropHeight: height, cropX: x, cropY: y)
+        let frame = RTCVideoFrame(buffer: buffer, rotation: ._0, timeStampNs: timestampNs)
+        source.capturer(capturer, didCapture: frame)
+    }
+}
+
+/// A received video track (libwebrtc objects are thread-safe; not Sendable-annotated).
+public struct VideoTrackBox: @unchecked Sendable {
+    public let track: RTCVideoTrack
+}
+
+extension VNCPeerLink {
+    /// Moves the H.264 payload types to the front of the `m=video` line and
+    /// raises the offered H.264 level so full-resolution screens encode in hardware.
+    static func preferH264(_ sdp: String) -> String {
+        var lines = sdp.components(separatedBy: "\r\n")
+        let h264 = Set(lines.compactMap { line -> String? in
+            guard line.hasPrefix("a=rtpmap:"), line.contains(" H264/") else { return nil }
+            return String(line.dropFirst("a=rtpmap:".count).prefix { $0 != " " })
+        })
+        guard !h264.isEmpty, let index = lines.firstIndex(where: { $0.hasPrefix("m=video ") }) else { return sdp }
+        var parts = lines[index].split(separator: " ").map(String.init)
+        guard parts.count > 3 else { return sdp }
+        let payloads = Array(parts[3...])
+        parts = Array(parts[..<3]) + payloads.filter { h264.contains($0) } + payloads.filter { !h264.contains($0) }
+        lines[index] = parts.joined(separator: " ")
+        // Level 3.1 (…1f) caps a frame near 1280x720: a 1080p screen fails encoder
+        // setup and libwebrtc falls back to software VP8. Apple decodes level 5.2.
+        lines = lines.map { line in
+            guard line.hasPrefix("a=fmtp:") else { return line }
+            return line.replacingOccurrences(of: "profile-level-id=640c1f", with: "profile-level-id=640c34")
+                .replacingOccurrences(of: "profile-level-id=42e01f", with: "profile-level-id=42e034")
+        }
+        return lines.joined(separator: "\r\n")
+    }
+
+    /// Receive codec names, in the factory's order (diagnostics).
+    static func receiveCodecNames() -> [String] { factory.rtpReceiverCapabilities(forKind: "video").codecs.map(\.name) }
+
+    static func makeScreenSource() -> RTCVideoSource { factory.videoSource(forScreenCast: true) }
+}
+
+extension VNCPeerLink {
+    /// Inbound video numbers for the viewer's overlay.
+    func videoStats() async -> ScreenStreamViewer.VideoStats {
+        await withCheckedContinuation { continuation in
+            connection.statistics { report in
+                var stats = ScreenStreamViewer.VideoStats()
+                var codecs: [String: String] = [:]
+                for entry in report.statistics.values where entry.type == "codec" {
+                    codecs[entry.id] = (entry.values["mimeType"] as? String)?.replacingOccurrences(of: "video/", with: "")
+                }
+                for entry in report.statistics.values {
+                    let values = entry.values
+                    if entry.type == "inbound-rtp", (values["kind"] as? String) == "video" {
+                        stats.fps = (values["framesPerSecond"] as? NSNumber)?.doubleValue
+                        stats.bytesReceived = (values["bytesReceived"] as? NSNumber)?.doubleValue ?? 0
+                        stats.framesDecoded = (values["framesDecoded"] as? NSNumber)?.doubleValue ?? 0
+                        if let delay = (values["jitterBufferDelay"] as? NSNumber)?.doubleValue,
+                           let emitted = (values["jitterBufferEmittedCount"] as? NSNumber)?.doubleValue, emitted > 0 {
+                            stats.jitterBufferMs = delay / emitted * 1000
+                        }
+                        if let codec = values["codecId"] as? String { stats.codec = codecs[codec] }
+                        stats.decoder = values["decoderImplementation"] as? String
+                    }
+                    if entry.type == "candidate-pair", (values["nominated"] as? NSNumber)?.boolValue == true,
+                       let rtt = values["currentRoundTripTime"] as? NSNumber {
+                        stats.rttMs = rtt.doubleValue * 1000
+                    }
+                }
+                continuation.resume(returning: stats)
+            }
+        }
+    }
+}
+
+extension VNCPeerLink {
+    /// Outbound video, one line (host diagnostics).
+    func outboundVideoSummary() async -> String {
+        await withCheckedContinuation { continuation in
+            connection.statistics { report in
+                var codecs: [String: String?] = [:]
+                for entry in report.statistics.values where entry.type == "codec" {
+                    codecs[entry.id] = entry.values["mimeType"] as? String
+                }
+                var out = "no outbound video"
+                for entry in report.statistics.values where entry.type == "outbound-rtp" && (entry.values["kind"] as? String) == "video" {
+                    let v = entry.values
+                    func f(_ key: String) -> String { v[key].map { "\($0)" } ?? "?" }
+                    let codec = codecs[(v["codecId"] as? String) ?? ""].flatMap { $0 } ?? "?"
+                    out = "codec \(codec) encoder \(f("encoderImplementation")) powerEfficient \(f("powerEfficientEncoder")) \(f("frameWidth"))x\(f("frameHeight")) fps \(f("framesPerSecond")) encoded \(f("framesEncoded")) limited-by \(f("qualityLimitationReason")) target \(f("targetBitrate")) bps"
+                }
+                continuation.resume(returning: out)
+            }
+        }
     }
 }

@@ -75,9 +75,23 @@ struct LiveLatencyProbe {
         var areas: [Double] = []
         for step in 0 ..< 40 {
             let x = 200 + (step % 2) * 600, y = 300 + (step % 3) * 150
+            let spotlight = env["CMUX_VNC_PROBE_ACTION"] == "spotlight"
+            if spotlight {
+                // Let the previous change finish arriving before the next action.
+                try? await Task.sleep(for: .milliseconds(1500))
+            }
+            let before = await client.stats.frames
             let sent = ContinuousClock.now
-            await client.movePointer(x: x, y: y)
-            guard await frames.next() != nil else { break }
+            if spotlight {
+                if step % 2 == 0 { await client.chord([.command], .space) } else { await client.key(.escape, down: true); await client.key(.escape, down: false) }
+            } else {
+                await client.movePointer(x: x, y: y)
+            }
+            var fresh = false
+            while let frame = await frames.next() {
+                if frame.sequence > before { fresh = true; break }
+            }
+            guard fresh else { break }
             let elapsed = sent.duration(to: .now).components
             samples.append(Double(elapsed.seconds) * 1000 + Double(elapsed.attoseconds) / 1e15)
             if let ms = await client.stats.lastDecodeMs { decode.append(ms) }
@@ -89,3 +103,4 @@ struct LiveLatencyProbe {
         await client.disconnect()
     }
 }
+
