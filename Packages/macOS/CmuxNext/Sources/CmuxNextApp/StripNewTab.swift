@@ -5,7 +5,7 @@ import CmuxNextActions
 /// point of that action.
 enum StripNewTab {
     static let action: ActionID = "newTab.default"
-    /// Option-click on the +: New <Kind> Tab, the selected tab's kind whatever `tabs.newTabKind` says.
+    /// Option-click on the +: New <Kind> Tab, the selected tab's kind, picked on purpose.
     static let sameKindAction: ActionID = "newTab.ofKind"
 
     static func request(pane: String, opensWorkspace: Bool = false, sameKind: Bool = false,

@@ -1534,17 +1534,6 @@
             {
               "keys": [
                 {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl"
-                  ]
-                }
-              ],
-              "when": null
-            },
-            {
-              "keys": [
-                {
                   "key": "]",
                   "modifiers": [
                     "shift",
@@ -1625,18 +1614,6 @@
           },
           "chord": null,
           "aliases": [
-            {
-              "keys": [
-                {
-                  "key": "\t",
-                  "modifiers": [
-                    "ctrl",
-                    "shift"
-                  ]
-                }
-              ],
-              "when": null
-            },
             {
               "keys": [
                 {
@@ -3982,6 +3959,100 @@
           },
           "chord": null,
           "aliases": []
+        },
+        {
+          "id": "nextSurface",
+          "title": {
+            "en": "Next Tab in Pane",
+            "ar": "علامة التبويب التالية في اللوحة",
+            "bs": "Sljedeći tab u panelu",
+            "da": "Næste fane i panelet",
+            "de": "Nächster Tab im Bereich",
+            "es": "Pestaña siguiente del panel",
+            "fr": "Onglet suivant du panneau",
+            "it": "Scheda successiva nel pannello",
+            "ja": "ペイン内の次のタブ",
+            "km": "ថេបបន្ទាប់ក្នុងផ្ទាំង",
+            "ko": "패널 내 다음 탭",
+            "no": "Neste fane i panelet",
+            "pl": "Następna karta w panelu",
+            "pt-BR": "Próxima Aba no Painel",
+            "ru": "Следующая вкладка на панели",
+            "th": "แท็บถัดไปในบานหน้าต่าง",
+            "tr": "Bölmedeki Sonraki Sekme",
+            "uk": "Наступна вкладка на панелі",
+            "vi": "Tab tiếp theo trong khung",
+            "zh-CN": "窗格内的下一个标签页",
+            "zh-TW": "窗格中的下一個標籤頁"
+          },
+          "shortcut": {
+            "key": "\t",
+            "modifiers": [
+              "ctrl"
+            ]
+          },
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
+        },
+        {
+          "id": "prevSurface",
+          "title": {
+            "en": "Previous Tab in Pane",
+            "ar": "علامة التبويب السابقة في اللوحة",
+            "bs": "Prethodni tab u panelu",
+            "da": "Forrige fane i panelet",
+            "de": "Vorheriger Tab im Bereich",
+            "es": "Pestaña anterior del panel",
+            "fr": "Onglet précédent du panneau",
+            "it": "Scheda precedente nel pannello",
+            "ja": "ペイン内の前のタブ",
+            "km": "ថេបមុនក្នុងផ្ទាំង",
+            "ko": "패널 내 이전 탭",
+            "no": "Forrige fane i panelet",
+            "pl": "Poprzednia karta w panelu",
+            "pt-BR": "Aba Anterior no Painel",
+            "ru": "Предыдущая вкладка на панели",
+            "th": "แท็บก่อนหน้าในบานหน้าต่าง",
+            "tr": "Bölmedeki Önceki Sekme",
+            "uk": "Попередня вкладка на панелі",
+            "vi": "Tab trước trong khung",
+            "zh-CN": "窗格内的上一个标签页",
+            "zh-TW": "窗格中的上一個標籤頁"
+          },
+          "shortcut": {
+            "key": "\t",
+            "modifiers": [
+              "ctrl",
+              "shift"
+            ]
+          },
+          "chord": null,
+          "aliases": [
+            {
+              "keys": [
+                {
+                  "key": "\t",
+                  "modifiers": [
+                    "ctrl",
+                    "shift"
+                  ]
+                }
+              ],
+              "when": null
+            }
+          ]
         },
         {
           "id": "moveSurfaceLeft",

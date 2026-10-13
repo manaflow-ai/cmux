@@ -249,7 +249,6 @@ def restore(path, saved):
 def main():
     if not wait(lambda: (rpc("debug.windows") or {}).get("windows"), 60):
         sys.exit("the app does not answer on " + opts.socket)
-    kind = setting("tabs.newTabKind", "page")
     swap = setting("tabs.swapCmdTAndCmdN", False)
     try:
         # A script's workspace starts on a terminal: a pane with a tab strip.
@@ -283,7 +282,6 @@ def main():
         rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "cmd-t-focus.png")})
     finally:
         restore("tabs.swapCmdTAndCmdN", swap)
-        restore("tabs.newTabKind", kind)
 
 
 main()
