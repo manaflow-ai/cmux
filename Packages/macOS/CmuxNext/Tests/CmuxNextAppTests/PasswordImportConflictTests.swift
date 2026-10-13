@@ -58,7 +58,7 @@ struct PasswordImportConflictTests {
         report.store = PasswordStoreReply(added: 0, duplicate: 0, conflict: 1, rejected: 0)
 
         PasswordCSVFiles.trash(file, report: report, hold: hold) { window }
-        let csvToast = { CmuxToastCenter.shared.toasts(in: window).first { $0.id == PasswordCSVFiles.toastID } }
+        let csvToast = { CmuxToastCenter.shared.toasts(in: window).first { $0.id == PasswordCSVFiles.fileToastID(file) } }
         #expect(csvToast()?.action?.title == PasswordCSVStrings.replace)
 
         for index in 1...CmuxToastStack.limit {

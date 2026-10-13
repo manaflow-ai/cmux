@@ -272,9 +272,9 @@ try:
     import_through("chrome", "changed.csv")
     conflict = wait_for(lambda: next((t for t in shown_toasts() if "different password" in t.get("message", "")), None),
                         "the conflict toast", 60)
-    check(conflict is not None and (conflict.get("action") or "").startswith("Replace"),
+    check(conflict is not None and (conflict.get("action") or "").startswith("Replace") and conflict.get("id", "").startswith(CSV_TOAST),
           f"the conflict toast offers Replace ({conflict})")
-    reply = rpc("debug.toast", {"press": CSV_TOAST})
+    reply = rpc("debug.toast", {"press": (conflict or {}).get("id")})
     check(reply.get("pressed") is True, f"a person presses Replace ({reply.get('pressed')})")
     replaced = wait_for(lambda: next((t for t in toasts() if "Replaced:" in t), None), "the replaced toast", 60)
     check(replaced is not None and "Replaced: 1." in replaced, f"the saved password is replaced ({replaced})")
