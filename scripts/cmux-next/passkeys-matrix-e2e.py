@@ -156,25 +156,38 @@ def k16(tab):
     """K16: a partly covered CEF tab stays VISIBLE, so its ceremony completes."""
     specs = js(tab, "JSON.stringify(window.PASSKEY_SCENARIOS['create-platform'].authenticator || {})")
     spec = {"authenticator": json.loads(specs) if isinstance(specs, str) else {}}
+    judged = lambda status: "PASS" if status == "PASS" else "FAIL"
     status, detail = scenario("cef", tab, "create-platform", spec)
-    row("cef", "k16 uncovered", status, detail)
+    row("cef", "k16 uncovered", judged(status), detail)
     run("commandPalette")
     if not wait(palette_open, 10):
         row("cef", "k16 palette over the tab", "FAIL", f"the palette did not open: {rpc('debug.focus')}")
         return
     status, detail = scenario("cef", tab, "create-platform", spec)
     still = palette_open()
-    row("cef", "k16 palette over the tab", status if still else "FAIL",
+    row("cef", "k16 palette over the tab", judged(status) if still else "FAIL",
         detail if still else f"the palette closed during the ceremony ({detail})")
-    run("commandPalette")
-    # The control: a tab in the background is not VISIBLE, so Chromium refuses its ceremony.
+    if palette_open():
+        run("commandPalette")
+    # The control: the same tab in the background is not VISIBLE, so Chromium refuses its ceremony
+    # at once. `debug.cef.devtools` reaches the focused tab, so the authenticator goes on first.
+    devtools("WebAuthn.enable", {"enableUI": False})
+    devtools("WebAuthn.addVirtualAuthenticator", {"options": {"automaticPresenceSimulation": True, **spec["authenticator"]}})
     other = (run("openBrowser", {"url": "about:blank", "engine": "cef"}) or {}).get("created") or []
     time.sleep(2)  # test harness: the new tab takes the pane
-    status, detail = scenario("cef", tab, "create-platform", spec)
-    refused = status == "FAIL" and "NotAllowedError" in str(detail)
-    row("cef", "k16 control: hidden tab is refused", "PASS" if refused else "FAIL", detail)
+    began = time.time()
+    js(tab, "(() => { window.__pk = null; runPasskeyScenario('create-platform')"
+            ".then(r => { window.__pk = r; }, e => { window.__pk = {pass: false, detail: String(e)}; }); })()")
+    result = wait(lambda: (lambda v: v if isinstance(v, dict) and v and "__error" not in v else None)(js(tab, "window.__pk")), 35, 0.25)
+    elapsed = time.time() - began
+    detail = f"{(result or {}).get('detail')} after {elapsed:.1f} s"
+    # Visibility refuses at once; the RP's own timeout is 20 s, so a slow refusal is not this check.
+    refused = bool(result) and result.get("pass") is False and "NotAllowedError" in str(result.get("detail")) and elapsed < 5
+    row("cef", "k16 control: background tab is refused", "PASS" if refused else "FAIL", detail)
     if other:
         run("closeTab")
+        time.sleep(1)  # test harness: the RP tab is focused again
+    devtools("WebAuthn.disable")
 
 
 def main():
