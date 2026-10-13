@@ -45,6 +45,9 @@ public struct RootView: View {
     @State private var settings = SettingsStore()
     @State private var sidebar = SidebarModel()
     @State private var launchFinished = false
+    /// Set right after the launch handoff: later Welcome insertions (sign-out)
+    /// crossfade instead of replaying the launch intro.
+    @State private var handoffDone = false
     @AppStorage("cnx.setupComplete") private var setupComplete = false
     private let options: ShellLaunchOptions
 
@@ -73,7 +76,7 @@ public struct RootView: View {
                 Group {
                     switch destination {
                     case .welcome:
-                        WelcomeView(auth: auth, initialEmail: options.initialEmail)
+                        WelcomeView(auth: auth, playsLaunchIntro: !handoffDone, initialEmail: options.initialEmail)
                     case .setup:
                         SetupFlow(steps: setupSteps, auth: auth, store: store) {
                             setupComplete = true
@@ -94,8 +97,17 @@ public struct RootView: View {
         .task(id: auth.isResolved) {
             guard auth.isResolved, !launchFinished else { return }
             syncTeams()
-            withAnimation(theme.motion.gentle.animation) { launchFinished = true }
+            if destination == .welcome {
+                // Welcome draws the launch mark itself on its first frame and
+                // animates it from there, so the swap must not fade either side.
+                var cut = Transaction()
+                cut.disablesAnimations = true
+                withTransaction(cut) { launchFinished = true }
+            } else {
+                withAnimation(theme.motion.gentle.animation) { launchFinished = true }
+            }
         }
+        .onChange(of: launchFinished) { _, finished in handoffDone = finished }
         .onChange(of: auth.teams) { _, _ in syncTeams() }
         .onChange(of: auth.isSignedIn) { _, signedIn in
             if signedIn { theme.haptics.success() }

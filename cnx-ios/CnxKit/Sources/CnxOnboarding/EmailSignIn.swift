@@ -53,7 +53,7 @@ struct EmailSignInSheet: View {
             }
             .padding(.horizontal, theme.metrics.sideMargin)
             .padding(.top, 8)
-            .background(theme.colors.sheet.color.ignoresSafeArea())
+            .modifier(SignInSheetBackground())
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button("Close", systemImage: "xmark") { dismiss() }
@@ -158,7 +158,7 @@ struct EmailCodeStep: View {
         }
         .padding(.horizontal, theme.metrics.sideMargin)
         .padding(.top, 8)
-        .background(theme.colors.sheet.color.ignoresSafeArea())
+        .modifier(SignInSheetBackground())
         .navigationBarBackButtonHidden(false)
         .onChange(of: code) { _, value in
             if value.count == 6 { verify(value) }
@@ -193,6 +193,16 @@ struct EmailCodeStep: View {
     private func resend() {
         resendAvailableAt = Date().addingTimeInterval(30)
         Task { try? await auth.sendCode(to: email) }
+    }
+}
+/// The email sheet's background: `sheet` in dark; plain `bg` (white) in light,
+/// where `sheet` and the `surfaceRaised` field and code boxes are the same gray
+/// and the inputs would disappear (Claude and ChatGPT use white here too).
+private struct SignInSheetBackground: ViewModifier {
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        content.background((colorScheme == .dark ? theme.colors.sheet : theme.colors.bg).color.ignoresSafeArea())
     }
 }
 #endif

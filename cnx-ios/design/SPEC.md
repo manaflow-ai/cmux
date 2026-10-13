@@ -555,33 +555,38 @@ custom popover. Alerts follow `claude-04-new-session-alert`: title, body, two bu
   #FFFFFF light), `UIImageName` = `LaunchMark` (the cmux mark, template, 72 x 72 pt, tinted
   `label`), centered. No text, no spinner. (ChatGPT, Claude and Grok all show only their mark
   on their background.)
-- `LaunchHandoff` (first SwiftUI frame): the same mark at the same position; when the auth state
-  resolves (Keychain read, < 300 ms typical), the mark scales 1.0 → 0.92 and fades out over
-  `snap` while the destination fades in with `gentle`. If auth takes > 1 s, show nothing extra;
-  never a spinner on launch.
+- `LaunchHandoff` (first SwiftUI frame): the same mark at the same position. When auth resolves
+  (Keychain read, < 300 ms typical) to a signed-in destination, the mark scales 1.0 → 0.92 and
+  fades out over `snap` while the destination fades in with `gentle`. To Welcome there is no
+  fade: Welcome draws the launch mark itself on its first frame and animates it (5.2). If auth
+  takes > 1 s, show nothing extra; never a spinner on launch.
 
 ### 5.2 Welcome (signed out)
 
-No multi-page carousel: none of the three references has a first-run feature tour; they open on
-a single welcome with sign-in buttons. Layout on `bg`:
+No multi-page carousel and no feature copy: like ChatGPT (centered mark/wordmark over the
+sign-in stack) and Claude (wordmark and one headline above the buttons), the screen is the mark,
+one line and the buttons. Layout on `bg`:
 
-- Top 55%: animated hero. A monochrome "conversation" illustration: three lines of terminal
-  text typing in mono (`label2`), then a user bubble and an assistant line appearing, looping
-  every 6 s (Reduce Motion: static frame). The cmux mark (40 pt) above it.
-- Headline `heroTitle`, 20 pt margins, leading aligned: "Your Macs, in your pocket."
-  Subhead `body` `label2`: "Run agents, terminals and workspaces from anywhere."
-- Bottom stack, 20 pt margins, 10 pt spacing, 8 pt above the bottom safe area, all 52 h, radius 26:
-  1. `SignInWithAppleButton(.continue)`, style `.white` in dark / `.black` in light,
-     `cornerRadius` 26 (pill, allowed by the HIG; Apple's button must be no smaller than the
-     others and first).
-  2. "Continue with Google": `surface` fill (dark) / `fill` (light), `label` text, Google "G"
-     logo asset at 18 pt (full-color asset as Google requires).
+- Hero, centered in the space above the button stack: the cmux chevron, 60 pt, filled with the
+  app icon's gradient (`#06CDFE` → `#2AA0F9` → `#5170F3`, leading to trailing, sampled from
+  `AppIcon.icon`) with a soft `#2AA0F9` glow (55% dark / 30% light). 30 pt below it, centered
+  `heroTitle` `label`: "Your Macs, in your pocket." Nothing else.
+- Bottom stack, 20 pt margins, 10 pt spacing, all 52 h capsules (ChatGPT's order, Apple first and
+  no smaller than the others, as the HIG requires):
+  1. "Continue with Apple": solid `accent` (white in dark, black in light), `onAccent` text.
+  2. "Continue with Google": `surface` fill (dark) / `fill` (light), `label` text, full-color
+     Google "G" at 18 pt.
   3. "Continue with GitHub": same style, GitHub mark template in `label`.
   4. "Continue with email": same style, `envelope` symbol.
 - Footer `caption2` `label3`, centered: "By continuing, you agree to the Terms and Privacy
-  Policy." with the two links underlined.
-- Buttons appear with a stagger: each fades in and rises 12 pt with `snappy`, 50 ms apart,
-  after the hero's first line finishes (max 400 ms after launch).
+  Policy." with the two links.
+- Cold-launch intro (Reduce Motion: the launch mark crossfades into the hero mark over `snap`,
+  everything else fades): the mark starts at the launch screen's size and center, then after
+  0.12 s glides up into the hero slot (spring 0.7 s, no bounce) while scaling 72 → 60 and taking
+  the gradient and glow. The headline fades in, un-blurs (6 → 0) and rises 10 pt with `gentle`
+  0.22 s in; the buttons fade in and rise 12 pt with `snappy`, starting 0.3 s in, 50 ms apart;
+  the footer fades in at 0.45 s. Afterwards the glow breathes slowly (2.8 s ease in-out,
+  autoreversing), the only idle motion. After sign-out Welcome just crossfades in, settled.
 
 ### 5.3 OAuth (Apple, Google, GitHub)
 
@@ -594,7 +599,9 @@ a single welcome with sign-in buttons. Layout on `bg`:
 
 ### 5.4 Email code
 
-Sheet, `.presentationDetents([.large])`, keyboard up immediately:
+Sheet, `.presentationDetents([.large])`, keyboard up immediately. Background `sheet` in dark,
+plain `bg` (white) in light, where `sheet` and `surfaceRaised` are the same gray and the field
+and code boxes would vanish:
 
 1. Step "Email": leading `sheetTitle` "Continue with email", `rowSubtitle` "We'll send you a
    6-digit code." `TextField` 52 h, radius 14, `surfaceRaised` fill, `.textContentType(.emailAddress)`,
