@@ -141,6 +141,7 @@
     "finder.connect_host",
     "finder.cycle_variant",
     "finder.open",
+    "git.branches",
     "git.checkpoint.create",
     "git.checkpoint.diff",
     "git.checkpoint.get",

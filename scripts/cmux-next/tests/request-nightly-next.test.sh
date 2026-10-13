@@ -216,6 +216,22 @@ out=$(cd "$shallow" && env -u GITHUB_STEP_SUMMARY -u GITHUB_OUTPUT -u CMUX_TUI_T
 fetches=$(grep -c . "$TMP/git.log" || true)
 [[ "$fetches" -le 1 ]] || fail "the missing commits must be fetched in one call, got $fetches:" "$(cat "$TMP/git.log")"
 
+# A commit whose generated page strings are stale fails the nightly's web
+# bundle step 30 minutes in (nightly-next run 38348747848): never promoted.
+# A stub node stands in for gen-strings --check (exit 1 = stale).
+git_q -C "$src" checkout -q -b strings "$app"
+mkdir -p "$src/webviews/scripts/pages"; echo "// gen-strings" > "$src/webviews/scripts/pages/gen-strings.mjs"
+git_q -C "$src" add -A; git_q -C "$src" commit -m "app with page strings"
+strings=$(git -C "$src" rev-parse HEAD)
+printf '#!/usr/bin/env bash\n[[ "$*" == *"gen-strings.mjs --check"* ]] || exit 9\nexit "${STUB_STRINGS_EXIT:-0}"\n' > "$TMP/bin/node"; chmod +x "$TMP/bin/node"
+STUB_STRINGS_EXIT=1 request --sha "$strings" --release-compile-green
+[[ "$status" == 0 ]] && ! dispatched "$strings" || fail "a commit with stale page strings must not be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+grep -q "page strings are stale" <<<"$out" || fail "the refusal must name the stale strings:" "$out"
+STUB_STRINGS_EXIT=0 request --sha "$strings" --release-compile-green
+[[ "$status" == 0 ]] && dispatched "$strings" || fail "fresh page strings must not block the promotion (exit $status):" "$out" "$(cat "$TMP/gh.log")"
+rm -f "$TMP/bin/node"
+git_q -C "$src" checkout -q --detach "$head"
+
 # The checkout must be the commit it asks for; bad input is a usage error.
 request --sha "$app" --release-compile-green
 [[ "$status" == 2 ]] || fail "a --sha other than HEAD must exit 2, got $status:" "$out"
