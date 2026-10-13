@@ -89,6 +89,15 @@ def quit_app(pid):
     return poll(lambda: subprocess.run(["kill", "-0", str(pid)], capture_output=True).returncode != 0, timeout=25)
 
 
+# A line only the DEBUG fixture's mock owner has (HomeNativeFixture), so a fixture check cannot pass on a Home tab.
+FIXTURE_MARK = "Summary: the shell builds, sign-in works, Home renders from the mock source."
+
+
+def fixture_texts():
+    texts = (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts") or []
+    return texts if FIXTURE_MARK in texts else None
+
+
 def home_tabs():
     return ((rpc("debug.home") or {}).get("page") or {}).get("tabs") or []
 
@@ -103,7 +112,7 @@ try:
     # fixture check): at relaunch the Home tab shows and the fixture tab is restored behind it.
     fixture = rpc("debug.home_native_fixture.open", {"new": True}) or {}
     check("launch 1: the fixture tab opens", bool(fixture.get("ok")), fixture)
-    fx = poll(lambda: (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts"), timeout=30)
+    fx = poll(fixture_texts, timeout=30)
     check("launch 1: the fixture shows its transcript", bool(fx), rpc("debug.home.drive", {"action": "texts"}))
     rpc("action.run", {"id": "home.tab", "focus": True})
     before = poll(lambda: next((t for t in home_tabs() if t.get("visible") and t.get("shown") and t.get("transcript_tail")), None),
@@ -132,8 +141,8 @@ try:
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "launch-2-home.png")})
     # The restored fixture tab, selected through the default open (it finds the restored tab).
     reply = rpc("debug.home_native_fixture.open") or {}
-    fx = poll(lambda: (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts"), timeout=30)
-    check("launch 2: the restored fixture tab shows its transcript", bool(fx), {"open": reply, "texts": rpc("debug.home.drive", {"action": "texts"})})
+    fx = poll(fixture_texts, timeout=30)
+    check("launch 2: the restored fixture tab shows its transcript", bool(fx) and bool(reply.get("ok")), {"open": reply, "texts": rpc("debug.home.drive", {"action": "texts"})})
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "launch-2-fixture.png")})
 finally:
     check("launch 2: the app quits (the fixture tab selected)", bool(quit_app(pid)))
@@ -143,7 +152,7 @@ finally:
 pid = launch(3)
 try:
     poll(lambda: (r := api(call="inbox")) and "conversations" in r and r, timeout=180)
-    fx = poll(lambda: (rpc("debug.home.drive", {"action": "texts"}) or {}).get("texts"), timeout=60)
+    fx = poll(fixture_texts, timeout=60)
     check("launch 3: the restored, selected fixture tab shows its transcript with no open request", bool(fx),
           rpc("debug.home.drive", {"action": "texts"}))
     rpc("debug.window_snapshot", {"path": os.path.join(opts.out, "launch-3-fixture.png")})
