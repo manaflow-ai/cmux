@@ -126,8 +126,14 @@ final class SidebarBridge {
                 guard let self else { return }
                 self.showProfiles(profiles, active: active, launching: launching)
                 self.show(sections, layout: shown, launching: launching, failed: failed, creating: creating)
-                // A workspace a window owns lists its own row from here on (cx-9a7wx).
-                PendingWorkspaceRows.shared.forget { registry.value.owner(of: $0) != nil }
+                // A workspace the window lists shows its own row from here on (cx-9a7wx).
+                let membership = WindowProfiles.membership(machines)
+                PendingWorkspaceRows.shared.forget(in: windowState.id, listed: Set(sections.flatMap(\.workspaces).map(\.id.rawValue))) { id in
+                    if let owner = registry.value.owner(of: id), owner != windowState.id { return true }
+                    guard let workspace = WindowProfiles.qualified(id, machines: machines),
+                          let pin = membership?.pins[workspace] else { return false }
+                    return pin != windowState.profileID
+                }
             }
         }
         // R99: the rows of another space, for the page beside the current one during a swipe.

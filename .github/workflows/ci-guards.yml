@@ -1001,6 +1001,14 @@ jobs:
         if: ${{ matrix.group == 'release-tooling' }}
         run: python3 tests/test_ensure_ghosttykit_zig.py
 
+      - name: Validate the cmux-tui tree owner check
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_owner_wait_defers.py
+
+      - name: Validate the cmux-tui pin duplicate skip
+        if: ${{ matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_pin_duplicate_skip.py
+
       - name: Validate nightly API tag finalization
         if: ${{ matrix.group == 'release-notary' }}
         run: |

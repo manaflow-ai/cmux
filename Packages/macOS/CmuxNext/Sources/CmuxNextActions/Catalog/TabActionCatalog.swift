@@ -187,14 +187,14 @@ nonisolated enum TabActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "nextSurface",
                 title: String(localized: "action.nextSurface.inPane", defaultValue: "Next Tab in Pane", bundle: .module),
-                keywords: ["tab", "switch", "pane"],
+                keywords: ["tab", "switch", "pane"], defaultShortcut: Shortcut("\t", modifiers: [.control]),
                 category: .tab, symbol: "chevron.right.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 cliName: "tab next", mainMenu: .file
             ),
             ActionDescriptor(
                 id: "prevSurface",
                 title: String(localized: "action.prevSurface.inPane", defaultValue: "Previous Tab in Pane", bundle: .module),
-                keywords: ["tab", "switch", "pane"],
+                keywords: ["tab", "switch", "pane"], defaultShortcut: Shortcut("\t", modifiers: [.control, .shift]),
                 category: .tab, symbol: "chevron.left.square", surfaces: [.palette, .keyboard, .menu], targets: [.tab],
                 cliName: "tab previous", mainMenu: .file
             ),

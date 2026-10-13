@@ -406,20 +406,12 @@ export default agentPaneEntry({
     "fork-any-turn": {
       note: "Play: a Claude chat offers Fork under every completed turn (cx-yqiv, Codex parity); an earlier turn's forks through that turn.",
       snapshot: forkTurns("claude"),
-      play: async (ctx) => {
-        const page = ctx.document.defaultView as unknown as {
-          cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
-        };
-        const forks = () => [
-          ...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]'),
-        ];
-        await ctx.focus({ selector: "[contenteditable='true']" });
-        await ctx.waitFor(() => forks().length === 2);
-        forks()[0]!.click();
-        await ctx.waitFor(() =>
-          page.cmuxGalleryLog.some(({ method, params }) => method === "chat.fork" && params?.throughSeq === 3),
-        );
-      },
+      play: forkEarlierTurn,
+    },
+    "fork-any-turn-codex": {
+      note: "Play: a Codex chat offers Fork under every completed turn too (cx-a7r); an earlier turn's forks through that turn.",
+      snapshot: forkTurns("codex"),
+      play: forkEarlierTurn,
     },
     "fork-latest-turn-only": {
       note: "Play: another agent forks only at a chat's end, so only the latest turn offers Fork.",
@@ -1062,6 +1054,20 @@ export default agentPaneEntry({
 });
 
 /// Two completed turns of a chat whose agent family is `family` (cx-yqiv).
+/// Both turns offer Fork, and the earlier one's forks through that turn's summary (seq 3).
+async function forkEarlierTurn(ctx: PlayContext) {
+  const page = ctx.document.defaultView as unknown as {
+    cmuxGalleryLog: { method: string; params?: { throughSeq?: number } }[];
+  };
+  const forks = () => [...ctx.document.querySelectorAll<HTMLButtonElement>('button[aria-label="Fork from here"]')];
+  await ctx.focus({ selector: "[contenteditable='true']" });
+  await ctx.waitFor(() => forks().length === 2);
+  forks()[0]!.click();
+  await ctx.waitFor(() =>
+    page.cmuxGalleryLog.some(({ method, params }) => method === "chat.fork" && params?.throughSeq === 3),
+  );
+}
+
 function forkTurns(family: string | undefined) {
   const snapshot = chat([
     user("Add retry with backoff to the uploader", 9, { seq: 1 }),

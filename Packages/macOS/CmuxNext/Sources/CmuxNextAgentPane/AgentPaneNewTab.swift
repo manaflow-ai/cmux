@@ -50,7 +50,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// The workspace's tabs to move into this page's pane (`tab.jump` `here`): set when a split
     /// opened the page (cx-jfo7); nil shows no Open Tabs list.
     public var openTabs: [AgentPaneOmnibar.Tab]?
-    /// true: the page is agent history (the sidebar's History dot, cx-zlnl), every chat on this
+    /// true: the page is agent history (Show Agent History, `agentHistory.show`, cx-zlnl), every chat on this
     /// device with nothing to type; nil is the New Tab page.
     public var history: Bool?
 

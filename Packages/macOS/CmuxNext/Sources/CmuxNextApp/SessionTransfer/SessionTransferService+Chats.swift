@@ -191,33 +191,3 @@ extension SessionTransferService {
         }
     }
 }
-
-/// One value, delivered once to one waiter: the first `resolve` wins; later ones are dropped.
-private nonisolated final class FirstOutcome<Value: Sendable>: Sendable {
-    private enum Phase {
-        case pending(CheckedContinuation<Value, Never>?)
-        case done(Value)
-    }
-    private let phase = Mutex<Phase>(.pending(nil))
-
-    func resolve(_ value: Value) {
-        let waiter: CheckedContinuation<Value, Never>? = phase.withLock { phase in
-            guard case .pending(let waiter) = phase else { return nil }
-            phase = .done(value)
-            return waiter
-        }
-        waiter?.resume(returning: value)
-    }
-
-    func value() async -> Value {
-        await withCheckedContinuation { continuation in
-            let ready: Value? = phase.withLock { phase in
-                switch phase {
-                case .done(let value): return value
-                case .pending: phase = .pending(continuation); return nil
-                }
-            }
-            if let ready { continuation.resume(returning: ready) }
-        }
-    }
-}

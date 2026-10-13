@@ -370,15 +370,43 @@ export function ComposerPickers({
   useEffect(() => {
     if (harness && resolvedNow) rememberResolvedDefault(harness, resolvedNow);
   }, [harness, resolvedNow]);
-  const resolvedId = defaulted ? (resolvedNow ?? (harness ? loadResolvedDefaults()[harness] : undefined)) : undefined;
+  // A new chat draws its chips for the harness its first prompt starts: the one named, else the
+  // catalog's first, as the model picker's face does.
+  const chipHarness = harness ?? pickerEntries[0]?.id;
+  const unreported = shown === undefined && chipHarness !== undefined && (!summary?.sessionId || switching);
+  // Before the session reports, the default this harness last resolved to, else the model catalog's
+  // default for it, else the first model it lists (defaultModel: its last session's).
+  const predictedId = unreported
+    ? (loadResolvedDefaults()[chipHarness] ??
+      pickerCatalog?.harnesses.find((entry) => (entry.acpmuxHarness ?? entry.id) === chipHarness)?.defaultModel ??
+      defaultModel(chipHarness, snapshot.catalog))
+    : undefined;
+  const resolvedId = unreported
+    ? predictedId
+    : defaulted
+      ? (resolvedNow ?? (harness ? loadResolvedDefaults()[harness] : undefined))
+      : undefined;
   const resolvedName =
     resolvedId &&
-    (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ?? modelIdName(resolvedId));
+    (models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
+      snapshot.catalog
+        .find((entry) => entry.id === chipHarness)
+        ?.models.find((choice) => choice.id === resolvedId && !isDefaultChoice(choice))?.name ??
+      modelIdName(resolvedId));
   // A fresh chat on this Mac whose session has not reported its model yet names the one its New Tab
   // started it on (cx-e2aa, cx-21jvw). A resumed or remote chat may run another: it waits.
   const fresh = (summary?.turnCount ?? 0) === 0 && !summary?.host && summary?.hostKind !== "cloud";
   const starting = shown === undefined && harness && fresh && !switching ? startingModel(harness) : undefined;
-  const modelName = defaulted ? (resolvedName ?? t(PICKER_LABELS.model)) : (model?.name ?? summary?.model ?? starting);
+  // Before the session reports, the predicted model's name holds the chip's width (cx-ncc.58).
+  const modelName =
+    defaulted || unreported
+      ? (starting ?? resolvedName ?? t(PICKER_LABELS.model))
+      : (model?.name ?? summary?.model ?? starting);
+  // Until the session reports its options (a new chat, an agent still starting), the ring, the
+  // effort and the access controls hold their places as quiet skeletons: controls never appear one
+  // by one beside the model (cx-ncc.58).
+  const awaiting =
+    chipHarness !== undefined && (!summary?.sessionId || (switching && snapshot.switching?.phase !== "failed"));
   const usage = summary?.usage;
   const compact = onCompact && snapshot.commands?.some((command) => command.name === "compact") ? onCompact : undefined;
 
@@ -415,7 +443,7 @@ export function ComposerPickers({
         />
       )}
       {/* The context ring stays immediately to the right of the model control; its right-click hides it. */}
-      {(usage || summary?.sessionId) && (
+      {(usage || summary?.sessionId || awaiting) && (
         <HideableChrome className="acpmux-context-usage-menu" item={chrome.contextUsage}>
           <ContextRing
             used={usage?.used}
@@ -449,7 +477,9 @@ export function ComposerPickers({
           }}
         />
       )}
+      {!(effort && efforts.length > 1) && awaiting && <ChipSkeleton kind="effort" />}
       <span className="acpmux-chips-spacer" />
+      {modes.length === 0 && awaiting && <ChipSkeleton kind="mode" />}
       {modes.length > 0 && (
         <AccessMenu
           label={t(PICKER_LABELS.mode)}
@@ -489,6 +519,18 @@ export function ComposerPickers({
     </div>
   );
   return chips;
+}
+
+/// A control's place while the session has not reported it yet: the chip's own box, inert and
+/// unlabeled, so the real control takes the same place when it arrives (cx-ncc.58).
+function ChipSkeleton({ kind }: { kind: "effort" | "mode" }) {
+  return (
+    <span className={`acpmux-picker acpmux-${kind} acpmux-chip-skeleton`} aria-hidden="true">
+      <span className="acpmux-picker-button acpmux-chip-skeleton-face">
+        <span className="acpmux-chip-skeleton-bar" />
+      </span>
+    </span>
+  );
 }
 
 /** The permission control stays quiet in the footer: a lock names the control and the menu

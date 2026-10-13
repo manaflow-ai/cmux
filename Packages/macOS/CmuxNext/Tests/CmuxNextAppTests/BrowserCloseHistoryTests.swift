@@ -44,10 +44,11 @@ struct BrowserCloseHistoryTests {
         }
         let page = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: a))
         service.track(page, for: tab)
+        // The history writer starts on a turn after the daemon answers; a
+        // fixed number of turns is not enough on a loaded machine.
         let deadline = ContinuousClock.now + .seconds(5)
-        while !daemon.fetched, ContinuousClock.now < deadline { await Task.yield() }
-        // The history writer starts on the turn after the daemon answers.
-        for _ in 0 ..< 20 { await Task.yield() }
+        while service.historyWriters[tab.id] == nil, ContinuousClock.now < deadline { await Task.yield() }
+        try #require(daemon.fetched && service.historyWriters[tab.id] != nil, "the history writer never started")
         return (service, page, tab)
     }
 
@@ -67,6 +68,17 @@ struct BrowserCloseHistoryTests {
         // Reopen Closed restores the history only at the record's page: the
         // two must agree, or a relaunch reopens `a` with no history at all.
         #expect(daemon.recordURLs.last == Self.b.absoluteString, "the record still names the page before")
+    }
+
+    /// Quit and close send the page as it is now, even a navigation the
+    /// record writer has not been told of yet (it hears of page changes on a
+    /// later turn, so Cmd-W at once found nothing to send).
+    @Test func aFlushRightAfterANavigationSendsIt() async throws {
+        let daemon = Daemon()
+        let (service, page, tab) = try await Self.tracked(daemon)
+        page.load(Self.b)
+        await service.writers[tab.id]?.flushNow()
+        #expect(daemon.recordURLs.last == Self.b.absoluteString, "the flush sent nothing: it had not heard of the navigation")
     }
 
     /// The close command's step (`DaemonService.prepareClose`, set to this)
