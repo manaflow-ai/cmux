@@ -410,6 +410,7 @@
       "set-row-heights",
       "set-screen-metadata",
       "set-screen-pinned",
+      "set-session-icon",
       "set-size-counts",
       "set-size-policy",
       "set-split-ratio",
