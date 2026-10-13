@@ -1221,7 +1221,12 @@ public final class ConversationViewController: UIViewController {
             self.presentBackgroundPicker(from: details, category: kind)
         }
         details.onClose = { [weak self] in self?.closeInfo() }
-        details.modalPresentationStyle = .overFullScreen
+        // Wrapped like ChatKit's: UIKit's zoom then closes the bare content
+        // (no card platter or shadow) as it does in Messages.
+        let container = UINavigationController(rootViewController: details)
+        container.setNavigationBarHidden(true, animated: false)
+        container.view.backgroundColor = .clear
+        container.modalPresentationStyle = .overFullScreen
         if #available(iOS 18.0, *) {
             let options = UIViewController.Transition.ZoomOptions()
             options.dimmingColor = .clear
@@ -1229,12 +1234,12 @@ public final class ConversationViewController: UIViewController {
                 let zoomed = context.zoomedViewController.view!
                 return ConversationDetailsHeaderGeometry.zoomAlignmentRect(width: zoomed.bounds.width, safeTop: zoomed.safeAreaInsets.top)
             }
-            details.preferredTransition = .zoom(options: options) { [weak self] _ in self?.header.zoomSourceView }
+            container.preferredTransition = .zoom(options: options) { [weak self] _ in self?.header.zoomSourceView }
         } else {
-            details.modalTransitionStyle = .crossDissolve
+            container.modalTransitionStyle = .crossDissolve
         }
         detailsController = details
-        present(details, animated: true)
+        present(container, animated: true)
     }
 
     /// Closes the details; returns false when none is open.
