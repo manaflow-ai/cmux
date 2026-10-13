@@ -30,6 +30,7 @@ final class CloudMoveAsks {
     }
 
     private var asks: [String: Ask] = [:]
+    private var unfinishedOffer: Task<Void, Never>?
     /// Where "Always" folders are kept (``CloudMoveSetup/ledger``); nil keeps them in memory.
     var defaults: @MainActor () -> UserDefaults? = { nil }
     private var memory: Set<String> = []
@@ -70,6 +71,25 @@ final class CloudMoveAsks {
             return nil
         }
         services.registry.track(work)
+    }
+
+    /// After a launch: each chat tab whose move a quit, an update relaunch or a stop left unfinished
+    /// (``CloudMoveRetries``) shows the move's card again, saying it didn't finish, with Retry, once
+    /// this Mac's tree lists the tab (cx-rppd.16). Retry runs the move as the person's: ``CloudMove``
+    /// finishes it on its pinned machine, or only opens the moved chat's tab there.
+    func offerUnfinished(services: AppServices) {
+        guard unfinishedOffer == nil else { return }
+        // task-owner: one wait for this Mac's tree at launch, then one pass over the retries
+        unfinishedOffer = Task { @MainActor [weak self, weak services] in
+            for await loaded in ObservationStream({ [weak services] in services?.daemon.store.isLoaded ?? true }) where loaded {
+                guard let self, let services else { return }
+                for tab in services.cloud.moveRetries.tabs where asks[tab] == nil && services.locateTab(tab) != nil {
+                    asks[tab] = Ask(folder: "", always: false)
+                    show(tab, .failed, CloudMoveStrings.unresolved, [.retry, .dismiss], services: services)
+                }
+                return
+            }
+        }
     }
 
     /// A move of chat tab `tab` started (a card's Move, or a person's palette, menu or CLI run).

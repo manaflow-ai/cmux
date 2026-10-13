@@ -58,6 +58,9 @@ final class CloudMoveRetries {
         }
     }
 
+    /// The tabs with a retry, in a stable order.
+    var tabs: [String] { entries().keys.sorted() }
+
     private func entries() -> [String: Retry] {
         guard let defaults = defaults() else { return memory }
         guard let data = defaults.data(forKey: key) else { return [:] }
