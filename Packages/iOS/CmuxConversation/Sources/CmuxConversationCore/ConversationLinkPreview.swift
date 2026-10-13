@@ -388,6 +388,15 @@ public enum ConversationDataDetection {
         | NSTextCheckingResult.CheckingType.address.rawValue
         | NSTextCheckingResult.CheckingType.date.rawValue
 
+    /// The opacity of a detected item's underline over its text color, as
+    /// DataDetectorsUI lightens it (`lightUnderlineColorFromTextColor:`):
+    /// white text (saturation under 0.02, brightness over 0.98) 46%, any
+    /// other color 26%. A real iPhone draws the "8am" in a blue bubble on a
+    /// translucent white line.
+    public static func underlineAlpha(saturation: Double, brightness: Double) -> Double {
+        saturation < 0.02 && brightness > 0.98 ? 0.46 : 0.26
+    }
+
     /// What a tap opens: the link, a call, Maps, or Calendar at that date.
     public static func actionURL(for match: NSTextCheckingResult) -> URL? {
         switch match.resultType {
