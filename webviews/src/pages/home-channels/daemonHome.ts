@@ -23,7 +23,12 @@ type Json = Record<string, unknown>;
 const LOCAL_USER = "user_local";
 const CHIEF = { id: "agent_mux", kind: "agent", display_name: "Chief", agent_class: "mux", acp_session: "mux" };
 const TAPBACK_EMOJI: Record<string, string> = {
-  love: "❤️", like: "👍", dislike: "👎", laugh: "😂", emphasize: "‼️", question: "❓",
+  love: "❤️",
+  like: "👍",
+  dislike: "👎",
+  laugh: "😂",
+  emphasize: "‼️",
+  question: "❓",
 };
 const MAX_PAGE = 200;
 
@@ -56,12 +61,20 @@ function part(raw: Json): HomePart {
     }
     case "work": {
       const status = ["running", "waiting", "done", "failed"].includes(String(raw.status)) ? raw.status : "running";
-      return { type: "work", title: String(raw.session ?? ""), status: status as "running", preview: raw.preview as string | undefined };
+      return {
+        type: "work",
+        title: String(raw.session ?? ""),
+        status: status as "running",
+        preview: raw.preview as string | undefined,
+      };
     }
     case "attachment":
       return {
-        type: "attachment", name: String(raw.name ?? ""), mimeType: String(raw.mime_type ?? ""),
-        byteCount: num(raw.byte_count), hash: String(raw.hash ?? ""),
+        type: "attachment",
+        name: String(raw.name ?? ""),
+        mimeType: String(raw.mime_type ?? ""),
+        byteCount: num(raw.byte_count),
+        hash: String(raw.hash ?? ""),
       };
     case "link_preview":
       return { type: "other", text: String(raw.url ?? "") };
@@ -168,7 +181,8 @@ export class DaemonHomeClient implements PageClient {
   private startStream(): Promise<void> {
     this.streamStarted ??= (async () => {
       await this.daemon.request("set-client-info", {
-        name: "cmux page: home-channels", capabilities: ["conversation-draft-events-v1"],
+        name: "cmux page: home-channels",
+        capabilities: ["conversation-draft-events-v1"],
       });
       await this.daemon.request("subscribe");
     })().catch((error) => {
@@ -202,7 +216,9 @@ export class DaemonHomeClient implements PageClient {
 
   private async submit(conversationId: string, key: string, op: Json): Promise<Json> {
     const result = await this.daemon.request("conversation-op", {
-      conversation: conversationId, idempotency_key: key, op,
+      conversation: conversationId,
+      idempotency_key: key,
+      op,
     });
     return { rev: num(result.rev), replayed: result.replayed === true, conversation: conversationId };
   }
@@ -212,7 +228,9 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.inbox: {
         const list = await this.daemon.request<{ conversations: Json[] }>("conversation-list");
         const summaries = list.conversations ?? [];
-        const mine = summaries.flatMap((entry) => (entry.participants as Json[]) ?? []).find((entry) => entry.id === LOCAL_USER);
+        const mine = summaries
+          .flatMap((entry) => (entry.participants as Json[]) ?? [])
+          .find((entry) => entry.id === LOCAL_USER);
         const me = mine ? participant(mine) : { id: LOCAL_USER, kind: "human" as const, name: "You", chief: false };
         this.me = me.id;
         return {
@@ -224,7 +242,8 @@ export class DaemonHomeClient implements PageClient {
       case HomeOps.page: {
         this.opened.add(str(params, "conversation"));
         const page = await this.daemon.request("conversation-snapshot", {
-          conversation: str(params, "conversation"), tail: bounded(params.tail, 100),
+          conversation: str(params, "conversation"),
+          tail: bounded(params.tail, 100),
         });
         return {
           conversation: conversation(page.conversation as Json, this.me),
@@ -234,14 +253,18 @@ export class DaemonHomeClient implements PageClient {
       }
       case HomeOps.history: {
         const page = await this.daemon.request("conversation-history", {
-          conversation: str(params, "conversation"), before_seq: num(params.beforeSeq), limit: bounded(params.limit, 100),
+          conversation: str(params, "conversation"),
+          before_seq: num(params.beforeSeq),
+          limit: bounded(params.limit, 100),
         });
         return { messages: ((page.messages as Json[]) ?? []).map(message), threads: threads(page.threads) };
       }
       case HomeOps.thread: {
         const page = await this.daemon.request("conversation-thread", {
-          conversation: str(params, "conversation"), root: str(params, "root"),
-          after_seq: Math.max(0, num(params.afterSeq)), limit: bounded(params.limit, 100),
+          conversation: str(params, "conversation"),
+          root: str(params, "root"),
+          after_seq: Math.max(0, num(params.afterSeq)),
+          limit: bounded(params.limit, 100),
         });
         return {
           root: message(page.root as Json),
@@ -252,22 +275,29 @@ export class DaemonHomeClient implements PageClient {
       }
       case HomeOps.search: {
         const found = await this.daemon.request<{ hits: Json[] }>("conversation-search", {
-          query: str(params, "query", 200), limit: Math.min(bounded(params.limit, 20), 50),
+          query: str(params, "query", 200),
+          limit: Math.min(bounded(params.limit, 20), 50),
         });
         return {
           hits: (found.hits ?? []).map((hit) => ({
             conversation: String(hit.conversation),
             message: {
-              id: String(hit.message_id), conversation: String(hit.conversation), seq: num(hit.seq),
-              author: String(hit.author), createdAt: time(hit.created_at), retracted: false,
-              parts: [{ type: "text", text: String(hit.snippet ?? ""), mentions: [] }], reactions: [],
+              id: String(hit.message_id),
+              conversation: String(hit.conversation),
+              seq: num(hit.seq),
+              author: String(hit.author),
+              createdAt: time(hit.created_at),
+              retracted: false,
+              parts: [{ type: "text", text: String(hit.snippet ?? ""), mentions: [] }],
+              reactions: [],
             } satisfies HomeMessage,
           })),
         };
       }
       case HomeOps.read:
         return this.submit(str(params, "conversation"), this.key(params, options), {
-          kind: "read_cursor.set", seq: Math.max(0, num(params.seq)),
+          kind: "read_cursor.set",
+          seq: Math.max(0, num(params.seq)),
         });
       case HomeOps.send: {
         const text = String(params.text ?? "").trim();
@@ -291,12 +321,15 @@ export class DaemonHomeClient implements PageClient {
         const text = String(params.text ?? "").trim();
         if (!text) throw pageError("cmux.page.invalid_params", "text");
         return this.submit(str(params, "conversation"), this.key(params, options), {
-          kind: "message.edit", message_id: str(params, "message"), parts: [{ type: "text", text }],
+          kind: "message.edit",
+          message_id: str(params, "message"),
+          parts: [{ type: "text", text }],
         });
       }
       case HomeOps.retract:
         return this.submit(str(params, "conversation"), this.key(params, options), {
-          kind: "message.retract", message_id: str(params, "message"),
+          kind: "message.retract",
+          message_id: str(params, "message"),
         });
       case HomeOps.createGroup:
         return this.createGroup(params, options);
@@ -314,7 +347,8 @@ export class DaemonHomeClient implements PageClient {
     const list = await this.daemon.request<{ conversations: Json[] }>("conversation-list");
     const known = new Map<string, Json>([[CHIEF.id, CHIEF]]);
     for (const summary of list.conversations ?? [])
-      for (const entry of (summary.participants as Json[]) ?? []) if (!known.has(String(entry.id))) known.set(String(entry.id), entry);
+      for (const entry of (summary.participants as Json[]) ?? [])
+        if (!known.has(String(entry.id))) known.set(String(entry.id), entry);
     const members: Json[] = [known.get(this.me) ?? { id: this.me, kind: "human", display_name: "You" }];
     for (const id of ids.length ? ids : [CHIEF.id]) {
       if (id === this.me || members.some((entry) => entry.id === id)) continue;
@@ -323,7 +357,9 @@ export class DaemonHomeClient implements PageClient {
       members.push(entry);
     }
     const created = await this.daemon.request("conversation-create", {
-      idempotency_key: this.key(params, options), title, participants: members,
+      idempotency_key: this.key(params, options),
+      title,
+      participants: members,
     });
     return { rev: 0, replayed: created.replayed === true, conversation: String((created.conversation as Json).id) };
   }
@@ -366,16 +402,24 @@ export class DaemonHomeClient implements PageClient {
       } else if (event.event === "conversation-typing") {
         deliver((batch) =>
           (batch.typing ??= []).push({
-            conversation: String(event.conversation), participant: String(event.participant), on: event.on === true,
+            conversation: String(event.conversation),
+            participant: String(event.participant),
+            on: event.on === true,
           }),
         );
       } else if (event.event === "conversation-draft") {
         const item = (event.item ?? {}) as Json;
         deliver((batch) =>
           (batch.drafts ??= []).push({
-            conversation: String(event.conversation), participant: String(event.participant), turn: String(item.turn ?? ""),
-            segment: num(item.segment), seq: num(item.seq), talk: item.kind !== "thought", text: String(item.text ?? ""),
-            fresh: item.fresh === true, done: item.done === true,
+            conversation: String(event.conversation),
+            participant: String(event.participant),
+            turn: String(item.turn ?? ""),
+            segment: num(item.segment),
+            seq: num(item.seq),
+            talk: item.kind !== "thought",
+            text: String(item.text ?? ""),
+            fresh: item.fresh === true,
+            done: item.done === true,
           }),
         );
       } else if (event.event === "overflow") {
