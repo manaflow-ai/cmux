@@ -33,7 +33,16 @@ public struct Motion {
 
     public static var speed: MotionSpeed { DesignSettings.shared.animationSpeed }
 
-    public static var policy: MotionPolicy { MotionPolicy(speed: speed, reduceMotion: reduceMotion) }
+    public static var policy: MotionPolicy {
+        let design = DesignSettings.shared
+        return MotionPolicy(speed: speed, reduceMotion: reduceMotion, bounce: design.animationBounce,
+                            disabledKinds: design.disabledAnimations)
+    }
+
+    /// `kind` animates: movement animates (not `off`, not Reduce Motion) and
+    /// its `ui.animations.*` switch is on. When false the change applies in
+    /// one frame, with no crossfade.
+    public static func animates(_ kind: MotionKind) -> Bool { policy.animates(kind) }
 
     /// Position, size, scale and scroll animate. When false, snap.
     public static var animatesMovement: Bool { policy.animatesMovement }
@@ -46,6 +55,12 @@ public struct Motion {
     public static func duration(_ token: MotionFade) -> TimeInterval { policy.duration(token) }
     public static func duration(_ token: MotionSpring) -> TimeInterval { policy.duration(token) }
     public static func period(_ loop: MotionLoop) -> TimeInterval? { policy.period(loop) }
+
+    /// Seconds of a released divider's velocity projected to find a snap; 0
+    /// when movement does not animate.
+    public static var dividerReleaseProjection: Double {
+        animatesMovement ? MotionTunables.dividerReleaseProjection.value * speed.timeScale : 0
+    }
 
     /// The standard ease-out curve for timed fades.
     public static var fadeCurve: CAMediaTimingFunction { CAMediaTimingFunction(name: .easeOut) }

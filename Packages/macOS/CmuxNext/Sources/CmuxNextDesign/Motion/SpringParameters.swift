@@ -14,6 +14,24 @@ public nonisolated struct SpringParameters: Hashable, Sendable {
         self.dampingFraction = dampingFraction
     }
 
+    /// SwiftUI `Spring(duration:bounce:)`: `duration` is the perceptual
+    /// duration (the response), `bounce` 0 is critically damped, above 0
+    /// overshoots (0.15 is a subtle bounce), below 0 is over-damped.
+    public init(duration: Double, bounce: Double) {
+        self.response = duration
+        self.dampingFraction = bounce >= 0 ? 1 - bounce : 1 / (1 + bounce)
+    }
+
+    /// SwiftUI's bounce for this damping fraction (0 critically damped).
+    public var bounce: Double {
+        dampingFraction <= 1 ? 1 - dampingFraction : 1 / dampingFraction - 1
+    }
+
+    /// The same response with `bounce` (SwiftUI semantics).
+    public func withBounce(_ bounce: Double) -> SpringParameters {
+        SpringParameters(duration: response, bounce: bounce)
+    }
+
     /// Angular frequency (rad/s).
     public var omega: Double { 2 * .pi / max(response, 0.001) }
     /// `CASpringAnimation.stiffness` for mass 1.
@@ -73,26 +91,42 @@ public nonisolated struct SpringValue: Hashable, Sendable {
         self.target = value
     }
 
-    /// Advances by `dt` seconds using fixed substeps (semi-implicit Euler),
-    /// stable for every frame rate up to 120 Hz and beyond. `dt` is capped
-    /// at 0.1 s so a stalled frame never teleports.
+    /// Advances by `dt` seconds with the closed-form solution of the damped
+    /// harmonic oscillator (under-, critically or over-damped), so the path
+    /// is exact and identical at every frame rate: two 60 Hz frames land
+    /// where four 120 Hz frames do. `dt` is capped at 0.1 s so a stalled
+    /// frame never teleports.
     public mutating func step(_ dt: Double, parameters: SpringParameters) {
-        let stiffness = parameters.stiffness
-        let damping = parameters.damping
-        var remaining = min(max(dt, 0), 0.1)
-        let maxStep = 1.0 / 480.0
-        var x = Double(value)
-        var v = Double(velocity)
-        let t = Double(target)
-        while remaining > 0 {
-            let h = min(remaining, maxStep)
-            let acceleration = -stiffness * (x - t) - damping * v
-            v += acceleration * h
-            x += v * h
-            remaining -= h
+        let t = min(max(dt, 0), 0.1)
+        guard t > 0 else { return }
+        let state = SpringValue.solve(displacement: Double(value - target), velocity: Double(velocity), time: t, parameters: parameters)
+        value = target + CGFloat(state.displacement)
+        velocity = CGFloat(state.velocity)
+    }
+
+    /// Displacement from the target and velocity `time` seconds after a
+    /// state, for `parameters` (mass 1).
+    public static func solve(displacement x0: Double, velocity v0: Double, time t: Double,
+                             parameters: SpringParameters) -> (displacement: Double, velocity: Double) {
+        let w0 = parameters.omega
+        let zeta = max(parameters.dampingFraction, 0)
+        if abs(zeta - 1) < 1e-4 {
+            let decay = exp(-w0 * t)
+            let b = v0 + w0 * x0
+            return ((x0 + b * t) * decay, (v0 - w0 * b * t) * decay)
         }
-        value = CGFloat(x)
-        velocity = CGFloat(v)
+        if zeta < 1 {
+            let wd = w0 * (1 - zeta * zeta).squareRoot()
+            let decay = exp(-zeta * w0 * t)
+            let c = cos(wd * t), s = sin(wd * t)
+            let b = (v0 + zeta * w0 * x0) / wd
+            return (decay * (x0 * c + b * s), decay * (v0 * c - (w0 * w0 * x0 + zeta * w0 * v0) / wd * s))
+        }
+        let root = (zeta * zeta - 1).squareRoot()
+        let r1 = -w0 * (zeta - root), r2 = -w0 * (zeta + root)
+        let c2 = (v0 - r1 * x0) / (r2 - r1), c1 = x0 - c2
+        let e1 = exp(r1 * t), e2 = exp(r2 * t)
+        return (c1 * e1 + c2 * e2, c1 * r1 * e1 + c2 * r2 * e2)
     }
 
     public func isSettled(epsilon: CGFloat) -> Bool {

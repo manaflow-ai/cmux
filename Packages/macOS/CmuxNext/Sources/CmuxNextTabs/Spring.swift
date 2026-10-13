@@ -86,7 +86,7 @@ public struct Spring: Equatable, Sendable {
         step(dt, parameters: Motion.spring(activeToken))
     }
 
-    /// Advances by `dt` seconds with fixed substeps (stable at any frame rate).
+    /// Advances by `dt` seconds on the closed-form spring (exact at any frame rate).
     public mutating func step(_ dt: CGFloat, parameters: SpringParameters) {
         lastSample = nil
         guard !isSettled else {
