@@ -72,6 +72,8 @@ parser.add_argument("--skip", default="", help="comma list of seed parts to skip
 parser.add_argument("--max-seconds", type=int, default=0, help="stop (restoring what it changed) after this long; 0: no limit")
 parser.add_argument("--activate", action="store_true",
                     help="relaunch as a person's launch does (activating, without CMUX_NEXT_NO_ACTIVATE), so window order and focus follow real key windows")
+parser.add_argument("--hist-file", action="store_true",
+                    help="serve the history pages as file:// pages (as a person opens a local .html), reporting to the local server")
 parser.add_argument("--allow-non-slot", action="store_true",
                     help="drive a tagged DEV build that is not in a capture slot (it closes rj-* workspaces, quits and relaunches it)")
 opts = parser.parse_args()
@@ -408,7 +410,7 @@ SERVED = set()
 LOCK = threading.Lock()
 
 
-def page_html(name):
+def page_html(name, base=""):
     with LOCK:
         first = name not in SERVED
         SERVED.add(name)
@@ -418,13 +420,15 @@ def page_html(name):
         act = f"setTimeout(function(){{window.scrollTo(0,{SCROLL});}},300);"
     # The history pages link on (a -> b -> c), for link-click navigation as a person's.
     nxt = {"hist-a": "hist-b", "hist-b": "hist-c"}.get(name)
-    link = f"<a id='next' href='/{nxt}'>next</a>" if nxt else ""
+    href = f"{nxt}.html" if opts.hist_file else f"/{nxt}"
+    link = f"<a id='next' href='{href}'>next</a>" if nxt else ""
     # Both history pages report as one tab ("hist").
     tab = "hist" if name.startswith("hist") else name
     return f"""<!doctype html><html><head><title>rj {name}</title></head><body>
 <h1>rj {name}</h1>{link}{body}
 <script>
-function report(){{fetch('/report?page={tab}&path='+encodeURIComponent(location.pathname)+'&y='+Math.round(window.scrollY)+'&h='+history.length).catch(function(){{}});}}
+function report(){{var p=location.pathname.replace(/^.*\\//,'/').replace(/\\.html$/,'');
+new Image().src='{base}/report?page={tab}&path='+encodeURIComponent(p)+'&y='+Math.round(window.scrollY)+'&h='+history.length+'&t='+Date.now();}}
 {act}
 setInterval(report,1000); window.addEventListener('scroll',report); report();
 </script></body></html>"""
@@ -531,7 +535,15 @@ def seed_web(base):
         return
     cli("workspace", ws["workspace_id"], "focus")
     # Each page in its own pane and selected there, so both load now and after the relaunch.
-    hist = value(cli("tab", "create", "browser", "--url", f"{base}/hist-a", "--workspace", ws["workspace_id"], "--pane", ws["pane_id"]))
+    first = f"{base}/hist-a"
+    if opts.hist_file:
+        folder = os.path.join(opts.out, "pages")
+        os.makedirs(folder, exist_ok=True)
+        for name in ("hist-a", "hist-b", "hist-c"):
+            with open(os.path.join(folder, f"{name}.html"), "w") as f:
+                f.write(page_html(name, base))
+        first = "file://" + os.path.join(folder, "hist-a.html")
+    hist = value(cli("tab", "create", "browser", "--url", first, "--workspace", ws["workspace_id"], "--pane", ws["pane_id"]))
     if hist.get("tab_id"):
         cli("tab", hist["tab_id"], "focus")
         HIST["tab"] = hist["tab_id"]
@@ -1039,8 +1051,10 @@ def back_walk(label):
                 if wait(lambda: reached("/hist-c", step), 5, 0.3):
                     break
             else:
-                rpc("browser.page.eval", {"tab": HIST["tab"], "script": "location.href = '/hist-c'; true"})
+                rpc("browser.page.eval", {"tab": HIST["tab"], "script": f"location.href = '{'hist-c.html' if opts.hist_file else '/hist-c'}'; true"})
                 wait(lambda: hist().get("path") == "/hist-c" and hist().get("at", 0) > start, 10, 0.3)
+                RESULTS.append((f"{label}: page put back on /hist-c by its address", False,
+                                "Forward could not return; the next variant's history length counts from here", "browser"))
 
 
 def journey(base):
@@ -1053,8 +1067,8 @@ def journey(base):
             seeded(before)
             SEEDED.update({k: v for k, v in before.items() if k == "page[hist].history_length"})
         if variant == "crash":
-            # A crash comes after the last change has been saved (the app saves within about a
-            # second); the rows check what was saved, not what was still in flight.
+            # A crash comes after the last change has been saved (the browser history and record
+            # writers debounce 500 ms); the rows check what was saved, not what was still in flight.
             time.sleep(2)
         expected = sum(len(tabs_of(w)) for w in rj_workspaces(topology()))
         started = SINCE = time.time()
