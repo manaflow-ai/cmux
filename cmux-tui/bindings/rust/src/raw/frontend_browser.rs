@@ -105,6 +105,7 @@ pub struct FrontendBrowserTabUpdated {
     pub url: String,
     pub title: Option<String>,
     pub favicon_url: Option<String>,
+    pub profile_id: Option<String>,
     pub owner: Option<String>,
     /// False when the record already held these values.
     pub changed: bool,
