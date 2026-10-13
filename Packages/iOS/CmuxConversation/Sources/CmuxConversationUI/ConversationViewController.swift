@@ -668,7 +668,19 @@ public final class ConversationViewController: UIViewController {
             // finger drags (see `ConversationLiveChangeGate`); anything else
             // first applies what waited, so changes keep their order.
             if liveGate.hold(change) { return }
-            if let held = liveGate.release() { rebuild(change: held) }
+            if let held = liveGate.release() {
+                if change == .prepended {
+                    // An older page landed while other people's changes
+                    // waited (under the finger, or behind a page being
+                    // measured). The store holds both, so neither the live
+                    // rows nor the page's splice match the rows on screen:
+                    // one full build lands them together as a page, measured
+                    // ahead, with no motion (what waited shows in place).
+                    rebuild(change: .prepended, measured: nil, splice: nil, generation: nil, revision: nil, fullBuild: true)
+                    return
+                }
+                rebuild(change: held)
+            }
             rebuild(change: change)
         }
     }
@@ -684,7 +696,8 @@ public final class ConversationViewController: UIViewController {
     /// (see `ConversationRowBuilder.rowsAfterPrepend`).
     /// `generation` is the row memo pass `measured` came from, and
     /// `revision` the store's transcript revision it was built at.
-    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?, revision: Int?) {
+    /// `fullBuild` skips the page splice (see `storeDidChange`).
+    private func rebuild(change: ConversationStoreChange, measured: [ConversationRow]?, splice: ConversationPrependRows?, generation: Int?, revision: Int?, fullBuild: Bool = false) {
         rebuildSerial &+= 1
         if store.hasLoadedNewest, initialSpinner.isAnimating {
             initialSpinner.stopAnimating()
@@ -707,7 +720,7 @@ public final class ConversationViewController: UIViewController {
             assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a live change differ from a full build")
             newRows = built.rows
             tail = built
-        } else if change == .prepended, hasPositionedInitially, let built = ConversationRowBuilder.rowsAfterPrepend(store: store, previous: rows) {
+        } else if change == .prepended, hasPositionedInitially, !fullBuild, let built = ConversationRowBuilder.rowsAfterPrepend(store: store, previous: rows) {
             // An older page: only its rows and the boundary are built.
             assert(built.rows == ConversationRowBuilder.rows(store: store), "rows after a landed page differ from a full build")
             newRows = built.rows
