@@ -364,8 +364,6 @@ fn the_account_bearer_wins_and_no_proof_is_asked() {
 fn a_provider_for_an_unknown_origin_is_refused() {
     let dir = scratch("orig");
     let relay = start_relay(&dir, "http://127.0.0.1:1");
-    let mut stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
-    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     for origin in ["https://api.example.com", "http://127.0.0.1:2", "https://cloud-api.cmux.dev.example.com"] {
         let mut stream = UnixStream::connect(dir.join("router").join("router.sock")).unwrap();
         stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -377,6 +375,5 @@ fn a_provider_for_an_unknown_origin_is_refused() {
         assert_eq!(reply["error"], "provider origin refused", "{origin}: {reply}");
     }
     assert_eq!(admin(&dir, json!({"op": "status"})).unwrap()["free"]["provider"], false);
-    drop(stream);
     drop(relay);
 }

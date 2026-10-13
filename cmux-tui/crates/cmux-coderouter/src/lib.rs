@@ -824,7 +824,7 @@ async fn data_request(State(state): State<AppState>, request: Request<Body>) -> 
         }
     };
     // A refused free token (its grant ended, or the device is unknown): lease again next time.
-    if free && answer.status() == reqwest::StatusCode::UNAUTHORIZED {
+    if free && answer.status() == StatusCode::UNAUTHORIZED {
         state.free.drop_token();
     }
     let mut out = Response::builder().status(answer.status().as_u16());
