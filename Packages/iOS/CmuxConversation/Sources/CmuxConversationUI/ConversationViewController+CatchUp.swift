@@ -24,7 +24,7 @@ extension ConversationViewController {
         button.isHidden = true
         button.accessibilityIdentifier = "conversation.catchUp"
         button.accessibilityLabel = String(localized: "conversation.catchUp.label", defaultValue: "Scroll to first unread message", bundle: .module)
-        let glass = makeGlassView(cornerRadius: Self.catchUpButtonSize / 2, interactive: true)
+        let glass = makeGlassView(cornerRadius: Self.catchUpButtonSize / 2, interactive: true, clipsContent: false)
         glass.isUserInteractionEnabled = false
         glass.translatesAutoresizingMaskIntoConstraints = false
         button.addSubview(glass)

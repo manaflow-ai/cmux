@@ -436,9 +436,13 @@ enum ConversationTheme {
     }
 }
 
-/// A glass surface on iOS 26, a material blur before it.
+/// A glass surface on iOS 26, a material blur before it. `clipsContent`
+/// false leaves iOS 26 glass unclipped: it draws its own rounded shape, and
+/// a clip renders the whole surface offscreen each frame the transcript
+/// moves behind it (see `ConversationGlassClipping`); the blur fallback
+/// always clips, since its shape comes from the clip.
 @MainActor
-func makeGlassView(cornerRadius: CGFloat, interactive: Bool = false, tint: UIColor? = nil) -> UIVisualEffectView {
+func makeGlassView(cornerRadius: CGFloat, interactive: Bool = false, tint: UIColor? = nil, clipsContent: Bool = true) -> UIVisualEffectView {
     let view: UIVisualEffectView
     if #available(iOS 26.0, *) {
         let effect = UIGlassEffect(style: .regular)
@@ -450,7 +454,11 @@ func makeGlassView(cornerRadius: CGFloat, interactive: Bool = false, tint: UICol
     }
     view.layer.cornerRadius = cornerRadius
     view.layer.cornerCurve = .continuous
-    view.clipsToBounds = true
+    if #available(iOS 26.0, *) {
+        view.clipsToBounds = ConversationGlassClipping.clipsToBounds(liquidGlass: true, contentReachesCorners: clipsContent)
+    } else {
+        view.clipsToBounds = ConversationGlassClipping.clipsToBounds(liquidGlass: false, contentReachesCorners: clipsContent)
+    }
     return view
 }
 #endif
