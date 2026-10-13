@@ -302,6 +302,7 @@
             "rows" : [
               "workspaces.newPlacement",
               "sidebar.groupByComputer",
+              "appearance.sidebarSurface",
               "sidebar.border",
               "sidebar.borderWidth",
               "sidebar.sectionLook",
@@ -13175,6 +13176,74 @@
     },
     {
       "accepts" : [
+        "same",
+        "separate"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarSurface.same",
+            "text" : "Same as Main Pane"
+          },
+          "value" : "same"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.sidebarSurface.separate",
+            "text" : "Separate"
+          },
+          "value" : "separate"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "same",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.surface.help",
+        "text" : "Same as Main Pane gives the sidebar the main pane's background. Separate shades the sidebar darker, as before."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.sidebarSurface",
+      "keywords" : [
+        "sidebar",
+        "background",
+        "surface",
+        "shade",
+        "color",
+        "colour",
+        "panel",
+        "separate",
+        "main pane"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "sidebarSurface"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.surface",
+        "text" : "Sidebar Background"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -22807,7 +22876,7 @@
       "validation" : "portable"
     }
   ],
-  "schema_hash" : "c2169bbb37d76fad6c15203e9eaad3cccda0dd0b1ade5056bd0be9b45727a049",
+  "schema_hash" : "cbdbc82fae407b37da355fd2c10d7e8ca6e7e36e24292d72d75e19655f4a2fac",
   "sections" : [
     {
       "id" : "general",

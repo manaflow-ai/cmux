@@ -91,6 +91,7 @@ extension SettingsSchema {
         "appearance.density",
         "appearance.metrics.chromeFontSize",
         "appearance.borders",
+        "appearance.sidebarSurface",
         "appearance.focusIndicator",
         "focus.inactiveTabStyle",
         "ui.animationSpeed",
