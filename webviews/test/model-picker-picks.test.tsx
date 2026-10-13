@@ -88,7 +88,11 @@ type Sent = { method: "model" | "harness" | "effort"; value: string };
 
 async function mount(start: {
   harness: string;
-  extra?: { id: string; name: string; unavailable?: string; probeFailed?: boolean }[];
+  extra?: { id: string; name: string; family?: string; unavailable?: string; probeFailed?: boolean }[];
+  /// Completed turns of the shown chat: 0 is a chat with no message yet.
+  turnCount?: number;
+  /// acpmux's session list (the sidebar's Chats).
+  sessions?: import("../src/agent-session/acpmux/model").AcpmuxSnapshot["sessions"];
 }) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -104,7 +108,7 @@ async function mount(start: {
       family: harness.families[0],
       models: harness.models.map((model) => ({ id: model.id, name: model.name })),
     }))
-    .concat((start.extra ?? []).map((entry) => ({ ...entry, family: entry.id, models: [] }))) as Snapshot["catalog"];
+    .concat((start.extra ?? []).map((entry) => ({ family: entry.id, ...entry, models: [] }))) as Snapshot["catalog"];
   const sent: Sent[] = [];
   let session = 0;
   function Host() {
@@ -118,7 +122,7 @@ async function mount(start: {
       type: "snapshot",
       protocolVersion: 1,
       rows: [],
-      sessions: [],
+      sessions: start.sessions ?? [],
       connection: "test",
       isWorking: false,
       queue: [],
@@ -128,7 +132,7 @@ async function mount(start: {
         sessionId: state.sessionId,
         harness: state.harness,
         model: state.model,
-        turnCount: 1,
+        turnCount: start.turnCount ?? 1,
         configOptions: [
           {
             id: "effort",
@@ -140,7 +144,7 @@ async function mount(start: {
         ],
       },
     } as Snapshot;
-    const picker = usePickerCatalog(snapshot.catalog, { harness: state.harness });
+    const picker = usePickerCatalog(snapshot.catalog, { harness: state.harness }, snapshot.sessions);
     return (
       <ComposerPickers
         snapshot={snapshot}
@@ -219,14 +223,61 @@ for (const provider of [
   });
 }
 
-test("a row of another provider starts that provider on that row's model", async () => {
-  const { sent } = await mount({ harness: "claude" });
+test("before its first message, a row of another provider starts that provider on that row's model", async () => {
+  const { sent } = await mount({ harness: "claude", turnCount: 0 });
   await openOn("Codex");
   const astra = rows().find((row) => row.dataset.key === "model:gpt-6-astra")!;
   await act(async () => astra.click());
   // One switch carries the model: the new chat starts on it, with no second model request.
   expect(sent).toEqual([{ method: "harness", value: "codex/gpt-6-astra" }]);
   expect(chip()).toBe("GPT-6 Astra");
+});
+
+// Leo 2026-10-13 (cosmic-gray): in a running claude-sr chat, picking a ChatGPT model started a
+// Codex session in the tab, and picking Claude again started a bare `claude` one that was signed
+// out; the chat itself left the sidebar. Once a chat has a message its harness is fixed: the picker
+// lists that harness's models only, and crossing to another is Continue in…, never a pick.
+test("a started chat's picker lists only its own harness, and no pick or search leaves it", async () => {
+  const { sent } = await mount({
+    harness: "claude-sr",
+    extra: [{ id: "claude-sr", name: "Claude Code (subrouter)", family: "claude" }],
+  });
+  await act(async () => {
+    host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click();
+  });
+  const tabs = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map(
+    (button) => button.title.split(" · ")[0],
+  );
+  expect(tabs.filter((name) => name !== "Starred")).toEqual(["Claude Code"]);
+  const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, "value")!.set!.call(search, "gpt");
+    search.dispatchEvent(new dom.window.Event("input", { bubbles: true }));
+  });
+  expect(rows().map((row) => row.dataset.key)).toEqual([]);
+  await act(async () => {
+    search.dispatchEvent(new dom.window.KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  expect(sent).toEqual([]);
+});
+
+// The same report: from a Codex chat with no message yet, picking Claude started bare `claude`,
+// which is signed out on that Mac; its chats run on `claude-sr`. A provider's pick starts the
+// profile the person's chats last finished a turn on, never one whose turns only failed.
+test("a provider's pick starts the profile this person's chats last completed a turn on", async () => {
+  const { sent } = await mount({
+    harness: "codex",
+    turnCount: 0,
+    extra: [{ id: "claude-sr", name: "Claude Code (subrouter)", family: "claude" }],
+    sessions: [
+      { sessionId: "stray", displayTitle: "claude", harness: "claude", updatedAt: 3, worked: false },
+      { sessionId: "lane", displayTitle: "cg-next-reds", harness: "claude-sr", updatedAt: 2, worked: true },
+    ],
+  });
+  await openOn("Claude Code");
+  const opus = rows().find((row) => row.dataset.key === "model:claude-opus-5-5")!;
+  await act(async () => opus.click());
+  expect(sent).toEqual([{ method: "harness", value: "claude-sr/claude-opus-5-5" }]);
 });
 
 /// The New Tab page: no chat yet, so a pick starts a deferred switch (`chat.new {deferred}`) that
