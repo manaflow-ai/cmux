@@ -86,6 +86,17 @@ mock.module("../services/observability/cloudTelemetryDelivery", () => ({
   maintainCloudDiagnostics: async () => diagnosticsOutcome(),
 }));
 
+// The Hexclave webhook inbox drain rides on the vm-runtime-limits cron; these
+// cases are about the cron's own reporting, so the drain finds nothing to do.
+const hexclaveRuntimeModule = await import("../services/auth/hexclave/runtime");
+let hexclaveInboxStuck = 0;
+mock.module("../services/auth/hexclave/runtime", () => ({
+  ...hexclaveRuntimeModule,
+  drainHexclaveInboxNow: async () => ({
+    skipped: false, entities: 0, events: 0, deferredEvents: 0, throttled: false, stuck: hexclaveInboxStuck,
+  }),
+}));
+
 const { shouldSendSentryEvent } = await import("../services/sentry");
 const { captureAscError } = await import("../services/errors");
 const { reportError } = await import("../services/observability/report");
@@ -244,6 +255,20 @@ describe("cron routes report failures and check in", () => {
     expect(checkIns[0]!.config?.failureIssueThreshold).toBe(3);
     await eventsSettled(1);
     expect(events[0]!.tags["cron.stage"]).toBe("partial");
+  });
+
+  test("stuck Hexclave webhook events are reported without failing the runtime-limit run", async () => {
+    workflowOutcome = async () => ({ checked: 3, paused: 0, errors: 0 });
+    hexclaveInboxStuck = 4;
+    try {
+      const response = await vmRuntimeLimits.GET(cronRequest("vm-runtime-limits"));
+      expect(response.status).toBe(200);
+      expect((await response.json() as { hexclaveInbox: { stuck: number } }).hexclaveInbox.stuck).toBe(4);
+      await eventsSettled(1);
+      expect(events[0]!.tags["cron.stage"]).toBe("hexclave_inbox_stuck");
+    } finally {
+      hexclaveInboxStuck = 0;
+    }
   });
 
   test("a successful run checks in ok without an event", async () => {
