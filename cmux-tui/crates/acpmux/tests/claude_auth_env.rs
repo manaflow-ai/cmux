@@ -104,6 +104,10 @@ impl Drop for Daemon {
 /// (only PATH for python3, the fake HOME and its login shell) plus `extra`.
 async fn start(dir: &Path, harnesses: Value, extra: &[(&str, &str)]) -> Daemon {
     let config = json!({"harnesses": harnesses, "defaultHarness": "claude", "permissionPolicy": "approve-all"});
+    start_config(dir, config, extra).await
+}
+
+async fn start_config(dir: &Path, config: Value, extra: &[(&str, &str)]) -> Daemon {
     std::fs::write(dir.join("config.json"), config.to_string()).unwrap();
     let socket = dir.join("s.sock");
     let mut cmd = std::process::Command::new(env!("CARGO_BIN_EXE_acpmux"));
@@ -423,4 +427,28 @@ async fn a_hung_login_shell_holds_agents_at_most_three_seconds() {
     let log = std::fs::read_to_string(dir.join("daemon.out")).unwrap_or_default()
         + &std::fs::read_to_string(dir.join("daemon.stderr")).unwrap_or_default();
     assert!(log.contains("login shell env: no result within 3s"), "{log}");
+}
+
+/// Only the allow-list leaves the login shell: a Claude agent gets the
+/// login ANTHROPIC_AUTH_TOKEN but not GITHUB_TOKEN, GH_TOKEN or NPM_TOKEN;
+/// a name the person adds to `loginEnvAllow` (NPM_TOKEN here) does reach it.
+#[tokio::test]
+async fn only_allow_listed_login_variables_reach_the_agent() {
+    let dir = scratch(
+        "allow",
+        "export ANTHROPIC_AUTH_TOKEN=ignored-by-router\nexport GITHUB_TOKEN=ghp-login\nexport GH_TOKEN=gh-login\nexport NPM_TOKEN=npm-login\n",
+    );
+    let harnesses = json!({"claude": claude(json!({}))});
+    {
+        let d = start(&dir, harnesses.clone(), &[]).await;
+        let (reply, _) = ask(&d, "claude").await;
+        let v = found(&reply);
+        assert_eq!(v["auth"], json!(["ANTHROPIC_AUTH_TOKEN"]), "{v}");
+        assert_eq!(v["loginOnly"], json!([]), "{v}");
+    }
+    let config = json!({"harnesses": harnesses, "defaultHarness": "claude",
+        "permissionPolicy": "approve-all", "loginEnvAllow": ["NPM_TOKEN"]});
+    let d = start_config(&dir, config, &[]).await;
+    let (reply, _) = ask(&d, "claude").await;
+    assert_eq!(found(&reply)["loginOnly"], json!(["NPM_TOKEN"]));
 }

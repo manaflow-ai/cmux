@@ -92,7 +92,8 @@ for line in sys.stdin:
             found.append("credentials")
         if found:
             text = json.dumps({"auth": found, "home": home, "base": env.get("ANTHROPIC_BASE_URL"),
-                               "awsProfile": env.get("AWS_PROFILE"), "via": env.get("FAKE_CLAUDE_VIA")})
+                               "awsProfile": env.get("AWS_PROFILE"), "via": env.get("FAKE_CLAUDE_VIA"),
+                               "loginOnly": sorted(k for k in ("GITHUB_TOKEN", "GH_TOKEN", "NPM_TOKEN") if os.environ.get(k))})
             send({"type": "stream_event", "event": {"type": "content_block_delta", "index": 0,
                                                      "delta": {"type": "text_delta", "text": text}}})
             send({"type": "result", "subtype": "success", "result": text, "num_turns": 1, "duration_api_ms": 1,
