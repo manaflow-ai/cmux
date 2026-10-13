@@ -53,11 +53,11 @@ describe("TeamHub signaling", () => {
     const sessionId = crypto.randomUUID()
     p.send(offer(phone, mac, sessionId))
     await m.until((s) => s.frames.some((f) => f.type === "signal"))
-    expect(m.frames.find((f) => f.type === "signal")).toEqual({ type: "signal", to: mac, from: phone, sessionId, payload: { kind: "webrtc-offer", sdp: "v=0" } })
+    expect(m.frames.find((f) => f.type === "signal")).toEqual({ type: "signal", to: mac, from: phone, fromUserId: "alice", sessionId, payload: { kind: "webrtc-offer", sdp: "v=0" } })
 
     m.send({ type: "signal", to: phone, from: mac, sessionId, payload: { kind: "webrtc-answer", sdp: "v=0 answer" } })
     await p.until((s) => s.frames.some((f) => f.type === "signal"))
-    expect(p.frames.find((f) => f.type === "signal")).toMatchObject({ from: mac, payload: { kind: "webrtc-answer" } })
+    expect(p.frames.find((f) => f.type === "signal")).toMatchObject({ from: mac, fromUserId: "alice", payload: { kind: "webrtc-answer" } })
 
     // Bob is in the team but does not own the Mac.
     bp.send(offer(bobPhone, mac))
@@ -76,6 +76,19 @@ describe("TeamHub signaling", () => {
     expect(p.frames.find((f) => f.type === "error")).toMatchObject({ code: "bad_request" })
     expect(m.frames.filter((f) => f.type === "signal")).toHaveLength(1)
     for (const s of [p, m, bp]) s.ws.close()
+  })
+
+  it("overwrites a client-supplied fromUserId with the verified sender", async () => {
+    const alice = await token("alice")
+    const phone = await register(alice, "phone", "team-a")
+    const mac = await register(alice, "mac", "team-a")
+    const p = await connect(alice, "team-a", phone)
+    const m = await connect(alice, "team-a", mac)
+    await m.until((s) => s.frames.some((f) => f.type === "hello"))
+    p.send({ ...offer(phone, mac), fromUserId: "mallory" })
+    await m.until((s) => s.frames.some((f) => f.type === "signal"))
+    expect(m.frames.find((f) => f.type === "signal").fromUserId).toBe("alice")
+    for (const s of [p, m]) s.ws.close()
   })
 
   it("reports an offline Mac", async () => {

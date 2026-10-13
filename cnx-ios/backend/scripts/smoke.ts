@@ -77,11 +77,11 @@ const open = (deviceId: string) =>
     const frames: Array<any> = []
     const bins: Array<Uint8Array> = []
     const waiters: Array<() => void> = []
-    ws.onmessage = (e) => {
+    ws.addEventListener("message", (e: MessageEvent) => {
       if (typeof e.data === "string") frames.push(JSON.parse(e.data))
       else bins.push(new Uint8Array(e.data as ArrayBuffer))
       waiters.splice(0).forEach((w) => w())
-    }
+    })
     const wait = async (p: (f: any) => boolean, ms = 5000) => {
       const end = Date.now() + ms
       for (;;) {
@@ -94,8 +94,8 @@ const open = (deviceId: string) =>
         })
       }
     }
-    ws.onopen = () => resolve({ ws, frames, bins, wait })
-    ws.onerror = () => reject(new Error(`websocket ${deviceId.slice(0, 8)} failed`))
+    ws.addEventListener("open", () => resolve({ ws, frames, bins, wait }))
+    ws.addEventListener("error", () => reject(new Error(`websocket ${deviceId.slice(0, 8)} failed`)))
   })
 
 const m = await open(macId)
@@ -108,6 +108,7 @@ const sessionId = crypto.randomUUID()
 p.ws.send(JSON.stringify({ type: "signal", to: macId, from: phoneId, sessionId, payload: { kind: "webrtc-offer", sdp: "v=0 smoke" } }))
 const offer = await m.wait((f) => f.type === "signal" && f.sessionId === sessionId)
 check("offer phone->mac", offer?.from === phoneId && offer?.payload?.sdp === "v=0 smoke")
+check("offer carries fromUserId", typeof offer?.fromUserId === "string" && offer.fromUserId.length > 0)
 m.ws.send(JSON.stringify({ type: "signal", to: phoneId, from: macId, sessionId, payload: { kind: "webrtc-answer", sdp: "v=0 answer" } }))
 const answer = await p.wait((f) => f.type === "signal" && f.sessionId === sessionId)
 check("answer mac->phone", answer?.from === macId && answer?.payload?.kind === "webrtc-answer")

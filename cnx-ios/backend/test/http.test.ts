@@ -4,7 +4,7 @@ import { call, register, token } from "./helpers.ts"
 describe("HTTP API", () => {
   it("health is public", async () => {
     const r = await call("GET", "/v1/health", undefined)
-    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.1.0" } })
+    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.2.0" } })
   })
 
   it("rejects missing, forged, wrong-audience and anonymous tokens", async () => {

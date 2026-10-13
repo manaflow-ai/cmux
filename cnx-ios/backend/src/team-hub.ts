@@ -159,7 +159,8 @@ export class TeamHub extends DurableObject<Env> {
       if (!this.admit(att, f.to, f.sessionId)) return this.error(ws, "not_owner", "not allowed to signal this device", f.sessionId)
       const target = this.open(f.to)
       if (!target) return this.error(ws, "offline", "device is offline", f.sessionId)
-      target.send(JSON.stringify({ type: "signal", to: f.to, from: att.deviceId, sessionId: f.sessionId, payload: f.payload }))
+      // fromUserId is always the verified sender (PROTOCOL.md); any client value is dropped.
+      target.send(JSON.stringify({ type: "signal", to: f.to, from: att.deviceId, fromUserId: att.userId, sessionId: f.sessionId, payload: f.payload }))
       if (f.payload.kind === "bye") this.endSession(f.sessionId)
       return
     }
