@@ -20,6 +20,10 @@ final class PhonePairingService {
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.phone-pairing")
 
     init() {
+        advertiser.onChange = { [weak self] in
+            guard let self else { return }
+            self.model.discoverable = self.advertiser.discoverable
+        }
         model.onNewCode = { [weak self] in self?.mintCode() }
         model.onRevoke = { [weak self] id in self?.revoke(id) }
     }
@@ -100,7 +104,7 @@ final class PhonePairingService {
         } else {
             advertiser.stop()
         }
-        model.discoverable = advertiser.status.map { $0 == 0 }
+        model.discoverable = advertiser.discoverable
         model.failure = snapshot.failure
         model.endpoints = snapshot.endpoints
         model.hostFingerprint = snapshot.hostKeyFingerprint
