@@ -74,6 +74,24 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
       })
     }
     ensureUserTables(ctx.storage.sql)
+    // The last level the usage sync sent to the payment service, per subscription and period (cx-y79zh S4).
+    ctx.storage.sql.exec(`CREATE TABLE IF NOT EXISTS usage_push (subscription TEXT NOT NULL, period_start INTEGER NOT NULL, identifier TEXT NOT NULL, micros INTEGER NOT NULL, pushed_at INTEGER NOT NULL, PRIMARY KEY (subscription, period_start))`)
+  }
+
+  /** The usage sync's last sent identifier for a subscription period, or null (never sent, or the team never used the meter). */
+  async pushedLevel(entity: string, subscription: string, periodStart: number): Promise<string | null> {
+    if (!this.isBound(entity)) return null
+    const row = this.ctx.storage.sql.exec<{ identifier: string }>(`SELECT identifier FROM usage_push WHERE subscription = ? AND period_start = ?`, subscription, periodStart).toArray()[0]
+    return row?.identifier ?? null
+  }
+
+  /** The usage sync sent `identifier` (level `micros`) for this subscription period. */
+  async recordPush(entity: string, subscription: string, periodStart: number, identifier: string, micros: number): Promise<void> {
+    this.bind(entity)
+    this.ctx.storage.sql.exec(
+      `INSERT INTO usage_push (subscription, period_start, identifier, micros, pushed_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT (subscription, period_start) DO UPDATE SET identifier = excluded.identifier, micros = excluded.micros, pushed_at = excluded.pushed_at`,
+      subscription, periodStart, identifier, micros, Date.now()
+    )
   }
 
   /** Model router (inference/route.ts): reserve `maxMicros` of the member's monthly limit before the upstream call (usage-user.ts). */
@@ -255,6 +273,7 @@ export class UsageMeterDO extends OwnerDO<UsageState> {
   protected override async onWake(now: number): Promise<void> {
     this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter != 'model.spend_usd' AND recorded_at < ?`, now - USAGE_KEY_RETENTION_MS)
     this.ctx.storage.sql.exec(`DELETE FROM usage_ledger WHERE meter = 'model.spend_usd' AND recorded_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
+    this.ctx.storage.sql.exec(`DELETE FROM usage_push WHERE pushed_at < ?`, now - BILLABLE_FACT_RETENTION_MS)
     expireUserReservations(this.ctx.storage, now, utcMonth(now))
   }
 

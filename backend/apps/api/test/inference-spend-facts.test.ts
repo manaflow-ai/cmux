@@ -1,59 +1,14 @@
-import { env, exports } from "cloudflare:workers"
-import { createExecutionContext, runInDurableObject, waitOnExecutionContext } from "cloudflare:test"
-import { importJWK, SignJWT, type JWK } from "jose"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { env } from "cloudflare:workers"
+import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import worker from "../src/index.ts"
-import { userIdFor } from "../src/domains/user.ts"
-import { storePlan } from "../src/inference/plan.ts"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { chat, inDO, loopback, paidPerson, post, testEnv } from "./setup/inference-person.ts"
 
 /**
  * cx-y79zh S1 (plans/cmux-next/usage-billing.md): one model router call is one fact, and the member's
  * monthly spend and the team's model spend read that same fact. Driven at the route
  * (POST /v1/inference/chat/completions) with the provider faked at its HTTP boundary.
  */
-
-const testEnv = env as unknown as { STACK_PROJECT_ID: string; STACK_TEST_PRIVATE_JWK: string; USAGE_METER_DO: DurableObjectNamespace; TEAM_DO: DurableObjectNamespace }
-const loopback = (exports as unknown as { default: Fetcher }).default
-const inDO = runInDurableObject as unknown as (stub: unknown, cb: (instance: any) => Promise<void>) => Promise<void>
-const MODEL = "qwen/qwen3.7-flash"
-
-const token = async (stackUser: string) => {
-  const key = await importJWK(JSON.parse(testEnv.STACK_TEST_PRIVATE_JWK) as JWK, "ES256")
-  return new SignJWT({ email: `${stackUser}@example.com`, name: stackUser })
-    .setProtectedHeader({ alg: "ES256", kid: "stack-test" })
-    .setIssuer(`https://api.stack-auth.com/api/v1/projects/${testEnv.STACK_PROJECT_ID}`)
-    .setAudience(testEnv.STACK_PROJECT_ID)
-    .setSubject(stackUser)
-    .setIssuedAt()
-    .setExpirationTime("10m")
-    .sign(key)
-}
-const post = async (path: string, t: string, body: unknown) => {
-  const res = await loopback.fetch(`https://api.test${path}`, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}` }, body: JSON.stringify(body) })
-  return (await res.json()) as any
-}
-
-/** A signed-in person on a paid personal plan (the plan copy TeamDO keeps, inference/plan.ts). */
-const paidPerson = async (stackUser: string) => {
-  const t = await token(stackUser)
-  const ensured = await post("/v1/ops", t, { op: "user.ensure", params: {}, idempotency_key: crypto.randomUUID(), origin: "cli" })
-  const team = ensured.value.personal_team as string
-  await inDO(testEnv.TEAM_DO.get(testEnv.TEAM_DO.idFromName(team)), async (i) => storePlan(i.ctx.storage.sql, "pro", Date.now()))
-  return { t, team, user: userIdFor(testEnv.STACK_PROJECT_ID, stackUser) }
-}
-
-/** One chat call through the Worker's fetch handler; returns after every waitUntil (the settle) ended. */
-const chat = async (t: string) => {
-  const ctx = createExecutionContext()
-  const res = await worker.fetch!(
-    new Request("https://api.test/v1/inference/chat/completions", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${t}` }, body: JSON.stringify({ model: MODEL, max_tokens: 64, messages: [{ role: "user", content: "hi" }] }) }) as any,
-    env as any,
-    ctx
-  )
-  const text = await res.text()
-  await waitOnExecutionContext(ctx)
-  return { status: res.status, text }
-}
 
 /** The provider's chat/completions endpoint answers `reply`; every other request goes out as usual. */
 const fakeProvider = (reply: () => Response) => {
@@ -192,5 +147,124 @@ describe("model router spend is one fact (cx-y79zh S1)", () => {
     expect((await levels([{ stack_user: "spend-facts-level", from: before, to: after }])).body.levels[0].micros).toBe(10)
     expect((await levels([{ stack_user: "spend-facts-level", from: before, to: after }], "wrong-key-0123456789abcdef0123456789")).status).toBe(401)
     expect((await levels([{ stack_user: "x", stack_team: "y", from: 0, to: 1 }])).status).toBe(400)
+  })
+})
+
+// One file on purpose: these tests replace globalThis.fetch, which test files share in this pool.
+/**
+ * cx-y79zh S4 (plans/cmux-next/usage-billing.md section 3): the usage sync in the API Worker, driven
+ * at its route POST /v1/internal/billing/sync with the payment service faked at its HTTP boundary
+ * (api.stripe.com) and the model provider faked as in inference-spend-facts.test.ts.
+ */
+
+const PLAN_PRICE = "price_plan_pro"
+const USAGE_PRICES: Record<string, string> = { "cmux-ai-usage-go-incl5-v1": "price_u_go", "cmux-ai-usage-pro-incl20-v1": "price_u_pro", "cmux-ai-usage-max-incl100-v1": "price_u_max", "cmux-ai-usage-team-incl20-v1": "price_u_team" }
+
+type Call = { method: string; path: string; form: Record<string, string>; idempotency: string | null }
+
+/** An in-memory payment service: prices by lookup key, one subscription, subscription items, meter events. */
+const fakeStripe = (stackUser: string, period: { start: number; end: number }) => {
+  const calls: Call[] = []
+  const events: Array<Record<string, string>> = []
+  const sub = {
+    id: "sub_test_1",
+    status: "active",
+    customer: "cus_test_1",
+    metadata: { app: "cmux", plan: "pro", stackUserId: stackUser },
+    items: { data: [{ id: "si_plan", quantity: 1, price: { id: PLAN_PRICE, product: "prod_pro" }, current_period_start: period.start, current_period_end: period.end }] as Array<any> }
+  }
+  const seenIdempotency = new Map<string, unknown>()
+  const handle = async (url: URL, init: RequestInit): Promise<Response> => {
+    const method = (init.method ?? "GET").toUpperCase()
+    const form = Object.fromEntries(new URLSearchParams(typeof init.body === "string" ? init.body : ""))
+    const idempotency = new Headers(init.headers).get("idempotency-key")
+    calls.push({ method, path: url.pathname, form, idempotency })
+    if (idempotency && seenIdempotency.has(idempotency)) return Response.json(seenIdempotency.get(idempotency))
+    const ok = (body: unknown) => {
+      if (idempotency) seenIdempotency.set(idempotency, body)
+      return Response.json(body)
+    }
+    if (method === "GET" && url.pathname === "/v1/prices") {
+      const keys = url.searchParams.getAll("lookup_keys[]")
+      return ok({ data: keys.filter((k) => USAGE_PRICES[k]).map((k) => ({ id: USAGE_PRICES[k], lookup_key: k })) })
+    }
+    if (method === "GET" && url.pathname === "/v1/subscriptions") return ok({ data: [structuredClone(sub)], has_more: false })
+    if (method === "POST" && url.pathname === "/v1/subscription_items") {
+      const item = { id: "si_usage", price: { id: form.price, product: "cmux_ai_usage" }, current_period_start: period.start, current_period_end: period.end }
+      sub.items.data.push(item)
+      return ok(item)
+    }
+    if (method === "POST" && url.pathname === "/v1/billing/meter_events") {
+      events.push(form)
+      return ok({ object: "billing.meter_event", identifier: form.identifier })
+    }
+    return Response.json({ error: { code: "resource_missing", message: `no fake for ${method} ${url.pathname}` } }, { status: 404 })
+  }
+  return { calls, events, sub, handle }
+}
+
+/** Fakes both boundaries: the model provider answers `cost`, the payment service is `stripe`. */
+const fakeBoundaries = (stripe: ReturnType<typeof fakeStripe>, cost: number) => {
+  const real = globalThis.fetch
+  vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : String(input))
+    if (url.hostname === "api.stripe.com") return stripe.handle(url, init ?? {})
+    if (url.hostname === "openrouter.ai") return Response.json({ id: "x", choices: [{ index: 0, message: { role: "assistant", content: "ok" } }], usage: { prompt_tokens: 10, completion_tokens: 5, cost } })
+    return real(input, init)
+  })
+}
+
+/** One usage sync run through the Worker's fetch handler (POST /v1/internal/billing/sync). */
+const sync = async (runEnv: unknown = env) => {
+  const ctx = createExecutionContext()
+  const res = await worker.fetch!(new Request("https://api.test/v1/internal/billing/sync", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${LEVELS_KEY}` }, body: "{}" }) as any, runEnv as any, ctx)
+  const body = (await res.json()) as any
+  await waitOnExecutionContext(ctx)
+  return { status: res.status, body }
+}
+
+describe("usage sync (cx-y79zh S4)", () => {
+  it("refuses a live payment key before any call to the payment service", async () => {
+    const stripe = fakeStripe("usage-sync-live", { start: 1, end: 2 })
+    fakeBoundaries(stripe, 0)
+    for (const live of ["sk_live_0123456789abcdef", "rk_live_0123456789abcdef"]) {
+      const r = await sync({ ...(env as object), STRIPE_USAGE_KEY: live })
+      expect(r.status).toBe(409)
+      expect(r.body).toMatchObject({ mode: "live", refused: "live_key", checked: 0, pushed: 0 })
+    }
+    expect(stripe.calls).toHaveLength(0)
+  })
+
+  it("adds the usage item once, never changes the plan item, and sends each new level once", async () => {
+    const stackUser = "usage-sync-person"
+    const { t } = await paidPerson(stackUser)
+    const now = Math.floor(Date.now() / 1000)
+    const stripe = fakeStripe(stackUser, { start: now - 3600, end: now + 30 * 86_400 })
+    fakeBoundaries(stripe, 0.000007)
+    expect((await chat(t)).status).toBe(200)
+
+    const first = await sync()
+    expect(first.status).toBe(200)
+    expect(first.body).toMatchObject({ mode: "test", checked: 1, items_added: 1, pushed: 1, failed: 0 })
+    const added = stripe.calls.filter((c) => c.path === "/v1/subscription_items")
+    expect(added).toEqual([expect.objectContaining({ method: "POST", idempotency: `usage-item:sub_test_1:price_u_pro`, form: expect.objectContaining({ subscription: "sub_test_1", price: "price_u_pro" }) })])
+    // The plan item is never written: no call names si_plan or the plan price.
+    expect(stripe.calls.some((c) => c.path.includes("si_plan") || Object.values(c.form).includes(PLAN_PRICE))).toBe(false)
+    expect(stripe.events).toHaveLength(1)
+    expect(stripe.events[0]).toMatchObject({ event_name: "cmux_ai_usage", "payload[stripe_customer_id]": "cus_test_1", "payload[value]": "0.000007" })
+
+    // Nothing changed: no new item, no new event.
+    const second = await sync()
+    expect(second.body).toMatchObject({ checked: 1, items_added: 0, pushed: 0, unchanged: 1 })
+    expect(stripe.events).toHaveLength(1)
+
+    // A new fact: the new period level (the whole level, not a delta) is sent with a new identifier.
+    expect((await chat(t)).status).toBe(200)
+    const third = await sync()
+    expect(third.body).toMatchObject({ pushed: 1, items_added: 0 })
+    expect(stripe.events).toHaveLength(2)
+    expect(stripe.events[1]!["payload[value]"]).toBe("0.000014")
+    expect(stripe.events[1]!.identifier).not.toBe(stripe.events[0]!.identifier)
+    expect(stripe.calls.filter((c) => c.path === "/v1/billing/meter_events").every((c) => c.idempotency === c.form.identifier)).toBe(true)
   })
 })

@@ -79,3 +79,36 @@ export const handleBillingLevels = async (request: Request, env: Env): Promise<R
   if (!levels) return json({ error: "a usage meter is unavailable; retry", retryable: true }, 503)
   return json({ levels, read_at: Date.now() })
 }
+
+export const BILLING_SYNC_PATH = "/v1/internal/billing/sync"
+
+/**
+ * `POST /v1/internal/billing/sync` (same service key): one usage sync run now, for every billed
+ * subscription or `{"subscription": "<id>"}` (an invoice-created trigger, a test). The cron runs the
+ * same function every 15 minutes (index.ts). A live payment key is refused before any call.
+ */
+export const handleBillingSync = async (request: Request, env: Env): Promise<Response> => {
+  const key = env.BILLING_LEVELS_KEY
+  if (!key || key.length < 32) return json({ error: "not found" }, 404)
+  if (request.method !== "POST") return json({ error: "method not allowed" }, 405)
+  const presented = (request.headers.get("authorization") ?? "").replace(/^Bearer /, "")
+  if (!timingSafeEqual(presented, key)) return json({ error: "unauthorized" }, 401)
+  const raw = await readRawBody(request, MAX_BODY)
+  if (!raw.ok) return json({ error: raw.message }, raw.status)
+  let body: { subscription?: unknown } = {}
+  if (raw.text.trim()) {
+    try {
+      body = JSON.parse(raw.text) as { subscription?: unknown }
+    } catch {
+      return json({ error: "body must be JSON" }, 400)
+    }
+  }
+  if (body.subscription !== undefined && (typeof body.subscription !== "string" || !/^sub_[A-Za-z0-9]{1,64}$/.test(body.subscription))) return json({ error: "subscription must be a subscription id" }, 400)
+  const { syncUsage } = await import("./billing-usage-sync.ts")
+  const report = await syncUsage(env, typeof body.subscription === "string" ? { subscription: body.subscription } : undefined).catch((e: unknown) => {
+    console.error(JSON.stringify({ msg: "billing.usage_sync.run_failed", error: String(e).slice(0, 200) }))
+    return null
+  })
+  if (!report) return json({ error: "the usage sync failed; retry", retryable: true }, 503)
+  return json(report, report.refused && report.refused !== "no_key" ? 409 : 200)
+}
