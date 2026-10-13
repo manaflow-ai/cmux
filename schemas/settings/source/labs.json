@@ -1,0 +1,37 @@
+{
+  "$comment": "HAND-EDITED source of the Labs settings (cx-d5b5d); gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "labs",
+      "section": "advanced",
+      "group": {
+        "key": "settings.group.labs",
+        "text": "Labs"
+      },
+      "note": "Settings > Advanced > Labs: surfaces still being shaped, off by default.",
+      "rows": [
+        {
+          "key": "labs.previewFeatures",
+          "note": "Surfaces still being shaped (the agent pane's session coverage label and its Pull requests view). Off by default, so a default app shows only finished surfaces.",
+          "title": {
+            "key": "settings.labs.previewFeatures",
+            "text": "Show Preview Features"
+          },
+          "help": {
+            "key": "settings.labs.previewFeatures.help",
+            "text": "Unfinished surfaces, such as the agent session's coverage label and Pull requests view."
+          },
+          "kind": "toggle",
+          "default": false,
+          "keywords": [
+            "labs",
+            "preview",
+            "experimental",
+            "beta",
+            "prototype"
+          ]
+        }
+      ]
+    }
+  ]
+}

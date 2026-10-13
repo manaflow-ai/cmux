@@ -124,7 +124,7 @@ fn the_daemon_logs_the_merged_table_once_and_warns_about_the_ignored_entry() {
         ])
         .env("ACPMUX_HOME", &d)
         .env("ACPMUX_SOCKET", d.join("s.sock"))
-        .env_remove("ACPMUX_LOGIN_ENV")
+        .env("ACPMUX_LOGIN_ENV", "0")
         .env_remove("XPC_SERVICE_NAME")
         .env("NO_COLOR", "1")
         .stdin(Stdio::null())

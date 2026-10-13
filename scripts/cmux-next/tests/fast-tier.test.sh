@@ -95,4 +95,33 @@ expect "dry run tests each Swift entry against the built package" 0 "^RUN tokens
 expect "dry run builds cargo test binaries once, outside the cap" 0 "^BUILD cargo test --locked --no-run -p cmux-motion \\(in cmux-tui\\)$"
 expect "dry run tests a cargo entry" 0 "^RUN clock: cargo test --locked -p cmux-motion \(in cmux-tui\)$"
 
+# A filter that matches no test is a failure, never a vacuous pass: a renamed
+# test must not silently leave the tier. A fake cargo and swift on PATH print
+# what the real ones print for an empty match.
+mkdir -p "$tmp/fakebin" "$tmp/root/crate"
+cat > "$tmp/fakebin/cargo" <<'EOF2'
+#!/usr/bin/env bash
+case " $* " in *" --no-run "*) exit 0 ;; esac
+case " $* " in *" -- matches "*) echo "test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.01s" ;;
+  *) echo "test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s" ;; esac
+EOF2
+cat > "$tmp/fakebin/swift" <<'EOF2'
+#!/usr/bin/env bash
+[ "$1" = build ] && exit 0
+case " $* " in *" --filter Matches "*) echo "Test run with 3 tests in 1 suite passed after 0.010 seconds." ;;
+  *) echo "warning: No matching test cases were run"; echo "Test run with 0 tests in 0 suites passed after 0.001 seconds." ;; esac
+EOF2
+chmod +x "$tmp/fakebin/cargo" "$tmp/fakebin/swift"
+registry '{"entries": [
+  {"name": "core hit", "kind": "cargo", "path": "crate", "package": "core", "filter": "matches", "owner": "op-test"},
+  {"name": "swift hit", "kind": "swift", "package": "Pkg", "filter": "Matches", "owner": "op-test"}]}'
+PATH="$tmp/fakebin:$PATH" run
+expect "entries that run tests pass" 0 "^FAST-TIER PASS swift hit "
+registry '{"entries": [{"name": "core miss", "kind": "cargo", "path": "crate", "package": "core", "filter": "renamed", "owner": "op-test"}]}'
+PATH="$tmp/fakebin:$PATH" run
+expect "a cargo filter matching no test fails" 1 "^FAST-TIER FAIL core miss .*matched no test"
+registry '{"entries": [{"name": "swift miss", "kind": "swift", "package": "Pkg", "filter": "Renamed", "owner": "op-test"}]}'
+PATH="$tmp/fakebin:$PATH" run
+expect "a swift filter matching no test fails" 1 "^FAST-TIER FAIL swift miss .*matched no test"
+
 echo "fast-tier.test: ok"
