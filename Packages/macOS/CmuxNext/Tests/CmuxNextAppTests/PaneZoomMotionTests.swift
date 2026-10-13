@@ -149,21 +149,23 @@ struct PaneZoomMotionTests {
         #expect(screen.shown("p1") == screen.screen?.geometry.panes["p1"])
     }
 
-    @Test func anUnzoomResizesTheTerminalOnceAndTheOthersFadeBackIn() throws {
+    @Test func anUnzoomResizesTheTerminalOnceAsItLandsAndTheOthersFadeBackIn() throws {
         let screen = Screen(Self.grid2)
         screen.zoom("p4")
         for _ in 1...120 { screen.step() }
         screen.unzoom()
-        let final = try #require(screen.hostSize("p4"))
+        // It keeps its zoomed size while the shrinking rect clips it, and takes its slot's once, as it lands.
+        var sizes = [try #require(screen.hostSize("p4"))]
         let slot = try #require(screen.screen?.geometry.panes["p4"])
-        #expect(abs(final.width - slot.width) < 1 && abs(final.height - slot.height) < 1)
         #expect(screen.opacity("p1") < 0.05, "the returning panes appear at once instead of fading in")
         var shown: Int?
         for frame in 1...120 {
             screen.step()
-            #expect(screen.hostSize("p4") == final, "frame \(frame): the unzooming terminal resized mid-move")
+            if let size = screen.hostSize("p4"), size != sizes.last { sizes.append(size) }
             if shown == nil, ["p1", "p2", "p3"].allSatisfy({ screen.opacity($0) > 0.95 }) { shown = frame }
         }
+        #expect(sizes.count <= 2, "the unzooming terminal resized \(sizes.count - 1) times: \(sizes)")
+        #expect(sizes.last.map { abs($0.width - slot.width) < 1 && abs($0.height - slot.height) < 1 } == true)
         #expect((shown ?? .max) <= Int((0.35 * Self.scale / Self.dt).rounded(.up)))
     }
 
