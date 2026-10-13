@@ -508,6 +508,7 @@ describe("dashboard billing screen", () => {
     expect(html).toContain("Personal plans support up to 3 members.");
     expect(html).toContain("each accepted member costs $60 per month");
     expect(html).toContain("Pending invitations do not use seats");
+    expect(html).toContain("switching teams does not move or reset machines");
   });
 
   test("asks members of a free team to contact an admin", async () => {

@@ -59,6 +59,7 @@ describe("new team flow steps", () => {
     expect(html).toContain('href="/api/billing/checkout?plan=team&amp;teamId=team+1"');
     expect(html).toContain("Personal Pro or Max can power this team for up to 3 people.");
     expect(html).toContain("Pending invitations are free.");
+    expect(html).toContain("switching teams does not move or reset machines");
   });
 
   test("the plan step says seats follow the member count", async () => {
