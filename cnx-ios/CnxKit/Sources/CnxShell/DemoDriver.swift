@@ -1,6 +1,7 @@
 #if os(iOS) && DEBUG
 import CmuxAgentQuestion
 import CnxAgentChat
+import CnxAgentChat
 import CnxChief
 import CnxDesign
 import CnxFeed
@@ -35,6 +36,10 @@ struct DemoDriver {
         case "workspaces-reopen": await workspacesReopen()
         case "chief": await chief()
         case "ws-terminal": await workspaceTerminal()
+        case "tour-a": await tourHomeAndWorkspaces()
+        case "tour-b": await tourFeedChatDiff()
+        case "tour-c": await tourSettingsAndSidebar()
+        case "onboarding": break  // driven by CnxOnboarding's script until the shell appears
         case "live": await live()
         default: break
         }
@@ -396,6 +401,157 @@ struct DemoDriver {
         tabs.post(.exit)
         await pause(1.8)
         mark("end")
+    }
+
+    // MARK: Full-app walkthrough (polish pass), in three recordings
+
+    /// Home, Chief, back; Workspaces, a workspace on its last tab (agent),
+    /// the grid, the terminal tab with the keyboard, the agent tab, leave.
+    private func tourHomeAndWorkspaces() async {
+        let store = shell.store
+        let tabs = WorkspaceDemoDirector.shared
+        store.noteOpened(tabID: "t-claude", in: "ws-cmux")
+        mark("home")
+        shell.tab = .home
+        await pause(2.4)
+        mark("chief")
+        shell.homePath.append(ChiefRoute())
+        await pause(2.4)
+        mark("chief send")
+        _ = ChiefDemoHook.shared.lab("send thanks! what's the status?")
+        await pause(6.0)
+        mark("home back")
+        if !shell.homePath.isEmpty { shell.homePath.removeLast() }
+        await pause(2.0)
+        mark("workspaces")
+        shell.tab = .workspaces
+        await pause(2.0)
+        guard let ws = store.workspace(id: "ws-cmux") else { return }
+        mark("workspace (last tab: agent)")
+        shell.workspacesPath = [ws]
+        await pause(2.8)
+        mark("grid")
+        tabs.post(.showGrid(true))
+        await pause(2.2)
+        mark("terminal tab")
+        tabs.post(.activate("t-zsh"))
+        await pause(2.6)
+        if let model = shell.terminalTabs.model(forTabID: "t-zsh") {
+            mark("keyboard show")
+            model.toggleKeyboard()
+            await pause(1.6)
+            for character in "git status" {
+                model.composerText.append(character)
+                await pause(0.07)
+            }
+            await pause(0.4)
+            mark("send")
+            model.send()
+            await pause(1.4)
+            mark("keyboard hide")
+            model.toggleKeyboard()
+            await pause(1.6)
+        }
+        mark("grid")
+        tabs.post(.showGrid(true))
+        await pause(2.0)
+        mark("agent tab")
+        tabs.post(.activate("t-claude"))
+        await pause(2.4)
+        mark("exit")
+        tabs.post(.exit)
+        await pause(2.0)
+        mark("end")
+    }
+
+    /// Feed: scroll, Show more, answer a question inline, open an event in
+    /// its agent chat, a streamed turn (permission and question answered),
+    /// the diff viewer (file, Split and back), the Changes list.
+    private func tourFeedChatDiff() async {
+        let director = DemoDirector.shared
+        func post(_ command: DemoDirector.Command, _ label: String, then seconds: Double) async {
+            mark(label)
+            director.post(command)
+            await pause(seconds)
+        }
+        mark("feed")
+        shell.tab = .feed
+        await pause(2.4)
+        await post(.feedScroll(toEvent: "f-long"), "scroll", then: 1.6)
+        await post(.feedExpand(event: "f-long"), "show more", then: 2.2)
+        await post(.feedScrollTop, "top", then: 1.6)
+        await post(.answerQuestion(id: "feed-q-release", picks: [["rc"], ["transport", "feed", "diff"], ["yes"]]), "answer inline", then: 5.0)
+        await post(.feedOpen(event: "f-finished"), "open event", then: 2.2)
+        await post(.chatSend("Make the transport layer switchable between WebRTC and WireGuard, and add tests"), "chat send", then: 3.0)
+        guard let chat = AgentSessionDirectory.shared.existingStore(id: "t-claude") else { return }
+        await waitFor(seconds: 30) { chat.pendingPermission != nil }
+        await pause(1.4)
+        await post(.chatPermission(optionKind: "allow_once"), "allow once", then: 0.5)
+        await waitFor(seconds: 30) { chat.pendingQuestion != nil }
+        await pause(1.2)
+        await post(.answerQuestion(id: "q-transport", picks: [["wireguard"], ["connection", "per-mac"]]), "answer question", then: 0.5)
+        await waitFor(seconds: 40) { !chat.isRunning }
+        await pause(1.6)
+        await post(.chatOpenFirstFile, "diff file", then: 2.2)
+        await post(.diffExpandFirst, "expand context", then: 1.4)
+        await post(.diffSetSplit(true), "split", then: 2.2)
+        await post(.diffSetSplit(false), "unified", then: 1.2)
+        await post(.navigateBack, "back to chat", then: 1.4)
+        await post(.chatOpenChanges, "changes list", then: 2.6)
+        await post(.navigateBack, "back to chat", then: 1.6)
+        mark("end")
+    }
+
+    /// Settings (transport switch), the sidebar (team switch), the team
+    /// appearance editor (color and emoji).
+    private func tourSettingsAndSidebar() async {
+        mark("settings")
+        shell.tab = .settings
+        await pause(2.2)
+        let original = shell.settings.transport
+        mark("transport switch")
+        shell.settings.transport = original == .webrtc ? .wireguard : .webrtc
+        await pause(1.8)
+        shell.settings.transport = original
+        await pause(1.4)
+        mark("sidebar")
+        shell.sidebar.open()
+        await pause(1.8)
+        mark("team switch")
+        if let next = shell.store.teams.first(where: { $0.id != shell.store.activeTeamID }) {
+            shell.switchTeam(to: next.id)
+        }
+        await pause(2.0)
+        mark("sidebar again")
+        shell.sidebar.open()
+        await pause(1.6)
+        mark("editor")
+        shell.editingTeam = shell.store.activeTeam
+        await pause(2.0)
+        let director = DemoDirector.shared
+        mark("color")
+        director.post(.editorColor(hex: CnxTheme.standard.colors.teamPalette.dropFirst(4).first?.dark ?? "#30D158"))
+        await pause(1.4)
+        mark("emoji")
+        director.post(.editorEmoji("🚀"))
+        await pause(1.4)
+        mark("done")
+        director.post(.editorDone)
+        await pause(1.8)
+        mark("close sidebar")
+        shell.sidebar.close()
+        await pause(1.6)
+        mark("end")
+    }
+
+    /// Re-checks `condition` when observed state changes, up to a deadline.
+    private func waitFor(seconds: Double, _ condition: @escaping @MainActor () -> Bool) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition(), Date() < deadline {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                withObservationTracking { _ = condition() } onChange: { continuation.resume() }
+            }
+        }
     }
 
     private func editor() async {

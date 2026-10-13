@@ -16,7 +16,8 @@ with tempfile.TemporaryDirectory() as tmp:
         ts = max(0, float(t) - r + off)
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{ts:.2f}", "-i", base + ".mp4", "-frames:v", "1",
                         "-vf", f"scale={W}:-1", f], check=True)
-        ims.append((Image.open(f).convert("RGB"), f"{ts:.1f}s {label}"[:40]))
+        if os.path.exists(f):  # marks after the recording ended have no frame
+            ims.append((Image.open(f).convert("RGB"), f"{ts:.1f}s {label}"[:40]))
 w, h = ims[0][0].size
 cols = min(10, len(ims)); rows = (len(ims) + cols - 1) // cols
 sheet = Image.new("RGB", (cols * (w + 4), rows * (h + 18)), (255, 0, 255))

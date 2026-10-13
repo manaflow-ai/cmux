@@ -44,10 +44,12 @@ public struct TerminalTabPage: View {
         EmbeddedTerminalControllerView(host: host, insets: insets, isInteractive: isInteractive)
             .ignoresSafeArea()
             .background(Color.black)
-            .sheet(isPresented: $model.showArtifacts) {
-                ArtifactsSheet(model: model)
-                    .presentationDetents([.medium, .large])
-                    .presentationDragIndicator(.visible)
+            // Presented by the controller (UIKit), not with `.sheet` here: a
+            // SwiftUI sheet presented from inside the TabsKit page left the
+            // controller's keyboard layout guide at 172 pt with no keyboard
+            // (the stack jumped to the top) until the next keyboard change.
+            .onChange(of: model.showArtifacts) { _, shown in
+                if shown { host.controller.presentArtifacts() } else { host.controller.dismissArtifacts() }
             }
     }
 }

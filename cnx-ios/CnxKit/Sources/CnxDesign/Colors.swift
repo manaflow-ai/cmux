@@ -84,7 +84,7 @@ public struct CnxColors: Sendable {
     public var bgGrouped = token("#000000", "#F2F2F7")
     public var surface = token("#1C1C1E", "#FFFFFF")
     public var surfaceRaised = token("#2C2C2E", "#F2F2F7")
-    public var sheet = token("#1C1C1E", "#F2F2F7")
+    public var sheet = token("#1C1C1E", "#FFFFFF")
     public var bubble = token("#2C2C2E", "#EDEDED")
     public var codeBg = token("#1C1C1E", "#F5F5F7")
     public var fill = token("#FFFFFF", "#000000", darkAlpha: 0.08, lightAlpha: 0.05)

@@ -31,7 +31,7 @@ public final class AgentChatSurface {
         }
     }
     @ObservationIgnored private var storedPosition = ScrollPosition(edge: .bottom)
-    var following = true
+    public internal(set) var following = true
     var showJump = false
     var diffRoute: DiffRoute?
     var replyInsteadOfPermission = false
@@ -217,7 +217,11 @@ public struct AgentChatTranscript: View {
 
     public var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            // A plain VStack: with LazyVStack the content height came from
+            // estimates (769 pt measured vs 1450-1538 pt estimated) and the
+            // bottom anchor settled past the content on iOS 26, leaving the
+            // page blank after a workspace opened or a tab zoomed in.
+            VStack(alignment: .leading, spacing: 0) {
                 if store.turns.isEmpty {
                     emptyState
                 } else {
@@ -333,43 +337,50 @@ public struct AgentChatBottomStack: View {
                 .transition(.scale(scale: 0.85).combined(with: .opacity))
                 .accessibilityLabel("Jump to bottom")
             }
-            if let error = store.clientError {
-                Button {
-                    withAnimation(.cnxSmooth) { store.clientError = nil }
-                } label: {
-                    Label(error, systemImage: "exclamationmark.circle")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 9)
+            VStack(spacing: 12) {
+                if let error = store.clientError {
+                    Button {
+                        withAnimation(.cnxSmooth) { store.clientError = nil }
+                    } label: {
+                        Label(error, systemImage: "exclamationmark.circle")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(.primary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular, in: .capsule)
+                    .transition(.opacity.combined(with: .offset(y: 8)))
+                    .accessibilityHint("Dismiss")
                 }
-                .buttonStyle(.plain)
-                .glassEffect(.regular, in: .capsule)
-                .transition(.opacity.combined(with: .offset(y: 8)))
-                .accessibilityHint("Dismiss")
-            }
-            if let permission = store.pendingPermission, !surface.replyInsteadOfPermission {
-                PermissionActionBar(request: permission.request) { option in
-                    withAnimation(.cnxSmooth) { store.respond(to: permission.request, option: option) }
-                } replyInstead: {
-                    withAnimation(.cnxSmooth) { surface.replyInsteadOfPermission = true }
-                    surface.composerFocused = true
+                if let permission = store.pendingPermission, !surface.replyInsteadOfPermission {
+                    PermissionActionBar(request: permission.request) { option in
+                        withAnimation(.cnxSmooth) { store.respond(to: permission.request, option: option) }
+                    } replyInstead: {
+                        withAnimation(.cnxSmooth) { surface.replyInsteadOfPermission = true }
+                        surface.composerFocused = true
+                    }
+                    .padding(12)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
+                    .padding(.horizontal, 12)
+                    .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
+                } else {
+                    ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: !store.turns.isEmpty)
+                        .transition(.opacity)
                 }
-                .padding(12)
-                .glassEffect(.regular, in: .rect(cornerRadius: 28, style: .continuous))
-                .padding(.horizontal, 12)
-                .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 16)), removal: .opacity))
-            } else {
-                ChatComposer(store: store, text: $surface.text, attachments: $surface.attachments, focus: $composerFocused, collapsible: !store.turns.isEmpty)
-                    .transition(.opacity)
             }
+            // The transcript's bottom margin follows this top. The jump
+            // button above is excluded: it appears when the transcript is
+            // more than 80 pt from the bottom, and counting it moved the
+            // margin, which moved the distance, which toggled the button
+            // (a layout loop that flickered and could hang after a tab zoom).
+            .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).minY }) { surface.bottomStackTop = $0 }
         }
         .padding(.bottom, 8)
         .animation(.cnxSmooth, value: store.pendingPermission?.request.id)
         .onChange(of: store.pendingPermission?.request.id) { surface.replyInsteadOfPermission = false }
         .onChange(of: surface.composerFocused) { _, focused in if composerFocused != focused { composerFocused = focused } }
         .onChange(of: composerFocused) { _, focused in if surface.composerFocused != focused { surface.composerFocused = focused } }
-        .onGeometryChange(for: CGFloat.self, of: { $0.frame(in: .global).minY }) { surface.bottomStackTop = $0 }
     }
 }
 

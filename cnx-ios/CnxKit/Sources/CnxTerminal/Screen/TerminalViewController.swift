@@ -42,6 +42,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var tuiTop: NSLayoutConstraint!
     /// Embedded: the status bar strip, registered as the top scroll edge container.
     private let topShelf = UIView()
+    /// Embedded on iOS 26: the system draws no top scroll edge effect for a
+    /// bare container (iOS 27 does), so a gradient fades the scrollback
+    /// under the status bar instead.
+    private let statusScrim = GradientView()
+    private var statusScrimHeight: NSLayoutConstraint!
 
     private let scrollView = TerminalScrollView()
     private let tuiClip = UIView()
@@ -188,6 +193,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             topEdge.scrollView = scrollView
             topEdge.edge = .top
             topShelf.addInteraction(topEdge)
+            if #unavailable(iOS 27) {
+                statusScrim.isUserInteractionEnabled = false
+                statusScrim.translatesAutoresizingMaskIntoConstraints = false
+                let base = CnxGhosttyApp.background
+                statusScrim.gradient.colors = [base.withAlphaComponent(0.92).cgColor, base.withAlphaComponent(0.6).cgColor, base.withAlphaComponent(0).cgColor]
+                statusScrim.gradient.locations = [0, 0.6, 1]
+                view.addSubview(statusScrim)
+            }
         }
         let guide = view.keyboardLayoutGuide
         guide.followsUndockedKeyboard = false
@@ -244,6 +257,15 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
                 topShelf.trailingAnchor.constraint(equalTo: view.trailingAnchor),
                 topShelf.bottomAnchor.constraint(equalTo: tuiClip.topAnchor),
             ])
+            if statusScrim.superview != nil {
+                statusScrimHeight = statusScrim.heightAnchor.constraint(equalToConstant: 0)
+                NSLayoutConstraint.activate([
+                    statusScrim.topAnchor.constraint(equalTo: view.topAnchor),
+                    statusScrim.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                    statusScrim.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                    statusScrimHeight,
+                ])
+            }
         }
 
         let tap = UITapGestureRecognizer(target: self, action: #selector(terminalTapped))
@@ -299,6 +321,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         guard chrome == .embedded, insets != embeddedInsets else { return }
         embeddedInsets = insets
         tuiTop.constant = insets.top
+        statusScrimHeight?.constant = insets.top + 18
         // The composer rests 8 pt above the toolbar capsule, like a tab
         // accessory; the 8 pt below the (hidden) key bar are inside the stack.
         stackRestingLimit.constant = -(insets.bottom - 8)
@@ -329,6 +352,28 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         return UIGraphicsImageRenderer(bounds: view.bounds, format: format).image { _ in
             view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
         }
+    }
+
+    // MARK: Files and links (embedded)
+
+    private weak var artifactsHost: UIViewController?
+
+    func presentArtifacts() {
+        guard artifactsHost == nil, presentedViewController == nil else { return }
+        let model = model
+        let host = UIHostingController(rootView: ArtifactsSheet(model: model).onDisappear { model.showArtifacts = false })
+        host.overrideUserInterfaceStyle = .unspecified
+        if let sheet = host.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        artifactsHost = host
+        present(host, animated: true)
+    }
+
+    func dismissArtifacts() {
+        guard let host = artifactsHost, host.presentingViewController != nil, !host.isBeingDismissed else { return }
+        host.dismiss(animated: true)
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -599,6 +644,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.isScrollEnabled = false
             scrollView.topEdgeEffect.style = .hard
             placesFromReport = false
+            statusScrim.isHidden = true
             tuiClip.isHidden = false
             tuiHost.addSubview(surface)
             surface.frame = CGRect(x: 0, y: 0, width: view.bounds.width, height: CGFloat(surfaceRows) * cell.height)
@@ -608,6 +654,7 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             scrollView.isScrollEnabled = true
             scrollView.topEdgeEffect.style = .soft
             tuiClip.isHidden = true
+            statusScrim.isHidden = false
             scrollView.addSubview(surface)
             viewportTop = -1
             following = true
@@ -699,6 +746,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 }
 
 /// The scroll view; touches on the surface scroll it.
+/// A view whose layer is a gradient.
+final class GradientView: UIView {
+    override class var layerClass: AnyClass { CAGradientLayer.self }
+    var gradient: CAGradientLayer { layer as! CAGradientLayer }
+}
+
 /// Who owns the chrome around the terminal (see `TerminalViewController`).
 public enum TerminalChrome: Sendable {
     /// `TerminalScreen` in a navigation stack: its own toolbar and the safe area.

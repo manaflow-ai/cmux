@@ -27,6 +27,17 @@ public final class DemoDirector {
         case diffExpandFirst
         case diffMarkViewed
         case navigateBack
+        // Onboarding and setup (`-cnx-demo onboarding`).
+        case onboardingOpenEmail
+        case onboardingTypeEmail(String)
+        case onboardingSendCode
+        case onboardingTypeCode(String)
+        case setupPickTeam(index: Int)
+        case setupNotNow
+        // Team appearance editor.
+        case editorColor(hex: String)
+        case editorEmoji(String)
+        case editorDone
     }
 
     public private(set) var command: Command?

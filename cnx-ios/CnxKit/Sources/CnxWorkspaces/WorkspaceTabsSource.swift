@@ -267,6 +267,12 @@ struct WorkspaceTabPage: View {
                 onUserScroll: { context.reportScroll(fingerDelta: $0) }
             )
             .background(Color.cnxBackground)
+            // A page built during a zoom or swipe is laid out before its
+            // composer is measured; once it settles, a following chat lands
+            // on its newest turn above the composer.
+            .onChange(of: context.isInteractive) { _, interactive in
+                if interactive, surface.following { surface.scrollToBottom(animated: false) }
+            }
         case .terminal:
             source.terminal.page(for: tab, in: workspace, context: terminalContext)
         case .browser:
