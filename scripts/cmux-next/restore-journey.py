@@ -20,7 +20,8 @@ Variants:
   quit    the Quit menu item / Cmd-Q path (`debug.quit {open: true}`; if the sheet asks, its
           default is pressed, as Return does, and the row records whether that keeps sessions);
   update  what Sparkle does before it relaunches into an update
-          (`debug.updater {action: "relaunch"}`: the updater's relaunch hook, then terminate).
+          (`debug.updater {action: "relaunch"}`: the updater's relaunch hook, then terminate);
+  crash   the app's exact pid is killed (SIGKILL), so none of its quit path runs.
 Each relaunch reuses the app's own launch environment (read from the running process), so a
 capture slot keeps its HOME, TMPDIR, socket and config file. It never runs `defaults delete`:
 UserDefaults survive, as on a person's Mac. If the slot's app copy is gone after the quit,
@@ -30,8 +31,8 @@ The seeded state, all named `rj-*` (earlier rj-* workspaces are closed first):
   window 1: rj-term (3000 numbered lines; a counter loop with a pid file in a right split; `top`
             in a nested down split; selected at the end), rj-split (four terminals in nested
             right/down splits, two tabs in one pane, the first selected), rj-web (two browser
-            tabs from a local server: a page that goes on to a second page by itself the first
-            time, for Back, and a tall page that scrolls itself the first time), rj-agent (an
+            tabs from a local server: a page loaded from its address, then two link clicks (a -> b
+            -> c), whose history length and Cmd-[ / Cmd-] walk are checked after each reopen, and a tall page that scrolls itself the first time), rj-agent (an
             agent chat with the acpmux test agent: three turns and a draft); the window at a set
             frame;
   window 2: rj-w2 (a terminal with a marker line and a browser tab), at another frame.
@@ -60,7 +61,7 @@ from urllib.parse import parse_qs, urlparse
 HERE = os.path.dirname(os.path.abspath(__file__))
 parser = argparse.ArgumentParser()
 parser.add_argument("--socket", required=True, help="the app's control socket")
-parser.add_argument("--variants", default="quit,update")
+parser.add_argument("--variants", default="quit,update,crash")
 parser.add_argument("--out", default="/tmp/restore-journey")
 parser.add_argument("--fake-agent", default=os.path.join(HERE, "../../cmux-tui/crates/acpmux/tests/fake_agent.py"))
 parser.add_argument("--src", help="staged app to re-clone from when the slot's app copy is gone after a quit")
@@ -190,7 +191,11 @@ class App:
 
     def quit(self, variant):
         """Ends the app through its own path and waits for the exact pid to exit."""
-        if variant == "update":
+        if variant == "crash":
+            # A crash: the app's exact pid ends at once (SIGKILL); nothing of the app's own quit runs.
+            say(f"  crash: SIGKILL pid {self.pid}")
+            os.kill(self.pid, signal.SIGKILL)
+        elif variant == "update":
             say(f"  debug.updater relaunch -> {json.dumps(rpc('debug.updater', {'action': 'relaunch'}, timeout=30))[:200]}")
         else:
             say(f"  debug.quit open -> {json.dumps(rpc('debug.quit', {'open': True}, timeout=30))[:200]}")
@@ -400,14 +405,15 @@ def page_html(name):
     act = ""
     if first and name == "tall":
         act = f"setTimeout(function(){{window.scrollTo(0,{SCROLL});}},300);"
-    if first and name == "hist-a":
-        act = "setTimeout(function(){location.href='/hist-b';},500);"
+    # The history pages link on (a -> b -> c), for link-click navigation as a person's.
+    nxt = {"hist-a": "hist-b", "hist-b": "hist-c"}.get(name)
+    link = f"<a id='next' href='/{nxt}'>next</a>" if nxt else ""
     # Both history pages report as one tab ("hist").
     tab = "hist" if name.startswith("hist") else name
     return f"""<!doctype html><html><head><title>rj {name}</title></head><body>
-<h1>rj {name}</h1>{body}
+<h1>rj {name}</h1>{link}{body}
 <script>
-function report(){{fetch('/report?page={tab}&path='+encodeURIComponent(location.pathname)+'&y='+Math.round(window.scrollY)).catch(function(){{}});}}
+function report(){{fetch('/report?page={tab}&path='+encodeURIComponent(location.pathname)+'&y='+Math.round(window.scrollY)+'&h='+history.length).catch(function(){{}});}}
 {act}
 setInterval(report,1000); window.addEventListener('scroll',report); report();
 </script></body></html>"""
@@ -422,7 +428,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if url.path == "/report":
             q = parse_qs(url.query)
             with LOCK:
-                REPORTS[q.get("page", [""])[0]] = {"path": q.get("path", [""])[0], "scrollY": int(q.get("y", ["0"])[0]), "at": time.time()}
+                REPORTS[q.get("page", [""])[0]] = {"path": q.get("path", [""])[0], "scrollY": int(q.get("y", ["0"])[0]),
+                                                   "history": int(q.get("h", ["0"])[0]), "at": time.time()}
             self.send_response(204)
             self.end_headers()
             return
@@ -516,8 +523,15 @@ def seed_web(base):
     hist = value(cli("tab", "create", "browser", "--url", f"{base}/hist-a", "--workspace", ws["workspace_id"], "--pane", ws["pane_id"]))
     if hist.get("tab_id"):
         cli("tab", hist["tab_id"], "focus")
-    if not wait(lambda: (REPORTS.get("hist") or {}).get("path") == "/hist-b", 40):
-        say("  the history page never reported from /hist-b")
+        HIST["tab"] = hist["tab_id"]
+    # A person's history: the first page loaded from the address, then two link clicks (a -> b -> c).
+    for here, there in (("/hist-a", "/hist-b"), ("/hist-b", "/hist-c")):
+        if not wait(lambda: (REPORTS.get("hist") or {}).get("path") == here, 40):
+            say(f"  the history page never reported from {here}")
+            break
+        say(f"  click the link on {here} -> {json.dumps(rpc('browser.page.eval', {'tab': HIST.get('tab'), 'script': CLICK_NEXT}))[:120]}")
+    if not wait(lambda: (REPORTS.get("hist") or {}).get("path") == "/hist-c", 40):
+        say("  the history page never reported from /hist-c")
     right = split(ws["pane_id"], "right")
     tall = value(cli("tab", "create", "browser", "--url", f"{base}/tall", "--workspace", ws["workspace_id"], "--pane", right.get("pane_id") or ws["pane_id"]))
     if tall.get("tab_id"):
@@ -527,6 +541,8 @@ def seed_web(base):
 
 
 AGENT = None
+HIST = {}  # the history tab: {"tab": its id}
+CLICK_NEXT = "document.getElementById('next').click(); true"
 
 
 def seed_agent():
@@ -818,10 +834,15 @@ def snapshot(label):
         for page in stale():
             with visiting(PAGE_WORKSPACE.get(page)):
                 wait(lambda: page not in stale(), 30, 0.5)
+                if page == "tall":  # its scroll comes back after it loads
+                    wait(lambda: REPORTS["tall"].get("scrollY", 0) >= SCROLL - 40, 8, 0.5)
     fresh = {page: r for page, r in REPORTS.items() if r.get("at", 0) > SINCE}
     for page in ("hist", "tall", "w2page"):
         if page in fresh:
             items[f"page[{page}].path"] = fresh[page]["path"]
+    if "hist" in fresh:
+        # WebKit's own back list, as the page sees it (a person's link clicks: 3 entries).
+        items["page[hist].history_length"] = fresh["hist"].get("history")
     if "tall" in fresh:
         items["page[tall].scrollY"] = fresh["tall"]["scrollY"]
     # The agent chat: its acpmux record, its tab, and what its page shows.
@@ -920,7 +941,8 @@ def seeded(before):
     checks = {
         "term": [("3000 numbered lines", has(lambda k, v: k.endswith(".scrollback.numbered_lines") and v == SCROLLBACK_LINES)),
                  ("counter running", before.get("counter.alive") is True and isinstance(before.get("counter.tick_in_daemon"), int))],
-        "web": [("history page at /hist-b", before.get("page[hist].path") == "/hist-b"),
+        "web": [("history page at /hist-c after two link clicks", before.get("page[hist].path") == "/hist-c"),
+                ("history page has three entries", before.get("page[hist].history_length") == 3),
                 ("tall page scrolled", (before.get("page[tall].scrollY") or 0) >= SCROLL - 5)],
         "agent": [("three turns", len(before.get("agent.prompts") or []) == 3),
                   ("chat tab bound to the session", (before.get("agent.tabs_bound") or 0) >= 1
@@ -944,9 +966,13 @@ def compare(variant, before, after):
         elif item.endswith(".frame") and isinstance(a, list) and isinstance(b, list) and len(a) == len(b):
             ok = all(abs(float(x) - float(y)) <= 2 for x, y in zip(a, b))
             detail = f"{b} -> {a}"
-        elif item == "page[tall].scrollY" and isinstance(a, int) and isinstance(b, int):
-            ok = abs(a - b) <= 40
-            detail = f"{b} -> {a}"
+        elif item == "page[tall].scrollY" and isinstance(a, int):
+            # Against what was seeded, not the last reopen: a lost scroll must not pass the next variant.
+            ok = abs(a - SCROLL) <= 40
+            detail = f"{b} -> {a} (seeded {SCROLL})"
+        elif item == "page[hist].history_length":
+            ok = a == 3
+            detail = f"{b} -> {a} (seeded 3: the address load and two link clicks)"
         elif item.endswith(".scrollback.history_rows") and isinstance(a, int) and isinstance(b, int):
             # A view re-attaching may add a prompt line, never drop rows.
             ok = a >= b
@@ -957,6 +983,25 @@ def compare(variant, before, after):
         if ok and must_have(item) and (broken(a, item) or broken(b, item)):
             ok, detail = False, f"no value: {json.dumps(b)[:80]} -> {json.dumps(a)[:80]}"
         RESULTS.append((f"{variant}: {item}", ok, detail, area_of(item)))
+
+
+def back_walk(variant):
+    """A person's Back (Cmd-[, `browserBack`) on the reopened history tab: c -> b -> a, then
+    Forward twice so the next variant starts where this one did."""
+    if "web" in SKIP or not HIST.get("tab"):
+        return
+    at = lambda path: (REPORTS.get("hist") or {}).get("path") == path and REPORTS["hist"].get("at", 0) > SINCE
+    with visiting("rj-web"):
+        rpc("action.run", {"action": "tab.focus", "target": f"tab:{HIST['tab']}", "focus": True})
+        wait(lambda: at("/hist-c"), 20, 0.5)
+        steps = [("browserBack", "/hist-b"), ("browserBack", "/hist-a"), ("browserForward", "/hist-b"), ("browserForward", "/hist-c")]
+        for action_id, path in steps:
+            reply = rpc("debug.toast", {"perform": action_id})
+            ok = bool(wait(lambda: at(path), 15, 0.3))
+            RESULTS.append((f"{variant}: {action_id} after the reopen reaches {path}", ok,
+                            f"performed {reply.get('performed') if isinstance(reply, dict) else reply}; at {(REPORTS.get('hist') or {}).get('path')}", "browser"))
+            if not ok:
+                break
 
 
 def journey(base):
@@ -982,6 +1027,7 @@ def journey(base):
         if isinstance(before.get("counter.tick_in_view"), int):
             wait(lambda: view_tick() > before["counter.tick_in_view"], 10, 0.5)
         compare(variant, before, snapshot(f"{variant}-after"))
+        back_walk(variant)
 
 
 def main():
