@@ -122,3 +122,17 @@
   color: var(--agent-muted);
   white-space: normal;
 }
+/* A control the session has not reported yet keeps its place: the chip's box, inert, with one
+   quiet bar where its label goes (ComposerPickers ChipSkeleton, cx-ncc.58). */
+.acpmux-chip-skeleton { pointer-events: none; }
+.acpmux-chip-skeleton .acpmux-chip-skeleton-face { justify-content: center; }
+.acpmux-effort.acpmux-chip-skeleton .acpmux-chip-skeleton-face { width: 48px; }
+.acpmux-mode.acpmux-chip-skeleton .acpmux-chip-skeleton-face { width: 34px; padding: 0 3px; }
+.acpmux-chip-skeleton-bar {
+  display: block;
+  width: 60%;
+  height: 8px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--agent-muted) 22%, transparent);
+}
+.acpmux-chip-skeleton .acpmux-chip-skeleton-face:hover { background: none; }

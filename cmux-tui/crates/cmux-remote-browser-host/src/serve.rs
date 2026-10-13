@@ -3,7 +3,8 @@
 //!
 //! Threads: the CEF UI thread (the process main thread) owns the tab, the
 //! pump and the encoder, and runs every shim call. A network thread accepts
-//! one viewer at a time and does the rd handshake; a reader thread per
+//! callers and admits each on its own thread (`launch::accept_viewers`), then
+//! serves the admitted viewers one at a time; a reader thread per
 //! viewer posts its frames to the UI thread with `rb_shim_post`; a writer
 //! thread per viewer writes what the UI thread sends, so a slow socket never
 //! blocks the UI thread. Captured IOSurfaces are encoded on the UI thread
@@ -702,25 +703,15 @@ fn listen(addr: SocketAddr) -> std::io::Result<()> {
     writeln!(stdout, "{}", crate::launch::listening_line(bound))?;
     stdout.flush()?;
     drop(stdout);
-    for conn in listener.incoming() {
-        // A failed accept or a peer that reset before setsockopt ends only
-        // that connection, never the listener.
-        let conn = match conn {
-            Ok(conn) => conn,
-            Err(e) => {
-                eprintln!("serve: accept failed: {e}");
-                continue;
-            }
-        };
-        if let Err(e) = conn.set_nodelay(true) {
-            eprintln!("serve: connection dropped: {e}");
-            continue;
-        }
-        match session(conn) {
+    // The viewer is admitted (its hello carries the secret) before the
+    // welcome: a refused viewer never opens the tab or sends input.
+    let secret = HOST.lock().ok().and_then(|g| g.as_ref().and_then(|h| h.opts.secret.clone()));
+    crate::launch::accept_viewers(listener, secret, crate::launch::HELLO_DEADLINE, |viewer| {
+        match session(viewer) {
             Ok(reason) => eprintln!("serve: session ended: {reason}"),
             Err(e) => eprintln!("serve: session failed: {e}"),
         }
-    }
+    });
     Ok(())
 }
 
@@ -729,15 +720,9 @@ fn write_rd(stream: &mut TcpStream, control: &RdControl) -> std::io::Result<()> 
 }
 
 /// One viewer: the rd handshake here, then frames to the UI thread until EOF.
-fn session(mut stream: TcpStream) -> std::io::Result<String> {
+fn session(viewer: crate::launch::Admitted) -> std::io::Result<String> {
+    let crate::launch::Admitted { mut stream, hello, mut deframer } = viewer;
     let mut buf = vec![0u8; 64 * 1024];
-    // The viewer is admitted (its hello carries the secret) before the
-    // welcome: a refused viewer never opens the tab or sends input.
-    let secret = HOST.lock().ok().and_then(|g| g.as_ref().and_then(|h| h.opts.secret.clone()));
-    let (hello, mut deframer) = match crate::launch::admit(&mut stream, secret.as_deref())? {
-        crate::launch::Admission::Admitted { hello, deframer } => (hello, deframer),
-        crate::launch::Admission::Refused(reason) => return Ok(reason),
-    };
     let RdControl::Hello { service, caps, max_datagram, .. } = hello else {
         return Ok("the first control message is not hello".into());
     };
