@@ -76,3 +76,17 @@ struct ComposerPathJoinTests {
         #expect(ComposerModel.appendingPaths(["/tmp/a.jpg", "/tmp/b c.png"], to: "") == "/tmp/a.jpg '/tmp/b c.png'")
     }
 }
+
+struct ComposerReturnChoiceTests {
+    @Test func typeWithoutReturnNeverSubmits() {
+        #expect(!ComposerModel.submits(text: "git commit -m wip", hasPaths: false, isTUI: false, pressReturn: false))
+        #expect(!ComposerModel.submits(text: "explain this", hasPaths: false, isTUI: true, pressReturn: false))
+    }
+
+    @Test func noChoiceKeepsTheDefault() {
+        #expect(ComposerModel.submits(text: "ls", hasPaths: false, isTUI: false, pressReturn: nil)
+                == ComposerModel.submits(text: "ls", hasPaths: false, isTUI: false))
+        #expect(ComposerModel.submits(text: "", hasPaths: true, isTUI: false, pressReturn: nil)
+                == ComposerModel.submits(text: "", hasPaths: true, isTUI: false))
+    }
+}
