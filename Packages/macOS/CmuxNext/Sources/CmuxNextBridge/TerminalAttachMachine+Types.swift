@@ -15,6 +15,9 @@ extension TerminalAttachMachine {
         /// Failed re-attaches before this attempt when it is a re-attach of
         /// a disconnected view; nil for the first attach and overflow.
         public var reconnects: Int?
+        /// The open waits out a backoff first (`openAfterBackoff`): an event
+        /// may cut it short.
+        public var waitsBackoff = false
 
         public init(attempt: Int, failures: Int, size: CellSize, link: Link?, reconnects: Int? = nil) {
             self.attempt = attempt

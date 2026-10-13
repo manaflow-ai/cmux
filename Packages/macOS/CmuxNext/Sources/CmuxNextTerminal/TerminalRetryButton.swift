@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextDesign
 
 /// "Retry" above the status banner once a terminal view stopped retrying its
-/// attach by itself (cx-wwtam): one more re-attach now. A click or a key in
+/// attach by itself (cx-wwtam): a re-attach now, with its retries back. A click or a key in
 /// the terminal does the same; the button says so where it can be seen.
 /// Styled like ``TerminalRestartButton``.
 final class TerminalRetryButton: NSButton {

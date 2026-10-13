@@ -10,7 +10,7 @@ import Foundation
 nonisolated final class DebugSlowAttach: Sendable {
     static let shared = DebugSlowAttach(ProcessInfo.processInfo.environment["CMUX_NEXT_DEBUG_SLOW_ATTACH"])
 
-    struct Injected: Error, CustomStringConvertible {
+    nonisolated struct Injected: Error, CustomStringConvertible {
         var description: String { "debug slow attach: this attach fails (CMUX_NEXT_DEBUG_SLOW_ATTACH)" }
     }
 
