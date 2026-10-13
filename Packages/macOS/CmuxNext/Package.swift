@@ -37,6 +37,14 @@ import PackageDescription
 //   CmuxNextHomeEngine -> AgentPane, Actions, Cloud, Compat, Daemon, Design, Home, Icons, Wakeups,
 //     CmuxHomeCore, CmuxAgentQuestion (Home sources, Chief host and migration, Home strings; the App
 //     supplies HomeService over AppServices)
+//   CmuxNextDaemonService -> Daemon, Actions, AgentPane, Apps, Compat, Control, Layout, Wakeups
+//     (DaemonService: one machine's daemon connection, command funnels, launch snapshot; FrameBatcher;
+//     the Refusals and Cloud strings it shows; no AppServices; the App sets its launch-mark hook)
+//   CmuxNextFocusUI -> Actions, Design (AppKit overlays of keys: the shortcut hint overlay and capture
+//     waiter, the which-key controller, overlay, rows and strings; the focus state machine, key rules
+//     and key delivery stay in the App)
+//   CmuxNextComputerUse -> AgentActivity, Compat, Settings (the macOS Computer Use helper: launch,
+//     v2 helper and its disclaimed spawner, the cua helper manifest reader; setup stays in the App)
 //   CmuxNextHistory -> Design, Icons (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
@@ -97,8 +105,9 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ]
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
-/// the remote desktop core C ABI (module CCmuxRdFFI) and the sidebar layout
-/// reducer C ABI (module CCmuxLayoutReducerFFI) over one Rust runtime. Every
+/// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
+/// reducer C ABI (module CCmuxLayoutReducerFFI) and the palette ranker C ABI
+/// (module CCmuxPaletteRankerFFI) over one Rust runtime. Every
 /// build links it from one pinned release
 /// (.github/workflows/app-ffi-release.yml). Apple's compact unwind
 /// holds at most three personality routines per image (C++, iroh, this one),
@@ -109,8 +118,8 @@ let daemonSwiftSettings: [SwiftSetting] = [
 /// when the FFI sources differ from the pinned source sha.
 let appFFI: Target = .binaryTarget(
     name: "CCmuxAppFFI",
-    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-18e22c27f089b23ab6ec37b804833707efe1ffd4/CCmuxAppFFI.xcframework.zip",
-    checksum: "3b20a36bb987a107fa7444c9930dc7d2030259290c37fadb60aa8ce80d7c4dbf"
+    url: "https://github.com/manaflow-ai/cmux/releases/download/cmux-app-ffi-b000e1b0e06b6ebedb692091080628b28731af8c/CCmuxAppFFI.xcframework.zip",
+    checksum: "961dd2d84e1658bef826ac32796ebdc816c7eead9743765915d60eceacca602e"
 )
 
 let package = Package(
@@ -165,6 +174,9 @@ let package = Package(
                 "CmuxNextCrashReporting",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
+                "CmuxNextDaemonService",
+                "CmuxNextFocusUI",
+                "CmuxNextComputerUse",
                 "CmuxNextAgentQuestion",
                 .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
@@ -350,6 +362,40 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Daemon service (moved out of CmuxNextApp): one machine's cmux-tui daemon
+        // connection and its command funnels, the frame batcher, and the Refusals and
+        // Cloud strings it shows. No AppServices; the App sets `DaemonService.launchMark`.
+        .target(
+            name: "CmuxNextDaemonService",
+            dependencies: [
+                "CmuxNextActions", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextCompat", "CmuxNextControl",
+                "CmuxNextDaemon", "CmuxNextLayout", "CmuxNextWakeups",
+            ],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // AppKit overlays of keys (moved out of CmuxNextApp/Focus): the shortcut hint
+        // overlay and its capture waiter, the which-key controller, overlay, rows and
+        // the WhichKey strings. The focus state machine, the key rules and key
+        // delivery stay in the App.
+        .target(
+            name: "CmuxNextFocusUI",
+            dependencies: ["CmuxNextActions", "CmuxNextDesign"],
+            resources: [
+                .process("Resources"),
+            ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The macOS Computer Use helper (moved out of CmuxNextApp/ComputerUse): helper
+        // launch, the v2 helper and its disclaimed spawner, the cua helper manifest
+        // reader. Setup (ComputerUseSetup) stays in the App.
+        .target(
+            name: "CmuxNextComputerUse",
+            dependencies: ["CmuxNextAgentActivity", "CmuxNextCompat", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // Resource usage for hover cards and `resources` (CPU and memory per
@@ -734,7 +780,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextPalette",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands")],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextActions", .product(name: "CmuxAgentBrands", package: "CmuxAgentBrands"), "CCmuxAppFFI"],
             resources: [
                 .process("Localizable.xcstrings"),
                 .process("Resources"),
@@ -822,7 +868,7 @@ let package = Package(
         .testTarget(
             name: "CmuxNextAppTests",
             dependencies: ["CmuxNextWakeups", "CmuxNextLayout", "CmuxNextTasks", "CmuxNextAgentCursor", "CmuxNextTabs", "CmuxNextProcessEnvironment", "CmuxNextApp", "CmuxNextCrashReporting", "CmuxNextActions", "CmuxNextHistory", "CmuxNextCopyMode",
-                           "CmuxNextDaemon", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
+                           "CmuxNextComputerUse", "CmuxNextDaemon", "CmuxNextDaemonService", "CmuxNextFocusUI", "CmuxNextHome", "CmuxNextHomeEngine", .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                            .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
                            .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
                            // GhosttyGlassMinimumContrastTests builds a Ghostty config.
