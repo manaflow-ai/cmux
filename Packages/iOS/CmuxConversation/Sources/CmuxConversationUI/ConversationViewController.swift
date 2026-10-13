@@ -593,6 +593,11 @@ public final class ConversationViewController: UIViewController {
             // it starts inside a scroll frame: skip the full rebuild.
             return
         default:
+            // Live traffic waits while a landed page is measured (see
+            // `ConversationPageMeasureGate`); anything else first applies
+            // what waited, so changes keep their order.
+            if pageMeasure.hold(change) { return }
+            if let held = pageMeasure.release() { rebuild(change: held) }
             rebuild(change: change)
         }
     }
@@ -678,6 +683,7 @@ public final class ConversationViewController: UIViewController {
         let serial = rebuildSerial
         let traits = collectionView.traitCollection
         let work = MeasureWork(models: pending)
+        pageMeasure.beginMeasuring()
         Task { [weak self] in
             let measured = await Task.detached(priority: .userInitiated) {
                 var result: [MessageLayoutCache.Measured] = []
@@ -693,7 +699,11 @@ public final class ConversationViewController: UIViewController {
             self.layoutCache.adopt(measured.items, width: width, margin: margin)
             guard generation == self.measureGeneration else { return }
             let current = serial == self.rebuildSerial
+            let held = self.pageMeasure.finishMeasuring()
             self.rebuild(change: .prepended, measured: current ? newRows : nil, splice: current ? splice : nil, generation: current ? generation : nil, revision: current ? revision : nil)
+            // What arrived meanwhile follows the page, with its own motion
+            // (or waits again, when the store had another page to measure).
+            if let held, !self.pageMeasure.hold(held) { self.rebuild(change: held) }
         }
         return true
     }
@@ -725,6 +735,7 @@ public final class ConversationViewController: UIViewController {
     /// Fewer new rows than this measure in place (a page is 50).
     static let measureAheadMinimum = 8
     private var measureGeneration = 0
+    private var pageMeasure = ConversationPageMeasureGate()
     private var rebuildSerial = 0
 
     private var hasConfiguredHeader = false
@@ -940,13 +951,16 @@ public final class ConversationViewController: UIViewController {
             }
             metrics = carried
         }
-        let currentIndex = rowIndex
+        // `contains` looks above the cut in the old ids, not in a copy of
+        // `rowIndex`: a copy alive while the batch updates `rowIndex` made
+        // that update copy the whole index (every row of the transcript).
+        let above = oldIDs[..<keep]
         return RowDiff(
-            newIDs: Array(oldIDs[..<keep]) + newTail,
+            newIDs: Array(above) + newTail,
             deleted: oldTail.indices.filter { newPlaces[oldIDs[$0]] == nil }.map { IndexPath(item: $0, section: 0) },
             inserted: newTail.indices.filter { oldPlaces[newTail[$0]] == nil }.map { IndexPath(item: keep + $0, section: 0) },
             moved: nil, structural: true, updated: updated,
-            contains: { id in newPlaces[id] != nil || (oldPlaces[id] == nil && currentIndex[id] != nil) },
+            contains: { id in newPlaces[id] != nil || (oldPlaces[id] == nil && above.contains(id)) },
             updateIndex: { $0.replaceSuffix(from: keep, oldTail, with: newTail) },
             metrics: metrics
         )

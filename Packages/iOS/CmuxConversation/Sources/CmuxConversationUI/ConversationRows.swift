@@ -567,7 +567,7 @@ enum ConversationRowBuilder {
                 return .status(String(localized: "conversation.status.delivered", defaultValue: "Delivered", bundle: .module))
             }
             let read = String(localized: "conversation.status.read", defaultValue: "Read", bundle: .module)
-            return .status(read, detail: date?.formatted(date: .omitted, time: .shortened))
+            return .status(read, detail: date.map(ConversationShortTime.text(for:)))
         }
     }
 
