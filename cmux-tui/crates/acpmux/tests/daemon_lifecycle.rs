@@ -385,15 +385,15 @@ async fn an_agent_runs_the_apps_bundled_cmux_and_reaches_the_app() {
     .unwrap();
     let bundled = dir.join("cmux.app/Contents/Resources/bin");
     std::fs::create_dir_all(&bundled).unwrap();
-    write_executable(&bundled.join("cmux"), "#!/bin/sh\necho bundled\n");
+    write_executable(bundled.join("cmux"), "#!/bin/sh\necho bundled\n");
     let login = dir.join("login-bin");
     std::fs::create_dir_all(&login).unwrap();
-    write_executable(&login.join("cmux"), "#!/bin/sh\necho stale\n");
+    write_executable(login.join("cmux"), "#!/bin/sh\necho stale\n");
     // The login shell lists its own `cmux` first.
     let shell = dir.join("loginsh");
     write_executable(
         &shell,
-        &format!("#!/bin/sh\nPATH='{}':\"$PATH\" exec env -0\n", login.display()),
+        format!("#!/bin/sh\nPATH='{}':\"$PATH\" exec env -0\n", login.display()),
     );
     let socket = dir.join("s.sock");
     let app_socket = dir.join("app.sock");
