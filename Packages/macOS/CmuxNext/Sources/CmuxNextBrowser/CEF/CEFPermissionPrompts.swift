@@ -22,6 +22,8 @@ struct CEFPermissionPrompts {
             // Chromium shows one prompt per tab at a time; its question is gone.
             guard Self.waiting.remove(token) != nil else { return }
             for prompt in tab.pendingPrompts where prompt.kind == .permission(.location) { prompt.respond(.cancel) }
+        case .passwordPrompt(_, let promptID, let json):
+            CEFPasswordPrompts(tab: tab).arrived(promptID: promptID, json: json)
         default:
             break
         }

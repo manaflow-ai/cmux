@@ -231,6 +231,10 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(password_set_username, "cmux_password_set_username");
   CMUX_BIND(password_reveal, "cmux_password_reveal");
   CMUX_BIND(password_export, "cmux_password_export");
+  CMUX_BIND(password_import_v2, "cmux_password_import_v2");
+  CMUX_BIND(password_import_replace, "cmux_password_import_replace");
+  CMUX_BIND(set_password_prompt_handler, "cmux_set_password_prompt_handler");
+  CMUX_BIND(password_prompt_answer, "cmux_password_prompt_answer");
   CMUX_BIND(bookmarks_observe, "cmux_bookmarks_observe");
   CMUX_BIND(bookmarks_sync, "cmux_bookmarks_sync");
 #undef CMUX_BIND
@@ -365,6 +369,7 @@ void cmux_shim_shutdown(void) {
   if (fork_api().set_omnibox_suggestions_handler) {
     fork_api().set_omnibox_suggestions_handler(nullptr, nullptr);
   }
+  RemovePasswordPromptHandler();
   host() = Host();
   // Preference observer registrations go before their contexts.
   ReleasePreferenceWatches();
