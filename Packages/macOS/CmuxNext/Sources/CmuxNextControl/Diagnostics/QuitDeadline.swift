@@ -25,9 +25,9 @@ public nonisolated final class QuitDeadline: Sendable {
     private let armed = Atomic<Bool>(false)
     private let end: @Sendable () -> Void
 
-    /// `end` runs on the deadline thread; the app's ends the process.
-    public init(end: @escaping @Sendable () -> Void = { _exit(0) }) {
-        self.end = end
+    /// `end` runs on the deadline thread; the default ends the process.
+    public init(end: (@Sendable () -> Void)? = nil) {
+        self.end = end ?? { _exit(0) }
     }
 
     /// Starts the deadline once; a later call keeps the first.
