@@ -180,13 +180,15 @@ final class SettingsWindowService: InternalPageProvider {
     }
 
     var machines: [SettingsListRow] {
-        let ssh = services.machines.ssh.map { session in
-            SettingsListRow(id: session.machineID, title: session.host.label, subtitle: session.host.destination.description,
-                            symbol: "server.rack", isActive: Self.isConnected(session.daemon.store.connectionState))
+        let machines = services.machines
+        let ssh = machines.ssh.map { session in
+            SettingsListRow.machine(id: session.machineID, title: session.host.label, subtitle: session.host.destination.description,
+                                    icon: machines.icon(machine: session.machineID), symbol: "server.rack",
+                                    isActive: Self.isConnected(session.daemon.store.connectionState))
         }
-        let cloud = services.machines.cloud.map { session in
-            SettingsListRow(id: session.machineID, title: session.machine.title, subtitle: nil,
-                            symbol: "cloud", isActive: Self.isConnected(session.daemon.store.connectionState))
+        let cloud = machines.cloud.map { session in
+            SettingsListRow.machine(id: session.machineID, title: session.machine.title, icon: machines.icon(machine: session.machineID),
+                                    symbol: "cloud", isActive: Self.isConnected(session.daemon.store.connectionState))
         }
         return ssh + cloud
     }

@@ -208,7 +208,7 @@ public final class AgentPaneModel {
     public func respond(to request: AgentPaneRequest) async -> [String: Any] {
         switch request {
         // Boot traffic, and a request the host refused (it changed nothing), leave it untouched.
-        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .harnessHealth, .unsupported,
+        case .ready, .reconnect, .framePacing, .renderRate, .checkpointAvailability, .painted, .newTabInputReady, .newTabContext, .unsupported,
              .transportOpen, .transportSend, .transportClose, .transportGesture, .transportGestureRelease, .chatsPage, .quickFloatingState, .quickContext: break
         case .reply(let reply) where reply.isPassive: break
         default:
@@ -274,14 +274,13 @@ public final class AgentPaneModel {
             guard let onBrowseProject else { return Self.unsupported("project.browse") }
             guard let cwd = await onBrowseProject() else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["cwd": await transport.pick(cwd)])
-        case .harnessHealth(let id, let refresh, let rescan): return await harnessHealthReply(id, refresh: refresh, rescan: rescan)
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
             return AgentPaneReply.success(["projects": await onListProjects(query)])
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .chatsPage(let query): return await respondToChatsPage(query)
-        case .paneAction, .preview, .setQuickActions, .tabState, .archive, .markUnread, .sideChat: return await respondToHeader(request)
+        case .paneAction, .preview, .setQuickActions, .tabState, .sideChat: return await respondToHeader(request)
         case .appAction(let id):
             guard newTab?.omnibar.actions.contains(where: { $0.id == id }) == true, let onAppAction else { return Self.unsupported("app.action") }
             onAppAction(id)

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextActions
+import CmuxNextCLIInstall
 import os
 
 /// Install cmux CLI in PATH and Uninstall cmux CLI from PATH (the old app's

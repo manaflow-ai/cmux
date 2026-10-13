@@ -1972,6 +1972,31 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId) return { removed: false };
     return this.request("_acpmux/queue_remove", { sessionId: this.selectedSessionId, promptId });
   }
+  /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
+  /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
+  async archive(archived: boolean): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    await this.request("_acpmux/archive", { sessionId, archived });
+  }
+  /// Mark as Unread (cx-ncc.78): acpmux keeps the selected chat unread until it is hidden and
+  /// shown again.
+  async markUnread(): Promise<void> {
+    const sessionId = this.selectedSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    await this.request("_acpmux/markUnread", { sessionId });
+  }
+  /// This Mac's acpmux health row for harness `id` (`_acpmux/harness/health`, cx-ny85), or
+  /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
+  /// install from the Harnesses page).
+  async harnessHealth(id: string, options: { refresh?: boolean; rescan?: boolean } = {}): Promise<unknown> {
+    const reply = await this.request("_acpmux/harness/health", {
+      ...(options.refresh ? { refresh: true } : {}),
+      ...(options.rescan ? { rescan: true } : {}),
+    });
+    const rows: unknown[] = Array.isArray(reply?.harnesses) ? reply.harnesses : [];
+    return rows.find((row) => (row as { id?: unknown } | null)?.id === id);
+  }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
   async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {

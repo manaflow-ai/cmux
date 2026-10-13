@@ -244,10 +244,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AgentPageChats.wirePager(services.agentTabs, environment: QuitAgents.environment(services), opener: services.chatsOpener)
         NewTabClosed.wire(services.agentTabs, services: services)
         NewTabPlacesFeed.wire(services.agentTabs, services: services)
-        AgentPaneModel.harnessHealthProvider = { [weak services] id, refresh, rescan in
-            let rows = (try? await services?.agentHarnesses.health(refresh: refresh, rescan: rescan)) ?? []
-            return rows.first { $0["id"]?.stringValue == id }?.foundationObject as? [String: Any]
-        }
         // The GitHub connection is deliberately off by default. Changes in
         // Settings apply to the one feed owner and never create a second
         // inbox store.
@@ -289,6 +285,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = try? await settings.migrateLegacyQuitBehavior()
             // `sidebar.showWorkspaceDirectory` / `showCounts` move to `sidebar.workspaceRow.*`.
             _ = try? await settings.migrateLegacyWorkspaceRowKeys()
+            _ = try? await settings.migrateLegacyPaneToolbarButtons() // `tabs.hiddenButtons` becomes `tabs.toolbarButtons`
             // Classic cmux keys next reads under another name (`ClassicSettingRename`).
             _ = try? await settings.migrateClassicSettings()
             // Shortcuts and settings classic cmux's Settings kept in its preferences (`ClassicShortcutImport`, `ClassicPreferenceImport`).

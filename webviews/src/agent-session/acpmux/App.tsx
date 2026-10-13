@@ -2158,11 +2158,32 @@ function AcpmuxPane() {
   const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
-  // The chat's agent CLI health (cx-ny85), from this Mac's acpmux through the host; a chat on
-  // another machine or in the cloud gets none (its CLI is not this Mac's).
+  // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
+  // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
   const [harnessHealth, setHarnessHealth] = useState<HarnessHealth>();
   const healthHarness = snapshot.summary?.harness;
   const healthLocal = !snapshot.summary?.peer && snapshot.summary?.hostKind !== "cloud";
+  /// `harness.health {id, refresh?, rescan?}` answered by this Mac's acpmux (the Harnesses page asks
+  /// it by that name); `{}` for a chat on another machine, whose CLIs are not this Mac's, and while
+  /// the pane has no acpmux connection. Stable per chat: the Harnesses page re-reads when it changes.
+  const readHarnessHealth = useCallback(
+    async (params: Record<string, unknown>): Promise<{ health?: HarnessHealth | null }> => {
+      const client = directClient.current;
+      if (!client || !healthLocal) return {};
+      const row = await client.harnessHealth(String(params.id ?? ""), {
+        refresh: params.refresh === true,
+        rescan: params.rescan === true,
+      });
+      return { health: (row as HarnessHealth | undefined) ?? null };
+    },
+    [healthLocal],
+  );
+  /// The Harnesses page's host calls, with `harness.health` answered by acpmux (above).
+  const harnessesNative = useCallback(
+    (method: string, params: Record<string, unknown> = {}) =>
+      method === "harness.health" ? readHarnessHealth(params) : callNative(method, params),
+    [readHarnessHealth],
+  );
   // After its Log In or Update ran in a terminal tab, coming back to the chat checks again.
   const healthStale = useRef(false);
   const [healthRecheck, setHealthRecheck] = useState(0);
@@ -2189,16 +2210,13 @@ function AcpmuxPane() {
     // Only the fetch a recheck started asks acpmux to check again.
     const refresh = healthRecheck !== healthRechecked.current;
     healthRechecked.current = healthRecheck;
-    void callNative<{ health?: HarnessHealth | null } | null>("harness.health", {
-      id: healthHarness,
-      ...(refresh ? { refresh: true } : {}),
-    })
-      .then((reply) => live && setHarnessHealth(reply?.health ?? undefined))
+    void readHarnessHealth({ id: healthHarness, ...(refresh ? { refresh: true } : {}) })
+      .then((reply) => live && setHarnessHealth(reply.health ?? undefined))
       .catch(() => undefined);
     return () => {
       live = false;
     };
-  }, [connected, healthHarness, healthLocal, healthRecheck]);
+  }, [connected, healthHarness, healthLocal, healthRecheck, readHarnessHealth]);
   const loginCommand = chatLoginCommand(catalog, snapshot.summary?.harness, harnessHealth);
   // A new chat centers its composer under the hero.
   const handoff = snapshot.handoff?.record;
@@ -3828,13 +3846,25 @@ function AcpmuxPane() {
       ),
     );
   const archived = snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.archived);
+  // Archive and Mark as Unread are acpmux requests on the pane's own connection (cx-jlzsf); only
+  // closing an archived chat's tab is the host's (a tab is the window's).
+  const openClient = async () => {
+    const client = directClient.current;
+    if (!client) throw new Error(translate("error.notOpen"));
+    return client;
+  };
+  const archiveChat = async (archived: boolean) => {
+    await (await openClient()).archive(archived);
+    // Quick Chat's panel has no tab to close.
+    if (archived && !quick) await callNative("pane.action", { id: "closeTab" });
+  };
   const archive = archiveRow(
     {
       sessionId: snapshot.sessionId,
       archived,
       local: localCwd !== undefined,
     },
-    (archived) => ignoreFailure(callNative("chat.archive", { archived })),
+    (archived) => ignoreFailure(archiveChat(archived)),
     t,
   );
   archiveChatRef.current = archive && !archived ? archive.onSelect : undefined;
@@ -3845,7 +3875,7 @@ function AcpmuxPane() {
       local: localCwd !== undefined,
       unread: snapshot.sessions.some((session) => session.sessionId === snapshot.sessionId && session.unread === true),
     },
-    () => ignoreFailure(callNative("chat.markUnread")),
+    () => ignoreFailure(openClient().then((client) => client.markUnread())),
     t,
   );
   const readTabState = () => callNative("pane.tabState").then(setHeaderState);
@@ -4680,7 +4710,7 @@ function AcpmuxPane() {
               catalog={pickerCatalog}
               acpmux={snapshot.catalog}
               {...(harnessFolder ? { cwd: harnessFolder } : {})}
-              callNative={callNative}
+              callNative={harnessesNative}
               checking={harnessesChecking}
               refreshCatalog={pickerState.refresh}
               onClose={() => setHarnessesOpen(false)}

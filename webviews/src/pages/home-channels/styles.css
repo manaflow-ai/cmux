@@ -1122,3 +1122,56 @@ body,
 .ui-menu-item.danger {
   color: var(--hc-danger);
 }
+
+/* The page on a cmux instance's daemon (?daemon=): the connect gate and the instance bar. */
+.hc-daemon {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.hc-daemon > :last-child {
+  flex: 1;
+  min-height: 0;
+}
+.hc-instance {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--page-separator);
+  font-size: var(--text-detail);
+}
+.hc-gate {
+  max-width: 420px;
+  margin: 15vh auto 0;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.hc-gate h1 {
+  font-size: var(--text-heading);
+  margin: 0;
+}
+.hc-gate label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.hc-gate-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.hc-gate-endpoint {
+  opacity: 0.7;
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-detail);
+}
+.hc-gate-code {
+  font-size: var(--text-heading);
+  font-variant-numeric: tabular-nums;
+}
+.hc-gate-error {
+  color: var(--hc-danger);
+}
