@@ -20,9 +20,6 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         var machineKind: String?
         var isCollapsed: Bool
         var nodes: [Node]
-        /// The machine's own icon (`symbol:` or `emoji:`; a stored image is
-        /// not saved), so the header does not change when the live one comes.
-        var machineIcon: String? = nil
     }
 
     /// A loose workspace, or a group with its workspaces.
@@ -71,7 +68,7 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         self.sections = sections.map { section in
             Section(machineID: section.machine?.id.rawValue, machineName: section.machine?.name,
                     machineKind: section.machine.map { Self.kindName($0.kind) }, isCollapsed: section.isCollapsed,
-                    nodes: section.nodes.compactMap(Self.node), machineIcon: section.machine?.icon.flatMap(Self.machineIcon))
+                    nodes: section.nodes.compactMap(Self.node))
         }
         self.profiles = profiles.map { Profile(id: $0.id.rawValue, name: $0.name, color: $0.color?.rawValue, icon: $0.icon) }
         self.activeProfileID = activeProfileID?.rawValue
@@ -84,7 +81,7 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
             let nodes = section.nodes.compactMap(Self.sidebarNode)
             guard let id = section.machineID else { return SidebarSection(kind: .pinned, isCollapsed: section.isCollapsed, nodes: nodes) }
             let machine = SidebarMachine(id: MachineID(id), name: section.machineName ?? "", kind: Self.kind(section.machineKind),
-                                         status: .connecting, icon: section.machineIcon.flatMap { Self.icon($0, tint: nil) })
+                                         status: .connecting)
             return SidebarSection(kind: .machine(machine), isCollapsed: section.isCollapsed, nodes: nodes)
         }
     }
@@ -154,15 +151,6 @@ nonisolated struct SidebarSnapshot: Codable, Hashable, Sendable {
         case "swatch": return GroupColor(rawValue: rest).map(WorkspaceIcon.swatch)
         case "emoji": return .emoji(rest, chip: tint.flatMap(GroupColor.init(rawValue:)))
         default: return nil
-        }
-    }
-
-    /// A machine's own icon as saved: its symbol or emoji.
-    private static func machineIcon(_ icon: WorkspaceIcon) -> String? {
-        switch icon {
-        case let .symbol(name, _): "symbol:" + name
-        case let .emoji(text, _): "emoji:" + text
-        case .swatch, .favicon: nil
         }
     }
 
