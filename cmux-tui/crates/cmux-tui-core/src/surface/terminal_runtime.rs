@@ -82,7 +82,7 @@ impl PtyTerminalRuntime {
             let mut metadata = self.terminal_metadata.lock().unwrap();
             // The modes after this output: a running command that took the
             // terminal for interaction is `in_use`, not `running`.
-            metadata.observe_interactive(|| crate::terminal_activity::terminal_is_interactive(term));
+            metadata.observe_modes(|| crate::terminal_activity::terminal_modes(term));
             metadata.take_shell_marks()
         };
         if marks.is_empty() {

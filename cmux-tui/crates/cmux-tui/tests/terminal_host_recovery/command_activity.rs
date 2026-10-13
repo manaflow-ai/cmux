@@ -57,7 +57,10 @@ fn run_script(harness: &RecoveryHarness, name: &str, script: &str, marker: &str)
 
 /// Sends one line to the script's next `read`.
 fn step(harness: &RecoveryHarness, surface: u64) {
-    request(&harness.socket, serde_json::json!({"id": 2, "cmd": "send", "surface": surface, "text": "\n"}));
+    request(
+        &harness.socket,
+        serde_json::json!({"id": 2, "cmd": "send", "surface": surface, "text": "\n"}),
+    );
 }
 
 #[test]
@@ -118,6 +121,36 @@ fn a_repl_that_reads_lines_is_in_use() {
     step(&harness, surface);
     let extra = wait_for_activity(&harness, Some("in_use"));
     assert!(extra.get("busy").is_none(), "{extra}");
+    step(&harness, surface);
+    wait_for_activity(&harness, None);
+}
+
+#[test]
+fn a_shell_that_turns_bracketed_paste_off_after_the_command_starts_keeps_it_running() {
+    let _exclusive = exclusive_process_test();
+    let harness = RecoveryHarness::start("command-activity-late-paste-off");
+    let (surface, _) = run_script(
+        &harness,
+        "command-activity-late-paste-off",
+        concat!(
+            // fish prints `C` while its line editor still has bracketed
+            // paste and focus reporting on, and turns them off in a later
+            // write: the command did not turn them on.
+            "printf '\\033[?2004h\\033[?1004h\\033]133;C\\007started\\r\\n'; read step; ",
+            "printf '\\033[?2004l\\033[?1004loff\\r\\n'; read step; ",
+            "printf '\\033]133;D;0\\007\\033]133;A\\007prompt\\r\\n'; sleep 600",
+        ),
+        "started",
+    );
+    let extra = wait_for_activity(&harness, Some("running"));
+    assert!(extra["busy"]["since_ms"].is_string(), "{extra}");
+    step(&harness, surface);
+    assert!(wait_for_screen(&harness.socket, surface, "off").contains("off"));
+    let extra = terminal_extra(&harness);
+    assert_eq!(
+        extra["activity"]["state"], "running",
+        "the shell's modes are not the command's: {extra}"
+    );
     step(&harness, surface);
     wait_for_activity(&harness, None);
 }

@@ -653,12 +653,15 @@ impl TerminalMetadata {
         self.activity.command()
     }
 
-    /// Notes that the running command uses the terminal interactively when
-    /// `interactive` says so; asks it only while the command still counts
-    /// as non-interactive.
-    pub(crate) fn observe_interactive(&mut self, interactive: impl FnOnce() -> bool) {
-        if self.activity.wants_interactive_check() && interactive() {
-            self.activity.note_interactive();
+    /// Applies the terminal modes after an output chunk (`modes` reads
+    /// them) to the running command; reads them only while the command
+    /// still counts as non-interactive.
+    pub(crate) fn observe_modes(
+        &mut self,
+        modes: impl FnOnce() -> crate::terminal_activity::TerminalModes,
+    ) {
+        if self.activity.wants_interactive_check() {
+            self.activity.note_modes(modes());
         }
     }
 

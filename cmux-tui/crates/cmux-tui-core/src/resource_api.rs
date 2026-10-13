@@ -463,8 +463,7 @@ pub(crate) fn public_terminal_snapshot(
     // `running` or interactive `in_use`; the older `busy` names a `running`
     // one only. An exited terminal publishes none.
     if running
-        && let Some((state, since)) =
-            surface.and_then(crate::Surface::terminal_command_activity)
+        && let Some((state, since)) = surface.and_then(crate::Surface::terminal_command_activity)
     {
         extra.insert("activity".into(), crate::terminal_activity::activity_json(state, since));
         if state == crate::terminal_activity::CommandActivity::Running {
