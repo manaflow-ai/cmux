@@ -63,7 +63,7 @@ through the submitter.
 | Settings | PARTIAL | Settings exists as a tab; the old missing-Settings verdict below is obsolete. Full Settings-window behavior is unverified. |
 | Config isolation | HAVE (source) | This nightly defaults to cmux-next.json, with one-time classic seeding. The old shared-config blocker below is obsolete for this nightly. |
 | Classic NIGHTLY coexistence | BROKEN | Both share com.cmuxterm.app.nightly and /tmp/cmux-nightly.sock. Classic owned the socket during capture. App exit cause is unproven. |
-| Long-run stability/resources | UNVERIFIED | 20-minute soak and 10-session CPU/memory measurements remain deferred to a dedicated host. |
+| Long-run stability/resources | PARTIAL | The completed receipt below measured a 24-hour, ten-terminal run and stayed below the app memory budget, but its source identity was not recorded and its control calls were false. The post-fix receipt is still running. |
 
 The overnight BusyWatchdog crash was fixed and merged in
 [#17290](https://github.com/manaflow-ai/cmux/pull/17290), after an executed red
@@ -90,6 +90,33 @@ product strings or localization catalog changes. `localize-changes --base HEAD`
 prepared zero new/changed keys, then the strict catalog validator failed on
 22,088 pre-existing catalog parity errors (including Accounts needs-review
 entries). No catalog was modified; that inherited repair is outside this report.
+
+### cx-urd.4 receipt ledger: 2026-10-13
+
+The completed local receipt for the 2026-10-12 run covered 24.02 hours, ten
+agents, ten terminals, and four WebKit tabs. It completed all 2,815 of
+2,815 scripted turns and recorded zero application crashes. The report did
+record 1,093 control failures. Each failure returned immediately with a false
+ping in 0.1 ms and a false snapshot in 0.0 ms, so those events do not establish
+10-second stalls or a crash-free post-fix result.
+
+| Process | Footprint mid to end | Idle CPU | Architecture comparison |
+| --- | --- | --- | --- |
+| app | 74.69 to 79.78 MB | 0.01% | Memory is below the <150 MB budget; CPU is above the exact 0.0% target. |
+| daemon | 1,034.55 to 1,038.97 MB | 0.0% | Measured separately, as required by the budget. |
+| terminal-host | 546.19 to 547.94 MB | 0.0% | No architecture budget is defined for this process. |
+| webkit | 276.12 to 336.96 MB | 0.01% | No architecture budget is defined for this process. |
+
+This completed report is comparison evidence only. Its source SHA was not
+recorded, so it cannot prove that the BusyWatchdog fix in [#17290](https://github.com/manaflow-ai/cmux/pull/17290)
+was present. The current controller receipt is running from source
+`1cba278d89dd`, which contains that fix, on the dedicated capture lease. The
+receipt must finish before the post-fix crash-free verdict can be updated.
+
+The remaining acceptance action is to consume that receipt, classify the
+control-call failures from the prior run, and run the bounded idle and
+20-minute checks on the same verified post-fix nightly. No competing soak was
+started while the active lease was held.
 
 ## Historical 2026-10-03 report (superseded where noted above)
 
