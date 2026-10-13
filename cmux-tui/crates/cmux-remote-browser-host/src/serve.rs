@@ -35,6 +35,7 @@ use crate::ffi::{
     rb_shim_dialog_result, rb_shim_frame_release, rb_shim_popup_menu_result, rb_shim_post,
     rb_shim_post_delayed, rb_shim_quit, rb_shim_run, rb_shim_surface_close,
 };
+use crate::meter::Meter;
 use crate::pump::{FrameEncoder, Pump, PumpOut};
 use crate::shim_ui;
 use crate::tab::{DEFAULT_SCREEN, HostTab, PageChange, SurfaceOut, fork_surface_kind};
@@ -124,6 +125,10 @@ enum Net {
 struct Viewer {
     writer: Sender<Vec<u8>>,
     pump: Pump<Vt>,
+    /// Media numbers for the host log (`serve: stats`).
+    meter: Meter,
+    /// Pump encode counters the meter has seen (frames, IDR).
+    seen: (u64, u64),
 }
 
 struct Host {
@@ -193,9 +198,16 @@ impl Host {
     }
 
     fn apply(&mut self, out: PumpOut) {
+        self.apply_timed(out, None);
+    }
+
+    /// [`Self::apply`] for the output of a pump call that took `call_us`
+    /// (the encode time when it encoded a frame).
+    fn apply_timed(&mut self, out: PumpOut, call_us: Option<u64>) {
         for d in &out.datagrams {
             self.send_frame(STREAM_DATAGRAM, d);
         }
+        self.meter(&out, call_us);
         let mut p = ShimPresentation;
         // The input skipped a gap (a lost release may be in it): release
         // what the viewer holds before the events after the gap apply.
@@ -251,6 +263,28 @@ impl Host {
         }
     }
 
+    /// Counts what one pump call sent and logs a stats line once a window
+    /// is full.
+    fn meter(&mut self, out: &PumpOut, call_us: Option<u64>) {
+        let now = self.now();
+        let Some(v) = self.viewer.as_mut() else { return };
+        let bytes: usize = out.datagrams.iter().map(Vec::len).sum();
+        if bytes > 0 {
+            v.meter.sent(bytes, now);
+        }
+        let stats = v.pump.stats();
+        let (frames, idr) = (stats.encoded - v.seen.0, stats.idr - v.seen.1);
+        v.seen = (stats.encoded, stats.idr);
+        v.meter.encoded(frames, idr, call_us.filter(|_| frames > 0), now);
+        if !out.input.is_empty() {
+            v.meter.input(now);
+        }
+        let kbps = v.pump.encoder().kbps();
+        if let Some(line) = v.meter.take(kbps, false, now) {
+            eprintln!("serve: stats {}", serde_json::to_string(&line).unwrap_or_default());
+        }
+    }
+
     /// Asks the capture for a full frame when the pump waits for one.
     fn refresh(&mut self) {
         if !self.refresh_wanted || !self.tab.capturing() {
@@ -292,7 +326,12 @@ impl Host {
         let cfg =
             EngineConfig { width, height, max_fps: FPS, max_datagram, ..EngineConfig::default() };
         let now = self.now();
-        self.viewer = Some(Viewer { writer, pump: Pump::new(cfg, encoder, now) });
+        self.viewer = Some(Viewer {
+            writer,
+            pump: Pump::new(cfg, encoder, now),
+            meter: Meter::default(),
+            seen: (0, 0),
+        });
         self.first_frame_seen = false;
         // The stream carrier's viewer opens the tab by joining (the rd
         // hello named the service); an explicit rb.open later only updates
@@ -321,6 +360,13 @@ impl Host {
     }
 
     fn left(&mut self) {
+        let now = self.now();
+        if let Some(v) = self.viewer.as_mut() {
+            let kbps = v.pump.encoder().kbps();
+            if let Some(line) = v.meter.take(kbps, true, now) {
+                eprintln!("serve: stats {}", serde_json::to_string(&line).unwrap_or_default());
+            }
+        }
         let replies = self.tab.control(VIEWER, &Control::Close, &mut ShimPresentation);
         drop(replies);
         // Dropping the pump gives its held lease back.
@@ -620,8 +666,10 @@ unsafe extern "C" fn on_frame(_: *mut c_void, _browser: c_int, f: *const RbFrame
         let now = h.now();
         let Some(v) = h.viewer.as_mut() else { return };
         h.refresh_wanted = false;
+        let call = Instant::now();
         let out = v.pump.frame(lease, damage, now, now);
-        h.apply(out);
+        let call_us = u64::try_from(call.elapsed().as_micros()).unwrap_or(u64::MAX);
+        h.apply_timed(out, Some(call_us));
         h.arm();
     });
 }
@@ -675,8 +723,10 @@ unsafe extern "C" fn on_surface_frame(_: *mut c_void, surface: c_int, f: *const 
         let Some(stream) = h.tab.surface_stream(surface) else { return };
         let now = h.now();
         let Some(v) = h.viewer.as_mut() else { return };
+        let call = Instant::now();
         let out = v.pump.frame_on(stream, lease, damage, now, now);
-        h.apply(out);
+        let call_us = u64::try_from(call.elapsed().as_micros()).unwrap_or(u64::MAX);
+        h.apply_timed(out, Some(call_us));
         h.arm();
     });
 }
