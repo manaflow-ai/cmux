@@ -246,14 +246,111 @@ pub(super) fn session_cwd(
     Ok((cwd, remapped_from))
 }
 
-/// Ok when `given` stands in for the gone `recorded` folder; else why not.
+/// Ok when `given` stands in for the gone `recorded` folder of a chat moved
+/// from another machine; else why not. `recorded` maps here through the first
+/// `cwd_map` entry (`FROM=TO`) that holds it, else through a home swap
+/// (`/home/<user>/…` or `/Users/<user>/…` onto `home`). An explicit map
+/// accepts the folder it maps to; either way `given` may be another checkout
+/// of that folder's repository: the same remote and the same path below the
+/// repository root. Another repository or folder is refused.
 pub(super) fn remapped_cwd(
-    _given: &Path,
-    _recorded: &Path,
-    _cwd_map: &[(PathBuf, PathBuf)],
-    _home: Option<&Path>,
+    given: &Path,
+    recorded: &Path,
+    cwd_map: &[(PathBuf, PathBuf)],
+    home: Option<&Path>,
 ) -> Result<(), String> {
-    Err("pass the chat's own folder".into())
+    let explicit = cwd_map
+        .iter()
+        .find_map(|(from, to)| recorded.strip_prefix(from).ok().map(|rest| to.join(rest)));
+    let (mapped, explicit) = match explicit {
+        Some(mapped) => (mapped, true),
+        None => match home.and_then(|home| home_swap(recorded, home)) {
+            Some(mapped) => (mapped, false),
+            None => return Err("no cwd map (FROM=TO) maps it onto this machine".into()),
+        },
+    };
+    if !mapped.is_dir() {
+        return Err(format!("{}, where it maps here, is not a folder either", mapped.display()));
+    }
+    if explicit && same_dir(&mapped, given) {
+        return Ok(());
+    }
+    match (repo_identity(&mapped), repo_identity(given)) {
+        (Some(want), Some(have)) if want == have => Ok(()),
+        (Some((want_remote, want_path)), Some((have_remote, have_path))) => Err(format!(
+            "{} is {have_remote} at {:?}, not {want_remote} at {:?} as {} is",
+            given.display(),
+            have_path,
+            want_path,
+            mapped.display()
+        )),
+        (None, _) => Err(format!(
+            "{} is no git checkout with a remote; pass a cwd map (FROM=TO) to open it",
+            mapped.display()
+        )),
+        (_, None) => Err(format!("{} is no git checkout with a remote", given.display())),
+    }
+}
+
+/// `recorded` under another machine's home (`/home/<user>`, `/Users/<user>`)
+/// moved under `home`.
+fn home_swap(recorded: &Path, home: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+    let mut parts = recorded.components();
+    match (parts.next(), parts.next(), parts.next()) {
+        (Some(Component::RootDir), Some(Component::Normal(top)), Some(Component::Normal(_)))
+            if top == "home" || top == "Users" =>
+        {
+            Some(home.join(parts.as_path()))
+        }
+        _ => None,
+    }
+}
+
+/// A folder's repository: its `origin` remote (else its first remote),
+/// normalized, and its path below the repository root. `None` outside a git
+/// checkout or without a remote.
+fn repo_identity(dir: &Path) -> Option<(String, PathBuf)> {
+    let git = |args: &[&str]| -> Option<String> {
+        let out = std::process::Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .stderr(std::process::Stdio::null())
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        (out.status.success() && !text.is_empty()).then_some(text)
+    };
+    let top = std::fs::canonicalize(git(&["rev-parse", "--show-toplevel"])?).ok()?;
+    let remote = git(&["remote", "get-url", "origin"]).or_else(|| {
+        let first = git(&["remote"])?.lines().next()?.to_owned();
+        git(&["remote", "get-url", &first])
+    })?;
+    let path = std::fs::canonicalize(dir).ok()?.strip_prefix(&top).ok()?.to_path_buf();
+    Some((normalize_remote(&remote), path))
+}
+
+/// `scheme://[user@]host[:port]/path`, `[user@]host:path` and a local path
+/// as `host/path`, the host lowercased, without a trailing `/` or `.git`:
+/// `git@github.com:o/r.git` and `https://github.com/o/r` are one remote.
+fn normalize_remote(url: &str) -> String {
+    let url = url.trim();
+    let host_of = |authority: &str| {
+        let host = authority.rsplit('@').next().unwrap_or(authority);
+        host.split(':').next().unwrap_or(host).to_ascii_lowercase()
+    };
+    let (host, path) = if let Some((_, rest)) = url.split_once("://") {
+        let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+        (host_of(authority), path)
+    } else if let Some((authority, path)) = url.split_once(':').filter(|(a, _)| !a.contains('/')) {
+        (host_of(authority), path)
+    } else {
+        (String::new(), url)
+    };
+    let path = path.trim_end_matches('/');
+    let path = path.strip_suffix(".git").unwrap_or(path).trim_matches('/');
+    format!("{host}/{path}")
 }
 
 /// The session in `sessions` that adopted `agent_session_id` in `family`.
