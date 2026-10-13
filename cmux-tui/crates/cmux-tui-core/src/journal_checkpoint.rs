@@ -50,7 +50,7 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     // a single registry + state lock hold. A journal record committed before
     // the cut is covered by the snapshot; the fence below only has to reject
     // writes that land after it, while terminal content is being captured.
-    let (snapshot, head_before) =
+    let (mut snapshot, mut head_before) =
         crate::resource_api::public_session_snapshot_with_journal_head(mux)
             .map_err(|error| anyhow::anyhow!("capture public session snapshot: {error:?}"))?;
     let producers = mux.journal_producer_manifests()?;
@@ -76,22 +76,25 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
         "checkpoint contains more than {MAX_CHECKPOINT_TERMINALS} terminals"
     );
 
-    let mut total_bytes = 0_u64;
-    let mut blobs = Vec::new();
-    for terminal_id in terminal_ids {
-        let Some(surface) = mux.terminal_resource_surface(&terminal_id) else { continue };
-        let blob = terminal_replay_blob(&surface, &terminal_id)?;
-        total_bytes = total_bytes
-            .checked_add(blob.reference.uncompressed_bytes)
-            .context("checkpoint content byte count overflow")?;
+    let mut recovery_passes = 0;
+    let blobs = loop {
+        let (blobs, recovered) = capture_terminal_blobs(mux, &terminal_ids)?;
+        mux.flush_terminal_journal()?;
+        if !recovered {
+            break blobs;
+        }
+        recovery_passes += 1;
         anyhow::ensure!(
-            total_bytes <= MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
-            "checkpoint terminal content exceeds {MAX_CHECKPOINT_UNCOMPRESSED_BYTES} bytes"
+            recovery_passes < MAX_CHECKPOINT_CAPTURE_ATTEMPTS,
+            "terminal replay recovery did not settle during checkpoint capture"
         );
-        blobs.push(blob);
-    }
+        // Recovery appends synthetic CAN to the terminal output stream. Move
+        // the consistency cut past that intentional journal record, then
+        // recapture every terminal so no blob predates the new cut.
+        (snapshot, head_before) = crate::resource_api::public_session_snapshot_with_journal_head(mux)
+            .map_err(|error| anyhow::anyhow!("recapture public session snapshot: {error:?}"))?;
+    };
 
-    mux.flush_terminal_journal()?;
     // Verify against one cut as well, so a write landing between two separate
     // head and cursor reads cannot fail a capture that was in fact stable.
     let (verify_snapshot, head_after) =
@@ -115,6 +118,29 @@ pub(crate) fn capture(mux: &Mux) -> anyhow::Result<CapturedCheckpoint> {
     })
 }
 
+fn capture_terminal_blobs(
+    mux: &Mux,
+    terminal_ids: &[TerminalPublicId],
+) -> anyhow::Result<(Vec<JournalContentBlob>, bool)> {
+    let mut total_bytes = 0_u64;
+    let mut recovered = false;
+    let mut blobs = Vec::new();
+    for terminal_id in terminal_ids {
+        let Some(surface) = mux.terminal_resource_surface(terminal_id) else { continue };
+        let (blob, terminal_recovered) = terminal_replay_blob_with_recovery(&surface, terminal_id)?;
+        recovered |= terminal_recovered;
+        total_bytes = total_bytes
+            .checked_add(blob.reference.uncompressed_bytes)
+            .context("checkpoint content byte count overflow")?;
+        anyhow::ensure!(
+            total_bytes <= MAX_CHECKPOINT_UNCOMPRESSED_BYTES,
+            "checkpoint terminal content exceeds {MAX_CHECKPOINT_UNCOMPRESSED_BYTES} bytes"
+        );
+        blobs.push(blob);
+    }
+    Ok((blobs, recovered))
+}
+
 pub(crate) fn capture_error_is_retryable(error: &anyhow::Error) -> bool {
     let message = error.to_string();
     [
@@ -135,6 +161,13 @@ pub(crate) fn terminal_replay_blob(
     surface: &crate::Surface,
     terminal_id: &TerminalPublicId,
 ) -> anyhow::Result<JournalContentBlob> {
+    terminal_replay_blob_with_recovery(surface, terminal_id).map(|(blob, _)| blob)
+}
+
+fn terminal_replay_blob_with_recovery(
+    surface: &crate::Surface,
+    terminal_id: &TerminalPublicId,
+) -> anyhow::Result<(JournalContentBlob, bool)> {
     let epoch_before = surface
         .terminal_journal_capture_epoch()
         .context("captured terminal is not a PTY surface")?;
@@ -142,9 +175,10 @@ pub(crate) fn terminal_replay_blob(
         epoch_before & 1 == 0,
         "terminal journal ingress is unsettled during replay capture"
     );
-    let (cols, rows, replay) = {
+    let (cols, rows, replay, recovered) = {
         let mut last_error = None;
         let mut captured = None;
+        let mut recovered = false;
         for budget in CHECKPOINT_REPLAY_RETRY_BUDGETS {
             let result = surface
                 .try_with_terminal(|terminal| {
@@ -178,6 +212,7 @@ pub(crate) fn terminal_replay_blob(
                 .with_context(|| format!("terminal {terminal_id} replay recovery"))?;
             if let Some(Ok(value)) = result {
                 captured = Some(value);
+                recovered = true;
             } else {
                 return Err(anyhow::anyhow!(
                     "terminal {terminal_id} replay capture failed after retrying larger buffers: {}",
@@ -187,7 +222,8 @@ pub(crate) fn terminal_replay_blob(
                 ));
             }
         }
-        captured.expect("replay recovery must either capture or return")
+        let (cols, rows, replay) = captured.expect("replay recovery must either capture or return");
+        (cols, rows, replay, recovered)
     };
     let epoch_after = surface
         .terminal_journal_capture_epoch()
@@ -228,7 +264,7 @@ pub(crate) fn terminal_replay_blob(
     let digest = Sha256::digest(&uncompressed);
     let digest_hex = encode_hex(digest.as_slice());
     let compressed = gzip_deterministic(&uncompressed)?;
-    JournalContentBlob::verified(
+    let blob = JournalContentBlob::verified(
         JournalContentRef {
             content_id: format!("jcontent_{digest_hex}"),
             terminal_id: terminal_id.as_str().into(),
@@ -240,7 +276,8 @@ pub(crate) fn terminal_replay_blob(
             rows,
         },
         compressed,
-    )
+    )?;
+    Ok((blob, recovered))
 }
 
 #[cfg(test)]
@@ -1510,6 +1547,25 @@ mod tests {
         assert!(
             attach_output.ends_with(b"\x18"),
             "checkpoint recovery must publish CAN after the unreplayable PTY bytes"
+        );
+
+        mux.flush_terminal_journal().unwrap();
+        let public_id = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_resource_id("00000000000040008000000000000070")
+            .unwrap()
+            .unwrap();
+        let journaled = mux
+            .workspace_registry
+            .lock()
+            .unwrap()
+            .terminal_output_records_after(public_id.as_str(), "10000000000040008000000000000070", 0, 1 << 20)
+            .unwrap();
+        assert!(
+            journaled.chunks.iter().any(|chunk| chunk.bytes.ends_with(b"\x18")),
+            "checkpoint recovery must journal the synthetic CAN"
         );
 
         drop(surface);
