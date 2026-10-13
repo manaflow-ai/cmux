@@ -3479,7 +3479,10 @@
     "title": "Connecté à cmux",
     "body": "Si cmux ne s’est pas ouvert automatiquement, utilisez le bouton ci-dessous.",
     "button": "Retourner à cmux",
-    "switchAccountButton": "Utiliser un autre compte"
+    "switchAccountButton": "Utiliser un autre compte",
+    "rateLimitedTitle": "La connexion est saturée",
+    "rateLimitedBody": "Notre service de connexion reçoit trop de requêtes. Patientez quelques secondes, puis continuez. Vous n'avez pas besoin de vous reconnecter.",
+    "retryButton": "Continuer la connexion"
   },
   "landing": {
     "bestTerminal": {
@@ -5514,6 +5517,9 @@
     "switchFailed": "Impossible de se déconnecter. Réessayez.",
     "invalidTitle": "Cette invitation n’est plus valide",
     "invalidBody": "Elle a expiré, a été révoquée ou a déjà été utilisée. Demandez-en une nouvelle à un admin de l’équipe.",
-    "goToTeams": "Accéder à vos équipes"
+    "goToTeams": "Accéder à vos équipes",
+    "unavailableTitle": "Impossible de confirmer votre connexion",
+    "unavailableBody": "Notre service de connexion est saturé. Patientez quelques secondes, puis rouvrez l'invitation. Vous n'avez pas besoin de vous reconnecter.",
+    "retry": "Réessayer"
   }
 }

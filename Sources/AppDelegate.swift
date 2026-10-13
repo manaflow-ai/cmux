@@ -15901,8 +15901,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             return handled
         }
 
-        if handleAgentTurnNavigationShortcut(event: event) { return true }
-
         if matchConfiguredShortcut(event: event, action: .focusTextBoxInput) {
             if performFocusedDockShortcut(
                 .focusTextBoxInput,
@@ -20249,7 +20247,7 @@ private extension NSWindow {
                     return true
                 }
 
-                if shouldDispatchTerminalArrowViaFirstResponderKeyDown(
+                if shouldDispatchTerminalNavigationKeyViaFirstResponderKeyDown(
                     keyCode: event.keyCode,
                     firstResponderIsTerminal: true,
                     firstResponderHasMarkedText: ghosttyView.hasMarkedText(),

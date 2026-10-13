@@ -3475,7 +3475,10 @@
     "title": "cmux oturumu açıldı",
     "body": "cmux otomatik olarak açılmadıysa aşağıdaki düğmeyi kullanın.",
     "button": "cmux’a dön",
-    "switchAccountButton": "Farklı bir hesap kullan"
+    "switchAccountButton": "Farklı bir hesap kullan",
+    "rateLimitedTitle": "Oturum açma yoğun",
+    "rateLimitedBody": "Oturum açma sağlayıcımız çok fazla istek alıyor. Birkaç saniye bekleyin, ardından devam edin. Yeniden oturum açmanız gerekmez.",
+    "retryButton": "Oturum açmaya devam et"
   },
   "landing": {
     "bestTerminal": {
@@ -5510,6 +5513,9 @@
     "switchFailed": "Çıkış yapılamadı. Tekrar deneyin.",
     "invalidTitle": "Bu davet artık geçerli değil",
     "invalidBody": "Davetin süresi dolmuş, iptal edilmiş veya zaten kullanılmış. Bir ekip yöneticisinden yeni bir davet isteyin.",
-    "goToTeams": "Ekiplerinize git"
+    "goToTeams": "Ekiplerinize git",
+    "unavailableTitle": "Oturum açmanız doğrulanamadı",
+    "unavailableBody": "Oturum açma sağlayıcımız yoğun. Birkaç saniye bekleyin, ardından daveti yeniden açın. Yeniden oturum açmanız gerekmez.",
+    "retry": "Tekrar dene"
   }
 }

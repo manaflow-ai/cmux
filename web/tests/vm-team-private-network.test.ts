@@ -112,7 +112,7 @@ function enrollmentRepo(): VmRepositoryShape {
     listAccessGrantSessionIds: () => Effect.succeed([]),
     renameAccessGrant: () => Effect.succeed(null),
     listUserAccessGrants: () => Effect.succeed([]),
-    revokeAccessGrant: () => Effect.succeed(true),
+    revokeAccessGrant: () => Effect.succeed({ revoked: true, stackSessionIds: [] }),
   } as unknown as VmRepositoryShape;
 }
 
