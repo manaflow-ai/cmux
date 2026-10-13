@@ -7,7 +7,8 @@ import UIKit
 /// large emoji, tapback badge, avatar, and footers. Frames come from
 /// `MessageCellLayout`; the cell only places views.
 final class MessageCell: UICollectionViewCell {
-    static let reuseID = "message"
+    /// One reuse queue per ConversationReuseClass.
+    static func reuseID(class reuseClass: Int) -> String { "message.\(reuseClass)" }
 
     let senderLabel = UILabel()
     let quoteBubble = BubbleBackgroundView()

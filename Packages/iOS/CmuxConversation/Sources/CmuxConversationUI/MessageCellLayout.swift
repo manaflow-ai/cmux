@@ -187,6 +187,70 @@ final class MessageLayoutCache {
     }
 }
 
+/// Bubble texts and their measured sizes, shared by every thread: text a
+/// live message readied off the main thread (data detection, mentions,
+/// formatting, line breaking) is the very text the transcript then shows.
+final class BubbleTextCache: @unchecked Sendable {
+    static let shared = BubbleTextCache()
+
+    /// Everything `MessageCellLayout.attributedBody` builds from; the font
+    /// carries the text size.
+    struct Key: Hashable {
+        var text: String
+        var outgoing: Bool
+        var mentions: [ConversationMention]
+        var meID: String?
+        var runs: [ConversationTextRun]
+        var font: UIFont
+    }
+
+    private struct SizeKey: Hashable {
+        var text: ObjectIdentifier
+        var width: CGFloat
+    }
+
+    /// Beyond this many texts the cache starts over.
+    private let limit = 4000
+    private let lock = NSLock()
+    private var texts: [Key: NSAttributedString] = [:]
+    /// The cached texts by identity: sizes are kept only for them, so an
+    /// identity is never reused while its size is.
+    private var held: [ObjectIdentifier: NSAttributedString] = [:]
+    private var sizes: [SizeKey: CGSize] = [:]
+
+    func text(for key: Key) -> NSAttributedString? {
+        lock.withLock { texts[key] }
+    }
+
+    func store(_ text: NSAttributedString, for key: Key) {
+        lock.withLock {
+            if texts.count >= limit {
+                texts.removeAll(keepingCapacity: true)
+                held.removeAll(keepingCapacity: true)
+                sizes.removeAll(keepingCapacity: true)
+            }
+            texts[key] = text
+            held[ObjectIdentifier(text)] = text
+        }
+    }
+
+    /// The bounding size of `text` wrapped at `width`, measured once per
+    /// cached text.
+    func size(of text: NSAttributedString, width: CGFloat) -> CGSize {
+        let key = SizeKey(text: ObjectIdentifier(text), width: width)
+        if let size = lock.withLock({ held[key.text] === text ? sizes[key] : nil }) { return size }
+        let size = text.boundingRect(
+            with: CGSize(width: width, height: .greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            context: nil
+        ).size
+        lock.withLock {
+            if held[key.text] === text { sizes[key] = size }
+        }
+        return size
+    }
+}
+
 extension NSAttributedString.Key {
     /// Link target kept off `.link` so labels draw links in the bubble's text color, underlined.
     static let conversationLink = NSAttributedString.Key("cmuxConversationLink")
@@ -201,6 +265,20 @@ extension MessageCellLayout {
         mentions: [ConversationMention] = [],
         meID: String? = nil,
         runs: [ConversationTextRun] = []
+    ) -> NSAttributedString {
+        let key = BubbleTextCache.Key(text: text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs, font: ConversationTheme.bubbleFont)
+        if let cached = BubbleTextCache.shared.text(for: key) { return cached }
+        let result = buildAttributedBody(text, outgoing: outgoing, mentions: mentions, meID: meID, runs: runs)
+        BubbleTextCache.shared.store(result, for: key)
+        return result
+    }
+
+    private static func buildAttributedBody(
+        _ text: String,
+        outgoing: Bool,
+        mentions: [ConversationMention],
+        meID: String?,
+        runs: [ConversationTextRun]
     ) -> NSAttributedString {
         let result = NSMutableAttributedString(string: text, attributes: [
             .font: ConversationTheme.bubbleFont,
@@ -220,6 +298,12 @@ extension MessageCellLayout {
         }
         ConversationMentionStyle.apply(to: result, mentions: mentions, meID: meID, outgoing: outgoing, font: ConversationTheme.bubbleFont)
         return result
+    }
+
+    /// The width a text bubble's lines wrap at in a transcript `width`
+    /// wide with `margin` on each side.
+    static func bubbleTextWidth(width: CGFloat, margin: CGFloat) -> CGFloat {
+        ConversationTheme.maxBubbleWidth(forAvailableWidth: width - 2 * margin) - 2 * ConversationTheme.bubbleHorizontalPadding
     }
 
     /// `value` rounded up to the screen's pixel grid, as ChatKit sizes balloons.
@@ -377,11 +461,7 @@ extension MessageCellLayout {
             y += rowHeight
         } else if !bodyText.isEmpty {
             let hPad = t.bubbleHorizontalPadding, vPad = t.bubbleVerticalPadding
-            let size = text.boundingRect(
-                with: CGSize(width: maxBubbleWidth - 2 * hPad, height: .greatestFiniteMagnitude),
-                options: [.usesLineFragmentOrigin, .usesFontLeading],
-                context: nil
-            ).size
+            let size = BubbleTextCache.shared.size(of: text, width: bubbleTextWidth(width: width, margin: margin))
             let textHeight = max(size.height, t.bubbleFont.lineHeight)
             // ChatKit rounds the balloon up to the pixel grid ("Are we still on
             // for dinner tonight?" is 249.70 pt of text in a 278.00 x 40.33

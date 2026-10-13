@@ -128,6 +128,13 @@ public final class ConversationStore {
     var scheduledRefreshTask: Task<Void, Never>?
     /// A Send Later action the server refused; the row is restored.
     public var onScheduledActionFailed: (@MainActor (ConversationScheduledActionFailure) -> Void)?
+
+    /// Readies a live message before it applies: called on the main actor
+    /// as the message arrives, it returns work the store awaits before
+    /// applying it (a transcript measures the bubble text there, off the
+    /// main thread, so the frame that shows the message only places it).
+    /// Events keep their order.
+    public var prepareLiveMessage: (@MainActor (ConversationMessage) -> (@Sendable () async -> Void)?)?
     /// Bumps on every background I set, so only the newest answer applies.
     private var backgroundGeneration = 0
     private var backgroundInFlight = false
@@ -152,6 +159,11 @@ public final class ConversationStore {
         eventTask = Task { [weak self] in
             for await event in stream {
                 guard let self else { return }
+                if case let .message(message, _) = event, let prepare = self.prepareLiveMessage?(message) {
+                    await prepare()
+                    // Stopped while the message was readied.
+                    if Task.isCancelled { return }
+                }
                 self.apply(event)
             }
         }

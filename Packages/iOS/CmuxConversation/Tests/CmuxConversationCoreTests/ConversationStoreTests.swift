@@ -225,6 +225,59 @@ import Testing
         #expect(changes.count == 1)
     }
 
+    /// A live message applies only once the work its observer readied for
+    /// it finished, one message at a time, in arrival order.
+    @Test func liveMessagesApplyAfterTheirPreparationInOrder() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        let finished = PreparedIDs()
+        var asked: [String] = []
+        var appliedEarly: [String] = []
+        store.prepareLiveMessage = { message in
+            asked.append(message.id)
+            return {
+                await Task.yield()
+                finished.insert(message.id)
+            }
+        }
+        store.addObserver { _ in
+            for message in store.messages where asked.contains(message.id) && !finished.contains(message.id) {
+                appliedEarly.append(message.id)
+            }
+        }
+        store.start()
+        backend.emit(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.emit(.message(backend.makeMessage(seq: 6, sender: "lc"), eventSeq: 10))
+        backend.emit(.message(backend.makeMessage(seq: 7, sender: "aw"), eventSeq: 11))
+        try await waitUntil { store.messages.count == 7 }
+        #expect(asked == ["m6", "m7"])
+        #expect(finished.ids == ["m6", "m7"])
+        #expect(appliedEarly.isEmpty)
+        #expect(store.messages.suffix(2).map(\.id) == ["m6", "m7"])
+    }
+
+    /// A message still being readied when the store stops never applies.
+    @Test func aMessageReadiedAfterStopIsDropped() async throws {
+        let backend = ScriptedBackend(total: 5)
+        let store = ConversationStore(backend: backend, pageSize: 30)
+        let gate = PreparationGate()
+        var asked = false
+        store.prepareLiveMessage = { _ in
+            asked = true
+            return { await gate.wait() }
+        }
+        store.start()
+        backend.emit(.connected(info: backend.info, meID: "me", lagged: false))
+        try await waitUntil { store.hasLoadedNewest }
+        backend.emit(.message(backend.makeMessage(seq: 6, sender: "lc"), eventSeq: 10))
+        try await waitUntil { asked }
+        store.stop()
+        gate.open()
+        try await Task.sleep(for: .milliseconds(50))
+        #expect(store.message(id: "m6") == nil)
+    }
+
     @Test func typingStopWithoutAMessageStillClears() async throws {
         let backend = ScriptedBackend(total: 5)
         let store = ConversationStore(backend: backend, pageSize: 30, clock: ImmediateClock())
@@ -258,6 +311,40 @@ struct ImmediateClock: Clock {
     func sleep(until deadline: Instant, tolerance: Duration?) async throws {
         await Task.yield()
     }
+}
+
+/// Holds whoever waits until opened.
+final class PreparationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isOpen = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    func wait() async {
+        await withCheckedContinuation { continuation in
+            let resume = lock.withLock { () -> Bool in
+                if isOpen { return true }
+                waiters.append(continuation)
+                return false
+            }
+            if resume { continuation.resume() }
+        }
+    }
+    func open() {
+        let waiting = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+            isOpen = true
+            defer { waiters = [] }
+            return waiters
+        }
+        waiting.forEach { $0.resume() }
+    }
+}
+
+/// Message ids, recorded from any thread in order.
+final class PreparedIDs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _ids: [String] = []
+    var ids: [String] { lock.withLock { _ids } }
+    func insert(_ id: String) { lock.withLock { _ids.append(id) } }
+    func contains(_ id: String) -> Bool { lock.withLock { _ids.contains(id) } }
 }
 
 final class ClientIDSequence: @unchecked Sendable {
@@ -315,7 +402,14 @@ final class ScriptedBackend: ConversationBackend, @unchecked Sendable {
         )
     }
 
-    func events() -> AsyncStream<ConversationBackendEvent> { AsyncStream { _ in } }
+    private var _continuation: AsyncStream<ConversationBackendEvent>.Continuation?
+    func events() -> AsyncStream<ConversationBackendEvent> {
+        AsyncStream { continuation in lock.withLock { _continuation = continuation } }
+    }
+    /// Delivers `event` through the stream `events()` returned.
+    func emit(_ event: ConversationBackendEvent) {
+        _ = lock.withLock { _continuation }?.yield(event)
+    }
 
     func history(beforeSeq: Int?, limit: Int) async throws -> ConversationHistoryPage {
         let shouldFail = lock.withLock { () -> Bool in
