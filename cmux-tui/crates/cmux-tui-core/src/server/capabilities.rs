@@ -15,9 +15,15 @@ pub const PERSONAL_REMOTE_LOCALHOST_CAPABILITY: &str = "personal-remote-localhos
 pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     let mut capabilities = advertised_capabilities(cfg!(unix));
     capabilities.push(activity::CAPABILITY);
+    capabilities.push(page_credential::PAGE_CREDENTIAL_CAPABILITY);
     if mux.cloud_conversations().is_some() {
         capabilities.push(cloud_conversations::CAPABILITY);
         capabilities.push(cloud_conversations::APP_ONLY_LEASE_CAPABILITY);
+        capabilities.push(cloud_conversations::WS_CLOUD_CAPABILITY);
+    }
+    if mux.serves_ws_listen() {
+        capabilities.push(WS_LISTEN_CAPABILITY);
+        capabilities.push(WS_LISTEN_ORIGINS_CAPABILITY);
     }
     if mux.history_search().is_some() {
         capabilities.push(history_search::HISTORY_SEARCH_CAPABILITY);
@@ -158,6 +164,7 @@ pub(super) fn advertised_capabilities(
         conversations::CONVERSATION_THREADS_CAPABILITY,
         conversations::CONVERSATION_THREAD_READ_CAPABILITY,
         conversations::LINK_PREVIEW_CAPABILITY,
+        conversations::WS_CONVERSATIONS_CAPABILITY,
         crate::conversation_store::attachments::LOCAL_ATTACHMENTS_CAPABILITY,
         SCREEN_METADATA_CAPABILITY,
         SCREEN_GROUPS_CAPABILITY,
@@ -207,6 +214,8 @@ pub(super) fn advertised_capabilities(
         crate::git_ops::WORKTREE_APPLY_CAPABILITY,
         crate::git_ops::WORKTREE_REMOVE_CAPABILITY,
         crate::request_origin::ORIGIN_CLAIM_CAPABILITY,
+        crate::request_origin::page_router_table::PAGE_ROUTER_CAPABILITY,
+        crate::request_origin::page_router_table::PAGE_EVENTS_CAPABILITY,
         crate::browser_host::BROWSER_HOST_PROVIDER_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_ACTIVATE_CAPABILITY,
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,

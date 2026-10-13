@@ -64,6 +64,14 @@ pub(super) fn create(mux: &Arc<Mux>, client: u64, params: NewTabParams) -> anyho
         activate,
         after,
     } = params;
+    let profile_id = profile_id
+        .map(|profile| {
+            mux.workspace_registry
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .resolve_browser_profile_id(&profile)
+        })
+        .transpose()?;
     let record = crate::workspace_registry::FrontendBrowserRecord {
         engine,
         url,
@@ -116,6 +124,8 @@ pub(super) struct UpdateTabParams {
     title: Option<String>,
     #[serde(default, deserialize_with = "super::present_nullable")]
     favicon_url: Option<Option<String>>,
+    #[serde(default, deserialize_with = "super::present_nullable")]
+    profile_id: Option<Option<String>>,
     #[serde(default)]
     owner: Option<String>,
 }
@@ -136,13 +146,14 @@ pub(super) struct GetParams {
 }
 
 pub(super) fn update(mux: &Mux, actor: &Actor, params: UpdateTabParams) -> anyhow::Result<Value> {
-    let UpdateTabParams { surface, url, title, favicon_url, owner } = params;
-    let (record, changed) = mux.update_frontend_browser_tab_with_owner_as(
+    let UpdateTabParams { surface, url, title, favicon_url, profile_id, owner } = params;
+    let (record, changed) = mux.update_frontend_browser_tab_with_owner_and_profile_as(
         actor,
         surface,
         url,
         title,
         favicon_url,
+        profile_id,
         owner,
     )?;
     Ok(json!({
@@ -150,6 +161,7 @@ pub(super) fn update(mux: &Mux, actor: &Actor, params: UpdateTabParams) -> anyho
         "url": record.url,
         "title": record.title,
         "favicon_url": record.favicon_url,
+        "profile_id": record.profile_id,
         "owner": record.owner,
         "changed": changed,
     }))

@@ -335,7 +335,7 @@ final class SidebarBridge {
                                                 tabTitle: tabTitle, notificationText: session.daemon.store.notificationText(for:),
                                                 iconAsset: IconAssetImages.shared.sidebarIcon(owner: session.daemon), groupIconAsset: groupIcon)
         }
-        return sections
+        return machines.withMachineIcons(sections)
     }
 
     static func machine(for daemon: DaemonService, name: String, kind: SidebarMachine.Kind, live: Bool = true,

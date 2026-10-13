@@ -31,9 +31,11 @@ mod config;
 mod daemon_build;
 mod headless;
 mod local_actor;
+mod page_listener;
 mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
+mod websocket_credential;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
@@ -1402,6 +1404,8 @@ const STARTUP_VALUE_OPTIONS: &[&str] = &[
     "--cloud-identity",
     "--ws",
     "--ws-token",
+    "--ws-allow-origin",
+    "--ws-allow-host",
     "--remote-ws",
     "--remote-http",
     "--remote-state-dir",
@@ -2133,7 +2137,8 @@ fn run_server(
         );
     }
     let ws_addr = args.ws.clone().or(config.server.ws.clone());
-    let ws_token = headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
+    let headless::WsToken { token: ws_token, minted: ws_token_minted } =
+        headless::ws_token(&args, &ws_addr, &config.server.ws_token)?;
     let mut loopback_forward_policy =
         loopback_forward_policy(config.server.loopback_forward.as_ref());
     // Compute the socket path up front so a normal interactive launch can
@@ -2396,12 +2401,13 @@ fn run_server(
                 let addr = addr
                     .parse()
                     .map_err(|error| anyhow::anyhow!("invalid WebSocket address: {error}"))?;
-                Some(cmux_tui_core::server::serve_websocket_with_access(
+                Some(cmux_tui_core::server::serve_websocket_with_pages(
                     mux.clone(),
                     addr,
-                    ws_token,
+                    ws_token.clone(),
                     args.ws_insecure_bind,
                     &args.ws_access,
+                    cmux_tui_core::server::page_bundle_dir(),
                 )?)
             }
             None => None,
@@ -2426,6 +2432,17 @@ fn run_server(
         // A forwarded page must never reach the daemon's own control port.
         loopback_forward_policy.deny_port(server.local_addr().port());
     }
+    let websocket_server = websocket_server.map(|server| {
+        websocket_credential::attach(server, &socket_path, ws_token_minted, &ws_token)
+    });
+    // `ws-listen` (ws-listen-v1): an owner without the listener opens it on request.
+    let page_listener = page_listener::PageListener::install(
+        &mux,
+        socket_path.clone(),
+        args.ws_access.clone(),
+        websocket_server,
+        ws_token.filter(|_| ws_token_minted),
+    );
     // Nor the remote runtime's listeners: a Cloud daemon serves its
     // trusted-carrier link on `--remote-ws` (port 1337) and workspace HTTP on
     // `--remote-http`, both reachable at a loopback address on the machine.
@@ -2568,8 +2585,8 @@ fn run_server(
     let remote_shutdown = remote_runtime.map(|runtime| runtime.shutdown()).transpose();
     #[cfg(unix)]
     {
-        let shutdown_result = finish_server_shutdown(
-            websocket_server,
+        let shutdown_result = headless::finish_server_shutdown(
+            page_listener.take(),
             &mux,
             &socket_path,
             remote_shutdown,
@@ -2581,7 +2598,7 @@ fn run_server(
     }
     #[cfg(not(unix))]
     {
-        drop(websocket_server);
+        drop(page_listener.take());
         mux.shutdown();
         mux.release_ownership(&socket_path);
         served_mux_cleanup.disarm();
@@ -2635,21 +2652,6 @@ fn start_local_owner_event_loop_with_completion(
         }
     });
     LocalOwnerEventLoop { stop: Some(stop), thread: Some(thread) }
-}
-
-#[cfg(unix)]
-fn finish_server_shutdown<W, R>(
-    websocket_server: Option<W>,
-    mux: &Arc<Mux>,
-    socket_path: &Path,
-    remote_shutdown: anyhow::Result<Option<R>>,
-    result: anyhow::Result<()>,
-) -> anyhow::Result<()> {
-    drop(websocket_server);
-    mux.shutdown();
-    mux.release_ownership(socket_path);
-    remote_shutdown.map(|_| ())?;
-    result
 }
 
 /// `CMUX_TUI_REMOTE_WS_TRUSTED_CARRIER=1` is how a systemd drop-in turns the
@@ -2809,6 +2811,7 @@ fn start_detached_owner_session(
         terminal_reap_grace: args.terminal_reap_grace,
         install_key: None,
         chief_tools_socket: None,
+        websocket: None,
     };
     let deadline = std::time::Instant::now() + local_owner::ENSURE_DEADLINE;
     // A restore can take minutes on a loaded machine: say so once instead of

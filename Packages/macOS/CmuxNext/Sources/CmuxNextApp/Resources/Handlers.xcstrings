@@ -7075,6 +7075,270 @@
         }
       }
     },
+    "homeChannels.daemon.restarting": {
+      "comment": "Channels page note while cmux hands an old daemon off to its bundled build.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "جارٍ إعادة تشغيل خادم cmux…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponovno pokretanje cmux daemona…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Genstarter cmux-dæmonen…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Der cmux-Daemon wird neu gestartet …"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Restarting the cmux daemon…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reiniciando el daemon de cmux…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Redémarrage du daemon cmux…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Riavvio del daemon di cmux…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux デーモンを再起動しています…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "កំពុងចាប់ផ្ដើម daemon របស់ cmux ឡើងវិញ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux 데몬을 다시 시작하는 중…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Starter cmux-demonen på nytt …"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ponowne uruchamianie demona cmux…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Reiniciando o daemon do cmux…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перезапуск демона cmux…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กำลังเริ่ม daemon ของ cmux ใหม่…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux arka plan hizmeti yeniden başlatılıyor…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Перезапуск демона cmux…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Đang khởi động lại daemon cmux…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在重新启动 cmux 守护进程…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "正在重新啟動 cmux 常駐程式…"
+          }
+        }
+      }
+    },
+    "homeChannels.daemon.tooOld": {
+      "comment": "Channels page error: an external cmux-tui daemon has no page listener and cmux cannot restart it.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خادم cmux هذا قديم جدًا لعرض هذه الصفحة، ولا يستطيع cmux إعادة تشغيله. حدّث ملف cmux-tui الذي يستخدمه cmux، ثم افتح علامة التبويب هذه مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ovaj cmux daemon je prestar za ovu stranicu, a cmux ga ne može ponovo pokrenuti. Ažurirajte cmux-tui program koji cmux koristi, pa ponovo otvorite ovu karticu."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne cmux-dæmon er for gammel til at vise denne side, og cmux kan ikke genstarte den. Opdater det cmux-tui-program, som cmux bruger, og åbn derefter fanen igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dieser cmux-Daemon ist zu alt für diese Seite, und cmux kann ihn nicht neu starten. Aktualisiere das cmux-tui-Programm, das cmux verwendet, und öffne diesen Tab dann erneut."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This cmux daemon is too old to serve this page, and cmux cannot restart it. Update the cmux-tui binary that cmux uses, then open this tab again."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este daemon de cmux es demasiado antiguo para mostrar esta página y cmux no puede reiniciarlo. Actualiza el binario cmux-tui que usa cmux y vuelve a abrir esta pestaña."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ce daemon cmux est trop ancien pour afficher cette page, et cmux ne peut pas le redémarrer. Mettez à jour le binaire cmux-tui utilisé par cmux, puis rouvrez cet onglet."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Questo daemon di cmux è troppo vecchio per mostrare questa pagina e cmux non può riavviarlo. Aggiorna il binario cmux-tui usato da cmux, poi riapri questa scheda."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "この cmux デーモンは古すぎるためこのページを表示できず、cmux は再起動できません。cmux が使う cmux-tui バイナリを更新してから、このタブを開き直してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "daemon របស់ cmux នេះចាស់ពេកសម្រាប់ទំព័រនេះ ហើយ cmux មិនអាចចាប់ផ្ដើមវាឡើងវិញបានទេ។ សូមធ្វើបច្ចុប្បន្នភាព cmux-tui ដែល cmux ប្រើ រួចបើកផ្ទាំងនេះម្ដងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 cmux 데몬은 너무 오래되어 이 페이지를 제공할 수 없고, cmux가 다시 시작할 수 없습니다. cmux가 사용하는 cmux-tui 바이너리를 업데이트한 다음 이 탭을 다시 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Denne cmux-demonen er for gammel til å vise denne siden, og cmux kan ikke starte den på nytt. Oppdater cmux-tui-programmet som cmux bruker, og åpne fanen på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ten demon cmux jest zbyt stary, aby obsłużyć tę stronę, a cmux nie może go ponownie uruchomić. Zaktualizuj plik cmux-tui używany przez cmux, a potem otwórz tę kartę ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Este daemon do cmux é antigo demais para esta página, e o cmux não consegue reiniciá-lo. Atualize o binário cmux-tui que o cmux usa e abra esta aba novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Этот демон cmux слишком старый для этой страницы, и cmux не может его перезапустить. Обновите программу cmux-tui, которую использует cmux, и снова откройте эту вкладку."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "daemon ของ cmux นี้เก่าเกินไปสำหรับหน้านี้ และ cmux เริ่มใหม่ไม่ได้ อัปเดตไฟล์ cmux-tui ที่ cmux ใช้ แล้วเปิดแท็บนี้อีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu cmux arka plan hizmeti bu sayfa için çok eski ve cmux onu yeniden başlatamıyor. cmux'un kullandığı cmux-tui programını güncelleyin, sonra bu sekmeyi yeniden açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Цей демон cmux занадто старий для цієї сторінки, і cmux не може його перезапустити. Оновіть програму cmux-tui, яку використовує cmux, і знову відкрийте цю вкладку."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Daemon cmux này quá cũ để phục vụ trang này và cmux không thể khởi động lại nó. Hãy cập nhật tệp cmux-tui mà cmux dùng, rồi mở lại thẻ này."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 cmux 守护进程版本过旧，无法提供此页面，且 cmux 无法重新启动它。请更新 cmux 使用的 cmux-tui 程序，然后重新打开此标签页。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此 cmux 常駐程式版本過舊，無法提供此頁面，且 cmux 無法重新啟動它。請更新 cmux 使用的 cmux-tui 程式，然後重新開啟此分頁。"
+          }
+        }
+      }
+    },
     "homeChannels.page.title": {
       "comment": "Tab title of the channels Home page.",
       "extractionState": "manual",

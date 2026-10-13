@@ -148,6 +148,7 @@
         "CmuxNextBrowserAutomation",
         "CmuxNextBrowserHost",
         "CmuxNextBrowserImport",
+        "CmuxNextCLIInstall",
         "CmuxNextCloud",
         "CmuxNextCodeRouter",
         "CmuxNextCompat",
@@ -325,6 +326,12 @@
       "reads": [
         "Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/Shim/cmux_cef_shim.h"
       ]
+    },
+    "CmuxNextCLIInstall": {
+      "kind": "regular",
+      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCLIInstall",
+      "targets": [],
+      "packages": []
     },
     "CmuxNextCloud": {
       "kind": "regular",
@@ -625,6 +632,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextPalette",
       "targets": [
+        "CCmuxAppFFI",
         "CmuxNextActions",
         "CmuxNextCompat",
         "CmuxNextDesign"

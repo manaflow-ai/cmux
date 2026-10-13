@@ -84,8 +84,8 @@ export function fromListing(listing: WireListing): CatalogApp {
     keywords: listing.keywords,
     latest_version: listing.version,
     install_count: 0,
-    // An asset path needs cmux.apps.asset.get (not served yet); a symbol is never drawn on the web.
-    icon: undefined,
+    // The store loads an asset through cmux.apps.asset.get; a symbol is never drawn on the web.
+    icon: listing.icon && "asset" in listing.icon ? { asset: listing.icon.asset } : undefined,
     installed: listing.install?.installed === true,
     enabled: listing.install?.enabled,
     hidden: listing.install?.hidden,
