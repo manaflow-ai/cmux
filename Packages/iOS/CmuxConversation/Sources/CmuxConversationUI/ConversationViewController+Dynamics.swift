@@ -241,16 +241,4 @@ final class ConversationTranscriptDynamicsDriver {
     }
 }
 
-extension TranscriptCollectionView {
-    /// Draws `cell`'s content `offset` points below its layout place.
-    static func place(_ cell: UICollectionViewCell, offset: CGFloat) {
-        let current = cell.layer.sublayerTransform.m42
-        guard current != offset else { return }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        cell.layer.sublayerTransform = offset == 0 ? CATransform3DIdentity : CATransform3DMakeTranslation(0, offset, 0)
-        CATransaction.commit()
-        (cell as? MessageCell)?.updateScreenGradients()
-    }
-}
 #endif

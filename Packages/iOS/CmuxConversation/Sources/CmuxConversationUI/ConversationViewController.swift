@@ -118,6 +118,8 @@ public final class ConversationViewController: UIViewController {
     /// DEBUG lab: transcript dynamics or a held 120 Hz, for device A/B runs.
     var transcriptDynamics: ConversationTranscriptDynamicsDriver?
     #endif
+    /// Draws the frame UIKit skips when a fling starts.
+    private(set) lazy var decelerationFill = ConversationDecelerationFillDriver(collectionView: collectionView)
     /// A status-bar tap's animated scroll to the top is running. Messages
     /// loads history only once it comes to rest at the spinner, so a page
     /// never lands under (and is never chased by) that animation.
@@ -349,6 +351,15 @@ public final class ConversationViewController: UIViewController {
             driver.start()
         }
         #endif
+        startDecelerationFill()
+    }
+
+    private func startDecelerationFill() {
+        #if DEBUG
+        // The lab's dynamics draw every frame themselves.
+        if transcriptDynamics?.dynamics == true { return }
+        #endif
+        decelerationFill.start()
     }
 
     public override func viewWillDisappear(_ animated: Bool) {
@@ -1582,6 +1593,7 @@ extension ConversationViewController: UICollectionViewDataSource, UICollectionVi
 
     public func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         if velocity.y < 0 { maybeLoadOlder(targetOffsetY: targetContentOffset.pointee.y) }
+        if velocity.y != 0 { decelerationFill.flingBegan() }
         #if DEBUG
         transcriptDynamics?.dragEnded(targetOffsetY: targetContentOffset.pointee.y)
         #endif
@@ -1872,6 +1884,14 @@ final class TranscriptCollectionView: UICollectionView {
 
     let topFadeMask = CAGradientLayer()
     private var lastMaskGeometry: (CGFloat, CGFloat)?
+    /// How far ahead of the content offset the rows are drawn, along the
+    /// motion (`ConversationDecelerationFill`); 0 draws them in place.
+    var drawingLead: CGFloat = 0 {
+        didSet {
+            guard drawingLead != oldValue else { return }
+            for cell in visibleCells { Self.place(cell, offset: rowOffset(for: cell)) }
+        }
+    }
     #if DEBUG
     /// DEBUG lab (transcript dynamics): how far below its layout place each
     /// visible cell's content is drawn.
@@ -1885,11 +1905,8 @@ final class TranscriptCollectionView: UICollectionView {
         super.layoutSubviews()
         updateTopFadeMask()
         if updateBottomEdgeEffect() { setNeedsLayout() }
-        #if DEBUG
-        if let cellOffset {
-            for cell in visibleCells { Self.place(cell, offset: cellOffset(cell)) }
-        }
-        #endif
+        // Cells placed in this pass (reused ones too) take the current lead.
+        for cell in visibleCells { Self.place(cell, offset: rowOffset(for: cell)) }
         // Outgoing bubbles' gradient is fixed to the screen. Placed here,
         // after the cells for this offset are placed, not on scroll: a cell
         // reused at the other edge would otherwise show the gradient of the
@@ -1933,6 +1950,24 @@ final class TranscriptCollectionView: UICollectionView {
             topFadeMask.locations = ramp.map { NSNumber(value: Double($0.location)) }
         }
         CATransaction.commit()
+    }
+
+    /// How far below its layout place `cell`'s content is drawn.
+    private func rowOffset(for cell: UICollectionViewCell) -> CGFloat {
+        #if DEBUG
+        if let cellOffset { return cellOffset(cell) }
+        #endif
+        return -drawingLead
+    }
+
+    /// Draws `cell`'s content `offset` points below its layout place.
+    static func place(_ cell: UICollectionViewCell, offset: CGFloat) {
+        guard cell.layer.sublayerTransform.m42 != offset else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        cell.layer.sublayerTransform = offset == 0 ? CATransform3DIdentity : CATransform3DMakeTranslation(0, offset, 0)
+        CATransaction.commit()
+        (cell as? MessageCell)?.updateScreenGradients()
     }
 
     override var safeAreaInsets: UIEdgeInsets {
