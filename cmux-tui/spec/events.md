@@ -508,7 +508,11 @@ in plans/cmux-next/home-cloud-proxy.md section 5. `account` is the cloud user
 id (the JWT `sub`) of the lease the daemon used for the upstream socket that
 produced the event, absent when that lease has no readable `sub`; a client
 drops an event whose `account` is present and differs from the account
-signed in now.
+signed in now. The daemon also sends `cloud-inbox-reset` with `seq` 0 when the
+verified app sets a new lease (a sign-in or another account, not a renewal),
+so the person's other clients (a page, `ws-cloud-conversations-v1`) list the
+inbox again. With `ws-cloud-conversations-v1` these events also reach a paired
+WebSocket connection while the app holds the lease.
 
 ### conversation-typing
 

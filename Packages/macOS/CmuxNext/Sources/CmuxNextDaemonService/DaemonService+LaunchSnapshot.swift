@@ -44,7 +44,8 @@ extension DaemonService {
                                      resolvesShellIntegration: Bool = false) -> DaemonPrestart? {
         guard let launcher = try? DaemonLauncher.forApp(tag: launch.tag, bundleID: launch.bundleID,
                                                 terminalEnvironment: terminalEnvironment,
-                                                daemonEnvironment: firstPartyAppsEnvironment) else { return nil }
+                                                daemonEnvironment: firstPartyAppsEnvironment,
+                                                webSocketPageOrigin: pageOrigin) else { return nil }
         return DaemonPrestart(launcher: launcher, configuration: localConfiguration(
             terminalEnvironment: terminalEnvironmentProvider, resolvesShellIntegration: resolvesShellIntegration,
             installKey: launcher.configuration.installKey))
@@ -52,8 +53,28 @@ extension DaemonService {
 
     /// What the local daemon's supervisor needs from this app at launch: the
     /// first-party app packages shipped in the app bundle (its default apps).
+    /// Also the page bundle the daemon serves on its loopback listener (`CMUX_TUI_PAGES_DIR`,
+    /// cmux-tui spec/transports.md "App listener and page files").
     nonisolated static var firstPartyAppsEnvironment: [String: String] {
-        ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
+        var environment = ["CMUX_APPS_FIRST_PARTY_DIR": AppPlatformResources.firstParty.path]
+        if let pages = pageBundleDirectory { environment["CMUX_TUI_PAGES_DIR"] = pages.path }
+        return environment
+    }
+
+    /// The page origin the daemon's loopback listener admits: the channels page
+    /// (`PageDescriptor.homeChannels`, `cmux-page://cmux.home-channels`), the app's client of the
+    /// daemon WebSocket (cx-hnmbt.2).
+    nonisolated static let pageOrigin = "cmux-page://cmux.home-channels"
+
+    /// `pages/` of the CmuxNextPages resource bundle inside this app (built by
+    /// build-pages-web.sh), nil when it is not there (tests, a bare binary).
+    nonisolated static var pageBundleDirectory: URL? {
+        guard let resources = Bundle.main.resourceURL,
+              let bundle = Bundle(url: resources.appending(path: "CmuxNext_CmuxNextPages.bundle")),
+              let pages = bundle.resourceURL?.appending(path: "pages", directoryHint: .isDirectory),
+              FileManager.default.fileExists(atPath: pages.appending(path: "home-channels/index.html").path)
+        else { return nil }
+        return pages
     }
 
     /// The local daemon's connection configuration, for the first connect

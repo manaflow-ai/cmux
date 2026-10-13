@@ -44,6 +44,7 @@
     "notification-mark-unread-v1",
     "notification-source-v1",
     "origin-claim-v1",
+    "page-credential-v1",
     "page-tab-route-v1",
     "page-tabs-v1",
     "palette-usage-v1",
@@ -93,7 +94,8 @@
     "workspace-groups-v1",
     "workspace-kind-v1",
     "workspace-metadata-v1",
-    "workspace-pin-v1"
+    "workspace-pin-v1",
+    "ws-listen-v1"
   ],
   "required" : [
     "attach-initial-size",
@@ -104,7 +106,5 @@
     "viewport-splits-v1",
     "workspace-registry-v1"
   ],
-  "unservedByBundledDaemon" : [
-
-  ]
+  "unservedByBundledDaemon" : []
 }

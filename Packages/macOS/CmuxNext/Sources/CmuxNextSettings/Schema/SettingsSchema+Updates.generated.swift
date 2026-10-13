@@ -3,40 +3,40 @@
 
 extension UpdatesSettings {
     /// `updates.checkAutomatically`.
-    public static let checkAutomaticallyPath = ["updates", "checkAutomatically"]
-    public static let checkAutomaticallyDefault = true
+    public nonisolated static let checkAutomaticallyPath = ["updates", "checkAutomatically"]
+    public nonisolated static let checkAutomaticallyDefault = true
     /// `updates.checkIntervalSeconds`: Seconds between automatic checks.
-    public static let checkIntervalPath = ["updates", "checkIntervalSeconds"]
-    public static let checkIntervalDefault: Double = 3600
-    public static let checkIntervalRange: ClosedRange<Double> = 900...604_800
+    public nonisolated static let checkIntervalPath = ["updates", "checkIntervalSeconds"]
+    public nonisolated static let checkIntervalDefault: Double = 3600
+    public nonisolated static let checkIntervalRange: ClosedRange<Double> = 900...604_800
     /// `updates.downloadAutomatically`.
-    public static let downloadAutomaticallyPath = ["updates", "downloadAutomatically"]
-    public static let downloadAutomaticallyDefault = true
+    public nonisolated static let downloadAutomaticallyPath = ["updates", "downloadAutomatically"]
+    public nonisolated static let downloadAutomaticallyDefault = true
     /// `updates.meteredNetwork`: What automatic downloads do on a metered link.
-    public static let meteredNetworkPath = ["updates", "meteredNetwork"]
-    public static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData
+    public nonisolated static let meteredNetworkPath = ["updates", "meteredNetwork"]
+    public nonisolated static let meteredNetworkDefault: UpdatesMeteredSetting = .deferLowData
     /// `updates.installOnQuit`.
-    public static let installOnQuitPath = ["updates", "installOnQuit"]
-    public static let installOnQuitDefault = true
+    public nonisolated static let installOnQuitPath = ["updates", "installOnQuit"]
+    public nonisolated static let installOnQuitDefault = true
     /// `updates.notify`: How a ready update makes itself known: the control on the Settings item, or nothing (installs on quit). The old card value (the update card, removed 2026-10-05) loads as badge.
-    public static let notifyPath = ["updates", "notify"]
-    public static let notifyDefault: UpdatesNotifySetting = .badge
+    public nonisolated static let notifyPath = ["updates", "notify"]
+    public nonisolated static let notifyDefault: UpdatesNotifySetting = .badge
     /// `updates.keepPreviousVersions`: Previous builds kept for rollback (cmux update rollback); a whole number.
-    public static let keepPreviousVersionsPath = ["updates", "keepPreviousVersions"]
-    public static let keepPreviousVersionsDefault: Double = 1
-    public static let keepPreviousVersionsRange: ClosedRange<Double> = 0...5
+    public nonisolated static let keepPreviousVersionsPath = ["updates", "keepPreviousVersions"]
+    public nonisolated static let keepPreviousVersionsDefault: Double = 1
+    public nonisolated static let keepPreviousVersionsRange: ClosedRange<Double> = 0...5
     /// `updates.showWhatsNew`: The What's New item at the top of the sidebar after an update (WHATS-NEW-AFTER-UPDATE W1); managed config can force it off.
-    public static let showWhatsNewPath = ["updates", "showWhatsNew"]
-    public static let showWhatsNewDefault = true
+    public nonisolated static let showWhatsNewPath = ["updates", "showWhatsNew"]
+    public nonisolated static let showWhatsNewDefault = true
 }
 
 extension AnnouncementsSettings {
     /// `announcements.enabled`.
-    public static let enabledPath = ["announcements", "enabled"]
-    public static let enabledDefault = true
+    public nonisolated static let enabledPath = ["announcements", "enabled"]
+    public nonisolated static let enabledDefault = true
     /// `announcements.fetch`.
-    public static let fetchPath = ["announcements", "fetch"]
-    public static let fetchDefault = true
+    public nonisolated static let fetchPath = ["announcements", "fetch"]
+    public nonisolated static let fetchDefault = true
 }
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).

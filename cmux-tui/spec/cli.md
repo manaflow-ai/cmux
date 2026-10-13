@@ -213,6 +213,12 @@ served by the normal protocol handler. `identify` then reports
 fast while this field is `false` and can be retried after the owner is ready. `server ensure` waits for a restoring
 owner (up to 2 minutes, then `server.restore_timeout`) instead of starting
 another.
+`server ensure --ws-loopback [--ws-allow-origin <origin>]` (private app
+contract, cx-hnmbt.2) starts an owner it spawns with `--ws 127.0.0.1:0` (and the
+one extra page origin): that owner mints its WebSocket credential and writes it
+to `<socket>.websocket.json` (transports.md "App listener and page files"). A
+running owner keeps the listener it was started with. The owner serves the page
+bundle from `CMUX_TUI_PAGES_DIR`, else `<binary dir>/../share/cmux-tui/pages`.
 `daemon stop` first reads the process identity, then sends the existing PID and
 generation-fenced graceful shutdown operation. An absent server is success,
 and stopping never deletes the durable topology. `session <name>|current stop`
@@ -511,6 +517,11 @@ terminal <selector> viewport scroll
 
 browser open <url> | --url <url> [OPTIONS]
 browser list
+browser profile list
+browser profile create --name <name> [--profile <id>] [--color <value>] [--icon <value>] [--index <n>]
+browser profile move --profile <id-or-name> --index <n>
+browser profile delete --profile <id-or-name>
+browser profile open <url> --engine webkit|cef --profile <id-or-name> [--pane <numeric-pane-id>] [--title <value>] [--background true|false]
 browser <selector> show|navigate|back|forward|reload|activate
 browser <selector> key|text|attach|close
 browser <selector> mouse|wheel --pointer-frame-seq <decimal>

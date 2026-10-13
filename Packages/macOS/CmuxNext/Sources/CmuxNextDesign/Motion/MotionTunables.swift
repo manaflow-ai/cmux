@@ -9,6 +9,8 @@ public nonisolated enum MotionTunables {
 
     static let springDefaults: [MotionSpring: (SpringParameters, String)] = [
         .move: (SpringParameters(response: 0.2, dampingFraction: 0.9), "Tab reflow and reorder, sidebar row moves, pane and divider frames."),
+        .zoom: (SpringParameters(response: 0.32, dampingFraction: 0.9), "A pane zooming to fill its screen."),
+        .exit: (SpringParameters(response: 0.12, dampingFraction: 1), "The panes a zoom leaves fading out, the farthest first."),
         .appear: (SpringParameters(response: 0.18, dampingFraction: 0.9), "Palette scale-in, tab grow-in, group expand, row insert, sidebar show."),
         .disappear: (SpringParameters(response: 0.15, dampingFraction: 0.9), "Tab close, group collapse, row removal, sidebar hide."),
         .settle: (SpringParameters(response: 0.22, dampingFraction: 0.85), "Release after a drag: tab drop, ghost landing, sidebar row drop."),

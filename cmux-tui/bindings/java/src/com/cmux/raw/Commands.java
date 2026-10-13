@@ -162,6 +162,7 @@ public final class Commands {
     public static final CommandMetadata NEW_WORKSPACE = new CommandMetadata("new-workspace", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTE_SIZE_ACTIVITY = new CommandMetadata("note-size-activity", Authority.CONTROL, 12, "shared-sizing-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata NOTIFY = new CommandMetadata("notify", Authority.CONTROL, 6, null, StreamKind.NONE, Map.ofEntries(Map.entry("source", 12L)), Map.ofEntries(Map.entry("source", "notification-source-v1")));
+    public static final CommandMetadata PAGE_CREDENTIAL = new CommandMetadata("page-credential", Authority.LOCAL_ADMIN, 12, "page-credential-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PAIRING_RESPONSE = new CommandMetadata("pairing-response", Authority.LOCAL_ADMIN, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PANE_NEIGHBOR = new CommandMetadata("pane-neighbor", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PASTE_IMAGE = new CommandMetadata("paste-image", Authority.CONTROL, 12, "terminal-image-paste-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -263,6 +264,7 @@ public final class Commands {
     public static final CommandMetadata URL_OPEN_SUBSCRIBE = new CommandMetadata("url-open-subscribe", Authority.FRONTEND, 12, null, StreamKind.SUBSCRIBE, Map.of(), Map.of());
     public static final CommandMetadata VT_STATE = new CommandMetadata("vt-state", Authority.CONTROL, 5, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata WAIT_FOR = new CommandMetadata("wait-for", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata WS_LISTEN = new CommandMetadata("ws-listen", Authority.LOCAL_ADMIN, 12, "ws-listen-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata ZOOM_PANE = new CommandMetadata("zoom-pane", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
 
     public static final Map<String, CommandMetadata> ALL;
@@ -420,6 +422,7 @@ public final class Commands {
         values.put("new-workspace", NEW_WORKSPACE);
         values.put("note-size-activity", NOTE_SIZE_ACTIVITY);
         values.put("notify", NOTIFY);
+        values.put("page-credential", PAGE_CREDENTIAL);
         values.put("pairing-response", PAIRING_RESPONSE);
         values.put("pane-neighbor", PANE_NEIGHBOR);
         values.put("paste-image", PASTE_IMAGE);
@@ -521,6 +524,7 @@ public final class Commands {
         values.put("url-open-subscribe", URL_OPEN_SUBSCRIBE);
         values.put("vt-state", VT_STATE);
         values.put("wait-for", WAIT_FOR);
+        values.put("ws-listen", WS_LISTEN);
         values.put("zoom-pane", ZOOM_PANE);
         ALL = Collections.unmodifiableMap(values);
     }

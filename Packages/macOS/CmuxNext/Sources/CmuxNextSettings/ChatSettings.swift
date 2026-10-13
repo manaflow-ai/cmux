@@ -7,15 +7,15 @@ public nonisolated struct ChatSettings: Sendable, Equatable {
     public let roots: [String]
     public let managedRoots: [String]
 
-    public static let rootsPath = ["agents", "chats", "roots"]
-    public static let booleanKeys = ["agents.chats.enabled", "agents.chats.discovery"]
-    public static let keys = Set(booleanKeys + ["agents.chats.roots"])
+    // Paths and defaults: schemas/settings/source/chats.json (SettingsSchema+Chats.generated.swift).
+    public static let booleanKeys = [enabledPath, discoveryPath].map { $0.joined(separator: ".") }
+    public static let keys = Set(booleanKeys + [rootsPath.joined(separator: ".")])
 
     /// Builds the daemon payload from the effective switches and each roots layer. Refused roots
     /// remain visible in Settings but never reach the daemon.
     public init(effective: JSONValue, file: JSONValue, managedRoots: [String], validator: ChatRootValidator = .init()) {
-        enabled = effective.value(at: ["agents", "chats", "enabled"])?.boolValue ?? true
-        discovery = effective.value(at: ["agents", "chats", "discovery"])?.boolValue ?? true
+        enabled = effective.value(at: Self.enabledPath)?.boolValue ?? Self.enabledDefault
+        discovery = effective.value(at: Self.discoveryPath)?.boolValue ?? Self.discoveryDefault
         roots = Self.strings(file.value(at: Self.rootsPath)).filter { validator.refusal($0) == nil }
         self.managedRoots = Self.unique(managedRoots).filter { validator.refusal($0) == nil }
     }
