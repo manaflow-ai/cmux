@@ -217,6 +217,9 @@ public actor MockHomeSource: HomeSource {
     /// 0.75 and 1. Like the owner, the first upload of a hash wins: a hash
     /// already recorded answers `exists` with the recorded mime type, byte
     /// count and poster (or no poster), whatever this upload declared.
+    /// The mock owner checks `link_preview` parts like the real owners.
+    public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool { true }
+
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
         uploadCalls.append(file.ref.hash)
         progressCallbacks.append(file.progress)
@@ -455,6 +458,14 @@ public actor MockHomeSource: HomeSource {
                 guard record.mimeType == ref.mimeType, record.data.count == ref.byteCount,
                       ref.poster == nil || ref.poster == record.poster,
                       ref.preview == nil || ref.preview == record.preview else {
+                    throw HomeRejection.invalid("attachment_mismatch")
+                }
+            }
+            // A link preview's picture: a recorded image of the same type and size.
+            for case .linkPreview(let link) in parts {
+                guard let image = link.image else { continue }
+                guard let record = blobs[image.hash] else { throw HomeRejection.invalid("unknown_attachment") }
+                guard record.mimeType == image.mimeType, record.data.count == image.byteCount else {
                     throw HomeRejection.invalid("attachment_mismatch")
                 }
             }

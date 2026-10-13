@@ -70,6 +70,122 @@ extension BubblePath {
     }
 }
 
+/// Messages' soft outgoing balloon edge (macOS 27, cx-3cb soft-edge; tools/evidence/ANIMATIONS.md section 1 "soft-edge",
+/// tools/evidence/anim/softedge/). Messages anti-aliases every flat edge of an outgoing text balloon over two partly
+/// covered device px (outer / inner coverage: 2+ lines top and left .212 / .871, bottom and right .235-.240 / .926; 1 line
+/// top .124 / .921, bottom .783 / .991), the same in every balloon of every width and height and in `screencapture -l`
+/// stills, where a crisp edge at the same place covers one px (.08 / 1). A crisp balloon drawn a sub-pixel distance
+/// away and moved back with linear filtering (a bitmap placed at a fractional position) gives that profile within
+/// 0.03 on every edge with one shift per kind: 2+ lines drawn 0.225 px up and left and moved back right and down,
+/// 1 line drawn 0.14 px down and right and moved back up and left. The summed coverage (the edge place of
+/// RowDraw.balloon) does not change. Main thread only (the cache).
+///
+/// The cell masks its fill with a precomputed image of that balloon (one per kind, tail and screen scale, built once)
+/// stretched by Core Animation along its flat middle (`contentsCenter`): the caps keep their pixels 1:1 on the
+/// whole-pixel grid of the frame, so the per-frame cost is one image mask on the GPU, as the shape mask before; no
+/// path is filled or blurred per frame or per cell.
+enum SoftBalloon {
+    struct Mask { let image: CGImage; let frame: CGRect; let center: CGRect }
+    private enum Kind: Int { case one, two, more }
+    private struct Template { let image: CGImage; let center: CGRect }
+    /// `narrow`: a balloon narrower than its caps gets its own unstretched image (its width and left phase in device px).
+    private struct Key: Hashable { let kind: Int; let tail: Bool; let scale: CGFloat; var narrow: [Int] = [] }
+    private static var cache: [Key: Template] = [:]
+    /// Space around the frame (pt) and below it for the tail (it hangs 5.14 pt below the balloon).
+    static let pad: CGFloat = 1, tailDrop: CGFloat = 6
+    /// Template frames: 30 pt (1 line), 46 (2 lines), 62 (3 lines; taller rows stretch the middle row).
+    private static func templateHeight(_ k: Kind) -> CGFloat { k == .one ? 30 : k == .two ? 46 : 62 }
+    /// The filter's move in device px (+ right and down; the crisp balloon is drawn at -d; fit.py constrained "bilinear").
+    private static func shift(_ k: Kind) -> CGFloat { k == .one ? -0.14 : 0.225 }
+    /// Caps (pt from the frame's left / right): the corner (UIKit's continuous corner reaches 1.528665 r = 22.93 pt for
+    /// r = 15; the 1-line pill 15 pt) and the tail (16 pt from the right).
+    private static func caps(_ k: Kind) -> (CGFloat, CGFloat) { k == .one ? (20, 20) : (23.5, 23.5) }
+
+    /// The mask for an outgoing text part with body frame `f` (row coordinates, whole device px), or nil (the crisp
+    /// shape mask): a row without the inset (RowDraw.insetApplies) or a height that is not 30, 46 or 62+ pt.
+    static func mask(frame f: CGRect, row p: PartRow) -> Mask? {
+        guard RowDraw.insetApplies(p) else { return nil }
+        let s = Fixture.renderScale
+        let k: Kind
+        let h = f.height
+        if abs(h - templateHeight(.one)) < 0.01 { k = .one }
+        else if abs(h - templateHeight(.two)) < 0.01 { k = .two }
+        else if h > templateHeight(.more) - 0.01 { k = .more }
+        else { return nil }
+        let left = floor(f.minX * s + 0.001) / s
+        let (cl, cr) = caps(k)
+        // Narrower than the caps (a short 1-line reply, a narrow 2-line balloon): an image of exactly this balloon.
+        let narrow = f.maxX - left < cl + cr + 1 / s
+            ? [CrashGuard.int(((f.maxX - left) * s).rounded(), in: 0...16_384), CrashGuard.int(((f.minX - left) * s * 1000).rounded(), in: 0...16_384)] : []
+        guard let t = template(k, tail: p.tail, scale: s, narrow: narrow, frame: f.offsetBy(dx: -left, dy: -f.minY)) else { return nil }
+        let frame = CGRect(x: left - pad, y: f.minY - pad, width: f.maxX - left + 2 * pad,
+                           height: f.height + tailDrop + 2 * pad)
+        return Mask(image: t.image, frame: frame, center: t.center)
+    }
+
+    /// `f`: the body frame relative to its whole-px left edge and its top (used only for a narrow balloon).
+    private static func template(_ k: Kind, tail: Bool, scale s: CGFloat, narrow: [Int], frame f: CGRect) -> Template? {
+        let key = Key(kind: k.rawValue, tail: tail, scale: s, narrow: narrow)
+        if let t = cache[key] { return t }
+        if cache.count > 200 { cache = cache.filter { $0.key.narrow.isEmpty } }
+        let (cl, cr) = caps(k)
+        let fh = templateHeight(k)
+        let frame = narrow.isEmpty ? CGRect(x: 0, y: 0, width: 200, height: fh) : CGRect(x: f.minX, y: 0, width: f.width, height: fh)
+        let size = CGSize(width: frame.maxX + 2 * pad, height: fh + tailDrop + 2 * pad)
+        let w = CrashGuard.int((size.width * s).rounded(), in: 1...16_384), h = CrashGuard.int((size.height * s).rounded(), in: 1...16_384)
+        func context(_ width: Int) -> CGContext? {
+            CGContext(data: nil, width: width, height: h, bitsPerComponent: 8, bytesPerRow: width * 4,
+                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        }
+        guard let ctx = context(w) else { return nil }
+        let d = shift(k)
+        // Top-down rows in point space; the crisp balloon drawn at -d px (d > 0: up and left).
+        ctx.translateBy(x: 0, y: CGFloat(h))
+        ctx.scaleBy(x: s, y: -s)
+        ctx.translateBy(x: pad - d / s, y: pad - d / s)
+        ctx.setFillColor(CGColor(red: 1, green: 1, blue: 1, alpha: 1))
+        ctx.addPath(BubblePath.make(body: RowDraw.insetBalloon(frame), outgoing: true, tail: tail, cornersOf: frame.size).cgPath)
+        ctx.fillPath()
+        // Moved back by d with linear filtering, separable: out = (1 - |d|) src + |d| src moved one whole device px
+        // (no interpolation; the two copies add), along x, then along y.
+        let wd = abs(d), sgn: CGFloat = d > 0 ? 1 : -1
+        func blend(_ img: CGImage, dx: CGFloat, dy: CGFloat) -> CGImage? {
+            guard let c = context(w) else { return nil }
+            c.interpolationQuality = .none
+            let r = CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h))
+            c.setAlpha(1 - wd); c.draw(img, in: r)
+            c.setBlendMode(.plusLighter); c.setAlpha(wd)
+            c.draw(img, in: r.offsetBy(dx: dx, dy: -dy))   // CG's y is up: a row down is -1
+            return c.makeImage()
+        }
+        guard let crisp = ctx.makeImage(), let across = blend(crisp, dx: sgn, dy: 0),
+              let soft = blend(across, dx: 0, dy: sgn) else { return nil }
+        // The image: the left cap and one stretched device px column, then the right cap (the template is wider than
+        // that so that its corners take the scale of a common balloon in BubblePath.make cornersOf). A narrow
+        // balloon's image is the whole template (its layer is as wide: nothing stretches).
+        let cx = narrow.isEmpty ? CrashGuard.int(((pad + cl) * s).rounded(), in: 0...w) : w / 2
+        let rc = narrow.isEmpty ? CrashGuard.int(((cr + pad) * s).rounded(), in: 0...w) : w - cx - 1
+        let w2 = cx + 1 + rc
+        guard w2 <= w, let out = context(w2) else { return nil }
+        out.interpolationQuality = .none
+        let full = CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h))
+        out.saveGState()
+        out.clip(to: CGRect(x: 0, y: 0, width: CGFloat(cx + 1), height: CGFloat(h)))
+        out.draw(soft, in: full)
+        out.restoreGState()
+        out.clip(to: CGRect(x: CGFloat(cx + 1), y: 0, width: CGFloat(rc), height: CGFloat(h)))
+        out.draw(soft, in: full.offsetBy(dx: CGFloat(w2 - w), dy: 0))
+        guard let image = out.makeImage() else { return nil }
+        // The stretched row (3+ lines): one device px in the image's middle, inside the flat part of the sides whether
+        // the unit rect counts from the top or the bottom (flat 24-40 pt from the top of a 70 pt image).
+        let cy = h / 2
+        let center = CGRect(x: CGFloat(cx) / CGFloat(w2), y: CGFloat(cy) / CGFloat(h), width: 1 / CGFloat(w2), height: 1 / CGFloat(h))
+        let t = Template(image: image, center: center)
+        cache[key] = t
+        return t
+    }
+}
+
 /// Draws lines of text at explicit baselines with Core Text.
 enum TextDraw {
     static func line(_ s: String, font: UIFont, color: UIColor, x: CGFloat, baseline: CGFloat,

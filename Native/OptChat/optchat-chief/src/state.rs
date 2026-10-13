@@ -258,6 +258,16 @@ pub struct OutboxEntry {
     /// `agent_rate` refusals so far; the backoff grows with them (G11).
     #[serde(default)]
     pub rate_attempts: u32,
+    /// A reply with link cards waits for their previews until this time (ms
+    /// since the epoch), or until they arrive; then it goes as it is (a card
+    /// without a preview carries its URL only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previews_until: Option<u64>,
+    /// A reply split into link cards keeps its original text here: when the
+    /// owner refuses the cards, that text goes instead, unchanged, under a
+    /// new key (a reply is never dropped).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plain_text: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

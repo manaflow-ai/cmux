@@ -250,6 +250,32 @@ fn parse_text(text: &str, path: &Path) -> Vec<Entry> {
     out
 }
 
+/// The comment key cmux writes a theme's own accent under (Swift
+/// `ThemeFileColors.accentKey`).
+pub const THEME_ACCENT_KEY: &str = "cmux-accent";
+
+/// A theme file's own accent: its last `# cmux-accent = #rrggbb` line (a
+/// comment to Ghostty; `#` optional before the six hex digits), as Swift
+/// `ThemeFileColors` reads it. `load` puts it in `ThemeInput::accent_color`;
+/// the app's `<theme>/accent` edit replaces it.
+pub fn theme_file_accent(text: &str) -> Option<Rgb> {
+    let mut accent = None;
+    for raw in text.lines() {
+        let line = raw.trim().replace('\u{FEFF}', "");
+        let Some(body) = line.strip_prefix('#') else { continue };
+        let Some((key, value)) = body.split_once('=') else { continue };
+        if key.trim() != THEME_ACCENT_KEY {
+            continue;
+        }
+        let value = value.trim();
+        let digits = value.strip_prefix('#').unwrap_or(value);
+        if digits.len() == 6 && digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+            accent = u32::from_str_radix(digits, 16).ok().map(Rgb::hex);
+        }
+    }
+    accent
+}
+
 /// Longest theme override cmux-next accepts.
 pub const THEME_OVERRIDE_MAX_CHARS: usize = 200;
 
@@ -418,7 +444,9 @@ pub fn load(env: &Env, appearance: Appearance) -> Loaded {
             Some(path) => {
                 watch.push(path.clone());
                 theme_file = Some(path.clone());
-                for e in parse_file(path).unwrap_or_default() {
+                let text = std::fs::read_to_string(path).unwrap_or_default();
+                input.accent_color = theme_file_accent(&text);
+                for e in parse_text(&text, path) {
                     if e.key != "theme" && e.key != "config-file" {
                         apply(&mut input, &e, &mut diagnostics);
                     }
@@ -479,6 +507,15 @@ fn apply(input: &mut ThemeInput, e: &Entry, diagnostics: &mut Vec<String>) {
             if let Some(slot) = input.palette.get_mut(index) {
                 *slot = c;
             }
+        }
+        "cursor-color" => {
+            // Only a plain color (Swift GhosttyRuntime+Theme `color`):
+            // `cell-foreground` / `cell-background` follow the cell.
+            input.cursor = if e.value.is_empty() || e.value.starts_with("cell-") {
+                None
+            } else {
+                color(diagnostics)
+            };
         }
         "selection-background" | "selection-foreground" => {
             // `cell-foreground` / `cell-background` follow the cell: no fixed color.
