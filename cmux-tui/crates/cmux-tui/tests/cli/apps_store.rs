@@ -54,7 +54,11 @@ impl Apps {
             .env("CMUX_APP_HOST_BIN", self.dir.join("app-host"))
             .env("CMUX_APP_SERVER_DIR", self.dir.join("servers"))
             .env("CMUX_APPS_FIRST_PARTY_DIR", self.dir.join("first-party"))
-            .env("CMUX_APPS_DIRS", self.dir.join("bundled"));
+            .env("CMUX_APPS_DIRS", self.dir.join("bundled"))
+            // A daemon with no login session (cx-9mmyz: rbx, containers, cron)
+            // has no runtime dir, and its `<state>/apps-tmp/<ns>` is too long
+            // for a socket path: app servers must still get a socket folder.
+            .env_remove("XDG_RUNTIME_DIR");
         command
     }
 
