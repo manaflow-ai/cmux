@@ -28,7 +28,7 @@ public final class AddressBarView: NSView {
         didSet { controller.send(.searchEngineChanged) }
     }
 
-    private let pill = OmnibarPillView()
+    let pill = OmnibarPillView()
     private let backdrop = OmnibarCardTopView()
     private let chip = PageInfoChipButton()
     let field = AddressField()
@@ -44,6 +44,8 @@ public final class AddressBarView: NSView {
     let density = DensityBinding()
 
     private var reportedURL: URL?
+    /// Whether the field's cursor rects were last built for editing.
+    private var cursorRectsEditing = false
     /// The page's URL changed (the host refreshes the bookmark star).
     public var onPageURLChange: ((URL?) -> Void)?
     /// Set by `focus()` for the responder change it causes.
@@ -298,11 +300,12 @@ public final class AddressBarView: NSView {
         controller.send(.focusGained(pendingFocusSource ?? (isMouseDownInField(NSApp.currentEvent) ? .mouse : .programmatic)))
     }
 
-    /// A press in the field itself focused it (not a click elsewhere, such
-    /// as a new-tab button, that moved focus here).
+    /// A press in the bar focused it (not a click elsewhere, such as a
+    /// new-tab button, that moved focus here). The bar around the text
+    /// forwards its presses to the field (`mouseDown(with:)`).
     private func isMouseDownInField(_ event: NSEvent?) -> Bool {
         guard let event, [.leftMouseDown, .rightMouseDown].contains(event.type), event.window === window else { return false }
-        return field.bounds.contains(field.convert(event.locationInWindow, from: nil))
+        return bounds.contains(convert(event.locationInWindow, from: nil))
     }
 
     /// Reports what the field editor holds now. The applier's own writes
@@ -358,10 +361,42 @@ public final class AddressBarView: NSView {
         controller.send(.pasteAndGo(text))
     }
 
+    // MARK: The bar around the text
+
+    /// A press on the bar around the text (its padding, the space above and
+    /// below the line, the gap before the badges) is a press in the field,
+    /// as in every browser: the first one focuses and selects the whole
+    /// address, a later one places the caret at the nearest character. The
+    /// chip, badges and star take their own presses.
+    public override func mouseDown(with event: NSEvent) {
+        // While editing the field editor tracks the press (it reports it to
+        // the state machine itself); at rest the field starts editing.
+        if let editor = field.editor { editor.mouseDown(with: event) } else { field.mouseDown(with: event) }
+    }
+
+    public override func rightMouseDown(with event: NSEvent) {
+        field.rightMouseDown(with: event)
+    }
+
+    public override func acceptsFirstMouse(for event: NSEvent?) -> Bool {
+        field.acceptsFirstMouse(for: event)
+    }
+
+    /// The arrow over the bar (`OmnibarPointer`); the field shows the I-beam
+    /// over its text while it edits.
+    public override func resetCursorRects() {
+        addCursorRect(bounds, cursor: OmnibarPointer.cursor(.bar, editing: isEditing).cursor)
+    }
+
     // MARK: Appearance
 
     private func updateChrome() {
         let state = controller.state
+        if state.hasFocus != cursorRectsEditing {
+            // The field's cursor follows editing (`AddressField.resetCursorRects`).
+            cursorRectsEditing = state.hasFocus
+            window?.invalidateCursorRects(for: field)
+        }
         pill.state = state.isPopupOpen ? .card : (state.hasFocus ? .editing : .idle)
         backdrop.isHidden = !state.isPopupOpen
         let site = PageInfoSite(url: state.pageURL, security: security)

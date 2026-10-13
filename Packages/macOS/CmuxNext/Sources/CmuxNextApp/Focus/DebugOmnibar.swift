@@ -52,6 +52,9 @@ enum DebugOmnibar {
             "notice_layout": entry(params, services: services)?.chrome.noticeLayout.map { .array($0.map(JSONValue.string)) } ?? .null,
             "consistent": .bool(!snapshot.fieldEditorActive || (snapshot.text == snapshot.fieldText && snapshot.selection == snapshot.fieldSelection)),
             "pressed_row": pressed,
+            // Hover, cursor region and frames (`OmnibarPointer`); `probe_x`,`probe_y`: a window
+            // point from the top left, as `debug.mouse` takes.
+            "pointer": entry(params, services: services).map { pointer($0.chrome, params) } ?? .null,
             "card": bar.debugCard.map { card in
                 .object([
                     "pane_layer": .bool(card.paneLayer), "flush_under_bar": .bool(card.isFlushUnderBar),
@@ -59,6 +62,18 @@ enum DebugOmnibar {
                     "row_kinds": .array(card.rowKinds.map(JSONValue.string)),
                 ])
             } ?? .null,
+        ])
+    }
+
+    private static func pointer(_ chrome: BrowserChromeView, _ params: [String: JSONValue]) -> JSONValue {
+        let probe = params["probe_x"]?.doubleValue.flatMap { x in params["probe_y"]?.doubleValue.map { CGPoint(x: x, y: $0) } }
+        let report = chrome.debugPointer(probe: probe)
+        return .object([
+            "bar_hovering": .bool(report.barHovering),
+            "hovered_buttons": .array(report.hoveredButtons.map(JSONValue.string)),
+            "probe_region": report.probeRegion.map(JSONValue.string) ?? .null,
+            "probe_cursor": report.probeCursor.map(JSONValue.string) ?? .null,
+            "frames": .object(report.frames.mapValues(rect)),
         ])
     }
 

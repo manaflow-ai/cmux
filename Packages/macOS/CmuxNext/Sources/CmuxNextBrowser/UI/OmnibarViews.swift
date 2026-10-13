@@ -11,8 +11,12 @@ final class OmnibarPillView: NSView {
     enum State { case idle, editing, card }
 
     var state: State = .idle { didSet { if oldValue != state { refresh(animated: true) } } }
-    private var isHovering = false { didSet { if oldValue != isHovering { refresh(animated: true) } } }
-    private var tracking: NSTrackingArea?
+    /// Where the pointer is now (`OmnibarPointer`): a hide, a tab switch or
+    /// a window change under a still pointer clears it.
+    private var hover: PointerHover?
+    private var isHovering: Bool { hover?.isHovering ?? false }
+    /// Whether the pointer is over the bar (`debug.omnibar`).
+    var debugHovering: Bool { isHovering }
     /// The look in effect; follows the design picker live.
     private(set) var look = OmnibarGlassLook.current { didSet { if oldValue != look { rebuildMaterial() } } }
     /// The glass under the bar, built while the look has a material.
@@ -31,6 +35,10 @@ final class OmnibarPillView: NSView {
         backdropView.autoresizingMask = [.width, .height]
         addSubview(backdropView)
         rebuildMaterial()
+        // The bar's hover eases in and clears at once (`ChromeHover.fade`).
+        hover = PointerHover(self) { [weak self] hovering in
+            self?.refresh(animated: true, fade: ChromeHover.fade(showing: hovering))
+        }
         lookLoop = ObservationLoop { [weak self] in
             let next = OmnibarGlassLook.current
             let backdrop = OmnibarGlassKnobs.backdrop.value
@@ -48,17 +56,22 @@ final class OmnibarPillView: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        if let tracking { removeTrackingArea(tracking) }
-        // Hover is tracked on the whole bar, which sits above this view.
-        let area = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect], owner: self)
-        addTrackingArea(area)
-        tracking = area
+    // Hover is the pill's frame under the pointer (the bar above it takes
+    // the clicks); hiding with the pane or leaving the window clears it.
+    override func viewDidHide() {
+        super.viewDidHide()
+        hover?.refresh()
     }
 
-    override func mouseEntered(with event: NSEvent) { isHovering = true }
-    override func mouseExited(with event: NSEvent) { isHovering = false }
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        hover?.refresh()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        hover?.refresh()
+    }
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -119,12 +132,14 @@ final class OmnibarPillView: NSView {
         CATransaction.commit()
     }
 
-    private func refresh(animated: Bool) {
+    /// `fade`: how a hover change shows (`ChromeHover.fade`); a state change
+    /// (editing, card) eases.
+    private func refresh(animated: Bool, fade: MotionFade? = .hover) {
         let ring = state == .editing ? OmnibarStyle.ringWidth : 0
         let glassy = drawsGlass && state != .card
         glass?.isHidden = !glassy
         backdropView.isHidden = !glassy || backdropView.style == .none
-        Motion.transaction(animated ? .hover : nil) {
+        Motion.transaction(animated ? fade : nil) {
             performWithTheme {
                 let fill: NSColor
                 if glassy {
