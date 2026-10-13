@@ -62,7 +62,7 @@ public struct ConversationReuseRegistry<Cell: Hashable> {
     /// `cell` was dequeued with `reuseClass` for `rowID`; it showed
     /// `previousRowID` before (nil when fresh).
     public mutating func dequeued(_ cell: Cell, forRow rowID: String, reuseClass: Int, previousRowID: String?) {
-        if let previousRowID, previousRowID != rowID {
+        if let previousRowID, previousRowID != rowID, owners[previousRowID] == cell {
             classes[previousRowID] = nil
             owners[previousRowID] = nil
         }
