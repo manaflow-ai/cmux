@@ -29,6 +29,7 @@ mkdir -p "$out"
 stage=/Users/Shared/cmux-capture/restore-journey/$job
 run=$stage/run-$(date +%H%M%S)
 
+acquired=$(date +%s)
 capture-host acquire --slot >"$out/lease.txt" 2>"$out/lease.err" &
 lease_pid=$!
 release() {
@@ -71,8 +72,10 @@ up=$sock
 [ -n "$up" ] || { echo "the app never opened its control socket" >&2; exit 1; }
 
 set +e
-# Bounded by the lease (10 minutes from acquire): the journey must not outlive the slot.
-ssh -o BatchMode=yes "$host" "cd '$run' && python3 restore-journey.py --max-seconds 480 --socket '$sock' --out '$run/out' \
+# Bounded by the lease (10 minutes from acquire, less a margin to quit): the journey must not outlive the slot.
+left=$((600 - ($(date +%s) - acquired) - 40))
+[ "$left" -gt 120 ] || { echo "only ${left}s left on the lease; not starting the journey" >&2; exit 1; }
+ssh -o BatchMode=yes "$host" "cd '$run' && python3 restore-journey.py --max-seconds $left --socket '$sock' --out '$run/out' \
   --fake-agent '$run/fake_agent.py' --src '$app' $args" 2>&1 | tee "$out/journey.txt"
 status=${PIPESTATUS[0]}
 set -e

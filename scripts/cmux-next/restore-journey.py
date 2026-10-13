@@ -356,10 +356,10 @@ def configure_fake(home):
         original = None
     config = json.loads(original) if original else {}
     config.setdefault("harnesses", {})["fake"] = {"argv": ["python3", os.path.abspath(opts.fake_agent)]}
+    ACPMUX_RESTORE.append((path, original))  # first, so an exit at any point after puts it back
     with open(path + ".rj", "w") as f:
         f.write(json.dumps(config, indent=2))
     os.replace(path + ".rj", path)
-    ACPMUX_RESTORE.append((path, original))
     client = Acpmux(acpmux_socket_of(home))
     say(f"  acpmux reload_config -> {json.dumps(client.request('_acpmux/reload_config', {}))[:160]}")
     return client
@@ -892,10 +892,12 @@ def area_of(item):
     return "layout"
 
 
-def broken(v):
+def broken(v, item=""):
     """A probe that answered nothing usable: missing, empty, or an error."""
     if v in (None, "<missing>", [], {}):
         return True
+    if item == "agent.tabs_bound":
+        return v == 0
     if isinstance(v, str):
         return v.startswith(("chat_state:", "unreachable"))
     return isinstance(v, dict) and ("error" in v or "code" in v and "message" in v)
@@ -904,7 +906,9 @@ def broken(v):
 def must_have(item):
     """Rows whose value is always present on a working app; for these, equal emptiness is a FAIL."""
     return (item.endswith((".frame", ".layout", ".view.attach", ".selected_workspace", ".id", ".url", ".tabs"))
-            or item in ("windows.recency", "focus.window", "focus.workspace", "agent.page", "agent.acpmux", "agent.prompts")
+            or item.endswith(".agent_session")
+            or item in ("windows.recency", "focus.window", "focus.workspace", "agent.page", "agent.acpmux", "agent.prompts",
+                        "agent.page.session", "agent.tabs_bound")
             or item.startswith("page["))
 
 
@@ -918,7 +922,9 @@ def seeded(before):
                  ("counter running", before.get("counter.alive") is True and isinstance(before.get("counter.tick_in_daemon"), int))],
         "web": [("history page at /hist-b", before.get("page[hist].path") == "/hist-b"),
                 ("tall page scrolled", (before.get("page[tall].scrollY") or 0) >= SCROLL - 5)],
-        "agent": [("three turns", len(before.get("agent.prompts") or []) == 3)],
+        "agent": [("three turns", len(before.get("agent.prompts") or []) == 3),
+                  ("chat tab bound to the session", (before.get("agent.tabs_bound") or 0) >= 1
+                   and bool(AGENT) and before.get("agent.page.session") == AGENT["session"])],
         "w2": [("second window", before.get("windows.count") == 2), ("w2 page", before.get("page[w2page].path") == "/w2page")],
         "split": [("rj-split workspace", has(lambda k, v: k.startswith("ws[rj-split].")))],
     }
@@ -948,9 +954,34 @@ def compare(variant, before, after):
         else:
             ok = a == b
             detail = json.dumps(a)[:100] if ok else f"{json.dumps(b)[:100]} -> {json.dumps(a)[:100]}"
-        if ok and must_have(item) and (broken(a) or broken(b)):
+        if ok and must_have(item) and (broken(a, item) or broken(b, item)):
             ok, detail = False, f"no value: {json.dumps(b)[:80]} -> {json.dumps(a)[:80]}"
         RESULTS.append((f"{variant}: {item}", ok, detail, area_of(item)))
+
+
+def journey(base):
+    global SINCE
+    seed(base)
+    for n, variant in enumerate(v.strip() for v in opts.variants.split(",") if v.strip()):
+        before = snapshot(f"{variant}-before")
+        if n == 0:
+            seeded(before)
+        expected = sum(len(tabs_of(w)) for w in rj_workspaces(topology()))
+        started = SINCE = time.time()
+        if not APP.quit(variant):
+            RESULTS.append((f"{variant}: app exits through its quit path", False, "still running", "app quit"))
+            return
+        if not APP.relaunch():
+            RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
+            return
+        ok = wait(lambda: settled(expected), opts.settle, 1)
+        took = time.time() - started
+        say(f"  restore {'settled' if ok else 'did NOT settle'} {took:.1f} s after the quit")
+        RESULTS.append((f"{variant}: restore settles", bool(ok), f"{took:.1f} s after the quit", "layout"))
+        # The counter's next tick, in the view (it must keep counting after the reopen).
+        if isinstance(before.get("counter.tick_in_view"), int):
+            wait(lambda: view_tick() > before["counter.tick_in_view"], 10, 0.5)
+        compare(variant, before, snapshot(f"{variant}-after"))
 
 
 def main():
@@ -958,30 +989,10 @@ def main():
     APP = App()
     server, base = start_server()
     say(f"local pages at {base}; daemon {daemon_socket()}")
-    global SINCE
     try:
-        seed(base)
-        for n, variant in enumerate(v.strip() for v in opts.variants.split(",") if v.strip()):
-            before = snapshot(f"{variant}-before")
-            if n == 0:
-                seeded(before)
-            expected = sum(len(tabs_of(w)) for w in rj_workspaces(topology()))
-            started = SINCE = time.time()
-            if not APP.quit(variant):
-                RESULTS.append((f"{variant}: app exits through its quit path", False, "still running", "app quit"))
-                break
-            if not APP.relaunch():
-                RESULTS.append((f"{variant}: app relaunches", False, "no socket", "app quit"))
-                break
-            ok = wait(lambda: settled(expected), opts.settle, 1)
-            took = time.time() - started
-            say(f"  restore {'settled' if ok else 'did NOT settle'} {took:.1f} s after the quit")
-            RESULTS.append((f"{variant}: restore settles", bool(ok), f"{took:.1f} s after the quit", "layout"))
-            # Pages report every second once loaded; wait for one report from each after the reload.
-            # The counter's next tick, in the view (it must keep counting after the reopen).
-            if isinstance(before.get("counter.tick_in_view"), int):
-                wait(lambda: view_tick() > before["counter.tick_in_view"], 10, 0.5)
-            compare(variant, before, snapshot(f"{variant}-after"))
+        journey(base)
+    except SystemExit as stop:  # --max-seconds, a signal, or the parent gone: keep the rows so far
+        RESULTS.append(("journey finished", False, f"stopped early: {stop.code}", "harness"))
     finally:
         restore_acpmux_config()
         server.shutdown()
