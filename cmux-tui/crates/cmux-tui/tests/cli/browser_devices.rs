@@ -53,6 +53,22 @@ fn devices(server: &HeadlessServer) -> Vec<serde_json::Value> {
     find(&list, "devices").and_then(|devices| devices.as_array()).cloned().unwrap_or_default()
 }
 
+fn profile_tree(server: &HeadlessServer) -> serde_json::Value {
+    raw_json(server, serde_json::json!({"id": 1, "cmd": "list-workspaces"}))
+}
+
+fn frontend_browser_tab(tree: &serde_json::Value) -> &serde_json::Value {
+    tree["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|workspace| workspace["screens"].as_array().into_iter().flatten())
+        .flat_map(|screen| screen["panes"].as_array().into_iter().flatten())
+        .flat_map(|pane| pane["tabs"].as_array().into_iter().flatten())
+        .find(|tab| tab["browser_renderer"] == "frontend")
+        .expect("frontend browser tab")
+}
+
 #[test]
 fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon() {
     let server = HeadlessServer::start("browser-devices");
@@ -206,4 +222,66 @@ fn browser_devices_list_custom_devices_and_tab_emulation_through_a_real_daemon()
     assert_eq!(emulation(&server, &browser).unwrap()["device"], "Kiosk");
     ok(&server, &["tab", &browser, "emulate", "clear"]);
     assert_eq!(emulation(&server, &browser), None);
+}
+
+#[test]
+fn browser_profile_commands_create_move_open_and_delete_through_a_real_daemon() {
+    let server = HeadlessServer::start("browser-profiles");
+
+    let created = ok(&server, &["browser", "profile", "create", "--name", "Work"]);
+    let profile_id = created["browser_profile"]["id"]
+        .as_str()
+        .expect("created browser profile id")
+        .to_owned();
+
+    let listed = ok(&server, &["browser", "profile", "list"]);
+    assert_eq!(listed["browser_profiles"][1]["name"], "Work", "{listed}");
+    assert_eq!(listed["browser_profiles"][1]["id"], profile_id, "{listed}");
+
+    let opened = ok(
+        &server,
+        &[
+            "browser",
+            "profile",
+            "open",
+            "https://example.com/agents",
+            "--engine",
+            "webkit",
+            "--profile",
+            "Work",
+        ],
+    );
+    assert!(opened["content_resource_id"].as_str().is_some(), "{opened}");
+    assert_eq!(frontend_browser_tab(&profile_tree(&server))["browser_profile_id"], profile_id);
+
+    let opened_with_flag = ok(
+        &server,
+        &[
+            "browser",
+            "profile",
+            "open",
+            "--url",
+            "https://example.com/agents-flag",
+            "--engine",
+            "webkit",
+            "--profile",
+            "Work",
+        ],
+    );
+    assert!(opened_with_flag["content_resource_id"].as_str().is_some(), "{opened_with_flag}");
+
+    ok(&server, &["browser", "profile", "move", "--profile", "Work", "--index", "0"]);
+    let moved = ok(&server, &["browser", "profile", "list"]);
+    assert_eq!(moved["browser_profiles"][0]["name"], "Work", "{moved}");
+
+    ok(&server, &["browser", "profile", "delete", "--profile", "Work"]);
+    let after_delete = ok(&server, &["browser", "profile", "list"]);
+    assert!(
+        after_delete["browser_profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|profile| profile["id"] != profile_id),
+        "{after_delete}"
+    );
 }
