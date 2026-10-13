@@ -42,7 +42,7 @@ final class ComposerModel {
         // QA: `CMUX_NATIVE_QA_ATTACH=1,25` seeds attachments of 1 MB and 25 MB
         // (the system pickers can't be driven by UI automation).
         if let sizes = ProcessInfo.processInfo.environment["CMUX_NATIVE_QA_ATTACH"] {
-            for (i, mb) in sizes.split(separator: ",").compactMap({ Int($0) }).enumerated() {
+            for (i, mb) in sizes.split(separator: ",").compactMap({ Int($0) }).filter({ $0 > 0 }).enumerated() {
                 attachments.append(ComposerAttachment(name: "qa-\(i + 1)-\(mb)mb.bin", data: Data(count: mb << 20), kind: .file))
             }
         }
@@ -65,6 +65,12 @@ final class ComposerModel {
         }
         attachments.append(attachment)
         Haptics.selection()
+    }
+
+    /// Another connection (or Mac): uploaded paths belong to the old one.
+    func connectionChanged() {
+        uploadedPaths = [:]
+        failedUpload = nil
     }
 
     func remove(_ attachment: ComposerAttachment) {
@@ -123,9 +129,11 @@ final class ComposerModel {
                     let path = try await services.upload(name: attachment.name, data: attachment.data) { [weak self] sent in
                         Task { @MainActor in self?.uploadProgress[id] = min(1, Double(sent) / Double(size)) }
                     }
-                    try Task.checkCancellation()
+                    // Recorded before the cancel check: the file is on the
+                    // Mac either way, and a retry must not upload it twice.
                     uploadedPaths[id] = path
                     uploadProgress[id] = 1
+                    try Task.checkCancellation()
                     paths.append(path)
                 } catch is CancellationError {
                     return false
@@ -150,7 +158,8 @@ final class ComposerModel {
         }
         if submit { session.sendKeys(["enter"]) }
         text = ""
-        attachments = []
+        let sent = Set(uploadedPaths.keys)
+        attachments.removeAll { sent.contains($0.id) }
         uploadedPaths = [:]
         Haptics.tap()
         return true

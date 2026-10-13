@@ -259,7 +259,7 @@ struct SidebarPanel: View {
 
     @ViewBuilder
     private func workspaceSection(_ workspace: DaemonWorkspace, connection: HostConnection) -> some View {
-        let terminals = workspace.tabs.filter(\.isTerminal)
+        let terminals = DaemonTab.terminalsPinnedFirst(workspace.tabs)
         let isExpanded = expanded.contains(workspace.id) || searching || terminals.count <= Self.collapsedLimit
         let shown = isExpanded ? terminals : Array(terminals.prefix(Self.collapsedLimit - 1))
 
@@ -305,7 +305,12 @@ struct SidebarPanel: View {
                 navigator.select(.terminal(surface: tab.surface), hostID: hostID)
             }
             .contextMenu {
-                TerminalContextMenu(tab: tab, onRename: { renaming = workspace }, onClose: { pendingClose = tab })
+                TerminalContextMenu(
+                    tab: tab,
+                    onRename: { renaming = workspace },
+                    onTogglePin: { Task { await connection.setPinned(surface: tab.surface, pinned: !tab.isPinned) } },
+                    onClose: { pendingClose = tab }
+                )
             }
             // Anchored on the row so the popover points at the terminal it closes.
             .confirmationDialog(
@@ -487,9 +492,15 @@ struct SidebarTerminalRow: View {
                 }
                 .frame(width: 8, height: 8)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(highlighted(tab.displayTitle, query))
-                        .font(.body.weight(selected ? .semibold : .regular))
-                        .lineLimit(1)
+                    HStack(spacing: 5) {
+                        Text(highlighted(tab.displayTitle, query))
+                            .font(.body.weight(selected ? .semibold : .regular))
+                            .lineLimit(1)
+                        if tab.isPinned {
+                            Image(systemName: "pin.fill").font(.caption2).foregroundStyle(Theme.tertiaryInk)
+                                .accessibilityLabel(String(localized: "Pinned"))
+                        }
+                    }
                     if let cwd = tab.shortCwd {
                         Text(highlighted(cwd, query))
                             .font(.caption.monospaced())

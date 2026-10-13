@@ -294,6 +294,16 @@ final class HostConnection {
         await refresh()
     }
 
+    func setPinned(surface: Int, pinned: Bool) async {
+        do {
+            try await control?.setTabPinned(surface, pinned: pinned)
+            Haptics.selection()
+        } catch {
+            lastError = error.localizedDescription
+        }
+        await refresh()
+    }
+
     func close(surface: Int) async {
         try? await control?.closeSurface(surface)
         await refresh()

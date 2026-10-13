@@ -166,6 +166,9 @@ struct ComposerBar: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .circle)
+        // The send uploads a snapshot of the attachments; one added now
+        // would be dropped when it finishes.
+        .disabled(model.isSending)
         .accessibilityLabel(String(localized: "Add attachment"))
         .accessibilityIdentifier("composer.plus")
     }
@@ -384,7 +387,7 @@ struct AttachmentChip: View {
                 }
             }
             .animation(.smooth(duration: 0.2), value: progress)
-            .accessibilityValue(progress.map { String(localized: "Uploading, \(Int($0 * 100)) percent") } ?? "")
+            .accessibilityValue(progress.flatMap { $0 < 1 ? String(localized: "Uploading, \(Int($0 * 100)) percent") : nil } ?? "")
             if removable {
             Button(action: onRemove) {
                 Image(systemName: "xmark")

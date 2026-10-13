@@ -87,6 +87,13 @@ struct DaemonTab: Codable, Sendable, Hashable, Identifiable {
 
     var id: Int { surface }
     var isTerminal: Bool { kind == nil || kind == "pty" || kind == "remote-terminal" }
+    var isPinned: Bool { pinned == true }
+
+    /// Terminal tabs with pinned ones first, each group in the Mac's order.
+    static func terminalsPinnedFirst(_ tabs: [DaemonTab]) -> [DaemonTab] {
+        let terminals = tabs.filter(\.isTerminal)
+        return terminals.filter(\.isPinned) + terminals.filter { !$0.isPinned }
+    }
     var displayTitle: String {
         // Shells title themselves `user@host:dir`; the folder says more.
         // A title that is only the folder ("~", "~/code") says nothing the

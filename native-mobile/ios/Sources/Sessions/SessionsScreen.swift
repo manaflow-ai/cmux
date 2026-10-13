@@ -83,7 +83,7 @@ struct SessionsScreen: View {
         List {
             ForEach(filtered(connection.workspaces)) { workspace in
                 Section {
-                    ForEach(workspace.tabs.filter(\.isTerminal)) { tab in
+                    ForEach(DaemonTab.terminalsPinnedFirst(workspace.tabs)) { tab in
                         Button {
                             Haptics.selection()
                             open(surface: tab.surface)
@@ -111,6 +111,7 @@ struct SessionsScreen: View {
                             TerminalContextMenu(
                                 tab: tab,
                                 onRename: { renaming = workspace },
+                                onTogglePin: { Task { await connection.setPinned(surface: tab.surface, pinned: !tab.isPinned) } },
                                 onClose: { pendingClose = tab }
                             )
                         } preview: {
@@ -252,9 +253,14 @@ func filterWorkspaces(_ workspaces: [DaemonWorkspace], query: String) -> [Daemon
 struct TerminalContextMenu: View {
     let tab: DaemonTab
     let onRename: () -> Void
+    let onTogglePin: () -> Void
     let onClose: () -> Void
 
     var body: some View {
+        Button(action: onTogglePin) {
+            Label(tab.isPinned ? String(localized: "Unpin") : String(localized: "Pin"),
+                  systemImage: tab.isPinned ? "pin.slash" : "pin")
+        }
         Button(action: onRename) {
             Label(String(localized: "Rename Workspace…"), systemImage: "pencil")
         }
@@ -361,6 +367,10 @@ struct TerminalRow: View {
                 HStack(spacing: 6) {
                     Text(highlighted(tab.displayTitle, query)).font(.body.weight(.medium))
                         .lineLimit(typeSize.isAccessibilitySize ? 3 : 1)
+                    if tab.isPinned {
+                        Image(systemName: "pin.fill").font(.caption2).foregroundStyle(Theme.tertiaryInk)
+                            .accessibilityLabel(String(localized: "Pinned"))
+                    }
                     if let agent, agent.status != .idle, agent.status != .unknown {
                         AgentStatusDot(status: agent.status)
                     }

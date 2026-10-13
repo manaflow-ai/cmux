@@ -160,6 +160,11 @@ extension DaemonClient {
         try await request("new-tab", ["pane": .number(Double(pane))])["surface"]?.int
     }
 
+    /// Pins or unpins a tab on the Mac (shared with the desktop sidebar).
+    func setTabPinned(_ surface: Int, pinned: Bool) async throws {
+        try await request("set-tab-pinned", ["surface": .number(Double(surface)), "pinned": .bool(pinned)])
+    }
+
     func closeSurface(_ surface: Int) async throws {
         try await request("close-surface", ["surface": .number(Double(surface))])
     }

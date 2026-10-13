@@ -58,6 +58,14 @@ struct TerminalScreen: View {
                 placeholder: placeholder
             )
         )
+        // A reconnect (Retry, foreground recovery) replaces the connection
+        // while this screen stays: take the new connection's session and
+        // rebuild only the terminal view, keeping the composer's draft.
+        .id(ObjectIdentifier(session))
+        .onChange(of: ObjectIdentifier(connection)) {
+            session = connection.terminalSession(for: tab.surface)
+            composer.connectionChanged()
+        }
         // Full screen: a shell's output scrolls under the floating top
         // controls (the controller insets its content by the safe area).
         .ignoresSafeArea(.container, edges: [.top, .bottom])
