@@ -42,6 +42,7 @@ nonisolated extension ActionSurfaceCatalog {
         "space.moveLeft", "space.moveRight", "space.move", "space.switch", "workspace.moveToSpace",
         "workspace.duplicateToSpace", "workspaceGroup.moveToSpace", "space.setTheme", "space.clearTheme",
         "workspace.setTheme", "workspace.clearTheme", "terminal.setTheme", "terminal.clearTheme",
+        "workspace.setRemoteLocalhost",
         "splitRight", "newColumn", "newRow", "splitDown", "newPaneAutoLayout", "equalizeSplits", "triggerFlash",
         "palette.swapWithSession", "toggleCanvasLayout", "canvasTidy", "palette.newSimulatorPane", "file.open",
         "pane.toggleTabBar",
@@ -261,6 +262,8 @@ nonisolated extension ActionSurfaceCatalog {
         .systemChange: [
             // Opens a batch of workspaces in the person's app: the person starts it (cx-rwlb).
             "workspace.importClassic",
+            // Whose localhost a workspace reaches: the person's choice only (cx-d0d.41).
+            "workspace.setRemoteLocalhost",
             "notifications.dismissal.keystroke",
             "notifications.dismissal.focus",
             "notifications.dismissal.click",

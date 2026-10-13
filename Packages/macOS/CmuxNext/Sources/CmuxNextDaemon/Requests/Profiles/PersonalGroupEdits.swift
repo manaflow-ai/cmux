@@ -32,14 +32,18 @@ public struct SetPersonalWorkspaceRequest: DaemonRequest {
     public var group: FieldUpdate<WorkspaceGroupID>
     public var browserProfileID: FieldUpdate<BrowserProfileKey>
     public var theme: FieldUpdate<String>
+    /// Needs `personal-remote-localhost-v1` unless unchanged.
+    public var remoteLocalhost: FieldUpdate<Bool>
     public init(sessionID: String, workspaceKey: WorkspaceKey, index: Int? = nil, group: FieldUpdate<WorkspaceGroupID> = .unchanged,
-                browserProfileID: FieldUpdate<BrowserProfileKey> = .unchanged, theme: FieldUpdate<String> = .unchanged) {
+                browserProfileID: FieldUpdate<BrowserProfileKey> = .unchanged, theme: FieldUpdate<String> = .unchanged,
+                remoteLocalhost: FieldUpdate<Bool> = .unchanged) {
         self.sessionID = sessionID
         self.workspaceKey = workspaceKey
         self.index = index
         self.group = group
         self.browserProfileID = browserProfileID
         self.theme = theme
+        self.remoteLocalhost = remoteLocalhost
     }
 
     enum CodingKeys: String, CodingKey {
@@ -47,6 +51,7 @@ public struct SetPersonalWorkspaceRequest: DaemonRequest {
         case sessionID = "session_id"
         case workspaceKey = "workspace_key"
         case browserProfileID = "browser_profile_id"
+        case remoteLocalhost = "remote_localhost"
     }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -56,5 +61,6 @@ public struct SetPersonalWorkspaceRequest: DaemonRequest {
         try c.encode(group, forKey: .group)
         try c.encode(browserProfileID, forKey: .browserProfileID)
         try c.encode(theme, forKey: .theme)
+        try c.encode(remoteLocalhost, forKey: .remoteLocalhost)
     }
 }
