@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --team) team=$2; shift 2 ;;
     --name) name=$2; shift 2 ;;
-    --root) roots+=("$(cd "$2" && pwd)"); shift 2 ;;
+    --root) roots+=("$2"); shift 2 ;;
     --seed) seed=1; shift ;;
     --sign-out) rm -f "$home/refresh-token" "$home/user-id"; echo "Signed out."; exit 0 ;;
     -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
@@ -48,6 +48,9 @@ if [[ ${#roots[@]} -eq 0 && -n "${CNX_WEB_ROOTS:-}" ]]; then IFS=: read -r -a ro
 umask 077
 mkdir -p "$home"/{run,logs,sock,acpmux,state,work}
 chmod 700 "$home"
+for i in "${!roots[@]}"; do
+  roots[$i]=$(cd "${roots[$i]}" 2>/dev/null && pwd) || { echo "error: no such folder: ${roots[$i]}" >&2; exit 1; }
+done
 for b in cnx-hostd cmux-tui acpmux; do
   [[ -x "$bin/$b" ]] || { echo "error: missing $bin/$b" >&2; exit 1; }
   xattr -d com.apple.quarantine "$bin/$b" 2>/dev/null || true
@@ -147,7 +150,7 @@ export CNX_STACK_PROJECT_ID="$project" CNX_STACK_PUBLISHABLE_KEY="$pck" CNX_STAC
 export CNX_STATE_DIR="$home/state" CNX_TUI_SOCKET_DIR="$home/sock" CNX_TUI_SESSION="$session"
 export CNX_FILE_ROOTS="$(IFS=:; echo "${roots[*]}")" CNX_EXCLUDE_CGNAT="${CNX_EXCLUDE_CGNAT:-1}"
 [[ -z "$name" ]] || export CNX_DEVICE_NAME="$name"
-nohup "$bin/cnx-hostd" > "$home/logs/hostd.log" 2>&1 &
+NO_COLOR=1 nohup "$bin/cnx-hostd" > "$home/logs/hostd.log" 2>&1 &
 echo $! > "$home/run/hostd.pid"
 for _ in $(seq 1 100); do grep -qiE "signal|connected|registered|error" "$home/logs/hostd.log" 2>/dev/null && break; perl -e 'select(undef,undef,undef,0.1)'; done
 
