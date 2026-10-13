@@ -248,6 +248,7 @@ public:
     [[nodiscard]] Result<JsonValue> set_row_heights(const SetRowHeightsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_screen_metadata(const SetScreenMetadataRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> set_screen_pinned(const SetScreenPinnedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> set_session_icon(const SetSessionIconRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetSizeCountsResult> set_size_counts(const SetSizeCountsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<SetSizePolicyResult> set_size_policy(const SetSizePolicyRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> set_split_ratio(const SetSplitRatioRequest& request, RequestOptions options = {});
