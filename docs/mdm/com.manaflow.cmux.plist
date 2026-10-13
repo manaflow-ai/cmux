@@ -2302,7 +2302,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A shell command that runs a while shows as busy.</string>
 			<key>pfm_name</key>

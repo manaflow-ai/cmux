@@ -56,8 +56,10 @@ hint (`--style`) when its source is honored (`appearance.statusIndicator.honorSt
 false, or a list of sources such as `["explicit", "run"]`), then the setting.
 
 Behavior settings (`status.*`, Settings > Appearance > Loading Indicator and Settings > Notifications):
-`status.inferCommandBusy` (true) and `status.inferCommandBusyAfter` (3 s): a plain shell command shows as busy
-once it has run that long (the client arms one one-shot timer per running command, never a poll);
+`status.inferCommandBusy` (false since cx-ag5.6.5, Lawrence 2026-10-13: htop looked loading) and
+`status.inferCommandBusyAfter` (3 s): when on, a plain shell command shows as busy once it has run that long;
+a command the daemon marks `in_use` (it took the alternate screen, mouse or focus reporting, or bracketed
+paste: htop, vim, less, a REPL) never does (the client arms one one-shot timer per running command, never a poll);
 `status.runNotifyMinimumSeconds` (10) and `status.runNotifyWhenVisible` (false): a finished `cmux status run`
 notifies when it took at least that long and its terminal is not visible. Visible means all of: its tab is the
 selected tab of its pane, the pane is on screen, the window is key or not occluded, cmux is the active app
@@ -163,7 +165,8 @@ Live switching: Debug Settings > Status Indicators > Style override. Recommendat
   (sidebar rows, sections, pane headers, Home): one component, one setting.
 - A status may request its own style and wins by default; the user can turn that off, per source
   (`honorStatusStyle`).
-- Automatic busy for plain shell commands: on after 3 s, customizable (on/off, threshold).
+- Automatic busy for plain shell commands: on after 3 s, customizable (on/off, threshold). Superseded 2026-10-13 (Lawrence: "i run htop and it is loading, which is very bad"): off by default; a
+  running command is a quiet daemon fact (`extra.activity` `running`/`in_use`), never loading by itself (cx-ag5.6.5).
 - `status run` notifies when the run took 10 s or more and the terminal is not visible; both customizable.
 - "Make literally everything customizable."
 
