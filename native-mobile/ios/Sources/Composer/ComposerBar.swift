@@ -106,6 +106,18 @@ struct ComposerBar: View {
                 .padding(.leading, 16)
                 .accessibilityLabel(String(localized: "Message"))
                 .accessibilityIdentifier("composer.text")
+                // Hardware keyboards only (the software Return still adds a
+                // line): Return sends like ChatGPT and Claude on iPad, Shift-
+                // Return adds a line, and an empty field presses Enter.
+                .onKeyPress(.return, phases: .down) { press in
+                    guard !press.modifiers.contains(.shift), !model.isSending else { return .ignored }
+                    if model.canSend {
+                        model.startSend(to: session, services: services)
+                    } else {
+                        session.sendKeys(["enter"])
+                    }
+                    return .handled
+                }
             if let progress = model.uploadProgress {
                 ProgressView(value: progress).frame(width: 36).tint(.secondary).padding(.bottom, 17)
             }
