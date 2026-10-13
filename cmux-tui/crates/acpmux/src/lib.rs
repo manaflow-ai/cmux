@@ -38,6 +38,7 @@ pub mod live_models;
 pub mod local_stream;
 pub mod login_env;
 pub mod native;
+pub mod offer_mcp;
 pub mod peer;
 #[cfg(not(unix))]
 mod platform;
@@ -49,7 +50,6 @@ mod router_socket;
 pub mod routes;
 pub mod rpc;
 pub mod schema;
-pub mod offer_mcp;
 pub mod secret_mcp;
 pub mod server;
 pub mod session_env;

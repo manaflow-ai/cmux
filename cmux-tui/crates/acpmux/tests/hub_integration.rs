@@ -20,10 +20,10 @@ mod permission_groups;
 mod questions;
 #[path = "hub_integration/secrets.rs"]
 mod secrets;
-#[path = "hub_integration/session_offers.rs"]
-mod session_offers;
 #[path = "hub_integration/seen.rs"]
 mod seen;
+#[path = "hub_integration/session_offers.rs"]
+mod session_offers;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
 #[path = "hub_integration/steer_only.rs"]

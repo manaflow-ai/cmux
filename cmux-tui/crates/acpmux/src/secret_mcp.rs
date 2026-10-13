@@ -66,7 +66,7 @@ pub(crate) async fn serve<F, Fut>(
 ) -> Result<()>
 where
     F: Fn(Arc<Client>, String, Value) -> Fut + Clone + Send + 'static,
-    Fut: Future<Output = Value> + Send,
+    Fut: Future<Output = Value> + Send + 'static,
 {
     let session = std::env::var(session_env).map_err(|_| anyhow!("{session_env} is not set"))?;
     let (tx, mut rx) = mpsc::channel::<Value>(64);

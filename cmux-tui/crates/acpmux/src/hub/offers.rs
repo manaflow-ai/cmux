@@ -16,13 +16,15 @@
 //!   recorded, across daemon restarts. The daemon reads a chat's records
 //!   once, at its first offer call, and keeps its open offers from then on.
 //!   A chat holds at most [`OPEN_LIMIT`] open offers.
+//! - Only a chat started after the offer takes it, and only one without a
+//!   parent. A chat a remote device started offers none.
 //! - Title, prompt and folder are the agent's text: the chip shows them as
 //!   plain text, and nothing runs before the person accepts.
 
 use super::{Hub, Session};
 use crate::rpc::RpcError;
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex as StdMutex;
 
@@ -31,10 +33,11 @@ pub(super) const MAX_PROMPT_CHARS: usize = 20_000;
 pub(super) const OPEN_LIMIT: usize = 8;
 const MAX_NAME_CHARS: usize = 120;
 
-/// Each chat's open offer ids, read from its records at its first offer call.
+/// Each chat's open offers (id to when it was made, Unix ms), read from its
+/// records at its first offer call.
 #[derive(Default)]
 pub(crate) struct Offers {
-    open: StdMutex<HashMap<String, HashSet<String>>>,
+    open: StdMutex<HashMap<String, HashMap<String, u64>>>,
 }
 
 /// The offer `params` describe, checked: what `session_offer` records.
@@ -89,6 +92,9 @@ fn offer_record(session: &Session, params: &Value) -> Result<Value, RpcError> {
 impl Hub {
     /// Records the agent's offer; the chat shows it as a chip.
     pub fn offer_session(&self, session: &Session, params: &Value) -> Result<Value, RpcError> {
+        if session.meta().remote_origin {
+            return Err(RpcError::invalid_params("a chat a remote device started offers no chats"));
+        }
         let record = offer_record(session, params)?;
         let offer_id = record["offerId"].as_str().unwrap_or_default().to_owned();
         self.with_open_offers(session, |open| {
@@ -97,7 +103,7 @@ impl Hub {
                     "this chat already has {OPEN_LIMIT} open offers; wait for the user to answer them"
                 )));
             }
-            open.insert(offer_id.clone());
+            open.insert(offer_id.clone(), crate::store::now_ms());
             Ok(())
         })?;
         self.append(session, "mux", "session_offer", record);
@@ -117,14 +123,8 @@ impl Hub {
             ("dismissed", None) => None,
             ("accepted", Some(key)) => {
                 let child = self.resolve(key)?;
-                let meta = child.meta();
                 if child.id == session.id {
                     return Err(RpcError::invalid_params("an offer cannot start its own chat"));
-                }
-                if meta.parent_id.is_some() || meta.fork_seq.is_some() {
-                    return Err(RpcError::invalid_params(
-                        "childSessionId already has a parent: start a new chat for the offer",
-                    ));
                 }
                 Some(child)
             }
@@ -137,14 +137,29 @@ impl Hub {
                 ));
             }
         };
-        // Closed under the lock: a second answer to the same offer is refused.
-        if !self.with_open_offers(session, |open| Ok(open.remove(offer_id)))? {
-            return Err(RpcError::invalid_params("no open offer has that offerId"));
+        let no_offer = || RpcError::invalid_params("no open offer has that offerId");
+        let offered_at = self
+            .with_open_offers(session, |open| Ok(open.get(offer_id).copied()))?
+            .ok_or_else(no_offer)?;
+        if let Some(child) = &child {
+            // Checked and set under the chat's lock: one parent, and only a chat
+            // started for this offer.
+            let mut meta = child.meta.lock().unwrap_or_else(|e| e.into_inner());
+            if meta.parent_id.is_some() || meta.fork_seq.is_some() || meta.created_at < offered_at {
+                return Err(RpcError::invalid_params(
+                    "childSessionId must be a new chat started for this offer",
+                ));
+            }
+            // Closed under the offers lock: a second answer is refused.
+            if !self.with_open_offers(session, |open| Ok(open.remove(offer_id).is_some()))? {
+                return Err(no_offer());
+            }
+            meta.parent_id = Some(session.id.clone());
+        } else if !self.with_open_offers(session, |open| Ok(open.remove(offer_id).is_some()))? {
+            return Err(no_offer());
         }
         let mut decision = json!({"offerId": offer_id, "outcome": outcome});
         if let Some(child) = child {
-            child.meta.lock().unwrap_or_else(|e| e.into_inner()).parent_id =
-                Some(session.id.clone());
             self.save_meta(&child);
             decision["childSessionId"] = Value::String(child.id.clone());
         }
@@ -156,7 +171,7 @@ impl Hub {
     fn with_open_offers<T>(
         &self,
         session: &Session,
-        f: impl FnOnce(&mut HashSet<String>) -> Result<T, RpcError>,
+        f: impl FnOnce(&mut HashMap<String, u64>) -> Result<T, RpcError>,
     ) -> Result<T, RpcError> {
         let loaded =
             self.offers.open.lock().unwrap_or_else(|e| e.into_inner()).contains_key(&session.id);
@@ -167,16 +182,16 @@ impl Hub {
     }
 
     /// The ids of the chat's recorded offers without a recorded decision.
-    fn recorded_open_offers(&self, session: &Session) -> Result<HashSet<String>, RpcError> {
+    fn recorded_open_offers(&self, session: &Session) -> Result<HashMap<String, u64>, RpcError> {
         let events = self
             .events(&session.id, 0, usize::MAX)
             .map_err(|e| RpcError::internal(format!("{e:#}")))?;
-        let mut open = HashSet::new();
+        let mut open = HashMap::new();
         for event in events.iter().filter(|e| e.dir == "mux") {
             let Some(id) = event.msg.get("offerId").and_then(Value::as_str) else { continue };
             match event.kind.as_str() {
                 "session_offer" => {
-                    open.insert(id.to_owned());
+                    open.insert(id.to_owned(), event.at);
                 }
                 "session_offer_decision" => {
                     open.remove(id);

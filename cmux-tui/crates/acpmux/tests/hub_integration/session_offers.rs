@@ -40,6 +40,11 @@ async fn an_offered_chat_is_a_chip_only_the_person_starts_and_it_reports_its_par
     let (hub, mut person) = setup(PermissionPolicy::Ask).await;
     let id = new_chat(&mut person).await;
     let mut agent = agent(&hub).await;
+    let session = hub.resolve(&id).unwrap();
+    let before = hub.session_summary(&session)["status"].clone();
+    // A chat that was there before the offer is not the one it started.
+    let older = new_chat(&mut person).await;
+    tokio::time::sleep(Duration::from_millis(5)).await;
 
     // The tool returns at once; the chat records the chip with what the agent
     // gave and this chat's folder, and keeps its status.
@@ -54,9 +59,8 @@ async fn an_offered_chat_is_a_chip_only_the_person_starts_and_it_reports_its_par
     assert_eq!(chip["msg"]["title"], "Fix the flaky upload test");
     assert_eq!(chip["msg"]["worktree"], true);
     assert_eq!(chip["msg"]["harness"], "codex");
-    let session = hub.resolve(&id).unwrap();
     assert_eq!(chip["msg"]["cwd"], json!(session.meta().cwd));
-    assert_eq!(hub.session_summary(&session)["status"], "idle");
+    assert_eq!(hub.session_summary(&session)["status"], before);
 
     // A page reading the chat's history gets the chip with the transcript.
     let page = person
@@ -73,6 +77,10 @@ async fn an_offered_chat_is_a_chip_only_the_person_starts_and_it_reports_its_par
     let accept = json!({"sessionId": id, "offerId": offer_id, "outcome": "accepted", "childSessionId": child});
     let forged = agent.request("_acpmux/offer_respond", accept.clone()).await;
     assert!(forged.is_err(), "the agent accepted its own offer: {forged:?}");
+
+    let stale = json!({"sessionId": id, "offerId": offer_id, "outcome": "accepted", "childSessionId": older});
+    let adopted = person.request("_acpmux/offer_respond", stale).await;
+    assert!(adopted.is_err(), "an older chat took the offer: {adopted:?}");
 
     // The person accepts it with the chat they started: that chat's parent is
     // this one, and it is not a fork.
