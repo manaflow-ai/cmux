@@ -2953,7 +2953,7 @@ jobs:
           set -euo pipefail
           SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
           export SPARKLE_PRIVATE_KEY
-          # The new item carries the bundle's macOS floor (26.0 for cmux-next),
+          # The new item carries the bundle's macOS floor (14.0 for cmux-next since 2026-10-13),
           # so older macOS keeps the previous (legacy) items still in the feed.
           SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 scripts/ci/appcast_minimum_system_version.py floor "$CHANNEL_APP_PATH")"
           export SPARKLE_MINIMUM_SYSTEM_VERSION
