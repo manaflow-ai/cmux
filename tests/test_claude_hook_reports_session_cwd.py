@@ -193,6 +193,11 @@ def main() -> int:
 
         with HookSocketServer(root_name, workspace_id, surface_id) as server:
             env = cli_environment(server.socket_path)
+            # Hermetic: a cmux or Claude session running this test exports its
+            # own launch capture, which would mark the hooks as a fork.
+            for key in list(env):
+                if key.startswith(("CMUX_AGENT_", "CMUX_CLAUDE_", "CLAUDE")):
+                    del env[key]
             env["CMUX_WORKSPACE_ID"] = workspace_id
             env["CMUX_SURFACE_ID"] = surface_id
             env["CMUX_CLAUDE_HOOK_STATE_PATH"] = str(root / "claude-hook-state.json")
@@ -201,78 +206,106 @@ def main() -> int:
             env["CMUX_AGENT_LAUNCH_KIND"] = "claude"
             env["CMUX_AGENT_LAUNCH_CWD"] = launch_cwd
 
-            def run_phase(subcommand: str, payload: dict[str, object]) -> list[str]:
+            def run_phase(subcommand: str, payload: dict[str, object], applied: str) -> list[str]:
                 start = len(server.commands)
                 run_claude_hook(cli_path, server.socket_path, subcommand, payload, env)
-                return server.commands[start:]
+                commands = server.commands[start:]
+                # Each phase must pass the hook's own stale-turn guards, or an
+                # absent report proves nothing.
+                if not any(command.startswith(applied) for command in commands):
+                    raise AssertionError(
+                        f"{subcommand} was not applied (no {applied!r}): {commands!r}"
+                    )
+                return commands
 
-            start_commands = run_phase(
-                "session-start",
-                {"session_id": session_id, "source": "startup", "cwd": str(worktree_subdir)},
-            )
+            def expect_reports(label: str, commands: list[str], wanted: list[str]) -> bool:
+                if pwd_reports(commands) == wanted:
+                    return True
+                print(f"FAIL: {label}")
+                print(f"want={wanted!r}")
+                print(f"commands={commands!r}")
+                return False
+
+            running = "set_status claude_code Running"
+            idle = "set_status claude_code Idle"
             want = expected_report(str(worktree), workspace_id, surface_id)
-            if pwd_reports(start_commands) != [want]:
-                print("FAIL: SessionStart in a worktree subdirectory must report the worktree root")
-                print(f"want={want!r}")
-                print(f"commands={start_commands!r}")
+            want_launch = expected_report(launch_cwd, workspace_id, surface_id)
+
+            if not expect_reports(
+                "SessionStart in a worktree subdirectory must report the worktree root",
+                run_phase(
+                    "session-start",
+                    {"session_id": session_id, "source": "startup", "cwd": str(worktree_subdir)},
+                    idle,
+                ),
+                [want],
+            ):
                 return 1
 
-            prompt_commands = run_phase(
-                "prompt-submit",
-                {"session_id": session_id, "turn_id": "turn-1", "cwd": str(worktree)},
-            )
-            if pwd_reports(prompt_commands) != [want]:
-                print("FAIL: UserPromptSubmit must keep the worktree as the pane directory")
-                print(f"commands={prompt_commands!r}")
+            if not expect_reports(
+                "UserPromptSubmit must keep the worktree as the pane directory",
+                run_phase(
+                    "prompt-submit",
+                    {"session_id": session_id, "turn_id": "turn-1", "cwd": str(worktree)},
+                    running,
+                ),
+                [want],
+            ):
                 return 1
 
             for bad_cwd in ("relative/worktree", "", "   "):
-                bad_commands = run_phase(
-                    "prompt-submit",
-                    {"session_id": session_id, "turn_id": "turn-2", "cwd": bad_cwd},
-                )
-                if pwd_reports(bad_commands):
-                    print(f"FAIL: a non-absolute hook cwd {bad_cwd!r} must not move the pane directory")
-                    print(f"commands={bad_commands!r}")
+                if not expect_reports(
+                    f"a non-absolute hook cwd {bad_cwd!r} must not move the pane directory",
+                    run_phase(
+                        "stop",
+                        {"session_id": session_id, "turn_id": "turn-1", "cwd": bad_cwd},
+                        idle,
+                    ),
+                    [],
+                ):
                     return 1
 
             # A Bash `cd` inside the launch checkout is not a move: the pane
             # keeps the launch directory instead of following the subdirectory.
-            want_launch = expected_report(launch_cwd, workspace_id, surface_id)
-            subdir_commands = run_phase(
-                "prompt-submit",
-                {"session_id": session_id, "turn_id": "turn-2", "cwd": str(repo_subdir)},
-            )
-            if pwd_reports(subdir_commands) != [want_launch]:
-                print("FAIL: a cwd inside the launch checkout must report the launch directory")
-                print(f"want={want_launch!r}")
-                print(f"commands={subdir_commands!r}")
+            if not expect_reports(
+                "a cwd inside the launch checkout must report the launch directory",
+                run_phase(
+                    "prompt-submit",
+                    {"session_id": session_id, "turn_id": "turn-2", "cwd": str(repo_subdir)},
+                    running,
+                ),
+                [want_launch],
+            ):
                 return 1
 
             # Claude back in the launch checkout (ExitWorktree) reports the
             # shell's spelling of that directory, not the physical path.
-            back_commands = run_phase(
-                "stop",
-                {
-                    "session_id": session_id,
-                    "turn_id": "turn-2",
-                    "cwd": str(repo),
-                    "last_assistant_message": "left the worktree",
-                },
-            )
-            if pwd_reports(back_commands) != [want_launch]:
-                print("FAIL: a hook cwd that is the launch directory must report the launch spelling")
-                print(f"want={want_launch!r}")
-                print(f"commands={back_commands!r}")
+            if not expect_reports(
+                "a hook cwd that is the launch directory must report the launch spelling",
+                run_phase(
+                    "stop",
+                    {"session_id": session_id, "turn_id": "turn-2", "cwd": str(repo)},
+                    idle,
+                ),
+                [want_launch],
+            ):
                 return 1
 
-            run_phase(
-                "prompt-submit",
-                {"session_id": session_id, "turn_id": "turn-3", "cwd": str(worktree)},
-            )
+            if not expect_reports(
+                "re-entering the worktree must report the worktree root",
+                run_phase(
+                    "prompt-submit",
+                    {"session_id": session_id, "turn_id": "turn-3", "cwd": str(worktree)},
+                    running,
+                ),
+                [want],
+            ):
+                return 1
+
             end_commands = run_phase(
                 "session-end",
                 {"session_id": session_id, "reason": "prompt_input_exit", "cwd": str(worktree)},
+                "clear_agent_pid claude_code",
             )
             end_reports = pwd_reports(end_commands)
             if not end_reports or end_reports[-1] != want_launch:
