@@ -20,6 +20,7 @@ pub mod agent_host;
 pub mod agent_tools;
 pub mod catalog;
 pub mod chats;
+pub mod claude_auth;
 pub mod claude_stdio;
 pub mod cli;
 pub mod client;

@@ -98,6 +98,11 @@ on:
       - Resources/InfoPlist.xcstrings
       - Resources/bin/**
       - scripts/cmux-next/check-*.sh
+      # The PR fast tier: its runner, registry, quarantine list and test.
+      - scripts/cmux-next/fast-tier.py
+      - scripts/cmux-next/fast-tier.json
+      - scripts/cmux-next/quarantine.json
+      - scripts/cmux-next/tests/fast-tier.test.sh
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
@@ -227,6 +232,11 @@ on:
       - Resources/InfoPlist.xcstrings
       - Resources/bin/**
       - scripts/cmux-next/check-*.sh
+      # The PR fast tier: its runner, registry, quarantine list and test.
+      - scripts/cmux-next/fast-tier.py
+      - scripts/cmux-next/fast-tier.json
+      - scripts/cmux-next/quarantine.json
+      - scripts/cmux-next/tests/fast-tier.test.sh
       - scripts/cmux-next/lib/**
       - scripts/cmux-next/clear-stale-scheme-build-state.sh
       - scripts/cmux-next/stale-pcm-retry-needed.sh
@@ -457,6 +467,7 @@ jobs:
       swift: ${{ steps.route.outputs.swift }}
       daemon: ${{ steps.route.outputs.daemon }}
       full: ${{ steps.route.outputs.full }}
+      vendored_pin: ${{ steps.route.outputs.vendored_pin }}
       swift_filter: ${{ steps.route.outputs.swift_filter }}
       swift_targets: ${{ steps.route.outputs.swift_targets }}
       # ready, deferred, superseded or failed; empty when no tree tier runs.
@@ -1426,8 +1437,12 @@ jobs:
   # already published, and daemon-test runs them against it.
   swift-test:
     needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !((github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') || (github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next')) && (!cancelled() && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
-    name: cmux-next swift test
+    # feat-cmux-next pushes skip swift test. Its PRs run it on the gui minis
+    # (macOS 27) report-only until it is stable (hq#1915); a PR that bumps a
+    # vendored binary pin (GhosttyNextKit, CEF) runs it blocking.
+    if: ${{ !(github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (!cancelled() && needs.path_route.outputs.swift == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/feat-cmux-next' || startsWith(github.ref, 'refs/heads/next-batch/'))) }}
+    name: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.vendored_pin != 'true' && 'cmux-next swift test (macOS 27, report-only)' || 'cmux-next swift test' }}
+    continue-on-error: ${{ github.event_name == 'pull_request' && github.base_ref == 'feat-cmux-next' && needs.path_route.outputs.vendored_pin != 'true' }}
     # A push's Mac job waits for the same job of the running push run and is
     # never cancelled once it runs; a newer push replaces only the waiting one
     # (see the workflow concurrency comment).

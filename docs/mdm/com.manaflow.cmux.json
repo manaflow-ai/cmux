@@ -1047,6 +1047,46 @@
       "title" : "Calculator Answers",
       "type" : "boolean"
     },
+    "browser.omnibar.cornerRadius" : {
+      "default" : "theme",
+      "description" : "Match Theme uses the standard bar radius. Capsule rounds the ends fully. Also accepts a number from 0 to 16 in a raw profile.",
+      "enum" : [
+        "theme",
+        "capsule"
+      ],
+      "title" : "Address Bar Corners",
+      "type" : "string"
+    },
+    "browser.omnibar.glass" : {
+      "default" : "regular",
+      "description" : "The material of the address bar. Clear shows more of what is behind it. Off uses the flat theme color.",
+      "enum" : [
+        "regular",
+        "clear",
+        "off"
+      ],
+      "title" : "Address Bar Glass",
+      "type" : "string"
+    },
+    "browser.omnibar.glassTint" : {
+      "default" : "background",
+      "description" : "The color over the glass, from the terminal theme. Accent is the theme's own accent color, or gray when the theme has none.",
+      "enum" : [
+        "background",
+        "accent",
+        "none"
+      ],
+      "title" : "Glass Tint",
+      "type" : "string"
+    },
+    "browser.omnibar.glassTintStrength" : {
+      "default" : 0.35,
+      "description" : "browser.omnibar.glassTintStrength",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Tint Strength",
+      "type" : "number"
+    },
     "browser.omnibar.inlineAutocomplete" : {
       "default" : true,
       "description" : "Completes a site you typed before or visit often.",
@@ -1065,6 +1105,12 @@
       "default" : true,
       "description" : "Sends what you type to the search engine for suggestions. Never addresses, files or local hosts.",
       "title" : "Search Suggestions",
+      "type" : "boolean"
+    },
+    "browser.omnibar.shadow" : {
+      "default" : false,
+      "description" : "A soft shadow under the glass address bar.",
+      "title" : "Address Bar Shadow",
       "type" : "boolean"
     },
     "browser.openTerminalLinksInCmuxBrowser" : {
@@ -2001,8 +2047,8 @@
     },
     "sidebar.cards.tips" : {
       "default" : true,
-      "description" : "A \"Did you know\" card above the account button shows one cmux feature a day that you have not used yet. Each tip shows only once.",
-      "title" : "Show Tips",
+      "description" : "A hint card above the account button shows one cmux feature a day that you have not used yet. Each hint shows only once.",
+      "title" : "Show Hints",
       "type" : "boolean"
     },
     "sidebar.cmd9" : {
