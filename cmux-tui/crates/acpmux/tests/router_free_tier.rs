@@ -266,8 +266,9 @@ fn a_signed_out_request_is_served_with_the_device_token_the_app_proved() {
     assert_eq!(chat(port, &key).0, 200);
     assert_eq!(asked.lock().unwrap().len(), 1);
 
-    // The app quits: the token is dropped at once and nothing is forwarded.
-    drop(held);
+    // The app quits (its reader thread holds clones, so end the socket itself):
+    // the token is dropped at once and nothing is forwarded.
+    held.shutdown(std::net::Shutdown::Both).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     while admin(&dir, json!({"op": "status"})).unwrap()["free"]["provider"] == true {
         assert!(Instant::now() < deadline, "provider end not seen");
