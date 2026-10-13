@@ -1659,7 +1659,7 @@ XCODEBUILD_ARGS=(
   -project cmux.xcodeproj
   -scheme cmux
   -configuration "$BUILD_CONFIGURATION"
-  -destination 'platform=macOS'
+  -destination 'generic/platform=macOS'
   ARCHS=x86_64
   ONLY_ACTIVE_ARCH=NO
 )
