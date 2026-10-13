@@ -20,6 +20,7 @@ mod inbound;
 mod launchd;
 mod lines;
 mod machine_gate;
+pub(crate) mod machine_update;
 mod mesh;
 mod mesh_cloud;
 mod process_exit;
@@ -113,6 +114,9 @@ pub(crate) fn run(args: &[String]) -> i32 {
     }
     if args.first().map(String::as_str) == Some("access") {
         return access_cli::run(&args[1..]);
+    }
+    if args.first().map(String::as_str) == Some("machine") {
+        return machine_update::run(&args[1..]);
     }
     // Asked-for help is a success on stdout, like every other scope.
     if matches!(args.first().map(String::as_str), Some("-h" | "--help" | "help")) {
