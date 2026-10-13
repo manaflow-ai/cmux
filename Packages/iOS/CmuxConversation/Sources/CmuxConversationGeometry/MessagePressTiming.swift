@@ -15,7 +15,8 @@ import Foundation
 /// The growth is a fixed number of points on the bubble's long side, not a
 /// fixed factor (measured on iOS 26.5 Messages, 60 fps): a 208 pt bubble
 /// grows to 222.7 pt while held and lifts to 234.5 pt with the menu; a
-/// 278 pt bubble to 291.5 pt and 303.5 pt.
+/// 278 pt bubble to 291.5 pt and 303.5 pt. A small bubble lifts no more
+/// than 1.15 times its size (69.7 -> 80 pt, 83.3 -> 96 pt, 119.7 -> 137 pt).
 public enum MessagePressTiming {
     public static let liftBegins: TimeInterval = 0.15
     public static let clickDown: TimeInterval = 0.4
@@ -24,6 +25,8 @@ public enum MessagePressTiming {
     public static let pressGrowth: CGFloat = 14
     /// Points the long side grows once the menu opens.
     public static let liftGrowth: CGFloat = 26
+    /// The largest scale a lifted bubble reaches, however small it is.
+    public static let maxLiftScale: CGFloat = 1.15
     /// The held growth follows `1 - exp(-t / 0.27 s)` from `liftBegins` to
     /// `clickTimeout` (fitted to iOS 26.5 and 27.0 Messages frame by frame,
     /// within 0.07 of progress); this cubic matches that within 1 %.
@@ -81,7 +84,7 @@ public enum MessagePressTiming {
 
     /// Scale of the lifted bubble while the menu is open.
     public static func liftScale(for size: CGSize) -> CGFloat {
-        scale(for: size, growth: liftGrowth)
+        min(scale(for: size, growth: liftGrowth), maxLiftScale)
     }
 
     private static func scale(for size: CGSize, growth: CGFloat) -> CGFloat {

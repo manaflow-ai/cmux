@@ -38,9 +38,9 @@ the full-width swipe. "Modal" means a sheet for a task.
 | Transition | Before | After | Verified |
 | --- | --- | --- | --- |
 | Home → agent chat (conversation row) | Push | Unchanged | Full-width swipe pops, both simulators |
-| Home → Chief | Push with Chief's own glass back button and the bar hidden | Unchanged. The CnxChief presentation agent owns this | Not recorded here |
-| Workspaces → workspace (TabsKit) | Push with the bar hidden. **Crashed on open**: the terminal tab nested a SwiftUI `NavigationStack` in the pushed page, and with the typed `[Workspace]` path SwiftUI trapped (`comparisonTypeMismatch`). The back swipe was dead: SwiftUI disables the iOS 26 content pop while the bar is hidden | Opens. The path is a `NavigationPath`. The terminal page has its own UIKit navigation controller, so no SwiftUI stack is nested. The edge pop and full-width content pop are re-enabled with a delegate that allows them only when there is something to pop. The back chevron stays bottom-leading in the TabsKit toolbar | Edge and full-width swipes pop, both simulators |
-| Leaving a workspace with a terminal tab | **Crashed** (`EXC_BAD_ACCESS` in `CnxGhosttyApp` action callback): Ghostty delivered an action to a freed `TerminalSurfaceView` | The surface userdata is its `InputBox`. It outlives the view until `ghostty_surface_free` and holds the view weakly | Full-width pop out of a workspace, no crash |
+| Home → Chief | Push with Chief's own glass back button and the bar hidden | Unchanged. The CnxChief presentation agent owns this | After the merge: **the edge swipe does not pop** on either simulator (`nav/<sim>-chief-*`). The hidden bar disables it, as it did for the workspace. Fix for the Chief owner: the same enabler as `WorkspaceScreen`'s `InteractivePopEnabler` |
+| Workspaces → workspace (TabsKit) | Push with the bar hidden. **Crashed on open**: the terminal tab nested a SwiftUI `NavigationStack` in the pushed page, and with the typed `[Workspace]` path SwiftUI trapped (`comparisonTypeMismatch`). The back swipe was dead: SwiftUI disables the iOS 26 content pop while the bar is hidden | Opens. After the merge with `feat-cnx-ios`, the terminal page is `TerminalTabPage`, which nests no SwiftUI stack, so the path is typed `[Workspace]` again. The edge pop and full-width content pop are re-enabled with a delegate that allows them only when there is something to pop. The back chevron stays bottom-leading in the TabsKit toolbar | Edge and full-width swipes pop, both simulators |
+| Leaving a workspace with a terminal tab | **Crashed** (`EXC_BAD_ACCESS` in `CnxGhosttyApp` action callback): Ghostty delivered an action to a freed `TerminalSurfaceView` | The surface userdata is its `InputBox`. It outlives the view until `ghostty_surface_free` and holds the view weakly | Full-width pop out of a workspace with a terminal tab (fleet), no crash, both simulators after the merge |
 | Workspace grid back circle and "All Workspaces" | Pop | Unchanged | — |
 | Feed event → agent chat | Push, but the Feed path was private, so the shell thought Feed was at its root. **An edge swipe opened the team drawer instead of going back** | The Feed path is the shell's `feedPath`. The drawer pan also refuses to begin when the touched navigation controller has anything to pop, so no stack depends on reporting its depth | Edge swipe pops, both simulators (`fp.png` → `fp3.png`) |
 | Agent chat → Changes / diff file | Push (`navigationDestination(item:)`) | Unchanged | — |
@@ -66,9 +66,9 @@ No `fullScreenCover` or hidden navigation bar remains on a drill-down, except tw
   `PHPhotoLibrary.requestAuthorization`. The generated Info.plist had no `NSPhotoLibraryUsageDescription`,
   so TCC killed the app (`namespace: TCC`, `CnxApp-2026-10-13-104812.ips`). The agent chat and terminal
   composers use `PhotosPicker`, which needs no permission. They did not crash.
-- Fix: `project.yml` adds three usage strings. `NSPhotoLibraryUsageDescription` reads "cmux uses your photos
-  to attach images to messages." `NSCameraUsageDescription` covers the Chief camera item and the agent
-  chat Camera item. `NSMicrophoneUsageDescription` covers the conversation audio recorder.
+- Fix: usage strings in `project.yml`. After the merge, the set is the one from `feat-cnx-ios`: camera,
+  photo library, photo library add, and microphone ("Attach photos to messages for Chief and your
+  agents.").
 - After the fix, the permission prompt shows the string. "Allow Full Access" loads the grid, on both
   simulators.
 - The agent chat composer worked on both simulators: Photos, pick, attach, send. The mock streamed the turn
@@ -94,8 +94,8 @@ toggles.
 
 | Control | Resolution |
 | --- | --- |
-| Agent chat composer `+` → Camera (`{}`) | Implemented: system camera in a full-screen cover, adds the photo as an attachment. Hidden when there is no camera (simulator) |
-| Agent chat title menu: Rename, Open terminal, Files | Removed (no session rename API, no tab routing from a chat) |
+| Agent chat composer `+` → Camera (`{}`) | Implemented. After the merge, this is `feat-cnx-ios`'s `CameraPicker`. Without a camera, the item is disabled with the subtitle "No camera on this device" |
+| Agent chat title menu: Rename, Open terminal | Removed (no session rename API, no tab routing from a chat). "Files and artifacts" from `feat-cnx-ios` works and stays |
 | Agent chat toolbar: New session | Removed |
 | Agent chat More: Archive | Removed |
 | Answer More: Fork from here, Report issue | Removed |
@@ -103,8 +103,8 @@ toggles.
 | Diff file header menu: Open file, Open in terminal | Removed (Copy path stays) |
 | Diff line context menu: Comment (coming soon, disabled), Open file at line | Removed |
 | Terminal title menu: New terminal tab | Removed |
-| Workspaces Mac section More menu: Pair Details, Reconnect, Unpair | Menu removed (no pairing management yet) |
-| Workspaces list pull to refresh (`.refreshable {}`) | Removed |
+| Workspaces Mac section More menu: Pair Details, Reconnect, Unpair | After the merge, this is `feat-cnx-ios`'s version: only Reconnect, shown when it can redial |
+| Workspaces list pull to refresh (`.refreshable {}`) | After the merge, this is `feat-cnx-ios`'s `OptionalRefresh`: shown only when it refreshes |
 | Settings → Paired Macs: Unpair swipe, Pair a Mac, Disconnect all | Removed |
 | Settings → Team: Leave team (showed "isn't available yet") | Removed |
 | Sidebar team context menu: Leave team (same toast) | Removed |
@@ -127,5 +127,16 @@ collapsed and after "Show more". Light and dark, both simulators: `feed/before-*
 
 - With the composer expanded (attachments or focus), the agent chat transcript can sit about 20 pt left of
   its margin until the next turn arrives. This was seen before these changes. Not fixed here.
-- Inside a workspace, the terminal tab's own title bar is not drawn, and its composer sits under the TabsKit
-  toolbar. This predates the branch: the embedded terminal variant is still to come.
+- Chief's edge swipe does not pop (see the table). This is for the CnxChief owner.
+
+## After merging `feat-cnx-ios` (2026-10-13)
+
+All checks were re-run on the merged build, on both simulators:
+
+- Back swipes on the workspace, a terminal-only workspace, the Feed chat, the Home chat and a Settings page,
+  plus Chief: `nav/<sim>-summary.png`.
+- Photos from the agent chat composer, then attach and send. The turn streams with no error.
+- The Chief Photos permission prompt.
+- Feed quotes: `feed/after-*`.
+
+`CnxLiveTests` passed again.

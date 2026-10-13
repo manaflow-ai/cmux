@@ -97,7 +97,7 @@ final class ConversationPhotoGridView: UIView, UICollectionViewDataSource, UICol
         guard let asset = assets?.object(at: indexPath.item) else { return }
         if let index = selection.firstIndex(of: asset.localIdentifier) {
             selection.remove(at: index)
-        } else if selection.count < PhotoDrawerGeometry.selectionLimit {
+        } else if selection.count < PhotoDrawerGeometry.selectionLimit(iOS27: ConversationComposerView.isIOS27) {
             selection.append(asset.localIdentifier)
         }
         UISelectionFeedbackGenerator().selectionChanged()

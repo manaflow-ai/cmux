@@ -1,4 +1,6 @@
 import CmuxConversationCore
+import CnxAgentChat
+import CnxModel
 import CnxTransport
 import Foundation
 import Testing
@@ -63,6 +65,10 @@ final class FakeDaemon: @unchecked Sendable {
     private var messages: [[String: Any]] = []
     private var rev = 0
     private(set) var commands: [String] = []
+    /// `conversation-attachment-upload`: open uploads and stored bytes by hash.
+    private var uploads: [String: (hash: String, bytes: Data)] = [:]
+    private(set) var stored: [String: Data] = [:]
+    private(set) var sentParts: [[[String: Any]]] = []
 
     func line(_ object: [String: Any]) -> Data {
         var data = try! JSONSerialization.data(withJSONObject: object)
@@ -77,9 +83,22 @@ final class FakeDaemon: @unchecked Sendable {
         return summary
     }
 
-    private func message(author: String, text: String, client: String) -> [String: Any] {
+    private func message(author: String, text: String, client: String, parts: [[String: Any]]? = nil) -> [String: Any] {
         ["id": "msg_\(messages.count + 1)", "conversation": "conv_chief", "seq": messages.count + 1, "client_msg_id": client,
-         "author": author, "parts": [["type": "text", "text": text]], "created_at": "2026-10-12T09:41:07.000Z", "reactions": []]
+         "author": author, "parts": parts ?? [["type": "text", "text": text]], "created_at": "2026-10-12T09:41:07.000Z", "reactions": []]
+    }
+
+    /// A photo Chief sent earlier, stored by the owner (not by this client).
+    func seedChiefPhoto(_ bytes: Data) -> String {
+        lock.withLock {
+            let hash = "chiefphoto"
+            stored[hash] = bytes
+            messages.append(message(author: "agent_chief", text: "", client: "seed-photo", parts: [[
+                "type": "attachment", "hash": hash, "name": "chart.png", "mime_type": "image/png",
+                "byte_count": bytes.count, "width": 4, "height": 3,
+            ]]))
+            return hash
+        }
     }
 
     func respond(_ request: Data) -> [Data] {
@@ -109,12 +128,39 @@ final class FakeDaemon: @unchecked Sendable {
                 return [ok(["messages": messages.filter { ($0["seq"] as! Int) < before }])]
             case "conversation-typing":
                 return [ok([:])]
+            case "conversation-attachment-upload":
+                switch object["op"] as! String {
+                case "begin":
+                    let upload = "up_\(uploads.count + 1)"
+                    uploads[upload] = (object["sha256"] as! String, Data())
+                    return [ok(["upload": upload, "needs": ["original"], "stored": NSNull()])]
+                case "chunk":
+                    let upload = object["upload"] as! String
+                    guard object["offset"] as? Int == uploads[upload]?.bytes.count else {
+                        return [line(["id": id, "ok": false, "error": ["error_code": "attachment_rejected", "message": "bad_offset"]])]
+                    }
+                    uploads[upload]!.bytes.append(Data(base64Encoded: object["data"] as! String)!)
+                    return [ok(["received": uploads[upload]!.bytes.count])]
+                default:
+                    let upload = uploads.removeValue(forKey: object["upload"] as! String)!
+                    stored[upload.hash] = upload.bytes
+                    return [ok(["stored": ["hash": upload.hash, "mime_type": "image/png", "byte_count": upload.bytes.count]])]
+                }
+            case "conversation-attachment-read":
+                let bytes = stored[object["hash"] as! String] ?? Data()
+                let offset = object["offset"] as? Int ?? 0
+                let length = object["length"] as? Int ?? bytes.count
+                let piece = bytes.subdata(in: min(offset, bytes.count)..<min(bytes.count, offset + length))
+                return [ok(["hash": object["hash"]!, "mime_type": "image/png", "byte_count": bytes.count, "offset": offset,
+                            "data": piece.base64EncodedString(), "eof": offset + piece.count >= bytes.count])]
             case "conversation-op":
                 let op = object["op"] as! [String: Any]
                 switch op["kind"] as! String {
                 case "message.send":
-                    let text = (op["parts"] as! [[String: Any]])[0]["text"] as! String
-                    let mine = message(author: "user_local", text: text, client: op["client_msg_id"] as! String)
+                    let parts = op["parts"] as! [[String: Any]]
+                    sentParts.append(parts)
+                    let text = parts.compactMap { $0["text"] as? String }.joined()
+                    let mine = message(author: "user_local", text: text, client: op["client_msg_id"] as! String, parts: parts)
                     messages.append(mine)
                     rev += 1
                     let sent = line(["event": "conversation-changed", "conversation": "conv_chief", "rev": rev, "transaction": NSNull(),
@@ -231,3 +277,98 @@ final class FakeDaemon: @unchecked Sendable {
         #expect(again.id == sent.id)
     }
 }
+
+/// A 4 x 3 PNG.
+private let tinyPNG = Data(base64Encoded: "iVBORw0KGgoAAAANSUhEUgAAAAQAAAADCAIAAAA7ljmRAAAAE0lEQVR4nGPkqjjBAANMcBY6BwAvkAFQPo8GTQAAAABJRU5ErkJggg==")!
+
+@Suite struct ChiefAttachmentTests {
+    /// User feedback: a photo sent to Chief came back "Not Delivered".
+    @Test func mockDeliversPhotosAndRepliesToThem() async throws {
+        let backend = ChiefMockBackend(sleep: { _ in })
+        var events = backend.events().makeAsyncIterator()
+        _ = await events.next()
+        let uploaded = try await backend.uploadImage(tinyPNG, mimeType: "image/png")
+        #expect(uploaded.kind == .image)
+        #expect(uploaded.width == 4 && uploaded.height == 3)
+        let sent = try await backend.send(ConversationOutgoingDraft(clientMessageID: "p", text: "", replyToID: nil, attachmentIDs: [uploaded.id]))
+        #expect(sent.attachments.map(\.id) == [uploaded.id])
+        #expect(sent.attachments.first?.localData == tinyPNG)
+        #expect(sent.delivery == .delivered)
+        var reply: ConversationMessage?
+        while reply == nil, let event = await events.next() {
+            if case .message(let message, _) = event, message.senderID == ChiefIdentity.standard.chiefID { reply = message }
+        }
+        #expect(reply?.text.contains("photo") == true)
+    }
+
+    @Test func storeSendsAPhotoWithTextToTheMock() async throws {
+        let store = await ConversationStore(backend: ChiefMockBackend(sleep: { _ in }))
+        await store.start()
+        while await store.meID == nil { await Task.yield() }
+        await store.send(text: "look", images: [(data: tinyPNG, width: 4, height: 3, mimeType: "image/png")])
+        while await store.messages.contains(where: { $0.seq == nil }) { await Task.yield() }
+        let mine = await store.messages.filter { $0.senderID == ChiefIdentity.standard.meID && !$0.attachments.isEmpty }
+        #expect(mine.count == 1)
+        #expect(mine.first?.delivery?.isFailed == false)
+    }
+
+    /// `conversation-attachment-upload` begin, chunk, commit; the send names
+    /// the hash in an `attachment` part; a photo from Chief is read by hash.
+    @Test func daemonUploadsByHashAndReadsIncomingBytes() async throws {
+        let daemon = FakeDaemon()
+        let link = MockMacLink { _, request in daemon.respond(request) }
+        let backend = try await ChiefDaemonBackend.open(link: link)
+        var events = backend.events().makeAsyncIterator()
+        _ = await events.next()
+        let photo = daemon.seedChiefPhoto(tinyPNG)
+
+        let uploaded = try await backend.uploadImage(tinyPNG, mimeType: "image/png")
+        #expect(daemon.commands.filter { $0 == "conversation-attachment-upload" }.count == 3)
+        #expect(uploaded.width == 4 && uploaded.height == 3)
+        let sent = try await backend.send(ConversationOutgoingDraft(clientMessageID: "a-1", text: "the chart", replyToID: nil, attachmentIDs: [uploaded.id]))
+        let parts = try #require(daemon.sentParts.last)
+        #expect(parts.map { $0["type"] as? String } == ["attachment", "text"])
+        #expect(parts[0]["byte_count"] as? Int == tinyPNG.count)
+        #expect(sent.attachments.first?.localData == tinyPNG)
+        #expect(sent.text == "the chart")
+
+        let page = try await backend.history(beforeSeq: nil, limit: 50)
+        let incoming = try #require(page.messages.first { $0.senderID == "agent_chief" && !$0.attachments.isEmpty })
+        #expect(incoming.attachments.first?.id == "att:\(photo)")
+        #expect(incoming.attachments.first?.localData == tinyPNG)
+        #expect(daemon.commands.contains("conversation-attachment-read"))
+        backend.close()
+    }
+}
+
+#if os(iOS)
+@Suite @MainActor struct ChiefDirectoryTests {
+    func directory() -> ChiefDirectory {
+        let chief = ChiefDirectory.recipients(store: AppStore(teams: [], activeTeamID: "", workspaces: [], feed: []), identity: .standard)
+        let agent = ChiefRecipient(
+            contact: ConversationContact(id: "tab:t1", name: "Claude · cmux", initials: "CL", colorHex: "#636366",
+                                         handles: [ConversationContactHandle(value: "cmux", label: "Claude", service: .iMessage)]),
+            route: .agent(AgentChatDestination(workspaceID: "ws", tabID: "t1"))
+        )
+        return ChiefDirectory(recipients: [chief[0], agent])
+    }
+
+    @Test func listsChiefFirstAndSearchesNames() async throws {
+        let directory = directory()
+        #expect(try await directory.searchContacts("", limit: 10, excluding: []).map(\.id) == ["agent_chief", "tab:t1"])
+        #expect(try await directory.searchContacts("clau", limit: 10, excluding: []).map(\.id) == ["tab:t1"])
+        #expect(try await directory.lookupHandles(["nobody"]).first?.service == nil)
+    }
+
+    @Test func oneAgentOpensItsChatSeveralOpenChief() async throws {
+        let directory = directory()
+        let agent = try await directory.createConversation([.participant("tab:t1")])
+        #expect(agent.info.id == "tab:t1")
+        let chief = try await directory.createConversation([.participant("agent_chief")])
+        #expect(chief.info.id == ChiefDirectory.chiefContactID)
+        let both = try await directory.createConversation([.participant("agent_chief"), .participant("tab:t1")])
+        #expect(both.info.id == ChiefDirectory.chiefContactID)
+        await #expect(throws: ConversationBackendError.self) { try await directory.createConversation([.handle("nobody")]) }
+    }
+}
+#endif

@@ -240,6 +240,109 @@ struct MockDialer: MacLinkDialer {
     }
 }
 
+// MARK: Workspace creation on the daemon
+
+@MainActor
+@Suite struct LiveWorkspaceCreationTests {
+    /// A daemon that creates `new-workspace` (surface 10) and `new-browser-tab`
+    /// (surface 11), or refuses `new-workspace` like the phone policy.
+    static func daemon(refuse: Bool, seen: CommandLog) -> MockMacLink {
+        MockMacLink { _, data in
+            let object = try! JSONSerialization.jsonObject(with: data.dropLast()) as! [String: Any]
+            let id = object["id"] as! String
+            let cmd = object["cmd"] as! String
+            seen.append(cmd, object["name"] as? String)
+            let line: String
+            switch cmd {
+            case "new-workspace" where refuse:
+                line = #"{"id":"\#(id)","ok":false,"error":"new-workspace is not available to a phone","error_code":"forbidden"}"#
+            case "new-workspace":
+                line = #"{"id":"\#(id)","ok":true,"data":{"surface":10}}"#
+            case "new-browser-tab":
+                line = #"{"id":"\#(id)","ok":true,"data":{"surface":11}}"#
+            case "list-workspaces":
+                let created = seen.contains("new-workspace") && !refuse
+                let browser = seen.contains("new-browser-tab")
+                let tabs = #"{"surface":10,"kind":"pty","cwd":"/Users/me"}"# + (browser ? #",{"surface":11,"kind":"browser","url":"about:blank"}"# : "")
+                let ws = created ? #"{"id":2,"key":"wk2","name":"New Workspace","screens":[{"active":true,"active_pane":1,"panes":[{"id":1,"active_tab":0,"tabs":[\#(tabs)]}]}]}"# : ""
+                line = #"{"id":"\#(id)","ok":true,"data":{"workspaces":[{"id":1,"key":"wk1","name":"main","screens":[]}\#(created ? "," : "")\#(ws)]}}"#
+            case "list-agents":
+                line = #"{"id":"\#(id)","ok":true,"data":{"agents":[]}}"#
+            default:
+                line = #"{"id":"\#(id)","ok":true,"data":{}}"#
+            }
+            return [Data(line.utf8) + Data([0x0A])]
+        }
+    }
+
+    func connected(_ refuse: Bool, _ log: CommandLog) async throws -> (AppStore, WorkspaceCreator, WorkspaceSync) {
+        let store = AppStore.mock(tabMemory: .inMemory())
+        store.teams[0].macs = [MacDevice(id: "m", name: "Mac", isOnline: true)]
+        let controller = LinkController(transport: .wireGuard, dialer: MockDialer(fail: false), accessToken: { _ in "t" })
+        controller.endpoint = { LinkEndpoint(baseURL: URL(string: "https://x")!, teamID: "t", deviceID: "d", macDeviceID: $0) }
+        controller.send(.target(LinkMachine.Target(macID: "m", name: "Mac", isOnline: true)))
+        for _ in 0..<200 where !controller.phase.isConnected { await Task.yield() }
+        let sync = WorkspaceSync(deviceID: "d", deviceName: "iPhone")
+        sync.onTree = { store.replaceWorkspaces(macID: "m", with: $0.workspaces) }
+        await sync.bind(try await Self.daemon(refuse: refuse, seen: log).openChannel(service: "daemon", args: [:]), macID: "m")
+        let defaults = try #require(UserDefaults(suiteName: "cnx.tests.live.\(UUID().uuidString)"))
+        let creator = WorkspaceCreator(store: store, backend: LiveWorkspaceCreationBackend(sync: sync, link: controller), defaults: defaults)
+        return (store, creator, sync)
+    }
+
+    @Test func tapCreatesOnTheDaemonAndFollowsTheRealWorkspace() async throws {
+        let log = CommandLog()
+        let (store, creator, _) = try await connected(false, log)
+        // Only what the phone lane allows: no directories, no agent tabs.
+        #expect(creator.options(on: "m") == WorkspaceCreationOptions(browser: true))
+        #expect(creator.recentDirectories(on: "m").isEmpty)
+        let placeholder = try #require(creator.create())
+        #expect(store.isPending(placeholder.id))
+        await creator.settle()
+        #expect(log.names["new-workspace"] == "New Workspace")
+        #expect(creator.phases[placeholder.id] == .created("wk2"))
+        #expect(store.workspace(id: placeholder.id)?.id == "wk2")
+        #expect(store.workspaces.filter { $0.macID == "m" }.map(\.id) == ["wk1", "wk2"])
+        #expect(store.openingTab(for: try #require(store.workspace(id: "wk2")))?.id == "s10")
+    }
+
+    @Test func browserStartOpensOnTheBrowserTab() async throws {
+        let log = CommandLog()
+        let (store, creator, _) = try await connected(false, log)
+        let placeholder = try #require(creator.create(start: .browser))
+        await creator.settle()
+        #expect(log.contains("new-browser-tab"))
+        let real = try #require(store.workspace(id: placeholder.id))
+        #expect(store.openingTab(for: real)?.id == "s11")
+    }
+
+    @Test func refusalRemovesThePlaceholder() async throws {
+        let log = CommandLog()
+        let (store, creator, _) = try await connected(true, log)
+        var reason: String?
+        creator.onFailure = { reason = $1 }
+        let placeholder = try #require(creator.create())
+        await creator.settle()
+        #expect(reason == "new-workspace is not available to a phone")
+        #expect(store.workspace(id: placeholder.id) == nil)
+        #expect(store.workspaces.filter { $0.macID == "m" }.map(\.id) == ["wk1"])
+    }
+}
+
+final class CommandLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var commands: [String] = []
+    private var nameByCommand: [String: String] = [:]
+    func append(_ cmd: String, _ name: String?) {
+        lock.withLock {
+            commands.append(cmd)
+            if let name { nameByCommand[cmd] = name }
+        }
+    }
+    func contains(_ cmd: String) -> Bool { lock.withLock { commands.contains(cmd) } }
+    var names: [String: String] { lock.withLock { nameByCommand } }
+}
+
 final class Counter: @unchecked Sendable {
     private let lock = NSLock()
     private var value = 0
@@ -422,5 +525,33 @@ final class ScriptedSource: AgentSessionSource {
         let blocks = AcpmuxSessionSource.promptBlocks(text: "", attachments: [AgentAttachment(kind: .image, name: "Photo", data: jpeg)])
         #expect(blocks.count == 1)
         #expect(blocks.first?["mimeType"]?.stringValue == "image/jpeg")
+    }
+}
+
+// MARK: Subagents and handoff over acpmux
+
+@Suite struct AcpmuxParityTests {
+    let records = AcpmuxRecords(sessionID: "s1")
+
+    func json(_ string: String) -> JSONValue { try! JSONDecoder().decode(JSONValue.self, from: Data(string.utf8)) }
+
+    @Test func mapsSubagentAttribution() {
+        let spawn = json(#"{"seq":7,"at":1700000000000,"dir":"in","msg":{"method":"session/update","params":{"sessionId":"s1","update":{"sessionUpdate":"tool_call","toolCallId":"tc","title":"Agent","kind":"other"},"_meta":{"acpmux":{"subagents":[{"id":"a1","parent":null,"name":"Explore","task":"Find the dialer","state":"running","toolCallId":"tc"}]}}}}}"#)
+        let events = records.map(spawn)
+        guard case .subagent(let change)? = events.first else { Issue.record("no subagent"); return }
+        #expect(change.id == "a1" && change.parent == nil && change.name == "Explore" && change.toolCallID == "tc" && change.state == .running)
+        #expect(events.count == 2)
+        let owned = json(#"{"seq":8,"dir":"in","msg":{"method":"session/update","params":{"sessionId":"a1","update":{"sessionUpdate":"agent_message_chunk","content":{"type":"text","text":"found"}},"_meta":{"acpmux":{"subagent":"a1"}}}}}"#)
+        #expect(records.map(owned) == [.subagentUpdate(subagentID: "a1", .agentMessageChunk(text: "found", messageId: nil))])
+    }
+
+    @Test @MainActor func readsHarnessesAndHandoffRecords() {
+        let harnesses = json(#"{"harnesses":{"claude":{"family":"claude"},"codex":{"family":"codex","displayName":"Codex"},"gemini":{"unavailable":"not installed"}}}"#)
+        let targets = AcpmuxSessionSource.handoffTargets(harnesses, excluding: "claude")
+        #expect(targets.map(\.id) == ["codex", "gemini"])
+        #expect(targets[0].name == "Codex" && targets[1].unavailableReason == "not installed")
+        let record = json(#"{"handoffId":"h1","revision":2,"state":"draft","target":{"coverage":[{"item":"transcript","status":"summarized","detail":null}]},"capsule":{"text":"ctx","maxBytes":65536,"checkpoint":null},"promptId":null}"#)
+        let draft = AcpmuxSessionSource.handoffDraft(record, target: targets[0])
+        #expect(draft?.id == "h1" && draft?.revision == 2 && draft?.capsule == "ctx" && draft?.coverage.first?.status == .summarized)
     }
 }

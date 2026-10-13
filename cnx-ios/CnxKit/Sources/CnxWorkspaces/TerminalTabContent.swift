@@ -33,10 +33,36 @@ public protocol TerminalTabContent: AnyObject {
     func page(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView
     func card(for tab: WorkspaceTab, in workspace: Workspace) -> AnyView
     func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView?
+    /// The terminal's own actions, shown first in the tab's page menu
+    /// (TabsKit owns the toolbar, so this is where the keyboard toggle,
+    /// Files and Links, and the control keys live).
+    func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction]
+    /// The tab grid is about to open with `tab` active: refresh its card.
+    func overviewWillAppear(active tab: WorkspaceTab)
 }
 
 extension TerminalTabContent {
     public func accessory(for tab: WorkspaceTab, in workspace: Workspace, context: TerminalTabContext) -> AnyView? { nil }
+    public func actions(for tab: WorkspaceTab, in workspace: Workspace) -> [TerminalTabAction] { [] }
+    public func overviewWillAppear(active tab: WorkspaceTab) {}
+}
+
+/// A page menu row a terminal tab adds.
+public struct TerminalTabAction {
+    public var title: String
+    public var systemImage: String
+    public var isEnabled: Bool
+    public var isDestructive: Bool
+    public var perform: @MainActor () -> Void
+
+    public init(title: String, systemImage: String, isEnabled: Bool = true, isDestructive: Bool = false,
+                perform: @escaping @MainActor () -> Void) {
+        self.title = title
+        self.systemImage = systemImage
+        self.isEnabled = isEnabled
+        self.isDestructive = isDestructive
+        self.perform = perform
+    }
 }
 
 /// Stand-in until CnxTerminal lands: a static terminal-looking page.

@@ -15,7 +15,7 @@ done < <(env)
 xcrun simctl terminate "$udid" dev.cmux.cnx >/dev/null 2>&1 || true
 mkdir -p "$(dirname "$out")"
 log=$(mktemp)
-xcrun simctl io "$udid" recordVideo --codec h264 --force "$out" >"$log" 2>&1 &
+xcrun simctl io "$udid" recordVideo --codec ${CNX_RECORD_CODEC:-h264} --force "$out" >"$log" 2>&1 &
 rec=$!
 # Launch only once the recorder reports it is capturing.
 until grep -q "Recording started" "$log"; do sleep 0.1; done

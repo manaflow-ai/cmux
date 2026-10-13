@@ -50,7 +50,7 @@ and are cited by file name only. Do not copy them into the repo.
 | Sidebar | Push-aside card | Push-aside card | Full-screen page | Push-aside card (2 of 3), section 3.3. |
 | Settings presentation | Sheet, swipe to dismiss | Full-screen, X only | Sheet | It is a tab in cnx-ios (the brief), so no presentation question. Sub-pages push. |
 | Jump-to-bottom position | n/a | Centered | Trailing | Centered. |
-| Toggle tint | Blue | Green | n/a | System green (default `Toggle` tint). Not blue. |
+| Toggle tint | Blue | Green | n/a | System green, the `success` token, pinned with `.toggleStyle(.cnxSwitch)` (the neutral app tint would otherwise make on switches white in dark, black in light). Not blue. |
 | Settings search | none | none | Floating field at the bottom | None in v1: our settings fit on two screens. |
 | Mode switch in title | none | Chat / Work segmented | Ask / Imagine / Build | We use the tab bar for top-level areas, so no title segmented control on roots. The pattern is reused inside screens (Unified / Split in the diff viewer). |
 
@@ -86,7 +86,7 @@ Increase Contrast by using the "High contrast" column where given.
 | `label` | `#FFFFFF` | `#000000` | `Color.primary`. |
 | `label2` | `#EBEBF5` @ 60% | `#3C3C43` @ 60% | `Color.secondary` / `.secondaryLabel`. |
 | `label3` | `#EBEBF5` @ 30% | `#3C3C43` @ 30% | Placeholders, gutters, disabled. `.tertiaryLabel`. |
-| `accent` | `#FFFFFF` | `#000000` | Neutral cmux accent. Set as the app `tint` so system controls follow. |
+| `accent` | `#FFFFFF` | `#000000` | Neutral cmux accent. Set as the app `tint` so system controls follow, except switches (`success`); containers with switches use `cnxNeutralControlTint()`. |
 | `onAccent` | `#000000` | `#FFFFFF` | Text and glyphs on `accent` fills. |
 | `success` | `#30D158` | `#34C759` | Mac online dots, connected, toggles. |
 | `danger` | `#FF453A` | `#FF3B30` | Destructive, errors, Log out. |
@@ -395,13 +395,18 @@ Team switch: tap row → `.selection` haptic, row highlight moves (`snap`), draw
 (`drawer`), then the shell crossfades (`gentle`) to the new team's data; lists show skeletons
 until the first `hello` frame. Persist the last team per device.
 
-### 3.4 Team color and emoji editor
+### 3.4 Team color and icon editor
 
-Sheet (`.presentationDetents([.medium])`), glass X leading, title "Team appearance"
-centered. Large avatar preview 72 pt (radius 20). Below: 13-color swatch grid (6 columns, 44 pt
-circles, selected ring 3 pt `label` with 3 pt gap), then "Emoji" row with the current emoji and
-"Choose" (opens the system emoji keyboard on a hidden `TextField` restricted to one grapheme),
-"Remove emoji". "Done" docked bottom as a large CTA. Writes `PUT /v1/teams/:teamId/prefs`;
+Sheet (`.presentationDetents([.height(640), .large])`), glass X leading, title "Team appearance"
+centered. Large avatar preview 72 pt (radius 20). Below: "Icon" group with a segmented control
+Automatic / Custom / None (Automatic = the team's first letter, the default; None = color only).
+Custom adds a "Character" row with an inline `TextField` on the system keyboard that keeps exactly
+one grapheme (a letter, digit, symbol, or an emoji from the keyboard's emoji key); a new
+keystroke replaces the old character, whitespace is ignored, and an empty field previews as
+Automatic. The icon group sits above the color grid so the preview stays visible over the
+keyboard. Then "Color": 13-color swatch grid (6 columns, 44 pt circles, selected ring 3 pt
+`label` with 3 pt gap). "Done" docked bottom as a large CTA. Wire: `emoji` null = Automatic,
+`""` = None, otherwise the character (PROTOCOL.md). Writes `PUT /v1/teams/:teamId/prefs`;
 optimistic, reverts with a toast on failure. Pattern: ChatGPT new project emoji field,
 `chatgpt-29-new-project-sheet`.
 
@@ -555,33 +560,38 @@ custom popover. Alerts follow `claude-04-new-session-alert`: title, body, two bu
   #FFFFFF light), `UIImageName` = `LaunchMark` (the cmux mark, template, 72 x 72 pt, tinted
   `label`), centered. No text, no spinner. (ChatGPT, Claude and Grok all show only their mark
   on their background.)
-- `LaunchHandoff` (first SwiftUI frame): the same mark at the same position; when the auth state
-  resolves (Keychain read, < 300 ms typical), the mark scales 1.0 → 0.92 and fades out over
-  `snap` while the destination fades in with `gentle`. If auth takes > 1 s, show nothing extra;
-  never a spinner on launch.
+- `LaunchHandoff` (first SwiftUI frame): the same mark at the same position. When auth resolves
+  (Keychain read, < 300 ms typical) to a signed-in destination, the mark scales 1.0 → 0.92 and
+  fades out over `snap` while the destination fades in with `gentle`. To Welcome there is no
+  fade: Welcome draws the launch mark itself on its first frame and animates it (5.2). If auth
+  takes > 1 s, show nothing extra; never a spinner on launch.
 
 ### 5.2 Welcome (signed out)
 
-No multi-page carousel: none of the three references has a first-run feature tour; they open on
-a single welcome with sign-in buttons. Layout on `bg`:
+No multi-page carousel and no feature copy: like ChatGPT (centered mark/wordmark over the
+sign-in stack) and Claude (wordmark and one headline above the buttons), the screen is the mark,
+one line and the buttons. Layout on `bg`:
 
-- Top 55%: animated hero. A monochrome "conversation" illustration: three lines of terminal
-  text typing in mono (`label2`), then a user bubble and an assistant line appearing, looping
-  every 6 s (Reduce Motion: static frame). The cmux mark (40 pt) above it.
-- Headline `heroTitle`, 20 pt margins, leading aligned: "Your Macs, in your pocket."
-  Subhead `body` `label2`: "Run agents, terminals and workspaces from anywhere."
-- Bottom stack, 20 pt margins, 10 pt spacing, 8 pt above the bottom safe area, all 52 h, radius 26:
-  1. `SignInWithAppleButton(.continue)`, style `.white` in dark / `.black` in light,
-     `cornerRadius` 26 (pill, allowed by the HIG; Apple's button must be no smaller than the
-     others and first).
-  2. "Continue with Google": `surface` fill (dark) / `fill` (light), `label` text, Google "G"
-     logo asset at 18 pt (full-color asset as Google requires).
+- Hero, centered in the space above the button stack: the cmux chevron, 60 pt, filled with the
+  app icon's gradient (`#06CDFE` → `#2AA0F9` → `#5170F3`, leading to trailing, sampled from
+  `AppIcon.icon`) with a soft `#2AA0F9` glow (55% dark / 30% light). 30 pt below it, centered
+  `heroTitle` `label`: "Your Macs, in your pocket." Nothing else.
+- Bottom stack, 20 pt margins, 10 pt spacing, all 52 h capsules (ChatGPT's order, Apple first and
+  no smaller than the others, as the HIG requires):
+  1. "Continue with Apple": solid `accent` (white in dark, black in light), `onAccent` text.
+  2. "Continue with Google": `surface` fill (dark) / `fill` (light), `label` text, full-color
+     Google "G" at 18 pt.
   3. "Continue with GitHub": same style, GitHub mark template in `label`.
   4. "Continue with email": same style, `envelope` symbol.
 - Footer `caption2` `label3`, centered: "By continuing, you agree to the Terms and Privacy
-  Policy." with the two links underlined.
-- Buttons appear with a stagger: each fades in and rises 12 pt with `snappy`, 50 ms apart,
-  after the hero's first line finishes (max 400 ms after launch).
+  Policy." with the two links.
+- Cold-launch intro (Reduce Motion: the launch mark crossfades into the hero mark over `snap`,
+  everything else fades): the mark starts at the launch screen's size and center, then after
+  0.12 s glides up into the hero slot (spring 0.7 s, no bounce) while scaling 72 → 60 and taking
+  the gradient and glow. The headline fades in, un-blurs (6 → 0) and rises 10 pt with `gentle`
+  0.22 s in; the buttons fade in and rise 12 pt with `snappy`, starting 0.3 s in, 50 ms apart;
+  the footer fades in at 0.45 s. Afterwards the glow breathes slowly (2.8 s ease in-out,
+  autoreversing), the only idle motion. After sign-out Welcome just crossfades in, settled.
 
 ### 5.3 OAuth (Apple, Google, GitHub)
 
@@ -594,7 +604,9 @@ a single welcome with sign-in buttons. Layout on `bg`:
 
 ### 5.4 Email code
 
-Sheet, `.presentationDetents([.large])`, keyboard up immediately:
+Sheet, `.presentationDetents([.large])`, keyboard up immediately. Background `sheet` in dark,
+plain `bg` (white) in light, where `sheet` and `surfaceRaised` are the same gray and the field
+and code boxes would vanish:
 
 1. Step "Email": leading `sheetTitle` "Continue with email", `rowSubtitle` "We'll send you a
    6-digit code." `TextField` 52 h, radius 14, `surfaceRaised` fill, `.textContentType(.emailAddress)`,
@@ -947,7 +959,7 @@ Tab root, `NavigationStack`, toolbar: leading drawer circle, principal "Settings
 | Section | Rows |
 | --- | --- |
 | (Account card, no header) | Avatar 40 (initials) + name (`body` semibold) + email (`footnote` `label2`) + chevron → Account page (name, email, linked sign-in methods with badges Apple / Google / GitHub / Email, "Delete account" red at the bottom). Pattern `claude-07-settings`, `grok-12-settings`. |
-| Team | "<Team name>" row with team avatar (28) → Team page: Color and emoji (3.4), Members (read-only list from Stack, owner badge), Invite to team, Leave team (red). Footer: "Color and emoji are yours only; teammates choose their own." (prefs are per user per team, PROTOCOL.md) |
+| Team | "<Team name>" row with team avatar (28) → Team page: Color and icon (3.4), Members (read-only list from Stack, owner badge), Invite to team, Leave team (red). Footer: "Color and icon are yours only; teammates choose their own." (prefs are per user per team, PROTOCOL.md) |
 | Connection | Transport: inline `Picker` menu "WebRTC" / "WireGuard" (value trailing with `chevron.up.chevron.down`, like Codex "Follow-up behavior: Queue"). Footer: "Switching reconnects to your Macs." / Paired Macs → page: rows with `StatusDot` + name + `footnote` "Online · WebRTC direct" / "Last seen 3h ago", swipe to Unpair; "Pair a Mac" row with `plus` in `label` (not blue; Codex uses blue "Add connection", `chatgpt-14`); "Disconnect all" trailing in the section header as `label2` text button. / Show connection details (toggle: shows path type, RTT, relay in the terminal title menu). |
 | Terminal | Font size (stepper 9–24, live preview row in the terminal theme), Theme (picker of Ghostty themes with swatches; default follows the Mac's theme), Key bar (page: reorder and toggle keys, 10.4), Composer: "Dismiss keyboard after sending" (toggle, on), "Follow-up while running" (Queue / Steer), "Wrap code and diff lines" (toggle, off), "Key clicks" (toggle, on). |
 | Appearance | Three tiles Light / Dark / System (`claude-08-settings-bottom`): 96 x 64 rounded previews radius 14, selected 2 pt `label` stroke and the label in `label` semibold (Claude uses blue; we use label). Haptic feedback toggle. |
@@ -1047,8 +1059,11 @@ capsule) and `grok-03-composer-typed`; top chrome to `grok-06-scroll-edge-top`; 
 ### 11.1 Workspaces tab
 
 - Toolbar: leading drawer, principal "Workspaces", trailing capsule `square.and.pencil` (New
-  workspace: sheet with Mac picker, directory picker, agent/terminal choice) + `ellipsis` (Sort:
-  Recent / Name / By Mac; Show offline Macs).
+  workspace: a tap creates one at once on the preferred Mac with the Mac's default first tab and
+  pushes it, the row optimistic until the Mac confirms; a hold opens a menu of the starts the
+  backend supports: agent or browser first tab, recent directories, Mac picker) + `ellipsis`
+  (Sort: Recent / Name / By Mac; Show offline Macs). No Mac: "Connect your Mac" steps (sign in
+  as the account, allow iPhone connections) with a live status line; no pairing code.
 - `List` style `.plain` on `bg`, one section per Mac (iOS 26 plain headers): header row 44 h: `StatusDot` + Mac name (`subheadline` semibold) + `meta` "Online" /
   "Last seen 2h ago"; trailing `ellipsis` menu (Pair details, Unpair, Reconnect).
 - Workspace row 64 h: leading 36 pt rounded square with the workspace's glyph or color (from

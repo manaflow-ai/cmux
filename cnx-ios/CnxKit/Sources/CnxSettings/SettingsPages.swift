@@ -67,13 +67,13 @@ struct TeamPage: View {
                 Button(action: edit) {
                     HStack(spacing: 14) {
                         TeamAvatar(name: team.name, colorHex: team.appearance.colorHex, emoji: team.appearance.emoji, size: 28)
-                        Text("Color and emoji").font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
+                        Text("Color and icon").font(theme.type.rowTitle).foregroundStyle(theme.colors.label)
                         Spacer()
                         Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(theme.colors.label3)
                     }
                 }
             } footer: {
-                Text("Color and emoji are yours only; teammates choose their own.")
+                Text("Color and icon are yours only; teammates choose their own.")
             }
             Section("Members") {
                 if let user {

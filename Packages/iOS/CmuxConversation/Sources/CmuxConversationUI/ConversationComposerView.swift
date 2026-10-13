@@ -44,8 +44,8 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
     weak var delegate: (any ConversationComposerViewDelegate)?
 
     let plusButton = ComposerPlusButton(type: .system)
-    private let plusGlass = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, interactive: true)
-    let fieldGlass = makeGlassView(cornerRadius: ConversationTheme.composerFieldCornerRadius, interactive: false)
+    private let plusGlass = makeGlassView(cornerRadius: ConversationTheme.plusButtonSize / 2, interactive: true, clipsContent: false)
+    let fieldGlass = makeGlassView(cornerRadius: ConversationTheme.composerFieldCornerRadius, interactive: false, clipsContent: false)
     /// TextKit 1, so the effect overlay can read glyph geometry.
     /// (Built on an explicit stack: the `usingTextLayoutManager:` factory
     /// bypasses Swift's stored-property initialization in subclasses.)
@@ -56,7 +56,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let container = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
         container.widthTracksTextView = true
         manager.addTextContainer(container)
-        return ComposerTextView(frame: .zero, textContainer: container)
+        let textView = ComposerTextView(frame: .zero, textContainer: container)
+        manager.delegate = textView.linePitch
+        return textView
     }()
     /// Shown in place of the keyboard by the edit menu's Text Effects item.
     private(set) lazy var textEffectsPalette = TextEffectsPaletteView(composer: self)
@@ -215,7 +217,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.baseTypingAttributes = [
             .font: ConversationTheme.bodyFont,
             .foregroundColor: UIColor.label,
-            .paragraphStyle: ConversationTheme.bodyParagraph,
+            .paragraphStyle: ConversationTheme.composerParagraph,
         ]
         textView.typingAttributes = textView.baseTypingAttributes
         textView.installTextEffects()
@@ -353,14 +355,29 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
             textTop += linkPreview.container.frame.height
         }
         let trailing = sendSize.width + 10
-        textView.frame = CGRect(x: fieldTextInset, y: textTop, width: field.width - fieldTextInset - trailing, height: field.height - textTop)
+        // The full-width shelf and link card, the Send Later chip and
+        // scrolled text reach the rounded corners; only then does the glass
+        // clip (it costs an offscreen pass each frame behind it moves).
+        let reachesCorners = !attachments.isEmpty || linkPreview.preview != nil || sendLaterDate != nil || textView.isScrollEnabled
+        if #available(iOS 26.0, *) {
+            let clips = ConversationGlassClipping.clipsToBounds(liquidGlass: true, contentReachesCorners: reachesCorners)
+            if fieldGlass.clipsToBounds != clips { fieldGlass.clipsToBounds = clips }
+        }
+        // TextKit 1 checks that a line fits before `ComposerLinePitch` takes
+        // the leading off it, so the text view reaches that much past the
+        // field's bottom padding; otherwise it drops the last line.
+        let lineSlack = max(0, -ConversationTheme.composerLineLeading)
+        textView.frame = CGRect(x: fieldTextInset, y: textTop, width: field.width - fieldTextInset - trailing, height: field.height - textTop + lineSlack)
         placeholder.frame = CGRect(x: fieldTextInset, y: textTop + verticalPadding, width: textView.bounds.width, height: ConversationTheme.lineHeight)
             .offsetBy(dx: row.field.minX, dy: row.field.minY)
         sendButton.bounds = CGRect(origin: .zero, size: sendSize)
         sendButton.center = CGPoint(x: row.field.minX + row.send.midX, y: row.field.minY + row.send.midY)
-        // Messages centers the microphone 21 pt in from the field's end.
-        micButton.frame = CGRect(x: field.width - 38, y: field.height - t.composerMinHeight, width: 34, height: t.composerMinHeight)
-            .offsetBy(dx: row.field.minX, dy: row.field.minY)
+        // Messages centers the glyph 21 pt in from the field's end, on the
+        // plus's row and the pixel grid.
+        let glyph = ComposerBarGeometry.recordGlyphFrame(
+            fieldBottom: row.field.minY + field.height, fieldTrailing: row.field.minX + field.width, scale: traitCollection.displayScale
+        )
+        micButton.frame = glyph.insetBy(dx: -6, dy: -9)
         // A fixed 20 pt continuous corner, not a capsule: the field keeps it
         // when larger text makes it 68 pt tall (Messages, iOS 26.5 at AX3).
         fieldGlass.layer.cornerRadius = min(fieldHeight / 2, ConversationTheme.composerFieldCornerRadius)
@@ -395,7 +412,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         textView.typingAttributes = [
             .font: ConversationTheme.bodyFont,
             .foregroundColor: UIColor.label,
-            .paragraphStyle: ConversationTheme.bodyParagraph,
+            .paragraphStyle: ConversationTheme.composerParagraph,
         ]
         if let text = textView.text, !text.isEmpty {
             let selection = textView.selectedRange
@@ -520,7 +537,7 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         } ?? [
             .font: ConversationTheme.bodyFont,
             .foregroundColor: UIColor.label,
-            .paragraphStyle: ConversationTheme.bodyParagraph,
+            .paragraphStyle: ConversationTheme.composerParagraph,
         ]
         // Swap the draft's base; formatting keys and mentions stay and are
         // re-derived on the new base by the text view's restyle.
@@ -549,8 +566,9 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
         let width = textWidth(forFieldWidth: fieldGlass.bounds.width > 0 ? fieldGlass.bounds.width : bounds.width - 120)
         let textSize = textView.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         measurement.didMeasure(textWidth: width)
-        let lines = ComposerFieldMeasurement.lineCount(textHeight: textSize.height, verticalPadding: verticalPadding, lineHeight: ConversationTheme.lineHeight)
-        var natural = ComposerFieldMeasurement.fieldHeight(lines: lines, oneLineHeight: ConversationTheme.composerMinHeight, lineHeight: ConversationTheme.lineHeight)
+        let leading = ConversationTheme.composerLineLeading
+        let lines = ComposerFieldMeasurement.lineCount(textHeight: textSize.height, verticalPadding: verticalPadding, lineHeight: ConversationTheme.lineHeight, leading: leading)
+        var natural = ComposerFieldMeasurement.fieldHeight(lines: lines, oneLineHeight: ConversationTheme.composerMinHeight, lineHeight: ConversationTheme.lineHeight, leading: leading)
         if emojiPointSize != nil { natural = max(ConversationTheme.composerMinHeight, ceil(textSize.height)) }
         if !attachments.isEmpty { natural += attachmentBand }
         natural += linkPreview.height(forFieldWidth: fieldGlass.bounds.width > 0 ? fieldGlass.bounds.width : bounds.width - 120)
@@ -662,7 +680,36 @@ final class ConversationComposerView: UIView, UITextViewDelegate {
 }
 
 /// Return inserts a newline (Messages sends only from the button).
+/// Lines after the first step by the font's line height plus its leading,
+/// as TextKit 2 lays them out in Messages' field: the tight-leading body
+/// font is 20.29 pt with -0.29 pt leading, so the field grows 20 pt a line.
+/// TextKit 1 (which the effect overlay needs) drops a negative leading, so
+/// each later line fragment moves up by it here; the first line, and so the
+/// one-line field and its text, stay as they are.
+final class ComposerLinePitch: NSObject, NSLayoutManagerDelegate {
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldSetLineFragmentRect lineFragmentRect: UnsafeMutablePointer<CGRect>,
+        lineFragmentUsedRect: UnsafeMutablePointer<CGRect>,
+        baselineOffset: UnsafeMutablePointer<CGFloat>,
+        in textContainer: NSTextContainer,
+        forGlyphRange glyphRange: NSRange
+    ) -> Bool {
+        guard glyphRange.location > 0, let storage = layoutManager.textStorage, storage.length > 0 else { return false }
+        let index = min(layoutManager.characterIndexForGlyph(at: glyphRange.location), storage.length - 1)
+        guard let font = storage.attribute(.font, at: index, effectiveRange: nil) as? UIFont, font.leading < 0 else { return false }
+        // The leading comes off above the line, as TextKit 2 places it:
+        // baselines 20 pt apart from the first line on.
+        lineFragmentRect.pointee.origin.y += font.leading
+        lineFragmentUsedRect.pointee.origin.y += font.leading
+        return true
+    }
+}
+
 final class ComposerTextView: UITextView {
+    /// The layout manager's delegate (it holds it weakly).
+    let linePitch = ComposerLinePitch()
+
     /// Gets the first chance at Delete (a mention deletes as one token).
     var deleteBackwardHandler: (() -> Bool)?
 

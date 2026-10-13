@@ -121,6 +121,16 @@ public enum ComposerAttachmentShelfMotion {
 /// a 318 pt keyboard), and the message field keeps the place the keyboard
 /// gave it, 16 pt above the keyboard: 21.3 pt above the sheet.
 public enum PhotoDrawerGeometry {
+    /// Messages' large detent on iOS 26.5 stops this far under the safe
+    /// area (iPhone 17 Pro: sheet top 72 with the safe top at 62); iOS 27.0
+    /// fills to the safe area like UIKit's large detent.
+    public static let iOS26LargeTopGap: CGFloat = 10
+
+    /// The large detent's height from UIKit's maximum detent value.
+    public static func largeDetentValue(maximum: CGFloat, leavesTopGap: Bool) -> CGFloat {
+        leavesTopGap ? maximum - iOS26LargeTopGap : maximum
+    }
+
     public static let inset: CGFloat = 8
     /// The sheet's top below the keyboard's top.
     public static let keyboardTopOffset: CGFloat = 5.3
@@ -148,8 +158,9 @@ public enum PhotoDrawerGeometry {
     /// over the system picker.
     public static let grabberStripHeight: CGFloat = 20
 
-    /// The picker's selection limit ("Select up to 50 items").
-    public static let selectionLimit = 50
+    /// The picker's selection limit: "Select up to 50 items." in Messages
+    /// 27, "Select up to 20 items." in Messages 26.5.
+    public static func selectionLimit(iOS27: Bool) -> Int { iOS27 ? 50 : 20 }
 
     /// The composer's bottom constraint (below the safe area's bottom,
     /// `safeBottom`) for a sheet whose top is at `sheetTop`: its field rides

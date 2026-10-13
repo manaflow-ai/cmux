@@ -1,10 +1,12 @@
 #if os(iOS) && DEBUG
 import CmuxAgentQuestion
 import CnxAgentChat
+import CnxAgentChat
 import CnxChief
 import CnxDesign
 import CnxFeed
 import CnxModel
+import CnxTerminal
 import CnxWorkspaces
 import QuartzCore
 import SwiftUI
@@ -23,20 +25,30 @@ struct DemoDriver {
     let shell: ShellModel
 
     /// The demos `run(_:)` knows.
-    nonisolated static let names: Set<String> = ["drawer", "settings", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "live"]
+    nonisolated static let names: Set<String> = ["drawer", "settings", "settings-bottom", "settings-middle", "states", "editor", "rubber", "workspaces", "workspaces-reopen", "chief", "chief-parity", "live", "workspace-new", "connect-mac"]
 
     func run(_ name: String) async {
         try? await Task.sleep(for: .seconds(1.2))
         switch name {
         case "drawer": await drawer()
         case "settings": await settings()
+        case "settings-bottom": await settingsScrolled(to: "bottom")
+        case "settings-middle": await settingsScrolled(to: "appearance")
         case "states": await states()
         case "editor": await editor()
         case "rubber": await rubber()
         case "workspaces": await workspaces()
         case "workspaces-reopen": await workspacesReopen()
         case "chief": await chief()
+        case "chief-parity": await chiefParity()
+        case "ws-terminal": await workspaceTerminal()
+        case "tour-a": await tourHomeAndWorkspaces()
+        case "tour-b": await tourFeedChatDiff()
+        case "tour-c": await tourSettingsAndSidebar()
+        case "onboarding": break  // driven by CnxOnboarding's script until the shell appears
         case "live": await live()
+        case "workspace-new": await workspaceNew()
+        case "connect-mac": await connectMac()
         default: break
         }
     }
@@ -116,6 +128,14 @@ struct DemoDriver {
         await pause(1.5)
     }
 
+    /// Settings scrolled to `target` ("bottom" or a section id) and left
+    /// there, for still captures.
+    private func settingsScrolled(to target: String) async {
+        shell.tab = .settings
+        await pause(0.8)
+        shell.settingsScrollTarget = target
+    }
+
     private func states() async {
         shell.tab = .workspaces
         await pause(1.0)
@@ -151,7 +171,7 @@ struct DemoDriver {
         shell.tab = .workspaces
         await pause(1.6)
         guard let ws = store.workspace(id: "ws-cmux") else { return }
-        shell.workspacesPath = NavigationPath([ws])
+        shell.workspacesPath = [ws]
         await pause(2.4)
         DemoDirector.shared.post(.chatSend("Summarize what changed in the transport layer"))
         await pause(7.0)
@@ -170,10 +190,112 @@ struct DemoDriver {
         tabs.post(.exit)
         await pause(1.8)
         // Reopen: starts on the browser tab used last.
-        shell.workspacesPath = NavigationPath([ws])
+        shell.workspacesPath = [ws]
         await pause(2.6)
         tabs.post(.exit)
         await pause(1.5)
+    }
+
+    /// New workspace: tap (instant create and push), hold (the menu of other
+    /// starts), pick one, then a refusal (the pushed screen pops, a toast).
+    /// Taps and holds go to the real toolbar control: `sendActions` for the
+    /// tap, the context menu interaction for the hold.
+    private func workspaceNew() async {
+        shell.tab = .workspaces
+        await pause(1.8)
+        step("tap")
+        tapNewWorkspace()
+        await pause(1.2)
+        step("pushed \(shell.workspacesPath.last?.title ?? "-")")
+        await pause(2.4)
+        WorkspaceDemoDirector.shared.post(.exit)
+        await pause(1.6)
+        step("hold")
+        let menu = holdNewWorkspace()
+        await pause(3.2)
+        menu?.dismissMenu()
+        await pause(0.5)
+        step("pick claude")
+        if let ws = shell.creator.create(start: .agent("claude")) { shell.workspacesPath.append(ws) }
+        await pause(3.2)
+        WorkspaceDemoDirector.shared.post(.exit)
+        await pause(1.4)
+        step("hold again")
+        let again = holdNewWorkspace()
+        await pause(2.4)
+        again?.dismissMenu()
+        await pause(0.5)
+        step("refused")
+        shell.mockCreation.failNext = "The Mac refused"
+        tapNewWorkspace()
+        await pause(3.5)
+    }
+
+    /// No Mac: the Connect your Mac state, then the Mac appears (presence).
+    private func connectMac() async {
+        shell.tab = .workspaces
+        guard let index = shell.store.teams.firstIndex(where: { $0.id == shell.store.activeTeamID }) else { return }
+        let macs = shell.store.teams[index].macs
+        shell.store.teams[index].macs = []
+        await pause(5.0)
+        step("mac appears")
+        shell.store.teams[index].macs = macs
+        await pause(2.5)
+    }
+
+    /// The toolbar's New Workspace bar button view: the visible navigation
+    /// bar's trailing item that has both a primary action and a menu.
+    private func newWorkspaceControl() -> UIView? {
+        func bars(_ view: UIView) -> [UINavigationBar] {
+            (view as? UINavigationBar).map { [$0] } ?? view.subviews.flatMap(bars)
+        }
+        let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
+        for bar in windows.flatMap(bars) where bar.window != nil && !bar.isHidden {
+            let items = (bar.topItem?.trailingItemGroups.flatMap(\.barButtonItems) ?? []) + (bar.topItem?.rightBarButtonItems ?? [])
+            if let item = items.first(where: { $0.accessibilityLabel == "New Workspace" || $0.title == "New Workspace" })
+                ?? items.first(where: { $0.menu != nil && $0.primaryAction != nil }),
+               let view = item.value(forKey: "view") as? UIView {
+                return view
+            }
+        }
+        return nil
+    }
+
+    private func menuInteraction(_ view: UIView) -> UIContextMenuInteraction? {
+        if let found = view.interactions.lazy.compactMap({ $0 as? UIContextMenuInteraction }).first { return found }
+        for sub in view.subviews { if let found = menuInteraction(sub) { return found } }
+        return nil
+    }
+
+    private func tapNewWorkspace() {
+        let before = shell.workspacesPath.count
+        if let control = newWorkspaceControl() as? UIControl {
+            step("control \(type(of: control))")
+            control.sendActions(for: .primaryActionTriggered)
+            if shell.workspacesPath.count == before { control.sendActions(for: .touchUpInside) }
+        }
+        if shell.workspacesPath.count == before, let ws = shell.creator.create() {
+            step("tap fallback")
+            shell.workspacesPath.append(ws)
+        }
+    }
+
+    /// Presents the control's menu as a long press does (DEBUG only: the
+    /// interaction's private present-at-location entry point).
+    private func holdNewWorkspace() -> UIContextMenuInteraction? {
+        guard let control = newWorkspaceControl(), let interaction = menuInteraction(control) else {
+            step("hold: no menu interaction")
+            return nil
+        }
+        let selector = NSSelectorFromString("_presentMenuAtLocation:")
+        guard interaction.responds(to: selector) else {
+            step("hold: no present entry point")
+            return nil
+        }
+        typealias Present = @convention(c) (AnyObject, Selector, CGPoint) -> Void
+        let present = unsafeBitCast(interaction.method(for: selector), to: Present.self)
+        present(interaction, selector, CGPoint(x: control.bounds.midX, y: control.bounds.midY))
+        return interaction
     }
 
     /// Waits (polling each 0.25 s) for `condition`, up to `timeout` seconds.
@@ -207,7 +329,7 @@ struct DemoDriver {
               let agent = ws.tabs.first(where: { $0.kind == .agent }) else { return }
         shell.store.noteOpened(tabID: agent.id, in: ws.id)
         step("open workspace \(ws.title) on \(agent.title)")
-        shell.workspacesPath = NavigationPath([ws])
+        shell.workspacesPath = [ws]
         await pause(4)
         let mac = shell.store.activeTeam?.macs.first { $0.id == ws.macID }?.name ?? "Mac"
         let chat = AgentSessionDirectory.shared.store(workspace: ws, tab: agent, macName: mac)
@@ -218,7 +340,7 @@ struct DemoDriver {
         await until(15) { chat.pendingPermission != nil }
         await pause(2.5)
         // Answer from the Feed: Allow (refused for a phone), then Deny (reaches the Mac).
-        shell.workspacesPath = NavigationPath()
+        shell.workspacesPath = []
         await pause(1)
         step("feed")
         shell.tab = .feed
@@ -267,7 +389,7 @@ struct DemoDriver {
         shell.tab = .workspaces
         await pause(1.6)
         guard let ws = shell.store.workspace(id: "ws-cmux") else { return }
-        shell.workspacesPath = NavigationPath([ws])
+        shell.workspacesPath = [ws]
         await pause(3.0)
         WorkspaceDemoDirector.shared.post(.showGrid(true))
         await pause(2.2)
@@ -297,6 +419,345 @@ struct DemoDriver {
         await pause(1.8)
         if !shell.homePath.isEmpty { shell.homePath.removeLast() }
         await pause(2.5)
+    }
+
+    /// Chief parity (verify/chief-parity.md): Home without a title; New
+    /// Message to an agent (opens its chat), then to Chief (opens the Chief
+    /// conversation over the already-connected shared store, which used to
+    /// leave the header empty); the send-time drawer through its own pan
+    /// steps, held, then released; a photo send; the Photos drawer; back.
+    private func chiefParity() async {
+        let hook = ChiefDemoHook.shared
+        let open: (HomeConversationRoute) -> Void = { route in
+            switch route {
+            case .chief: shell.homePath.append(ChiefRoute())
+            case let .agent(destination): shell.homePath.append(destination)
+            }
+        }
+        let composer = ChiefComposer(store: shell.store, open: open)
+        shell.tab = .home
+        mark("home")
+        await pause(2.5)
+        mark("compose agent")
+        composer.present()
+        await pause(1.4)
+        hook.composeLab("to claude")
+        await pause(1.2)
+        hook.composeLab("pick 0")
+        await pause(0.8)
+        hook.composeLab("body run the cnx-link tests")
+        await pause(1.0)
+        mark("compose agent send")
+        hook.composeLab("send")
+        await pause(4.0)
+        mark("agent back")
+        if !shell.homePath.isEmpty { shell.homePath.removeLast() }
+        await pause(2.0)
+        mark("compose chief")
+        composer.present()
+        await pause(1.4)
+        hook.composeLab("to chief")
+        await pause(1.0)
+        hook.composeLab("pick 0")
+        await pause(0.8)
+        hook.composeLab("body what's the status?")
+        await pause(1.0)
+        mark("compose chief send")
+        hook.composeLab("send")
+        await pause(7.0)
+        mark("timestamps")
+        hook.lab("timestamps 150 0.7 1.6")
+        await pause(4.0)
+        mark("timestamps quick")
+        hook.lab("timestamps 90 0.35 0.0")
+        await pause(2.5)
+        mark("photo")
+        hook.attachPhoto(Self.samplePhoto())
+        await pause(6.5)
+        mark("timestamps photo")
+        hook.lab("timestamps 150 0.7 1.2")
+        await pause(3.5)
+        mark("photos drawer")
+        hook.photoLab("drawer")
+        await pause(3.0)
+        hook.photoLab("close")
+        await pause(2.0)
+        mark("back")
+        if !shell.homePath.isEmpty { shell.homePath.removeLast() }
+        await pause(2.5)
+        mark("end")
+    }
+
+    /// A 1200 x 900 test photo (a gradient and a grid), rendered on device.
+    private static func samplePhoto() -> UIImage {
+        let size = CGSize(width: 1200, height: 900)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: size, format: format).image { context in
+            let colors = [UIColor.systemTeal.cgColor, UIColor.systemIndigo.cgColor] as CFArray
+            if let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1]) {
+                context.cgContext.drawLinearGradient(gradient, start: .zero, end: CGPoint(x: size.width, y: size.height), options: [])
+            }
+            UIColor.white.withAlphaComponent(0.35).setStroke()
+            for x in stride(from: 0, through: size.width, by: 100) {
+                context.cgContext.move(to: CGPoint(x: x, y: 0)); context.cgContext.addLine(to: CGPoint(x: x, y: size.height))
+            }
+            for y in stride(from: 0, through: size.height, by: 100) {
+                context.cgContext.move(to: CGPoint(x: 0, y: y)); context.cgContext.addLine(to: CGPoint(x: size.width, y: y))
+            }
+            context.cgContext.strokePath()
+        }
+    }
+
+    /// Appends a wall-clock mark to `Documents/terminal-demo-timeline.txt`
+    /// (the terminal verification scripts line these up with the recording).
+    private func mark(_ label: String) {
+        if label != "state", let model = shell.terminalTabs.model(forTabID: "t-zsh") { mark("state", model.debugState) }
+        mark(label, nil)
+    }
+
+    private func mark(_ label: String, _ detail: String?) {
+        let label = detail.map { "\(label) \($0)" } ?? label
+        let line = String(format: "%.3f %@\n", Date().timeIntervalSince1970, label)
+        guard let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+        let url = documents.appendingPathComponent("terminal-demo-timeline.txt")
+        if let handle = try? FileHandle(forWritingTo: url) {
+            handle.seekToEndOfFile()
+            handle.write(Data(line.utf8))
+            try? handle.close()
+        } else {
+            try? Data(line.utf8).write(to: url)
+        }
+    }
+
+    /// The terminal tab inside a workspace (embedded chrome): composer and
+    /// key bar riding the keyboard above TabsKit's toolbar, TUI mode pinned
+    /// to the composer, the grid card snapshot, a tab switch away and back
+    /// (scrollback kept), Files and Links from the page menu, and leaving.
+    private func workspaceTerminal() async {
+        let store = shell.store
+        let tabs = WorkspaceDemoDirector.shared
+        store.noteOpened(tabID: "t-zsh", in: "ws-cmux")
+        shell.tab = .workspaces
+        await pause(1.2)
+        guard let ws = store.workspace(id: "ws-cmux") else { return }
+        mark("open workspace")
+        shell.workspacesPath = [ws]
+        await pause(3.0)
+        guard let model = shell.terminalTabs.model(forTabID: "t-zsh") else { return }
+        mark("keyboard show (composer)")
+        model.toggleKeyboard()
+        await pause(1.8)
+        mark("type")
+        for character in "ls -la" {
+            model.composerText.append(character)
+            await pause(0.07)
+        }
+        await pause(0.5)
+        mark("send")
+        model.send()
+        await pause(1.2)
+        mark("keyboard hide")
+        model.toggleKeyboard()
+        await pause(1.8)
+        mark("keyboard show")
+        model.toggleKeyboard()
+        await pause(1.8)
+        mark("keyboard hide")
+        model.toggleKeyboard()
+        await pause(1.5)
+        mark("run htop")
+        model.composerText = "htop"
+        model.send()
+        await pause(2.5)
+        mark("keyboard show (direct)")
+        model.toggleKeyboard()
+        await pause(2.2)
+        mark("keyboard hide")
+        model.toggleKeyboard()
+        await pause(2.2)
+        mark("keyboard show")
+        model.toggleKeyboard()
+        await pause(2.0)
+        mark("keyboard hide")
+        model.toggleKeyboard()
+        await pause(1.8)
+        mark("quit htop")
+        model.composerText = "q"
+        model.sendWithoutReturn()
+        await pause(1.8)
+        mark("grid")
+        tabs.post(.showGrid(true))
+        await pause(2.4)
+        mark("agent tab")
+        tabs.post(.activate("t-claude"))
+        await pause(2.4)
+        mark("grid")
+        tabs.post(.showGrid(true))
+        await pause(2.0)
+        mark("terminal tab again")
+        tabs.post(.activate("t-zsh"))
+        await pause(2.4)
+        mark("files and links")
+        model.showFilesAndLinks()
+        await pause(2.6)
+        model.showArtifacts = false
+        await pause(1.6)
+        mark("exit")
+        tabs.post(.exit)
+        await pause(1.8)
+        mark("end")
+    }
+
+    // MARK: Full-app walkthrough (polish pass), in three recordings
+
+    /// Home, Chief, back; Workspaces, a workspace on its last tab (agent),
+    /// the grid, the terminal tab with the keyboard, the agent tab, leave.
+    private func tourHomeAndWorkspaces() async {
+        let store = shell.store
+        let tabs = WorkspaceDemoDirector.shared
+        store.noteOpened(tabID: "t-claude", in: "ws-cmux")
+        mark("home")
+        shell.tab = .home
+        await pause(2.4)
+        mark("chief")
+        shell.homePath.append(ChiefRoute())
+        await pause(2.4)
+        mark("chief send")
+        _ = ChiefDemoHook.shared.lab("send thanks! what's the status?")
+        await pause(6.0)
+        mark("home back")
+        if !shell.homePath.isEmpty { shell.homePath.removeLast() }
+        await pause(2.0)
+        mark("workspaces")
+        shell.tab = .workspaces
+        await pause(2.0)
+        guard let ws = store.workspace(id: "ws-cmux") else { return }
+        mark("workspace (last tab: agent)")
+        shell.workspacesPath = [ws]
+        await pause(2.8)
+        mark("grid")
+        tabs.post(.showGrid(true))
+        await pause(2.2)
+        mark("terminal tab")
+        tabs.post(.activate("t-zsh"))
+        await pause(2.6)
+        if let model = shell.terminalTabs.model(forTabID: "t-zsh") {
+            mark("keyboard show")
+            model.toggleKeyboard()
+            await pause(1.6)
+            for character in "git status" {
+                model.composerText.append(character)
+                await pause(0.07)
+            }
+            await pause(0.4)
+            mark("send")
+            model.send()
+            await pause(1.4)
+            mark("keyboard hide")
+            model.toggleKeyboard()
+            await pause(1.6)
+        }
+        mark("grid")
+        tabs.post(.showGrid(true))
+        await pause(2.0)
+        mark("agent tab")
+        tabs.post(.activate("t-claude"))
+        await pause(2.4)
+        mark("exit")
+        tabs.post(.exit)
+        await pause(2.0)
+        mark("end")
+    }
+
+    /// Feed: scroll, Show more, answer a question inline, open an event in
+    /// its agent chat, a streamed turn (permission and question answered),
+    /// the diff viewer (file, Split and back), the Changes list.
+    private func tourFeedChatDiff() async {
+        let director = DemoDirector.shared
+        func post(_ command: DemoDirector.Command, _ label: String, then seconds: Double) async {
+            mark(label)
+            director.post(command)
+            await pause(seconds)
+        }
+        mark("feed")
+        shell.tab = .feed
+        await pause(2.4)
+        await post(.feedScroll(toEvent: "f-long"), "scroll", then: 1.6)
+        await post(.feedExpand(event: "f-long"), "show more", then: 2.2)
+        await post(.feedScrollTop, "top", then: 1.6)
+        await post(.answerQuestion(id: "feed-q-release", picks: [["rc"], ["transport", "feed", "diff"], ["yes"]]), "answer inline", then: 5.0)
+        await post(.feedOpen(event: "f-finished"), "open event", then: 2.2)
+        await post(.chatSend("Make the transport layer switchable between WebRTC and WireGuard, and add tests"), "chat send", then: 3.0)
+        guard let chat = AgentSessionDirectory.shared.existingStore(id: "t-claude") else { return }
+        await waitFor(seconds: 30) { chat.pendingPermission != nil }
+        await pause(1.4)
+        await post(.chatPermission(optionKind: "allow_once"), "allow once", then: 0.5)
+        await waitFor(seconds: 30) { chat.pendingQuestion != nil }
+        await pause(1.2)
+        await post(.answerQuestion(id: "q-transport", picks: [["wireguard"], ["connection", "per-mac"]]), "answer question", then: 0.5)
+        await waitFor(seconds: 40) { !chat.isRunning }
+        await pause(1.6)
+        await post(.chatOpenFirstFile, "diff file", then: 2.2)
+        await post(.diffExpandFirst, "expand context", then: 1.4)
+        await post(.diffSetSplit(true), "split", then: 2.2)
+        await post(.diffSetSplit(false), "unified", then: 1.2)
+        await post(.navigateBack, "back to chat", then: 1.4)
+        await post(.chatOpenChanges, "changes list", then: 2.6)
+        await post(.navigateBack, "back to chat", then: 1.6)
+        mark("end")
+    }
+
+    /// Settings (transport switch), the sidebar (team switch), the team
+    /// appearance editor (color and emoji).
+    private func tourSettingsAndSidebar() async {
+        mark("settings")
+        shell.tab = .settings
+        await pause(2.2)
+        let original = shell.settings.transport
+        mark("transport switch")
+        shell.settings.transport = original == .webrtc ? .wireguard : .webrtc
+        await pause(1.8)
+        shell.settings.transport = original
+        await pause(1.4)
+        mark("sidebar")
+        shell.sidebar.open()
+        await pause(1.8)
+        mark("team switch")
+        if let next = shell.store.teams.first(where: { $0.id != shell.store.activeTeamID }) {
+            shell.switchTeam(to: next.id)
+        }
+        await pause(2.0)
+        mark("sidebar again")
+        shell.sidebar.open()
+        await pause(1.6)
+        mark("editor")
+        shell.editingTeam = shell.store.activeTeam
+        await pause(2.0)
+        let director = DemoDirector.shared
+        mark("color")
+        director.post(.editorColor(hex: CnxTheme.standard.colors.teamPalette.dropFirst(4).first?.dark ?? "#30D158"))
+        await pause(1.4)
+        mark("emoji")
+        director.post(.editorEmoji("🚀"))
+        await pause(1.4)
+        mark("done")
+        director.post(.editorDone)
+        await pause(1.8)
+        mark("close sidebar")
+        shell.sidebar.close()
+        await pause(1.6)
+        mark("end")
+    }
+
+    /// Re-checks `condition` when observed state changes, up to a deadline.
+    private func waitFor(seconds: Double, _ condition: @escaping @MainActor () -> Bool) async {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !condition(), Date() < deadline {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                withObservationTracking { _ = condition() } onChange: { continuation.resume() }
+            }
+        }
     }
 
     private func editor() async {

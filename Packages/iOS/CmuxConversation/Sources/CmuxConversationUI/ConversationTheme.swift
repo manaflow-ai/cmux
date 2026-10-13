@@ -82,9 +82,14 @@ enum ConversationTheme {
     /// the bubble unchanged.
     static var bodyFont: UIFont { bubbleFont }
     static var bodyFontSize: CGFloat { bodyFont.pointSize }
-    /// Composer line pitch: Messages steps the field by the bubble's line
-    /// height (measured 20 pt per line at Large, same as a bubble line).
+    /// The composer's first line: the bubble font's line height (20.29 pt
+    /// at Large).
     static var lineHeight: CGFloat { bubbleFont.lineHeight }
+    /// Added to `lineHeight` for each later line, as TextKit lays out the
+    /// unconstrained paragraph: the tight-leading font's -0.29 pt at Large,
+    /// so the field steps 20 pt a line as Messages' does (and as a bubble's
+    /// lines do).
+    static var composerLineLeading: CGFloat { bubbleFont.leading }
     /// Text inset above and below in the composer field: the one-line field
     /// is 40.3 pt at Large, 47.7 at XXXL, 59.7 at AX2 (measured), i.e. the
     /// line plus about 10 pt on each side at every size.
@@ -400,16 +405,9 @@ enum ConversationTheme {
             : UIColor(white: 0, alpha: 0.22)
     }
 
-    /// Body paragraph with the measured 24 pt pitch, glyphs vertically centered in the line.
-    static var bodyParagraph: NSParagraphStyle {
-        let style = NSMutableParagraphStyle()
-        style.minimumLineHeight = lineHeight
-        style.maximumLineHeight = lineHeight
-        style.lineBreakMode = .byWordWrapping
-        // At accessibility sizes Messages hyphenates long words ("din-ner").
-        if isAccessibilitySize { style.hyphenationFactor = 1 }
-        return style
-    }
+    /// Composer text paragraph: the bubble's, natural line height, so the
+    /// draft's lines sit where Messages' do and where the sent bubble puts them.
+    static var composerParagraph: NSParagraphStyle { bubbleParagraph }
 
     /// A fixed line height puts its extra space above the glyphs; frames shift up by this to center them.
     static var bodyGlyphLift: CGFloat { ((lineHeight - bodyFont.lineHeight) / 2).rounded(.down) }
@@ -436,9 +434,13 @@ enum ConversationTheme {
     }
 }
 
-/// A glass surface on iOS 26, a material blur before it.
+/// A glass surface on iOS 26, a material blur before it. `clipsContent`
+/// false leaves iOS 26 glass unclipped: it draws its own rounded shape, and
+/// a clip renders the whole surface offscreen each frame the transcript
+/// moves behind it (see `ConversationGlassClipping`); the blur fallback
+/// always clips, since its shape comes from the clip.
 @MainActor
-func makeGlassView(cornerRadius: CGFloat, interactive: Bool = false, tint: UIColor? = nil) -> UIVisualEffectView {
+func makeGlassView(cornerRadius: CGFloat, interactive: Bool = false, tint: UIColor? = nil, clipsContent: Bool = true) -> UIVisualEffectView {
     let view: UIVisualEffectView
     if #available(iOS 26.0, *) {
         let effect = UIGlassEffect(style: .regular)
@@ -450,7 +452,11 @@ func makeGlassView(cornerRadius: CGFloat, interactive: Bool = false, tint: UICol
     }
     view.layer.cornerRadius = cornerRadius
     view.layer.cornerCurve = .continuous
-    view.clipsToBounds = true
+    if #available(iOS 26.0, *) {
+        view.clipsToBounds = ConversationGlassClipping.clipsToBounds(liquidGlass: true, contentReachesCorners: clipsContent)
+    } else {
+        view.clipsToBounds = ConversationGlassClipping.clipsToBounds(liquidGlass: false, contentReachesCorners: clipsContent)
+    }
     return view
 }
 #endif

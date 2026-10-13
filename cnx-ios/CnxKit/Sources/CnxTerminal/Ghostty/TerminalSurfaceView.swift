@@ -203,6 +203,15 @@ final class TerminalSurfaceView: UIView {
         ghostty_surface_refresh(surface)
     }
 
+    /// Moves Ghostty's viewport to the active area; it re-renders and
+    /// reports its scrollbar (used after leaving the alternate screen).
+    func scrollToActiveArea() {
+        guard let surface else { return }
+        let action = "scroll_to_bottom"
+        _ = action.withCString { ghostty_surface_binding_action(surface, $0, UInt(strlen($0))) }
+        ghostty_surface_refresh(surface)
+    }
+
     private func scrollViewport(_ row: Int) {
         guard let surface else { return }
         let action = "scroll_to_row:\(max(0, row))"

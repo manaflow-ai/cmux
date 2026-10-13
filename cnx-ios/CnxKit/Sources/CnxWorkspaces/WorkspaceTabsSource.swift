@@ -15,7 +15,15 @@ import UIKit
 @Observable
 public final class WorkspaceTabsSource: TabsDataSource {
     public let workspaceID: String
-    public private(set) var activeTabID: String?
+    /// The tab chosen on this screen. When it disappears (a new workspace
+    /// whose placeholder tab became the Mac's real tab), the active tab
+    /// falls back to the workspace's opening tab.
+    private var selectedTabID: String?
+    public var activeTabID: String? {
+        guard let workspace else { return nil }
+        if let selectedTabID, workspace.tabs.contains(where: { $0.id == selectedTabID }) { return selectedTabID }
+        return store.openingTab(for: workspace)?.id
+    }
     @ObservationIgnored let store: AppStore
     @ObservationIgnored let terminal: any TerminalTabContent
     @ObservationIgnored let sessions: AgentSessionDirectory
@@ -36,7 +44,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
         self.terminal = terminal
         self.sessions = sessions
         if let workspace = store.workspace(id: workspaceID), let tab = store.openingTab(for: workspace) {
-            activeTabID = tab.id
+            selectedTabID = tab.id
             store.noteOpened(tabID: tab.id, in: workspaceID)
         }
         for tab in store.workspace(id: workspaceID)?.tabs ?? [] where tab.kind == .browser {
@@ -108,7 +116,7 @@ public final class WorkspaceTabsSource: TabsDataSource {
 
     public func activate(_ id: TabsKitTab.ID) {
         guard workspaceTab(id) != nil else { return }
-        activeTabID = id
+        selectedTabID = id
         store.noteOpened(tabID: id, in: workspaceID)
         CnxTheme.standard.haptics.selection()
     }
@@ -117,8 +125,8 @@ public final class WorkspaceTabsSource: TabsDataSource {
         let next = store.removeTab(id, from: workspaceID)
         surfaces[id] = nil
         browsers[id] = nil
-        if activeTabID == id || workspaceTab(activeTabID ?? "") == nil {
-            activeTabID = next?.id
+        if selectedTabID == id || workspaceTab(selectedTabID ?? "") == nil {
+            selectedTabID = next?.id
             if let next { store.noteOpened(tabID: next.id, in: workspaceID) }
         }
     }
@@ -178,7 +186,9 @@ public final class WorkspaceTabsSource: TabsDataSource {
     }
 
     public func overviewWillAppear() {
-        if let id = activeTabID { browsers[id]?.takeSnapshot() }
+        guard let id = activeTabID else { return }
+        browsers[id]?.takeSnapshot()
+        if let tab = workspaceTab(id), tab.kind == .terminal { terminal.overviewWillAppear(active: tab) }
     }
 
     // MARK: Toolbar actions
@@ -210,7 +220,14 @@ public final class WorkspaceTabsSource: TabsDataSource {
             return [
                 [
                     TabsKitMenuItem(title: "Changes", systemImage: "plus.forwardslash.minus") { surface.openAllChanges(of: store) },
+                    TabsKitMenuItem(title: "Files and Artifacts", systemImage: "folder") { surface.showArtifacts = true },
                     TabsKitMenuItem(title: "Copy Session ID", systemImage: "doc.on.doc") { UIPasteboard.general.string = store.summary.id },
+                ],
+                [
+                    TabsKitMenuItem(title: store.subagents.isEmpty ? "Subagents" : "Subagents (\(store.subagents.count))",
+                                    systemImage: "person.2.wave.2") { surface.parityRoute = .subagents },
+                    TabsKitMenuItem(title: "Checkpoints", systemImage: "clock.arrow.circlepath") { surface.parityRoute = .checkpoints },
+                    TabsKitMenuItem(title: "Continue in…", systemImage: "arrow.triangle.branch") { surface.parityRoute = .handoff },
                 ],
                 [leave],
                 [
@@ -219,11 +236,12 @@ public final class WorkspaceTabsSource: TabsDataSource {
                 ],
             ]
         case .terminal:
-            return [
-                [TabsKitMenuItem(title: "Copy Directory", systemImage: "doc.on.doc") { UIPasteboard.general.string = tab.subtitle ?? workspace.directory }],
-                [leave],
-                [close],
-            ]
+            let own = terminal.actions(for: tab, in: workspace).map { action in
+                TabsKitMenuItem(title: action.title, systemImage: action.systemImage, isEnabled: action.isEnabled,
+                                isDestructive: action.isDestructive) { action.perform() }
+            }
+            let copy = TabsKitMenuItem(title: "Copy Directory", systemImage: "doc.on.doc") { UIPasteboard.general.string = tab.subtitle ?? workspace.directory }
+            return [own, [copy, leave], [close]].filter { !$0.isEmpty }
         case .browser:
             let model = browser(tab)
             return [
@@ -264,6 +282,12 @@ struct WorkspaceTabPage: View {
                 onUserScroll: { context.reportScroll(fingerDelta: $0) }
             )
             .background(Color.cnxBackground)
+            // A page built during a zoom or swipe is laid out before its
+            // composer is measured; once it settles, a following chat lands
+            // on its newest turn above the composer.
+            .onChange(of: context.isInteractive) { _, interactive in
+                if interactive, surface.following { surface.scrollToBottom(animated: false) }
+            }
         case .terminal:
             source.terminal.page(for: tab, in: workspace, context: terminalContext)
         case .browser:

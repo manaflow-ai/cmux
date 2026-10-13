@@ -23,7 +23,7 @@ public final class WorkspaceSync {
     @ObservationIgnored private var refreshing = false
     @ObservationIgnored private var dirty = false
     @ObservationIgnored private var agents = AgentStates()
-    @ObservationIgnored private var macID = ""
+    @ObservationIgnored public private(set) var macID = ""
     @ObservationIgnored private let deviceID: String
     @ObservationIgnored private let deviceName: String
 
@@ -124,6 +124,19 @@ public final class WorkspaceSync {
                 return
             }
         } while dirty
+    }
+
+    /// Lists now (outside the coalesced refresh) and publishes the tree, so
+    /// a caller that just changed the topology sees its own change.
+    @discardableResult
+    public func listNow() async throws -> DaemonTree {
+        guard let client else { throw DaemonReplyError(message: "Not connected") }
+        let reply = try await client.request("list-workspaces")
+        let next = try DaemonTree(reply: reply, macID: macID, previous: tree?.workspaces ?? [], agents: agents)
+        tree = next
+        lastError = nil
+        onTree?(next)
+        return next
     }
 
     /// Throws a daemon error line; returns the parsed reply object.

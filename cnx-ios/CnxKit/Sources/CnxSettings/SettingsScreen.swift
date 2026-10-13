@@ -80,6 +80,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
                         SettingsLabel("Haptic feedback", symbol: "iphone.radiowaves.left.and.right")
                     }
                 }
+                .id("appearance")
                 Section("Notifications") {
                     NavigationLink(value: SettingsRoute.notifications) {
                         SettingsLabel("Notifications", symbol: "bell")
@@ -127,7 +128,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             }
             .onChange(of: scrollRequest) { _, target in
                 guard let target else { return }
-                withAnimation(theme.motion.gentle.animation) { proxy.scrollTo(target, anchor: target == "top" ? .top : .bottom) }
+                withAnimation(theme.motion.gentle.animation) { proxy.scrollTo(target, anchor: target == "bottom" ? .bottom : .top) }
             }
             .listStyle(.insetGrouped)
             .environment(\.defaultMinListRowHeight, theme.metrics.settingsRowHeight)
@@ -144,7 +145,7 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
             }
             }
         }
-        .tint(theme.colors.label.color)
+        .cnxNeutralControlTint()
     }
 
     @ViewBuilder private var accountSection: some View {
@@ -185,6 +186,13 @@ public struct SettingsScreen<Leading: ToolbarContent>: View {
 /// Pushed settings pages.
 public enum SettingsRoute: Hashable, Sendable {
     case account, team, pairedMacs, terminal, composer, notifications, acknowledgements
+
+    /// The route named by its case name (DEBUG launch arguments).
+    public init?(name: String) {
+        let all: [SettingsRoute] = [.account, .team, .pairedMacs, .terminal, .composer, .notifications, .acknowledgements]
+        guard let route = all.first(where: { "\($0)" == name }) else { return nil }
+        self = route
+    }
 }
 
 /// A settings row label: 17 pt line icon in a 22 pt frame, title, trailing value.

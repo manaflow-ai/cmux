@@ -31,6 +31,7 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     let store: AppStore
     let session: ChiefSession
     let leading: Leading
+    let open: (HomeConversationRoute) -> Void
     @State private var query = ""
     @State private var filter: Filter = .all
     @State private var unread: Set<String> = []
@@ -49,10 +50,18 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         }
     }
 
-    public init(store: AppStore, session: ChiefSession = .shared, @ToolbarContentBuilder leading: () -> Leading) {
+    /// `open` pushes a conversation New Message opened onto Home's stack.
+    public init(store: AppStore, session: ChiefSession = .shared,
+                open: @escaping (HomeConversationRoute) -> Void,
+                @ToolbarContentBuilder leading: () -> Leading) {
         self.store = store
         self.session = session
+        self.open = open
         self.leading = leading()
+    }
+
+    private var composer: ChiefComposer {
+        ChiefComposer(store: store, session: session, open: open)
     }
 
     private var agents: [AgentConversation] {
@@ -109,6 +118,10 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     public var body: some View {
         let stamp = MessagesStamp()
         List {
+            HomeSearchField(query: $query)
+                .listRowInsets(EdgeInsets())
+                .listRowSeparator(.hidden)
+                .listRowBackground(theme.colors.bg.color)
             if showsChief {
                 PinnedGrid(session: session)
                     .listRowInsets(EdgeInsets())
@@ -161,9 +174,12 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .background(theme.colors.bg.color.ignoresSafeArea())
+        // No visible title (user feedback): the search field and Chief's pin
+        // sit right under the toolbar. The title still names the screen for
+        // VoiceOver and the back menu.
         .navigationTitle("Conversations")
-        .navigationBarTitleDisplayMode(.large)
-        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(removing: .title)
         .toolbar {
             leading
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -175,14 +191,15 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
                     Image(systemName: filter == .all ? "line.3.horizontal.decrease" : "line.3.horizontal.decrease.circle.fill")
                 }
                 .accessibilityLabel("Filter")
-                NavigationLink(value: ChiefRoute()) {
-                    Image(systemName: "square.and.pencil")
+                // Messages' compose: New Message, addressed to Chief or an agent.
+                Button("New Message", systemImage: "square.and.pencil") {
+                    composer.present()
                 }
-                .accessibilityLabel("Message Chief")
+                .accessibilityIdentifier("home.compose")
             }
         }
         .navigationDestination(for: ChiefRoute.self) { _ in
-            ChiefConversationScreen(session: session)
+            ChiefConversationScreen(session: session, compose: composer)
         }
         .animation(theme.motion.smooth.animation, value: filter)
         .animation(theme.motion.smooth.animation, value: deleted)
@@ -191,6 +208,51 @@ public struct ConversationsHome<Leading: ToolbarContent>: View {
     private func toggle(_ set: inout Set<String>, _ id: String) {
         if set.contains(id) { set.remove(id) } else { set.insert(id) }
         theme.haptics.selection()
+    }
+}
+
+/// The always-visible search field under the large title. iOS 27 collapses
+/// a large title to inline when `.searchable` uses an always-shown drawer
+/// (and hides any other drawer until pulled), so a list row keeps both the
+/// large title and the field on iOS 26 and 27 alike.
+struct HomeSearchField: View {
+    @Binding var query: String
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(theme.colors.label2.color)
+                TextField("Search", text: $query)
+                    .focused($focused)
+                    .submitLabel(.search)
+                    .autocorrectionDisabled()
+                if !query.isEmpty {
+                    Button { query = "" } label: {
+                        Image(systemName: "xmark.circle.fill").foregroundStyle(theme.colors.label3.color)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear")
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(height: 36)
+            .background(theme.colors.surfaceRaised.color, in: .capsule)
+            if focused {
+                Button("Cancel") {
+                    query = ""
+                    focused = false
+                }
+                .foregroundStyle(theme.colors.label.color)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(theme.motion.smooth.animation, value: focused)
+        .padding(.horizontal, 16)
+        .padding(.top, 2)
+        .padding(.bottom, 6)
     }
 }
 

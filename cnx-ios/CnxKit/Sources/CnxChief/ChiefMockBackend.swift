@@ -1,12 +1,13 @@
 import CmuxConversationCore
 import Foundation
+import ImageIO
 
 /// A local Chief for UI work and demos: a seeded history, read receipts,
 /// a typing indicator while Chief "thinks", replies drawn from what was
 /// asked, and tapbacks on messages that thank or praise it. The real Chief
 /// is `ChiefDaemonBackend` (cmux-tui `conversation-*` over the link); both
 /// sit behind `ConversationBackend`, so the screen does not change.
-public final class ChiefMockBackend: ConversationBackend, @unchecked Sendable {
+public final class ChiefMockBackend: ConversationFileBackend, @unchecked Sendable {
     public typealias Sleep = @Sendable (Duration) async -> Void
     let engine: Engine
 
@@ -48,8 +49,17 @@ public final class ChiefMockBackend: ConversationBackend, @unchecked Sendable {
         await engine.markRead(upToSeq)
     }
 
+    /// Keeps the bytes in memory; the sent message carries them, so the
+    /// bubble renders without a URL.
     public func uploadImage(_ data: Data, mimeType: String) async throws -> ConversationAttachment {
-        throw ConversationBackendError(code: -1, message: "Chief can't take photos yet")
+        let size = ChiefImageSize(data: data)
+        return await engine.upload(ConversationAttachment(
+            id: "", kind: .image, width: size.width, height: size.height, url: nil, localData: data
+        ))
+    }
+
+    public func uploadFileAttachment(_ data: Data, info: ConversationFileInfo) async throws -> ConversationAttachment {
+        await engine.upload(ConversationAttachment(id: "", kind: .file, width: 0, height: 0, url: nil, localData: data, file: info))
     }
 
     public func close() {
@@ -64,6 +74,7 @@ public final class ChiefMockBackend: ConversationBackend, @unchecked Sendable {
         private var eventSeq = 0
         private var continuation: AsyncStream<ConversationBackendEvent>.Continuation?
         private var replyIndex = 0
+        private var uploads: [String: ConversationAttachment] = [:]
 
         init(identity: ChiefIdentity, now: Date, sleep: @escaping Sleep) {
             self.identity = identity
@@ -103,12 +114,22 @@ public final class ChiefMockBackend: ConversationBackend, @unchecked Sendable {
             }
         }
 
+        func upload(_ attachment: ConversationAttachment) -> ConversationAttachment {
+            let stored = ConversationAttachment(
+                id: "att_local_\(uploads.count + 1)", kind: attachment.kind, width: attachment.width, height: attachment.height,
+                url: nil, localData: attachment.localData, audio: attachment.audio, file: attachment.file
+            )
+            uploads[stored.id] = stored
+            return stored
+        }
+
         func send(_ draft: ConversationOutgoingDraft) -> ConversationMessage {
             if let existing = messages.first(where: { $0.clientMessageID == draft.clientMessageID }) { return existing }
             let seq = headSeq + 1
             let message = ConversationMessage(
                 id: "msg_local_\(seq)", seq: seq, clientMessageID: draft.clientMessageID, senderID: identity.meID,
-                sentAt: Date(), text: draft.text, replyToID: draft.replyToID, delivery: .delivered,
+                sentAt: Date(), text: draft.text, replyToID: draft.replyToID,
+                attachments: draft.attachmentIDs.compactMap { uploads[$0] }, delivery: .delivered,
                 mentions: draft.mentions, textRuns: draft.textRuns, effect: draft.effect
             )
             store(message)
@@ -135,7 +156,9 @@ public final class ChiefMockBackend: ConversationBackend, @unchecked Sendable {
             }
             await sleep(.milliseconds(400))
             continuation?.yield(.typing(participantID: identity.chiefID, isTyping: true))
-            let reply = ChiefMockScript.reply(to: message.text, index: replyIndex)
+            let reply = message.text.isEmpty && !message.attachments.isEmpty
+                ? ChiefMockScript.photoReply(count: message.attachments.count)
+                : ChiefMockScript.reply(to: message.text, index: replyIndex)
             replyIndex += 1
             // Typing time grows with the reply, as a person's would.
             await sleep(.milliseconds(min(2600, 900 + reply.count * 12)))
@@ -215,6 +238,12 @@ struct ChiefMockScript {
         return nil
     }
 
+    static func photoReply(count: Int) -> String {
+        count == 1
+            ? "Got the photo. Want me to hand it to an agent, or keep it with this thread?"
+            : "Got the \(count) photos. Want me to hand them to an agent, or keep them with this thread?"
+    }
+
     static func reply(to text: String, index: Int) -> String {
         let lower = text.lowercased()
         if lower.contains("allow") || lower.contains("yes") || lower.contains("go ahead") {
@@ -235,5 +264,24 @@ struct ChiefMockScript {
             "Sure. I'll keep an eye on it and ping you only if an agent needs a decision.",
         ]
         return fallbacks[index % fallbacks.count]
+    }
+}
+
+/// Pixel size of encoded image bytes (JPEG, PNG, HEIC), read from the header.
+struct ChiefImageSize {
+    var width = 0
+    var height = 0
+
+    init(data: Data) {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any] else { return }
+        var width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue ?? 0
+        var height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue ?? 0
+        // EXIF orientations 5-8 are rotated a quarter turn.
+        if let orientation = (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue, orientation >= 5 {
+            swap(&width, &height)
+        }
+        self.width = width
+        self.height = height
     }
 }

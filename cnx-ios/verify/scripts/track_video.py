@@ -13,8 +13,11 @@ keyboard: p = progress of each from its start to its end position; lag_pt =
 (p_kb - p_stack) * stack travel. Frames where the keyboard is not drawn yet
 (kb at the screen bottom while the stack already moves) are counted apart.
 """
-import json, subprocess, sys
+import json, os, subprocess, sys
 import numpy as np
+# Embedded terminal (a workspace tab): STACK_FLOOR=<pt> starts the stack scan
+# above TabsKit's toolbar, which is not black.
+FLOOR = float(os.environ.get("STACK_FLOOR", "10000"))
 
 
 def footer_bottom(rows, pt):
@@ -56,7 +59,7 @@ while True:
             y -= 1
         kb = y + 1
     xs = int(67 * pt)
-    y = min(kb, H - int(40 * pt)) - 1
+    y = min(kb, H - int(40 * pt), int(FLOOR * pt)) - 1
     while y > 0 and lum[y, xs] < 6:
         y -= 1
     stack = y + 1

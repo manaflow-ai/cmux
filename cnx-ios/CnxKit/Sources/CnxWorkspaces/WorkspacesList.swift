@@ -5,20 +5,6 @@ import SwiftUI
 
 private let theme = CnxTheme.standard
 
-/// How the Workspaces list orders rows inside each Mac.
-public enum WorkspaceSort: String, CaseIterable, Identifiable, Sendable {
-    case recent, name
-    public var id: String { rawValue }
-    var title: LocalizedStringKey { self == .recent ? "Recent" : "Name" }
-
-    func ordered(_ items: [Workspace]) -> [Workspace] {
-        switch self {
-        case .recent: items.sorted { $0.lastActivityAt > $1.lastActivityAt }
-        case .name: items.sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
-        }
-    }
-}
-
 /// SPEC 11.1: the Workspaces tab's content. One plain section per Mac
 /// (presence dot, name, "Online" / "Last seen"), workspace rows with icon,
 /// branch, tab count, relative time and status. Rows push `Workspace`
@@ -26,20 +12,35 @@ public enum WorkspaceSort: String, CaseIterable, Identifiable, Sendable {
 /// Loading, failure and the empty states come first.
 public struct WorkspacesList: View {
     let store: AppStore
+    let creator: WorkspaceCreator
+    /// Pushes a workspace (the new one, right after a tap).
+    let open: (Workspace) -> Void
+    /// The signed-in account, for "sign in as …" in the empty state.
+    var accountEmail: String?
+    /// Redials a Mac (live only; the header menu hides it otherwise).
+    var reconnect: ((String) -> Void)?
+    /// Pull to refresh (live only).
+    var refresh: (() async -> Void)?
     @AppStorage("cnx.workspaces.sort") private var sort: WorkspaceSort = .recent
     @AppStorage("cnx.workspaces.showOffline") private var showsOffline = true
     @State private var isRetrying = false
-    @State private var creating = false
 
-    public init(store: AppStore) {
+    public init(store: AppStore, creator: WorkspaceCreator, accountEmail: String? = nil,
+                reconnect: ((String) -> Void)? = nil, refresh: (() async -> Void)? = nil,
+                open: @escaping (Workspace) -> Void) {
         self.store = store
+        self.creator = creator
+        self.accountEmail = accountEmail
+        self.reconnect = reconnect
+        self.refresh = refresh
+        self.open = open
     }
 
     public var body: some View {
         content
             .toolbar {
                 ToolbarItemGroup(placement: .topBarTrailing) {
-                    Button("New workspace", systemImage: "square.and.pencil") { creating = true }
+                    NewWorkspaceButton(creator: creator, create: create)
                     Menu {
                         Picker("Sort", selection: $sort) {
                             ForEach(WorkspaceSort.allCases) { Text($0.title).tag($0) }
@@ -51,9 +52,17 @@ public struct WorkspacesList: View {
                     .accessibilityLabel("More")
                 }
             }
-            .sheet(isPresented: $creating) {
-                NewWorkspaceSheet(store: store)
-            }
+    }
+
+    /// Creates a workspace and pushes it at once; the row is optimistic
+    /// until the Mac confirms (ShellModel handles a refusal).
+    private func create(_ start: NewWorkspaceStart, directory: String?) {
+        guard let workspace = creator.create(start: start, directory: directory) else {
+            theme.haptics.warning()
+            return
+        }
+        theme.haptics.impactLight()
+        open(workspace)
     }
 
     @ViewBuilder private var content: some View {
@@ -73,13 +82,7 @@ public struct WorkspacesList: View {
             )
         case .loaded:
             if macs.isEmpty {
-                EmptyState(
-                    symbol: "desktopcomputer",
-                    title: "Connect your Mac",
-                    message: "Open cmux on your Mac and choose Pair iPhone to get a code.",
-                    primaryTitle: "Scan QR code", primary: {},
-                    secondaryTitle: "Enter code manually", secondary: {}
-                )
+                ConnectMacEmptyState(email: accountEmail)
             } else if !macs.contains(where: \.isOnline) && !showsOffline {
                 EmptyState(
                     symbol: "moon.zzz",
@@ -109,7 +112,8 @@ public struct WorkspacesList: View {
                     }
                     ForEach(items) { ws in
                         NavigationLink(value: ws) {
-                            WorkspaceRow(workspace: ws, stamp: stamp.string(for: ws.lastActivityAt), dimmed: !mac.isOnline)
+                            WorkspaceRow(workspace: ws, stamp: stamp.string(for: ws.lastActivityAt), dimmed: !mac.isOnline,
+                                         isPending: store.isPending(ws.id))
                         }
                         .listRowBackground(theme.colors.bg.color)
                         .listRowInsets(EdgeInsets(top: 0, leading: theme.metrics.sideMargin, bottom: 0, trailing: 16))
@@ -117,14 +121,17 @@ public struct WorkspacesList: View {
                     }
                 } header: {
                     MacSectionHeader(mac: mac, presence: stamp.presence(isOnline: mac.isOnline, lastSeenAt: mac.lastSeenAt),
-                                     link: store.macLinkStatus[mac.id])
+                                     link: store.macLinkStatus[mac.id],
+                                     reconnect: reconnect.map { reconnect in { reconnect(mac.id) } })
                 }
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .modifier(OptionalRefresh(refresh: refresh))
         .animation(theme.motion.smooth.animation, value: sort)
         .animation(theme.motion.smooth.animation, value: showsOffline)
+        .animation(theme.motion.smooth.animation, value: store.workspaces.map(\.id))
     }
 
     private func retry() {
@@ -137,14 +144,139 @@ public struct WorkspacesList: View {
     }
 }
 
-/// Section header: 44 pt, presence dot, Mac name, "Online" / "Last seen …".
-/// (Its More menu had only unwired Mac actions, so it is gone until pairing
-/// management exists.)
+/// Pull to refresh only where it does something.
+private struct OptionalRefresh: ViewModifier {
+    let refresh: (() async -> Void)?
+
+    func body(content: Content) -> some View {
+        if let refresh {
+            content.refreshable { await refresh() }
+        } else {
+            content
+        }
+    }
+}
+
+/// No Mac yet. Pairing is account based: a Mac signed in to the same account
+/// and team, with iPhone connections allowed, appears by itself, and
+/// presence swaps this state for the list.
+struct ConnectMacEmptyState: View {
+    let email: String?
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 0) {
+                Image(systemName: "desktopcomputer")
+                    .font(.system(size: 28))
+                    .foregroundStyle(theme.colors.label)
+                    .accessibilityHidden(true)
+                Text("Connect your Mac")
+                    .font(theme.type.emptyTitle)
+                    .foregroundStyle(theme.colors.label)
+                    .padding(.top, 16)
+                    .padding(.bottom, 20)
+                ConnectMacSteps(email: email, onlineMac: nil)
+            }
+            .padding(.horizontal, theme.metrics.sideMargin)
+            .frame(maxWidth: .infinity)
+            .containerRelativeFrame(.vertical) { height, _ in height * 0.8 }
+        }
+        .accessibilityIdentifier("workspaces.connect-mac")
+    }
+}
+
+/// The New Workspace toolbar button. A tap creates a workspace at once with
+/// the defaults (the preferred or only Mac, its last-used directory or home,
+/// the Mac's default first tab: a terminal). Holding it opens a menu of the
+/// other ways to start, as Safari's new-tab button and Notes' compose button
+/// do. Only options the Mac's backend supports are listed.
+struct NewWorkspaceButton: View {
+    let creator: WorkspaceCreator
+    let create: (NewWorkspaceStart, String?) -> Void
+
+    var body: some View {
+        Menu {
+            menu
+        } label: {
+            Label("New Workspace", systemImage: "square.and.pencil")
+        } primaryAction: {
+            create(.terminal, nil)
+        }
+        .disabled(creator.targetMac == nil)
+        .accessibilityIdentifier("workspaces.new")
+    }
+
+    @ViewBuilder private var menu: some View {
+        if let mac = creator.targetMac {
+            let options = creator.options(on: mac.id)
+            let macs = creator.availableMacs
+            if macs.count > 1 {
+                Section("On \(mac.name)") { starts(options) }
+            } else {
+                Section { starts(options) }
+            }
+            let recents = creator.recentDirectories(on: mac.id)
+            if !recents.isEmpty {
+                Section("Recent Directories") {
+                    ForEach(recents, id: \.self) { directory in
+                        Button {
+                            create(.terminal, directory)
+                        } label: {
+                            Label {
+                                Text(Self.folderName(directory))
+                                Text(directory)
+                            } icon: {
+                                Image(systemName: "folder")
+                            }
+                        }
+                    }
+                }
+            }
+            if macs.count > 1 {
+                Section {
+                    Picker(selection: Binding(get: { mac.id }, set: { creator.prefer(macID: $0) })) {
+                        ForEach(macs) { Text($0.name).tag($0.id) }
+                    } label: {
+                        Label("Mac", systemImage: "desktopcomputer")
+                    }
+                    .pickerStyle(.menu)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private func starts(_ options: WorkspaceCreationOptions) -> some View {
+        Button("New Workspace", systemImage: "apple.terminal") { create(.terminal, nil) }
+        ForEach(options.agents, id: \.self) { harness in
+            Button("New \(Self.agentName(harness)) Workspace", systemImage: "sparkle") { create(.agent(harness), nil) }
+        }
+        if options.browser {
+            Button("New Browser Workspace", systemImage: "globe") { create(.browser, nil) }
+        }
+    }
+
+    static func agentName(_ harness: String) -> String {
+        switch harness {
+        case "claude": "Claude"
+        case "codex": "Codex"
+        default: harness.prefix(1).uppercased() + harness.dropFirst()
+        }
+    }
+
+    static func folderName(_ directory: String) -> String {
+        directory == "~" ? "Home" : (directory as NSString).lastPathComponent
+    }
+}
+
+/// Section header: 44 pt, presence dot, Mac name, "Online" / "Last seen …",
+/// trailing More menu.
 struct MacSectionHeader: View {
     let mac: MacDevice
     let presence: String
     /// The live link line for this Mac, when the app dials it.
     var link: String?
+    /// Redials this Mac; nil hides the menu (nothing else in it works yet).
+    var reconnect: (() -> Void)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -174,6 +306,18 @@ struct MacSectionHeader: View {
                 .font(theme.type.meta)
                 .foregroundStyle(theme.colors.label2)
             Spacer(minLength: 0)
+            if let reconnect, mac.isOnline {
+                Menu {
+                    Button("Reconnect", systemImage: "arrow.clockwise", action: reconnect)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(theme.colors.label2)
+                        .frame(width: 32, height: 32)
+                        .contentShape(.rect)
+                }
+                .accessibilityLabel("\(mac.name) options")
+            }
         }
         .textCase(nil)
         .frame(minHeight: 44)
@@ -186,6 +330,8 @@ struct WorkspaceRow: View {
     let workspace: Workspace
     let stamp: String
     var dimmed = false
+    /// Being created on the Mac (optimistic row).
+    var isPending = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -216,6 +362,7 @@ struct WorkspaceRow: View {
     }
 
     private var subtitle: Text {
+        if isPending { return Text("Creating…") }
         let tabs = workspace.tabs.count == 1 ? "1 tab" : "\(workspace.tabs.count) tabs"
         if let branch = workspace.branch {
             return Text("\(Text(branch).monospaced()) · \(tabs)")
@@ -224,7 +371,11 @@ struct WorkspaceRow: View {
     }
 
     @ViewBuilder private var status: some View {
-        if workspace.needsAttention {
+        if isPending {
+            ProgressView().controlSize(.mini)
+                .frame(width: 12, height: 12)
+                .accessibilityLabel("Creating")
+        } else if workspace.needsAttention {
             HStack(spacing: 5) {
                 Circle().fill(theme.colors.warning.color).frame(width: 6, height: 6)
                 Text("Needs you").font(.caption.weight(.semibold))
@@ -262,56 +413,4 @@ struct WorkspaceIcon: View {
     }
 }
 
-/// New workspace (SPEC 11.1): Mac, directory, first tab.
-struct NewWorkspaceSheet: View {
-    let store: AppStore
-    @Environment(\.dismiss) private var dismiss
-    @State private var macID = ""
-    @State private var directory = "~/Development/"
-    @State private var firstTab = "claude"
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Picker("Mac", selection: $macID) {
-                    ForEach(store.activeTeam?.macs.filter(\.isOnline) ?? []) { Text($0.name).tag($0.id) }
-                }
-                TextField("Directory", text: $directory)
-                    .font(.body.monospaced())
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                Picker("Start with", selection: $firstTab) {
-                    Text("Claude").tag("claude")
-                    Text("Codex").tag("codex")
-                    Text("Terminal").tag("terminal")
-                }
-                .pickerStyle(.inline)
-            }
-            .navigationTitle("New Workspace")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel", systemImage: "xmark") { dismiss() } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Create", systemImage: "checkmark", action: create).disabled(macID.isEmpty)
-                }
-            }
-            .onAppear { if macID.isEmpty { macID = store.activeTeam?.macs.first(where: \.isOnline)?.id ?? "" } }
-        }
-        .presentationDetents([.medium, .large])
-    }
-
-    private func create() {
-        let dir = directory.trimmingCharacters(in: .whitespaces)
-        let title = (dir as NSString).lastPathComponent.isEmpty ? "workspace" : (dir as NSString).lastPathComponent
-        let id = "ws-\(UUID().uuidString.prefix(8).lowercased())"
-        let tab = switch firstTab {
-        case "terminal": WorkspaceTab(id: "\(id)-t", kind: .terminal, title: "zsh", subtitle: dir)
-        case "codex": WorkspaceTab(id: "\(id)-t", kind: .agent, title: "Codex", subtitle: "New session", harness: "codex")
-        default: WorkspaceTab(id: "\(id)-t", kind: .agent, title: "Claude", subtitle: "New session", harness: "claude")
-        }
-        store.workspaces.append(Workspace(id: id, macID: macID, title: title, directory: dir, tabs: [tab], lastActivityAt: Date()))
-        theme.haptics.success()
-        dismiss()
-    }
-}
 #endif

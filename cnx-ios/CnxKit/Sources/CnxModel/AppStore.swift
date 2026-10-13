@@ -21,6 +21,12 @@ public final class AppStore {
     /// Live link status per Mac id ("Connected · WireGuard relay · 27 ms"),
     /// shown in the Workspaces Mac section header. Empty in mock mode.
     public var macLinkStatus: [String: String] = [:]
+    /// Optimistic workspaces still being created on their Mac. A tree
+    /// refresh keeps them until the creation settles.
+    public private(set) var pendingWorkspaceIDs: Set<String> = []
+    /// Placeholder id → the real workspace id once its creation succeeds, so
+    /// a screen opened on the placeholder follows the real workspace.
+    public private(set) var workspaceAliases: [String: String] = [:]
 
     /// Phases of a remote load.
     public enum LoadState: Hashable, Sendable {
@@ -94,7 +100,7 @@ public final class AppStore {
 
     /// Replaces one Mac's workspaces, keeping the others.
     public func replaceWorkspaces(macID: String, with next: [Workspace]) {
-        let others = workspaces.filter { $0.macID != macID }
+        let others = workspaces.filter { $0.macID != macID || pendingWorkspaceIDs.contains($0.id) }
         let merged = others + next
         if merged != workspaces { workspaces = merged }
     }
@@ -134,17 +140,57 @@ public final class AppStore {
 
     /// Records the tab on screen in a workspace (every activation).
     public func noteOpened(tabID: String, in workspaceID: String) {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
         guard lastTabByWorkspace[workspaceID] != tabID else { return }
         lastTabByWorkspace[workspaceID] = tabID
         tabMemory.save(lastTabByWorkspace)
     }
 
     public func workspace(id: String) -> Workspace? {
-        workspaces.first { $0.id == id }
+        let id = resolvedWorkspaceID(id)
+        return workspaces.first { $0.id == id }
+    }
+
+    /// Follows a created placeholder to its real workspace id.
+    public func resolvedWorkspaceID(_ id: String) -> String {
+        workspaceAliases[id] ?? id
+    }
+
+    public func isPending(_ workspaceID: String) -> Bool {
+        pendingWorkspaceIDs.contains(workspaceID)
+    }
+
+    /// Adds an optimistic workspace (creation in flight).
+    public func insertPending(_ workspace: Workspace) {
+        pendingWorkspaceIDs.insert(workspace.id)
+        workspaces.append(workspace)
+    }
+
+    /// The creation succeeded: the placeholder becomes `real`. When the ids
+    /// differ (the Mac assigned its own), the placeholder row is dropped,
+    /// `real` is added unless a tree refresh already brought it, and the
+    /// placeholder id aliases to it.
+    public func resolvePending(_ placeholderID: String, with real: Workspace) {
+        pendingWorkspaceIDs.remove(placeholderID)
+        if real.id == placeholderID {
+            if let index = workspaces.firstIndex(where: { $0.id == placeholderID }) { workspaces[index] = real }
+            return
+        }
+        workspaces.removeAll { $0.id == placeholderID }
+        if !workspaces.contains(where: { $0.id == real.id }) { workspaces.append(real) }
+        workspaceAliases[placeholderID] = real.id
+    }
+
+    /// The creation failed: the placeholder disappears.
+    public func removePending(_ placeholderID: String) {
+        pendingWorkspaceIDs.remove(placeholderID)
+        workspaces.removeAll { $0.id == placeholderID }
+        if lastTabByWorkspace.removeValue(forKey: placeholderID) != nil { tabMemory.save(lastTabByWorkspace) }
     }
 
     /// Appends a tab to a workspace (new tabs go last, as in Safari).
     public func appendTab(_ tab: WorkspaceTab, to workspaceID: String) {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
         guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }) else { return }
         workspaces[index].tabs.append(tab)
         workspaces[index].lastActivityAt = Date()
@@ -154,6 +200,7 @@ public final class AppStore {
     /// removed one was the remembered tab: its right neighbor, else its left.
     @discardableResult
     public func removeTab(_ tabID: String, from workspaceID: String) -> WorkspaceTab? {
+        let workspaceID = resolvedWorkspaceID(workspaceID)
         guard let index = workspaces.firstIndex(where: { $0.id == workspaceID }),
               let position = workspaces[index].tabs.firstIndex(where: { $0.id == tabID }) else { return nil }
         workspaces[index].tabs.remove(at: position)

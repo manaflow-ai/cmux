@@ -375,7 +375,7 @@ struct TabsToolbar: View {
             .frame(maxWidth: collapsed ? nil : maxW)
             // The label rides with its page during a toolbar swipe.
             .offset(x: chrome.swiping ? chrome.swipeOffset : 0)
-            .opacity(chrome.swiping ? 1 - min(1, abs(chrome.swipeOffset) / (size.width * 0.5)) : 1)
+            .opacity(chrome.swiping ? Double(1 - min(CGFloat(1), abs(chrome.swipeOffset) / (size.width * 0.5))) : 1)
             .fixedSize(horizontal: collapsed, vertical: false)
             .scaleEffect(collapsed ? m.collapsedScale : 1)
             // Expanded, the label owns only the middle; the 48 pt slots at

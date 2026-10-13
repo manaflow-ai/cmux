@@ -33,8 +33,11 @@ public struct GlassCircleButton: View {
     }
 }
 
-/// A team avatar (SPEC 3.3): a continuous rounded square in the team color with
-/// the emoji centered, or the team initial in white when there is no emoji.
+/// A team avatar (SPEC 3.3): a continuous rounded square in the team color
+/// with the team's glyph centered. `emoji` is the stored glyph: nil draws the
+/// name's first letter, `""` draws nothing (color only), and any other value is
+/// the one character the user typed: an emoji at emoji size, or a letter,
+/// digit or symbol in white like the initial.
 public struct TeamAvatar: View {
     let name: String
     let colorHex: String?
@@ -56,16 +59,36 @@ public struct TeamAvatar: View {
             } else {
                 RoundedRectangle(cornerRadius: radius, style: .continuous).fill(theme.colors.fill)
             }
-            if let emoji, !emoji.isEmpty {
-                Text(emoji).font(.system(size: size * 0.61))
-            } else {
-                Text(String(name.prefix(1)).uppercased())
-                    .font(.system(size: size * 0.47, weight: .semibold))
-                    .foregroundStyle(.white)
+            switch emoji {
+            case nil:
+                letter(String(name.prefix(1)).uppercased())
+            case let glyph? where glyph.isEmpty:
+                EmptyView()
+            case let glyph? where Self.isEmoji(glyph):
+                Text(verbatim: glyph).font(.system(size: size * 0.61))
+            case let glyph?:
+                letter(glyph)
             }
         }
         .frame(width: size, height: size)
         .accessibilityHidden(true)
+    }
+
+    private func letter(_ text: String) -> some View {
+        Text(verbatim: text)
+            .font(.system(size: size * 0.47, weight: .semibold))
+            .foregroundStyle(.white)
+            .minimumScaleFactor(0.5)
+    }
+
+    /// True for a grapheme that renders as color emoji (including keycaps,
+    /// flags and ZWJ sequences), false for letters, digits and text symbols.
+    static func isEmoji(_ glyph: String) -> Bool {
+        guard let character = glyph.first else { return false }
+        let scalars = character.unicodeScalars
+        if scalars.contains(where: { $0.properties.isEmojiPresentation }) { return true }
+        // Text-default emoji (e.g. "❤") become emoji with VS16 or in a sequence.
+        return scalars.count > 1 && scalars.contains(where: { $0.properties.isEmoji && $0.value > 0x7F })
     }
 }
 

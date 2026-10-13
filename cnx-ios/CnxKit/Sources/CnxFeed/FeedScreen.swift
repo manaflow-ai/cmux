@@ -15,6 +15,7 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
     @State private var atTop = true
     @State private var expanded: Set<String> = []
     @State private var columnWidth: CGFloat = 0
+    @State private var swipe = FeedSwipeCoordinator()
     @Environment(AppStore.self) private var appStore
     private let director = DemoDirector.shared
 
@@ -37,10 +38,14 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                     }
                     LazyVStack(spacing: 0) {
                         ForEach(store.visibleItems) { item in
-                            FeedCell(item: item, store: store, open: { open(item) }, expanded: Binding(
-                                get: { expanded.contains(item.id) },
-                                set: { if $0 { expanded.insert(item.id) } else { expanded.remove(item.id) } }
-                            ))
+                            let actions = item.swipeActions(store: store, open: { open(item) })
+                            FeedSwipeRow(id: item.id, leading: actions.leading, trailing: actions.trailing, coordinator: swipe) {
+                                FeedCell(item: item, store: store, open: { open(item) }, expanded: Binding(
+                                    get: { expanded.contains(item.id) },
+                                    set: { if $0 { expanded.insert(item.id) } else { expanded.remove(item.id) } }
+                                ))
+                                .background(Color.cnxBackground)
+                            }
                             .id(item.id)
                             .transition(.asymmetric(insertion: .opacity.combined(with: .move(edge: .top)), removal: .opacity))
                             Divider()
@@ -50,6 +55,10 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
                 }
             }
             .scrollPosition($position)
+            .onScrollPhaseChange { _, phase in
+                if phase == .interacting, swipe.openID != nil { swipe.openID = nil }
+            }
+            .overlay(alignment: .bottom) { DoneUndoBar(store: store) }
             .onScrollGeometryChange(for: Bool.self) { $0.contentOffset.y + $0.contentInsets.top < 60 } action: { _, top in
                 atTop = top
                 if top { store.clearUnseen() }
@@ -200,9 +209,46 @@ public struct FeedScreen<SidebarItem: ToolbarContent>: View {
             store.clearUnseen()
         case .feedOpen(let id):
             if let item = store.items.first(where: { $0.id == id }) { open(item) }
+        case .feedSwipe(let id, let edge):
+            swipe.demoReveal = (id, edge == "leading")
+            swipe.demoPerform = nil
+            swipe.demoSerial += 1
+        case .feedSwipeAction(let id, let action):
+            swipe.demoReveal = nil
+            swipe.demoPerform = (id, action)
+            swipe.demoSerial += 1
+        case .feedSwipeClose:
+            swipe.openID = nil
         default:
             break
         }
+    }
+}
+/// "Marked done" with Undo for a few seconds after a Done swipe (Mail's undo bar).
+private struct DoneUndoBar: View {
+    let store: FeedStore
+
+    var body: some View {
+        ZStack {
+            if let id = store.lastDoneID {
+                HStack(spacing: 14) {
+                    Label("Marked done", systemImage: "checkmark.circle")
+                        .font(.subheadline.weight(.medium))
+                    Button("Undo") { withAnimation(.cnxSmooth) { store.undoDone() } }
+                        .font(.subheadline.weight(.semibold))
+                }
+                .padding(.horizontal, 18)
+                .frame(height: 44)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .padding(.bottom, 12)
+                .transition(.offset(y: 16).combined(with: .opacity))
+                .task(id: id) {
+                    try? await Task.sleep(for: .seconds(4))
+                    if store.lastDoneID == id { withAnimation(.cnxSmooth) { store.clearDone() } }
+                }
+            }
+        }
+        .animation(.cnxSnappy, value: store.lastDoneID)
     }
 }
 #endif

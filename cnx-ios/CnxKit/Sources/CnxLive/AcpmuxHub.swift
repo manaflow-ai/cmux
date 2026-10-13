@@ -1,5 +1,6 @@
 import CmuxAgentQuestion
 import CnxAgentChat
+import CnxArtifacts
 import CnxTransport
 import Foundation
 import Observation
@@ -17,6 +18,8 @@ public final class AcpmuxHub {
     public private(set) var isReady = false
     /// A failure binding the channel (shown in diagnostics).
     public private(set) var lastError: String?
+    /// The link the channel rides on (artifact previews open `file` channels on it).
+    @ObservationIgnored public var macLink: (any MacLink)?
 
     @ObservationIgnored private var connection: AcpmuxConnection?
     @ObservationIgnored private var pumpTask: Task<Void, Never>?
@@ -242,6 +245,97 @@ public final class AcpmuxSessionSource: AgentSessionSource {
         }
         if blocks.isEmpty { blocks.append(.object(["type": .string("text"), "text": .string("")])) }
         return blocks
+    }
+
+    // MARK: Parity
+
+    public func checkpoints() async throws -> [AgentCheckpoint] {
+        throw AgentFeatureUnavailable("Checkpoints are kept by the cmux app on \(summary.macName), and the phone link doesn't carry them yet. Open Changes on the Mac to restore one.")
+    }
+
+    public func restore(_ checkpoint: AgentCheckpoint) async throws -> String {
+        throw AgentFeatureUnavailable("Restore checkpoints from the cmux app on \(summary.macName).")
+    }
+
+    public func handoffTargets() async throws -> [AgentHandoffTarget] {
+        guard let hub else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
+        let reply = try await hub.request("_acpmux/harnesses", .object(["cwd": .string(summary.cwd)]))
+        return Self.handoffTargets(reply, excluding: summary.harness)
+    }
+
+    /// `_acpmux/harnesses` → targets: every harness but the session's own; unavailable ones keep their reason.
+    static func handoffTargets(_ reply: JSONValue, excluding harness: String) -> [AgentHandoffTarget] {
+        guard case .object(let harnesses)? = reply["harnesses"] else { return [] }
+        return harnesses.keys.sorted().compactMap { id in
+            guard id != harness, let entry = harnesses[id] else { return nil }
+            let name = entry["displayName"]?.stringValue ?? entry["title"]?.stringValue ?? entry["name"]?.stringValue ?? id
+            let reason = entry["unavailable"]?.stringValue ?? entry["unavailable"]?["reason"]?.stringValue ?? entry["probeError"]?.stringValue
+            return AgentHandoffTarget(id: id, name: name, family: entry["family"]?.stringValue, unavailableReason: reason)
+        }
+    }
+
+    public func prepareHandoff(to target: AgentHandoffTarget) async throws -> AgentHandoffDraft {
+        guard let hub else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
+        do {
+            let reply = try await hub.request("_acpmux/handoff_prepare", .object([
+                "sessionId": .string(sessionID), "harness": .string(target.id),
+                "handoffKey": .string("ios-\(sessionID)-\(target.id)"),
+            ]))
+            guard let draft = Self.handoffDraft(reply, target: target) else {
+                throw AgentFeatureUnavailable("\(summary.macName) sent a continuation this app can't read.")
+            }
+            return draft
+        } catch let error as AcpmuxConnection.RPCError {
+            throw AgentFeatureUnavailable(Self.handoffMessage(error))
+        }
+    }
+
+    static func handoffDraft(_ value: JSONValue, target: AgentHandoffTarget) -> AgentHandoffDraft? {
+        guard let id = value["handoffId"]?.stringValue, let capsule = value["capsule"] else { return nil }
+        let coverage = (value["target"]?["coverage"]?.arrayValue ?? value["source"]?["coverage"]?.arrayValue ?? []).compactMap { item -> AgentHandoffDraft.Coverage? in
+            guard let name = item["item"]?.stringValue, let status = item["status"]?.stringValue.flatMap(AgentHandoffDraft.Coverage.Status.init(rawValue:)) else { return nil }
+            return .init(item: name, status: status, detail: item["detail"]?.stringValue)
+        }
+        return AgentHandoffDraft(
+            id: id, revision: Int(value["revision"]?.numberValue ?? 0), target: target,
+            capsule: capsule["text"]?.stringValue ?? "", maxBytes: Int(capsule["maxBytes"]?.numberValue ?? 65536),
+            coverage: coverage, checkpointReference: capsule["checkpoint"]?["ref"]?.stringValue, promptID: value["promptId"]?.stringValue
+        )
+    }
+
+    static func handoffMessage(_ error: AcpmuxConnection.RPCError) -> String {
+        switch error.reason {
+        case "source_busy": "Wait for the agent to finish (no turn running, nothing queued or waiting) before continuing elsewhere."
+        case "checkpoint_required": "Save a repository checkpoint first."
+        case "permission.person_required": "Confirm this on your Mac. The phone can't start a continuation by itself yet."
+        default: error.message
+        }
+    }
+
+    public func startHandoff(_ draft: AgentHandoffDraft) async throws -> AgentHandoffReceipt {
+        guard let hub else { throw LinkError(code: "offline", message: "Not connected to the Mac") }
+        do {
+            let reply = try await hub.request("_acpmux/handoff_start", .object([
+                "handoffId": .string(draft.id), "revision": .number(Double(draft.revision)),
+                "promptId": .string(draft.promptID ?? draft.id),
+                "capsule": .object(["text": .string(draft.capsule), "memoryRefs": .array([])]),
+                "checkpoint": .object(["ref": .string(draft.checkpointReference ?? ""), "attest": .bool(true)]),
+            ]))
+            return AgentHandoffReceipt(targetSessionID: reply["targetSessionId"]?.stringValue ?? "", targetName: draft.target.name)
+        } catch let error as AcpmuxConnection.RPCError {
+            throw AgentFeatureUnavailable(Self.handoffMessage(error))
+        }
+    }
+
+    public func discardHandoff(_ draft: AgentHandoffDraft) async {
+        _ = try? await hub?.request("_acpmux/handoff_discard", .object(["handoffId": .string(draft.id)]))
+    }
+
+    public var artifactSource: any ArtifactSource {
+        let hub = hub
+        return LinkFileArtifactSource(macName: summary.macName, baseDirectory: summary.cwd) {
+            await MainActor.run { hub?.macLink }
+        }
     }
 
     /// Display copy for a refused call.
