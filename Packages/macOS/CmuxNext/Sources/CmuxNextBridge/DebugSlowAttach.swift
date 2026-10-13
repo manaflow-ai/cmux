@@ -7,8 +7,8 @@ import Foundation
 /// terminal attach wait `delay ms` first, and the first `fails` attaches of
 /// each surface then fail, as an attach to a daemon that has not answered
 /// yet does. Unset (the default) does nothing.
-nonisolated final class DebugSlowAttach: Sendable {
-    static let shared = DebugSlowAttach(ProcessInfo.processInfo.environment["CMUX_NEXT_DEBUG_SLOW_ATTACH"])
+public nonisolated final class DebugSlowAttach: Sendable {
+    public static let shared = DebugSlowAttach(ProcessInfo.processInfo.environment["CMUX_NEXT_DEBUG_SLOW_ATTACH"])
 
     nonisolated struct Injected: Error, CustomStringConvertible {
         var description: String { "debug slow attach: this attach fails (CMUX_NEXT_DEBUG_SLOW_ATTACH)" }
@@ -24,10 +24,10 @@ nonisolated final class DebugSlowAttach: Sendable {
         delay = .milliseconds(parts.count > 1 ? max(0, parts[1]) : 0)
     }
 
-    var isActive: Bool { fails > 0 || delay > .zero }
+    public var isActive: Bool { fails > 0 || delay > .zero }
 
     /// Runs before each attach of `surface`.
-    func beforeAttach(surface: String) async throws {
+    public func beforeAttach(surface: String) async throws {
         guard isActive else { return }
         // wakeup-allow: debug seam (CMUX_NEXT_DEBUG_SLOW_ATTACH), one wait per attach of a slow-daemon run
         try await Task.sleep(for: delay)
