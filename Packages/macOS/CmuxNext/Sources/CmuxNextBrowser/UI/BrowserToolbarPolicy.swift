@@ -37,7 +37,7 @@ public nonisolated struct BrowserToolbarPolicy {
             return BrowserToolbarButtonState(icon: .tools, label: hinted(Strings.toolbarDevTools),
                                              isActive: facts.devToolsOpen)
         case .overflow:
-            return BrowserToolbarButtonState(icon: .actionMore, label: Strings.toolbarMore)
+            return BrowserToolbarButtonState(icon: .actionMoreVertical, label: Strings.toolbarMore)
         }
     }
 }
