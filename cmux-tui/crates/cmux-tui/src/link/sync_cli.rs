@@ -94,6 +94,13 @@ pub(super) fn run(args: &[String]) -> i32 {
         eprintln!("{USAGE}");
         return 64;
     };
+    // A machine too old for `fs-v1` says so before anything is copied.
+    if let Some(outdated) =
+        super::machine_gate::outdated(&socket, &[cmux_tui_core::fs_ops::FS_CAPABILITY])
+    {
+        println!("{}", outdated.line());
+        return 1;
+    }
     if action == Action::Pull {
         return finish_pull(pull::pull(&socket, &local, &remote));
     }

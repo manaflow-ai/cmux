@@ -29,6 +29,7 @@ pub mod images;
 mod inbox;
 mod mux_ack;
 mod outbox;
+mod previews;
 mod prewarm;
 mod recover;
 mod side;
@@ -188,6 +189,13 @@ pub enum Input {
     StopSubagent {
         name: String,
         reply: Sender<serde_json::Value>,
+    },
+    /// The link preview thread's answer for reply `key`: its parts with the
+    /// cards filled (pictures uploaded), or None when no line qualifies (the
+    /// reply stays its text).
+    Previews {
+        key: String,
+        parts: Option<Vec<cmux_conversation::Part>>,
     },
 }
 
@@ -479,6 +487,8 @@ pub struct Brain {
     /// Woken conversations not acked yet: the highest woken seq of each
     /// (`mux_ack.rs`).
     mux_pending: HashMap<String, u64>,
+    /// Fetches link previews for replies' URL lines (None: replies stay text).
+    previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
 }
 
 impl Brain {
@@ -557,6 +567,7 @@ impl Brain {
             describing: HashSet::new(),
             side_handled: HashMap::new(),
             mux_pending: HashMap::new(),
+            previewer: None,
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -755,6 +766,7 @@ impl Brain {
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
             }
+            Input::Previews { key, parts } => self.previews_fetched(&key, parts),
         }
     }
 
@@ -986,8 +998,6 @@ fn reply_key_at(first: u64, stamp: &str) -> String {
     format!("turn:optchat:{first}:{stamp}")
 }
 
-/// A turn reply: `message.send` whose client_msg_id is the turn key, so a
-/// retry never posts twice.
 /// An outbox entry for `op` under `key`.
 fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
     OutboxEntry {
@@ -998,9 +1008,13 @@ fn op_entry(conversation: String, key: &str, op: Op) -> OutboxEntry {
         not_before: None,
         attempted: false,
         rate_attempts: 0,
+        previews_until: None,
+        plain_text: None,
     }
 }
 
+/// A turn reply: `message.send` whose client_msg_id is the turn key, so a
+/// retry never posts twice.
 fn reply_entry(conversation: String, key: &str, text: &str) -> OutboxEntry {
     answer_entry(conversation, key, text, Vec::new(), Vec::new())
 }
@@ -1041,6 +1055,8 @@ fn answer_entry(
         not_before: None,
         attempted: false,
         rate_attempts: 0,
+        previews_until: None,
+        plain_text: None,
     }
 }
 

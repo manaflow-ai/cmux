@@ -202,13 +202,19 @@ pub(super) fn session_cwd(
     family: &str,
 ) -> Result<PathBuf, RpcError> {
     let cwd = match (cwd, recorded) {
+        // Claude keeps a conversation under its cwd's project; resuming elsewhere finds nothing.
+        // The client's folder is only its default (the page's private agent-home folder), so the
+        // conversation's own folder wins while it exists (nxdog93: "cwd mismatch" on an
+        // agent-home chat). A gone folder needs the person's pick (`needsFolder`).
         (Some(given), Some(recorded)) if family == "claude" && !same_dir(&given, &recorded) => {
-            // Claude keeps a conversation under its cwd's project; resuming elsewhere finds nothing.
-            return Err(RpcError::invalid_params(format!(
-                "cwd {} does not match the adopted session's {}",
-                given.display(),
-                recorded.display()
-            )));
+            if !recorded.is_dir() {
+                return Err(RpcError::invalid_params(format!(
+                    "cwd {} does not match the adopted session's {}, which is gone",
+                    given.display(),
+                    recorded.display()
+                )));
+            }
+            recorded
         }
         (Some(given), _) => given,
         (None, Some(recorded)) => recorded,

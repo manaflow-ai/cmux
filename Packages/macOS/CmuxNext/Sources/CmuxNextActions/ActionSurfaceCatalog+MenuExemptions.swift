@@ -60,7 +60,7 @@ nonisolated extension ActionSurfaceCatalog {
             "focusRing.style.glow", "focusRing.singlePane.toggle", "appearance.paneBorderWidth.toggle",
             "appearance.paneBorderColor.reset", "appearance.titlebar.minimal", "appearance.titlebar.standard",
             "browser.hibernation.off", "browser.hibernation.moderate", "browser.hibernation.aggressive",
-            "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show",
+            "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show", "agentHistory.show",
             "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
             "layout.undo", "bookmark.add", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export", "agentActivity.open",
         ],

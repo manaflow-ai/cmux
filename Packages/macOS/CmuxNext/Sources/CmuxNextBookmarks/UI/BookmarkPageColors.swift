@@ -7,13 +7,15 @@ import SwiftUI
 /// dynamic ones would re-resolve in SwiftUI's own appearance.
 struct BookmarkPageColors: Equatable {
     var background = Color.clear
-    var primary = Color.primary
-    var secondary = Color.secondary
-    var tertiary = Color.secondary
-    var hover = Color.gray.opacity(0.1)
-    var selection = Color.gray.opacity(0.2)
-    var separator = Color.gray.opacity(0.2)
-    var danger = Color.red
+    // Until the host resolves the page's scope: the app theme, never SwiftUI's label grays.
+    var primary = ThemeTokens.unresolved.textPrimary.swiftUIColor
+    var secondary = ThemeTokens.unresolved.textSecondary.swiftUIColor
+    var tertiary = ThemeTokens.unresolved.textTertiary.swiftUIColor
+    var hover = ThemeTokens.unresolved.hoverFill.swiftUIColor
+    var selection = ThemeTokens.unresolved.selectionFill.swiftUIColor
+    // Through the border switch, as `Palette.separator` is: clear under `appearance.borders` none.
+    var separator = Color(nsColor: Borders.color(ThemeTokens.unresolved.separator.nsColor))
+    var danger = ThemeTokens.unresolved.danger.swiftUIColor
 
     /// Call inside `performWithTheme`. theme-scoped
     static func resolve() -> BookmarkPageColors {
