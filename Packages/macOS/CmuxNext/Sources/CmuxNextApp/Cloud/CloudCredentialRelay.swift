@@ -1,3 +1,4 @@
+import CmuxNextApps
 import CmuxNextDaemon
 import Foundation
 
@@ -22,6 +23,40 @@ nonisolated struct CloudCredentialRelay: Sendable {
     /// borrow it.
     static let app = "cmux/cloud"
     static let opPrefix = "cloud."
+    /// Ops the relay never sends, even when the app's manifest lists them.
+    /// The app server must never get a credential minted with this Mac's
+    /// install token: `cloud.machine.link_token` is the link's dial
+    /// credential, and only `cmux link` may mint it (decisions LINK-RESOLVE
+    /// and LINK-TOKEN-OP; cloud-client-contract.md 1.7).
+    static let refusedOps: Set<String> = ["cloud.machine.link_token"]
+    /// The ops a Cloud VM sends about itself, with its own VM principal; a
+    /// Mac never sends them.
+    static let refusedPrefix = "cloud.vm."
+
+    /// True when the relay may send `op` for the app server: one of the ops
+    /// the app's bundled manifest serves (`allowed`, an allow list: an op the
+    /// manifest does not name is refused, so a new credential op never
+    /// passes by default), a `cloud.*` op, and never a refused one.
+    static func mayRelay(_ op: String, allowed: Set<String>) -> Bool {
+        allowed.contains(op) && op.hasPrefix(opPrefix) && !refusedOps.contains(op)
+            && !op.hasPrefix(refusedPrefix)
+    }
+
+    /// The allow list is `cmux/cloud`'s only because only `cmux/cloud` may
+    /// call this relay (``answer(_:)`` refuses every other app); a second
+    /// app that may call it needs its own allow list here.
+    ///
+    /// The ops the bundled `cmux/cloud` manifest serves (`serves.ops`), the
+    /// ones its server sends as wire calls. Empty when the bundle has no such
+    /// manifest, so the relay then refuses every op. Read from disk once,
+    /// off the main actor.
+    @concurrent static func bundledServedOps() async -> Set<String> { servedOpsOfBundledApp }
+
+    private static let servedOpsOfBundledApp: Set<String> = {
+        guard let manifest = AppPlatformResources.firstPartyManifests().first(where: { $0.manifest.id == app })?.manifest
+        else { return [] }
+        return Set(manifest.raw["serves"]?["ops"]?.arrayValue?.compactMap(\.stringValue) ?? [])
+    }()
 
     /// POSTs `body` to `path` on the API Worker with `bearer`; returns the
     /// status and the body. Never logs the bearer.
@@ -44,6 +79,8 @@ nonisolated struct CloudCredentialRelay: Sendable {
     /// The Worker refused the token (401): the next ``token`` mints again.
     let invalidate: @Sendable () async -> Void
     let session: @Sendable () async -> Session
+    /// The ops the app server may have sent (``bundledServedOps()`` in the app).
+    let allowedOps: @Sendable () async -> Set<String>
 
     /// Answers one provider call of the `credential` family.
     func answer(_ call: AppsProviderCall) async -> Answer {
@@ -67,6 +104,9 @@ nonisolated struct CloudCredentialRelay: Sendable {
         }
         guard op.hasPrefix(Self.opPrefix) else {
             return Self.failure("credential.op_refused", "the credential relay sends only \(Self.opPrefix)* ops")
+        }
+        guard Self.mayRelay(op, allowed: await allowedOps()) else {
+            return Self.failure("credential.op_refused", "the credential relay never sends \(op)")
         }
         guard await session().signedIn else { return Self.notSignedIn }
         let key = params["idempotency_key"]?.stringValue

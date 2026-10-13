@@ -42,11 +42,13 @@ struct PinnedPageTests {
         }
     }
 
-    /// Polls `condition` (the store follows the daemon's events) up to a deadline.
-    static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(20)) async throws {
+    /// Polls `condition` (the store follows the daemon's events) up to a
+    /// deadline. A timeout is reported at the caller's line: which wait it was.
+    static func until(_ condition: () -> Bool, within timeout: Duration = .seconds(20),
+                      sourceLocation: SourceLocation = #_sourceLocation) async throws {
         let deadline = ContinuousClock.now + timeout
         while !condition(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(50)) }
-        try #require(condition(), "timed out")
+        try #require(condition(), "timed out", sourceLocation: sourceLocation)
     }
 
     /// The app's services on a fresh same-tree daemon, ready once restore made its first terminal.
@@ -70,6 +72,8 @@ struct PinnedPageTests {
         let result: Result<Void, any Error>
         do {
             try await until({ services.daemon.store.workspaces.contains { $0.screens.contains { !$0.panes.isEmpty } } }, within: .seconds(90))
+            // Actions reach tabs through the window's panes, which attach after the daemon's.
+            try await until({ services.windows.active?.workspaceContent?.panes.isEmpty == false }, within: .seconds(30))
             result = .success(try await body(services, try #require(services.daemon.connection)))
         } catch { result = .failure(error) }
         // Stop the app's connection first: on the daemon's EOF it would start a
