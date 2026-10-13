@@ -109,7 +109,13 @@ public struct CloudPlanRefusal: Equatable, Sendable {
                 defaultValue: "Every active machine your plan allows is in use. Pause or delete a running machine, then try again."
             )
         case .createCredits:
-            return serverMessage ?? String(
+            if serverMessage?.hasPrefix("Your account has no Cloud VM create credits left.") == true {
+                return String(
+                    localized: "cloud.operation.failure.createCredits.account",
+                    defaultValue: "Your account has no machine create credits left. Add Cloud VM create credits or upgrade your plan."
+                )
+            }
+            return String(
                 localized: "cloud.operation.failure.createCredits",
                 defaultValue: "Your team has no machine create credits left. Ask a team admin to add credits or upgrade the plan."
             )

@@ -102,15 +102,22 @@ extension CloudDiagnosticFailurePlanRefusalTests {
 
     @Test("Create-credit refusals keep the server's account or team billing scope")
     func createCreditsPreserveBillingScope() throws {
-        for message in [
-            "Your account has no Cloud VM create credits left.",
-            "This team has no Cloud VM create credits left."
-        ] {
-            let refusal = try #require(CloudPlanRefusal(status: 402, body: Self.body([
-                "error": "vm_create_credits_insufficient", "message": message,
-            ])))
-            #expect(refusal.message == message)
-        }
+        let account = try #require(CloudPlanRefusal(status: 402, body: Self.body([
+            "error": "vm_create_credits_insufficient",
+            "message": "Your account has no Cloud VM create credits left.",
+        ])))
+        #expect(account.message == String(
+            localized: "cloud.operation.failure.createCredits.account",
+            defaultValue: "Your account has no machine create credits left. Add Cloud VM create credits or upgrade your plan."
+        ))
+        let team = try #require(CloudPlanRefusal(status: 402, body: Self.body([
+            "error": "vm_create_credits_insufficient",
+            "message": "This team has no Cloud VM create credits left.",
+        ])))
+        #expect(team.message == String(
+            localized: "cloud.operation.failure.createCredits",
+            defaultValue: "Your team has no machine create credits left. Ask a team admin to add credits or upgrade the plan."
+        ))
     }
 
     @Test("An unrecognised 402 prefers the server's sentence, else the plan sentence")
