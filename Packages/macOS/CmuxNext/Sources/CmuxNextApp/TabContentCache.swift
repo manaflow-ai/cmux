@@ -221,7 +221,7 @@ final class TabContentCache {
             defer { pendingBrowsers.remove(key) }
             let page: any BrowserTab
             do {
-                page = try await makeCEFTab(await chromiumConfiguration(for: tab, key: key, url: url))
+                page = try await makeCEFTab(await browserTabs.historyStarts.chromium(tab, await chromiumConfiguration(for: tab, key: key, url: url), cache: self))
             } catch {
                 guard let tab = browserTabs.tabModel(key), browsers[key] == nil else { return }
                 _ = fallBack(tab, url: url, reason: browserTabs.cefUnavailable() ?? .startFailed(String(describing: error)))
