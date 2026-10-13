@@ -103,7 +103,7 @@ pub trait Driver: Send + Sync {
     fn set_connection_policy(
         &self,
         policy: Option<crate::policy_proxy::ConnectionPolicy>,
-    ) -> Result<(), crate::protocol::DriverError> {
+    ) -> Result<(), DriverError> {
         let _ = policy;
         Ok(())
     }
