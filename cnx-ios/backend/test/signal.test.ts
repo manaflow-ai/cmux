@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { uuidToBytes } from "../src/team-hub.ts"
-import { call, connect, register, token, worker } from "./helpers.ts"
+import { call, connect, PROD_PROJECT, register, token, worker } from "./helpers.ts"
 
 const offer = (from: string, to: string, sessionId = crypto.randomUUID()) => ({ type: "signal", to, from, sessionId, payload: { kind: "webrtc-offer", sdp: "v=0" } })
 
@@ -178,5 +178,35 @@ describe("TeamHub signaling", () => {
     await m2.until((s) => s.frames.some((f) => f.type === "signal"))
     expect(p.frames.some((f) => f.type === "presence" && f.mac.deviceId === mac && !f.mac.online)).toBe(false)
     for (const s of [p, m2]) s.ws.close()
+  })
+
+  it("production users signal their own Macs; the same sub in dev cannot", async () => {
+    const pat = await token("pat", { project: PROD_PROJECT })
+    const phone = await register(pat, "phone", "team-p")
+    const mac = await register(pat, "mac", "team-p")
+    const p = await connect(pat, "team-p", phone, true)
+    const m = await connect(pat, "team-p", mac)
+    await m.until((s) => s.frames.some((f) => f.type === "hello"))
+    p.send(offer(phone, mac))
+    await m.until((s) => s.frames.some((f) => f.type === "signal"))
+    expect(m.frames.find((f) => f.type === "signal")).toMatchObject({ from: phone, fromUserId: "pat" })
+
+    // Dev alice and prod alice share a sub and the id personal-alice, not a space.
+    const prodAlice = await token("alice", { project: PROD_PROJECT })
+    const devAlice = await token("alice")
+    const prodMac = await register(prodAlice, "mac", "personal-alice")
+    const devPhone = await register(devAlice, "phone", "personal-alice")
+    const pm = await connect(prodAlice, "personal-alice", prodMac)
+    const dp = await connect(devAlice, "personal-alice", devPhone)
+    await dp.until((s) => s.frames.some((f) => f.type === "hello"))
+    expect(dp.frames[0].macs.map((x: any) => x.deviceId)).not.toContain(prodMac)
+    dp.send(offer(devPhone, prodMac))
+    await dp.until((s) => s.frames.some((f) => f.type === "error"))
+    expect(dp.frames.find((f) => f.type === "error")).toMatchObject({ code: "not_owner" })
+    expect(pm.frames.some((f) => f.type === "signal")).toBe(false)
+    // Nor can the dev user open a socket as the prod device.
+    const asDev = await worker.fetch(`https://api.test/v1/teams/personal-alice/signal?deviceId=${prodMac}`, { headers: { Upgrade: "websocket", authorization: `Bearer ${devAlice}` } })
+    expect(asDev.status).toBe(403)
+    for (const s of [p, m, pm, dp]) s.ws.close()
   })
 })

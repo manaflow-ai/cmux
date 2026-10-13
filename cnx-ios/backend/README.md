@@ -19,6 +19,12 @@ parts of [`../PROTOCOL.md`](../PROTOCOL.md), which is the contract.
 | `dev` | `cnx-ios-api-dev` | https://cnx-ios-api-dev.debussy.workers.dev | PlanetScale `cmux/cnx-ios`, branch `main`, role `cnx-ios-dev`, Hyperdrive `cnx-ios-dev` (`e4fd2e88cfcd4f00841ddc5b49c3ee06`) |
 | `prod` | `cnx-ios-api-prod` | not deployed | to create: a prod branch/role, its Hyperdrive config, then replace `REPLACE_WITH_PROD_HYPERDRIVE_ID` and `INVITE_CALLBACK_URL` in `wrangler.jsonc` |
 
+`STACK_PROJECTS` in `wrangler.jsonc` lists the Stack projects whose users an
+environment accepts, primary first (id, label, publishable key or `""`, invite
+callback). The dev Worker accepts the dev project (primary) and the production
+project, so production cnx app builds (`dev.cmux.cnx.prod`) use it too. A user
+is (project, sub): see PROTOCOL.md "Identity and auth".
+
 Cloudflare account `0c1675e0def6de1ab3a50a4e17dc5656`. Run wrangler as
 `bunx wrangler@4` (OAuth login).
 
@@ -31,7 +37,7 @@ Pipe values from 1Password; never paste or echo them.
 | --- | --- | --- |
 | `TURN_KEY_ID` | 1Password `Cloudflare TURN Server API Key` (vault Shared), the "Turn Token ID" in its notes | for TURN (else `/v1/ice` is STUN only) |
 | `TURN_KEY_API_TOKEN` | same item, field `credential` | for TURN |
-| `STACK_SECRET_SERVER_KEY` | Stack server key of the env's project | optional; without it membership and invites use the caller's own token |
+| `STACK_SECRET_SERVER_KEY` | Stack server key of the env's primary project | optional; without it membership and invites use the caller's own token (always the case for the other projects) |
 
 ```bash
 op item get lqvg75d4awzbveq7ny5gyfeyd4 --fields notesPlain | grep -oE '[0-9a-f]{32}' | head -1 | tr -d '\n' \
@@ -83,5 +89,7 @@ STACK_PASSWORD="$(op read 'op://Development/sirnczouv25kkvpzlbhnpxpqo4/password'
 CNX_TOKEN_FILE=/private/path/token bun scripts/smoke.ts
 ```
 
-`CNX_BASE_URL` selects another deployment; `CNX_TEAM=personal` runs against
+`CNX_BASE_URL` selects another deployment; `STACK_PROJECT_ID` and
+`STACK_PUBLISHABLE_CLIENT_KEY` (empty for production) select the Stack project
+of the test account; `CNX_TEAM=personal` runs against
 the caller's personal space (`personal-<userId>`) instead of their first Stack team.

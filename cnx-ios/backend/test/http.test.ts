@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest"
-import { call, register, token } from "./helpers.ts"
+import { call, DEV_PROJECT, PROD_PROJECT, register, token } from "./helpers.ts"
 
 describe("HTTP API", () => {
   it("health is public", async () => {
     const r = await call("GET", "/v1/health", undefined)
-    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.3.0" } })
+    expect(r).toMatchObject({ status: 200, json: { ok: true, version: "0.4.0", stackProjects: [DEV_PROJECT, PROD_PROJECT] } })
   })
 
   it("rejects missing, forged, wrong-audience and anonymous tokens", async () => {
@@ -89,5 +89,52 @@ describe("HTTP API", () => {
     expect((await call("GET", `/v1/teams/${team}/prefs`, alice)).status).toBe(403)
     expect((await call("POST", "/v1/devices", alice, { deviceId: crypto.randomUUID(), kind: "phone", name: "p", teamId: team })).status).toBe(403)
     expect((await call("POST", `/v1/teams/${team}/invites`, alice, { email: "x@example.com" })).status).toBe(403)
+  })
+})
+
+describe("dev and production Stack projects", () => {
+  const prod = (sub: string) => token(sub, { project: PROD_PROJECT })
+
+  it("accepts production tokens and checks iss and aud per project", async () => {
+    expect((await call("GET", "/v1/ice", await prod("pat"))).status).toBe(200)
+    // Issued by prod but addressed to dev (and the reverse): refused.
+    expect((await call("GET", "/v1/ice", await token("pat", { project: PROD_PROJECT, audience: DEV_PROJECT }))).status).toBe(401)
+    expect((await call("GET", "/v1/ice", await token("pat", { project: DEV_PROJECT, audience: PROD_PROJECT }))).status).toBe(401)
+    // A project the Worker is not configured for.
+    const other = "00000000-0000-4000-8000-000000000000"
+    expect((await call("GET", "/v1/ice", await token("pat", { project: other }))).status).toBe(401)
+    expect((await call("GET", "/v1/ice", await token("pat", { project: PROD_PROJECT, anonymous: true }))).status).toBe(401)
+  })
+
+  it("membership comes from the caller's own project", async () => {
+    const pat = await prod("pat")
+    const mac = await register(pat, "mac", "team-p", "Pat's Mac")
+    const listed = await call("GET", "/v1/teams/team-p/macs", await prod("alice"))
+    expect(listed.json.macs).toEqual([{ deviceId: mac, name: "Pat's Mac", online: false, lastSeenAt: null, ownerUserId: "pat" }])
+    // Dev alice is in dev team-a, not in prod team-p; prod alice is not in dev team-a.
+    expect((await call("GET", "/v1/teams/team-p/macs", await token("alice"))).status).toBe(403)
+    expect((await call("GET", "/v1/teams/team-a/macs", await prod("alice"))).status).toBe(403)
+    const inv = await call("POST", "/v1/teams/team-p/invites", pat, { email: "x@example.com" })
+    expect(inv).toMatchObject({ status: 200, json: { sent: true, url: "https://cmux.com/handler/team-invitation" } })
+  })
+
+  it("the same sub in two projects is two users", async () => {
+    const devAlice = await token("alice")
+    const prodAlice = await prod("alice")
+    // Device ownership is (project, sub).
+    const deviceId = crypto.randomUUID()
+    expect((await call("POST", "/v1/devices", devAlice, { deviceId, kind: "mac", name: "Dev Mac", teamId: "personal-alice" })).status).toBe(200)
+    const taken = await call("POST", "/v1/devices", prodAlice, { deviceId, kind: "mac", name: "Mine", teamId: "personal-alice" })
+    expect(taken).toMatchObject({ status: 403, json: { error: { code: "not_owner" } } })
+    // personal-alice is a separate space per project: Macs and prefs do not cross.
+    const prodMac = await register(prodAlice, "mac", "personal-alice", "Prod Mac")
+    expect((await call("GET", "/v1/teams/personal-alice/macs", prodAlice)).json.macs.map((m: any) => m.deviceId)).toEqual([prodMac])
+    expect((await call("GET", "/v1/teams/personal-alice/macs", devAlice)).json.macs.map((m: any) => m.deviceId)).not.toContain(prodMac)
+    expect((await call("PUT", "/v1/teams/personal-alice/prefs", prodAlice, { color: "#0000FF" })).status).toBe(200)
+    expect((await call("PUT", "/v1/teams/personal-alice/prefs", devAlice, { color: "#FF0000" })).status).toBe(200)
+    expect((await call("GET", "/v1/teams/personal-alice/prefs", prodAlice)).json.color).toBe("#0000FF")
+    // The device object keeps its PROTOCOL.md shape (the project is recorded, not returned).
+    const r = await call("POST", "/v1/devices", prodAlice, { deviceId: prodMac, kind: "mac", name: "Prod Mac", teamId: "personal-alice" })
+    expect(Object.keys(r.json.device).sort()).toEqual(["createdAt", "deviceId", "kind", "lastSeenAt", "name", "ownerUserId", "teamId", "updatedAt", "wgPublicKey"])
   })
 })
