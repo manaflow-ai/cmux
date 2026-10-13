@@ -112,9 +112,7 @@ pub(super) fn subscribe_command(
                 MuxEvent::Conversation(_) if !conversation_client => {
                     continue;
                 }
-                MuxEvent::CloudConversation(_)
-                    if !trusted_pairing_client =>
-                {
+                MuxEvent::CloudConversation(_) if !trusted_pairing_client => {
                     continue;
                 }
                 MuxEvent::CloudConversation(_)

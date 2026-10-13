@@ -201,7 +201,10 @@ impl super::ClientRegistry {
     pub(super) fn is_owner_client(&self, client: u64) -> bool {
         self.state.lock().is_ok_and(|state| {
             state.clients.get(&client).is_some_and(|record| {
-                matches!(record.transport, super::ClientTransport::Unix | super::ClientTransport::WebSocket)
+                matches!(
+                    record.transport,
+                    super::ClientTransport::Unix | super::ClientTransport::WebSocket
+                )
             })
         })
     }
