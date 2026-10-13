@@ -39,6 +39,7 @@ extension SidebarListView {
                 for view in rowViews.values { view.frame.origin.y += delta }
                 decorations.shift(by: delta)
                 groupLineViews.shift(by: delta)
+                rowSprings.shift(by: delta)
                 // Rows are realized by `apply` from the new layout, not from
                 // the old one while the offset moves.
                 isShiftingViewport = true
