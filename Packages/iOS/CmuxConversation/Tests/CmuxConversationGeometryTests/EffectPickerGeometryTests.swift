@@ -7,7 +7,7 @@ import Testing
 /// the long press found it (keyboard up), identical on 26.5 and 27.0:
 /// 27.0 send {341.67, 496, 38, 28} -> track {333.67, 256, 54, 215}, dots
 /// 38 pt at y 259 / 316 / 373 / 430, labels ending at 311.67, draft bubble
-/// ending at 313.67 with its bottom at 523.1; 26.5 send y 489 -> track y
+/// ending at 313.67 with its body's bottom at 515.67; 26.5 send y 489 -> track y
 /// 249, dots 252 ... 423. Title {20, 91, 362, 26.33}, segments {81, 132,
 /// 240, 32} under a 62 pt safe top.
 @Suite struct EffectPickerGeometryTests {
@@ -24,9 +24,14 @@ import Testing
 
     @Test func draftBubbleSitsBesideTheCancelButton() {
         let g = EffectPickerGeometry(sendButton: send27, width: 402, safeTop: 62)
-        let bubble = g.homeBubble(size: CGSize(width: 124.08, height: 47.12))
+        // Body 40.33 tall (the tail hangs below it); Messages' body ends at 515.67.
+        let bubble = g.homeBubble(size: CGSize(width: 124.08, height: 40.33))
         #expect(abs(bubble.maxX - 313.67) < 0.01)
-        #expect(abs(bubble.maxY - 523.1) < 0.2)
+        #expect(abs(bubble.maxY - 515.67) < 0.2)
+        // Slam picked: the bubble moves up beside its dot, nearer the track.
+        let picked = g.pickedBubble(size: CGSize(width: 124.08, height: 47.12), index: 0)
+        #expect(abs(picked.minX - 204.09) < 0.05 && picked.minY == 260.5)
+        #expect(EffectPickerGeometry.pickedLabelCenterY(bubble: picked) == 247.5)
     }
 
     @Test func headerUnderTheSafeArea() {
