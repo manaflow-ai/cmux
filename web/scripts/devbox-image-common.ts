@@ -867,6 +867,71 @@ export function devboxWipeDaemonStateKeepingTemplateCommand(stateRoot: string): 
   ].join(" && ");
 }
 
+/** The root-run writer of /etc/cmux/vm-kind (services/vms/images/devbox/cmux-vm-kind-sync). */
+export const DEVBOX_VM_KIND_SYNC_PATH = "/usr/local/bin/cmux-vm-kind-sync";
+export const DEVBOX_VM_KIND_SYNC_UNIT_PATH = "/etc/systemd/system/cmux-vm-kind-sync.service";
+/** The machine kind record cmux-tui reads (cmux-tui agent_start_host.rs, cmux-host wire.rs VM_KIND_FILE). */
+export const DEVBOX_VM_KIND_PATH = "/etc/cmux/vm-kind";
+/**
+ * What Move to Cloud needs from the baked daemon: chat transfer
+ * (`agent-transfer-v1`, cmux-tui-core server/agent_transfer.rs), file and
+ * secret requests (`access-request-v1`), and the `vm-kind` host gate
+ * (cmux-tui agent_start_host.rs). Each is a literal in the binary; a daemon
+ * built before them (main's cmux-tui at the 2026-10-09 bake, fbbbc77a660f)
+ * has none.
+ */
+export const CMUX_TUI_REQUIRED_MOVE_CAPABILITIES = ["agent-transfer-v1", "access-request-v1", "vm-kind"] as const;
+
+/**
+ * Move to Cloud on a baked image (verify-devbox-image.ts): the baked daemon
+ * serves chat transfer and file/secret requests and gates them on
+ * /etc/cmux/vm-kind; the image itself carries no kind (team and personal
+ * machines share it, and a verification machine is neither, so nothing may
+ * have written one); and the root-run writer that records the control
+ * plane's answer is installed byte-identical and enabled.
+ */
+export function devboxMoveToCloudChecks(): string[] {
+  const bin = `${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui`;
+  return [
+    `for capability in ${CMUX_TUI_REQUIRED_MOVE_CAPABILITIES.join(" ")}; do grep -aqF "$capability" ${bin} || { echo "baked cmux-tui lacks $capability"; exit 1; }; done && echo cmux-tui-serves-move-to-cloud`,
+    `test ! -e ${DEVBOX_VM_KIND_PATH} && test ! -L ${DEVBOX_VM_KIND_PATH} && echo image-carries-no-vm-kind`,
+    `echo '${sha256File(path.join(devboxDir, "cmux-vm-kind-sync"))}  ${DEVBOX_VM_KIND_SYNC_PATH}' | sha256sum -c - >/dev/null && test -x ${DEVBOX_VM_KIND_SYNC_PATH} && python3 -m py_compile ${DEVBOX_VM_KIND_SYNC_PATH} && systemctl is-enabled cmux-vm-kind-sync >/dev/null && [ "$(systemctl show cmux-vm-kind-sync -p User --value)" = root ] && echo vm-kind-sync-contract-ok`,
+  ];
+}
+
+/**
+ * The kind sync's systemd unit. It runs as root, so the record it writes is
+ * root-owned, which is what cmux-tui requires. cmux-devbox-boot restarts it
+ * on every fresh instance, right after deleting the record.
+ */
+export function devboxVmKindSyncUnit(): string {
+  return [
+    "[Unit]",
+    "Description=cmux Cloud machine kind sync (/etc/cmux/vm-kind)",
+    "After=network-online.target cmux-tui-daemon.service",
+    "Wants=network-online.target",
+    "",
+    "[Service]",
+    "Type=simple",
+    "User=root",
+    `ExecStart=${DEVBOX_VM_KIND_SYNC_PATH}`,
+    "Restart=on-failure",
+    "RestartSec=2",
+    "",
+    "[Install]",
+    "WantedBy=multi-user.target",
+  ].join("\n") + "\n";
+}
+
+/**
+ * An image never carries a machine kind: team and personal machines boot the
+ * same snapshot, and only the control plane's answer on the machine itself
+ * may write one. Removes any record and proves none is left.
+ */
+export function devboxNoVmKindCommand(): string {
+  return `rm -f ${DEVBOX_VM_KIND_PATH} && test ! -e ${DEVBOX_VM_KIND_PATH} && test ! -L ${DEVBOX_VM_KIND_PATH} && echo no-baked-vm-kind`;
+}
+
 /**
  * Park the cmux-tui daemon on a machine about to be snapshotted: record this
  * machine's instance id as the bake id (cmux-devbox-boot keeps the daemon
@@ -890,6 +955,7 @@ export function devboxParkDaemonCommand(): string {
     devboxWipeDaemonStateKeepingTemplateCommand('"$CMUX_TUI_HOME/.local/state/cmux-tui"'),
     'rm -rf "$CMUX_TUI_HOME/.local/state/cmux/remote" /etc/cmux/daemon-instance-id /etc/cmux/daemon-boot-id /etc/cmux/first-terminal.json',
     `rm -f ${TEMPLATE_RUN_DIR}/bound ${TEMPLATE_RUN_DIR}/clone-started ${TEMPLATE_RUN_DIR}/first-prompt-named`,
+    devboxNoVmKindCommand(),
     `test "$(ls "$cmux_keep" | grep -c '\\.json$')" = 1`,
     "pgrep -f '[_]_terminal-host' >/dev/null",
     "! grep -qi ':0539 ' /proc/net/tcp6",

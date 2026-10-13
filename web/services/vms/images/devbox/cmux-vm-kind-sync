@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""Record this machine's kind (owner or team) in /etc/cmux/vm-kind.
+
+cmux-tui refuses to start or receive a chat on a Cloud VM unless
+/etc/cmux/vm-kind reads `owner`, and it trusts the record only when the
+file and every folder above it are owned by root, are not writable by group
+or others, and are not symlinks (cmux-tui agent_start_host.rs). This
+service runs as root (cmux-vm-kind-sync.service), asks the control plane
+which kind this machine is (GET https://reflection.cmux.internal/kind; the
+platform edge adds the machine's credential, services/vms/vmKind.ts decides
+from the machine's own row), and writes the answer atomically: a temporary
+file in /etc/cmux, fsynced, 0644 root:root, renamed over the record. The
+rename replaces the name itself, so a symlink planted at the record is
+replaced, never followed.
+
+Only `owner` and `team` are ever written. A refusal, an error or an answer
+for another machine writes nothing and keeps the last record. The bake never
+leaves a record in the snapshot, and cmux-devbox-boot deletes it on every
+fresh instance before the daemon starts, so a machine has no record until
+this service has heard from the control plane.
+"""
+import argparse
+import json
+import os
+from pathlib import Path
+import stat
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+RECORD = "vm-kind"
+KINDS = ("owner", "team")
+
+# Success re-asks every minute: the kind follows team membership. Failures
+# retry fast at first (the platform edge starts injecting the credential
+# 20-30 s after boot), then back off to the success cadence, or to five
+# minutes for a refusal (4xx). No failure polls faster than a success.
+SUCCESS_INTERVAL = 60
+TRANSIENT_RETRY_CAP = SUCCESS_INTERVAL
+REFUSED_RETRY_CAP = 300
+
+
+def retry_delay(previous, error):
+    refused = isinstance(error, urllib.error.HTTPError) and 400 <= error.code < 500
+    cap = REFUSED_RETRY_CAP if refused else TRANSIENT_RETRY_CAP
+    return 1 if previous is None else min(previous * 2, cap)
+
+
+def parse_kind(payload):
+    if not isinstance(payload, dict):
+        raise ValueError("invalid kind response")
+    machine = payload.get("vm_id")
+    kind = payload.get("kind")
+    if not isinstance(machine, str) or not machine:
+        raise ValueError("missing machine identity")
+    if kind not in KINDS:
+        raise ValueError("unknown machine kind")
+    return kind
+
+
+def fetch_kind(url):
+    request = urllib.request.Request(url, headers={
+        "Authorization": "Bearer cmux-vm-edge-placeholder",
+    })
+    with urllib.request.urlopen(request, timeout=5) as response:
+        body = response.read(4097)
+    if len(body) > 4096:
+        raise ValueError("kind response too large")
+    return parse_kind(json.loads(body))
+
+
+def trusted_directory(directory):
+    """Create the record's folder if needed and refuse one a non-root user could swap."""
+    owner = os.geteuid()
+    try:
+        os.mkdir(directory, 0o755)
+    except FileExistsError:
+        pass
+    info = os.lstat(directory)
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+        raise OSError(f"{directory} is not a real directory")
+    if info.st_uid != owner:
+        raise OSError(f"{directory} is not owned by uid {owner}")
+    if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        os.chmod(directory, 0o755)
+
+
+def publish(directory, kind):
+    """Atomically write `kind` to directory/vm-kind as this process's user, mode 0644.
+
+    Returns True when the record changed.
+    """
+    if kind not in KINDS:
+        raise ValueError("unknown machine kind")
+    directory = Path(directory)
+    trusted_directory(directory)
+    target = directory / RECORD
+    value = (kind + "\n").encode()
+    try:
+        info = os.lstat(target)
+        if stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid() and stat.S_IMODE(info.st_mode) == 0o644:
+            fd = os.open(target, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                if os.read(fd, 64) == value:
+                    return False
+            finally:
+                os.close(fd)
+    except FileNotFoundError:
+        pass
+    fd, temporary = tempfile.mkstemp(prefix=".vm-kind-", dir=directory)
+    try:
+        os.fchmod(fd, 0o644)
+        os.fchown(fd, os.geteuid(), os.getegid())
+        os.write(fd, value)
+        os.fsync(fd)
+        os.close(fd)
+        fd = -1
+        os.replace(temporary, target)
+        dir_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    finally:
+        if fd >= 0:
+            os.close(fd)
+        if os.path.lexists(temporary):
+            os.unlink(temporary)
+    return True
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--directory", type=Path, default=Path("/etc/cmux"))
+    parser.add_argument("--url", default="https://reflection.cmux.internal/kind")
+    parser.add_argument("--once", action="store_true")
+    args = parser.parse_args()
+    delay = None
+    while True:
+        try:
+            publish(args.directory, fetch_kind(args.url))
+            delay = None
+            if args.once:
+                return
+            time.sleep(SUCCESS_INTERVAL)
+        except (OSError, ValueError) as error:
+            if args.once:
+                raise
+            delay = retry_delay(delay, error)
+            time.sleep(delay)
+
+
+if __name__ == "__main__":
+    main()

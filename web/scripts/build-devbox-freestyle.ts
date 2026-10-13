@@ -118,6 +118,10 @@ import {
   devboxIdentityInstallCommand,
   devboxJournalResetCommand,
   devboxParkDaemonCommand,
+  devboxNoVmKindCommand,
+  devboxVmKindSyncUnit,
+  DEVBOX_VM_KIND_SYNC_PATH,
+  DEVBOX_VM_KIND_SYNC_UNIT_PATH,
   devboxSettleBeforeSnapshotCommand,
   devboxPrepareTemplateTerminalCommand,
   devboxSnapshotClockCommand,
@@ -564,6 +568,7 @@ try {
   await put("cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot", 0o755);
   await put("cmux-tui-state-mount", "/usr/local/bin/cmux-tui-state-mount", 0o755);
   await put("cmux-prompt-sync", "/usr/local/bin/cmux-prompt-sync", 0o755);
+  await put("cmux-vm-kind-sync", DEVBOX_VM_KIND_SYNC_PATH, 0o755);
   await vm.fs.writeFile("/etc/systemd/system/cmux-tui-daemon.service", `${service}\n`, { mode: 0o644 });
   await vm.fs.writeFile(
     "/etc/systemd/system/cmux-prompt-sync.service",
@@ -584,6 +589,10 @@ try {
     ].join("\n") + "\n",
     { mode: 0o644 },
   );
+  // The machine kind record (/etc/cmux/vm-kind) cmux-tui needs before it
+  // starts or receives a chat. Root-run so the record is root-owned; it is
+  // written only from the control plane's answer on a real machine, never here.
+  await vm.fs.writeFile(DEVBOX_VM_KIND_SYNC_UNIT_PATH, devboxVmKindSyncUnit(), { mode: 0o644 });
   // Quiet resume. Every machine is a memory-snapshot clone whose monotonic
   // clock jumps by the snapshot's age on resume, and the kernel would spend
   // the clone's first second (the New Machine critical path) printing a
@@ -618,6 +627,10 @@ try {
   await step(
     "cmux-prompt-sync-unit",
     "python3 -m py_compile /usr/local/bin/cmux-prompt-sync && systemctl daemon-reload && systemctl enable cmux-prompt-sync && systemctl is-enabled cmux-prompt-sync",
+  );
+  await step(
+    "cmux-vm-kind-sync-unit",
+    `python3 -m py_compile ${DEVBOX_VM_KIND_SYNC_PATH} && systemctl daemon-reload && systemctl enable cmux-vm-kind-sync && systemctl is-enabled cmux-vm-kind-sync`,
   );
   // Prove the daemon contract on the builder: the supervisor started the
   // daemon on its own, the session answers, and the listener is dual-stack.
@@ -684,6 +697,8 @@ try {
   // is the same bytes on every machine and stays; the verifier checks it.)
   await step("clean", `rm -rf /var/lib/apt/lists/* /root/.npm/_cacache ${WORK_HOME}/.npm/_cacache 2>/dev/null; rm -f /root/.claude.json ${WORK_HOME}/.claude.json; ${devboxJournalResetCommand}; sync; true`);
   await step("no-stale-claude-seed", `test ! -e /root/.claude.json && test ! -e ${WORK_HOME}/.claude.json && echo no-stale-claude-seed`);
+  // Team and personal machines share this image: it must never carry a kind.
+  await step("no-baked-vm-kind", devboxNoVmKindCommand());
   // Last guest step before the snapshot; see devboxSettleBeforeSnapshotCommand.
   await step("settle-before-snapshot", devboxSettleBeforeSnapshotCommand());
 } catch (error) {

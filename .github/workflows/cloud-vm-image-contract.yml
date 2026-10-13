@@ -51,6 +51,11 @@ on:
         required: false
         default: ""
         type: string
+      cmux_tui_commit:
+        description: "Optional full cmux-tui commit to bake (files.cmux.com/cmux-tui/<commit>/manifest.json); empty bakes latest"
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: read
@@ -128,8 +133,17 @@ jobs:
           FREESTYLE_API_KEY: ${{ secrets.FREESTYLE_API_KEY }}
           PROMOTION_OUT: ${{ runner.temp }}/devbox-promotion.json
           SLUG: cmux-devbox-${{ github.run_id }}
+          CMUX_TUI_COMMIT: ${{ inputs.cmux_tui_commit }}
         run: |
           set -euo pipefail
+          if [ -n "$CMUX_TUI_COMMIT" ]; then
+            if ! printf '%s' "$CMUX_TUI_COMMIT" | grep -Eq '^[0-9a-f]{40}$'; then
+              echo "::error::cmux_tui_commit must be a full 40-character lowercase commit"
+              exit 1
+            fi
+            export CMUX_VM_CMUX_TUI_MANIFEST_URL="https://files.cmux.com/cmux-tui/${CMUX_TUI_COMMIT}/manifest.json"
+            echo "baking cmux-tui from $CMUX_VM_CMUX_TUI_MANIFEST_URL"
+          fi
           bun run devbox:promote -- freestyle \
             --slug "$SLUG" \
             --pointer-slug none \

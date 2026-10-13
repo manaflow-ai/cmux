@@ -115,6 +115,9 @@ DESKTOP_RUNTIME_DIR=/run/cmux-desktop
 DESKTOP_DISPLAY=:1
 BOUND_INSTANCE_FILE=/etc/cmux/daemon-instance-id
 BAKE_INSTANCE_FILE=/etc/cmux/bake-instance-id
+# The machine kind cmux-tui reads (owner or team), written only by the
+# root-run cmux-vm-kind-sync from the control plane's answer.
+VM_KIND_FILE=/etc/cmux/vm-kind
 BOOT_ID_FILE=/etc/cmux/daemon-boot-id
 BOOT_ID_SOURCE=/proc/sys/kernel/random/boot_id
 # daemon_paths() URL-safe-base64 encodes the fixed cloud session component.
@@ -372,6 +375,11 @@ while true; do
         find "$REMOTE_STATE_DIR/sessions" -mindepth 2 -maxdepth 2 -type d -name auth -prune -exec rm -rf {} + 2>/dev/null || true
         rm -rf "$REMOTE_STATE_DIR/connections" 2>/dev/null || true
         mkdir -p /etc/cmux && printf '%s\n' "$id" > "$BOUND_INSTANCE_FILE"
+        # The machine kind belongs to this machine, not to the one a fork or
+        # checkpoint came from: drop it before the daemon starts, so the
+        # daemon refuses chats until cmux-vm-kind-sync has heard this
+        # machine's own kind from the control plane.
+        rm -f "$VM_KIND_FILE"
         # Start the daemon before anything else that needs CPU: a New Machine
         # waits on this listener, and the clone has only a couple of vCPUs.
         # Host re-keying (RSA generation is most of a second of CPU), prompt
@@ -382,6 +390,7 @@ while true; do
         # carry an already-active systemd unit, so explicitly restart it after
         # the fresh instance identity is bound.
         systemctl --no-block restart cmux-prompt-sync.service >/dev/null 2>&1 || true
+        systemctl --no-block restart cmux-vm-kind-sync.service >/dev/null 2>&1 || true
         ( rekey_ssh_host & )
         [ -n "$parked" ] && { rearm_housekeeping; parked=""; }
       fi
