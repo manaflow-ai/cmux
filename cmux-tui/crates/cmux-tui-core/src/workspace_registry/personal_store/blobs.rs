@@ -64,6 +64,8 @@ pub(crate) const ICON_REFERENCE_FIELDS: &[(&str, &str)] = &[
     ("workspace_status_entries", "icon"),
     ("bookmarks", "icon"),
     ("closed_groups", "record_json"),
+    // Sidebar layout items' icons (`item.icon`, a custom Home icon).
+    ("sidebar_layout", "document_json"),
     // Opaque client JSON: kept conservatively in case a window stores an icon.
     ("window_records", "record_json"),
 ];
