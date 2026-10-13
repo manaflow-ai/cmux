@@ -196,6 +196,19 @@ describe("Tier 1 code runs (workerd)", () => {
     expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.steps").quantity).toBe(0)
   })
 
+  it("does not start tenant code when the automation owner is at their monthly AI limit (cx-ds09i)", async () => {
+    const bundle = `
+      import { WorkflowEntrypoint } from "cloudflare:workers";
+      export default class extends WorkflowEntrypoint { async run(event, step) { await step.do("x", async () => 1); } }`
+    const { t, run } = await runOnce("code-run-12", sha(12), bundle, async (tok) => {
+      // The owner (creator of the automation) sets their personal team's per-member limit to 0.
+      expect((await op(tok, "team.ai_limit.set", { user_monthly_limit_usd: 0 })).ok).toBe(true)
+    })
+    expect(run).toMatchObject({ state: "failed", error: { code: "user_limit.reached" } })
+    const usage = await read(t, "usage.summary")
+    expect(usage.value.meters.find((x: { meter: string }) => x.meter === "automation.steps").quantity).toBe(0)
+  })
+
   it("fails with code.not_found when the bundle is missing, and the tenant has no network", async () => {
     const missing = await runOnce("code-run-4", sha(4), "", async () => {
       testBundles.delete(`${sha(4)}:automations/digest`)

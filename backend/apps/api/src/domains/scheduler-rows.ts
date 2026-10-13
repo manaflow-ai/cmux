@@ -47,6 +47,12 @@ const requireBody = (rows: RowReader | undefined, hash: string, owner: string): 
 
 export const automationRowOf = (rows: RowReader | undefined, id: string): AutomationRow | undefined => rows?.get<AutomationRow>(TABLE_AUTOMATION, id)?.row
 
+/** The member an automation's runs are charged to (cx-ds09i per-user AI limit): who created it. */
+export const chargedUser = (rows: RowReader | undefined, id: string): string | undefined => {
+  const by = (automationRowOf(rows, id) as { created_by?: unknown } | undefined)?.created_by
+  return typeof by === "string" && by ? by : undefined
+}
+
 /** The automation with its body joined. */
 export const automationOf = (rows: RowReader | undefined, id: string): Automation | undefined => {
   const row = automationRowOf(rows, id)
