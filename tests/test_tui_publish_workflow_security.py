@@ -2022,6 +2022,21 @@ def test_windows_unit_tests_build_without_fat_lto() -> None:
     assert "CARGO_PROFILE_RELEASE_LTO" not in build.get("env", {})
 
 
+def test_package_workflow_uses_no_shared_build_cache() -> None:
+    # Chief decision 2026-10-12 (#13742): the push-only Windows cargo cache was removed. A
+    # pull_request_target job runs pull request code in the base branch's cache scope and gets a
+    # runtime token that can write cache entries, so a cache that published binaries read is a
+    # supply-chain risk. No job of the package workflow may use actions/cache. A later cache needs
+    # a separate, write-protected scope that only release builds can write.
+    jobs = _package_workflow_document()["jobs"]
+    assert isinstance(jobs, dict)
+    for name, job in jobs.items():
+        if not isinstance(job, dict):
+            continue
+        for step in job.get("steps", []) or []:
+            assert "actions/cache" not in str(step.get("uses", "")), name
+
+
 PACKAGE_BUILD_JOBS = (
     "build",
     # cloudflare-relay moved to its own lane; it checks out the pull request

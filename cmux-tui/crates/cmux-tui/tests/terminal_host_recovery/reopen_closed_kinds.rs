@@ -613,3 +613,269 @@ fn an_ungrouped_screen_group_reopens_whole() {
     assert_eq!(groups[0]["screen_ids"], serde_json::json!(members));
     assert_eq!(closed_list(&harness, "screen-ungroup-closed-3").len(), before);
 }
+
+/// Run the close `operation` with `params` (over the v2 socket, as the app
+/// does): it adds one closed-history group, which Cmd-Shift-T reopens.
+/// Returns the closed item and the reopen's result.
+fn close_records_and_reopens(
+    harness: &RecoveryHarness,
+    operation: &str,
+    params: serde_json::Value,
+    key: &str,
+) -> (serde_json::Value, serde_json::Value) {
+    let before = closed_list(harness, &format!("{key}-closed-1")).len();
+    let mut params = params;
+    params["machine"] = "current".into();
+    params["session"] = "current".into();
+    resource_request(&harness.socket, key, operation, params, Some(key));
+    let closed = closed_list(harness, &format!("{key}-closed-2"));
+    assert_eq!(closed.len(), before + 1, "{operation} was not recorded: {closed:?}");
+    let item = closed[0].clone();
+    let id = item["id"].as_str().expect("the closed item has an id");
+    let reopened = resource_request(
+        &harness.socket,
+        &format!("{key}-reopen"),
+        "closed.reopen",
+        serde_json::json!({"machine":"current","session":"current","closed":id}),
+        Some(&format!("{key}-reopen")),
+    );
+    assert_eq!(closed_list(harness, &format!("{key}-closed-3")).len(), before);
+    (item, reopened["value"].clone())
+}
+
+/// The workspace named `kinds` as the tree lists it.
+fn kinds_workspace(app: &mut AppConnection) -> serde_json::Value {
+    app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == "kinds")
+        .cloned()
+        .expect("the workspace exists")
+}
+
+// Every close path records first (cx-gzh.10 audit): screen.close,
+// pane.close, terminal.close and browser.close each add one group that
+// Cmd-Shift-T reopens.
+
+#[test]
+fn a_closed_screen_reopens() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, _) = start("reopen-path-screen");
+    let workspace = kinds_workspace(&mut app);
+    let first = workspace["screens"][0]["resource_id"].clone();
+    app.send(serde_json::json!({"cmd":"new-screen","workspace":workspace["id"],
+                                "cols":80,"rows":24}));
+    let screens = kinds_workspace(&mut app)["screens"].as_array().cloned().unwrap_or_default();
+    assert_eq!(screens.len(), 2, "{screens:?}");
+    let screen = screens
+        .iter()
+        .find(|screen| screen["resource_id"] != first)
+        .and_then(|screen| screen["resource_id"].as_str())
+        .expect("the new screen has an id")
+        .to_string();
+    let (item, reopened) = close_records_and_reopens(
+        &harness,
+        "screen.close",
+        serde_json::json!({"screen":screen}),
+        "path-screen",
+    );
+    assert_eq!(item["kind"], "screen", "{item}");
+    assert_eq!(reopened["screen_ids"].as_array().map(Vec::len), Some(1), "{reopened}");
+    let screens = kinds_workspace(&mut app)["screens"].as_array().cloned().unwrap_or_default();
+    assert_eq!(screens.len(), 2, "{screens:?}");
+    let back = screens
+        .iter()
+        .find(|screen| screen["resource_id"] == reopened["screen_ids"][0])
+        .unwrap_or_else(|| panic!("the reopened screen is not listed: {screens:?}"));
+    let tab = &back["panes"][0]["tabs"][0];
+    assert!(tab["terminal_id"].is_string(), "the reopened screen has its terminal: {back}");
+}
+
+#[test]
+fn a_closed_pane_reopens_its_tabs() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-path-pane");
+    app.send(serde_json::json!({"cmd":"split","pane":pane,"dir":"right","cols":80,"rows":24}));
+    let panes = kinds_workspace(&mut app)["screens"][0]["panes"].as_array().cloned().unwrap();
+    let split = panes
+        .iter()
+        .find(|candidate| candidate["id"].as_u64() != Some(pane))
+        .expect("the split made a pane");
+    let split_id = split["resource_id"].as_str().expect("the pane has an id").to_string();
+    let tab = split["tabs"][0]["tab_resource_id"].clone();
+    let stayed = panes
+        .iter()
+        .find(|candidate| candidate["id"].as_u64() == Some(pane))
+        .map(|home| home["tabs"][0]["tab_resource_id"].clone())
+        .expect("the pane that stays has a tab");
+    let (item, reopened) = close_records_and_reopens(
+        &harness,
+        "pane.close",
+        serde_json::json!({"pane":split_id}),
+        "path-pane",
+    );
+    assert_eq!(item["kind"], "tab", "{item}");
+    assert_eq!(item["member_count"], 1, "{item}");
+    let tabs = reopened["tab_ids"].as_array().cloned().unwrap_or_default();
+    assert_eq!(tabs.len(), 1, "{reopened}");
+    let back = app.tab_by_id(tabs[0].as_str().unwrap());
+    assert!(back["terminal_id"].is_string(), "{back} (closed tab {tab})");
+    // The split does not come back (an audit gap): the tab reopens beside
+    // the tab of the pane that stayed, which keeps its own.
+    let panes = kinds_workspace(&mut app)["screens"][0]["panes"].as_array().cloned().unwrap();
+    let ids = panes
+        .iter()
+        .flat_map(|pane| pane["tabs"].as_array().cloned().unwrap_or_default())
+        .map(|tab| tab["tab_resource_id"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(ids.len(), 2, "{panes:?}");
+    assert!(ids.contains(&stayed) && ids.contains(&back["tab_resource_id"]), "{panes:?}");
+}
+
+#[test]
+fn a_closed_terminal_reopens_as_a_tab() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-path-terminal");
+    let surface =
+        app.send(serde_json::json!({"cmd":"new-tab","pane":pane}))["surface"].as_u64().unwrap();
+    let tab = app.tab(surface)["tab_resource_id"].clone();
+    let terminals = resource_request(
+        &harness.socket,
+        "path-terminal-list",
+        "terminal.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let terminal = terminals
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|terminal| terminal["tab_ids"].as_array().is_some_and(|tabs| tabs.contains(&tab)))
+        .and_then(|terminal| terminal["id"].as_str().map(str::to_string))
+        .unwrap_or_else(|| panic!("no terminal shows tab {tab}: {terminals}"));
+    let (item, reopened) = close_records_and_reopens(
+        &harness,
+        "terminal.close",
+        serde_json::json!({"terminal":terminal}),
+        "path-terminal",
+    );
+    assert_eq!(item["kind"], "tab", "{item}");
+    let tab = reopened["tab_ids"][0].as_str().expect("the reopen returned no tab").to_string();
+    assert!(app.tab_by_id(&tab)["terminal_id"].is_string());
+}
+
+#[test]
+fn a_closed_browser_reopens_on_its_url() {
+    let _exclusive = exclusive_process_test();
+    let (harness, mut app, pane) = start("reopen-path-browser");
+    let created = app.send(serde_json::json!({
+        "cmd":"new-frontend-browser-tab","pane":pane,"url":"https://example.com/path","engine":"webkit",
+    }));
+    let surface = created["surface"].as_u64().expect("no browser surface");
+    let tab = app.tab(surface)["tab_resource_id"].clone();
+    let browsers = resource_request(
+        &harness.socket,
+        "path-browser-list",
+        "browser.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let browser = browsers
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|browser| browser["tab_id"] == tab)
+        .and_then(|browser| browser["id"].as_str().map(str::to_string))
+        .unwrap_or_else(|| panic!("no browser for tab {tab}: {browsers}"));
+    let (item, reopened) = close_records_and_reopens(
+        &harness,
+        "browser.close",
+        serde_json::json!({"browser":browser}),
+        "path-browser",
+    );
+    assert_eq!(item["kind"], "tab", "{item}");
+    let tab = reopened["tab_ids"][0].as_str().expect("the reopen returned no tab").to_string();
+    let back = app.tab_by_id(&tab);
+    assert_eq!(
+        (back["kind"].as_str(), back["url"].as_str()),
+        (Some("browser"), Some("https://example.com/path"))
+    );
+}
+
+/// The key of the workspace named `name`, once the tree lists it.
+fn workspace_key(app: &mut AppConnection, name: &str) -> Option<String> {
+    app.send(serde_json::json!({"cmd":"list-workspaces"}))["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|workspace| workspace["name"] == name)
+        .and_then(|workspace| workspace["key"].as_str().map(str::to_string))
+}
+
+/// A closed workspace's agent-home folder (its chat files) follows it on
+/// Reopen Closed, and goes to the app's trash-pending folder (never deleted)
+/// when its closed group is deleted (cx-gzh.9.2).
+#[cfg(target_os = "linux")]
+#[test]
+fn a_closed_workspaces_agent_home_follows_its_reopen_and_goes_to_trash_on_delete() {
+    let _exclusive = exclusive_process_test();
+    let data = std::env::temp_dir().join(format!("reopen-agent-home-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&data);
+    fs::create_dir_all(&data).unwrap();
+    let data_text = data.to_string_lossy().into_owned();
+    let harness =
+        RecoveryHarness::start_with_env("reopen-agent-home", &[("XDG_DATA_HOME", &data_text)]);
+    let mut app = AppConnection::open(&harness);
+    app.send(serde_json::json!({"cmd":"new-workspace","name":"ah"}));
+    let key = workspace_key(&mut app, "ah").expect("the workspace has a key");
+    let base = data.join("cmux").join("agent-home");
+    fs::create_dir_all(base.join(&key)).unwrap();
+    fs::write(base.join(&key).join("chat.jsonl"), "kept").unwrap();
+
+    app.send(serde_json::json!({"cmd":"close-workspace","key":key,"end_terminals":true}));
+    let closed = resource_request(
+        &harness.socket,
+        "ah-list",
+        "closed.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let id = closed[0]["id"].as_str().expect("the close is recorded").to_string();
+    resource_request(
+        &harness.socket,
+        "ah-reopen",
+        "closed.reopen",
+        serde_json::json!({"machine":"current","session":"current","closed":id}),
+        Some("ah-reopen"),
+    );
+    let reopened = workspace_key(&mut app, "ah").expect("the reopened workspace has a key");
+    assert_ne!(reopened, key, "a reopened workspace gets a new key");
+    assert_eq!(fs::read_to_string(base.join(&reopened).join("chat.jsonl")).unwrap(), "kept");
+    assert!(!base.join(&key).exists(), "the old folder moved");
+
+    app.send(serde_json::json!({"cmd":"close-workspace","key":reopened,"end_terminals":true}));
+    let closed = resource_request(
+        &harness.socket,
+        "ah-list-2",
+        "closed.list",
+        serde_json::json!({"machine":"current","session":"current"}),
+        None,
+    );
+    let id = closed[0]["id"].as_str().expect("the second close is recorded").to_string();
+    resource_request(
+        &harness.socket,
+        "ah-delete",
+        "closed.delete",
+        serde_json::json!({"machine":"current","session":"current","closed":id}),
+        Some("ah-delete"),
+    );
+    assert!(!base.join(&reopened).exists(), "the deleted workspace's folder left agent-home");
+    assert_eq!(
+        fs::read_to_string(base.join(".trash-pending").join(&reopened).join("chat.jsonl")).unwrap(),
+        "kept",
+        "it waits for the app's Trash, never deleted"
+    );
+    drop(harness);
+    let _ = fs::remove_dir_all(&data);
+}

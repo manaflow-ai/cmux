@@ -13,7 +13,8 @@ struct BookmarkPageColors: Equatable {
     var tertiary = ThemeTokens.unresolved.textTertiary.swiftUIColor
     var hover = ThemeTokens.unresolved.hoverFill.swiftUIColor
     var selection = ThemeTokens.unresolved.selectionFill.swiftUIColor
-    var separator = ThemeTokens.unresolved.separator.swiftUIColor
+    // Through the border switch, as `Palette.separator` is: clear under `appearance.borders` none.
+    var separator = Color(nsColor: Borders.color(ThemeTokens.unresolved.separator.nsColor))
     var danger = ThemeTokens.unresolved.danger.swiftUIColor
 
     /// Call inside `performWithTheme`. theme-scoped

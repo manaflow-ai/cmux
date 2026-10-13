@@ -341,6 +341,7 @@ replies).
 | `OPTCHAT_CHIEF_ENGINE` | `acpmux` | `acpmux` or `native` (Messages API loop in the host) |
 | `OPTCHAT_CHIEF_MODEL` | `claude-opus-5-5` (native), harness default (acpmux) | the turn model |
 | `OPTCHAT_CHIEF_EFFORT` | `medium` (Taelin runs Opus 5.5 at medium); acpmux: only on a Claude or codex harness | the turn effort: native `output_config.effort`, acpmux `effort` of each turn session |
+| `OPTCHAT_CHIEF_LINK_PREVIEWS` | on | `0`: a reply line that is only a URL stays text instead of a link card ([Link previews](#link-previews)) |
 | `OPTCHAT_CHIEF_SERVER_FALLBACK` | off | native: `1` sends `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`) |
 | `OPTCHAT_CHIEF_HARNESS` | `MUX_HARNESS`, else `claude-cr` when acpmux has a configured CodeRouter route, else `claude` | acpmux: the harness of each turn session, and of the compactor unless `OPTCHAT_COMPACTOR_HARNESS` names another |
 | `MUX_HARNESS` | `claude` (acpmux resolves it through `defaults.claude.prefer`) | acpmux: the children's default harness, and the turn harness when `OPTCHAT_CHIEF_HARNESS` is unset |
@@ -1344,6 +1345,55 @@ manifest; host.json does not move. A sealed home (`optchat/MOVED`) never starts 
 pinned binaries (optchat-chief, cmux-tui, acpmux and the Rust `cmux` CLI, all from one
 build; the CLI beside optchat-chief is what the Chief's and its subagents' `cmux` calls run);
 `deploy/brain/rollback.sh` removes them and keeps the memory and key.
+
+## Link previews
+
+The Chief sends iMessage-style link cards, made by the sender as Messages
+does (receivers never fetch). A reply line that is only an http(s) URL
+(surrounding spaces allowed) becomes a `link_preview` part in its place; the
+other lines stay text parts, a URL inside a sentence gets no card, and blank
+lines around a card make no text part (MessagesLab's rule). A URL line inside
+a fenced code block stays code. At most 16 parts: later URL lines then stay
+text.
+
+Only a URL that equals, exactly, a URL token a person wrote in one of the
+conversation's last 200 messages (its text parts split on whitespace, with
+leading brackets and trailing punctuation stripped, or the URL of its own
+link card; never a card's title) becomes a card; a URL only the agent wrote,
+or a shorter prefix of a person's URL, stays text and is never fetched, so a
+model cannot be talked into making the host request an address of its
+choosing. The conversation read, the fetches and the uploads run on the
+preview thread's own connection, never on the brain thread; at most two
+pictures decode at once. Cards go only to
+an owner that advertises `link-preview-v1`; an owner that still refuses them
+gets the reply's original text, unchanged, under a new key (`:text`), so a
+reply is never dropped.
+
+The reply enters the outbox at once, held while one thread fetches every
+card concurrently, 8 s at most per URL (`src/link_preview`). The fetch goes
+through the guard of MessagesLab's LinkGuard: http(s) on the default port
+only, no credentials, no `localhost`, `.local`, `.internal`, `.lan`,
+`.home.arpa`, `.intranet`, `.corp` or single-label names, and every resolved
+address public (no loopback, private, CGNAT, link-local, ULA, multicast,
+documentation, benchmark or reserved address, IPv4-mapped, compatible, NAT64
+and 6to4 forms included; IPv4-translated `::ffff:0:0/96`, local-use NAT64
+`64:ff9b:1::/48` and Teredo `2001::/32` refused outright; a name lookup
+takes 3 s at most). The HTTP client's resolver IS that check, so it
+connects only to the addresses checked (no DNS-rebinding gap). At most 5
+redirects, each checked again, never https to http; no proxy and no cookies;
+HTML up to 512 KB, stopping at `</head>`; an image up to 5 MB. The title is
+`og:title`, `twitter:title` or `<title>` without a leading or trailing
+`og:site_name`; the site is the page's host without `www.`; the image
+(`og:image`, `og:image:url`, `twitter:image`), decoded only up to 4096 px a
+side and 64 MB of memory and before the deadline, becomes a JPEG of at most
+512,000 bytes, uploaded as an attachment record of the conversation
+(`conversation-attachment-upload`, on its own connection from the preview
+thread, never the brain's) and named by the card. A failed fetch
+leaves the card with its URL only. The hold ends when the previews arrive or
+after 12 s (`OutboxEntry::previews_until`), also after a restart, so a reply
+never waits longer. The cloud conversation source has no upload yet: its
+cards carry title and site without a picture. `OPTCHAT_CHIEF_LINK_PREVIEWS=0`
+turns cards off.
 
 ## Tests
 

@@ -284,7 +284,7 @@ impl Mux {
                 .get(state.active_workspace)
                 .map(|workspace| workspace.public_id.to_string())
         });
-        self.commit_state(
+        let commit = self.commit_state(
             mutation,
             OPERATION,
             &fingerprint,
@@ -293,7 +293,10 @@ impl Mux {
             |transaction, _| {
                 commit_reopen(transaction, &closed_id, &restore, &reopened, active.as_deref())
             },
-        )
+        )?;
+        // Each reopened workspace keeps its agent-home folder (chat files), before its first chat.
+        super::agent_home_moves::follow_reopen(&reopened.placements);
+        Ok(commit)
     }
 
     fn reopen_member(
@@ -314,7 +317,7 @@ impl Mux {
     }
 
     /// Form an ungrouped tab group again (`archive`, from
-    /// `record_ungrouped_tab_group`) with its id, name and color around
+    /// `record_ungrouped_group`) with its id, name and color around
     /// those of its tabs still open, unpinned and in no other group, in one
     /// pane, in their order: its own pane when it holds any, else the pane
     /// of the first. A group formed since keeps its tabs.

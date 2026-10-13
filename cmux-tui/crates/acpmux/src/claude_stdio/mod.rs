@@ -33,23 +33,35 @@ pub const AGENT_NAME: &str = "claude-stdio";
 /// so they stay.
 const MODES: [(&str, &str); 3] = [("default", "Normal"), ("plan", "Plan"), ("auto", "Auto")];
 
-/// Model aliases Claude Code accepts on `set_model` and `--model`. Aliases
-/// track Claude Code's own defaults; the `[1m]` suffix asks for the 1M
-/// context window, and the full ids pin a model regardless of alias drift.
-const MODELS: [(&str, &str); 12] = [
+/// Claude Code's own model aliases (`set_model` and `--model`). Only Claude
+/// Code says what an alias runs; the `[1m]` suffix asks for the 1M context
+/// window.
+const ALIASES: [(&str, &str); 7] = [
     ("default", "Default (Claude Code's choice)"),
-    ("claude-fable-5-1", "Fable 5.1"),
-    ("claude-fable-5-1[1m]", "Fable 5.1 · 1M context"),
     ("opus", "Opus"),
     ("opus[1m]", "Opus · 1M context"),
-    ("claude-opus-5", "Opus 5"),
     ("opusplan", "Opus plan · Sonnet execute"),
     ("sonnet", "Sonnet"),
     ("sonnet[1m]", "Sonnet · 1M context"),
-    ("claude-sonnet-5", "Sonnet 5"),
     ("haiku", "Haiku"),
-    ("claude-haiku-4-5-20251001", "Haiku 4.5"),
 ];
+
+/// The choices offered until Claude Code's own list answers (cx-miuo): its
+/// aliases, then every Claude release the bundled model catalog names
+/// (`catalog/models-v1.json`), which pin a model regardless of alias drift.
+static MODELS: std::sync::LazyLock<Vec<(String, String)>> = std::sync::LazyLock::new(|| {
+    let mut models: Vec<(String, String)> =
+        ALIASES.iter().map(|(id, name)| (id.to_string(), name.to_string())).collect();
+    let catalog = crate::catalog::schema::parse(crate::catalog::BUNDLED.as_bytes());
+    let releases =
+        catalog.iter().flat_map(|catalog| &catalog.harnesses).filter(|h| h.id == "claude");
+    for model in releases.flat_map(|harness| &harness.models) {
+        if !models.iter().any(|(id, _)| *id == model.id) {
+            models.push((model.id.clone(), model.short_name.clone()));
+        }
+    }
+    models
+});
 
 /// The reasoning choices: Claude Code's effort levels (`--effort` and the
 /// live `apply_flag_settings` `effortLevel`), plus two built on them.
@@ -106,8 +118,8 @@ fn startup_settings(effort: &str, fast: bool) -> Option<Value> {
     (!settings.is_empty()).then_some(Value::Object(settings))
 }
 
-/// The model aliases offered in pickers.
-pub fn models() -> &'static [(&'static str, &'static str)] {
+/// The model choices offered in pickers before Claude Code's own list answers.
+pub fn models() -> &'static [(String, String)] {
     &MODELS
 }
 
@@ -361,7 +373,7 @@ impl Translator {
     pub async fn config_options_value(&self) -> Value {
         json!([
             {"id": "model", "name": "Model", "type": "select", "category": "model", "currentValue": *self.model.lock().await,
-             "options": MODELS.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
+             "options": models().iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "mode", "name": "Permission mode", "type": "select", "category": "mode", "currentValue": *self.mode.lock().await,
              "options": MODES.iter().map(|(v, n)| json!({"value": v, "name": n})).collect::<Vec<_>>()},
             {"id": "effort", "name": "Reasoning", "type": "select", "category": "thought_level", "currentValue": *self.effort.lock().await,

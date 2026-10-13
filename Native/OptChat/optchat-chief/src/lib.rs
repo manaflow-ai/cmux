@@ -30,6 +30,7 @@ pub mod fold;
 pub mod harness_gate;
 pub mod host;
 pub mod inspect;
+pub mod link_preview;
 pub mod lock;
 pub mod log;
 pub mod mcp;

@@ -217,6 +217,9 @@ public actor MockHomeSource: HomeSource {
     /// 0.75 and 1. Like the owner, the first upload of a hash wins: a hash
     /// already recorded answers `exists` with the recorded mime type, byte
     /// count and poster (or no poster), whatever this upload declared.
+    /// The mock owner checks `link_preview` parts like the real owners.
+    public func acceptsLinkPreviews(in conversation: ConversationID) async -> Bool { true }
+
     public func upload(_ file: AttachmentUpload) async throws -> AttachmentRef {
         uploadCalls.append(file.ref.hash)
         progressCallbacks.append(file.progress)

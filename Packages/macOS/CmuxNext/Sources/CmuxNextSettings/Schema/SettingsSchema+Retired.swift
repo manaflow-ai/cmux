@@ -9,6 +9,8 @@ extension SettingsSchema {
         "appearance.tabBarBackground": "every surface draws the one window background",
         // The update card is gone (Lawrence 2026-10-05): nothing left to quiet.
         "updates.quietHours": "a staged update shows only the small control on Settings",
+        // New Tab always opens the New Tab page (Leo 2026-10-12): a terminal is an explicit pick.
+        "tabs.newTabKind": "New Tab always opens the New Tab page",
     ]
 
     /// Whether `path` is a retired key.
