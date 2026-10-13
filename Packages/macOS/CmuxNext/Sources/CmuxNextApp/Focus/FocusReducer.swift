@@ -40,7 +40,7 @@ nonisolated enum FocusReducer {
 
     /// The first output buffer: a reply that does not fit returns ERR_BUFFER
     /// with the needed length, and the call runs once more with that size.
-    private static let initialCapacity = 16 * 1024
+    private static let initialCapacity = 64 * 1024
 
     static func call<Request: Encodable, Response: Decodable>(_ operation: String, _ request: Request,
                                                              as: Response.Type) -> Response? {
