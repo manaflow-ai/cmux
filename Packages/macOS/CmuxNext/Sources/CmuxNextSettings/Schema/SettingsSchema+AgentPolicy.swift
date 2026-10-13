@@ -50,7 +50,6 @@ extension SettingsSchema {
         "sidebar.numbering", "sidebar.cmd9", "sidebar.stepping", "sidebar.steppingWraps",
         "sidebar.side",
         "sidebar.spacesPosition", "sidebar.spacesVisibility",
-        "tabs.newTabKind",
         "tabs.newTabTemplate",
         "tabs.newTabPosition",
         "newTerminal.opensWorkspace",

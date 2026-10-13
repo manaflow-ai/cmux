@@ -28,7 +28,7 @@ public nonisolated enum ActionCatalog {
         "diffViewerScrollHalfPageUp": "diffViewerHalfPageUp",
         "diffViewerScrollToBottom": "diffViewerGoToBottom",
         "diffViewerScrollToTop": "diffViewerGoToTop",
-        // Cmd-T's id named a setting value; it opens the tabs.newTabKind kind (cmuxterm-hq#1829).
+        // Cmd-T's id named a setting value; it opens the New Tab page (cmuxterm-hq#1829).
         "newTab.sameKind": "newTab.default",
         // New Workspace Like This keeps the directory and the group (cmuxterm-hq#1829).
         "workspace.newInGroup": "workspace.newLikeThis",

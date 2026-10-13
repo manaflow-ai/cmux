@@ -150,18 +150,6 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
-        case "tab.setDefaultKind":
-            if let kind = params?["kind"] as? String, !kind.isEmpty, kind.count <= 32 {
-                self = .setDefaultKind(kind)
-            } else {
-                self = .unsupported(method)
-            }
-        case "newTab.setTemplate":
-            if let template = params?["template"] as? String, !template.isEmpty, template.count <= 32 {
-                self = .setNewTabTemplate(template)
-            } else {
-                self = .unsupported(method)
-            }
         case "project.browse": self = .browseProject
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
