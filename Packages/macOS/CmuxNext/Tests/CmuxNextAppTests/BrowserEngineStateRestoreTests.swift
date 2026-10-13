@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
+import CmuxNextBrowserHistory
 @testable import CmuxNextDaemon
 import Foundation
 import Network

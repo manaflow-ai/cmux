@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxNextBrowserHistory
 import CmuxNextDaemon
 import Foundation
 

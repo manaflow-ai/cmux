@@ -1,7 +1,7 @@
-import CmuxNextBrowser
+public import CmuxNextBrowser
 import CmuxNextCompat
-import CmuxNextDaemon
-import Foundation
+public import CmuxNextDaemon
+public import Foundation
 import WebKit
 
 /// Restored WebKit pages that start from their saved history (cx-p0im9). The page is made
@@ -9,8 +9,9 @@ import WebKit
 /// the page restores WebKit's own state, which brings back its real back list and each page's
 /// state, or else loads its address. Either way the shown page loads once. A read slower than
 /// `budget` loads the address, so a page never waits on the daemon for long.
-final class BrowserHistoryStarts {
-    static let budget: Duration = .seconds(1)
+public final class BrowserHistoryStarts {
+    /// How long a held page waits for its saved history before it loads its address.
+    public static let budget: Duration = .seconds(1)
 
     private struct Waiting {
         weak var page: WebKitTab?
@@ -20,27 +21,13 @@ final class BrowserHistoryStarts {
 
     private var waiting: [String: Waiting] = [:]
     /// How each held page started, by tab id (`debug.browser.page_status` `history_start`).
-    var outcomes: [String: String] = [:]
+    public var outcomes: [String: String] = [:]
 
-    /// The blank page for restored tab `tab` at `url`, waiting for its saved history; nil when
-    /// the tab opens as before: a page the user opened now, a remote machine's tab, a
-    /// proxied or machine page, an incognito tab, or a page that is neither a web page nor a
-    /// local file.
-    static func page(_ tab: TabModel, url: URL?, cache: TabContentCache) -> BrowserEntry? {
-        let service = cache.browserTabs, key = tab.id, daemon = service.daemon(for: tab)
-        let skip: String? = if let url, ["http", "https", "file"].contains(url.scheme?.lowercased() ?? ""), MachineBrowserRecord(url: url) == nil {
-            cache.pageRequests.proxiedTabs.isProxied(key) || !tab.isFrontendOwned || service.isIncognitoTab(key) ? "skip-page-kind"
-                : service.writers[key] != nil ? "skip-tracked" : service.wasOpenedHere(tab) ? "skip-opened-here"
-                : !daemon.isLocal ? "skip-remote" : !daemon.supports(DaemonCapabilities.shared.frontendBrowserHistory) ? "skip-no-capability" : nil
-        } else { "skip-address" }
-        if let skip { service.historyStarts.outcomes[key] = skip }
-        guard skip == nil, let url else { return nil }
-        let page = cache.webKit.makeWebKitTab(id: BrowserTabID(rawValue: key), profile: cache.browserProfile?(key) ?? .default)
-        service.historyStarts.hold(page, url: url, tabID: key)
-        return cache.install(page, for: key)
-    }
+    /// Makes the set of held pages (one per app, owned by the browser tab service).
+    public init() {}
 
-    func hold(_ page: WebKitTab, url: URL, tabID: String) {
+    /// Holds blank `page` of tab `tabID` until its saved history is read, at most `budget`; it then shows `url`.
+    public func hold(_ page: WebKitTab, url: URL, tabID: String) {
         waiting[tabID]?.timer.cancel()
         let timer = Task { [weak self] in
             // wakeup-allow: one-shot fallback for a slow history read, cancelled when it answers
@@ -53,7 +40,7 @@ final class BrowserHistoryStarts {
     /// Starts the page of `tabID` if it still waits: through `saved`'s engine state when it was
     /// saved at the page's address, else at the address. True when the engine state restored it.
     @discardableResult
-    func start(_ tabID: String, saved: FrontendBrowserHistory?) -> Bool {
+    public func start(_ tabID: String, saved: FrontendBrowserHistory?) -> Bool {
         guard let entry = waiting.removeValue(forKey: tabID) else { return false }
         entry.timer.cancel()
         guard let page = entry.page else { return false }
