@@ -21,6 +21,13 @@ long as a real agent's, for checks that refuse short ones).
 
 FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts, before any prompt.
 
+FAKE_CODEX_STORE=1 (with CODEX_HOME): Codex's own store, as codex-acp keeps it:
+each session is <CODEX_HOME>/sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl,
+a session_meta line, then per prompt task_started, the user message and
+task_complete, written a moment after the turn answers. session/load finds a rollout by the id in its file name (an
+unknown id fails), and "history-probe" replies with the prompts and session
+ids the loaded rollout holds.
+
 FAKE_ASK_MODE=1: the sample harness of `cmux harness add sample` (cx-00p) as a remote
 start takes it: its one mode is "ask" (an acpmux config.json `webAskingModes` entry
 {"sample": ["ask"]} lists it), and a prompt naming "hostname" runs `hostname` as a tool
@@ -61,6 +68,64 @@ def request(method, params):
     send({"jsonrpc": "2.0", "id": rid, "method": method, "params": params})
     ev.wait()
     return pending.pop(rid)[1]
+
+
+CODEX_STORE = os.environ.get("FAKE_CODEX_STORE") == "1" and os.environ.get("CODEX_HOME")
+# FAKE_CODEX_STORE: each session's rollout file.
+rollouts = {}
+
+
+def codex_now():
+    t = time.time()
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t)) + ".%03dZ" % (int(t * 1000) % 1000)
+
+
+def codex_write(sid, kind, payload):
+    with open(rollouts[sid], "a") as f:
+        f.write(json.dumps({"timestamp": codex_now(), "type": kind, "payload": payload}) + "\n")
+
+
+def codex_new():
+    import uuid
+    sid = str(uuid.uuid4())
+    day = os.path.join(os.environ["CODEX_HOME"], "sessions", *time.strftime("%Y %m %d").split())
+    os.makedirs(day, exist_ok=True)
+    rollouts[sid] = os.path.join(day, time.strftime("rollout-%Y-%m-%dT%H-%M-%S-") + sid + ".jsonl")
+    codex_write(sid, "session_meta", {"id": sid, "cwd": os.getcwd()})
+    return sid
+
+
+def codex_load(sid):
+    suffix = "-" + sid + ".jsonl"
+    for root, _, files in os.walk(os.path.join(os.environ["CODEX_HOME"], "sessions")):
+        for name in files:
+            if name.startswith("rollout-") and name.endswith(suffix):
+                rollouts[sid] = os.path.join(root, name)
+                return True
+    return False
+
+
+def codex_store_prompt(rid, params):
+    sid = params["sessionId"]
+    text = "".join(b.get("text", "") for b in params.get("prompt", []))
+    codex_write(sid, "event_msg", {"type": "task_started"})
+    codex_write(sid, "response_item", {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]})
+    reply = "ok: " + text
+    if text.strip() == "history-probe":
+        with open(rollouts[sid]) as f:
+            records = [json.loads(line) for line in f if line.strip()]
+        reply = json.dumps({
+            "prompts": [r["payload"]["content"][0]["text"] for r in records
+                        if r["type"] == "response_item" and r["payload"].get("role") == "user"
+                        and r["payload"]["content"][0]["text"] != "history-probe"],
+            "sessions": sorted({r["payload"]["id"] for r in records if r["type"] == "session_meta"}),
+        })
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": reply}})
+    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+    # Codex's rollout writer flushes a turn's last records after the turn
+    # answers, so they can be stamped after acpmux logs the turn's end.
+    time.sleep(0.05)
+    codex_write(sid, "event_msg", {"type": "task_complete"})
 
 
 def update(sid, upd):
@@ -537,9 +602,10 @@ def main():
                 import time as pause  # main() binds `time` locally
                 pause.sleep(int(os.environ["FAKE_NEW_DELAY_MS"]) / 1000)
             sessions += 1
-            known.add(f"{SESSION_PREFIX}{sessions}")
+            new_sid = codex_new() if CODEX_STORE else f"{SESSION_PREFIX}{sessions}"
+            known.add(new_sid)
             result = {
-                "sessionId": f"{SESSION_PREFIX}{sessions}",
+                "sessionId": new_sid,
                 "modes": {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]},
                 "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1", "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]}],
             }
@@ -554,6 +620,11 @@ def main():
             # before any prompt.
             if os.environ.get("FAKE_EXIT_AFTER_NEW") == "1":
                 os._exit(0)
+        elif m == "session/load" and CODEX_STORE:
+            if codex_load(params["sessionId"]):
+                send({"jsonrpc": "2.0", "id": rid, "result": None})
+            else:
+                send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "Internal error", "data": {"details": "no rollout found for thread id " + params["sessionId"]}}})
         elif m == "session/load":
             # FAKE_LOAD_ERROR=<details>: the load fails as codex-acp does while
             # another Codex holds the thread: "Internal error", the reason in data.details.
@@ -590,6 +661,8 @@ def main():
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32002, "message": "Session not found"}})
                 continue
             target = codex_prompt if os.environ.get("FAKE_CODEX_STEER") == "1" else handle_prompt
+            if CODEX_STORE:
+                target = codex_store_prompt
             threading.Thread(target=target, args=(rid, params), daemon=True).start()
         elif m == "session/cancel":
             cancelled.add(params.get("sessionId"))

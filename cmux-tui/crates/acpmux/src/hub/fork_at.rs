@@ -1,8 +1,9 @@
-//! Part of `Hub`; see `hub/mod.rs`. A Claude chat forked through an earlier
-//! turn (session replay's Continue from here, `server/fork_through.rs`).
-//! Claude Code forks a conversation only at its end (`--fork-session`), so
-//! the fork resumes a copy of the parent's transcript that holds its first
-//! prompts and everything they led to, under a new session id.
+//! Part of `Hub`; see `hub/mod.rs`. A Claude or Codex chat forked through an
+//! earlier turn (Fork from Here, session replay's Continue from here,
+//! `server/fork_through.rs`). Claude Code forks a conversation only at its
+//! end (`--fork-session`), and Codex a thread only at its end, so the fork
+//! resumes a copy of the parent's transcript that holds its first prompts
+//! and everything they led to, under a new session id.
 
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Write};
@@ -48,6 +49,59 @@ pub(super) fn claude_transcript_through(
         .write(true)
         .create_new(true)
         .open(file.with_file_name(format!("{id}.jsonl")))?;
+    for line in lines {
+        writeln!(copy, "{line}")?;
+    }
+    Ok(id)
+}
+
+/// Copies the rollout of Codex thread `parent` in the store at `store` (a
+/// CODEX_HOME) up to its first record written at or after `cut_ms` (as
+/// `claude_transcript_through`), beside the parent's under a new thread id,
+/// and returns that id. Codex finds a thread by the id in its rollout's file
+/// name; its `session_meta` names the thread too.
+pub(super) fn codex_rollout_through(
+    store: &Path,
+    parent: &str,
+    cut_ms: u64,
+) -> anyhow::Result<String> {
+    let file = crate::adopt::is_bare_id(parent)
+        .then(|| crate::adopt::find_codex(store, parent))
+        .flatten()
+        .ok_or_else(|| anyhow::anyhow!("no Codex rollout for thread {parent}"))?;
+    let name = file.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+    let stem = name
+        .strip_suffix(&format!("{parent}.jsonl"))
+        .ok_or_else(|| anyhow::anyhow!("unexpected Codex rollout name {name}"))?;
+    let id = uuid::Uuid::now_v7().to_string();
+    let copy_name = format!("{stem}{id}.jsonl");
+    let mut lines = Vec::new();
+    let mut turns = 0;
+    for line in BufReader::new(std::fs::File::open(&file)?).lines() {
+        let Ok(mut record) = serde_json::from_str::<Value>(&line?) else { continue };
+        let kind = |key: &str| record.pointer(key).and_then(Value::as_str).map(str::to_owned);
+        let (kind, event) = (kind("/type"), kind("/payload/type"));
+        if kind.as_deref() == Some("session_meta") {
+            if let Some(thread) =
+                record.pointer_mut("/payload/id").filter(|v| v.as_str() == Some(parent))
+            {
+                *thread = Value::String(id.clone());
+            }
+        } else if written_ms(&record).is_some_and(|at| at >= cut_ms) {
+            break;
+        } else if kind.as_deref() == Some("event_msg") && event.as_deref() == Some("task_complete")
+        {
+            turns += 1;
+        }
+        lines.push(serde_json::to_string(&record)?);
+    }
+    // Codex started this thread after that turn (a failover starts one
+    // fresh): resuming the copy would hold none of the chat's turns.
+    anyhow::ensure!(turns > 0, "Codex's conversation for this chat starts after that turn");
+    let mut copy = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(file.with_file_name(copy_name))?;
     for line in lines {
         writeln!(copy, "{line}")?;
     }
