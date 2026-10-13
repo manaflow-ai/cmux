@@ -101,8 +101,8 @@ function Group({ category, items, ctx }: { category: WhatsNewCategory; items: Re
     <section className="cl-group" aria-label={categoryLabel(ctx.strings, category)}>
       <h3>{categoryLabel(ctx.strings, category)}</h3>
       <ul>
-        {shown.map((item) => (
-          <li key={item.id}>
+        {shown.map((item, index) => (
+          <li key={`${item.id}-${index}`}>
             <span className="cl-row-title">{item.title}</span>
             {item.summary && <span className="cl-row-summary">{item.summary.split(/\n{2,}/)[0]}</span>}
             {item.action && (

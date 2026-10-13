@@ -137,8 +137,8 @@ export class ChangelogStore {
     const inSpan = span ? this.snapshot.builds.filter((b) => within(b.shortVersion, span)) : [];
     const newest = [...inSpan].sort((a, b) => compareVersions(b.shortVersion, a.shortVersion))[0];
     this.set({ span, inSpan: inSpan.map((b) => b.build) });
-    // The update's section reads every build of the span at once (at most 40; older ones wait for the scroll).
-    for (const b of inSpan.slice(0, 40)) void this.ensure(b.build);
+    // The update's section reads every build of the span at once (the index keeps at most 50).
+    for (const b of inSpan) void this.ensure(b.build);
     await this.select(newest?.build ?? (this.snapshot.current || this.snapshot.builds[0]?.build));
   }
 

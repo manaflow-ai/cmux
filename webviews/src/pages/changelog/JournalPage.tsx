@@ -124,7 +124,7 @@ function SectionBody({
   return (
     <>
       {view.hero && <Hero item={view.hero} ctx={ctx} />}
-      {view.count === 0 && <Maintenance strings={ctx.strings} />}
+      {view.count === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
       {unpublished && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
       <Groups view={view} ctx={ctx} />
       <ChangesFold changes={view.changes} strings={ctx.strings} />

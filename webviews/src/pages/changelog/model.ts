@@ -180,7 +180,8 @@ export function dayLabel(date: string, language: string, now: Date = new Date())
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
   if (!match) return date;
   const day = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
-  const today = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  // Release dates are UTC days (the nightly job's `date -u`).
+  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
   const diff = Math.round((day - today) / 86_400_000);
   if (diff === 0 || diff === -1) {
     try {

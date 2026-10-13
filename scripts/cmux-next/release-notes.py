@@ -32,7 +32,7 @@ writes the same lines as plain text into the build's appcast <description>.
   release-notes.py build --build B --short S --date D --head SHA [--since SHA] [--out DIR]
   release-notes.py appcast --head SHA [--since SHA] --appcasts DIR --build B --feeds F...
   release-notes.py index --notes DIR/B.json [--previous index.json] [--keep 50] --out DIR/index.json
-  release-notes.py since --index index.json         prints the newest build's head commit (the next span's start)
+  release-notes.py since --index index.json [--not SHA]  prints the newest build's head commit (the next span's start)
   release-notes.py sign --key KEY.pem FILE...       writes FILE.sig
   release-notes.py verify --public-key BASE64 FILE  checks FILE.sig
 """
@@ -252,11 +252,13 @@ def index(args):
 
 
 def since(args):
-    """Prints the head commit of the newest build in a (verified) index that records one, else nothing."""
+    """Prints the head commit of the newest build in a (verified) index that records one, else
+    nothing. `--not` skips a head (a rerun of the job whose own notes are already published)."""
     with open(args.index, encoding="utf-8") as f:
         builds = json.load(f).get("builds", [])
     for entry in builds:
-        if re.fullmatch(r"[0-9a-f]{40}", entry.get("head") or ""):
+        head = entry.get("head")
+        if isinstance(head, str) and re.fullmatch(r"[0-9a-f]{40}", head) and head != args.skip:
             print(entry["head"])
             return 0
     return 0
@@ -309,6 +311,7 @@ def main():
     i.add_argument("--out", required=True)
     n = sub.add_parser("since")
     n.add_argument("--index", required=True)
+    n.add_argument("--not", dest="skip", default="")
     s = sub.add_parser("sign")
     s.add_argument("--key", required=True)
     s.add_argument("files", nargs="+")

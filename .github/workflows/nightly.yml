@@ -4003,7 +4003,7 @@ jobs:
           if curl -fsSL -A "cmux-release-notes/1" -o "$index" "$NIGHTLY_NEXT_FEED_BASE/notes/index.json" \
              && curl -fsSL -A "cmux-release-notes/1" -o "$index.sig" "$NIGHTLY_NEXT_FEED_BASE/notes/index.json.sig" \
              && python3 scripts/cmux-next/release-notes.py verify --public-key "$CONTENT_PUBLIC_KEY" "$index"; then
-            since="$(python3 scripts/cmux-next/release-notes.py since --index "$index")"
+            since="$(python3 scripts/cmux-next/release-notes.py since --index "$index" --not "$HEAD_SHA")"
           fi
           rm -f "$index" "$index.sig"
           echo "since=${since:-${PUBLISHED_SHA:-}}" >> "$GITHUB_OUTPUT"
